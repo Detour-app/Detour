@@ -301,10 +301,14 @@ country means building Photon from a Nominatim database yourself, which is
 out of scope for the installer.
 
 The Photon **jar version is pinned** (`PHOTON_VERSION` in `install.sh`) to
-match the index's OpenSearch format — the two are not independently
-upgradable. If the container logs an index/OpenSearch version mismatch on
-startup, the pin needs to move to whatever release the index was actually
-built with.
+match the index's search-engine format — the two are not independently
+upgradable. The mirror's by-country-code dumps are still the legacy
+embedded-Elasticsearch line (ES 5.6 / Lucene 6.2), not the OpenSearch line the
+1.x jars read, so the pin is **0.4.4** — the last ES-based release — running on
+a **Java 11** image (0.4.4's Netty breaks on 21, and the ES 5.6 node needs 11+
+class support). A "data dir empty" log means the jar is too new for the
+extract; an "incompatible version" log means the dump's schema moved and the
+pin needs to follow it.
 
 `photon-refresh.timer` re-downloads the country's newest index monthly, the
 same way `graphhopper-refresh.timer` refreshes the routing extract.

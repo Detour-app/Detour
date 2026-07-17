@@ -29,7 +29,7 @@ DO_SYNC=0 DO_ROUTING=0 DO_GEOCODER=0 CHOSE=0
 ASSUME_YES=0 UNINSTALL=0 PURGE=0 FORCE_IN_PLACE=0
 REGION="${REGION:-europe/belgium}"
 GEO_CC="${GEO_CC:-be}"            # Photon country-code index (single country)
-PHOTON_VERSION="${PHOTON_VERSION:-1.2.1}"
+PHOTON_VERSION="${PHOTON_VERSION:-0.4.4}"
 CTID="" CT_HOSTNAME="maproulette" CT_BRIDGE="vmbr0" CT_STORAGE=""
 OPEN_REGISTRATION=0
 SYNC_PORT=8790 LIVE_PORT=8990 GH_PORT=8989 PHOTON_PORT=2322
@@ -609,10 +609,13 @@ install_geocoder() {
     ok "index already present ($(du -sh "$PHOTON_DIR/data/photon_data" | cut -f1))"
   fi
 
-  # The jar version must match the index's OpenSearch format. The mirror tracks
-  # Photon releases, so the latest release normally fits. If Photon refuses to
-  # start with an index/OpenSearch version error, set PHOTON_VERSION to the
-  # release the index was built with and re-run.
+  # The jar version must match the index's search-engine format. The
+  # by-country-code extracts on the mirror are still built with the legacy
+  # embedded-Elasticsearch line (ES 5.6 / Lucene 6.2), NOT the OpenSearch line
+  # the 1.x jars use — a 1.x jar reports the data dir as "empty". Photon 0.4.4
+  # is the last ES-based release and reads these dumps. If a future dump bumps
+  # its DB schema, Photon logs "Database has incompatible version 'X'"; set
+  # PHOTON_VERSION to the release built for that schema and re-run.
   if [ ! -f "$PHOTON_DIR/data/photon.jar" ]; then
     local jar="https://github.com/komoot/photon/releases/download/${PHOTON_VERSION}/photon-${PHOTON_VERSION}.jar"
     info "downloading $jar"
@@ -621,11 +624,13 @@ install_geocoder() {
     ok "photon-${PHOTON_VERSION}.jar"
   fi
 
-  # Heap: one country is small; 2g is plenty, and OpenSearch mmaps the rest.
+  # Heap: one country is small; 2g is plenty, and the embedded ES mmaps the
+  # rest. Photon 0.4.4's bundled Netty needs Java 11 (it dies on 21's stricter
+  # reflection), and the ES 5.6 node won't run on Java 8-only class files.
   cat > "$PHOTON_DIR/docker-compose.yml" <<EOF
 services:
   photon:
-    image: eclipse-temurin:21-jre
+    image: eclipse-temurin:11-jre
     container_name: photon
     working_dir: /photon
     command: java -Xmx2g -jar /photon/photon.jar -data-dir /photon -listen-ip 0.0.0.0 -listen-port ${PHOTON_PORT}
@@ -679,7 +684,7 @@ EOF
   systemctl daemon-reload
   systemctl enable photon-refresh.timer >/dev/null 2>&1
 
-  step "Starting Photon — it loads the index into OpenSearch (1-3 minutes)"
+  step "Starting Photon — it loads the index into the embedded ES (1-3 minutes)"
   (cd "$PHOTON_DIR" && docker compose up -d >/dev/null 2>&1) || die "docker compose up failed"
 
   local i
@@ -687,7 +692,7 @@ EOF
     if curl -fsS "http://localhost:$PHOTON_PORT/api?q=test&limit=1" >/dev/null 2>&1; then break; fi
     if [ "$i" = 40 ]; then
       (cd "$PHOTON_DIR" && docker compose logs --tail 30)
-      die "Photon never became ready. If the logs show an OpenSearch/index version mismatch, set PHOTON_VERSION to match the index and re-run."
+      die "Photon never became ready. A 'data dir empty' log means the jar is too new for the ES-format extract (use 0.4.x); an 'incompatible version' log means the dump's DB schema moved — set PHOTON_VERSION to match and re-run."
     fi
     sleep 6
   done
