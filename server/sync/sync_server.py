@@ -26,7 +26,7 @@ Protocol
   POST /auth/login    {username, password}      -> {token, username}
   POST /auth/logout                             -> {} (revokes the bearer token)
   GET  /me                                      -> {username, stats, badges}
-  POST /sync {trips, traces, badges, savedPlaces?, stats, shareFog?} -> merged {trips, traces, badges, savedPlaces}
+  POST /sync {trips, traces, badges, savedPlaces?, stats, shareFog?, deletedTrips?} -> merged {trips, traces, badges, savedPlaces}
   GET  /friends                                 -> {friends, incoming, outgoing}
   POST /friends/request {username}              -> {status}
   POST /friends/respond {username, accept}      -> {status}
@@ -57,6 +57,9 @@ warning and never starts, so live location/PTT silently do nothing.
 Merging is idempotent:
   - trips key on (user, startTimeMs); a re-upload updates the stored copy, so
     an edit like a corrected vehicle mode propagates instead of being ignored;
+  - `deletedTrips` is a list of startTimeMs the client has deleted; those rows
+    are removed server-side so the deletion propagates to every device instead
+    of the trip resurrecting from the server on the next sync;
   - traces deduplicate on (user, sha256 of the line);
   - badges keep the *earliest* earnedAtMs seen for each id.
 
@@ -507,10 +510,13 @@ def do_sync(user, body):
     trips_in = body.get("trips") or []
     traces_in = body.get("traces") or []
     places_in = body.get("savedPlaces") or []
+    deleted_in = body.get("deletedTrips") or []
     if not isinstance(trips_in, list) or not isinstance(traces_in, list):
         raise HttpError(400, "trips and traces must be arrays")
     if not isinstance(places_in, list):
         raise HttpError(400, "savedPlaces must be an array")
+    if not isinstance(deleted_in, list):
+        raise HttpError(400, "deletedTrips must be an array")
 
     # Validate every trip and saved place up front, before writing any of them,
     # so a single malformed entry can't leave a partial import committed — the
@@ -554,6 +560,14 @@ def do_sync(user, body):
                     "INSERT INTO trips (user_id, start_ms, json) VALUES (?, ?, ?) "
                     "ON CONFLICT(user_id, start_ms) DO UPDATE SET json = excluded.json",
                     (uid, int(trip["startTimeMs"]), json.dumps(trip)),
+                )
+            # Deletes run after the upserts so a trip present in both lists ends
+            # up deleted, and so the removal propagates instead of the server
+            # copy coming back in the merged union on the next sync.
+            for start_ms in deleted_in:
+                conn.execute(
+                    "DELETE FROM trips WHERE user_id = ? AND start_ms = ?",
+                    (uid, int(start_ms)),
                 )
             for line in traces_in:
                 line = str(line).strip()

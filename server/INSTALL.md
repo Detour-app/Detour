@@ -426,7 +426,7 @@ string to the user verbatim — so keep any you add plain.
 | POST | `/auth/login` | `{username, password}` | `{token, username}` |
 | POST | `/auth/logout` | — | `{}` |
 | GET | `/me` | — | `{username, stats, badges}` |
-| POST | `/sync` | `{trips, traces, badges, stats, shareFog?}` | merged `{trips, traces, badges}` |
+| POST | `/sync` | `{trips, traces, badges, stats, shareFog?, deletedTrips?}` | merged `{trips, traces, badges}` |
 | GET | `/friends` | — | `{friends, incoming, outgoing}` |
 | POST | `/friends/request` | `{username}` | `{status}` |
 | POST | `/friends/respond` | `{username, accept}` | `{status}` |
