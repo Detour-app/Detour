@@ -17,16 +17,21 @@ import android.bluetooth.le.BluetoothLeAdvertiser
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelUuid
 import androidx.core.content.ContextCompat
 import com.jellemax.maproulette.data.NavEngine
 import org.json.JSONObject
+import java.util.TimeZone
 import java.util.UUID
 
 val NAV_SERVICE_UUID: UUID = UUID.fromString("b17a0001-9c2e-4b8a-8f21-1f5e2a6d0e01")
 val NAV_CHARACTERISTIC_UUID: UUID = UUID.fromString("b17a0002-9c2e-4b8a-8f21-1f5e2a6d0e01")
 val MUSIC_CHARACTERISTIC_UUID: UUID = UUID.fromString("b17a0003-9c2e-4b8a-8f21-1f5e2a6d0e01")
+val TIME_CHARACTERISTIC_UUID: UUID = UUID.fromString("b17a0004-9c2e-4b8a-8f21-1f5e2a6d0e01")
 private val CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+private const val TIME_RESYNC_MS = 30_000L
 
 /**
  * BLE GATT peripheral broadcasting state to an external display (a
@@ -43,6 +48,21 @@ object BleNavServer {
     private var advertiser: BluetoothLeAdvertiser? = null
     private var navCharacteristic: BluetoothGattCharacteristic? = null
     private var musicCharacteristic: BluetoothGattCharacteristic? = null
+    private var timeCharacteristic: BluetoothGattCharacteristic? = null
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    // Time has no natural "changed" event like nav/music do, so it is pushed
+    // on a plain interval instead — once on connect (below) so a freshly
+    // joined display isn't waiting up to TIME_RESYNC_MS for its first clock,
+    // and periodically after that so the offset stays right across a DST
+    // change or a timezone crossed mid-ride.
+    private val timeTicker = object : Runnable {
+        override fun run() {
+            sendTime(appContext ?: return)
+            mainHandler.postDelayed(this, TIME_RESYNC_MS)
+        }
+    }
+    private var appContext: Context? = null
 
     // Which characteristics each connected device has subscribed to, tracked
     // separately per UUID rather than one shared set: the firmware central
@@ -52,6 +72,7 @@ object BleNavServer {
 
     private var lastSentAt = 0L
     private var lastSign: Int? = null
+    private var lastStatsSentAt = 0L
 
     private fun hasPermissions(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
@@ -71,11 +92,22 @@ object BleNavServer {
         val adapter = manager.adapter ?: return
         if (!adapter.isEnabled) return
 
+        appContext = context.applicationContext
+
         val callback = object : BluetoothGattServerCallback() {
             override fun onConnectionStateChange(
                 device: BluetoothDevice, status: Int, newState: Int,
             ) {
-                if (newState == BluetoothProfile.STATE_DISCONNECTED) subscriptions.remove(device)
+                if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                    subscriptions.remove(device)
+                } else if (newState == BluetoothProfile.STATE_CONNECTED) {
+                    // Notifications only reach devices that have subscribed, which
+                    // hasn't happened yet at connect time — but the characteristic
+                    // value is also readable, so setting it now means a central
+                    // that reads before subscribing still sees a real clock rather
+                    // than an empty value.
+                    sendTime(context)
+                }
             }
 
             override fun onDescriptorWriteRequest(
@@ -134,13 +166,19 @@ object BleNavServer {
 
         val nav = notifiable(NAV_CHARACTERISTIC_UUID)
         val music = notifiable(MUSIC_CHARACTERISTIC_UUID)
+        val time = notifiable(TIME_CHARACTERISTIC_UUID)
         navCharacteristic = nav
         musicCharacteristic = music
+        timeCharacteristic = time
 
         val service = BluetoothGattService(NAV_SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
         service.addCharacteristic(nav)
         service.addCharacteristic(music)
+        service.addCharacteristic(time)
         server.addService(service)
+
+        mainHandler.removeCallbacks(timeTicker)
+        mainHandler.post(timeTicker)
 
         advertiser = adapter.bluetoothLeAdvertiser
         advertiser?.startAdvertising(
@@ -162,12 +200,16 @@ object BleNavServer {
             advertiser?.stopAdvertising(object : AdvertiseCallback() {})
             gattServer?.close()
         }
+        mainHandler.removeCallbacks(timeTicker)
         gattServer = null
         advertiser = null
         navCharacteristic = null
         musicCharacteristic = null
+        timeCharacteristic = null
+        appContext = null
         subscriptions.clear()
         lastSign = null
+        lastStatsSentAt = 0L
     }
 
     private fun notifySubscribers(characteristic: BluetoothGattCharacteristic) {
@@ -203,6 +245,7 @@ object BleNavServer {
             put("remainingTimeMs", progress.remainingTimeMs ?: JSONObject.NULL)
             put("speedKmh", currentSpeedKmh)
             put("speedLimitKmh", progress.speedLimitKmh ?: JSONObject.NULL)
+            put("navigating", true)
         }.toString().toByteArray()
 
         characteristic.value = payload
@@ -214,6 +257,37 @@ object BleNavServer {
         if (!hasPermissions(context)) return
         lastSign = null
         characteristic.value = JSONObject().apply { put("stop", true) }.toString().toByteArray()
+        notifySubscribers(characteristic)
+    }
+
+    /**
+     * "Just cruising": tracking a trip but no active route. Shares the nav
+     * characteristic with [send] rather than getting its own — the display
+     * already has one place that shows current speed, the fields that only
+     * mean something mid-route (maneuver, distance, ETA) are just zeroed —
+     * distinguished by `navigating:false`, which [send] never sets.
+     */
+    fun sendStats(context: Context, currentSpeedKmh: Double) {
+        val characteristic = navCharacteristic ?: return
+        if (!hasPermissions(context)) return
+        val now = System.currentTimeMillis()
+        if (now - lastStatsSentAt < 1000) return
+        lastStatsSentAt = now
+
+        val payload = JSONObject().apply {
+            put("sign", 0)
+            put("roundaboutExit", 0)
+            put("street", "")
+            put("distanceToTurnMeters", 0.0)
+            put("remainingMeters", 0.0)
+            put("routeMeters", 0.0)
+            put("remainingTimeMs", JSONObject.NULL)
+            put("speedKmh", currentSpeedKmh)
+            put("speedLimitKmh", JSONObject.NULL)
+            put("navigating", false)
+        }.toString().toByteArray()
+
+        characteristic.value = payload
         notifySubscribers(characteristic)
     }
 
@@ -246,6 +320,26 @@ object BleNavServer {
         val characteristic = musicCharacteristic ?: return
         if (!hasPermissions(context)) return
         characteristic.value = JSONObject().apply { put("stop", true) }.toString().toByteArray()
+        notifySubscribers(characteristic)
+    }
+
+    /**
+     * Wall-clock sync for the display's idle screen. epochMs is UTC; the
+     * board has no timezone database of its own, so utcOffsetMin (already
+     * DST-adjusted, since it's read fresh each call rather than cached) rides
+     * along and the board just adds it.
+     */
+    private fun sendTime(context: Context) {
+        val characteristic = timeCharacteristic ?: return
+        if (!hasPermissions(context)) return
+
+        val now = System.currentTimeMillis()
+        val payload = JSONObject().apply {
+            put("epochMs", now)
+            put("utcOffsetMin", TimeZone.getDefault().getOffset(now) / 60_000)
+        }.toString().toByteArray()
+
+        characteristic.value = payload
         notifySubscribers(characteristic)
     }
 }

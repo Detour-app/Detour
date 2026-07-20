@@ -948,6 +948,15 @@ fun MapScreen(
         }
     }
 
+    // Current speed for the external display when there's no route up —
+    // BleNavServer.send() below covers the navigating case on the same
+    // characteristic, so this only fires the other half of the time.
+    LaunchedEffect(navigating, liveFix) {
+        if (navigating) return@LaunchedEffect
+        val fix = liveFix ?: return@LaunchedEffect
+        BleNavServer.sendStats(context, currentSpeedKmh = fix.speedMps * 3.6)
+    }
+
     // Follow the route while navigating: progress, arrival, reroute.
     LaunchedEffect(navigating, liveFix, route) {
         if (!navigating) return@LaunchedEffect
