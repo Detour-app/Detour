@@ -16,6 +16,13 @@ object NavEngine {
         val nextInstruction: NavInstruction?,
         val distanceToTurnMeters: Double,
         val remainingMeters: Double,
+        /**
+         * Full route length, measured along the polyline rather than taken from
+         * the router's reported distance, so it is always present and always
+         * consistent with [remainingMeters]. An external display needs both to
+         * draw progress along the route.
+         */
+        val routeMeters: Double,
         val remainingTimeMs: Long?,
         /** Posted speed limit on the road segment closest to the current position. */
         val speedLimitKmh: Double?,
@@ -69,6 +76,7 @@ object NavEngine {
             nextInstruction = next,
             distanceToTurnMeters = distToTurn,
             remainingMeters = remaining,
+            routeMeters = total,
             remainingTimeMs = route.timeMs?.let {
                 if (total > 0) (it * remaining / total).toLong() else null
             },

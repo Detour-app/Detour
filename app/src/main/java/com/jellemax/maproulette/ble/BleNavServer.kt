@@ -165,9 +165,15 @@ object BleNavServer {
 
         val payload = JSONObject().apply {
             put("sign", instruction?.sign ?: 0)
+            // 0 when this isn't a roundabout, or when the router didn't say which
+            // exit — the display omits the exit number rather than guessing.
+            put("roundaboutExit", instruction?.exitNumber ?: 0)
             put("street", instruction?.text ?: "")
             put("distanceToTurnMeters", progress.distanceToTurnMeters)
             put("remainingMeters", progress.remainingMeters)
+            // Total route length, so the display can draw progress without having
+            // to infer it from the largest remainingMeters it happens to observe.
+            put("routeMeters", progress.routeMeters)
             put("remainingTimeMs", progress.remainingTimeMs ?: JSONObject.NULL)
             put("speedKmh", currentSpeedKmh)
             put("speedLimitKmh", progress.speedLimitKmh ?: JSONObject.NULL)

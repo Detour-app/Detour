@@ -35,6 +35,8 @@ data class NavInstruction(
     val sign: Int,
     val startIndex: Int,
     val endIndex: Int,
+    /** Roundabout exit to take when [sign] is 6; 0 when not a roundabout. */
+    val exitNumber: Int = 0,
 )
 
 data class ServerConfig(
@@ -227,6 +229,9 @@ object RoutingServer {
                     sign = ins.optInt("sign"),
                     startIndex = interval.getInt(0),
                     endIndex = interval.getInt(1),
+                    // Only present on roundabout instructions, and negative when
+                    // GraphHopper can't tell which exit; 0 means "don't show one".
+                    exitNumber = ins.optInt("exit_number").coerceAtLeast(0),
                 ))
             }
         }
