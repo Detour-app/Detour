@@ -46,6 +46,12 @@ object Settings {
     private val _avoidHighways = MutableStateFlow(false)
     val avoidHighways: StateFlow<Boolean> = _avoidHighways
 
+    /** Broadcast turn-by-turn state over BLE for an external display (e.g. a
+     *  handlebar-mounted screen), alongside the existing Wear OS relay. Off by
+     *  default: it advertises the phone over Bluetooth while on. */
+    private val _externalDisplayEnabled = MutableStateFlow(false)
+    val externalDisplayEnabled: StateFlow<Boolean> = _externalDisplayEnabled
+
     /** The mode tab the user is on. The tracking service reads it to decide
      *  which motion sensors are worth registering, and stamps it on the trip —
      *  including an auto-detected one, which has no other way to know. */
@@ -92,6 +98,7 @@ object Settings {
         }.getOrDefault(Theme.AUTO)
         _autoDetectDrives.value = prefs.getBoolean("auto_detect_drives", true)
         _avoidHighways.value = prefs.getBoolean("avoid_highways", false)
+        _externalDisplayEnabled.value = prefs.getBoolean("external_display_enabled", false)
         _tripMode.value = TravelMode.of(prefs.getString("trip_mode", null))
         _shareFog.value = prefs.getBoolean("share_fog", false)
         _fogEnabled.value = prefs.getBoolean("fog_enabled", true)
@@ -162,6 +169,11 @@ object Settings {
     fun setAvoidHighways(value: Boolean) {
         _avoidHighways.value = value
         prefs.edit().putBoolean("avoid_highways", value).apply()
+    }
+
+    fun setExternalDisplayEnabled(value: Boolean) {
+        _externalDisplayEnabled.value = value
+        prefs.edit().putBoolean("external_display_enabled", value).apply()
     }
 
     fun setTripMode(value: TravelMode) {

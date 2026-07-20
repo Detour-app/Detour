@@ -147,6 +147,7 @@ import com.jellemax.maproulette.data.TraceStore
 import com.jellemax.maproulette.data.TravelMode
 import com.jellemax.maproulette.tracking.TripStats
 import com.jellemax.maproulette.tracking.TripTrackingService
+import com.jellemax.maproulette.ble.BleNavServer
 import com.jellemax.maproulette.wear.NavRelay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -662,6 +663,7 @@ fun MapScreen(
         navProgress = null
         camTargetBearing = null
         NavRelay.clear(context)
+        BleNavServer.clear(context)
     }
 
     fun startNavigation() {
@@ -955,6 +957,7 @@ fun MapScreen(
         val progress = NavEngine.progress(r, pos) ?: return@LaunchedEffect
         navProgress = progress
         NavRelay.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
+        BleNavServer.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
 
         // Arrived (point-to-point; loops end back at the start on their own).
         if (destination != null && progress.remainingMeters < 40 &&

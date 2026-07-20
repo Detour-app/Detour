@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.maproulette.BuildConfig
+import com.jellemax.maproulette.ble.BleNavServer
 import com.jellemax.maproulette.data.TravelMode
 import com.jellemax.maproulette.data.ConfigFile
 import com.jellemax.maproulette.data.RoutingServer
@@ -165,6 +166,8 @@ fun SettingsScreen(onBack: () -> Unit) {
                     )
                 }
             }
+
+            ExternalDisplaySection()
 
             SettingsSection("Map") {
                 Row(
@@ -391,6 +394,73 @@ private fun ConfigFileSection() {
             }) { Text("Import config") }
         }
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+/**
+ * Broadcasts turn-by-turn state over BLE for an external display (e.g. a
+ * handlebar-mounted screen), mirroring the Wear OS relay but over Bluetooth
+ * Low Energy instead of the Wearable Message API. Needs BLUETOOTH_CONNECT
+ * (Android 12+ split BLUETOOTH into scoped runtime permissions) and
+ * BLUETOOTH_ADVERTISE to advertise the phone as a connectable peripheral.
+ */
+@Composable
+private fun ExternalDisplaySection() {
+    val context = LocalContext.current
+    val enabled by Settings.externalDisplayEnabled.collectAsStateWithLifecycle()
+    var hasPerm by remember {
+        mutableStateOf(
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                (ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.BLUETOOTH_CONNECT,
+                ) == PackageManager.PERMISSION_GRANTED &&
+                    ContextCompat.checkSelfPermission(
+                        context, Manifest.permission.BLUETOOTH_ADVERTISE,
+                    ) == PackageManager.PERMISSION_GRANTED),
+        )
+    }
+    val permLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { results ->
+        hasPerm = results.values.all { it }
+        if (hasPerm) {
+            Settings.setExternalDisplayEnabled(true)
+            BleNavServer.start(context)
+        }
+    }
+
+    SettingsSection("External display") {
+        Text(
+            "Broadcast turn-by-turn over Bluetooth Low Energy for a handlebar-mounted " +
+                "screen — turn, distance, speed, speed limit, road name, and remaining " +
+                "distance/ETA.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        if (!hasPerm) {
+            TextButton(onClick = {
+                permLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.BLUETOOTH_CONNECT,
+                        Manifest.permission.BLUETOOTH_ADVERTISE,
+                    ),
+                )
+            }) { Text("Allow Bluetooth") }
+            return@SettingsSection
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Broadcast to external display", style = MaterialTheme.typography.bodyLarge)
+            Switch(
+                checked = enabled,
+                onCheckedChange = {
+                    Settings.setExternalDisplayEnabled(it)
+                    if (it) BleNavServer.start(context) else BleNavServer.stop(context)
+                },
+            )
+        }
     }
 }
 

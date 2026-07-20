@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.maproulette.ble.BleNavServer
 import com.jellemax.maproulette.data.Settings
 import com.jellemax.maproulette.ui.BadgesScreen
 import com.jellemax.maproulette.ui.FriendsScreen
@@ -32,6 +33,7 @@ class MainActivity : ComponentActivity() {
         // A map app is glanced at while driving: keep the screen awake while visible.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         Settings.init(this)
+        if (Settings.externalDisplayEnabled.value) BleNavServer.start(this)
         // MapLibre must be initialised before any MapView is created. No API key:
         // OpenFreeMap tiles are keyless, so no token provider is needed.
         MapLibre.getInstance(this)
