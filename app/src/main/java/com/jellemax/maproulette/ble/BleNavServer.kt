@@ -25,22 +25,30 @@ import java.util.UUID
 
 val NAV_SERVICE_UUID: UUID = UUID.fromString("b17a0001-9c2e-4b8a-8f21-1f5e2a6d0e01")
 val NAV_CHARACTERISTIC_UUID: UUID = UUID.fromString("b17a0002-9c2e-4b8a-8f21-1f5e2a6d0e01")
+val MUSIC_CHARACTERISTIC_UUID: UUID = UUID.fromString("b17a0003-9c2e-4b8a-8f21-1f5e2a6d0e01")
 private val CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
 /**
- * BLE GATT peripheral broadcasting turn-by-turn state to an external display
- * (a handlebar-mounted screen), the same role NavRelay plays for the Wear OS
- * watch, but over BLE and with a few extra fields the bigger screen has room
- * for (road name, remaining distance/ETA). The central is expected to
- * negotiate a larger MTU before subscribing — the JSON payload here doesn't
- * fit in the default 23-byte ATT MTU.
+ * BLE GATT peripheral broadcasting state to an external display (a
+ * handlebar-mounted screen): turn-by-turn navigation and, separately,
+ * now-playing media info. One service, two characteristics — nav mirrors
+ * NavRelay's Wear OS payload with a few extra fields the bigger screen has
+ * room for; music mirrors what MediaListenerService reads off the active
+ * media session. The central is expected to negotiate a larger MTU before
+ * subscribing — neither payload fits in the default 23-byte ATT MTU.
  */
 @SuppressLint("MissingPermission")
 object BleNavServer {
     private var gattServer: BluetoothGattServer? = null
     private var advertiser: BluetoothLeAdvertiser? = null
     private var navCharacteristic: BluetoothGattCharacteristic? = null
-    private val subscribers = mutableSetOf<BluetoothDevice>()
+    private var musicCharacteristic: BluetoothGattCharacteristic? = null
+
+    // Which characteristics each connected device has subscribed to, tracked
+    // separately per UUID rather than one shared set: the firmware central
+    // subscribes to nav and music independently, and a device that only wants
+    // one should not be notified of the other.
+    private val subscriptions = mutableMapOf<BluetoothDevice, MutableSet<UUID>>()
 
     private var lastSentAt = 0L
     private var lastSign: Int? = null
@@ -67,7 +75,7 @@ object BleNavServer {
             override fun onConnectionStateChange(
                 device: BluetoothDevice, status: Int, newState: Int,
             ) {
-                if (newState == BluetoothProfile.STATE_DISCONNECTED) subscribers.remove(device)
+                if (newState == BluetoothProfile.STATE_DISCONNECTED) subscriptions.remove(device)
             }
 
             override fun onDescriptorWriteRequest(
@@ -80,10 +88,14 @@ object BleNavServer {
                 value: ByteArray,
             ) {
                 if (descriptor.uuid == CCCD_UUID) {
-                    if (value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)) {
-                        subscribers.add(device)
-                    } else {
-                        subscribers.remove(device)
+                    val charUuid = descriptor.characteristic?.uuid
+                    if (charUuid != null) {
+                        val subscribed = subscriptions.getOrPut(device) { mutableSetOf() }
+                        if (value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)) {
+                            subscribed.add(charUuid)
+                        } else {
+                            subscribed.remove(charUuid)
+                        }
                     }
                 }
                 if (responseNeeded) {
@@ -107,8 +119,8 @@ object BleNavServer {
         val server = manager.openGattServer(context, callback) ?: return
         gattServer = server
 
-        val characteristic = BluetoothGattCharacteristic(
-            NAV_CHARACTERISTIC_UUID,
+        fun notifiable(uuid: UUID) = BluetoothGattCharacteristic(
+            uuid,
             BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
             BluetoothGattCharacteristic.PERMISSION_READ,
         ).apply {
@@ -119,10 +131,15 @@ object BleNavServer {
                 ),
             )
         }
-        navCharacteristic = characteristic
+
+        val nav = notifiable(NAV_CHARACTERISTIC_UUID)
+        val music = notifiable(MUSIC_CHARACTERISTIC_UUID)
+        navCharacteristic = nav
+        musicCharacteristic = music
 
         val service = BluetoothGattService(NAV_SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
-        service.addCharacteristic(characteristic)
+        service.addCharacteristic(nav)
+        service.addCharacteristic(music)
         server.addService(service)
 
         advertiser = adapter.bluetoothLeAdvertiser
@@ -148,12 +165,21 @@ object BleNavServer {
         gattServer = null
         advertiser = null
         navCharacteristic = null
-        subscribers.clear()
+        musicCharacteristic = null
+        subscriptions.clear()
         lastSign = null
     }
 
-    fun send(context: Context, progress: NavEngine.Progress, currentSpeedKmh: Double) {
+    private fun notifySubscribers(characteristic: BluetoothGattCharacteristic) {
         val server = gattServer ?: return
+        subscriptions.forEach { (device, subscribed) ->
+            if (characteristic.uuid in subscribed) {
+                server.notifyCharacteristicChanged(device, characteristic, false)
+            }
+        }
+    }
+
+    fun send(context: Context, progress: NavEngine.Progress, currentSpeedKmh: Double) {
         val characteristic = navCharacteristic ?: return
         if (!hasPermissions(context)) return
         val instruction = progress.nextInstruction
@@ -180,15 +206,46 @@ object BleNavServer {
         }.toString().toByteArray()
 
         characteristic.value = payload
-        subscribers.forEach { device -> server.notifyCharacteristicChanged(device, characteristic, false) }
+        notifySubscribers(characteristic)
     }
 
     fun clear(context: Context) {
-        val server = gattServer ?: return
         val characteristic = navCharacteristic ?: return
         if (!hasPermissions(context)) return
         lastSign = null
         characteristic.value = JSONObject().apply { put("stop", true) }.toString().toByteArray()
-        subscribers.forEach { device -> server.notifyCharacteristicChanged(device, characteristic, false) }
+        notifySubscribers(characteristic)
+    }
+
+    /** Pushes the currently playing track. See [com.jellemax.maproulette.media.MediaListenerService]. */
+    fun sendMusic(
+        context: Context,
+        title: String,
+        artist: String,
+        positionSec: Double,
+        durationSec: Double,
+        playing: Boolean,
+    ) {
+        val characteristic = musicCharacteristic ?: return
+        if (!hasPermissions(context)) return
+
+        val payload = JSONObject().apply {
+            put("title", title)
+            put("artist", artist)
+            put("posSec", positionSec)
+            put("durSec", durationSec)
+            put("playing", playing)
+        }.toString().toByteArray()
+
+        characteristic.value = payload
+        notifySubscribers(characteristic)
+    }
+
+    /** No active media session — the display drops back to its idle state. */
+    fun clearMusic(context: Context) {
+        val characteristic = musicCharacteristic ?: return
+        if (!hasPermissions(context)) return
+        characteristic.value = JSONObject().apply { put("stop", true) }.toString().toByteArray()
+        notifySubscribers(characteristic)
     }
 }

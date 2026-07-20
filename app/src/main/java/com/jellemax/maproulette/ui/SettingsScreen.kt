@@ -2,6 +2,7 @@ package com.jellemax.maproulette.ui
 
 import android.Manifest
 import android.bluetooth.BluetoothManager
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -46,7 +47,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -168,6 +174,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
 
             ExternalDisplaySection()
+            NowPlayingSection()
 
             SettingsSection("Map") {
                 Row(
@@ -461,6 +468,65 @@ private fun ExternalDisplaySection() {
                 },
             )
         }
+    }
+}
+
+/**
+ * Relays now-playing (title, artist, position, playback state) to the same
+ * external display, sourced from [com.jellemax.maproulette.media.MediaListenerService].
+ *
+ * Unlike Bluetooth, this can't be requested as a runtime permission dialog —
+ * "notification access" is an app-ops grant the user has to flip in system
+ * Settings themselves. [NotificationManagerCompat.getEnabledListenerPackages]
+ * is the only way to check whether it's already on; there's no callback for
+ * when it changes, so the check re-runs on every recomposition after
+ * returning from Settings ([ON_RESUME]).
+ */
+@Composable
+private fun NowPlayingSection() {
+    val context = LocalContext.current
+    var hasAccess by remember {
+        mutableStateOf(
+            NotificationManagerCompat.getEnabledListenerPackages(context)
+                .contains(context.packageName),
+        )
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasAccess = NotificationManagerCompat.getEnabledListenerPackages(context)
+                    .contains(context.packageName)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    SettingsSection("Now playing on external display") {
+        Text(
+            "Relay title, artist, and playback position from whatever's playing " +
+                "(Spotify, etc.) to the handlebar display. Reads media sessions only, " +
+                "never notification content — Android requires notification access to " +
+                "do either, so the permission name is broader than what's actually used.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        if (!hasAccess) {
+            TextButton(onClick = {
+                // Fully qualified: this file already imports the app's own
+                // Settings object, which would otherwise shadow the platform one.
+                context.startActivity(
+                    Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS),
+                )
+            }) { Text("Allow notification access") }
+            return@SettingsSection
+        }
+        Text(
+            "Enabled. Also turn on \"Broadcast to external display\" above — music " +
+                "shares that Bluetooth connection.",
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 
