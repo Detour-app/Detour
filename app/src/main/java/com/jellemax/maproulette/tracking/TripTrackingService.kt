@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
@@ -137,6 +138,13 @@ class TripTrackingService : Service() {
         // tell a real walk from the first slow seconds of a drive.
         private const val WALK_AVG_MAX_MPS = 2.5           // ~9 km/h
         private const val WALK_MIN_JUDGE_MS = 90_000L
+        /** ...but average pace alone calls a car stuck in town traffic a walk.
+         *  Nothing that has ever hit this speed is one, whatever its average. */
+        private const val WALK_TOP_MAX_MPS = 6.0           // ~22 km/h
+        /** Which vehicle wins when several mapped devices are connected at
+         *  once, weakest first. */
+        private val MODE_PRIORITY =
+            listOf(TravelMode.WALK, TravelMode.BIKE, TravelMode.CAR, TravelMode.MOTO)
         /** Motion sensors fire ~60x/s; publish stats at 5 Hz. */
         private const val SENSOR_EMIT_INTERVAL_MS = 200L
         /** Floor between boundary lookups, so a drive along a coastline (where
@@ -299,10 +307,9 @@ class TripTrackingService : Service() {
     }
 
     // --- Bluetooth vehicle auto-detect -------------------------------------
-    // Mapped Classic devices (Cardo, car infotainment) pick the trip mode: the
-    // most recently connected mapped device wins, falling back to the default
-    // when none is connected. Addresses of currently-connected mapped devices,
-    // newest last.
+    // Mapped Classic devices (Cardo, car infotainment) pick the trip mode,
+    // falling back to the default when none is connected. Addresses of
+    // currently-connected mapped devices.
     private val connectedVehicles = LinkedHashSet<String>()
     private var btRegistered = false
 
@@ -319,6 +326,22 @@ class TripTrackingService : Service() {
                     }
                 BluetoothDevice.ACTION_ACL_DISCONNECTED ->
                     if (connectedVehicles.remove(address)) refreshTripMode()
+            }
+        }
+    }
+
+    /** Turning the adapter off drops every link without an ACL_DISCONNECTED per
+     *  device, so without this the car stays "connected" for the rest of the
+     *  service's life and the next ride is logged as a drive. */
+    private val btStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)) {
+                BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF ->
+                    if (connectedVehicles.isNotEmpty()) {
+                        connectedVehicles.clear()
+                        refreshTripMode()
+                    }
+                BluetoothAdapter.STATE_ON -> seedConnectedVehicles()
             }
         }
     }
@@ -346,36 +369,62 @@ class TripTrackingService : Service() {
             addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
         }
         ContextCompat.registerReceiver(this, btReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(
+            this,
+            btStateReceiver,
+            IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         btRegistered = true
         seedConnectedVehicles()
     }
 
-    /** Ask the headset/A2DP profiles which mapped devices are connected right
-     *  now, since ACL broadcasts only fire on change, not for existing links. */
+    /**
+     * Ask the headset/A2DP profiles which mapped devices are connected right
+     * now, since ACL broadcasts only fire on change, not for existing links.
+     *
+     * The answer replaces what we believed rather than adding to it: a missed
+     * disconnect (adapter reset, device out of range, service asleep) otherwise
+     * pins the trip to a vehicle that was left behind hours ago. Both profiles
+     * are asked before we commit, so the two callbacks can't erase each other.
+     */
     private fun seedConnectedVehicles() {
         val map = Settings.vehicleDevices.value
         if (map.isEmpty() || !hasBtPermission()) return
         val adapter = getSystemService(BluetoothManager::class.java)?.adapter ?: return
+        val profiles = listOf(BluetoothProfile.HEADSET, BluetoothProfile.A2DP)
+        val found = LinkedHashSet<String>()
+        var pending = profiles.size
+        // Runs once the last profile has answered (or failed to).
+        val commit = {
+            if (connectedVehicles != found) {
+                connectedVehicles.clear()
+                connectedVehicles.addAll(found)
+                refreshTripMode()
+            }
+        }
         val listener = object : BluetoothProfile.ServiceListener {
             override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
                 try {
                     proxy.connectedDevices.forEach { d ->
-                        if (map.containsKey(d.address)) {
-                            connectedVehicles.remove(d.address)
-                            connectedVehicles.add(d.address)
-                        }
+                        if (map.containsKey(d.address)) found.add(d.address)
                     }
-                    if (connectedVehicles.isNotEmpty()) refreshTripMode()
                 } catch (e: SecurityException) {
                     // permission revoked between the check and here; ignore
                 } finally {
                     adapter.closeProfileProxy(profile, proxy)
                 }
+                if (--pending == 0) commit()
             }
-            override fun onServiceDisconnected(profile: Int) {}
+            /** A profile the phone doesn't support never calls back connected. */
+            override fun onServiceDisconnected(profile: Int) {
+                if (--pending == 0) commit()
+            }
         }
-        adapter.getProfileProxy(this, listener, BluetoothProfile.HEADSET)
-        adapter.getProfileProxy(this, listener, BluetoothProfile.A2DP)
+        profiles.forEach {
+            if (!adapter.getProfileProxy(this, listener, it)) pending--
+        }
+        if (pending == 0) commit()
     }
 
     /**
@@ -387,11 +436,16 @@ class TripTrackingService : Service() {
      */
     private fun resolvedMode(): TravelMode {
         val map = Settings.vehicleDevices.value
-        connectedVehicles.lastOrNull()?.let { addr -> map[addr]?.let { return it.mode } }
+        // The heaviest vehicle connected wins, not the last to connect: earbuds
+        // paired for a walk stay linked in the car, and the helmet intercom and
+        // the car radio can both be up while the bike sits in the garage.
+        connectedVehicles.mapNotNull { map[it]?.mode }
+            .maxByOrNull { MODE_PRIORITY.indexOf(it) }
+            ?.let { return it }
         val s = _stats.value
         if (s != null && s.durationMs > WALK_MIN_JUDGE_MS) {
             val avg = if (s.durationMs > 0) s.distanceMeters / (s.durationMs / 1000.0) else 0.0
-            if (avg < WALK_AVG_MAX_MPS) return TravelMode.WALK
+            if (avg < WALK_AVG_MAX_MPS && s.topSpeedMps < WALK_TOP_MAX_MPS) return TravelMode.WALK
         }
         return Settings.tripMode.value
     }
@@ -425,6 +479,10 @@ class TripTrackingService : Service() {
             sensorManager = getSystemService(SensorManager::class.java)
         }
 
+        // Before the action, so a trip started in this same command classifies
+        // against devices that were already connected when the service woke.
+        ensureBluetoothWatch()
+
         when (intent?.action) {
             ACTION_START_TRIP -> {
                 if (_stats.value == null) {
@@ -441,7 +499,6 @@ class TripTrackingService : Service() {
 
         ensureLocationUpdates()
         registerActivityTransitions()
-        ensureBluetoothWatch()
         return START_STICKY
     }
 
@@ -458,6 +515,9 @@ class TripTrackingService : Service() {
         currentLeanDeg = 0.0; maxLeanDeg = 0.0
         currentG = 0.0; maxG = 0.0
         lastMovingMs = System.currentTimeMillis()
+        // Re-check what's actually linked: the set may have gone stale since the
+        // last trip. Answers async, retagging through refreshTripMode.
+        seedConnectedVehicles()
         // Classify by connected device / pace / tab; refined live as the trip runs.
         _stats.value = TripStats(startTimeMs = startTimeMs)
         val mode = resolvedMode()
@@ -835,6 +895,7 @@ class TripTrackingService : Service() {
         }
         if (btRegistered) {
             runCatching { unregisterReceiver(btReceiver) }
+            runCatching { unregisterReceiver(btStateReceiver) }
             btRegistered = false
         }
         endTrip()
