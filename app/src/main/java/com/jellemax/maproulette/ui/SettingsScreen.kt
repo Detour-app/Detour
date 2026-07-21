@@ -78,6 +78,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     val theme by Settings.theme.collectAsStateWithLifecycle()
     val autoDetect by Settings.autoDetectDrives.collectAsStateWithLifecycle()
     val avoidHighways by Settings.avoidHighways.collectAsStateWithLifecycle()
+    val avoidSmallRoads by Settings.avoidSmallRoads.collectAsStateWithLifecycle()
     val fogRadius by Settings.fogRadiusMeters.collectAsStateWithLifecycle()
     val shareFog by Settings.shareFog.collectAsStateWithLifecycle()
     val defaultZoom by Settings.defaultZoom.collectAsStateWithLifecycle()
@@ -169,6 +170,24 @@ fun SettingsScreen(onBack: () -> Unit) {
                     Switch(
                         checked = avoidHighways,
                         onCheckedChange = { Settings.setAvoidHighways(it) },
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Avoid small roads", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Prefer real roads over narrow rural lanes, " +
+                                "service roads and unpaved tracks",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(
+                        checked = avoidSmallRoads,
+                        onCheckedChange = { Settings.setAvoidSmallRoads(it) },
                     )
                 }
             }

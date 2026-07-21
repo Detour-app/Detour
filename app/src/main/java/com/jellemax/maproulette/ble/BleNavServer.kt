@@ -16,13 +16,16 @@ import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.BluetoothLeAdvertiser
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.jellemax.maproulette.data.NavEngine
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.util.TimeZone
 import java.util.UUID
 
@@ -30,8 +33,24 @@ val NAV_SERVICE_UUID: UUID = UUID.fromString("b17a0001-9c2e-4b8a-8f21-1f5e2a6d0e
 val NAV_CHARACTERISTIC_UUID: UUID = UUID.fromString("b17a0002-9c2e-4b8a-8f21-1f5e2a6d0e01")
 val MUSIC_CHARACTERISTIC_UUID: UUID = UUID.fromString("b17a0003-9c2e-4b8a-8f21-1f5e2a6d0e01")
 val TIME_CHARACTERISTIC_UUID: UUID = UUID.fromString("b17a0004-9c2e-4b8a-8f21-1f5e2a6d0e01")
+val ART_CHARACTERISTIC_UUID: UUID = UUID.fromString("b17a0005-9c2e-4b8a-8f21-1f5e2a6d0e01")
 private val CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 private const val TIME_RESYNC_MS = 30_000L
+
+// Album art. The display draws the cover at 180x180, so anything larger is
+// detail thrown away on the far side of a slow link; quality steps down until
+// the JPEG fits the firmware's receive buffer (art_link.h's MAX_JPEG_BYTES).
+private const val ART_SIZE_PX = 180
+private const val ART_MAX_BYTES = 24 * 1024
+private val ART_QUALITY_STEPS = intArrayOf(80, 65, 50, 35)
+// Header on every art chunk: [frameId][chunkIndex][chunkCount].
+private const val ART_HEADER_BYTES = 3
+private const val ART_MAX_CHUNKS = 255
+// A chunk that stays unacknowledged this long is treated as lost rather than
+// stalling the queue for the rest of the ride.
+private const val ART_SEND_TIMEOUT_MS = 2_000L
+private const val DEFAULT_ATT_MTU = 23
+private const val TAG = "BleNavServer"
 
 /**
  * BLE GATT peripheral broadcasting state to an external display (a
@@ -49,6 +68,7 @@ object BleNavServer {
     private var navCharacteristic: BluetoothGattCharacteristic? = null
     private var musicCharacteristic: BluetoothGattCharacteristic? = null
     private var timeCharacteristic: BluetoothGattCharacteristic? = null
+    private var artCharacteristic: BluetoothGattCharacteristic? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
     // Time has no natural "changed" event like nav/music do, so it is pushed
@@ -73,6 +93,21 @@ object BleNavServer {
     private var lastSentAt = 0L
     private var lastSign: Int? = null
     private var lastStatsSentAt = 0L
+
+    // Art is the only payload that doesn't fit in one notification, so it is
+    // the only one that needs flow control: Android drops notifications queued
+    // faster than the stack sends them, and a dropped chunk costs the whole
+    // image. Chunks go out one at a time, each waiting for onNotificationSent.
+    private val artQueue = ArrayDeque<Pair<BluetoothDevice, ByteArray>>()
+    private var artSendInFlight = false
+    private var artFrameId = 0
+    // The cover currently playing, already encoded. A display that connects
+    // mid-track has missed the send that went with the track change, and
+    // waiting for the next song to get artwork looks like a broken feature —
+    // so subscribing replays this.
+    private var lastArtJpeg: ByteArray? = null
+    // Negotiated ATT MTU per device, 23 until the central asks for more.
+    private val deviceMtu = mutableMapOf<BluetoothDevice, Int>()
 
     private fun hasPermissions(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
@@ -100,6 +135,9 @@ object BleNavServer {
             ) {
                 if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     subscriptions.remove(device)
+                    deviceMtu.remove(device)
+                    artQueue.removeAll { it.first == device }
+                    if (artQueue.isEmpty()) artSendInFlight = false
                 } else if (newState == BluetoothProfile.STATE_CONNECTED) {
                     // Notifications only reach devices that have subscribed, which
                     // hasn't happened yet at connect time — but the characteristic
@@ -125,6 +163,10 @@ object BleNavServer {
                         val subscribed = subscriptions.getOrPut(device) { mutableSetOf() }
                         if (value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)) {
                             subscribed.add(charUuid)
+                            if (charUuid == ART_CHARACTERISTIC_UUID) {
+                                lastArtJpeg?.let { queueArt(device, it) }
+                                pumpArtQueue()
+                            }
                         } else {
                             subscribed.remove(charUuid)
                         }
@@ -133,6 +175,25 @@ object BleNavServer {
                 if (responseNeeded) {
                     gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
                 }
+            }
+
+            override fun onMtuChanged(device: BluetoothDevice, mtu: Int) {
+                val previous = deviceMtu[device] ?: DEFAULT_ATT_MTU
+                deviceMtu[device] = mtu
+                // A display can subscribe before it has negotiated an MTU, and
+                // at the 23-byte default a cover needs more chunks than the
+                // 1-byte chunk counter can address — so that send is skipped
+                // and retried here, once there is room to carry it.
+                if (mtu > previous && ART_CHARACTERISTIC_UUID in (subscriptions[device] ?: emptySet())) {
+                    lastArtJpeg?.let { queueArt(device, it) }
+                    pumpArtQueue()
+                }
+            }
+
+            override fun onNotificationSent(device: BluetoothDevice, status: Int) {
+                mainHandler.removeCallbacks(artSendWatchdog)
+                artSendInFlight = false
+                pumpArtQueue()
             }
 
             override fun onCharacteristicReadRequest(
@@ -167,14 +228,17 @@ object BleNavServer {
         val nav = notifiable(NAV_CHARACTERISTIC_UUID)
         val music = notifiable(MUSIC_CHARACTERISTIC_UUID)
         val time = notifiable(TIME_CHARACTERISTIC_UUID)
+        val art = notifiable(ART_CHARACTERISTIC_UUID)
         navCharacteristic = nav
         musicCharacteristic = music
         timeCharacteristic = time
+        artCharacteristic = art
 
         val service = BluetoothGattService(NAV_SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
         service.addCharacteristic(nav)
         service.addCharacteristic(music)
         service.addCharacteristic(time)
+        service.addCharacteristic(art)
         server.addService(service)
 
         mainHandler.removeCallbacks(timeTicker)
@@ -206,8 +270,14 @@ object BleNavServer {
         navCharacteristic = null
         musicCharacteristic = null
         timeCharacteristic = null
+        artCharacteristic = null
         appContext = null
         subscriptions.clear()
+        mainHandler.removeCallbacks(artSendWatchdog)
+        artQueue.clear()
+        artSendInFlight = false
+        deviceMtu.clear()
+        lastArtJpeg = null
         lastSign = null
         lastStatsSentAt = 0L
     }
@@ -315,10 +385,101 @@ object BleNavServer {
         notifySubscribers(characteristic)
     }
 
+    /**
+     * Pushes cover art for the current track, as a JPEG split across
+     * notifications. Called only when the track actually changes — see
+     * MediaListenerService — since a cover is three orders of magnitude bigger
+     * than the metadata packet it accompanies.
+     *
+     * The display keeps showing its placeholder if this never arrives, so
+     * every failure path here simply returns.
+     */
+    fun sendArt(context: Context, cover: Bitmap) {
+        if (artCharacteristic == null) return
+        if (!hasPermissions(context)) return
+
+        val recipients = subscriptions.filter { ART_CHARACTERISTIC_UUID in it.value }.keys
+        if (recipients.isEmpty()) return
+
+        val jpeg = encode(cover) ?: return
+        lastArtJpeg = jpeg
+
+        for (device in recipients) queueArt(device, jpeg)
+        pumpArtQueue()
+    }
+
+    /** Splits one JPEG into notification-sized chunks for one display. */
+    private fun queueArt(device: BluetoothDevice, jpeg: ByteArray) {
+        // 3 bytes of ATT overhead on top of our own header.
+        val mtu = deviceMtu[device] ?: DEFAULT_ATT_MTU
+        val payloadSize = mtu - 3 - ART_HEADER_BYTES
+        if (payloadSize <= 0) return
+        val chunkCount = (jpeg.size + payloadSize - 1) / payloadSize
+        if (chunkCount > ART_MAX_CHUNKS) {
+            // Only reachable at or near the default MTU. onMtuChanged retries.
+            Log.i(TAG, "art needs $chunkCount chunks at mtu $mtu; waiting for a bigger one")
+            return
+        }
+
+        artFrameId = (artFrameId + 1) and 0xFF
+        for (index in 0 until chunkCount) {
+            val from = index * payloadSize
+            val to = minOf(from + payloadSize, jpeg.size)
+            val chunk = ByteArray(ART_HEADER_BYTES + (to - from))
+            chunk[0] = artFrameId.toByte()
+            chunk[1] = index.toByte()
+            chunk[2] = chunkCount.toByte()
+            jpeg.copyInto(chunk, ART_HEADER_BYTES, from, to)
+            artQueue.addLast(device to chunk)
+        }
+    }
+
+    /** Square-crops, downscales, and compresses to something that fits the link. */
+    private fun encode(cover: Bitmap): ByteArray? {
+        val side = minOf(cover.width, cover.height)
+        if (side <= 0) return null
+        // Centre crop first: covers are square in practice, but a letterboxed
+        // one would otherwise arrive squashed rather than trimmed.
+        val square = Bitmap.createBitmap(
+            cover, (cover.width - side) / 2, (cover.height - side) / 2, side, side,
+        )
+        val scaled = Bitmap.createScaledBitmap(square, ART_SIZE_PX, ART_SIZE_PX, true)
+
+        for (quality in ART_QUALITY_STEPS) {
+            val out = ByteArrayOutputStream()
+            scaled.compress(Bitmap.CompressFormat.JPEG, quality, out)
+            val bytes = out.toByteArray()
+            if (bytes.size <= ART_MAX_BYTES) return bytes
+        }
+        // Even the lowest quality overflowed the display's buffer — sending it
+        // would just be dropped on the other side.
+        return null
+    }
+
+    private val artSendWatchdog = Runnable {
+        // onNotificationSent never came. Whatever image was mid-flight is lost;
+        // drop it rather than blocking every later one behind it.
+        artQueue.clear()
+        artSendInFlight = false
+    }
+
+    private fun pumpArtQueue() {
+        if (artSendInFlight) return
+        val server = gattServer ?: return
+        val characteristic = artCharacteristic ?: return
+        val (device, chunk) = artQueue.removeFirstOrNull() ?: return
+
+        characteristic.value = chunk
+        artSendInFlight = true
+        server.notifyCharacteristicChanged(device, characteristic, false)
+        mainHandler.postDelayed(artSendWatchdog, ART_SEND_TIMEOUT_MS)
+    }
+
     /** No active media session — the display drops back to its idle state. */
     fun clearMusic(context: Context) {
         val characteristic = musicCharacteristic ?: return
         if (!hasPermissions(context)) return
+        lastArtJpeg = null
         characteristic.value = JSONObject().apply { put("stop", true) }.toString().toByteArray()
         notifySubscribers(characteristic)
     }

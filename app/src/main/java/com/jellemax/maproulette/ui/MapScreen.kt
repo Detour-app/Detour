@@ -111,6 +111,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -119,6 +120,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.maproulette.R
 import com.google.android.gms.location.LocationServices
@@ -199,6 +202,15 @@ private fun smoothBearing(current: Float?, target: Float, alpha: Float = 0.3f): 
 private const val CAM_POS_TAU = 0.35
 private const val CAM_BEARING_TAU = 0.5
 private const val CAM_ZOOM_TAU = 1.2
+
+// The speed readout is eased the same way, per frame rather than per fix: GPS
+// speed arrives about once a second, and a number that jumps once a second
+// reads as a laggy app even when the fix behind it is current. Short tau — the
+// readout has to be honest about braking, not just smooth.
+private const val SPEED_TAU = 0.30
+// Below ~0.15 km/h of remaining gap the rounded number can't change; snap and
+// stop recomposing so a steady cruise doesn't repaint the HUD every frame.
+private const val SPEED_EPS_KMH = 0.15
 
 // Below these, an eased camera step isn't worth a redraw: ~0.2 m of pan (well
 // sub-pixel at driving zooms), a hair of zoom, a tenth of a degree of rotation.
@@ -286,7 +298,8 @@ private suspend fun pickCandidate(
         d to null
     }
     val route = try {
-        RoutingServer.route(config, loc, dest, mode.ghProfile, Settings.avoidHighways.value)
+        RoutingServer.route(config, loc, dest, mode.ghProfile,
+            Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -425,6 +438,26 @@ fun MapScreen(
     val fogView = remember { FogView(context) }
     var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
     var mapOverlays by remember { mutableStateOf<MapOverlays?>(null) }
+
+    // Tell the tracker the map is being looked at, so it drops its battery-saving
+    // batched fixes for navigation-grade ones while we're here. Tied to the
+    // lifecycle, not to the composition: backgrounding the app keeps the map
+    // composed, and a phone in a pocket must not hold a 1 Hz GPS request open.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> TripTrackingService.setUiVisible(context, true)
+                Lifecycle.Event.ON_STOP -> TripTrackingService.setUiVisible(context, false)
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            TripTrackingService.setUiVisible(context, false)
+        }
+    }
 
     // MapView lifecycle. The map arrives asynchronously; effects that touch it
     // guard on `mapLibreMap` being non-null.
@@ -691,7 +724,7 @@ fun MapScreen(
             try {
                 route = withContext(Dispatchers.IO) {
                     RoutingServer.route(serverConfig, loc, dest, mode.ghProfile,
-                        Settings.avoidHighways.value)
+                        Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
                 }
                 navigating = true
             } catch (e: Exception) {
@@ -875,7 +908,24 @@ fun MapScreen(
             fix.speedMps,
             navProgress?.distanceToTurnMeters ?: Double.MAX_VALUE,
         )
-        displaySpeedKmh += (fix.speedMps * 3.6 - displaySpeedKmh) * 0.4
+    }
+
+    // The speedometer, eased per frame toward the last fix. Keyed on nothing:
+    // it runs for as long as the map is composed, so the number is always
+    // gliding rather than stepping once per fix.
+    val speedTarget = rememberUpdatedState((liveFix?.speedMps ?: 0.0) * 3.6)
+    LaunchedEffect(Unit) {
+        var lastNs = withFrameNanos { it }
+        while (true) {
+            val ns = withFrameNanos { it }
+            val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.1)
+            lastNs = ns
+            val target = speedTarget.value
+            val gap = target - displaySpeedKmh
+            displaySpeedKmh =
+                if (abs(gap) < SPEED_EPS_KMH) target
+                else displaySpeedKmh + gap * (1.0 - exp(-dt / SPEED_TAU))
+        }
     }
 
     // The camera itself: one loop, one frame at a time, easing toward whatever
@@ -990,7 +1040,7 @@ fun MapScreen(
                 try {
                     route = withContext(Dispatchers.IO) {
                         RoutingServer.route(serverConfig, pos, dest, mode.ghProfile,
-                            Settings.avoidHighways.value)
+                            Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
                     }
                 } catch (e: Exception) {
                     // stay on the old line; retried after the cooldown
@@ -1027,7 +1077,8 @@ fun MapScreen(
                             withContext(Dispatchers.IO) {
                                 RoutingServer.roundTrip(
                                     serverConfig, loc, tripMeters, Random.nextLong(),
-                                    headingDeg = directionDeg?.toDouble())
+                                    headingDeg = directionDeg?.toDouble(),
+                                    avoidSmallRoads = Settings.avoidSmallRoads.value)
                             }
                         } catch (e: CancellationException) {
                             throw e
@@ -1176,7 +1227,10 @@ fun MapScreen(
                     } else {
                         Spacer(Modifier.width(1.dp))
                     }
-                    liveFix?.takeIf { it.speedMps >= 1.4 }?.let {
+                    // Stays up while the eased number winds back down, so
+                    // stopping at a light fades the dial out instead of
+                    // snatching it away mid-count.
+                    liveFix?.takeIf { it.speedMps >= 1.4 || displaySpeedKmh >= 2.0 }?.let {
                         SpeedHud(
                             speedKmh = displaySpeedKmh,
                             limitKmh = if (navigating) navProgress?.speedLimitKmh

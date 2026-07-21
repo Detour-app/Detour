@@ -26,6 +26,12 @@ class MediaListenerService : NotificationListenerService() {
     private var activeController: MediaController? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    // Cover art is pushed only when the track changes, not on every 1 Hz tick:
+    // it is a JPEG over a link sized for a few hundred bytes at a time. The key
+    // is what identifies "a different track" — title and artist, since the same
+    // song re-queued should not re-send the same image.
+    private var lastArtKey: String? = null
+
     private val controllerCallback = object : MediaController.Callback() {
         override fun onPlaybackStateChanged(state: PlaybackState?) = pushNow()
         override fun onMetadataChanged(metadata: android.media.MediaMetadata?) = pushNow()
@@ -104,6 +110,7 @@ class MediaListenerService : NotificationListenerService() {
     }
 
     private fun detachController() {
+        lastArtKey = null
         mainHandler.removeCallbacks(ticker)
         activeController?.unregisterCallback(controllerCallback)
         activeController = null
@@ -115,6 +122,7 @@ class MediaListenerService : NotificationListenerService() {
         val state = controller.playbackState
 
         if (metadata == null || state == null) {
+            lastArtKey = null
             BleNavServer.clearMusic(applicationContext)
             return
         }
@@ -140,6 +148,32 @@ class MediaListenerService : NotificationListenerService() {
             durationSec = durationMs / 1000.0,
             playing = playing,
         )
+
+        pushArtIfChanged(metadata, title, artist)
+    }
+
+    private fun pushArtIfChanged(
+        metadata: android.media.MediaMetadata,
+        title: String,
+        artist: String,
+    ) {
+        val key = "$title\u0000$artist"
+        if (key == lastArtKey) return
+
+        // Apps disagree about which key holds the cover; ALBUM_ART is the one
+        // Spotify populates, ART is the older general-purpose slot, and
+        // DISPLAY_ICON is the last resort some players use.
+        val cover = metadata.getBitmap(android.media.MediaMetadata.METADATA_KEY_ALBUM_ART)
+            ?: metadata.getBitmap(android.media.MediaMetadata.METADATA_KEY_ART)
+            ?: metadata.getBitmap(android.media.MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+
+        // Metadata often arrives before the artwork has been fetched. Leaving
+        // lastArtKey unset means the next tick tries again rather than the
+        // track playing out with no cover.
+        if (cover == null) return
+
+        lastArtKey = key
+        BleNavServer.sendArt(applicationContext, cover)
     }
 
     // Notification content is never read; only media-session metadata is used.

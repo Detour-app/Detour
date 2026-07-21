@@ -46,6 +46,12 @@ object Settings {
     private val _avoidHighways = MutableStateFlow(false)
     val avoidHighways: StateFlow<Boolean> = _avoidHighways
 
+    /** Keep routes off the unclassified/residential layer and off unpaved
+     *  tracks where a bigger road will do — the narrow rural lanes a router
+     *  picks because they're short, not because anyone wants to drive them. */
+    private val _avoidSmallRoads = MutableStateFlow(false)
+    val avoidSmallRoads: StateFlow<Boolean> = _avoidSmallRoads
+
     /** Broadcast turn-by-turn state over BLE for an external display (e.g. a
      *  handlebar-mounted screen), alongside the existing Wear OS relay. Off by
      *  default: it advertises the phone over Bluetooth while on. */
@@ -98,6 +104,7 @@ object Settings {
         }.getOrDefault(Theme.AUTO)
         _autoDetectDrives.value = prefs.getBoolean("auto_detect_drives", true)
         _avoidHighways.value = prefs.getBoolean("avoid_highways", false)
+        _avoidSmallRoads.value = prefs.getBoolean("avoid_small_roads", false)
         _externalDisplayEnabled.value = prefs.getBoolean("external_display_enabled", false)
         _tripMode.value = TravelMode.of(prefs.getString("trip_mode", null))
         _shareFog.value = prefs.getBoolean("share_fog", false)
@@ -169,6 +176,11 @@ object Settings {
     fun setAvoidHighways(value: Boolean) {
         _avoidHighways.value = value
         prefs.edit().putBoolean("avoid_highways", value).apply()
+    }
+
+    fun setAvoidSmallRoads(value: Boolean) {
+        _avoidSmallRoads.value = value
+        prefs.edit().putBoolean("avoid_small_roads", value).apply()
     }
 
     fun setExternalDisplayEnabled(value: Boolean) {

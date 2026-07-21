@@ -99,6 +99,7 @@ object RoutingServer {
         distanceMeters: Double,
         seed: Long,
         headingDeg: Double? = null,
+        avoidSmallRoads: Boolean = false,
     ): RouteResult {
         // Long loops can point past the graph's map edge or into road-sparse
         // areas ("could not find a valid point"). Shrink and reroll direction
@@ -108,7 +109,7 @@ object RoutingServer {
         var lastError: IOException? = null
         repeat(4) {
             try {
-                return requestRoundTrip(config, start, dist, s, headingDeg)
+                return requestRoundTrip(config, start, dist, s, headingDeg, avoidSmallRoads)
             } catch (e: IOException) {
                 lastError = e
                 dist *= 0.75
@@ -124,22 +125,85 @@ object RoutingServer {
         distanceMeters: Double,
         seed: Long,
         headingDeg: Double?,
-    ): RouteResult = fetchRoute(
-        config,
-        config.url.trimEnd('/') +
-            "/route?profile=moto" +
-            "&point=${start.lat},${start.lon}" +
-            "&algorithm=round_trip" +
-            "&round_trip.distance=${distanceMeters.toInt()}" +
-            "&round_trip.seed=$seed" +
-            (headingDeg?.let { "&heading=${it.toInt()}" } ?: "") +
-            "&points_encoded=false&details=max_speed",
-    )
+        avoidSmallRoads: Boolean = false,
+    ): RouteResult {
+        if (!avoidSmallRoads) {
+            return fetchRoute(
+                config,
+                config.url.trimEnd('/') +
+                    "/route?profile=moto" +
+                    "&point=${start.lat},${start.lon}" +
+                    "&algorithm=round_trip" +
+                    "&round_trip.distance=${distanceMeters.toInt()}" +
+                    "&round_trip.seed=$seed" +
+                    (headingDeg?.let { "&heading=${it.toInt()}" } ?: "") +
+                    "&points_encoded=false&details=max_speed",
+            )
+        }
+        // A loop is where this matters most: left to itself, round_trip strings
+        // together whatever is nearby, which around here means farm lanes.
+        val body = JSONObject()
+            .put("profile", "moto")
+            .put("points", JSONArray()
+                .put(JSONArray().put(start.lon).put(start.lat)))
+            .put("algorithm", "round_trip")
+            // Flat hint keys, exactly as in the query string. Nested under a
+            // "round_trip" object they are silently ignored and every loop comes
+            // back as GraphHopper's 10 km default.
+            .put("round_trip.distance", distanceMeters.toInt())
+            .put("round_trip.seed", seed)
+            .put("points_encoded", false)
+            .put("details", JSONArray().put("max_speed"))
+            .put("ch.disable", true)
+            .put("custom_model", JSONObject()
+                .put("priority", preferenceRules(avoidHighways = false, avoidSmallRoads = true)))
+        headingDeg?.let { body.put("heading", JSONArray().put(it.toInt())) }
+        return fetchRoute(config, config.url.trimEnd('/') + "/route", body.toString())
+    }
+
+    /**
+     * Priority rules for the routing preferences, or an empty list when neither
+     * is on. Multipliers, never zero: a house sits on a residential street and
+     * the destination itself may be down a lane, so these roads have to stay
+     * usable — just expensive enough that a route only takes them when there is
+     * no reasonable alternative.
+     */
+    private fun preferenceRules(
+        avoidHighways: Boolean,
+        avoidSmallRoads: Boolean,
+    ): JSONArray {
+        val rules = JSONArray()
+        if (avoidHighways) {
+            rules.put(JSONObject()
+                .put("if", "road_class == MOTORWAY || road_class == TRUNK")
+                .put("multiply_by", 0.05))
+        }
+        if (avoidSmallRoads) {
+            // Belgium's landelijke wegen: narrow, badly surfaced, full of
+            // 90° farm-track corners. Tertiary and up are left alone; the
+            // unclassified layer is where the misery lives, so it takes the
+            // heaviest penalty that still leaves it routable.
+            rules.put(JSONObject()
+                .put("if", "road_class == UNCLASSIFIED || road_class == RESIDENTIAL")
+                .put("multiply_by", 0.2))
+            rules.put(JSONObject()
+                .put("if", "road_class == LIVING_STREET || road_class == SERVICE")
+                .put("multiply_by", 0.1))
+            // Unpaved: never worth it on two wheels or four.
+            rules.put(JSONObject()
+                .put("if", "road_class == TRACK || road_class == PATH")
+                .put("multiply_by", 0.02))
+        }
+        return rules
+    }
 
     /**
      * Turn-by-turn route between two points, for in-app navigation.
-     * [avoidHighways] downgrades motorways/trunks via a query custom model —
-     * only matters for the car profile; moto and bike never use them anyway.
+     * [avoidHighways] downgrades motorways/trunks (only matters for the car
+     * profile; moto and bike never use them anyway); [avoidSmallRoads] pushes
+     * the route onto roads worth driving instead of the nearest lane through a
+     * field. Either one switches to a POST with a custom model, which needs
+     * flexible routing — hence `ch.disable`.
      */
     fun route(
         config: ServerConfig,
@@ -147,8 +211,10 @@ object RoutingServer {
         to: LatLon,
         profile: String,
         avoidHighways: Boolean = false,
+        avoidSmallRoads: Boolean = false,
     ): RouteResult {
-        if (!avoidHighways) {
+        val rules = preferenceRules(avoidHighways, avoidSmallRoads)
+        if (rules.length() == 0) {
             return fetchRoute(
                 config,
                 config.url.trimEnd('/') +
@@ -158,7 +224,6 @@ object RoutingServer {
                     "&points_encoded=false&details=max_speed",
             )
         }
-        // Custom models require a POST request (and flexible routing).
         val body = JSONObject()
             .put("profile", profile)
             .put("points", JSONArray()
@@ -167,10 +232,7 @@ object RoutingServer {
             .put("points_encoded", false)
             .put("details", JSONArray().put("max_speed"))
             .put("ch.disable", true)
-            .put("custom_model", JSONObject().put("priority", JSONArray().put(
-                JSONObject()
-                    .put("if", "road_class == MOTORWAY || road_class == TRUNK")
-                    .put("multiply_by", 0.05))))
+            .put("custom_model", JSONObject().put("priority", rules))
         return fetchRoute(config, config.url.trimEnd('/') + "/route", body.toString())
     }
 

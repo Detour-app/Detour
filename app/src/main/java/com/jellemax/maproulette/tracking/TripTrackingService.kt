@@ -105,7 +105,7 @@ data class Fix(
  */
 class TripTrackingService : Service() {
 
-    private enum class LocationMode { SLEEP, IDLE, PROBE, TRIP }
+    private enum class LocationMode { SLEEP, IDLE, LIVE, PROBE, TRIP }
 
     companion object {
         const val EXTRA_DEST_LAT = "dest_lat"
@@ -160,6 +160,18 @@ class TripTrackingService : Service() {
         /** Trace points not yet flushed to [TraceStore]; live fog-of-war. */
         private val _liveTrace = MutableStateFlow<List<LatLon>>(emptyList())
         val liveTrace: StateFlow<List<LatLon>> = _liveTrace
+
+        /** True while the map is on screen. The batched idle fixes are fine for
+         *  a fog trace but far too slow for a speed readout someone is looking
+         *  at, so a visible map buys navigation-grade updates for as long as it
+         *  is visible — and gives them straight back when it isn't. */
+        private var uiVisible = false
+
+        fun setUiVisible(context: Context, visible: Boolean) {
+            if (uiVisible == visible) return
+            uiVisible = visible
+            refresh(context)
+        }
 
         /** Start (or keep) the always-on tracker in idle mode. */
         fun startMonitoring(context: Context) {
@@ -567,6 +579,9 @@ class TripTrackingService : Service() {
     private fun currentMode(): LocationMode = when {
         _stats.value != null -> LocationMode.TRIP
         probeUntilMs?.let { System.currentTimeMillis() < it } == true -> LocationMode.PROBE
+        // Beats SLEEP: someone watching the map wants a live speed even if
+        // activity recognition still thinks the phone is sitting still.
+        uiVisible -> LocationMode.LIVE
         stationary -> LocationMode.SLEEP
         else -> LocationMode.IDLE
     }
@@ -588,12 +603,18 @@ class TripTrackingService : Service() {
                 .setMaxUpdateDelayMillis(20_000L)
                 .setWaitForAccurateLocation(false)
                 .build()
+        // Same appetite as a trip: the map is open, the screen is on, and the
+        // radio is the small cost next to the display.
+        LocationMode.LIVE, LocationMode.TRIP ->
+            LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1_000L)
+                // GNSS tops out around 1 Hz, but fused will hand over anything
+                // faster it has (sensor-fused, another app's request) instead of
+                // holding it back to the nominal interval.
+                .setMinUpdateIntervalMillis(200L)
+                .setWaitForAccurateLocation(false)
+                .build()
         LocationMode.PROBE ->
             LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 4_000L).build()
-        LocationMode.TRIP ->
-            LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1_000L)
-                .setMinUpdateIntervalMillis(500L)
-                .build()
     }
 
     /** (Re)request location updates matching the current mode. */
