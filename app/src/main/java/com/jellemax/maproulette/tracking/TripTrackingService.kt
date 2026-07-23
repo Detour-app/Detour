@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.sqrt
 
 data class TripStats(
@@ -147,6 +148,9 @@ class TripTrackingService : Service() {
             listOf(TravelMode.WALK, TravelMode.BIKE, TravelMode.CAR, TravelMode.MOTO)
         /** Motion sensors fire ~60x/s; publish stats at 5 Hz. */
         private const val SENSOR_EMIT_INTERVAL_MS = 200L
+        /** Past this the phone is being picked up or repositioned, not leaning
+         *  with the bike, and it must not become the trip's max. */
+        private const val MAX_PLAUSIBLE_LEAN_DEG = 65.0
         /** Floor between boundary lookups, so a drive along a coastline (where
          *  every point misses) can't turn into a stream of Overpass queries. */
         private const val MUNICIPALITY_LOOKUP_COOLDOWN_MS = 60_000L
@@ -246,7 +250,6 @@ class TripTrackingService : Service() {
     }
 
     private val rotationMatrix = FloatArray(9)
-    private val orientationAngles = FloatArray(3)
 
     // Written on the sensor thread, read when the trip is saved.
     @Volatile private var currentLeanDeg = 0.0
@@ -256,11 +259,24 @@ class TripTrackingService : Service() {
     private var lastSensorEmitMs = 0L
 
     /**
-     * Lean angle (roll, from the rotation-vector sensor) and g-force
-     * (accelerometer magnitude) only make sense while a trip is running, so
-     * these sensors are only registered between [beginTrip] and [endTrip].
-     * Lean angle assumes the phone is mounted upright facing forward, e.g. a
-     * handlebar mount — a phone in a pocket will read garbage.
+     * Lean angle (from the rotation-vector sensor) and g-force (accelerometer
+     * magnitude) only make sense while a trip is running, so these sensors are
+     * only registered between [beginTrip] and [endTrip]. Lean angle assumes the
+     * phone is mounted upright facing forward, e.g. a handlebar mount — a phone
+     * in a pocket will read garbage.
+     *
+     * Lean is *not* [SensorManager.getOrientation]'s roll. That roll is only
+     * defined for a phone lying flattish: a phone standing upright sits exactly
+     * on its gimbal-lock singularity (pitch -90°), where roll degenerates and
+     * reads ±180° regardless of how the bike is leaning — which is why every
+     * ride recorded a max lean of about 180°.
+     *
+     * The gravity direction has no such singularity. The rotation matrix's
+     * third row is world-up expressed in device axes, so the angle between it
+     * and the device's own up axis, about the axis out of the screen, is the
+     * lean: 0 with the phone upright, positive leaning right. A mount tilted
+     * back towards the rider only moves gravity along that third axis, so it
+     * does not bias the reading.
      */
     private val sensorListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
@@ -268,9 +284,17 @@ class TripTrackingService : Service() {
             when (event.sensor.type) {
                 Sensor.TYPE_ROTATION_VECTOR -> {
                     SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-                    SensorManager.getOrientation(rotationMatrix, orientationAngles)
-                    currentLeanDeg = Math.toDegrees(orientationAngles[2].toDouble())
-                    maxLeanDeg = maxOf(maxLeanDeg, abs(currentLeanDeg))
+                    // Third row of the rotation matrix = world up in device axes.
+                    // Negated x so a lean to the right reads positive: tipping
+                    // right moves gravity towards the device's -x side.
+                    val upX = -rotationMatrix[6]
+                    val upY = rotationMatrix[7]
+                    currentLeanDeg = Math.toDegrees(atan2(upX, upY).toDouble())
+                    // Anything past this is the phone being handled, not a lean
+                    // — nobody rides at 70° and gets to record it.
+                    if (abs(currentLeanDeg) <= MAX_PLAUSIBLE_LEAN_DEG) {
+                        maxLeanDeg = maxOf(maxLeanDeg, abs(currentLeanDeg))
+                    }
                 }
                 Sensor.TYPE_ACCELEROMETER -> {
                     val (x, y, z) = event.values

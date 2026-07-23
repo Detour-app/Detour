@@ -8,3 +8,6 @@ local.properties
 # Python bytecode from the sync server
 __pycache__/
 *.pyc
+
+# Phone data pulled off the device before reinstalling (adb run-as tar)
+.backup-*/

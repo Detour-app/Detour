@@ -239,15 +239,35 @@ private const val CAMERA_WARN_METERS = 400.0
 // leaving a trajectcontrole average-speed measurement.
 private const val SECTION_GATE_METERS = 60.0
 
-/** Straight-line span of a section, its longest device-to-device distance —
- *  the yardstick for deciding we've overshot the far end. */
-private fun sectionLengthMeters(devices: List<LatLon>): Double {
-    var max = 0.0
-    for (i in devices.indices) for (j in i + 1 until devices.size) {
-        val d = RoadRoulette.distanceMeters(devices[i], devices[j])
-        if (d > max) max = d
+// How far off your heading the far end of a section may lie and still count as
+// driving into it. Wide, because a long section can curve away — it only has to
+// separate "the other end is ahead of me" from "behind me, I'm on my way out".
+private const val SECTION_WEDGE_DEG = 75.0
+
+/**
+ * The far end of [section], if this fix is entering it: within the gate of one
+ * end and heading towards the other. Null otherwise.
+ *
+ * The heading test is what makes the gate mean "driving the section". Passing a
+ * device node says nothing on its own — you pass one on the way *out* too, and
+ * on every side street that crosses one — and matching on that alone used to
+ * start a measurement as you left a section, which is what put an average on
+ * screen after the trajectcontrole instead of during it.
+ */
+private fun sectionExitGate(
+    section: SpeedCameras.Section,
+    pos: LatLon,
+    headingDeg: Double,
+): List<LatLon>? {
+    fun atGate(end: List<LatLon>) =
+        end.any { RoadRoulette.distanceMeters(pos, it) < SECTION_GATE_METERS }
+    fun ahead(end: List<LatLon>) =
+        end.any { RoadRoulette.withinWedge(pos, it, headingDeg, SECTION_WEDGE_DEG) }
+    return when {
+        atGate(section.endA) && ahead(section.endB) -> section.endB
+        atGate(section.endB) && ahead(section.endA) -> section.endA
+        else -> null
     }
-    return max
 }
 
 /** One color per spin candidate, so the pin on the map and the row in the card
@@ -843,13 +863,14 @@ fun MapScreen(
         }
     }
 
-    // Average speed through a trajectcontrole. Enter near a section's device
-    // node, then integrate GPS distance over elapsed time until we reach the
-    // far device (or overshoot / time out). The average is what the section
+    // Average speed through a trajectcontrole. Enter at one end heading for the
+    // other, then integrate GPS distance over elapsed time until we pass that
+    // far end (or overshoot / time out). The average is what the section
     // actually measures, so it's the number worth seeing while inside one.
     val speedSectionsRef = rememberUpdatedState(speedSections)
     LaunchedEffect(Unit) {
         var active: SpeedCameras.Section? = null
+        var exitGate: List<LatLon> = emptyList()
         var entryMs = 0L
         var accMeters = 0.0
         var last: LatLon? = null
@@ -859,16 +880,26 @@ fun MapScreen(
             val now = System.currentTimeMillis()
             val current = active
             if (current == null) {
-                val entered = speedSectionsRef.value.firstOrNull { s ->
-                    s.devices.any { RoadRoulette.distanceMeters(pos, it) < SECTION_GATE_METERS }
-                }
-                if (entered != null && fix.speedMps > 2.0) {
-                    active = entered
+                // Below 2 m/s the bearing is noise, so a stopped phone can't
+                // heading-test its way into a section.
+                val heading = fix.bearingDeg?.toDouble()
+                    ?.takeIf { fix.speedMps > 2.0 } ?: return@collect
+                // Nearest match, not the first: the two directions of one
+                // trajectcontrole are separate relations sharing a location, and
+                // a short section can sit inside a longer one.
+                val entered = speedSectionsRef.value
+                    .mapNotNull { s -> sectionExitGate(s, pos, heading)?.let { s to it } }
+                    .minByOrNull { (s, _) ->
+                        (s.endA + s.endB).minOf { RoadRoulette.distanceMeters(pos, it) }
+                    }
+                if (entered != null) {
+                    active = entered.first
+                    exitGate = entered.second
                     entryMs = now
                     accMeters = 0.0
                     last = pos
                     sectionAvgKmh = null
-                    sectionLimitKmh = entered.maxspeedKmh
+                    sectionLimitKmh = entered.first.maxspeedKmh
                 }
             } else {
                 last?.let { accMeters += RoadRoulette.distanceMeters(it, pos) }
@@ -877,16 +908,16 @@ fun MapScreen(
                 if (elapsedHours > 0 && accMeters > 20.0) {
                     sectionAvgKmh = (accMeters / 1000.0) / elapsedHours
                 }
-                // Sections can have intermediate device nodes; only treat passing
-                // one as the end once we've covered most of the span, so an early
-                // point doesn't stop the measurement short.
-                val length = sectionLengthMeters(current.devices)
-                val reachedEnd = accMeters > maxOf(150.0, length * 0.8) &&
-                    current.devices.any { RoadRoulette.distanceMeters(pos, it) < SECTION_GATE_METERS }
-                val overshot = accMeters > length * 1.4 + 400.0
+                // Only the end we drove in towards ends the measurement. The
+                // 150 m floor keeps the gate we entered through from counting as
+                // the exit on the fix right after entering.
+                val reachedEnd = accMeters > 150.0 &&
+                    exitGate.any { RoadRoulette.distanceMeters(pos, it) < SECTION_GATE_METERS }
+                val overshot = accMeters > current.spanMeters * 1.4 + 400.0
                 val timedOut = now - entryMs > 30 * 60_000L
                 if (reachedEnd || overshot || timedOut) {
                     active = null
+                    exitGate = emptyList()
                     last = null
                     sectionAvgKmh = null
                     sectionLimitKmh = null
