@@ -216,7 +216,7 @@ class TripTrackingService : Service() {
     private var lastLocation: Location? = null
     private var destLat: Double? = null
     private var destLon: Double? = null
-    private val tracePoints = ArrayList<LatLon>()
+    private val tracePoints = ArrayList<TraceStore.TracePoint>()
     private var origin: LatLon? = null
     private var awayFromOrigin = false
 
@@ -256,6 +256,11 @@ class TripTrackingService : Service() {
     @Volatile private var maxLeanDeg = 0.0
     @Volatile private var currentG = 0.0
     @Volatile private var maxG = 0.0
+    /** Deepest lean since the last trace point, sign kept; see [addTracePoint]. */
+    @Volatile private var segmentPeakLeanDeg = 0.0
+    /** Whether this vehicle's lean is being measured at all — a car's points
+     *  record no lean rather than a misleading zero. */
+    @Volatile private var leanTracked = false
     private var lastSensorEmitMs = 0L
 
     /**
@@ -294,6 +299,9 @@ class TripTrackingService : Service() {
                     // — nobody rides at 70° and gets to record it.
                     if (abs(currentLeanDeg) <= MAX_PLAUSIBLE_LEAN_DEG) {
                         maxLeanDeg = maxOf(maxLeanDeg, abs(currentLeanDeg))
+                        if (abs(currentLeanDeg) > abs(segmentPeakLeanDeg)) {
+                            segmentPeakLeanDeg = currentLeanDeg
+                        }
                     }
                 }
                 Sensor.TYPE_ACCELEROMETER -> {
@@ -326,9 +334,11 @@ class TripTrackingService : Service() {
     private fun startMotionSensors(mode: TravelMode) {
         // SENSOR_DELAY_UI (~60ms) resolves a lean or a braking spike just as well
         // as SENSOR_DELAY_GAME (~20ms) and wakes the CPU a third as often.
+        leanTracked = false
         if (mode.tracksLean) {
             sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let {
                 sensorManager.registerListener(sensorListener, it, SensorManager.SENSOR_DELAY_UI)
+                leanTracked = true
             }
         }
         if (mode.tracksGForce) {
@@ -340,6 +350,8 @@ class TripTrackingService : Service() {
 
     private fun stopMotionSensors() {
         sensorManager.unregisterListener(sensorListener)
+        leanTracked = false
+        segmentPeakLeanDeg = 0.0
     }
 
     // --- Bluetooth vehicle auto-detect -------------------------------------
@@ -763,7 +775,8 @@ class TripTrackingService : Service() {
     /** Idle/probe/sleep: extend the explored trace, watch for a drive starting. */
     private fun onIdleLocation(location: Location, speed: Double) {
         if (location.accuracy <= 50f) {
-            addTracePoint(LatLon(location.latitude, location.longitude))
+            addTracePoint(
+                LatLon(location.latitude, location.longitude), location.time, speed)
         }
         if (!Settings.autoDetectDrives.value) {
             resetStartDetector()
@@ -825,7 +838,7 @@ class TripTrackingService : Service() {
 
         if (location.accuracy <= 50f) {
             val p = LatLon(location.latitude, location.longitude)
-            addTracePoint(p)
+            addTracePoint(p, location.time, speed)
 
             // Auto-stop when back at the starting point after a real trip.
             if (origin == null) origin = p
@@ -886,18 +899,34 @@ class TripTrackingService : Service() {
         return last.distanceTo(location) / dtSec
     }
 
-    /** Trace for the fog-of-war map, decimated to ~25 m spacing. */
-    private fun addTracePoint(p: LatLon) {
-        val lastTrace = tracePoints.lastOrNull()
+    /**
+     * Trace for the fog-of-war map, decimated to ~25 m spacing, now carrying
+     * what the ride was doing at each point as well as where it was.
+     *
+     * Lean is the peak since the previous point, not the reading at this
+     * instant: points are 25 m apart, which is a whole corner at town speed, and
+     * the deepest lean through it is the interesting number. Sign is kept, so
+     * the peak is the largest magnitude with its direction intact.
+     */
+    private fun addTracePoint(p: LatLon, timeMs: Long, speedMps: Double) {
+        val lastTrace = tracePoints.lastOrNull()?.at
         if (lastTrace != null) {
             val gap = RoadRoulette.distanceMeters(lastTrace, p)
             if (gap < 25.0) return
             // Big jump (location off for a while): close this segment first.
             if (gap > 500.0) flushTrace()
         }
-        tracePoints.add(p)
+        tracePoints.add(
+            TraceStore.TracePoint(
+                at = p,
+                timeMs = timeMs,
+                speedKmh = speedMps * 3.6,
+                leanDeg = if (leanTracked) segmentPeakLeanDeg else null,
+            )
+        )
+        segmentPeakLeanDeg = 0.0
         if (tracePoints.size >= 200) flushTrace(keepLast = true)
-        _liveTrace.value = tracePoints.toList()
+        _liveTrace.value = tracePoints.map { it.at }
         maybeDiscoverMunicipality(p)
     }
 
@@ -931,7 +960,7 @@ class TripTrackingService : Service() {
         val last = tracePoints.lastOrNull()
         tracePoints.clear()
         if (keepLast && last != null) tracePoints.add(last)
-        _liveTrace.value = tracePoints.toList()
+        _liveTrace.value = tracePoints.map { it.at }
     }
 
     override fun onDestroy() {

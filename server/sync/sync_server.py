@@ -28,14 +28,25 @@ Protocol
   POST /friends/remove  {username}              -> {}
   GET  /friends/stats                           -> [{username, stats, badges}]
   GET  /friends/fog                             -> {sharing, traces: [line, …]}
+  GET  /ha/rides?key=[&limit=]                  -> {rides: [{startMs, maxLeanDeg, …}]}
+  GET  /ha/ride.geojson?key=&start=             -> GeoJSON, one Feature per segment
+  GET  /ha/ride.html?key=[&start=]              -> Leaflet page, path coloured by lean
 
-Everything except /health and /auth/* needs `Authorization: Bearer <token>`.
+Everything except /health, /auth/* and /ha/* needs `Authorization: Bearer
+<token>`. The /ha/* endpoints are read-only and take an API key instead
+(?key= or X-API-Key), so a Home Assistant config never holds a login token.
 
 Merging is idempotent:
   - trips key on (user, startTimeMs); a re-upload updates the stored copy, so
     an edit like a corrected vehicle mode propagates instead of being ignored;
   - traces deduplicate on (user, sha256 of the line);
   - badges keep the *earliest* earnedAtMs seen for each id.
+
+Trace lines are `[[lat, lon, tMs, speedKmh, leanDeg], …]`. Lines that arrive
+new are also unpacked into track_points, one row per recorded point, which is
+what the /ha/* endpoints read. Points are tied to a ride by timestamp: a trace
+line carries no trip id, so t_ms between a trip's start and end is the join.
+Older two-element points predate this and stay fog-only.
 
 Auth notes
   - Passwords: PBKDF2-HMAC-SHA256, per-user random salt, ITERATIONS rounds.
@@ -53,6 +64,8 @@ Python 3.8+ stdlib only. DATA_DIR env var sets the storage directory.
 CLI:
   python3 sync_server.py                      run the server
   python3 sync_server.py --import-legacy USER import old trips.json/traces.jsonl
+  python3 sync_server.py --api-key USER [LABEL]   mint a read-only dashboard key
+  python3 sync_server.py --backfill-points USER   re-unpack traces into points
 """
 import hashlib
 import hmac
@@ -65,6 +78,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_FILE = os.path.join(DATA_DIR, "maproulette.db")
@@ -163,6 +177,28 @@ def init_db():
             line      TEXT NOT NULL,
             PRIMARY KEY (user_id, line_hash)
         );
+        -- Trace lines unpacked into one row per recorded point, so Home
+        -- Assistant can ask for a ride's speed and lean without parsing
+        -- JSONL. Filled on sync from points that carry a timestamp; older
+        -- two-element points have nothing to unpack and stay fog-only.
+        CREATE TABLE IF NOT EXISTS track_points (
+            user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            t_ms      INTEGER NOT NULL,
+            lat       REAL NOT NULL,
+            lon       REAL NOT NULL,
+            speed_kmh REAL,
+            lean_deg  REAL,
+            PRIMARY KEY (user_id, t_ms)
+        );
+        -- Read-only keys for dashboards. Separate from tokens: a key pasted
+        -- into a Home Assistant config can only read, and revoking it does
+        -- not sign the phone out.
+        CREATE TABLE IF NOT EXISTS api_keys (
+            key_hash   TEXT PRIMARY KEY,
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            label      TEXT NOT NULL,
+            created_ms INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS saved_places (
             user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             place_id INTEGER NOT NULL,
@@ -180,6 +216,7 @@ def init_db():
             PRIMARY KEY (low_id, high_id)
         );
         CREATE INDEX IF NOT EXISTS idx_tokens_user ON tokens(user_id);
+        CREATE INDEX IF NOT EXISTS idx_points_user_t ON track_points(user_id, t_ms);
         """
     )
     # Added after the first release; CREATE TABLE IF NOT EXISTS won't add it to
@@ -351,6 +388,35 @@ def clean_badges(raw):
     return out
 
 
+def store_points(conn, uid, points):
+    """Unpack one trace line's `[lat, lon, tMs, speedKmh, leanDeg]` points.
+
+    Anything shorter is a pre-timestamp point: it still draws fog, but there is
+    no instant to hang it on, so it is skipped here rather than stored with a
+    made-up time. Bad values are dropped point by point — one broken reading
+    must not cost the whole ride.
+    """
+    rows = []
+    for p in points:
+        if not isinstance(p, list) or len(p) < 3:
+            continue
+        try:
+            lat, lon, t_ms = float(p[0]), float(p[1]), int(p[2])
+            speed = float(p[3]) if len(p) > 3 and p[3] is not None else None
+            lean = float(p[4]) if len(p) > 4 and p[4] is not None else None
+        except (TypeError, ValueError):
+            continue
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180 and t_ms > 0):
+            continue
+        rows.append((uid, t_ms, lat, lon, speed, lean))
+    if rows:
+        conn.executemany(
+            "INSERT OR IGNORE INTO track_points"
+            " (user_id, t_ms, lat, lon, speed_kmh, lean_deg) VALUES (?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+
+
 def do_sync(user, body):
     uid = user["id"]
     trips_in = body.get("trips") or []
@@ -398,11 +464,16 @@ def do_sync(user, body):
             line = str(line).strip()
             if not line:
                 continue
-            json.loads(line)  # reject broken lines instead of storing them
-            conn.execute(
+            points = json.loads(line)  # reject broken lines instead of storing them
+            cur = conn.execute(
                 "INSERT OR IGNORE INTO traces (user_id, line_hash, line) VALUES (?, ?, ?)",
                 (uid, hashlib.sha256(line.encode()).hexdigest(), line),
             )
+            # Every sync re-uploads every line it holds, so unpacking on the
+            # IGNORE path would re-parse the whole history each time. Only a
+            # line that was actually new here has points worth inserting.
+            if cur.rowcount:
+                store_points(conn, uid, points)
         for place in places_in:
             if not isinstance(place, dict) or "id" not in place:
                 raise HttpError(400, "saved place missing id")
@@ -609,6 +680,210 @@ def friend_fog(user):
 
 
 # --------------------------------------------------------------------------
+# home assistant (read-only, API key)
+
+
+def api_key_user(params):
+    """The user behind an API key, from ?key= or the X-API-Key header.
+
+    A dashboard iframe can only carry the key in the URL, which is why the
+    query form exists — and why these keys read and nothing else.
+    """
+    raw = (params.get("key") or [""])[0]
+    if not raw:
+        raise HttpError(401, "missing api key")
+    row = db().execute(
+        "SELECT u.* FROM api_keys k JOIN users u ON u.id = k.user_id"
+        " WHERE k.key_hash = ?",
+        (token_hash(raw),),
+    ).fetchone()
+    if row is None:
+        raise HttpError(401, "invalid api key")
+    return row
+
+
+def ride_window(uid, start_ms):
+    """A trip's (start, end) in ms, for slicing points out of the track."""
+    row = db().execute(
+        "SELECT json FROM trips WHERE user_id = ? AND start_ms = ?", (uid, start_ms)
+    ).fetchone()
+    if row is None:
+        raise HttpError(404, "no such ride")
+    trip = json.loads(row["json"])
+    end = int(trip.get("endTimeMs") or 0)
+    if end <= start_ms:
+        # A trip that never recorded an end still has points; give it the
+        # longest plausible ride rather than an empty window.
+        end = start_ms + 24 * 3600 * 1000
+    return trip, end
+
+
+def ride_points(uid, start_ms, end_ms):
+    return [
+        dict(t=r["t_ms"], lat=r["lat"], lon=r["lon"],
+             speed=r["speed_kmh"], lean=r["lean_deg"])
+        for r in db().execute(
+            "SELECT t_ms, lat, lon, speed_kmh, lean_deg FROM track_points"
+            " WHERE user_id = ? AND t_ms BETWEEN ? AND ? ORDER BY t_ms",
+            (uid, start_ms, end_ms),
+        )
+    ]
+
+
+def ha_rides(user, params):
+    """Rides newest first, with the lean and speed peaks the points actually
+    hold. maxLeanDeg is null for a ride recorded before points carried lean —
+    honestly unknown, rather than a zero that reads as "never leaned"."""
+    uid = user["id"]
+    try:
+        limit = min(int((params.get("limit") or ["25"])[0]), 200)
+    except ValueError:
+        limit = 25
+    out = []
+    for r in db().execute(
+        "SELECT json FROM trips WHERE user_id = ? ORDER BY start_ms DESC LIMIT ?",
+        (uid, limit),
+    ):
+        trip = json.loads(r["json"])
+        start = int(trip.get("startTimeMs") or 0)
+        if not start:
+            continue
+        end = int(trip.get("endTimeMs") or 0) or start + 24 * 3600 * 1000
+        agg = db().execute(
+            "SELECT COUNT(*) AS n, MAX(ABS(lean_deg)) AS lean, MAX(speed_kmh) AS speed"
+            " FROM track_points WHERE user_id = ? AND t_ms BETWEEN ? AND ?",
+            (uid, start, end),
+        ).fetchone()
+        out.append({
+            "startMs": start,
+            "endMs": int(trip.get("endTimeMs") or 0),
+            "mode": trip.get("mode"),
+            "distanceKm": round((trip.get("distanceMeters") or 0) / 1000.0, 2),
+            "topSpeedKmh": round((trip.get("topSpeedMps") or 0) * 3.6, 1),
+            "maxLeanDeg": round(agg["lean"], 1) if agg["lean"] is not None else None,
+            "maxGForce": trip.get("maxGForce"),
+            "pointCount": agg["n"],
+            "map": "/ha/ride.html?start=%d" % start,
+        })
+    return {"rides": out}
+
+
+def ha_ride(user, params):
+    """One ride as GeoJSON: a Feature per segment, carrying the speed and lean
+    recorded at its far end. Per-segment rather than one line, because a line
+    can only be one colour — and colouring by lean is the whole point."""
+    uid = user["id"]
+    start = int((params.get("start") or ["0"])[0])
+    trip, end = ride_window(uid, start)
+    pts = ride_points(uid, start, end)
+    features = []
+    for a, b in zip(pts, pts[1:]):
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [[a["lon"], a["lat"]], [b["lon"], b["lat"]]],
+            },
+            "properties": {"tMs": b["t"], "speedKmh": b["speed"], "leanDeg": b["lean"]},
+        })
+    leans = [abs(p["lean"]) for p in pts if p["lean"] is not None]
+    return {
+        "type": "FeatureCollection",
+        "features": features,
+        "properties": {
+            "startMs": start,
+            "mode": trip.get("mode"),
+            "distanceKm": round((trip.get("distanceMeters") or 0) / 1000.0, 2),
+            "maxLeanDeg": round(max(leans), 1) if leans else None,
+            "pointCount": len(pts),
+        },
+    }
+
+
+# Leaflet comes from a CDN: the dashboard embedding this already needs the
+# internet for map tiles, and vendoring a copy here would be a second thing to
+# keep patched.
+RIDE_HTML = """<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ride %(start)s</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  html, body, #map { height: 100%%; margin: 0; background: #11131a; }
+  .legend { background: rgba(20,22,30,.85); color: #eee; padding: 8px 10px;
+            font: 12px system-ui, sans-serif; border-radius: 6px; }
+  .legend b { display: block; margin-bottom: 4px; font-weight: 600; }
+  .bar { width: 160px; height: 10px; border-radius: 5px; margin: 4px 0;
+         background: linear-gradient(90deg,#2f6fed,#5b8def,#9aa4b2,#ef8a5b,#e2402a); }
+  .ends { display: flex; justify-content: space-between; }
+</style>
+<div id="map"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const data = %(geojson)s;
+const MAX_LEAN = 45;
+// Diverging: blue leaning left, red leaning right, grey upright. Segments with
+// no lean recorded (a car, or a ride from before lean was stored) stay grey.
+function colour(lean) {
+  if (lean === null || lean === undefined) return '#9aa4b2';
+  const t = Math.max(-1, Math.min(1, lean / MAX_LEAN));
+  const mix = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
+  const grey = [154, 164, 178];
+  const rgb = t < 0 ? mix(grey, [47, 111, 237], -t) : mix(grey, [226, 64, 42], t);
+  return 'rgb(' + rgb.join(',') + ')';
+}
+const map = L.map('map', { zoomControl: true });
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; OpenStreetMap'
+}).addTo(map);
+const layer = L.geoJSON(data, {
+  style: f => ({ color: colour(f.properties.leanDeg), weight: 6, opacity: 0.95 }),
+  onEachFeature: (f, l) => {
+    const p = f.properties;
+    l.bindTooltip(
+      (p.leanDeg === null ? 'lean n/a' : p.leanDeg.toFixed(0) + '\\u00b0 lean') +
+      ' \\u00b7 ' + (p.speedKmh === null ? '?' : p.speedKmh.toFixed(0)) + ' km/h');
+  }
+}).addTo(map);
+if (data.features.length) map.fitBounds(layer.getBounds(), { padding: [20, 20] });
+else map.setView([50.85, 4.35], 9);
+const legend = L.control({ position: 'bottomright' });
+legend.onAdd = () => {
+  const d = L.DomUtil.create('div', 'legend');
+  const max = data.properties.maxLeanDeg;
+  d.innerHTML = '<b>Lean' + (max === null ? '' : ' \\u00b7 max ' + max + '\\u00b0') +
+    '</b><div class="bar"></div><div class="ends"><span>left ' + MAX_LEAN +
+    '\\u00b0</span><span>right ' + MAX_LEAN + '\\u00b0</span></div>';
+  return d;
+};
+legend.addTo(map);
+</script>
+"""
+
+
+def ha_ride_html(user, params):
+    start = int((params.get("start") or ["0"])[0])
+    if not start:
+        # No ride named: the newest one is what a dashboard card wants.
+        row = db().execute(
+            "SELECT start_ms FROM trips WHERE user_id = ? ORDER BY start_ms DESC LIMIT 1",
+            (user["id"],),
+        ).fetchone()
+        if row is None:
+            raise HttpError(404, "no rides")
+        start = row["start_ms"]
+        params = dict(params, start=[str(start)])
+    geo = ha_ride(user, params)
+    return RIDE_HTML % {"start": start, "geojson": json.dumps(geo)}
+
+
+HA_GET = {
+    "/ha/rides": ha_rides,
+    "/ha/ride.geojson": ha_ride,
+}
+
+
+# --------------------------------------------------------------------------
 # http
 
 
@@ -628,11 +903,17 @@ class Handler(BaseHTTPRequestHandler):
         return self.headers.get("CF-Connecting-IP") or self.address_string()
 
     def do_GET(self):
-        if self.path == "/health":
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path == "/health":
             self._reply(200, b"ok", "text/plain")
             return
         try:
-            handler = AUTHED_GET.get(self.path)
+            params = parse_qs(parsed.query)
+            if path.startswith("/ha/"):
+                self._ha(path, params)
+                return
+            handler = AUTHED_GET.get(path)
             if handler is None:
                 raise HttpError(404, "not found")
             self._json(200, handler(authenticate(self.headers)))
@@ -669,6 +950,21 @@ class Handler(BaseHTTPRequestHandler):
             self._json(500, {"error": "internal error"})
             print("ERROR %s: %r" % (self.path, e))
 
+    def _ha(self, path, params):
+        # The header form exists for REST sensors, which can send one; iframes
+        # can't, so ?key= has to work too.
+        header_key = self.headers.get("X-API-Key")
+        if header_key and "key" not in params:
+            params = dict(params, key=[header_key])
+        user = api_key_user(params)
+        if path == "/ha/ride.html":
+            self._reply(200, ha_ride_html(user, params).encode(), "text/html")
+            return
+        handler = HA_GET.get(path)
+        if handler is None:
+            raise HttpError(404, "not found")
+        self._json(200, handler(user, params))
+
     def _body(self):
         length = int(self.headers.get("Content-Length", 0))
         if length == 0:
@@ -688,11 +984,63 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, fmt, *args):
-        print("%s %s" % (self.address_string(), fmt % args))
+        # Dashboard URLs carry the API key in the query string; a log file is
+        # not a place to keep credentials.
+        line = re.sub(r"key=[^&\s]+", "key=REDACTED", fmt % args)
+        print("%s %s" % (self.address_string(), line))
 
 
 # --------------------------------------------------------------------------
 # cli
+
+
+def mint_api_key(username, label="home-assistant"):
+    """Issue a read-only key for a dashboard. Printed once; only its hash is
+    stored, exactly like a login token."""
+    user = find_user(username)
+    if user is None:
+        print("No such user: %s" % username)
+        return 1
+    raw = secrets.token_urlsafe(TOKEN_BYTES)
+    with _write_lock:
+        conn = db()
+        conn.execute(
+            "INSERT INTO api_keys (key_hash, user_id, label, created_ms)"
+            " VALUES (?, ?, ?, ?)",
+            (token_hash(raw), user["id"], label or "home-assistant", now_ms()),
+        )
+        conn.commit()
+    print("API key for %s (%s):\n%s" % (username, label, raw))
+    print("Store it now — it is not recoverable.")
+    return 0
+
+
+def backfill_points(username):
+    """Re-unpack every stored trace line into track_points.
+
+    Sync only unpacks lines it has just inserted, so this is the way back if the
+    table is ever cleared or a line landed before points were a thing.
+    """
+    user = find_user(username)
+    if user is None:
+        print("No such user: %s" % username)
+        return 1
+    uid = user["id"]
+    lines = 0
+    with _write_lock:
+        conn = db()
+        for row in conn.execute("SELECT line FROM traces WHERE user_id = ?", (uid,)):
+            try:
+                store_points(conn, uid, json.loads(row["line"]))
+            except (ValueError, TypeError):
+                continue
+            lines += 1
+        conn.commit()
+    total = db().execute(
+        "SELECT COUNT(*) AS n FROM track_points WHERE user_id = ?", (uid,)
+    ).fetchone()["n"]
+    print("Scanned %d trace lines; %s now holds %d points." % (lines, username, total))
+    return 0
 
 
 def import_legacy(username):
@@ -736,6 +1084,12 @@ if __name__ == "__main__":
 
     if len(sys.argv) > 2 and sys.argv[1] == "--import-legacy":
         raise SystemExit(import_legacy(sys.argv[2]))
+
+    if len(sys.argv) > 2 and sys.argv[1] == "--api-key":
+        raise SystemExit(mint_api_key(sys.argv[2], *sys.argv[3:4]))
+
+    if len(sys.argv) > 2 and sys.argv[1] == "--backfill-points":
+        raise SystemExit(backfill_points(sys.argv[2]))
 
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8790"))
