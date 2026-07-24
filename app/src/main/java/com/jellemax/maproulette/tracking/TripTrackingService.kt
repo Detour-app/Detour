@@ -151,6 +151,12 @@ class TripTrackingService : Service() {
         /** Past this the phone is being picked up or repositioned, not leaning
          *  with the bike, and it must not become the trip's max. */
         private const val MAX_PLAUSIBLE_LEAN_DEG = 65.0
+        /** Low-pass factor for lean/G-force: a pothole or engine vibration hits
+         *  the handlebar mount at a far higher frequency than a real lean or
+         *  braking/cornering load, so an unfiltered sample can spike the max
+         *  well past anything the bike actually did. Smaller = more smoothing. */
+        private const val LEAN_EMA_ALPHA = 0.3
+        private const val G_EMA_ALPHA = 0.15
         /** Floor between boundary lookups, so a drive along a coastline (where
          *  every point misses) can't turn into a stream of Overpass queries. */
         private const val MUNICIPALITY_LOOKUP_COOLDOWN_MS = 60_000L
@@ -262,6 +268,10 @@ class TripTrackingService : Service() {
      *  record no lean rather than a misleading zero. */
     @Volatile private var leanTracked = false
     private var lastSensorEmitMs = 0L
+    /** Mount-to-bike misalignment, subtracted from every raw lean reading;
+     *  see [Settings.leanOffsetDeg]. Cached at trip start — it only changes
+     *  from the settings screen, never mid-trip. */
+    private var leanOffsetDeg = 0.0
 
     /**
      * Lean angle (from the rotation-vector sensor) and g-force (accelerometer
@@ -294,7 +304,10 @@ class TripTrackingService : Service() {
                     // right moves gravity towards the device's -x side.
                     val upX = -rotationMatrix[6]
                     val upY = rotationMatrix[7]
-                    currentLeanDeg = Math.toDegrees(atan2(upX, upY).toDouble())
+                    val rawLeanDeg = Math.toDegrees(atan2(upX, upY).toDouble()) - leanOffsetDeg
+                    // Smoothed first: a single vibration-noise sample must not
+                    // reach the max/threshold check below on its own.
+                    currentLeanDeg += LEAN_EMA_ALPHA * (rawLeanDeg - currentLeanDeg)
                     // Anything past this is the phone being handled, not a lean
                     // — nobody rides at 70° and gets to record it.
                     if (abs(currentLeanDeg) <= MAX_PLAUSIBLE_LEAN_DEG) {
@@ -306,8 +319,9 @@ class TripTrackingService : Service() {
                 }
                 Sensor.TYPE_ACCELEROMETER -> {
                     val (x, y, z) = event.values
-                    currentG = sqrt((x * x + y * y + z * z).toDouble()) /
+                    val rawG = sqrt((x * x + y * y + z * z).toDouble()) /
                         SensorManager.GRAVITY_EARTH
+                    currentG += G_EMA_ALPHA * (rawG - currentG)
                     maxG = maxOf(maxG, currentG)
                 }
             }
@@ -336,6 +350,7 @@ class TripTrackingService : Service() {
         // as SENSOR_DELAY_GAME (~20ms) and wakes the CPU a third as often.
         leanTracked = false
         if (mode.tracksLean) {
+            leanOffsetDeg = Settings.leanOffsetDeg.value.toDouble()
             sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let {
                 sensorManager.registerListener(sensorListener, it, SensorManager.SENSOR_DELAY_UI)
                 leanTracked = true

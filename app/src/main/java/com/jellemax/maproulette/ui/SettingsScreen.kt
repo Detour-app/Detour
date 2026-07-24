@@ -4,6 +4,10 @@ import android.Manifest
 import android.bluetooth.BluetoothManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -40,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,8 +73,10 @@ import com.jellemax.maproulette.data.SyncClient
 import com.jellemax.maproulette.data.TraceStore
 import com.jellemax.maproulette.tracking.TripTrackingService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.atan2
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -152,6 +159,8 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
 
             VehicleSection()
+
+            LeanCalibrationSection()
 
             SettingsSection("Navigation") {
                 Row(
@@ -688,6 +697,85 @@ private fun VehicleSection() {
                 TextButton(onClick = { addTarget = null }) { Text("Close") }
             },
         )
+    }
+}
+
+/**
+ * Corrects for a handlebar mount that isn't perfectly plumb with the bike:
+ * left uncalibrated, that tilt adds a constant offset to every lean reading
+ * (a rider going dead straight would see a nonzero lean). Sampled with the
+ * bike upright and the engine off — it's a fixed mechanical misalignment
+ * between phone and bike, not something that needs capturing on the move.
+ */
+@Composable
+private fun LeanCalibrationSection() {
+    val context = LocalContext.current
+    val offsetDeg by Settings.leanOffsetDeg.collectAsStateWithLifecycle()
+    var calibrating by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf<String?>(null) }
+
+    if (calibrating) {
+        LaunchedEffect(Unit) {
+            val sensorManager = context.getSystemService(SensorManager::class.java)
+            val sensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+            if (sensor == null) {
+                status = "No rotation sensor on this phone"
+                calibrating = false
+                return@LaunchedEffect
+            }
+            val samples = mutableListOf<Double>()
+            val rotationMatrix = FloatArray(9)
+            val listener = object : SensorEventListener {
+                override fun onSensorChanged(event: SensorEvent) {
+                    SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+                    // Same formula as TripTrackingService's sensorListener —
+                    // raw, uncorrected angle; that's what we're solving for.
+                    val upX = -rotationMatrix[6]
+                    val upY = rotationMatrix[7]
+                    samples += Math.toDegrees(atan2(upX, upY).toDouble())
+                }
+                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+            }
+            sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
+            delay(2000)
+            sensorManager.unregisterListener(listener)
+            status = if (samples.isNotEmpty()) {
+                val avg = samples.average()
+                Settings.setLeanOffsetDeg(avg.toFloat())
+                "Calibrated: offset %.1f°".format(avg)
+            } else {
+                "No readings — try again"
+            }
+            calibrating = false
+        }
+    }
+
+    SettingsSection("Vehicle mounting") {
+        Text(
+            "Corrects for a mount that isn't perfectly upright on the " +
+                "handlebar, so straight-line riding reads as 0° lean. " +
+                "Sit the bike upright on its wheels, engine off, phone " +
+                "in its normal mount, then calibrate.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "Current offset: %.1f°".format(offsetDeg),
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Bold,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(
+                enabled = !calibrating,
+                onClick = { status = null; calibrating = true },
+            ) { Text(if (calibrating) "Calibrating…" else "Calibrate") }
+            if (offsetDeg != 0f) {
+                TextButton(onClick = {
+                    Settings.setLeanOffsetDeg(0f)
+                    status = null
+                }) { Text("Reset") }
+            }
+        }
+        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     }
 }
 

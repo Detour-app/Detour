@@ -95,6 +95,12 @@ object Settings {
     private val _authUsername = MutableStateFlow("")
     val authUsername: StateFlow<String> = _authUsername
 
+    /** Mount-to-bike misalignment, subtracted from every lean reading. Zero
+     *  until the user runs calibration (bike upright, engine off) from
+     *  Settings; see [com.jellemax.maproulette.tracking.TripTrackingService]. */
+    private val _leanOffsetDeg = MutableStateFlow(0f)
+    val leanOffsetDeg: StateFlow<Float> = _leanOffsetDeg
+
     fun init(context: Context) {
         if (::prefs.isInitialized) return
         prefs = context.applicationContext
@@ -115,6 +121,7 @@ object Settings {
         _geocoderUrl.value = prefs.getString("geocoder_url", "") ?: ""
         _authToken.value = prefs.getString("auth_token", "") ?: ""
         _authUsername.value = prefs.getString("auth_username", "") ?: ""
+        _leanOffsetDeg.value = prefs.getFloat("lean_offset_deg", 0f)
         _vehicleDevices.value = readVehicleDevices()
     }
 
@@ -221,5 +228,10 @@ object Settings {
     fun setGeocoderUrl(value: String) {
         _geocoderUrl.value = value.trim()
         prefs.edit().putString("geocoder_url", value.trim()).apply()
+    }
+
+    fun setLeanOffsetDeg(value: Float) {
+        _leanOffsetDeg.value = value
+        prefs.edit().putFloat("lean_offset_deg", value).apply()
     }
 }
