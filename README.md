@@ -71,6 +71,13 @@ Phone APK lands in `app/build/outputs/apk/debug/app-debug.apk`, watch APK in
 `wear/build/outputs/apk/debug/wear-debug.apk`. Install with
 `adb install app/build/outputs/apk/debug/app-debug.apk`.
 
+Releases published from CI are signed and minified (R8). To verify a
+downloaded release APK's signature yourself:
+
+```
+apksigner verify --print-certs map-roulette-<version>.apk
+```
+
 ## Self-hosting the server
 
 The app can sync to your own server (accounts, trips, fog of war, friends) and

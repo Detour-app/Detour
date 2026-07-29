@@ -39,9 +39,37 @@ android {
             "\"${routingCfg("geocoder.url", "GEOCODER_URL")}\"")
     }
 
+    // Release signing reads from the environment rather than local.properties:
+    // the keystore never touches disk in this repo or a contributor's checkout,
+    // only CI's ephemeral runner (decoded from a GitHub secret) or a maintainer's
+    // own shell. Signing is only configured when RELEASE_KEYSTORE is set, so an
+    // unsigned/local release build (or plain assembleDebug) is unaffected.
+    val releaseKeystore = System.getenv("RELEASE_KEYSTORE")
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 shrinks and obfuscates; MapLibre and Play Services ship their
+            // own consumer proguard rules so this is expected to be near
+            // friction-free. mapping.txt from this build is published alongside
+            // the release APK so stack traces from issues stay de-obfuscatable.
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            if (releaseKeystore != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

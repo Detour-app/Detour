@@ -27,8 +27,27 @@ jobs:
       # handed to someone. The app takes all four values at runtime, from
       # Settings → Routing server and Settings → Backup sync, or in one step from
       # Settings → Server config file.
-      - name: Build debug APK
-        run: ./gradlew assembleDebug
+      #
+      # The keystore is decoded to a file that lives only on this ephemeral
+      # runner, never committed or logged. If RELEASE_KEYSTORE_B64 isn't set
+      # (secret missing), RELEASE_KEYSTORE stays unset and
+      # app/build.gradle.kts skips signing config entirely — the build still
+      # succeeds, just unsigned.
+      - name: Decode release keystore
+        env:
+          RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$RELEASE_KEYSTORE_B64" ]; then
+            echo "$RELEASE_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "RELEASE_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build release APK
+        env:
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease
 
       # The APK carries the version in its name, so a downloaded file still says
       # what it is once it's sitting in a Downloads folder next to four others.
@@ -43,7 +62,7 @@ jobs:
 
       - name: Rename APK
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk \
+          cp app/build/outputs/apk/release/app-release.apk \
              map-roulette-${{ steps.version.outputs.name }}.apk
 
       - name: Upload artifact
@@ -51,6 +70,14 @@ jobs:
         with:
           name: map-roulette-apk-${{ steps.version.outputs.name }}
           path: map-roulette-${{ steps.version.outputs.name }}.apk
+
+      # mapping.txt de-obfuscates R8's minified stack traces; published per
+      # release so a crash report from an issue can be matched back to source.
+      - name: Upload mapping.txt
+        uses: actions/upload-artifact@v4
+        with:
+          name: map-roulette-mapping-${{ steps.version.outputs.name }}
+          path: app/build/outputs/mapping/release/mapping.txt
 
       # Tagged per version, so old builds stay downloadable instead of being
       # overwritten. Pushing twice without bumping versionName in
@@ -62,7 +89,9 @@ jobs:
           tag_name: v${{ steps.version.outputs.name }}
           name: v${{ steps.version.outputs.name }}
           make_latest: true
-          files: map-roulette-${{ steps.version.outputs.name }}.apk
+          files: |
+            map-roulette-${{ steps.version.outputs.name }}.apk
+            app/build/outputs/mapping/release/mapping.txt
           body: |
             Map Roulette v${{ steps.version.outputs.name }} (versionCode
             ${{ steps.version.outputs.code }}), built from
