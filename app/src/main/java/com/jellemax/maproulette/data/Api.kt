@@ -7,6 +7,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 
 /** The bearer token was rejected: the session is gone, not merely offline. */
 class AuthException(message: String) : IOException(message)
@@ -49,7 +50,16 @@ internal object Api {
             if (body != null) {
                 conn.doOutput = true
                 conn.setRequestProperty("Content-Type", "application/json")
-                conn.outputStream.use { it.write(body.toString().toByteArray()) }
+                // A sync upload re-sends the whole trip/trace history every time
+                // (traces.jsonl alone is 1MB+ after a year of riding), and JSON
+                // compresses roughly 10:1. The paired server always decompresses
+                // Content-Encoding: gzip — there is no third-party server this
+                // needs to stay compatible with, so this is unconditional rather
+                // than negotiated.
+                conn.setRequestProperty("Content-Encoding", "gzip")
+                conn.outputStream.use { out ->
+                    GZIPOutputStream(out).use { gz -> gz.write(body.toString().toByteArray()) }
+                }
             }
 
             val code = conn.responseCode
