@@ -114,9 +114,11 @@ STAT_KEYS = (
     "tripCount",
 )
 
-# Registration can be closed once your friends have accounts (env), or gated on
-# a shared invite code.
-REGISTRATION_OPEN = os.environ.get("REGISTRATION_OPEN", "1") != "0"
+# Fails closed: someone running this by hand with no env set should not get
+# an open /auth/register without asking for it. Open it explicitly with
+# REGISTRATION_OPEN=1 (the installer does this for --open-registration), or
+# gate it on a shared invite code instead.
+REGISTRATION_OPEN = os.environ.get("REGISTRATION_OPEN", "0") != "0"
 INVITE_CODE = os.environ.get("INVITE_CODE", "")
 
 # Only trust the Cloudflare header when explicitly deployed behind the tunnel;
@@ -1182,4 +1184,12 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8790"))
     print("maproulette-sync on %s:%s, db at %s" % (host, port, DB_FILE))
     print("registration: %s" % ("open" if REGISTRATION_OPEN else "closed"))
+    # An empty database with registration closed and no invite code is a
+    # server nobody, including its owner, can sign into. Say so loudly rather
+    # than let that be a silent dead end.
+    if not REGISTRATION_OPEN and not INVITE_CODE:
+        user_count = db().execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+        if user_count == 0:
+            print("*** no users exist yet, and registration is closed. ***")
+            print("*** set REGISTRATION_OPEN=1 or INVITE_CODE=... to create the first account. ***")
     ThreadingHTTPServer((host, port), Handler).serve_forever()

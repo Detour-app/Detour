@@ -163,6 +163,11 @@ the installer generates an invite code and prints it. Enter it in the app's
 sign-in screen. It lives in
 `/etc/systemd/system/maproulette-sync.service.d/invite.conf`.
 
+The server itself fails closed: run `sync_server.py` by hand with no env set
+and `/auth/register` returns 403 until you set `REGISTRATION_OPEN=1` or
+`INVITE_CODE=...`. The installer sets one of these for you; if you start the
+server manually, do the same.
+
 Once everyone you care about has an account, close the door entirely:
 
 ```bash

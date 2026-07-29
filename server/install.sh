@@ -314,6 +314,9 @@ Environment=PORT=$SYNC_PORT
 # This installer's documented topology puts the server behind the Cloudflare
 # tunnel, so CF-Connecting-IP is trustworthy here — see sync_server.py.
 Environment=TRUST_CF_HEADER=1
+# The server itself defaults registration to closed; only bake this in when
+# --open-registration was passed, so the fail-closed default holds otherwise.
+$([ "$OPEN_REGISTRATION" = 1 ] && echo "Environment=REGISTRATION_OPEN=1")
 ExecStart=/usr/bin/python3 $SYNC_DIR/sync_server.py
 Restart=on-failure
 
