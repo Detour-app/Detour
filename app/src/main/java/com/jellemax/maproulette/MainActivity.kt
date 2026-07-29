@@ -3,6 +3,7 @@ package com.jellemax.maproulette
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
@@ -63,6 +64,10 @@ private enum class Screen { MAP, HISTORY, BADGES, FRIENDS, SETTINGS, SAVED }
 @Composable
 private fun AppRoot() {
     var screen by remember { mutableStateOf(Screen.MAP) }
+    // System back from any sub-screen returns to the map instead of exiting the
+    // app — only enabled off the map, so back on the map itself still falls
+    // through to the default (exit) behaviour.
+    BackHandler(enabled = screen != Screen.MAP) { screen = Screen.MAP }
     when (screen) {
         Screen.HISTORY -> HistoryScreen(onBack = { screen = Screen.MAP })
         Screen.BADGES -> BadgesScreen(onBack = { screen = Screen.MAP })
