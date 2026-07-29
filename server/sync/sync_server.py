@@ -66,6 +66,8 @@ CLI:
   python3 sync_server.py --import-legacy USER import old trips.json/traces.jsonl
   python3 sync_server.py --api-key USER [LABEL]   mint a read-only dashboard key
   python3 sync_server.py --backfill-points USER   re-unpack traces into points
+  python3 sync_server.py --revoke-keys USER       delete all API keys for a user
+  python3 sync_server.py --revoke-tokens USER     sign a user out everywhere
 """
 import hashlib
 import hmac
@@ -88,6 +90,13 @@ LEGACY_TRACES = os.path.join(DATA_DIR, "traces.jsonl")
 MAX_BODY = 64 * 1024 * 1024
 ITERATIONS = 210_000
 TOKEN_BYTES = 32
+
+# A token that never expires is a token that stays valid forever once leaked
+# (a stolen config export, a lost phone). Idle beyond this many days, it's
+# rejected and pruned. last_used_ms writes are throttled to once per interval
+# so an active session doesn't cost a write under the lock on every request.
+TOKEN_MAX_IDLE_MS = int(os.environ.get("TOKEN_MAX_IDLE_DAYS", "90")) * 86400 * 1000
+TOKEN_TOUCH_INTERVAL_MS = 3600 * 1000
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,24}$")
 BADGE_ID_RE = re.compile(r"^[a-z]+_[0-9]+$")
@@ -266,13 +275,25 @@ def authenticate(headers):
     header = headers.get("Authorization", "")
     if not header.startswith("Bearer "):
         raise HttpError(401, "missing bearer token")
+    thash = token_hash(header[7:].strip())
     row = db().execute(
-        "SELECT u.* FROM tokens t JOIN users u ON u.id = t.user_id"
+        "SELECT u.*, t.last_used_ms FROM tokens t JOIN users u ON u.id = t.user_id"
         " WHERE t.token_hash = ?",
-        (token_hash(header[7:].strip()),),
+        (thash,),
     ).fetchone()
     if row is None:
         raise HttpError(401, "invalid token")
+    now = now_ms()
+    if now - row["last_used_ms"] > TOKEN_MAX_IDLE_MS:
+        raise HttpError(401, "token expired")
+    if now - row["last_used_ms"] > TOKEN_TOUCH_INTERVAL_MS:
+        with _write_lock:
+            conn = db()
+            with conn:  # commits on success, rolls back on exception
+                conn.execute(
+                    "UPDATE tokens SET last_used_ms = ? WHERE token_hash = ?",
+                    (now, thash),
+                )
     return row
 
 
@@ -1032,6 +1053,38 @@ def mint_api_key(username, label="home-assistant"):
     return 0
 
 
+def revoke_keys(username):
+    """Delete every dashboard API key for a user. Anything embedding an old
+    key (a Home Assistant config, a stray browser tab) starts getting 401
+    on its next request."""
+    user = find_user(username)
+    if user is None:
+        print("No such user: %s" % username)
+        return 1
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            cur = conn.execute("DELETE FROM api_keys WHERE user_id = ?", (user["id"],))
+    print("Revoked %d api key(s) for %s." % (cur.rowcount, username))
+    return 0
+
+
+def revoke_tokens(username):
+    """Delete every bearer token for a user — signs them out of every device
+    at once. The right response to a leaked token when the user can't wait
+    out TOKEN_MAX_IDLE_MS."""
+    user = find_user(username)
+    if user is None:
+        print("No such user: %s" % username)
+        return 1
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            cur = conn.execute("DELETE FROM tokens WHERE user_id = ?", (user["id"],))
+    print("Revoked %d token(s) for %s." % (cur.rowcount, username))
+    return 0
+
+
 def backfill_points(username):
     """Re-unpack every stored trace line into track_points.
 
@@ -1107,6 +1160,23 @@ if __name__ == "__main__":
 
     if len(sys.argv) > 2 and sys.argv[1] == "--backfill-points":
         raise SystemExit(backfill_points(sys.argv[2]))
+
+    if len(sys.argv) > 2 and sys.argv[1] == "--revoke-keys":
+        raise SystemExit(revoke_keys(sys.argv[2]))
+
+    if len(sys.argv) > 2 and sys.argv[1] == "--revoke-tokens":
+        raise SystemExit(revoke_tokens(sys.argv[2]))
+
+    # Tokens idle past TOKEN_MAX_IDLE_MS are already rejected by authenticate();
+    # this just stops them accumulating in the table forever.
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            pruned = conn.execute(
+                "DELETE FROM tokens WHERE last_used_ms < ?", (now_ms() - TOKEN_MAX_IDLE_MS,)
+            ).rowcount
+    if pruned:
+        print("pruned %d idle token(s)" % pruned)
 
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8790"))
