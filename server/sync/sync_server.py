@@ -738,6 +738,17 @@ def api_key_user(params):
     return row
 
 
+def next_trip_start_ms(uid, after_ms):
+    """The start time of the next trip after after_ms, or None if after_ms's
+    trip is the newest one. Used to cap an open ride's fallback window so it
+    can't swallow the ride that comes after it."""
+    row = db().execute(
+        "SELECT MIN(start_ms) AS n FROM trips WHERE user_id = ? AND start_ms > ?",
+        (uid, after_ms),
+    ).fetchone()
+    return row["n"]
+
+
 def ride_window(uid, start_ms):
     """A trip's (start, end) in ms, for slicing points out of the track."""
     row = db().execute(
@@ -749,8 +760,12 @@ def ride_window(uid, start_ms):
     end = int(trip.get("endTimeMs") or 0)
     if end <= start_ms:
         # A trip that never recorded an end still has points; give it the
-        # longest plausible ride rather than an empty window.
-        end = start_ms + 24 * 3600 * 1000
+        # longest plausible ride rather than an empty window — but stop at the
+        # next trip's start if there is one, or an unended ride swallows the
+        # ride that comes after it (and its lean/speed peaks along with it).
+        fallback_end = start_ms + 24 * 3600 * 1000
+        next_start = next_trip_start_ms(uid, start_ms)
+        end = min(next_start - 1, fallback_end) if next_start else fallback_end
     return trip, end
 
 
@@ -784,7 +799,13 @@ def ha_rides(user, params):
         start = int(trip.get("startTimeMs") or 0)
         if not start:
             continue
-        end = int(trip.get("endTimeMs") or 0) or start + 24 * 3600 * 1000
+        end = int(trip.get("endTimeMs") or 0)
+        if not end:
+            # Same cap as ride_window: don't let an unended ride's fallback
+            # window swallow the ride that comes after it.
+            fallback_end = start + 24 * 3600 * 1000
+            next_start = next_trip_start_ms(uid, start)
+            end = min(next_start - 1, fallback_end) if next_start else fallback_end
         agg = db().execute(
             "SELECT COUNT(*) AS n, MAX(ABS(lean_deg)) AS lean, MAX(speed_kmh) AS speed"
             " FROM track_points WHERE user_id = ? AND t_ms BETWEEN ? AND ?",
