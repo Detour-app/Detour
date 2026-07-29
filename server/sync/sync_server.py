@@ -249,12 +249,12 @@ def issue_token(user_id):
     raw = secrets.token_urlsafe(TOKEN_BYTES)
     with _write_lock:
         conn = db()
-        conn.execute(
-            "INSERT INTO tokens (token_hash, user_id, created_ms, last_used_ms)"
-            " VALUES (?, ?, ?, ?)",
-            (token_hash(raw), user_id, now_ms(), now_ms()),
-        )
-        conn.commit()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "INSERT INTO tokens (token_hash, user_id, created_ms, last_used_ms)"
+                " VALUES (?, ?, ?, ?)",
+                (token_hash(raw), user_id, now_ms(), now_ms()),
+            )
     return raw
 
 
@@ -317,15 +317,15 @@ def do_register(body, ip):
     with _write_lock:
         conn = db()
         try:
-            cur = conn.execute(
-                "INSERT INTO users (username, pw_salt, pw_hash, iterations, created_ms)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (username, salt, digest, iterations, now_ms()),
-            )
+            with conn:  # commits on success, rolls back on exception
+                cur = conn.execute(
+                    "INSERT INTO users (username, pw_salt, pw_hash, iterations, created_ms)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (username, salt, digest, iterations, now_ms()),
+                )
+                user_id = cur.lastrowid
         except sqlite3.IntegrityError:
             raise HttpError(409, "username already taken")
-        conn.commit()
-        user_id = cur.lastrowid
     return {"token": issue_token(user_id), "username": username}
 
 
@@ -351,8 +351,8 @@ def do_logout(user, headers):
     raw = headers.get("Authorization", "")[7:].strip()
     with _write_lock:
         conn = db()
-        conn.execute("DELETE FROM tokens WHERE token_hash = ?", (token_hash(raw),))
-        conn.commit()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute("DELETE FROM tokens WHERE token_hash = ?", (token_hash(raw),))
     return {}
 
 
@@ -427,6 +427,16 @@ def do_sync(user, body):
     if not isinstance(places_in, list):
         raise HttpError(400, "savedPlaces must be an array")
 
+    # Validate every trip and saved place up front, before writing any of them,
+    # so a single malformed entry can't leave a partial import committed — the
+    # whole sync succeeds or the whole sync fails.
+    for trip in trips_in:
+        if not isinstance(trip, dict) or "startTimeMs" not in trip:
+            raise HttpError(400, "trip missing startTimeMs")
+    for place in places_in:
+        if not isinstance(place, dict) or "id" not in place:
+            raise HttpError(400, "saved place missing id")
+
     badges = clean_badges(json.loads(user["badges_json"]))
     for badge_id, earned in clean_badges(body.get("badges")).items():
         # First time earned wins, so a reinstall can't reset the date forward.
@@ -449,46 +459,44 @@ def do_sync(user, body):
 
     with _write_lock:
         conn = db()
-        for trip in trips_in:
-            if not isinstance(trip, dict) or "startTimeMs" not in trip:
-                raise HttpError(400, "trip missing startTimeMs")
-            # Upsert, not INSERT OR IGNORE: a trip re-uploaded with edited fields
-            # (e.g. a corrected vehicle mode) must replace the stored copy, or the
-            # stale row would come back in the merge and revert the edit.
+        with conn:  # commits on success, rolls back on exception
+            for trip in trips_in:
+                # Upsert, not INSERT OR IGNORE: a trip re-uploaded with edited
+                # fields (e.g. a corrected vehicle mode) must replace the stored
+                # copy, or the stale row would come back in the merge and revert
+                # the edit.
+                conn.execute(
+                    "INSERT INTO trips (user_id, start_ms, json) VALUES (?, ?, ?) "
+                    "ON CONFLICT(user_id, start_ms) DO UPDATE SET json = excluded.json",
+                    (uid, int(trip["startTimeMs"]), json.dumps(trip)),
+                )
+            for line in traces_in:
+                line = str(line).strip()
+                if not line:
+                    continue
+                points = json.loads(line)  # reject broken lines instead of storing them
+                cur = conn.execute(
+                    "INSERT OR IGNORE INTO traces (user_id, line_hash, line) VALUES (?, ?, ?)",
+                    (uid, hashlib.sha256(line.encode()).hexdigest(), line),
+                )
+                # Every sync re-uploads every line it holds, so unpacking on the
+                # IGNORE path would re-parse the whole history each time. Only a
+                # line that was actually new here has points worth inserting.
+                if cur.rowcount:
+                    store_points(conn, uid, points)
+            for place in places_in:
+                # Upsert by id so a rename replaces the stored copy; the merge
+                # below returns the union, which is what restores shortcuts
+                # after reinstall.
+                conn.execute(
+                    "INSERT INTO saved_places (user_id, place_id, json) VALUES (?, ?, ?) "
+                    "ON CONFLICT(user_id, place_id) DO UPDATE SET json = excluded.json",
+                    (uid, int(place["id"]), json.dumps(place)),
+                )
             conn.execute(
-                "INSERT INTO trips (user_id, start_ms, json) VALUES (?, ?, ?) "
-                "ON CONFLICT(user_id, start_ms) DO UPDATE SET json = excluded.json",
-                (uid, int(trip["startTimeMs"]), json.dumps(trip)),
+                "UPDATE users SET badges_json = ?, stats_json = ?, share_fog = ? WHERE id = ?",
+                (json.dumps(badges), json.dumps(stats), share_fog, uid),
             )
-        for line in traces_in:
-            line = str(line).strip()
-            if not line:
-                continue
-            points = json.loads(line)  # reject broken lines instead of storing them
-            cur = conn.execute(
-                "INSERT OR IGNORE INTO traces (user_id, line_hash, line) VALUES (?, ?, ?)",
-                (uid, hashlib.sha256(line.encode()).hexdigest(), line),
-            )
-            # Every sync re-uploads every line it holds, so unpacking on the
-            # IGNORE path would re-parse the whole history each time. Only a
-            # line that was actually new here has points worth inserting.
-            if cur.rowcount:
-                store_points(conn, uid, points)
-        for place in places_in:
-            if not isinstance(place, dict) or "id" not in place:
-                raise HttpError(400, "saved place missing id")
-            # Upsert by id so a rename replaces the stored copy; the merge below
-            # returns the union, which is what restores shortcuts after reinstall.
-            conn.execute(
-                "INSERT INTO saved_places (user_id, place_id, json) VALUES (?, ?, ?) "
-                "ON CONFLICT(user_id, place_id) DO UPDATE SET json = excluded.json",
-                (uid, int(place["id"]), json.dumps(place)),
-            )
-        conn.execute(
-            "UPDATE users SET badges_json = ?, stats_json = ?, share_fog = ? WHERE id = ?",
-            (json.dumps(badges), json.dumps(stats), share_fog, uid),
-        )
-        conn.commit()
 
     trips = [
         json.loads(r["json"])
@@ -560,12 +568,12 @@ def do_friend_request(user, body):
     low, high = pair(user["id"], target["id"])
     with _write_lock:
         conn = db()
-        conn.execute(
-            "INSERT INTO friendships (low_id, high_id, status, requested_by, created_ms)"
-            " VALUES (?, ?, 'pending', ?, ?)",
-            (low, high, user["id"], now_ms()),
-        )
-        conn.commit()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "INSERT INTO friendships (low_id, high_id, status, requested_by, created_ms)"
+                " VALUES (?, ?, 'pending', ?, ?)",
+                (low, high, user["id"], now_ms()),
+            )
     return {"status": "pending"}
 
 
@@ -581,17 +589,17 @@ def do_friend_respond(user, body):
     accept = bool(body.get("accept"))
     with _write_lock:
         conn = db()
-        if accept:
-            conn.execute(
-                "UPDATE friendships SET status = 'accepted'"
-                " WHERE low_id = ? AND high_id = ?",
-                (low, high),
-            )
-        else:
-            conn.execute(
-                "DELETE FROM friendships WHERE low_id = ? AND high_id = ?", (low, high)
-            )
-        conn.commit()
+        with conn:  # commits on success, rolls back on exception
+            if accept:
+                conn.execute(
+                    "UPDATE friendships SET status = 'accepted'"
+                    " WHERE low_id = ? AND high_id = ?",
+                    (low, high),
+                )
+            else:
+                conn.execute(
+                    "DELETE FROM friendships WHERE low_id = ? AND high_id = ?", (low, high)
+                )
     return {"status": "accepted" if accept else "declined"}
 
 
@@ -600,10 +608,10 @@ def do_friend_remove(user, body):
     low, high = pair(user["id"], target["id"])
     with _write_lock:
         conn = db()
-        conn.execute(
-            "DELETE FROM friendships WHERE low_id = ? AND high_id = ?", (low, high)
-        )
-        conn.commit()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "DELETE FROM friendships WHERE low_id = ? AND high_id = ?", (low, high)
+            )
     return {}
 
 
@@ -1004,12 +1012,12 @@ def mint_api_key(username, label="home-assistant"):
     raw = secrets.token_urlsafe(TOKEN_BYTES)
     with _write_lock:
         conn = db()
-        conn.execute(
-            "INSERT INTO api_keys (key_hash, user_id, label, created_ms)"
-            " VALUES (?, ?, ?, ?)",
-            (token_hash(raw), user["id"], label or "home-assistant", now_ms()),
-        )
-        conn.commit()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "INSERT INTO api_keys (key_hash, user_id, label, created_ms)"
+                " VALUES (?, ?, ?, ?)",
+                (token_hash(raw), user["id"], label or "home-assistant", now_ms()),
+            )
     print("API key for %s (%s):\n%s" % (username, label, raw))
     print("Store it now — it is not recoverable.")
     return 0
@@ -1029,13 +1037,13 @@ def backfill_points(username):
     lines = 0
     with _write_lock:
         conn = db()
-        for row in conn.execute("SELECT line FROM traces WHERE user_id = ?", (uid,)):
-            try:
-                store_points(conn, uid, json.loads(row["line"]))
-            except (ValueError, TypeError):
-                continue
-            lines += 1
-        conn.commit()
+        with conn:  # commits on success, rolls back on exception
+            for row in conn.execute("SELECT line FROM traces WHERE user_id = ?", (uid,)):
+                try:
+                    store_points(conn, uid, json.loads(row["line"]))
+                except (ValueError, TypeError):
+                    continue
+                lines += 1
     total = db().execute(
         "SELECT COUNT(*) AS n FROM track_points WHERE user_id = ?", (uid,)
     ).fetchone()["n"]
