@@ -3,6 +3,7 @@ name: Build APK
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -82,8 +83,11 @@ jobs:
       # Tagged per version, so old builds stay downloadable instead of being
       # overwritten. Pushing twice without bumping versionName in
       # app/build.gradle.kts replaces that version's release rather than
-      # creating a second one.
+      # creating a second one. PRs build the same release APK to prove it still
+      # compiles/minifies clean, but a PR has nothing worth tagging and
+      # publishing — only a push to main cuts a release.
       - name: Publish release
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.name }}
