@@ -214,8 +214,35 @@ class TripTrackingService : Service() {
             refresh(context)
         }
 
+        /**
+         * Every entry point goes through here, because a location-type
+         * foreground service may only be started while the location permission
+         * is actually held — from Android 14 the system throws rather than
+         * ignoring it. Without this the app died on its very first launch: the
+         * map's ON_START observer starts the tracker before the user has been
+         * asked for anything.
+         *
+         * The check has to sit on this side of startForegroundService(), not in
+         * onStartCommand(): once the system has been *told* a foreground
+         * service is coming it insists on seeing startForeground() within a few
+         * seconds, so a service that quietly stood down would crash just as
+         * hard. MapScreen calls [startMonitoring] again from onLocationGranted()
+         * the moment permission arrives.
+         *
+         * Coarse counts: the fused provider hands back whatever the granted
+         * level allows, and the fine-only behaviour degrades rather than breaks.
+         */
+        private fun canStart(context: Context): Boolean =
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.ACCESS_FINE_LOCATION,
+            ) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.ACCESS_COARSE_LOCATION,
+                ) == PackageManager.PERMISSION_GRANTED
+
         /** Start (or keep) the always-on tracker in idle mode. */
         fun startMonitoring(context: Context) {
+            if (!canStart(context)) return
             ContextCompat.startForegroundService(
                 context, Intent(context, TripTrackingService::class.java))
         }
@@ -223,6 +250,7 @@ class TripTrackingService : Service() {
         /** Nudge the service to rebuild its notification — e.g. after the
          *  auto-detect setting is toggled, so the text reflects it at once. */
         fun refresh(context: Context) {
+            if (!canStart(context)) return
             ContextCompat.startForegroundService(
                 context,
                 Intent(context, TripTrackingService::class.java).setAction(ACTION_REFRESH),
@@ -236,11 +264,13 @@ class TripTrackingService : Service() {
                 destLat?.let { putExtra(EXTRA_DEST_LAT, it) }
                 destLon?.let { putExtra(EXTRA_DEST_LON, it) }
             }
+            if (!canStart(context)) return
             ContextCompat.startForegroundService(context, intent)
         }
 
         /** End the current trip; the service stays alive in idle mode. */
         fun stop(context: Context) {
+            if (!canStart(context)) return
             ContextCompat.startForegroundService(
                 context,
                 Intent(context, TripTrackingService::class.java).setAction(ACTION_END_TRIP),
