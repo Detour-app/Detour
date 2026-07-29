@@ -19,7 +19,9 @@ val GraphiteDark = darkColorScheme(
     onPrimaryContainer = Color(0xFFF6DFAE),
     secondary = Color(0xFFC9B58A),
     onSecondary = Color(0xFF2A2410),
-    secondaryContainer = Color(0xFF2E2A1E),
+    // Light enough to read as a pill against surfaceContainer (0xFF1F231A) —
+    // the old 0xFF2E2A1E made the nav-bar selection nearly invisible.
+    secondaryContainer = Color(0xFF3D3728),
     onSecondaryContainer = Color(0xFFEAE0C6),
     tertiary = Color(0xFFE8B04B),
     onTertiary = Color(0xFF241C08),
@@ -55,7 +57,9 @@ val GraphiteLight = lightColorScheme(
     onPrimaryContainer = Color(0xFF0B3D82),
     secondary = Color(0xFF5A7196),
     onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFE1ECF9),
+    // Deep enough to read as a pill against surfaceContainer (0xFFEDF3FA) —
+    // the old 0xFFE1ECF9 was near-identical to the bar behind it.
+    secondaryContainer = Color(0xFFD2E3F6),
     onSecondaryContainer = Color(0xFF1A2D45),
     tertiary = Color(0xFF2F80ED),
     onTertiary = Color(0xFFFFFFFF),

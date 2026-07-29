@@ -15,8 +15,19 @@ import android.view.MotionEvent
 import android.view.ViewConfiguration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -110,7 +121,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -178,7 +191,7 @@ import kotlin.random.Random
 private val DIRECTION_NAMES = listOf("North", "North-east", "East", "South-east",
     "South", "South-west", "West", "North-west")
 
-private val TravelMode.icon: ImageVector
+val TravelMode.icon: ImageVector
     get() = when (this) {
         TravelMode.WALK -> Icons.AutoMirrored.Filled.DirectionsWalk
         TravelMode.BIKE -> Icons.AutoMirrored.Filled.DirectionsBike
@@ -351,6 +364,9 @@ private suspend fun pickCandidate(
     )
 }
 
+/** What currently occupies the bottom-card slot on the map. */
+private enum class BottomCard { NAV, CANDIDATES, COLLAPSED, EXPANDED }
+
 @Composable
 fun MapScreen(
     onOpenHistory: () -> Unit,
@@ -372,6 +388,7 @@ fun MapScreen(
     // fitBottomPaddingPx above.
     val attributionBottomMarginPx = with(LocalDensity.current) { 84.dp.roundToPx() }
     val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
     LaunchedEffect(Unit) { SavedPlaces.ensureLoaded(context) }
     val savedPlaces by SavedPlaces.places.collectAsStateWithLifecycle()
     // Non-null while a name is being entered for the current dropped/destination pin.
@@ -1175,6 +1192,9 @@ fun MapScreen(
                     route = result
                     destination = null
                     destinationName = null
+                    // A spin result landing is the app's payoff moment; a small
+                    // buzz marks it without needing eyes on the screen.
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     mapLibreMap?.let { cameraForPoints(it, result.polyline + loc, FIT_PADDING_PX, fitBottomPaddingPx) }
                 } else {
                     val bearing = directionDeg?.toDouble()
@@ -1198,6 +1218,7 @@ fun MapScreen(
                             ?: IOException("Failed to find a destination")
                     }
                     candidates = results
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     mapLibreMap?.let {
                         cameraForPoints(it, results.map { c -> c.destination } + loc, FIT_PADDING_PX, fitBottomPaddingPx)
                     }
@@ -1236,7 +1257,13 @@ fun MapScreen(
         // Modes are the app's top-level places, so they live in the one bar that
         // is always in reach of a thumb. Navigation hides it: nothing to switch
         // to mid-route, and the map wants the pixels.
-        bottomBar = { if (!navigating) ModeBar(mode, ::selectMode) },
+        bottomBar = {
+            AnimatedVisibility(
+                visible = !navigating,
+                enter = slideInVertically { it } + fadeIn(),
+                exit = slideOutVertically { it } + fadeOut(),
+            ) { ModeBar(mode, ::selectMode) }
+        },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { scaffoldPadding ->
         Box(
@@ -1246,17 +1273,29 @@ fun MapScreen(
         ) {
             AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
 
-            if (navigating) {
+            // The banner drops in from the top edge when navigation starts; the
+            // toolbar fades back once it ends.
+            AnimatedVisibility(
+                visible = navigating,
+                enter = slideInVertically { -it } + fadeIn(),
+                exit = slideOutVertically { -it } + fadeOut(),
+                modifier = Modifier.align(Alignment.TopCenter),
+            ) {
                 NavigationBanner(
                     progress = navProgress,
                     rerouting = rerouting,
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
                         .fillMaxWidth()
                         .statusBarsPadding()
                         .padding(12.dp),
                 )
-            } else {
+            }
+            AnimatedVisibility(
+                visible = !navigating,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.TopEnd),
+            ) {
                 MapToolbar(
                     followMe = following,
                     fogEnabled = fogEnabled,
@@ -1272,7 +1311,6 @@ fun MapScreen(
                     onOpenSettings = onOpenSettings,
                     onOpenSavedPlaces = onOpenSavedPlaces,
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
                         .statusBarsPadding()
                         .padding(12.dp),
                 )
@@ -1294,10 +1332,14 @@ fun MapScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.Bottom,
                 ) {
-                    if (stats != null) {
+                    // Always in the row (zero-sized when hidden) so SpaceBetween
+                    // keeps the speed HUD pinned to the end either way.
+                    AnimatedVisibility(
+                        visible = stats != null,
+                        enter = scaleIn() + fadeIn(),
+                        exit = scaleOut() + fadeOut(),
+                    ) {
                         EndTripButton(onClick = { TripTrackingService.stop(context) })
-                    } else {
-                        Spacer(Modifier.width(1.dp))
                     }
                     // Stays up while the eased number winds back down, so
                     // stopping at a light fades the dial out instead of
@@ -1313,11 +1355,25 @@ fun MapScreen(
                     }
                 }
 
-                stats?.let { ActiveTripCard(it) }
+                // The exiting card still composes for a few frames after `stats`
+                // goes null; keep the last value so it animates out with content.
+                val shownStats = remember { mutableStateOf(stats) }
+                if (stats != null) shownStats.value = stats
+                AnimatedVisibility(
+                    visible = stats != null,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut(),
+                ) {
+                    shownStats.value?.let { ActiveTripCard(it) }
+                }
 
                 // Shortcut chips: one-tap a saved place to set it as destination,
                 // or save the pin you just dropped. Hidden while navigating.
-                if (!navigating && (savedPlaces.isNotEmpty() || destination != null)) {
+                AnimatedVisibility(
+                    visible = !navigating && (savedPlaces.isNotEmpty() || destination != null),
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut(),
+                ) {
                     ShortcutChips(
                         places = savedPlaces,
                         canSavePin = destination != null,
@@ -1334,176 +1390,202 @@ fun MapScreen(
                     )
                 }
 
-                if (navigating) NavigationBottomBar(
-                    progress = navProgress,
-                    offRoute = (navProgress?.offRouteMeters ?: 0.0) > 60,
-                    onExit = { stopNavigation() },
-                ) else if (candidates.isNotEmpty()) CandidatesCard(
-                    candidates = candidates,
-                    onPick = ::choose,
-                    onReroll = { candidates = emptyList(); spin() },
-                    onCancel = { candidates = emptyList() },
-                ) else if (settingsCollapsed) CollapsedSpinBar(
-                    mode = mode,
-                    radiusKm = radiusKm,
-                    spinning = spinning,
-                    onSpin = { if (spinning) spinJob?.cancel() else spin() },
-                    onExpand = { settingsCollapsed = false },
-                ) else Card(
-                    modifier = Modifier.glassBorder(MaterialTheme.shapes.extraLarge),
-                    shape = MaterialTheme.shapes.extraLarge,
-                    colors = glassCardColors(),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                ) {
-                    Column(Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                if (mode.roundTrip) "Loop" else "Destination",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            IconButton(
-                                onClick = { settingsCollapsed = true },
-                                modifier = Modifier.size(28.dp),
-                            ) {
-                                Icon(Icons.Default.ExpandMore, contentDescription = "Minimize")
-                            }
-                        }
-
-                        error?.let {
-                            Text(it, color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodySmall)
-                        }
-
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text(
-                                if (mode.roundTrip) "Trip length" else "Radius",
-                                style = MaterialTheme.typography.labelLarge,
-                            )
-                            Text(
-                                if (mode.maxKm <= 10f) "%.1f km".format(radiusKm)
-                                else "${radiusKm.toInt()} km",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                        route?.distanceMeters?.let {
-                            Text(
-                                "Loop found: ${formatDistanceKm(it)}",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                        destinationName?.let {
-                            Text("→ $it", style = MaterialTheme.typography.bodySmall)
-                        }
-                        Slider(
-                            value = radiusKm,
-                            onValueChange = { radiusKm = it },
-                            valueRange = mode.minKm..mode.maxKm,
+                // One slot, four occupants; animate the handover instead of
+                // hard-swapping so the bottom of the screen stops popping.
+                val bottomCard = when {
+                    navigating -> BottomCard.NAV
+                    candidates.isNotEmpty() -> BottomCard.CANDIDATES
+                    settingsCollapsed -> BottomCard.COLLAPSED
+                    else -> BottomCard.EXPANDED
+                }
+                // Same trick as shownStats: the exiting candidates pane must
+                // not render an empty card after a cancel clears the list.
+                val shownCandidates = remember { mutableStateOf(candidates) }
+                if (candidates.isNotEmpty()) shownCandidates.value = candidates
+                AnimatedContent(
+                    targetState = bottomCard,
+                    transitionSpec = {
+                        (fadeIn(tween(200)) + slideInVertically(tween(200)) { it / 10 })
+                            .togetherWith(fadeOut(tween(120)))
+                    },
+                    label = "bottomCard",
+                ) { card ->
+                    when (card) {
+                        BottomCard.NAV -> NavigationBottomBar(
+                            progress = navProgress,
+                            offRoute = (navProgress?.offRouteMeters ?: 0.0) > 60,
+                            onExit = { stopNavigation() },
                         )
-
-                        if (!mode.roundTrip) {
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Text("Min distance", style = MaterialTheme.typography.labelLarge)
-                                Text(
-                                    if (minRadiusKm <= 0f) "Off"
-                                    else if (mode.maxKm <= 10f) "%.1f km".format(minRadiusKm)
-                                    else "${minRadiusKm.toInt()} km",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                            Slider(
-                                value = minRadiusKm,
-                                onValueChange = { minRadiusKm = it },
-                                valueRange = 0f..radiusKm,
-                            )
-                        }
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (!mode.roundTrip) {
-                                SelectorChip(
-                                    icon = Icons.Default.Place,
-                                    label = poiKind.label,
-                                    options = PoiKind.entries.map { it.label },
-                                    onSelect = { poiKind = PoiKind.entries[it] },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                            SelectorChip(
-                                icon = Icons.Default.Explore,
-                                label = directionDeg?.let { DIRECTION_NAMES[(it / 45f).toInt()] }
-                                    ?: "Any direction",
-                                options = listOf("Any direction") + DIRECTION_NAMES,
-                                onSelect = { i ->
-                                    directionDeg = if (i == 0) null else (i - 1) * 45f
-                                },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-
-                        Button(
-                            onClick = { if (spinning) spinJob?.cancel() else spin() },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(52.dp),
+                        BottomCard.CANDIDATES -> CandidatesCard(
+                            candidates = shownCandidates.value,
+                            onPick = ::choose,
+                            onReroll = { candidates = emptyList(); spin() },
+                            onCancel = { candidates = emptyList() },
+                        )
+                        BottomCard.COLLAPSED -> CollapsedSpinBar(
+                            mode = mode,
+                            radiusKm = radiusKm,
+                            spinning = spinning,
+                            onSpin = { if (spinning) spinJob?.cancel() else spin() },
+                            onExpand = { settingsCollapsed = false },
+                        )
+                        BottomCard.EXPANDED -> Card(
+                            modifier = Modifier.glassBorder(MaterialTheme.shapes.extraLarge),
+                            shape = MaterialTheme.shapes.extraLarge,
+                            colors = glassCardColors(),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                         ) {
-                            if (spinning) {
-                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.Casino, contentDescription = null,
-                                    Modifier.size(20.dp))
-                            }
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                if (spinning) "Cancel" else "Spin",
-                                style = MaterialTheme.typography.titleMedium,
-                                maxLines = 1,
-                            )
-                        }
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            NavButton(
-                                destination = destination,
-                                route = route?.waypoints,
-                                origin = myLocation,
-                                mode = mode,
-                                inAppAvailable = serverConfig.usable &&
-                                    (destination != null ||
-                                        route?.instructions?.isNotEmpty() == true),
-                                onNavigateInApp = { startNavigation() },
-                                onNavigate = {
-                                    // Heading out = start tracking automatically.
-                                    if (stats == null) {
-                                        TripTrackingService.start(
-                                            context, destination?.lat, destination?.lon)
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                            )
-                            if (stats == null) {
-                                OutlinedButton(
-                                    onClick = {
-                                        TripTrackingService.start(
-                                            context, destination?.lat, destination?.lon)
-                                    },
-                                    modifier = Modifier.weight(1f),
+                            Column(Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = null,
-                                        Modifier.size(18.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Track ${mode.label.lowercase()}", maxLines = 1)
+                                    Text(
+                                        if (mode.roundTrip) "Loop" else "Destination",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    IconButton(
+                                        onClick = { settingsCollapsed = true },
+                                        modifier = Modifier.size(28.dp),
+                                    ) {
+                                        Icon(Icons.Default.ExpandMore, contentDescription = "Minimize")
+                                    }
+                                }
+
+                                error?.let {
+                                    Text(it, color = MaterialTheme.colorScheme.error,
+                                        style = MaterialTheme.typography.bodySmall)
+                                }
+
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        if (mode.roundTrip) "Trip length" else "Radius",
+                                        style = MaterialTheme.typography.labelLarge,
+                                    )
+                                    Text(
+                                        if (mode.maxKm <= 10f) "%.1f km".format(radiusKm)
+                                        else "${radiusKm.toInt()} km",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                                route?.distanceMeters?.let {
+                                    Text(
+                                        "Loop found: ${formatDistanceKm(it)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                                destinationName?.let {
+                                    Text("→ $it", style = MaterialTheme.typography.bodySmall)
+                                }
+                                Slider(
+                                    value = radiusKm,
+                                    onValueChange = { radiusKm = it },
+                                    valueRange = mode.minKm..mode.maxKm,
+                                )
+
+                                if (!mode.roundTrip) {
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        Text("Min distance", style = MaterialTheme.typography.labelLarge)
+                                        Text(
+                                            if (minRadiusKm <= 0f) "Off"
+                                            else if (mode.maxKm <= 10f) "%.1f km".format(minRadiusKm)
+                                            else "${minRadiusKm.toInt()} km",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
+                                    Slider(
+                                        value = minRadiusKm,
+                                        onValueChange = { minRadiusKm = it },
+                                        valueRange = 0f..radiusKm,
+                                    )
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    if (!mode.roundTrip) {
+                                        SelectorChip(
+                                            icon = Icons.Default.Place,
+                                            label = poiKind.label,
+                                            options = PoiKind.entries.map { it.label },
+                                            onSelect = { poiKind = PoiKind.entries[it] },
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                    SelectorChip(
+                                        icon = Icons.Default.Explore,
+                                        label = directionDeg?.let { DIRECTION_NAMES[(it / 45f).toInt()] }
+                                            ?: "Any direction",
+                                        options = listOf("Any direction") + DIRECTION_NAMES,
+                                        onSelect = { i ->
+                                            directionDeg = if (i == 0) null else (i - 1) * 45f
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+
+                                Button(
+                                    onClick = { if (spinning) spinJob?.cancel() else spin() },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(52.dp),
+                                ) {
+                                    if (spinning) {
+                                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    } else {
+                                        Icon(Icons.Default.Casino, contentDescription = null,
+                                            Modifier.size(20.dp))
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(
+                                        if (spinning) "Cancel" else "Spin",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        maxLines = 1,
+                                    )
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    NavButton(
+                                        destination = destination,
+                                        route = route?.waypoints,
+                                        origin = myLocation,
+                                        mode = mode,
+                                        inAppAvailable = serverConfig.usable &&
+                                            (destination != null ||
+                                                route?.instructions?.isNotEmpty() == true),
+                                        onNavigateInApp = { startNavigation() },
+                                        onNavigate = {
+                                            // Heading out = start tracking automatically.
+                                            if (stats == null) {
+                                                TripTrackingService.start(
+                                                    context, destination?.lat, destination?.lon)
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    if (stats == null) {
+                                        OutlinedButton(
+                                            onClick = {
+                                                TripTrackingService.start(
+                                                    context, destination?.lat, destination?.lon)
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            Icon(Icons.Default.PlayArrow, contentDescription = null,
+                                                Modifier.size(18.dp))
+                                            Spacer(Modifier.width(8.dp))
+                                            Text("Track ${mode.label.lowercase()}", maxLines = 1)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -2210,7 +2292,8 @@ private fun ActiveTripCard(stats: TripStats) {
 @Composable
 private fun StatItem(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelSmall)
+        Text(label, style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
     }
 }

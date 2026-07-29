@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
@@ -42,7 +41,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,6 +51,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -91,17 +91,10 @@ fun SettingsScreen(onBack: () -> Unit) {
     val defaultZoom by Settings.defaultZoom.collectAsStateWithLifecycle()
     var confirmReset by remember { mutableStateOf(false) }
 
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Settings") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
-        },
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = { SubScreenTopBar("Settings", onBack, scrollBehavior) },
     ) { padding ->
         Column(
             Modifier
@@ -131,6 +124,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                         "Light by day, dark by night — follows sunrise and " +
                             "sunset at your location.",
                         style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -146,6 +140,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                         Text(
                             "Start a trip automatically when driving is detected",
                             style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Switch(
@@ -174,6 +169,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                             "In-app navigation skips motorways (car mode; " +
                                 "moto and bike never use them)",
                             style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Switch(
@@ -192,6 +188,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                             "Prefer real roads over narrow rural lanes, " +
                                 "service roads and unpaved tracks",
                             style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Switch(
@@ -225,6 +222,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                     "Where the map sits while following you. It zooms out up to " +
                         "two levels at speed and back in near a turn.",
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
@@ -257,6 +255,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 "roads you have driven, and you see theirs. Only friends " +
                                 "who share back can see yours. Off, nobody sees either.",
                             style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Switch(
@@ -283,6 +282,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             Text(
                 "Map Roulette v${BuildConfig.VERSION_NAME}",
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
         }
@@ -324,6 +324,7 @@ private fun SyncSection() {
                 "every trip and on app start, so a reinstall restores everything. " +
                 "Uses the routing server's Cloudflare Access credentials.",
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
             if (signedInAs.isBlank()) "Not signed in — open Friends to create an account."
@@ -410,6 +411,7 @@ private fun ConfigFileSection() {
                 "server and your sign-in to a file. After a reinstall, import " +
                 "it instead of typing everything again.",
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
             "The file contains your sign-in token. Keep it somewhere private — " +
@@ -470,6 +472,7 @@ private fun ExternalDisplaySection() {
                 "screen — turn, distance, speed, speed limit, road name, and remaining " +
                 "distance/ETA.",
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (!hasPerm) {
             TextButton(onClick = {
@@ -539,6 +542,7 @@ private fun NowPlayingSection() {
                 "never notification content — Android requires notification access to " +
                 "do either, so the permission name is broader than what's actually used.",
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (!hasAccess) {
             TextButton(onClick = {
@@ -554,6 +558,7 @@ private fun NowPlayingSection() {
             "Enabled. Also turn on \"Broadcast to external display\" above — music " +
                 "shares that Bluetooth connection.",
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -604,11 +609,13 @@ private fun VehicleSection() {
                 "under that vehicle automatically — and a walking device (or no " +
                 "connection at a walking pace) logs as a walk.",
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (!hasPerm) {
             Text(
                 "Grant Bluetooth access to add your paired devices.",
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             TextButton(onClick = {
                 permLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
@@ -757,6 +764,7 @@ private fun LeanCalibrationSection() {
                 "Sit the bike upright on its wheels, engine off, phone " +
                 "in its normal mount, then calibrate.",
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
             "Current offset: %.1f°".format(offsetDeg),
@@ -824,6 +832,7 @@ private fun ServerSection() {
                 "trips. Leave empty to use the built-in one. Falls back " +
                 "to public servers when unreachable.",
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         OutlinedTextField(
             value = url, onValueChange = { url = it; saved = false },
@@ -849,6 +858,7 @@ private fun ServerSection() {
                 "Leave empty to use the public one. Reuses the Cloudflare " +
                 "Access credentials above.",
             style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         OutlinedTextField(
             value = geocoderUrl, onValueChange = { geocoderUrl = it; saved = false },
@@ -869,6 +879,7 @@ private fun ServerSection() {
                         "Photon instance (komoot.io) — sends the query and your " +
                         "approximate location off your own hardware.",
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Switch(

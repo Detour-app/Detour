@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Place
@@ -28,7 +27,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -60,17 +60,10 @@ fun SavedPlacesScreen(onBack: () -> Unit) {
     var addOpen by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<SavedPlace?>(null) }
 
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Saved places") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
-        },
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = { SubScreenTopBar("Saved places", onBack, scrollBehavior) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { addOpen = true },
@@ -84,10 +77,15 @@ fun SavedPlacesScreen(onBack: () -> Unit) {
                 Modifier
                     .fillMaxSize()
                     .padding(padding),
-                verticalArrangement = Arrangement.Center,
+                verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("No saved places yet", style = MaterialTheme.typography.bodyLarge)
+                Icon(
+                    Icons.Default.Place, contentDescription = null,
+                    Modifier.size(48.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text("No saved places yet", style = MaterialTheme.typography.titleMedium)
                 Text(
                     "Add Home, Work, or anywhere you spin to often.",
                     style = MaterialTheme.typography.bodySmall,

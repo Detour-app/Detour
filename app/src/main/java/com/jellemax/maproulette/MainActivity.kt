@@ -6,6 +6,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -68,18 +74,34 @@ private fun AppRoot() {
     // app — only enabled off the map, so back on the map itself still falls
     // through to the default (exit) behaviour.
     BackHandler(enabled = screen != Screen.MAP) { screen = Screen.MAP }
-    when (screen) {
-        Screen.HISTORY -> HistoryScreen(onBack = { screen = Screen.MAP })
-        Screen.BADGES -> BadgesScreen(onBack = { screen = Screen.MAP })
-        Screen.FRIENDS -> FriendsScreen(onBack = { screen = Screen.MAP })
-        Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.MAP })
-        Screen.SAVED -> SavedPlacesScreen(onBack = { screen = Screen.MAP })
-        Screen.MAP -> MapScreen(
-            onOpenHistory = { screen = Screen.HISTORY },
-            onOpenBadges = { screen = Screen.BADGES },
-            onOpenFriends = { screen = Screen.FRIENDS },
-            onOpenSettings = { screen = Screen.SETTINGS },
-            onOpenSavedPlaces = { screen = Screen.SAVED },
-        )
+    // Sub-screens slide in over the map from the right and slide back out the
+    // same way, so opening/closing feels like a push/pop instead of a hard swap.
+    AnimatedContent(
+        targetState = screen,
+        transitionSpec = {
+            if (targetState == Screen.MAP) {
+                (slideInHorizontally { -it / 4 } + fadeIn()) togetherWith
+                    (slideOutHorizontally { it } + fadeOut())
+            } else {
+                (slideInHorizontally { it } + fadeIn()) togetherWith
+                    (slideOutHorizontally { -it / 4 } + fadeOut())
+            }
+        },
+        label = "screen",
+    ) { current ->
+        when (current) {
+            Screen.HISTORY -> HistoryScreen(onBack = { screen = Screen.MAP })
+            Screen.BADGES -> BadgesScreen(onBack = { screen = Screen.MAP })
+            Screen.FRIENDS -> FriendsScreen(onBack = { screen = Screen.MAP })
+            Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.MAP })
+            Screen.SAVED -> SavedPlacesScreen(onBack = { screen = Screen.MAP })
+            Screen.MAP -> MapScreen(
+                onOpenHistory = { screen = Screen.HISTORY },
+                onOpenBadges = { screen = Screen.BADGES },
+                onOpenFriends = { screen = Screen.FRIENDS },
+                onOpenSettings = { screen = Screen.SETTINGS },
+                onOpenSavedPlaces = { screen = Screen.SAVED },
+            )
+        }
     }
 }
