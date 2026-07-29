@@ -291,7 +291,11 @@ class TripTrackingService : Service() {
     // Written on the sensor thread, read when the trip is saved.
     @Volatile private var currentLeanDeg = 0.0
     @Volatile private var maxLeanDeg = 0.0
-    @Volatile private var currentG = 0.0
+    // Seeded at 1.0, not 0: a stationary accelerometer reads gravity, so the
+    // magnitude idles at 1 g. Starting the EMA from 0 would put the first real
+    // sample a full 1 g away — past MAX_G_SLEW — and the slew gate would then
+    // reject every sample for the rest of the trip.
+    @Volatile private var currentG = 1.0
     @Volatile private var maxG = 0.0
     /** Deepest lean since the last trace point, sign kept; see [addTracePoint]. */
     @Volatile private var segmentPeakLeanDeg = 0.0
@@ -659,7 +663,8 @@ class TripTrackingService : Service() {
         pendingStopAtMs = null
         resetStartDetector()
         currentLeanDeg = 0.0; maxLeanDeg = 0.0
-        currentG = 0.0; maxG = 0.0
+        // 1.0, not 0: the resting magnitude is 1 g — see the field declaration.
+        currentG = 1.0; maxG = 0.0
         lastMovingMs = System.currentTimeMillis()
         // Re-check what's actually linked: the set may have gone stale since the
         // last trip. Answers async, retagging through refreshTripMode.
