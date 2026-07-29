@@ -7,8 +7,9 @@ the roads you have explored. It can talk to two self-hosted services:
 |---|---|---|
 | **Sync server** | Accounts, trips, fog of war, badges, friends | Python 3.8+, ~50 MB. Nothing else. |
 | **Routing server** | Generates curvy motorcycle round trips, car and bike routes | Docker, a multi-GB OSM download, 4–8 GB RAM during import |
+| **Geocoder** | Self-hosted address/place search (Photon), so search is fast, private and not rate-limited | Docker, a per-country prebuilt index (~1–2 GB), 2 GB RAM |
 
-You can install either or both. `install.sh` does the whole thing.
+You can install any combination. `install.sh` does the whole thing.
 
 ---
 
@@ -47,8 +48,9 @@ which is usually a bad idea) with `--in-place`.
 
 | Flag | Meaning |
 |---|---|
-| `--sync` / `--routing` / `--all` | What to install. Default: ask, or both with `--yes`. |
-| `--region europe/belgium` | Geofabrik path, or a full `.osm.pbf` URL. |
+| `--sync` / `--routing` / `--geocoder` / `--all` | What to install. Default: ask, or all with `--yes`. |
+| `--region europe/belgium` | Geofabrik path, or a full `.osm.pbf` URL (routing). |
+| `--geo-country be` | Two-letter country code for the geocoder's prebuilt index (see below). |
 | `--yes` | No prompts. |
 | `--ctid 150` | Pick the container ID instead of the next free one. |
 | `--storage local-lvm` `--bridge vmbr0` `--hostname maproulette` | Container placement. |
@@ -66,11 +68,14 @@ which is usually a bad idea) with `--in-place`.
 /var/lib/maproulette-sync/maproulette.db SQLite: accounts, trips, traces, badges
 /var/backups/maproulette/                nightly backups, 14 days
 /opt/graphhopper/                        docker-compose.yml, config.yml, OSM data
+/opt/photon/                             docker-compose.yml, photon.jar, the country index
 
 systemd: maproulette-sync.service        the sync API,   127.0.0.1:8790
          maproulette-backup.timer        nightly, 00:00 + jitter
          graphhopper-refresh.timer       monthly OSM refresh + re-import
+         photon-refresh.timer            monthly index refresh
          docker: graphhopper             the routing API, 127.0.0.1:8989
+         docker: photon                  the geocoder API, 127.0.0.1:2322
 ```
 
 **Both services listen on localhost only.** The installer does not open a port,
@@ -101,10 +106,13 @@ stranger, and you open nothing on your router.
    |---|---|
    | `sync.example.com` | `http://localhost:8790` |
    | `routing.example.com` | `http://localhost:8989` |
+   | `geocoder.example.com` | `http://localhost:2322` |
 
 3. Create a **service token** (Access → Service Auth).
 4. Create an **Access application** for *each* hostname, with one policy:
-   Action = **Service Auth**, include → that service token.
+   Action = **Service Auth**, include → that service token. Reuse the same
+   token for all three hostnames — the app sends one CF Access ID/secret pair
+   to routing, sync and the geocoder alike, entered once under Settings.
 5. Check it from anywhere:
 
    ```bash
@@ -115,10 +123,10 @@ stranger, and you open nothing on your router.
      -H "CF-Access-Client-Id: <id>" -H "CF-Access-Client-Secret: <secret>"
    ```
 
-> **The routing server has no authentication of its own.** If you publish it
-> without Access in front, you have published an open routing engine that
-> anyone can use to burn your CPU. The sync server does authenticate users, but
-> it should still sit behind Access.
+> **The routing server and the geocoder have no authentication of their own.**
+> If you publish either without Access in front, you have published an open
+> service anyone can use to burn your CPU or scrape. The sync server does
+> authenticate users, but it should still sit behind Access.
 
 If cloudflared runs in a *different* container than the services, `localhost`
 will not resolve to them — use the LAN IP, and bind the services to it.
@@ -195,9 +203,10 @@ endpoint.
 In the app: **Settings → Server**.
 
 ```
-Sync URL      https://sync.example.com
-Routing URL   https://routing.example.com
-CF Access ID / Secret     (only for option 1 above)
+Sync URL           https://sync.example.com
+Routing URL        https://routing.example.com
+Search server URL  https://geocoder.example.com   (only if you installed the geocoder)
+CF Access ID / Secret     (only for option 1 above; the same pair for all three)
 Invite code               (on the sign-in screen, first time only)
 ```
 
@@ -242,6 +251,54 @@ with a bigger extract, so take the smallest one that covers where you ride.
 To change region later, re-run with a new `--region`, or edit
 `datareader.file` in `/opt/graphhopper/data/config.yml` and delete the graph
 (below).
+
+---
+
+## Routing profiles: moto, car, bike
+
+GraphHopper comes up with three profiles, all defined by the installer in
+`/opt/graphhopper/data/config.yml`:
+
+- **`moto`** — curvy-road weighting. It leans on GraphHopper's built-in
+  `curvature` encoded value, a per-edge sinuosity score. Edges run
+  junction-to-junction, so a turn at an intersection is structurally excluded
+  from "curviness" — it can never be scored as a curvy road, unlike a
+  heading-change heuristic which would count it. Motorways and residential
+  streets are penalized (multiplied down), near-straight edges are penalized
+  more as `curvature` climbs toward 1.0. No CH (contraction hierarchies)
+  profile — `round_trip` and the app's per-query custom models both need
+  flexible routing, which CH doesn't support.
+- **`car`** — fastest route, motorways allowed. The app can also POST a
+  `custom_model` on this profile (e.g. to avoid motorways) — that only works
+  because `car` also has no CH profile.
+- **`bike`** — cycling, using `bike_average_speed`/`bike_priority`. Needs
+  cycleways and paths in the import, which the routing-only config used to
+  exclude — the installer's `import.osm.ignored_highways` only drops
+  `footway,pedestrian,steps`, keeping cycleways and paths in the graph.
+
+Do not replace the curvature-based weighting with a heading-change heuristic
+— the junction exclusion is the whole point, and it only falls out of using
+edges the way GraphHopper already segments them.
+
+---
+
+## Choosing the geocoder's country index
+
+`--geo-country be` (or `nl`, `de`, …) picks a **single-country prebuilt
+Photon index** from GraphHopper's public mirror — no local build step, just a
+download and extract (~1–2 GB, a couple of minutes). There is no prebuilt
+multi-country index (e.g. a Benelux-wide one); covering more than one
+country means building Photon from a Nominatim database yourself, which is
+out of scope for the installer.
+
+The Photon **jar version is pinned** (`PHOTON_VERSION` in `install.sh`) to
+match the index's OpenSearch format — the two are not independently
+upgradable. If the container logs an index/OpenSearch version mismatch on
+startup, the pin needs to move to whatever release the index was actually
+built with.
+
+`photon-refresh.timer` re-downloads the country's newest index monthly, the
+same way `graphhopper-refresh.timer` refreshes the routing extract.
 
 ---
 
