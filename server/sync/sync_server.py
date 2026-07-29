@@ -69,6 +69,7 @@ CLI:
   python3 sync_server.py --revoke-keys USER       delete all API keys for a user
   python3 sync_server.py --revoke-tokens USER     sign a user out everywhere
 """
+import gzip
 import hashlib
 import hmac
 import json
@@ -909,7 +910,11 @@ def ha_ride_html(user, params):
         start = row["start_ms"]
         params = dict(params, start=[str(start)])
     geo = ha_ride(user, params)
-    return RIDE_HTML % {"start": start, "geojson": json.dumps(geo)}
+    # json.dumps does not escape "</script>", and mode comes from user-supplied
+    # trip JSON — a user could otherwise break out of the <script> block on
+    # their own dashboard page. Standard guard: split up the closing tag.
+    geojson = json.dumps(geo).replace("</", "<\\/")
+    return RIDE_HTML % {"start": start, "geojson": geojson}
 
 
 HA_GET = {
@@ -1011,14 +1016,28 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         if length > MAX_BODY:
             raise HttpError(413, "body too large")
-        return json.loads(self.rfile.read(length))
+        raw = self.rfile.read(length)
+        # The app gzips every sync upload now (traces.jsonl is 1 MB+ and
+        # re-sent whole each time); there is no third-party client to stay
+        # compatible with, so this is unconditional on the client side.
+        if self.headers.get("Content-Encoding", "").lower() == "gzip":
+            raw = gzip.decompress(raw)
+        return json.loads(raw)
 
     def _json(self, code, payload):
         self._reply(code, json.dumps(payload).encode(), "application/json")
 
     def _reply(self, code, body, content_type):
+        # Compress replies the client says it can decode. Small bodies (most
+        # /health, /friends/* replies) aren't worth the CPU; sync's full trip
+        # + trace history is, by a lot — JSON compresses roughly 10:1.
+        gzipped = len(body) > 1024 and "gzip" in self.headers.get("Accept-Encoding", "")
+        if gzipped:
+            body = gzip.compress(body)
         self.send_response(code)
         self.send_header("Content-Type", content_type)
+        if gzipped:
+            self.send_header("Content-Encoding", "gzip")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
