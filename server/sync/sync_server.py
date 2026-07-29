@@ -72,6 +72,7 @@ CLI:
 import gzip
 import hashlib
 import hmac
+import io
 import json
 import os
 import re
@@ -1042,7 +1043,12 @@ class Handler(BaseHTTPRequestHandler):
         # re-sent whole each time); there is no third-party client to stay
         # compatible with, so this is unconditional on the client side.
         if self.headers.get("Content-Encoding", "").lower() == "gzip":
-            raw = gzip.decompress(raw)
+            # Bound the *decompressed* size as well: MAX_BODY caps what travels
+            # the wire, but a gzip bomb expands far past that in memory, and
+            # this path is reachable before auth.
+            raw = gzip.GzipFile(fileobj=io.BytesIO(raw)).read(MAX_BODY + 1)
+            if len(raw) > MAX_BODY:
+                raise HttpError(413, "body too large")
         return json.loads(raw)
 
     def _json(self, code, payload):
