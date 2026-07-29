@@ -111,6 +111,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -342,6 +343,17 @@ fun MapScreen(
     onOpenSavedPlaces: () -> Unit,
 ) {
     val context = LocalContext.current
+    // Extra bottom padding for a fitted route/candidate spread, roughly the
+    // expanded spin card's height, so the card doesn't cover most of it. A
+    // fixed fraction of the screen rather than measuring the actual card —
+    // the card's real height varies with content, and this only needs to be
+    // in the right ballpark.
+    val fitBottomPaddingPx = (context.resources.displayMetrics.heightPixels * 0.4).toInt()
+    // Bottom margin so OSM/OpenFreeMap attribution stays above the collapsed
+    // spin bar instead of half-covered by it — a fixed estimate of the bar's
+    // height (icon + row padding) rather than measuring it, same spirit as
+    // fitBottomPaddingPx above.
+    val attributionBottomMarginPx = with(LocalDensity.current) { 84.dp.roundToPx() }
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { SavedPlaces.ensureLoaded(context) }
     val savedPlaces by SavedPlaces.places.collectAsStateWithLifecycle()
@@ -488,6 +500,10 @@ fun MapScreen(
         mapView.getMapAsync { map ->
             map.uiSettings.isCompassEnabled = false
             map.uiSettings.isRotateGesturesEnabled = true
+            // Keep OSM/OpenFreeMap attribution above the collapsed spin bar
+            // instead of half-covered by it in every card state.
+            map.uiSettings.setAttributionMargins(0, 0, 0, attributionBottomMarginPx)
+            map.uiSettings.setLogoMargins(0, 0, 0, attributionBottomMarginPx)
             mapLibreMap = map
         }
         onDispose {
@@ -641,7 +657,7 @@ fun MapScreen(
         // Buy the same grace period a pan gets, so a pick made at speed isn't
         // re-centered before you've seen the route you just chose.
         lastGestureMs = System.currentTimeMillis()
-        mapLibreMap?.let { cameraForPoints(it, listOf(loc, c.destination), FIT_PADDING_PX) }
+        mapLibreMap?.let { cameraForPoints(it, listOf(loc, c.destination), FIT_PADDING_PX, fitBottomPaddingPx) }
     }
 
     // Push overlay state to the map whenever anything drawable changes. The
@@ -1134,7 +1150,7 @@ fun MapScreen(
                     route = result
                     destination = null
                     destinationName = null
-                    mapLibreMap?.let { cameraForPoints(it, result.polyline + loc, FIT_PADDING_PX) }
+                    mapLibreMap?.let { cameraForPoints(it, result.polyline + loc, FIT_PADDING_PX, fitBottomPaddingPx) }
                 } else {
                     val bearing = directionDeg?.toDouble()
                     val minMeters = minRadiusKm.toDouble() * 1000.0
@@ -1158,7 +1174,7 @@ fun MapScreen(
                     }
                     candidates = results
                     mapLibreMap?.let {
-                        cameraForPoints(it, results.map { c -> c.destination } + loc, FIT_PADDING_PX)
+                        cameraForPoints(it, results.map { c -> c.destination } + loc, FIT_PADDING_PX, fitBottomPaddingPx)
                     }
                 }
             } catch (e: TimeoutCancellationException) {

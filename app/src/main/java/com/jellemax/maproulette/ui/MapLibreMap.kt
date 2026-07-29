@@ -59,6 +59,9 @@ private const val IMG_DEST = "mr-img-dest"
 private const val IMG_POSITION = "mr-img-position"
 private const val IMG_CAMERA = "mr-img-camera"
 const val LAYER_CANDIDATES = "mr-candidates-dot"
+// Below city zoom the speed-camera icons pile up into an unreadable blob, and
+// at loop-planning zoom they're just noise — hide them until zoomed past this.
+private const val SPEED_CAMERA_MIN_ZOOM = 11f
 
 /**
  * Owns the runtime sources and layers drawn on top of the basemap: the reach
@@ -112,7 +115,8 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
         // candidate dots so a spin result is never hidden behind a camera.
         style.addLayer(SymbolLayer("mr-cameras", SRC_CAMERAS).withProperties(
             PropertyFactory.iconImage(IMG_CAMERA),
-            PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)))
+            PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)
+        ).also { it.setMinZoom(SPEED_CAMERA_MIN_ZOOM) })
         // Candidates as colored discs with a white ring; the color matches the
         // card row, and a tap is resolved by querying this layer.
         style.addLayer(CircleLayer(LAYER_CANDIDATES, SRC_CANDIDATES).withProperties(
@@ -203,8 +207,11 @@ private fun offset(from: LatLon, meters: Double, bearingDeg: Double): LatLon {
     return LatLon(from.lat + dLat, from.lon + dLon)
 }
 
-/** Camera bounds fitted to [points] with a fraction of padding. */
-fun cameraForPoints(map: MapLibreMap, points: List<LatLon>, paddingPx: Int) {
+/** Camera bounds fitted to [points], with [paddingPx] on the top/left/right
+ *  and [bottomPaddingPx] on the bottom. Separate bottom padding because the
+ *  expanded spin card sits over roughly the bottom half of the screen — a fit
+ *  that only knew about [paddingPx] would tuck the route right behind it. */
+fun cameraForPoints(map: MapLibreMap, points: List<LatLon>, paddingPx: Int, bottomPaddingPx: Int = paddingPx) {
     if (points.isEmpty()) return
     val builder = LatLngBounds.Builder()
     points.forEach { builder.include(LatLng(it.lat, it.lon)) }
@@ -213,7 +220,8 @@ fun cameraForPoints(map: MapLibreMap, points: List<LatLon>, paddingPx: Int) {
             .include(LatLng(points[0].lat + 0.005, points[0].lon + 0.005))
             .include(LatLng(points[0].lat - 0.005, points[0].lon - 0.005)).build()
     else builder.build()
-    map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, paddingPx))
+    map.animateCamera(
+        CameraUpdateFactory.newLatLngBounds(bounds, paddingPx, paddingPx, paddingPx, bottomPaddingPx))
 }
 
 /** Camera position for the follow loop: target/zoom/bearing in one shot. */
