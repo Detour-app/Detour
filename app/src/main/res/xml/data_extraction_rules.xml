@@ -1,11 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Google Drive auto-backup + device-to-device transfer (Android 12+). -->
+<!-- Google Drive auto-backup + device-to-device transfer (Android 12+).
+
+     settings.xml (auth_token) and routing_server.xml (CF Access client
+     secret) are excluded from <cloud-backup> on purpose: those credentials
+     should not leave hardware you own and land in Google Drive, where a
+     restored backup could silently resurrect a token the user believes was
+     revoked. They stay in <device-transfer>, which is a direct phone-to-phone
+     copy, not cloud storage, so the seamless new-phone experience survives.
+     The config-file export (Settings -> Server config file) is the supported
+     way to carry credentials across a reinstall. -->
 <data-extraction-rules>
     <cloud-backup>
         <include domain="file" path="trips.json" />
         <include domain="file" path="traces.jsonl" />
-        <include domain="sharedpref" path="settings.xml" />
-        <include domain="sharedpref" path="routing_server.xml" />
     </cloud-backup>
     <device-transfer>
         <include domain="file" path="trips.json" />
