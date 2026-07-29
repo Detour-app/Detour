@@ -39,6 +39,8 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.jellemax.maproulette.MainActivity
+import com.jellemax.maproulette.ble.BleNavServer
+import com.jellemax.maproulette.ble.BoardTelemetry
 import com.jellemax.maproulette.data.BadgeDef
 import com.jellemax.maproulette.data.BadgeStore
 import com.jellemax.maproulette.data.Coverage
@@ -156,7 +158,23 @@ class TripTrackingService : Service() {
          *  braking/cornering load, so an unfiltered sample can spike the max
          *  well past anything the bike actually did. Smaller = more smoothing. */
         private const val LEAN_EMA_ALPHA = 0.3
+        /** A single rotation-vector sample implying more than this much change
+         *  since the last one is a fusion glitch (e.g. a magnetometer disturbance
+         *  from passing metal), not a real lean — a bike can't snap over that
+         *  fast between two ~60ms samples. Rejected before it ever reaches the
+         *  EMA, since the EMA only damps a glitch, it doesn't remove one. */
+        private const val MAX_LEAN_SLEW_DEG = 20.0
+        /** Below this, "lean" is steering-head geometry, not the bike leaning —
+         *  turning the bars while stopped or walking the bike tips a bar-mounted
+         *  phone via the fork's rake angle alone. Lean is only recorded at or
+         *  above real riding speed. */
+        private const val MIN_LEAN_SPEED_MPS = 3.0           // ~11 km/h
         private const val G_EMA_ALPHA = 0.15
+        /** The board pushes telemetry every 250ms (see moto_hud's ble_central.cpp);
+         *  a few missed writes are a hiccup, not a disconnect, so this stays a
+         *  multiple of that rather than matching it 1:1. Past this, fall back to
+         *  the phone's own sensors rather than freezing on a stale board number. */
+        private const val BOARD_TELEMETRY_STALE_MS = 2_000L
         /** Floor between boundary lookups, so a drive along a coastline (where
          *  every point misses) can't turn into a stream of Overpass queries. */
         private const val MUNICIPALITY_LOOKUP_COOLDOWN_MS = 60_000L
@@ -274,6 +292,45 @@ class TripTrackingService : Service() {
     private var leanOffsetDeg = 0.0
 
     /**
+     * The board's own GPS and IMU, treated as truth over the phone's
+     * FusedLocationProvider/rotation-vector sensor when both are present:
+     * a dash-mounted GPS antenna with clear sky and an IMU bolted to the
+     * bike itself beat a phone in a pocket or a less rigid mount. Position
+     * (lat/lon) stays the phone's alone — only speed and lean are compared
+     * here, see the BLE server for the write side of this.
+     *
+     * `receivedAtMs` is stamped on arrival in [BleNavServer], not sent by the
+     * board, so a stopped or disconnected board reads as stale within
+     * [BOARD_TELEMETRY_STALE_MS] rather than freezing on its last number.
+     */
+    private fun freshBoardTelemetry(): BoardTelemetry? {
+        val telemetry = BleNavServer.boardTelemetry.value ?: return null
+        val age = System.currentTimeMillis() - telemetry.receivedAtMs
+        return if (age in 0..BOARD_TELEMETRY_STALE_MS) telemetry else null
+    }
+
+    /** Board lean is only trusted for a vehicle whose mode tracks lean at all
+     *  — the same rule [startMotionSensors] applies to the phone's own sensor,
+     *  so a car trip with a board still connected doesn't suddenly grow one. */
+    private fun freshBoardLeanDeg(mode: TravelMode?): Double? {
+        if (mode?.tracksLean != true) return null
+        val telemetry = freshBoardTelemetry() ?: return null
+        return if (telemetry.hasLean) telemetry.leanDeg else null
+    }
+
+    /** Shared by the phone's own rotation-vector sensor and fresh board
+     *  telemetry — whichever is currently authoritative calls this, so the
+     *  recorded max reflects one source at a time, not whichever updated last. */
+    private fun recordLean(deg: Double) {
+        if (abs(deg) > MAX_PLAUSIBLE_LEAN_DEG) return
+        // Below riding speed, "lean" is steering-head rake, not the bike
+        // actually leaning — see MIN_LEAN_SPEED_MPS.
+        if ((_stats.value?.currentSpeedMps ?: 0.0) < MIN_LEAN_SPEED_MPS) return
+        maxLeanDeg = maxOf(maxLeanDeg, abs(deg))
+        if (abs(deg) > abs(segmentPeakLeanDeg)) segmentPeakLeanDeg = deg
+    }
+
+    /**
      * Lean angle (from the rotation-vector sensor) and g-force (accelerometer
      * magnitude) only make sense while a trip is running, so these sensors are
      * only registered between [beginTrip] and [endTrip]. Lean angle assumes the
@@ -305,16 +362,16 @@ class TripTrackingService : Service() {
                     val upX = -rotationMatrix[6]
                     val upY = rotationMatrix[7]
                     val rawLeanDeg = Math.toDegrees(atan2(upX, upY).toDouble()) - leanOffsetDeg
-                    // Smoothed first: a single vibration-noise sample must not
-                    // reach the max/threshold check below on its own.
-                    currentLeanDeg += LEAN_EMA_ALPHA * (rawLeanDeg - currentLeanDeg)
-                    // Anything past this is the phone being handled, not a lean
-                    // — nobody rides at 70° and gets to record it.
-                    if (abs(currentLeanDeg) <= MAX_PLAUSIBLE_LEAN_DEG) {
-                        maxLeanDeg = maxOf(maxLeanDeg, abs(currentLeanDeg))
-                        if (abs(currentLeanDeg) > abs(segmentPeakLeanDeg)) {
-                            segmentPeakLeanDeg = currentLeanDeg
-                        }
+                    // Drop single-sample fusion glitches before they ever reach
+                    // the EMA — see MAX_LEAN_SLEW_DEG. The EMA below only damps
+                    // a glitch's contribution, it can't remove it outright.
+                    if (abs(rawLeanDeg - currentLeanDeg) <= MAX_LEAN_SLEW_DEG) {
+                        currentLeanDeg += LEAN_EMA_ALPHA * (rawLeanDeg - currentLeanDeg)
+                        // Only this sensor's own reading feeds the recorded max while
+                        // the board isn't supplying a fresher one — see recordLean()
+                        // and freshBoardLeanDeg(). (MAX_PLAUSIBLE_LEAN_DEG below still
+                        // guards against the phone being handled, not a lean.)
+                        if (freshBoardLeanDeg(_stats.value?.mode) == null) recordLean(currentLeanDeg)
                     }
                 }
                 Sensor.TYPE_ACCELEROMETER -> {
@@ -330,9 +387,16 @@ class TripTrackingService : Service() {
             val now = SystemClock.elapsedRealtime()
             if (now - lastSensorEmitMs < SENSOR_EMIT_INTERVAL_MS) return
             lastSensorEmitMs = now
+            // The board updates at 4 Hz (see BOARD_TELEMETRY_STALE_MS), close
+            // enough to this 5 Hz tick that sampling it here rather than on
+            // its own event is a fine match — recorded here rather than in the
+            // ROTATION_VECTOR branch above since that branch only fires from
+            // the phone's own sensor, never from a BLE write.
+            val boardLeanDeg = freshBoardLeanDeg(_stats.value?.mode)
+            if (boardLeanDeg != null) recordLean(boardLeanDeg)
             _stats.update {
                 it?.copy(
-                    currentLeanAngleDeg = currentLeanDeg,
+                    currentLeanAngleDeg = boardLeanDeg ?: currentLeanDeg,
                     maxLeanAngleDeg = maxLeanDeg,
                     currentGForce = currentG,
                     maxGForce = maxG,
@@ -887,13 +951,22 @@ class TripTrackingService : Service() {
             return
         }
 
+        // Board GPS over the phone's when it's fresh — see freshBoardTelemetry().
+        // Deliberately scoped to just the two fields below: `speed` above still
+        // drives auto-start/stop and the fog trace, which stay on the phone's
+        // own consistent GPS pipeline regardless of whether a board is paired.
+        val effectiveSpeedMps = freshBoardTelemetry()
+            ?.takeIf { it.hasSpeed }
+            ?.let { it.speedKmh / 3.6 }
+            ?: speed
+
         // update (not value =) so the 5 Hz sensor writes aren't clobbered here.
         _stats.update {
             it?.copy(
                 durationMs = now - it.startTimeMs,
                 distanceMeters = distance,
-                currentSpeedMps = speed,
-                topSpeedMps = maxOf(it.topSpeedMps, speed),
+                currentSpeedMps = effectiveSpeedMps,
+                topSpeedMps = maxOf(it.topSpeedMps, effectiveSpeedMps),
             )
         }
         // Now that pace is updated, a slow trip may reveal itself as a walk.

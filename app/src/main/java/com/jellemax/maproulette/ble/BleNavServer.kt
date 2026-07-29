@@ -24,6 +24,8 @@ import android.os.ParcelUuid
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.jellemax.maproulette.data.NavEngine
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.TimeZone
@@ -34,6 +36,11 @@ val NAV_CHARACTERISTIC_UUID: UUID = UUID.fromString("b17a0002-9c2e-4b8a-8f21-1f5
 val MUSIC_CHARACTERISTIC_UUID: UUID = UUID.fromString("b17a0003-9c2e-4b8a-8f21-1f5e2a6d0e01")
 val TIME_CHARACTERISTIC_UUID: UUID = UUID.fromString("b17a0004-9c2e-4b8a-8f21-1f5e2a6d0e01")
 val ART_CHARACTERISTIC_UUID: UUID = UUID.fromString("b17a0005-9c2e-4b8a-8f21-1f5e2a6d0e01")
+// Board -> phone, the one write-direction characteristic: speed and lean off
+// the board's own GPS and IMU, so TripTrackingService can prefer them over
+// the phone's own sensors when they're fresh. See TripTrackingService's
+// boardTelemetryFresh()/boardLeanFresh() for the fallback logic.
+val TELEMETRY_CHARACTERISTIC_UUID: UUID = UUID.fromString("b17a0006-9c2e-4b8a-8f21-1f5e2a6d0e01")
 private val CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 private const val TIME_RESYNC_MS = 30_000L
 
@@ -61,6 +68,18 @@ private const val TAG = "BleNavServer"
  * media session. The central is expected to negotiate a larger MTU before
  * subscribing — neither payload fits in the default 23-byte ATT MTU.
  */
+/** One packet off the board's own sensors — see TELEMETRY_CHARACTERISTIC_UUID. */
+data class BoardTelemetry(
+    val hasSpeed: Boolean,
+    val speedKmh: Double,
+    val hasLean: Boolean,
+    val leanDeg: Double,
+    /** Wall clock when this arrived, for the staleness check on the reading side —
+     *  not anything the board sent, since BLE write timing already answers "how
+     *  fresh is this" better than a timestamp carried through the write itself. */
+    val receivedAtMs: Long,
+)
+
 @SuppressLint("MissingPermission")
 object BleNavServer {
     private var gattServer: BluetoothGattServer? = null
@@ -69,6 +88,10 @@ object BleNavServer {
     private var musicCharacteristic: BluetoothGattCharacteristic? = null
     private var timeCharacteristic: BluetoothGattCharacteristic? = null
     private var artCharacteristic: BluetoothGattCharacteristic? = null
+    private var telemetryCharacteristic: BluetoothGattCharacteristic? = null
+
+    private val _boardTelemetry = MutableStateFlow<BoardTelemetry?>(null)
+    val boardTelemetry: StateFlow<BoardTelemetry?> = _boardTelemetry
 
     private val mainHandler = Handler(Looper.getMainLooper())
     // Time has no natural "changed" event like nav/music do, so it is pushed
@@ -207,6 +230,23 @@ object BleNavServer {
                     characteristic.value?.drop(offset)?.toByteArray(),
                 )
             }
+
+            override fun onCharacteristicWriteRequest(
+                device: BluetoothDevice,
+                requestId: Int,
+                characteristic: BluetoothGattCharacteristic,
+                preparedWrite: Boolean,
+                responseNeeded: Boolean,
+                offset: Int,
+                value: ByteArray,
+            ) {
+                if (characteristic.uuid == TELEMETRY_CHARACTERISTIC_UUID) {
+                    parseTelemetry(value)?.let { _boardTelemetry.value = it }
+                }
+                if (responseNeeded) {
+                    gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
+                }
+            }
         }
 
         val server = manager.openGattServer(context, callback) ?: return
@@ -229,16 +269,24 @@ object BleNavServer {
         val music = notifiable(MUSIC_CHARACTERISTIC_UUID)
         val time = notifiable(TIME_CHARACTERISTIC_UUID)
         val art = notifiable(ART_CHARACTERISTIC_UUID)
+        val telemetry = BluetoothGattCharacteristic(
+            TELEMETRY_CHARACTERISTIC_UUID,
+            BluetoothGattCharacteristic.PROPERTY_WRITE or
+                BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
+            BluetoothGattCharacteristic.PERMISSION_WRITE,
+        )
         navCharacteristic = nav
         musicCharacteristic = music
         timeCharacteristic = time
         artCharacteristic = art
+        telemetryCharacteristic = telemetry
 
         val service = BluetoothGattService(NAV_SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
         service.addCharacteristic(nav)
         service.addCharacteristic(music)
         service.addCharacteristic(time)
         service.addCharacteristic(art)
+        service.addCharacteristic(telemetry)
         server.addService(service)
 
         mainHandler.removeCallbacks(timeTicker)
@@ -271,6 +319,7 @@ object BleNavServer {
         musicCharacteristic = null
         timeCharacteristic = null
         artCharacteristic = null
+        telemetryCharacteristic = null
         appContext = null
         subscriptions.clear()
         mainHandler.removeCallbacks(artSendWatchdog)
@@ -280,6 +329,22 @@ object BleNavServer {
         lastArtJpeg = null
         lastSign = null
         lastStatsSentAt = 0L
+    }
+
+    /** Malformed JSON (a write mid-reconnect, a firmware bug) drops the packet
+     *  rather than publishing garbage — the next write 250ms later corrects it. */
+    private fun parseTelemetry(value: ByteArray): BoardTelemetry? = try {
+        val json = JSONObject(String(value, Charsets.UTF_8))
+        BoardTelemetry(
+            hasSpeed = json.optBoolean("hasSpeed", false),
+            speedKmh = json.optDouble("speedKmh", 0.0),
+            hasLean = json.optBoolean("hasLean", false),
+            leanDeg = json.optDouble("leanDeg", 0.0),
+            receivedAtMs = System.currentTimeMillis(),
+        )
+    } catch (e: Exception) {
+        Log.w(TAG, "bad telemetry payload: ${e.message}")
+        null
     }
 
     private fun notifySubscribers(characteristic: BluetoothGattCharacteristic) {
