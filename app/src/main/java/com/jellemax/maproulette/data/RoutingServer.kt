@@ -49,7 +49,7 @@ data class ServerConfig(
 }
 
 /**
- * Client for a self-hosted GraphHopper instance (see server/CLAUDE_SETUP_GUIDE.md),
+ * Client for a self-hosted GraphHopper instance (see server/INSTALL.md),
  * optionally behind Cloudflare Access. Configured by the user in the app; the
  * URL and token live only in app-private preferences, never in the repo/APK.
  */

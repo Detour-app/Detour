@@ -120,10 +120,15 @@ object Geocoder {
     private const val DEDUPE_RADIUS_METERS = 250.0
 
     private fun dedupe(results: List<GeocodeResult>): List<GeocodeResult> {
+        // Compare the primary part of the label, not the whole thing: the same
+        // place comes back as "Kortrijk, België" and "Kortrijk, West-Vlaanderen,
+        // België" (city vs municipality tags), and only the part before the
+        // first comma is the place's own name.
+        fun primary(r: GeocodeResult) = r.name.substringBefore(",").trim()
         val kept = ArrayList<GeocodeResult>(results.size)
         for (result in results) {
             val isDuplicate = kept.any { seen ->
-                seen.name == result.name &&
+                primary(seen) == primary(result) &&
                     RoadRoulette.distanceMeters(seen.location, result.location) <= DEDUPE_RADIUS_METERS
             }
             if (!isDuplicate) kept.add(result)

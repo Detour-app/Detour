@@ -7,7 +7,7 @@ import org.json.JSONObject
 
 /**
  * Bidirectional sync with the owner's sync server (see
- * server/SYNC_SETUP_GUIDE.md and server/PHASE3_MULTIPLAYER_GUIDE.md). One POST
+ * server/INSTALL.md). One POST
  * uploads local trips, fog-of-war traces, badges and the aggregate stats
  * friends are allowed to see; the server merges them with its copy and returns
  * the union, which replaces the local stores. Deleting and reinstalling the app

@@ -306,7 +306,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     }
 }
 
-/** Backup sync with the owner's server (see server/SYNC_SETUP_GUIDE.md). */
+/** Backup sync with the owner's server (see server/INSTALL.md). */
 @Composable
 private fun SyncSection() {
     val context = LocalContext.current
