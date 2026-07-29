@@ -170,6 +170,19 @@ class TripTrackingService : Service() {
          *  above real riding speed. */
         private const val MIN_LEAN_SPEED_MPS = 3.0           // ~11 km/h
         private const val G_EMA_ALPHA = 0.15
+        /** A single accelerometer sample implying more than this much change
+         *  since the last one is a pothole or the mount resonating, not a real
+         *  cornering/braking load — a vehicle can't change loading that fast
+         *  between two ~60ms samples. Rejected before it ever reaches the EMA,
+         *  mirroring MAX_LEAN_SLEW_DEG: the EMA only damps a spike's
+         *  contribution, it doesn't remove one outright. */
+        private const val MAX_G_SLEW = 0.5
+        /** Past this the reading is a shock surviving the EMA, not the vehicle
+         *  — a road bike or car doesn't sustain real cornering/braking loads
+         *  above roughly this envelope. One ride recorded a max of 6.7 g, which
+         *  is physically impossible on two wheels; this caps what can become
+         *  the recorded max the same way MAX_PLAUSIBLE_LEAN_DEG caps lean. */
+        private const val MAX_PLAUSIBLE_G = 2.0
         /** The board pushes telemetry every 250ms (see moto_hud's ble_central.cpp);
          *  a few missed writes are a hiccup, not a disconnect, so this stays a
          *  multiple of that rather than matching it 1:1. Past this, fall back to
@@ -378,8 +391,14 @@ class TripTrackingService : Service() {
                     val (x, y, z) = event.values
                     val rawG = sqrt((x * x + y * y + z * z).toDouble()) /
                         SensorManager.GRAVITY_EARTH
-                    currentG += G_EMA_ALPHA * (rawG - currentG)
-                    maxG = maxOf(maxG, currentG)
+                    // Drop single-sample shocks before they ever reach the EMA —
+                    // see MAX_G_SLEW.
+                    if (abs(rawG - currentG) <= MAX_G_SLEW) {
+                        currentG += G_EMA_ALPHA * (rawG - currentG)
+                        // MAX_PLAUSIBLE_G still guards the recorded max even
+                        // once a shock has been smoothed into currentG.
+                        if (currentG <= MAX_PLAUSIBLE_G) maxG = maxOf(maxG, currentG)
+                    }
                 }
             }
             // Peaks are folded in on every event above; publishing them at 5 Hz
