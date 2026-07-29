@@ -88,6 +88,16 @@ object Settings {
     private val _geocoderUrl = MutableStateFlow("")
     val geocoderUrl: StateFlow<String> = _geocoderUrl
 
+    /** Whether search may retry via the public Photon instance (komoot.io) when
+     *  a configured custom/baked geocoder is unreachable — sends the query and
+     *  the user's approximate location off their own hardware. Only consulted
+     *  when there is a non-public primary to fail over from: with no
+     *  custom/baked geocoder set, public Photon is the only option either way,
+     *  so this can default on without breaking search for anyone who never
+     *  looks at the setting. See [Geocoder.search]. */
+    private val _geocoderPublicFallback = MutableStateFlow(true)
+    val geocoderPublicFallback: StateFlow<Boolean> = _geocoderPublicFallback
+
     /** Bearer token for the sync server; blank = signed out. App-private prefs. */
     private val _authToken = MutableStateFlow("")
     val authToken: StateFlow<String> = _authToken
@@ -119,6 +129,7 @@ object Settings {
         _defaultZoom.value = prefs.getFloat("default_zoom", DEFAULT_ZOOM_DEFAULT)
         _syncUrl.value = prefs.getString("sync_url", "") ?: ""
         _geocoderUrl.value = prefs.getString("geocoder_url", "") ?: ""
+        _geocoderPublicFallback.value = prefs.getBoolean("geocoder_public_fallback", true)
         _authToken.value = prefs.getString("auth_token", "") ?: ""
         _authUsername.value = prefs.getString("auth_username", "") ?: ""
         _leanOffsetDeg.value = prefs.getFloat("lean_offset_deg", 0f)
@@ -228,6 +239,11 @@ object Settings {
     fun setGeocoderUrl(value: String) {
         _geocoderUrl.value = value.trim()
         prefs.edit().putString("geocoder_url", value.trim()).apply()
+    }
+
+    fun setGeocoderPublicFallback(value: Boolean) {
+        _geocoderPublicFallback.value = value
+        prefs.edit().putBoolean("geocoder_public_fallback", value).apply()
     }
 
     fun setLeanOffsetDeg(value: Float) {

@@ -37,8 +37,15 @@ object Geocoder {
     fun search(context: Context, query: String, near: LatLon?, limit: Int = 8): List<GeocodeResult> {
         val primary = baseUrl().trimEnd('/')
         // If a custom/baked instance is down, fail over to the public one so search
-        // keeps working; when the primary already is public there is nothing to add.
-        val endpoints = if (primary == PUBLIC) listOf(PUBLIC) else listOf(primary, PUBLIC)
+        // keeps working — but only when the user has allowed it (Settings): that
+        // fallback sends the query and an approximate location to a third party,
+        // which someone who bothered to self-host precisely wants to avoid. When
+        // the primary already is public there is nothing to add either way.
+        val endpoints = if (primary == PUBLIC || !Settings.geocoderPublicFallback.value) {
+            listOf(primary)
+        } else {
+            listOf(primary, PUBLIC)
+        }
         // A self-hosted Photon is protected by the routing server's CF Access token.
         val access = RoutingServer.load(context)
 

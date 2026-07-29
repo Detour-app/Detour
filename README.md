@@ -87,3 +87,15 @@ OSM region, backups, and the API. Verify a running install with
 
 Sync is optional; with no server configured everything stays on the phone. With
 one, your trips and traces live on hardware you own.
+
+### What leaves your device
+
+Even without a sync server, a few features talk to the network by design:
+Overpass sees the spin center and radius you choose, OpenFreeMap's tiles see
+your current map viewport, and address/place search sends your query (and an
+approximate location, to rank nearby results first) to Photon — your own
+instance if you've set one in Settings, otherwise the public
+`photon.komoot.io`. If you self-host Photon, search falls back to the public
+instance only when yours is unreachable, and only if you leave "Fall back to
+public search" (Settings → Server) turned on; turn it off to keep search on
+your own hardware even when your instance is down.

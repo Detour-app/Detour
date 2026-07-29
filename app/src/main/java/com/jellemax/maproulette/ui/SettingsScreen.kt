@@ -806,6 +806,7 @@ private fun ServerSection() {
     var clientId by remember { mutableStateOf(custom?.clientId ?: "") }
     var clientSecret by remember { mutableStateOf(custom?.clientSecret ?: "") }
     var geocoderUrl by remember { mutableStateOf(Settings.geocoderUrl.value) }
+    val geocoderPublicFallback by Settings.geocoderPublicFallback.collectAsStateWithLifecycle()
     var saved by remember { mutableStateOf(false) }
 
     SettingsSection("Routing server") {
@@ -856,6 +857,25 @@ private fun ServerSection() {
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Fall back to public search", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "If your search server is unreachable, retry via the public " +
+                        "Photon instance (komoot.io) — sends the query and your " +
+                        "approximate location off your own hardware.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(
+                checked = geocoderPublicFallback,
+                onCheckedChange = { Settings.setGeocoderPublicFallback(it) },
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = {
                 if (url.isBlank()) {
