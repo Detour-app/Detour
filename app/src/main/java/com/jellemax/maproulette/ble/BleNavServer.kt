@@ -30,6 +30,7 @@ import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.TimeZone
 import java.util.UUID
+import kotlin.math.abs
 
 val NAV_SERVICE_UUID: UUID = UUID.fromString("b17a0001-9c2e-4b8a-8f21-1f5e2a6d0e01")
 val NAV_CHARACTERISTIC_UUID: UUID = UUID.fromString("b17a0002-9c2e-4b8a-8f21-1f5e2a6d0e01")
@@ -335,13 +336,28 @@ object BleNavServer {
      *  rather than publishing garbage — the next write 250ms later corrects it. */
     private fun parseTelemetry(value: ByteArray): BoardTelemetry? = try {
         val json = JSONObject(String(value, Charsets.UTF_8))
-        BoardTelemetry(
-            hasSpeed = json.optBoolean("hasSpeed", false),
-            speedKmh = json.optDouble("speedKmh", 0.0),
-            hasLean = json.optBoolean("hasLean", false),
-            leanDeg = json.optDouble("leanDeg", 0.0),
-            receivedAtMs = System.currentTimeMillis(),
-        )
+        val hasSpeed = json.optBoolean("hasSpeed", false)
+        val speedKmh = json.optDouble("speedKmh", 0.0)
+        val hasLean = json.optBoolean("hasLean", false)
+        val leanDeg = json.optDouble("leanDeg", 0.0)
+        // An out-of-range value here (NaN/Infinity, or a wildly implausible
+        // reading) means the transport or firmware glitched, not that the
+        // board really saw it — the packet is dropped whole rather than
+        // clamped, since a clamped garbage value would still be recorded
+        // downstream as a real reading.
+        if (hasSpeed && (!speedKmh.isFinite() || speedKmh !in 0.0..350.0)) {
+            null
+        } else if (hasLean && (!leanDeg.isFinite() || abs(leanDeg) > 70.0)) {
+            null
+        } else {
+            BoardTelemetry(
+                hasSpeed = hasSpeed,
+                speedKmh = speedKmh,
+                hasLean = hasLean,
+                leanDeg = leanDeg,
+                receivedAtMs = System.currentTimeMillis(),
+            )
+        }
     } catch (e: Exception) {
         Log.w(TAG, "bad telemetry payload: ${e.message}")
         null
