@@ -63,3 +63,87 @@ has room for — speed limit number, road name, remaining distance/ETA.
   (`board_display.c`) to be filled in from Waveshare's official demo,
   since the exact controller/pin mapping couldn't be confirmed without
   the physical board and the wiki blocking automated fetches.
+
+## 4. BLE protocol
+
+The phone runs a GATT *peripheral* (`BleNavServer.kt`); the display firmware
+is the *central* — it connects, negotiates a bigger MTU, and subscribes to
+the characteristics it wants. This section is generated from
+`BleNavServer.kt` directly (the source of truth for both sides) — if the two
+disagree, the code wins.
+
+**Service UUID**: `b17a0001-9c2e-4b8a-8f21-1f5e2a6d0e01`
+
+| Characteristic | UUID | Direction | Properties |
+|---|---|---|---|
+| Nav | `b17a0002-...-0e01` | phone → display, notify | read, notify |
+| Music | `b17a0003-...-0e01` | phone → display, notify | read, notify |
+| Time | `b17a0004-...-0e01` | phone → display, notify | read, notify |
+| Art | `b17a0005-...-0e01` | phone → display, notify | read, notify |
+| Telemetry | `b17a0006-...-0e01` | display → phone, write | write, write-without-response |
+
+All notify characteristics also expose the standard CCCD
+(`00002902-0000-1000-8000-00805f9b34fb`) for subscribing.
+
+**MTU**: the default ATT MTU is 23 bytes, too small for the nav or music JSON
+payload. The central is expected to request a larger MTU (`onMtuChanged` on
+the phone side) before subscribing; art in particular is re-queued once a
+bigger MTU lands, since at 23 bytes the 1-byte chunk-count header can't
+address enough chunks for a full cover.
+
+**Nav** (`send`/`sendStats`/`clear`) — JSON, one object per notification:
+```json
+{
+  "sign": 0,
+  "roundaboutExit": 0,
+  "street": "",
+  "distanceToTurnMeters": 0.0,
+  "remainingMeters": 0.0,
+  "routeMeters": 0.0,
+  "remainingTimeMs": null,
+  "speedKmh": 0.0,
+  "speedLimitKmh": null,
+  "navigating": true
+}
+```
+`navigating: false` means "tracking a trip, no active route" (`sendStats`) —
+the maneuver/distance/ETA fields are zeroed and should be ignored. `clear`
+instead sends `{"stop": true}`. Throttled to at most one push per second,
+plus immediately on a new maneuver (`sign` change).
+
+**Music** (`sendMusic`/`clearMusic`):
+```json
+{"title": "", "artist": "", "posSec": 0.0, "durSec": 0.0, "playing": true}
+```
+`clearMusic` instead sends `{"stop": true}` when there's no active media
+session.
+
+**Time** (`sendTime`) — pushed once per connection and then every 30 s:
+```json
+{"epochMs": 0, "utcOffsetMin": 0}
+```
+`epochMs` is UTC; `utcOffsetMin` is the phone's current (DST-adjusted) offset
+— the board has no timezone database of its own and just adds it.
+
+**Art** (`sendArt`) — not JSON: a JPEG (square-cropped and downscaled to
+180×180, quality stepped down through 80/65/50/35 until it's under 24 KB),
+split into notification-sized chunks, each chunk prefixed with a 3-byte
+header `[frameId][chunkIndex][chunkCount]`. Sent one chunk at a time,
+waiting for `onNotificationSent` before the next, since a lost chunk under
+Android's own notification queue would otherwise cost the whole image. A
+newly-subscribed display gets the current cover replayed immediately rather
+than waiting for the next track change.
+
+**Telemetry** (board → phone, write): the one write-direction
+characteristic — the board's own GPS/IMU readings, which the phone prefers
+over its own sensors when fresh (see `TripTrackingService`).
+```json
+{"hasSpeed": true, "speedKmh": 0.0, "hasLean": true, "leanDeg": 0.0}
+```
+The board writes this **every 250 ms**. The phone treats a reading older
+than **2 s** as stale and falls back to its own sensors rather than freezing
+on the last board value. Malformed JSON, or a value that isn't finite or is
+outside a plausible range (`speedKmh` outside 0–350, `leanDeg` outside
+±70°), drops the whole packet — a garbage packet means a firmware/transport
+bug, and a clamped value would still be recorded downstream as a real
+reading.
