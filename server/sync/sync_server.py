@@ -110,6 +110,10 @@ STAT_KEYS = (
 REGISTRATION_OPEN = os.environ.get("REGISTRATION_OPEN", "1") != "0"
 INVITE_CODE = os.environ.get("INVITE_CODE", "")
 
+# Only trust the Cloudflare header when explicitly deployed behind the tunnel;
+# otherwise any client could spoof it and reset the rate limiter per request.
+TRUST_CF_HEADER = os.environ.get("TRUST_CF_HEADER", "0") == "1"
+
 # Per-IP rate limit on the auth endpoints.
 AUTH_MAX_ATTEMPTS = 10
 AUTH_WINDOW_SEC = 300
@@ -907,8 +911,13 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def client_ip(self):
-        # Behind the Cloudflare tunnel the socket peer is always localhost.
-        return self.headers.get("CF-Connecting-IP") or self.address_string()
+        # Behind the Cloudflare tunnel the socket peer is always localhost, so
+        # the real client IP has to come from the header instead — but only
+        # trust it when TRUST_CF_HEADER says the server is actually deployed
+        # that way; otherwise anyone can spoof the header.
+        if TRUST_CF_HEADER:
+            return self.headers.get("CF-Connecting-IP") or self.address_string()
+        return self.address_string()
 
     def do_GET(self):
         parsed = urlparse(self.path)

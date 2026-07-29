@@ -123,6 +123,13 @@ stranger, and you open nothing on your router.
 If cloudflared runs in a *different* container than the services, `localhost`
 will not resolve to them — use the LAN IP, and bind the services to it.
 
+> The sync server's rate limiter reads the real client IP from the
+> `CF-Connecting-IP` header, which only Cloudflare can set truthfully. The
+> installer sets `TRUST_CF_HEADER=1` in the sync service's systemd unit
+> because this topology puts it behind the tunnel; if you deploy the server
+> any other way, leave `TRUST_CF_HEADER` unset (or `0`) so a client can't
+> spoof that header and dodge the login/registration rate limit.
+
 ### 2. Tailscale or WireGuard
 
 Put the phone and the server on the same private network and point the app at

@@ -311,6 +311,9 @@ User=$SYNC_USER
 Environment=DATA_DIR=$SYNC_DATA
 Environment=HOST=127.0.0.1
 Environment=PORT=$SYNC_PORT
+# This installer's documented topology puts the server behind the Cloudflare
+# tunnel, so CF-Connecting-IP is trustworthy here — see sync_server.py.
+Environment=TRUST_CF_HEADER=1
 ExecStart=/usr/bin/python3 $SYNC_DIR/sync_server.py
 Restart=on-failure
 
