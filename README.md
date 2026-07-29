@@ -106,3 +106,12 @@ instance if you've set one in Settings, otherwise the public
 instance only when yours is unreachable, and only if you leave "Fall back to
 public search" (Settings → Server) turned on; turn it off to keep search on
 your own hardware even when your instance is down.
+
+## Attribution
+
+Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright)
+contributors, [ODbL](https://opendatacommons.org/licenses/odbl/). Spin
+destinations, speed cameras and coverage are all derived from OpenStreetMap
+via the Overpass API. Map tiles by [OpenFreeMap](https://openfreemap.org/).
+Geocoding by [Photon](https://photon.komoot.io) (komoot) when the public
+fallback is used.
