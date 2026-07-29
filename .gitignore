@@ -11,3 +11,7 @@ __pycache__/
 
 # Phone data pulled off the device before reinstalling (adb run-as tar)
 .backup-*/
+
+# Release signing key — must never be committed; CI gets it as a base64 secret.
+*.jks
+*.keystore

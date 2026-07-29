@@ -7,7 +7,7 @@ this is a small personal project without a bug bounty, but a public issue
 about, say, a BLE injection path or an auth bypass gives anyone running the
 app a window before a fix ships.
 
-Email: TODO(owner): confirm contact
+Email: redridingelmo@gmail.com 
 
 Include what you found, how to reproduce it, and what you think the impact
 is. A fix or a workaround will follow at whatever pace a personal project

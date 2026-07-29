@@ -30,10 +30,12 @@ jobs:
       # Settings → Server config file.
       #
       # The keystore is decoded to a file that lives only on this ephemeral
-      # runner, never committed or logged. If RELEASE_KEYSTORE_B64 isn't set
-      # (secret missing), RELEASE_KEYSTORE stays unset and
-      # app/build.gradle.kts skips signing config entirely — the build still
-      # succeeds, just unsigned.
+      # runner, never committed or logged. A push to main MUST sign: an
+      # unsigned "release" would be published as an APK nobody can install,
+      # so a missing secret fails the build loudly here instead of surfacing
+      # three steps later as a wrong-filename error. PR builds (which never
+      # see repository secrets from forks) are allowed to stay unsigned —
+      # they exist to prove the release build compiles and minifies.
       - name: Decode release keystore
         env:
           RELEASE_KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
@@ -41,6 +43,9 @@ jobs:
           if [ -n "$RELEASE_KEYSTORE_B64" ]; then
             echo "$RELEASE_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
             echo "RELEASE_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          elif [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "::error::RELEASE_KEYSTORE_B64 secret is missing or empty — a push to main must produce a signed release. Check repo Settings → Secrets and variables → Actions (Repository secrets, exact name RELEASE_KEYSTORE_B64)."
+            exit 1
           fi
 
       - name: Build release APK
@@ -61,9 +66,12 @@ jobs:
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "code=$code" >> "$GITHUB_OUTPUT"
 
+      # Glob because the artifact name depends on signing: app-release.apk
+      # when signed (always, on push — see the decode step), or
+      # app-release-unsigned.apk on an unsigned PR build.
       - name: Rename APK
         run: |
-          cp app/build/outputs/apk/release/app-release.apk \
+          cp app/build/outputs/apk/release/app-release*.apk \
              map-roulette-${{ steps.version.outputs.name }}.apk
 
       - name: Upload artifact
