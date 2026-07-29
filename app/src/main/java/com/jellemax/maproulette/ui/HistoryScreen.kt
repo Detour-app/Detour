@@ -162,7 +162,7 @@ private fun TripCard(trip: Trip, onChangeMode: (TravelMode) -> Unit, onDelete: (
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                TripStat("Duration", formatDuration(trip.durationMs))
+                TripStat("Duration", formatDurationHistory(trip.durationMs))
                 TripStat("Distance", formatDistanceKm(trip.distanceMeters))
                 TripStat("Avg", formatSpeedKmh(trip.avgSpeedMps))
                 TripStat("Top", formatSpeedKmh(trip.topSpeedMps))

@@ -12,6 +12,17 @@ fun formatDuration(ms: Long): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
+// History shows past trips side by side ("1:12:36" next to "7:19"), where the
+// live card's seconds-precision "M:SS" is ambiguous — is "7:19" seven minutes
+// or seven hours? formatDuration above still owns the live trip card, where
+// seconds matter and there's only ever one duration on screen at a time.
+fun formatDurationHistory(ms: Long): String {
+    val totalMinutes = ms / 60_000
+    val h = totalMinutes / 60
+    val m = totalMinutes % 60
+    return if (h > 0) "%d h %d min".format(h, m) else "%d min".format(m)
+}
+
 fun formatSpeedKmh(mps: Double): String = "%.0f km/h".format(mps * 3.6)
 
 fun formatDistanceKm(meters: Double): String =
