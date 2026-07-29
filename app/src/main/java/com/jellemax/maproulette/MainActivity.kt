@@ -8,10 +8,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.maproulette.ble.BleNavServer
 import com.jellemax.maproulette.data.Settings
@@ -40,6 +42,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             val theme by Settings.theme.collectAsStateWithLifecycle()
             val dark = isAppDarkTheme(theme)
+            // Status bar icons need to read against the map behind them: dark
+            // icons over the light theme's pale map, light icons over the dark
+            // theme's near-black one. Keyed on the same day/night decision the
+            // app theme itself just made, so the two can never disagree.
+            SideEffect {
+                WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !dark
+            }
             // The Graphite identity — a fixed amber-on-graphite scheme so the app
             // (and the watch) share one look, instead of the wallpaper's colours.
             MaterialTheme(colorScheme = if (dark) GraphiteDark else GraphiteLight) {
