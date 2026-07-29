@@ -90,7 +90,7 @@ object Geocoder {
             } else {
                 conn.inputStream
             }
-            return parse(stream.bufferedReader().readText())
+            return dedupe(parse(stream.bufferedReader().readText()))
         } finally {
             conn.disconnect()
         }
@@ -110,6 +110,25 @@ object Geocoder {
             results.add(GeocodeResult(label, location))
         }
         return results
+    }
+
+    // Photon sometimes returns the same place twice under slightly different OSM
+    // tags (a POI and the building it sits in, e.g.) — same name, a few metres
+    // apart. Rather than guess at which tag is "the real one", just drop a later
+    // result that shares a name with, and sits within, this radius of an earlier
+    // one; the earlier (higher-ranked) result wins.
+    private const val DEDUPE_RADIUS_METERS = 250.0
+
+    private fun dedupe(results: List<GeocodeResult>): List<GeocodeResult> {
+        val kept = ArrayList<GeocodeResult>(results.size)
+        for (result in results) {
+            val isDuplicate = kept.any { seen ->
+                seen.name == result.name &&
+                    RoadRoulette.distanceMeters(seen.location, result.location) <= DEDUPE_RADIUS_METERS
+            }
+            if (!isDuplicate) kept.add(result)
+        }
+        return kept
     }
 
     /** A concise "primary, locality, country" label from Photon's address fields. */

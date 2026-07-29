@@ -117,6 +117,17 @@ fun BadgesScreen(onBack: () -> Unit) {
         ) {
             item { SummaryCard(loaded.stats, loaded.states.count { it.earned }) }
 
+            // Badges first: they're the compact, scannable summary this screen
+            // opens for. Coverage (a whole map's worth of municipality rows)
+            // is the deep-dive content, so it goes after — not the first
+            // thing between the summary card and the badges you came to check.
+            for (kind in BadgeKind.entries) {
+                val states = loaded.states.filter { it.def.kind == kind }
+                if (states.isEmpty()) continue
+                item { SectionHeader(kind.label) }
+                items(states.size) { i -> BadgeRow(states[i]) }
+            }
+
             item { SectionHeader("Coverage") }
             if (loaded.coverage.isEmpty()) {
                 item {
@@ -130,13 +141,6 @@ fun BadgesScreen(onBack: () -> Unit) {
                 }
             } else {
                 items(loaded.coverage.size) { i -> CoverageRow(loaded.coverage[i]) }
-            }
-
-            for (kind in BadgeKind.entries) {
-                val states = loaded.states.filter { it.def.kind == kind }
-                if (states.isEmpty()) continue
-                item { SectionHeader(kind.label) }
-                items(states.size) { i -> BadgeRow(states[i]) }
             }
         }
     }
