@@ -161,6 +161,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -286,6 +287,22 @@ private data class RouteCandidate(
     val straightLineMeters: Double,
 )
 
+/** The last spin outcome, kept outside `remember` so it survives activity
+ *  recreation (rotation, split-screen resize, a backgrounded process losing
+ *  just the Activity) — process-scoped, not a substitute for the stores that
+ *  already survive process death. MapScreen seeds its `remember`ed state from
+ *  this on composition and writes back whenever the result changes. */
+private data class SpinResult(
+    val destination: LatLon? = null,
+    val destinationName: String? = null,
+    val route: RouteResult? = null,
+    val candidates: List<RouteCandidate> = emptyList(),
+)
+
+private object SpinResultHolder {
+    val state = MutableStateFlow(SpinResult())
+}
+
 /** Picks one destination candidate and eagerly routes to it, so the card list
  *  can show real road distance/ETA instead of a straight line. */
 private suspend fun pickCandidate(
@@ -365,17 +382,25 @@ fun MapScreen(
     val mode by Settings.tripMode.collectAsStateWithLifecycle()
     var radiusKm by rememberSaveable { mutableFloatStateOf(Settings.tripMode.value.defaultKm) }
     var minRadiusKm by rememberSaveable { mutableFloatStateOf(0f) }
-    var candidates by remember { mutableStateOf<List<RouteCandidate>>(emptyList()) }
+    // Seeded from SpinResultHolder so a spin result survives activity
+    // recreation instead of resetting to defaults; see its declaration above.
+    val savedSpin = remember { SpinResultHolder.state.value }
+    var candidates by remember { mutableStateOf(savedSpin.candidates) }
     var myLocation by remember { mutableStateOf<LatLon?>(null) }
-    var destination by remember { mutableStateOf<LatLon?>(null) }
-    var route by remember { mutableStateOf<RouteResult?>(null) }
+    var destination by remember { mutableStateOf(savedSpin.destination) }
+    var route by remember { mutableStateOf(savedSpin.route) }
     var spinning by remember { mutableStateOf(false) }
     var spinJob by remember { mutableStateOf<Job?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val serverConfig = remember { RoutingServer.load(context) }
     var poiKind by rememberSaveable { mutableStateOf(PoiKind.ROAD) }
     var directionDeg by rememberSaveable { mutableStateOf<Float?>(null) }
-    var destinationName by remember { mutableStateOf<String?>(null) }
+    var destinationName by remember { mutableStateOf(savedSpin.destinationName) }
+    // Keep the holder in sync with whatever changed these — a new spin, a
+    // pick, a cancel, or navigation ending and clearing the result.
+    LaunchedEffect(destination, destinationName, route, candidates) {
+        SpinResultHolder.state.value = SpinResult(destination, destinationName, route, candidates)
+    }
     val fogEnabled by Settings.fogEnabled.collectAsStateWithLifecycle()
     var searchOpen by remember { mutableStateOf(false) }
     // Stored traces reload on every store write; the live trace and fix come
