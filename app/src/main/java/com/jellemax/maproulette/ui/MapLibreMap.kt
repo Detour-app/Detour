@@ -480,7 +480,12 @@ class FogView(context: Context) : View(context) {
             // Lighter than the scrim: once frosted, the blur itself carries part
             // of the "hidden" signal, so the dim can ease off.
             frostTintAlpha = 110)
-        private val FOG_LIGHT = FogTheme(r = 231, g = 236, b = 243, scrimAlpha = 170, frostTintAlpha = 120)
+        // Scrim needs more weight here than feels natural: a pale wash over the
+        // already-pale positron basemap barely registers (white roads stay
+        // white), so unexplored ground leaked through during pans and the frost
+        // seemed to appear from nothing at settle. Darker + more opaque puts the
+        // moving-camera state in the same perceived band as the frost.
+        private val FOG_LIGHT = FogTheme(r = 222, g = 228, b = 236, scrimAlpha = 205, frostTintAlpha = 120)
 
         /** Drop points within [DECIMATE_DEG] of the last kept one; endpoints stay. */
         private fun decimate(trace: List<LatLon>): List<LatLon> {
