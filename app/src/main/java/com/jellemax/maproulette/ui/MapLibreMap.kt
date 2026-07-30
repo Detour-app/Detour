@@ -274,7 +274,12 @@ class FogView(context: Context) : View(context) {
     // to the plain scrim and the frost returns on the next idle.
     private var blurred: Bitmap? = null
     private var blurredCam: CameraPosition? = null
-    private val blurTint = Color.argb(110, 8, 10, 26)
+    // Fading the frost in over the scrim hides the scrim→frost pop when the
+    // camera settles. Fade-out gets no such treatment on purpose: the moment
+    // the camera moves the snapshot no longer lines up, so lingering over it
+    // would smear a stale image across the wrong roads — snap back instead.
+    private var frostFadeStartMs = 0L
+    private val frostPaint = Paint()
     private val idleListener = MapLibreMap.OnCameraIdleListener { requestSnapshot() }
 
     private fun requestSnapshot() {
@@ -343,14 +348,20 @@ class FogView(context: Context) : View(context) {
             }
         val bufCanvas = bufferCanvas ?: return
         val frost = blurred?.takeIf { blurUsable(m.cameraPosition, bw, bh) }
+        buf.eraseColor(fogColor)
         if (frost != null) {
-            // Frosted base: the blurred snapshot is opaque and buffer-sized, so
-            // it fully covers the stale buffer; the tint restores the dimming
-            // the corridor contrast relies on.
-            bufCanvas.drawBitmap(frost, 0f, 0f, null)
-            bufCanvas.drawColor(blurTint)
+            // Frosted base cross-faded over the scrim; the tint restores the
+            // dimming the corridor contrast relies on, scaled with the fade so
+            // mid-fade frames don't double-darken.
+            val now = android.os.SystemClock.uptimeMillis()
+            if (frostFadeStartMs == 0L) frostFadeStartMs = now
+            val a = ((now - frostFadeStartMs) * 255 / FROST_FADE_MS).toInt().coerceAtMost(255)
+            frostPaint.alpha = a
+            bufCanvas.drawBitmap(frost, 0f, 0f, frostPaint)
+            bufCanvas.drawColor(Color.argb(FROST_TINT_ALPHA * a / 255, 8, 10, 26))
+            if (a < 255) postInvalidateOnAnimation()
         } else {
-            buf.eraseColor(fogColor)
+            frostFadeStartMs = 0L
         }
 
         // Buffer space: full-res screen coords scaled down by FOG_DOWNSCALE.
@@ -405,6 +416,10 @@ class FogView(context: Context) : View(context) {
     companion object {
         // 1/3 resolution: the scrim edge stays soft, the CPU fill drops ~9×.
         private const val FOG_DOWNSCALE = 3
+        private const val FROST_FADE_MS = 250L
+        // Lighter than the scrim's 150: once frosted, the blur itself carries
+        // part of the "hidden" signal, so the dim can ease off.
+        private const val FROST_TINT_ALPHA = 110
         // ~25 m in degrees of latitude; used as the decimation floor for traces.
         private const val DECIMATE_DEG = 2.25e-4
 
