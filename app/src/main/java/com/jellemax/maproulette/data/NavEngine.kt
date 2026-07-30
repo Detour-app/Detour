@@ -26,6 +26,12 @@ object NavEngine {
         val remainingTimeMs: Long?,
         /** Posted speed limit on the road segment closest to the current position. */
         val speedLimitKmh: Double?,
+        /** The maneuver after [nextInstruction], for the "then…" pill under the
+         *  banner; null past the last turn or when there's only one left. */
+        val nextNextInstruction: NavInstruction? = null,
+        /** Distance from the current position to [nextNextInstruction], same
+         *  basis as [distanceToTurnMeters]. */
+        val distanceToNextNextMeters: Double? = null,
     )
 
     /** Where [pos] is along [route]: snap to the nearest segment, then derive
@@ -70,6 +76,9 @@ object NavEngine {
         val distToTurn = next
             ?.let { max(0.0, cumAt[it.startIndex.coerceIn(0, line.size - 1)] - bestAlong) }
             ?: remaining
+        val nextNext = next?.let { route.instructions.getOrNull(route.instructions.indexOf(it) + 1) }
+        val distToNextNext = nextNext
+            ?.let { max(0.0, cumAt[it.startIndex.coerceIn(0, line.size - 1)] - bestAlong) }
 
         return Progress(
             offRouteMeters = bestDist,
@@ -83,6 +92,8 @@ object NavEngine {
             speedLimitKmh = route.speedLimits
                 .firstOrNull { bestIndex >= it.fromIndex && bestIndex < it.toIndex }
                 ?.kmh,
+            nextNextInstruction = nextNext,
+            distanceToNextNextMeters = distToNextNext,
         )
     }
 

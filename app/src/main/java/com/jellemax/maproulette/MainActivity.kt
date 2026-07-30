@@ -27,6 +27,7 @@ import com.jellemax.maproulette.data.Settings
 import com.jellemax.maproulette.ui.BadgesScreen
 import com.jellemax.maproulette.ui.FriendsScreen
 import com.jellemax.maproulette.ui.HistoryScreen
+import com.jellemax.maproulette.ui.HubScreen
 import com.jellemax.maproulette.ui.MapScreen
 import com.jellemax.maproulette.ui.GraphiteDark
 import com.jellemax.maproulette.ui.GraphiteLight
@@ -65,15 +66,19 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { MAP, HISTORY, BADGES, FRIENDS, SETTINGS, SAVED }
+private enum class Screen { MAP, HUB, HISTORY, BADGES, FRIENDS, SETTINGS, SAVED }
 
 @Composable
 private fun AppRoot() {
     var screen by remember { mutableStateOf(Screen.MAP) }
     // System back from any sub-screen returns to the map instead of exiting the
     // app — only enabled off the map, so back on the map itself still falls
-    // through to the default (exit) behaviour.
-    BackHandler(enabled = screen != Screen.MAP) { screen = Screen.MAP }
+    // through to the default (exit) behaviour. The five destinations off Hub
+    // step back to Hub, not all the way to the map, so back always undoes one
+    // level of the push it followed to get here.
+    BackHandler(enabled = screen != Screen.MAP) {
+        screen = if (screen == Screen.HUB) Screen.MAP else Screen.HUB
+    }
     // Sub-screens slide in over the map from the right and slide back out the
     // same way, so opening/closing feels like a push/pop instead of a hard swap.
     AnimatedContent(
@@ -90,18 +95,20 @@ private fun AppRoot() {
         label = "screen",
     ) { current ->
         when (current) {
-            Screen.HISTORY -> HistoryScreen(onBack = { screen = Screen.MAP })
-            Screen.BADGES -> BadgesScreen(onBack = { screen = Screen.MAP })
-            Screen.FRIENDS -> FriendsScreen(onBack = { screen = Screen.MAP })
-            Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.MAP })
-            Screen.SAVED -> SavedPlacesScreen(onBack = { screen = Screen.MAP })
-            Screen.MAP -> MapScreen(
+            Screen.HUB -> HubScreen(
+                onBack = { screen = Screen.MAP },
                 onOpenHistory = { screen = Screen.HISTORY },
                 onOpenBadges = { screen = Screen.BADGES },
                 onOpenFriends = { screen = Screen.FRIENDS },
                 onOpenSettings = { screen = Screen.SETTINGS },
                 onOpenSavedPlaces = { screen = Screen.SAVED },
             )
+            Screen.HISTORY -> HistoryScreen(onBack = { screen = Screen.HUB })
+            Screen.BADGES -> BadgesScreen(onBack = { screen = Screen.HUB })
+            Screen.FRIENDS -> FriendsScreen(onBack = { screen = Screen.HUB })
+            Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.HUB })
+            Screen.SAVED -> SavedPlacesScreen(onBack = { screen = Screen.HUB })
+            Screen.MAP -> MapScreen(onOpenHub = { screen = Screen.HUB })
         }
     }
 }

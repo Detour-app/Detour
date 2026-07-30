@@ -37,6 +37,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -49,33 +50,31 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.DirectionsBike
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.DirectionsBike
+import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Casino
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.LocationSearching
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.MyLocation
-import androidx.compose.material.icons.filled.Navigation
-import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.TwoWheeler
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.outlined.Casino
+import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.DirectionsCar
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Layers
+import androidx.compose.material.icons.outlined.LocationSearching
+import androidx.compose.material.icons.outlined.MyLocation
+import androidx.compose.material.icons.outlined.Navigation
+import androidx.compose.material.icons.outlined.Place
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Stop
+import androidx.compose.material.icons.outlined.TwoWheeler
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -87,6 +86,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -96,8 +96,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -117,6 +117,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -128,11 +129,14 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.Popup
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -193,10 +197,10 @@ private val DIRECTION_NAMES = listOf("North", "North-east", "East", "South-east"
 
 val TravelMode.icon: ImageVector
     get() = when (this) {
-        TravelMode.WALK -> Icons.AutoMirrored.Filled.DirectionsWalk
-        TravelMode.BIKE -> Icons.AutoMirrored.Filled.DirectionsBike
-        TravelMode.MOTO -> Icons.Default.TwoWheeler
-        TravelMode.CAR -> Icons.Default.DirectionsCar
+        TravelMode.WALK -> Icons.AutoMirrored.Outlined.DirectionsWalk
+        TravelMode.BIKE -> Icons.AutoMirrored.Outlined.DirectionsBike
+        TravelMode.MOTO -> Icons.Outlined.TwoWheeler
+        TravelMode.CAR -> Icons.Outlined.DirectionsCar
     }
 
 /** Exponentially smooths a compass bearing toward [target], taking the
@@ -369,11 +373,7 @@ private enum class BottomCard { NAV, CANDIDATES, COLLAPSED, EXPANDED }
 
 @Composable
 fun MapScreen(
-    onOpenHistory: () -> Unit,
-    onOpenBadges: () -> Unit,
-    onOpenFriends: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onOpenSavedPlaces: () -> Unit,
+    onOpenHub: () -> Unit,
 ) {
     val context = LocalContext.current
     // Extra bottom padding for a fitted route/candidate spread, roughly the
@@ -419,6 +419,7 @@ fun MapScreen(
         SpinResultHolder.state.value = SpinResult(destination, destinationName, route, candidates)
     }
     val fogEnabled by Settings.fogEnabled.collectAsStateWithLifecycle()
+    val accountUsername by Account.username.collectAsStateWithLifecycle()
     var searchOpen by remember { mutableStateOf(false) }
     // Stored traces reload on every store write; the live trace and fix come
     // straight from the tracking service, so fog and position update in real
@@ -444,7 +445,9 @@ fun MapScreen(
     var followMe by remember { mutableStateOf(true) }
     var camSuspended by remember { mutableStateOf(false) }
     var lastGestureMs by remember { mutableLongStateOf(0L) }
-    var settingsCollapsed by rememberSaveable { mutableStateOf(false) }
+    // Dock (collapsed) is the resting state; the sheet only comes up when
+    // tapped open, and folds back down on its own after a spin lands.
+    var settingsCollapsed by rememberSaveable { mutableStateOf(true) }
     var ambientSpeedLimitKmh by remember { mutableStateOf<Double?>(null) }
     var speedLimitWays by remember {
         mutableStateOf<List<RoadRoulette.SpeedLimitWay>>(emptyList())
@@ -1279,37 +1282,41 @@ fun MapScreen(
                 visible = navigating,
                 enter = slideInVertically { -it } + fadeIn(),
                 exit = slideOutVertically { -it } + fadeOut(),
-                modifier = Modifier.align(Alignment.TopCenter),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth(),
             ) {
-                NavigationBanner(
-                    progress = navProgress,
-                    rerouting = rerouting,
-                    modifier = Modifier
+                Column(
+                    Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
                         .padding(12.dp),
-                )
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    NavigationBanner(progress = navProgress, rerouting = rerouting,
+                        modifier = Modifier.fillMaxWidth())
+                    ThenPill(navProgress)
+                }
             }
             AnimatedVisibility(
                 visible = !navigating,
                 enter = fadeIn(),
                 exit = fadeOut(),
-                modifier = Modifier.align(Alignment.TopEnd),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth(),
             ) {
-                MapToolbar(
+                MapTopChrome(
                     followMe = following,
                     fogEnabled = fogEnabled,
+                    username = accountUsername,
                     onToggleFollow = {
                         if (following) followMe = false
                         else { followMe = true; camSuspended = false }
                     },
                     onSearch = { searchOpen = true },
                     onToggleFog = { Settings.setFogEnabled(!fogEnabled) },
-                    onOpenHistory = onOpenHistory,
-                    onOpenBadges = onOpenBadges,
-                    onOpenFriends = onOpenFriends,
-                    onOpenSettings = onOpenSettings,
-                    onOpenSavedPlaces = onOpenSavedPlaces,
+                    onOpenHub = onOpenHub,
                     modifier = Modifier
                         .statusBarsPadding()
                         .padding(12.dp),
@@ -1422,173 +1429,58 @@ fun MapScreen(
                             onReroll = { candidates = emptyList(); spin() },
                             onCancel = { candidates = emptyList() },
                         )
-                        BottomCard.COLLAPSED -> CollapsedSpinBar(
+                        BottomCard.COLLAPSED -> SpinDock(
                             mode = mode,
                             radiusKm = radiusKm,
+                            directionDeg = directionDeg,
                             spinning = spinning,
+                            destination = destination,
+                            route = route,
+                            origin = myLocation,
+                            inAppAvailable = serverConfig.usable &&
+                                (destination != null ||
+                                    route?.instructions?.isNotEmpty() == true),
                             onSpin = { if (spinning) spinJob?.cancel() else spin() },
                             onExpand = { settingsCollapsed = false },
+                            onNavigateInApp = { startNavigation() },
+                            onNavigate = {
+                                if (stats == null) {
+                                    TripTrackingService.start(context, destination?.lat, destination?.lon)
+                                }
+                            },
                         )
-                        BottomCard.EXPANDED -> Card(
-                            modifier = Modifier.glassBorder(MaterialTheme.shapes.extraLarge),
-                            shape = MaterialTheme.shapes.extraLarge,
-                            colors = glassCardColors(),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                        ) {
-                            Column(Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Row(
-                                    Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        if (mode.roundTrip) "Loop" else "Destination",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                    IconButton(
-                                        onClick = { settingsCollapsed = true },
-                                        modifier = Modifier.size(28.dp),
-                                    ) {
-                                        Icon(Icons.Default.ExpandMore, contentDescription = "Minimize")
-                                    }
+                        BottomCard.EXPANDED -> SpinSheet(
+                            mode = mode,
+                            radiusKm = radiusKm,
+                            onRadiusChange = { radiusKm = it },
+                            minRadiusKm = minRadiusKm,
+                            onMinRadiusChange = { minRadiusKm = it },
+                            poiKind = poiKind,
+                            onPoiKindChange = { poiKind = it },
+                            directionDeg = directionDeg,
+                            onDirectionChange = { directionDeg = it },
+                            spinning = spinning,
+                            error = error,
+                            route = route,
+                            destinationName = destinationName,
+                            destination = destination,
+                            origin = myLocation,
+                            stats = stats,
+                            inAppAvailable = serverConfig.usable &&
+                                (destination != null ||
+                                    route?.instructions?.isNotEmpty() == true),
+                            onSpin = { if (spinning) spinJob?.cancel() else spin() },
+                            onCollapse = { settingsCollapsed = true },
+                            onNavigateInApp = { startNavigation() },
+                            onNavigate = {
+                                if (stats == null) {
+                                    TripTrackingService.start(context, destination?.lat, destination?.lon)
                                 }
-
-                                error?.let {
-                                    Text(it, color = MaterialTheme.colorScheme.error,
-                                        style = MaterialTheme.typography.bodySmall)
-                                }
-
-                                Row(
-                                    Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                ) {
-                                    Text(
-                                        if (mode.roundTrip) "Trip length" else "Radius",
-                                        style = MaterialTheme.typography.labelLarge,
-                                    )
-                                    Text(
-                                        if (mode.maxKm <= 10f) "%.1f km".format(radiusKm)
-                                        else "${radiusKm.toInt()} km",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                }
-                                route?.distanceMeters?.let {
-                                    Text(
-                                        "Loop found: ${formatDistanceKm(it)}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
-                                }
-                                destinationName?.let {
-                                    Text("→ $it", style = MaterialTheme.typography.bodySmall)
-                                }
-                                Slider(
-                                    value = radiusKm,
-                                    onValueChange = { radiusKm = it },
-                                    valueRange = mode.minKm..mode.maxKm,
-                                )
-
-                                if (!mode.roundTrip) {
-                                    Row(
-                                        Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                    ) {
-                                        Text("Min distance", style = MaterialTheme.typography.labelLarge)
-                                        Text(
-                                            if (minRadiusKm <= 0f) "Off"
-                                            else if (mode.maxKm <= 10f) "%.1f km".format(minRadiusKm)
-                                            else "${minRadiusKm.toInt()} km",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            fontWeight = FontWeight.Bold,
-                                        )
-                                    }
-                                    Slider(
-                                        value = minRadiusKm,
-                                        onValueChange = { minRadiusKm = it },
-                                        valueRange = 0f..radiusKm,
-                                    )
-                                }
-
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    if (!mode.roundTrip) {
-                                        SelectorChip(
-                                            icon = Icons.Default.Place,
-                                            label = poiKind.label,
-                                            options = PoiKind.entries.map { it.label },
-                                            onSelect = { poiKind = PoiKind.entries[it] },
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                    }
-                                    SelectorChip(
-                                        icon = Icons.Default.Explore,
-                                        label = directionDeg?.let { DIRECTION_NAMES[(it / 45f).toInt()] }
-                                            ?: "Any direction",
-                                        options = listOf("Any direction") + DIRECTION_NAMES,
-                                        onSelect = { i ->
-                                            directionDeg = if (i == 0) null else (i - 1) * 45f
-                                        },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-
-                                Button(
-                                    onClick = { if (spinning) spinJob?.cancel() else spin() },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(52.dp),
-                                ) {
-                                    if (spinning) {
-                                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                                    } else {
-                                        Icon(Icons.Default.Casino, contentDescription = null,
-                                            Modifier.size(20.dp))
-                                    }
-                                    Spacer(Modifier.width(10.dp))
-                                    Text(
-                                        if (spinning) "Cancel" else "Spin",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        maxLines = 1,
-                                    )
-                                }
-
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    NavButton(
-                                        destination = destination,
-                                        route = route?.waypoints,
-                                        origin = myLocation,
-                                        mode = mode,
-                                        inAppAvailable = serverConfig.usable &&
-                                            (destination != null ||
-                                                route?.instructions?.isNotEmpty() == true),
-                                        onNavigateInApp = { startNavigation() },
-                                        onNavigate = {
-                                            // Heading out = start tracking automatically.
-                                            if (stats == null) {
-                                                TripTrackingService.start(
-                                                    context, destination?.lat, destination?.lon)
-                                            }
-                                        },
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    if (stats == null) {
-                                        OutlinedButton(
-                                            onClick = {
-                                                TripTrackingService.start(
-                                                    context, destination?.lat, destination?.lon)
-                                            },
-                                            modifier = Modifier.weight(1f),
-                                        ) {
-                                            Icon(Icons.Default.PlayArrow, contentDescription = null,
-                                                Modifier.size(18.dp))
-                                            Spacer(Modifier.width(8.dp))
-                                            Text("Track ${mode.label.lowercase()}", maxLines = 1)
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                            },
+                            onTrack = {
+                                TripTrackingService.start(context, destination?.lat, destination?.lon)
+                            },
+                        )
                     }
                 }
             }
@@ -1691,20 +1583,20 @@ private fun SearchDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
                     }
                     OutlinedTextField(
                         value = query,
                         onValueChange = { query = it },
                         placeholder = { Text("Search address or place") },
                         singleLine = true,
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
                         trailingIcon = {
                             if (searching) {
                                 CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                             } else if (query.isNotEmpty()) {
                                 IconButton(onClick = { query = "" }) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
+                                    Icon(Icons.Outlined.Clear, contentDescription = "Clear")
                                 }
                             }
                         },
@@ -1730,7 +1622,7 @@ private fun SearchDialog(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
-                                if (r.name in recentNames) Icons.Default.History else Icons.Default.Place,
+                                if (r.name in recentNames) Icons.Outlined.History else Icons.Outlined.Place,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(20.dp),
@@ -1810,31 +1702,407 @@ private fun SavePinDialog(
     )
 }
 
-/** Compact dropdown selector for destination kind and direction. */
+/** One pill in a [PillRow]: rounded, filled when selected. No new dependency —
+ *  built on Surface rather than SegmentedButton so it can scroll horizontally
+ *  (the direction row) or fill the width evenly (the destination-type row). */
 @Composable
-private fun SelectorChip(
-    icon: ImageVector,
+private fun Pill(
     label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = CircleShape,
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer
+            else MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+        )
+    }
+}
+
+/** A row of equal-width pill segments — the destination-type control. */
+@Composable
+private fun SegmentedPillRow(
     options: List<String>,
+    selectedIndex: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var open by remember { mutableStateOf(false) }
-    Box(modifier) {
-        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
-            Icon(icon, contentDescription = null, Modifier.size(16.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(label, maxLines = 1)
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEachIndexed { i, label ->
+            Pill(label, i == selectedIndex, { onSelect(i) }, Modifier.weight(1f))
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            options.forEachIndexed { i, option ->
-                DropdownMenuItem(
-                    text = { Text(option) },
-                    onClick = {
-                        open = false
-                        onSelect(i)
-                    },
+    }
+}
+
+/** A horizontally scrolling row of pills — the direction picker, which has
+ *  too many options (9) to fit evenly on a phone width. */
+@Composable
+private fun ScrollingPillRow(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        options.forEachIndexed { i, label ->
+            Pill(label, i == selectedIndex, { onSelect(i) })
+        }
+    }
+}
+
+/** Shared "Go" menu items — in-app when reachable, otherwise the external-app
+ *  chooser. Backs both the full-width [NavButton] and the dock's compact
+ *  [NavIconButton] so the routing logic lives in exactly one place. */
+@Composable
+private fun NavMenuItems(
+    destination: LatLon?,
+    route: List<LatLon>?,
+    origin: LatLon?,
+    mode: TravelMode,
+    inAppAvailable: Boolean,
+    onNavigateInApp: () -> Unit,
+    onNavigate: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    if (inAppAvailable) {
+        DropdownMenuItem(
+            text = { Text("Navigate in app") },
+            onClick = { onDismiss(); onNavigateInApp() },
+        )
+    }
+    if (route != null && origin != null) {
+        // Waze can't take multi-waypoint routes; Google Maps only.
+        DropdownMenuItem(
+            text = { Text("Google Maps (round trip)") },
+            onClick = { onDismiss(); onNavigate(); navigateRoundTrip(context, origin, route) },
+        )
+    } else {
+        DropdownMenuItem(
+            text = { Text("Google Maps") },
+            onClick = { onDismiss(); onNavigate(); destination?.let { navigateGoogleMaps(context, it, mode) } },
+        )
+        DropdownMenuItem(
+            text = { Text("Waze") },
+            onClick = { onDismiss(); onNavigate(); destination?.let { navigateWaze(context, it) } },
+        )
+        DropdownMenuItem(
+            text = { Text("Other app") },
+            onClick = { onDismiss(); onNavigate(); destination?.let { navigateGeo(context, it) } },
+        )
+    }
+}
+
+/** Compact circular "Go" trigger for the dock — same menu as [NavButton],
+ *  just a 40dp icon button instead of a labelled tonal one. */
+@Composable
+private fun NavIconButton(
+    destination: LatLon?,
+    route: List<LatLon>?,
+    origin: LatLon?,
+    mode: TravelMode,
+    inAppAvailable: Boolean,
+    onNavigateInApp: () -> Unit,
+    onNavigate: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Box(modifier) {
+        FilledTonalIconButton(
+            onClick = { menuOpen = true },
+            enabled = destination != null || (route != null && origin != null),
+            modifier = Modifier.size(40.dp),
+        ) {
+            Icon(Icons.Outlined.Navigation, contentDescription = "Go")
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            NavMenuItems(destination, route, origin, mode, inAppAvailable,
+                onNavigateInApp, onNavigate) { menuOpen = false }
+        }
+    }
+}
+
+/** Persistent glass bar at the bottom of the map: the spin dock. Tapping the
+ *  left cell opens the sheet; the dice FAB spins right away without needing
+ *  the sheet open at all. */
+@Composable
+private fun SpinDock(
+    mode: TravelMode,
+    radiusKm: Float,
+    directionDeg: Float?,
+    spinning: Boolean,
+    destination: LatLon?,
+    route: RouteResult?,
+    origin: LatLon?,
+    inAppAvailable: Boolean,
+    onSpin: () -> Unit,
+    onExpand: () -> Unit,
+    onNavigateInApp: () -> Unit,
+    onNavigate: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .glassBorder(MaterialTheme.shapes.extraLarge),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = glassCardColors(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                Modifier
+                    .weight(1f)
+                    .clickable(onClick = onExpand),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(mode.icon, contentDescription = null)
+                Column {
+                    Text(
+                        "${if (mode.maxKm <= 10f) "%.1f".format(radiusKm) else radiusKm.toInt()} km",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "${mode.label} · " + (directionDeg?.let { DIRECTION_NAMES[(it / 45f).toInt()] }
+                            ?: "any direction"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+                Icon(Icons.Outlined.ExpandLess, contentDescription = "Expand",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Button(
+                onClick = onSpin,
+                shape = CircleShape,
+                contentPadding = PaddingValues(0.dp),
+                modifier = Modifier.size(52.dp),
+            ) {
+                if (spinning) {
+                    CircularProgressIndicator(
+                        Modifier.size(22.dp), strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                } else {
+                    Icon(Icons.Outlined.Casino, contentDescription = "Spin")
+                }
+            }
+            NavIconButton(
+                destination = destination,
+                route = route?.waypoints,
+                origin = origin,
+                mode = mode,
+                inAppAvailable = inAppAvailable,
+                onNavigateInApp = onNavigateInApp,
+                onNavigate = onNavigate,
+            )
+        }
+    }
+}
+
+/** The spin sheet: everything the dock's left cell expands into. Same glass
+ *  card the dock uses, just taller — a drag-handle bar stands in for an
+ *  actual drag gesture, tap it (or the chevron) to fold back to the dock. */
+@Composable
+private fun SpinSheet(
+    mode: TravelMode,
+    radiusKm: Float,
+    onRadiusChange: (Float) -> Unit,
+    minRadiusKm: Float,
+    onMinRadiusChange: (Float) -> Unit,
+    poiKind: PoiKind,
+    onPoiKindChange: (PoiKind) -> Unit,
+    directionDeg: Float?,
+    onDirectionChange: (Float?) -> Unit,
+    spinning: Boolean,
+    error: String?,
+    route: RouteResult?,
+    destinationName: String?,
+    destination: LatLon?,
+    origin: LatLon?,
+    stats: TripStats?,
+    inAppAvailable: Boolean,
+    onSpin: () -> Unit,
+    onCollapse: () -> Unit,
+    onNavigateInApp: () -> Unit,
+    onNavigate: () -> Unit,
+    onTrack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.glassBorder(MaterialTheme.shapes.extraLarge),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = glassCardColors(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onCollapse),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(width = 34.dp, height = 4.dp)
+                        .background(
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            CircleShape,
+                        ),
                 )
+            }
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Spin a destination",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                IconButton(onClick = onCollapse, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Outlined.ExpandMore, contentDescription = "Collapse")
+                }
+            }
+
+            error?.let {
+                Text(it, color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall)
+            }
+
+            // roundTrip is a fixed property of the mode (only Moto has it), not
+            // a chooseable segment — so it gates the destination-type row the
+            // same way it always gated the old dropdown, rather than adding a
+            // "Loop" option to pick.
+            if (!mode.roundTrip) {
+                SegmentedPillRow(
+                    options = PoiKind.entries.map { it.label },
+                    selectedIndex = PoiKind.entries.indexOf(poiKind),
+                    onSelect = { onPoiKindChange(PoiKind.entries[it]) },
+                )
+            }
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    if (mode.roundTrip) "Trip length" else "Radius",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                Text(
+                    if (mode.maxKm <= 10f) "%.1f km".format(radiusKm)
+                    else "${radiusKm.toInt()} km",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            route?.distanceMeters?.let {
+                Text("Loop found: ${formatDistanceKm(it)}", style = MaterialTheme.typography.bodySmall)
+            }
+            destinationName?.let {
+                Text("→ $it", style = MaterialTheme.typography.bodySmall)
+            }
+            Slider(
+                value = radiusKm,
+                onValueChange = onRadiusChange,
+                valueRange = mode.minKm..mode.maxKm,
+            )
+
+            if (!mode.roundTrip) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("Min distance", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        if (minRadiusKm <= 0f) "Off"
+                        else if (mode.maxKm <= 10f) "%.1f km".format(minRadiusKm)
+                        else "${minRadiusKm.toInt()} km",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Slider(
+                    value = minRadiusKm,
+                    onValueChange = onMinRadiusChange,
+                    valueRange = 0f..radiusKm,
+                )
+            }
+
+            Text("Direction", style = MaterialTheme.typography.labelLarge)
+            ScrollingPillRow(
+                options = listOf("Any") + DIRECTION_NAMES,
+                selectedIndex = directionDeg?.let { (it / 45f).toInt() + 1 } ?: 0,
+                onSelect = { i -> onDirectionChange(if (i == 0) null else (i - 1) * 45f) },
+            )
+
+            Button(
+                onClick = onSpin,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+            ) {
+                if (spinning) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Outlined.Casino, contentDescription = null, Modifier.size(20.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    if (spinning) "Cancel" else "Spin",
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                NavButton(
+                    destination = destination,
+                    route = route?.waypoints,
+                    origin = origin,
+                    mode = mode,
+                    inAppAvailable = inAppAvailable,
+                    onNavigateInApp = onNavigateInApp,
+                    onNavigate = onNavigate,
+                    modifier = Modifier.weight(1f),
+                )
+                if (stats == null) {
+                    OutlinedButton(onClick = onTrack, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Outlined.PlayArrow, contentDescription = null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Track ${mode.label.lowercase()}", maxLines = 1)
+                    }
+                }
             }
         }
     }
@@ -1873,12 +2141,23 @@ private fun CandidatesCard(
                 ) {
                     Box(
                         Modifier
-                            .size(14.dp)
+                            .size(26.dp)
                             .background(
                                 Color(CANDIDATE_COLORS[index % CANDIDATE_COLORS.size]),
-                                CircleShape,
-                            )
-                    )
+                                RoundedCornerShape(8.dp),
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            ('A' + index).toString(),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            // Fixed dark text: the candidate colours are chosen
+                            // deliberately (see CANDIDATE_COLORS) and are all
+                            // light enough that a themed on-color would clash.
+                            color = Color(0xFF1A1A1A),
+                        )
+                    }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -1887,16 +2166,25 @@ private fun CandidatesCard(
                             fontWeight = FontWeight.Bold,
                         )
                         val distanceMeters = c.route?.distanceMeters ?: c.straightLineMeters
-                        val distanceLabel = (if (c.route?.distanceMeters == null) "~" else "") +
-                            formatDistanceKm(distanceMeters)
-                        val etaLabel = c.route?.timeMs?.let { " · %.0f min".format(it / 60_000.0) } ?: ""
+                        val prefix = if (c.route?.distanceMeters == null) "~ straight-line " else "via road "
                         Text(
-                            distanceLabel + etaLabel,
+                            prefix + formatDistanceKm(distanceMeters),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Icon(Icons.Default.Navigation, contentDescription = "Choose this destination")
+                    c.route?.timeMs?.let { timeMs ->
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                        ) {
+                            Text(
+                                "%.0f min".format(timeMs / 60_000.0),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                    }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1904,7 +2192,7 @@ private fun CandidatesCard(
                     Text("Cancel")
                 }
                 Button(onClick = onReroll, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.Casino, contentDescription = null, Modifier.size(18.dp))
+                    Icon(Icons.Outlined.Casino, contentDescription = null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Reroll")
                 }
@@ -1929,85 +2217,147 @@ private fun ModeBar(selected: TravelMode, onSelect: (TravelMode) -> Unit) {
     }
 }
 
-/** Map controls, top-right. Only the three you reach for while moving are
- *  buttons; the screens you open while parked are behind the overflow, which is
- *  why this column no longer runs down into whatever the bottom card is showing. */
+/** Map top chrome: a full-width search pill with an avatar that opens the Hub,
+ *  and a right-aligned rail of the two controls worth reaching for while
+ *  driving (follow toggle, layers). Everything else moved to the Hub. */
 @Composable
-private fun MapToolbar(
+private fun MapTopChrome(
     followMe: Boolean,
     fogEnabled: Boolean,
+    username: String,
     onToggleFollow: () -> Unit,
     onSearch: () -> Unit,
     onToggleFog: () -> Unit,
-    onOpenHistory: () -> Unit,
-    onOpenBadges: () -> Unit,
-    onOpenFriends: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onOpenSavedPlaces: () -> Unit,
+    onOpenHub: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
-    val glassColor = glassContainerColor()
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SmallFloatingActionButton(
-            onClick = onToggleFollow,
-            containerColor = glassColor,
+    var layersOpen by remember { mutableStateOf(false) }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SearchPill(username = username, onSearch = onSearch, onAvatarClick = onOpenHub)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                GlassRailButton(
+                    icon = if (followMe) Icons.Outlined.MyLocation else Icons.Outlined.LocationSearching,
+                    contentDescription = if (followMe) "Stop following my location"
+                        else "Follow my location",
+                    tinted = followMe,
+                    onClick = onToggleFollow,
+                )
+                Box {
+                    GlassRailButton(
+                        icon = Icons.Outlined.Layers,
+                        contentDescription = "Map layers",
+                        onClick = { layersOpen = !layersOpen },
+                    )
+                    if (layersOpen) {
+                        val density = LocalDensity.current
+                        Popup(
+                            alignment = Alignment.TopEnd,
+                            offset = with(density) { IntOffset(0, 48.dp.roundToPx()) },
+                            onDismissRequest = { layersOpen = false },
+                        ) {
+                            Card(
+                                modifier = Modifier.glassBorder(MaterialTheme.shapes.large),
+                                shape = MaterialTheme.shapes.large,
+                                colors = glassCardColors(),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                            ) {
+                                Row(
+                                    Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        if (fogEnabled) Icons.Outlined.Visibility
+                                            else Icons.Outlined.VisibilityOff,
+                                        contentDescription = null,
+                                    )
+                                    Text("Fog of war", modifier = Modifier.weight(1f))
+                                    Switch(checked = fogEnabled, onCheckedChange = { onToggleFog() })
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Full-width glass search pill: tapping the body opens search, tapping the
+ *  avatar opens the Hub. */
+@Composable
+private fun SearchPill(
+    username: String,
+    onSearch: () -> Unit,
+    onAvatarClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth().glassBorder(CircleShape),
+        shape = CircleShape,
+        colors = CardDefaults.cardColors(containerColor = glassContainerColor()),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onSearch)
+                .padding(start = 16.dp, top = 6.dp, bottom = 6.dp, end = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                if (followMe) Icons.Default.MyLocation else Icons.Default.LocationSearching,
-                contentDescription = if (followMe) "Stop following my location"
-                    else "Follow my location",
+            Icon(Icons.Outlined.Search, contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(10.dp))
+            Text(
+                "Where to?",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
             )
-        }
-        SmallFloatingActionButton(
-            onClick = onSearch,
-            containerColor = glassColor,
-        ) {
-            Icon(Icons.Default.Search, contentDescription = "Search destination")
-        }
-        SmallFloatingActionButton(
-            onClick = onToggleFog,
-            containerColor = glassColor,
-        ) {
-            Icon(
-                if (fogEnabled) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                contentDescription = "Fog of war",
-            )
-        }
-        Box {
-            SmallFloatingActionButton(
-                onClick = { menuOpen = true },
-                containerColor = glassColor,
+            Box(
+                Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+                    .clickable(onClick = onAvatarClick),
+                contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.MoreVert, contentDescription = "More")
-            }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text("Saved places") },
-                    leadingIcon = { Icon(Icons.Default.Place, contentDescription = null) },
-                    onClick = { menuOpen = false; onOpenSavedPlaces() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Trip history") },
-                    leadingIcon = { Icon(Icons.Default.History, contentDescription = null) },
-                    onClick = { menuOpen = false; onOpenHistory() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Badges") },
-                    leadingIcon = { Icon(Icons.Default.EmojiEvents, contentDescription = null) },
-                    onClick = { menuOpen = false; onOpenBadges() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Friends") },
-                    leadingIcon = { Icon(Icons.Default.People, contentDescription = null) },
-                    onClick = { menuOpen = false; onOpenFriends() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Settings") },
-                    leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                    onClick = { menuOpen = false; onOpenSettings() },
+                Text(
+                    username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimary,
                 )
             }
+        }
+    }
+}
+
+/** One 40dp glass button in the top-right rail; tinted primary when its
+ *  toggle is active (currently just the follow button). */
+@Composable
+private fun GlassRailButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    tinted: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        onClick = onClick,
+        modifier = modifier.size(40.dp).glassBorder(CircleShape),
+        shape = CircleShape,
+        colors = CardDefaults.cardColors(containerColor = glassContainerColor()),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Icon(
+                icon, contentDescription = contentDescription,
+                Modifier.size(20.dp),
+                tint = if (tinted) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface,
+            )
         }
     }
 }
@@ -2024,62 +2374,9 @@ private fun EndTripButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
             contentColor = MaterialTheme.colorScheme.onError,
         ),
     ) {
-        Icon(Icons.Default.Stop, contentDescription = null, Modifier.size(20.dp))
+        Icon(Icons.Outlined.Stop, contentDescription = null, Modifier.size(20.dp))
         Spacer(Modifier.width(8.dp))
         Text("End trip", maxLines = 1, fontWeight = FontWeight.Bold)
-    }
-}
-
-/** Slim stand-in for the spin card while just cruising. Spin stays reachable
- *  here — collapsing the card used to mean you couldn't spin without expanding it. */
-@Composable
-private fun CollapsedSpinBar(
-    mode: TravelMode,
-    radiusKm: Float,
-    spinning: Boolean,
-    onSpin: () -> Unit,
-    onExpand: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .glassBorder(MaterialTheme.shapes.extraLarge),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = glassCardColors(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(
-                Modifier
-                    .weight(1f)
-                    .clickable { onExpand() },
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(mode.icon, contentDescription = null)
-                Text(
-                    "${if (mode.maxKm <= 10f) "%.1f".format(radiusKm) else radiusKm.toInt()} km",
-                    style = MaterialTheme.typography.labelLarge,
-                )
-                Icon(Icons.Default.ExpandLess, contentDescription = "Expand")
-            }
-            Button(onClick = onSpin, shape = CircleShape) {
-                if (spinning) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Default.Casino, contentDescription = null, Modifier.size(18.dp))
-                }
-                Spacer(Modifier.width(8.dp))
-                Text(if (spinning) "Cancel" else "Spin", maxLines = 1)
-            }
-        }
     }
 }
 
@@ -2187,7 +2484,6 @@ private fun NavButton(
     onNavigate: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
     Box(modifier) {
         FilledTonalButton(
@@ -2195,56 +2491,13 @@ private fun NavButton(
             enabled = destination != null || (route != null && origin != null),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Icon(Icons.Default.Navigation, contentDescription = null, Modifier.size(18.dp))
+            Icon(Icons.Outlined.Navigation, contentDescription = null, Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text("Go", maxLines = 1)
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            if (inAppAvailable) {
-                DropdownMenuItem(
-                    text = { Text("Navigate in app") },
-                    onClick = {
-                        menuOpen = false
-                        onNavigateInApp()
-                    },
-                )
-            }
-            if (route != null && origin != null) {
-                // Waze can't take multi-waypoint routes; Google Maps only.
-                DropdownMenuItem(
-                    text = { Text("Google Maps (round trip)") },
-                    onClick = {
-                        menuOpen = false
-                        onNavigate()
-                        navigateRoundTrip(context, origin, route)
-                    },
-                )
-            } else {
-                DropdownMenuItem(
-                    text = { Text("Google Maps") },
-                    onClick = {
-                        menuOpen = false
-                        onNavigate()
-                        destination?.let { navigateGoogleMaps(context, it, mode) }
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Waze") },
-                    onClick = {
-                        menuOpen = false
-                        onNavigate()
-                        destination?.let { navigateWaze(context, it) }
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text("Other app") },
-                    onClick = {
-                        menuOpen = false
-                        onNavigate()
-                        destination?.let { navigateGeo(context, it) }
-                    },
-                )
-            }
+            NavMenuItems(destination, route, origin, mode, inAppAvailable,
+                onNavigateInApp, onNavigate) { menuOpen = false }
         }
     }
 }

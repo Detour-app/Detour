@@ -1,5 +1,6 @@
 package com.jellemax.maproulette.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,17 +14,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Flag
-import androidx.compose.material.icons.filled.LocationCity
-import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.Route
-import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.outlined.LocationCity
+import androidx.compose.material.icons.outlined.Map
+import androidx.compose.material.icons.outlined.Route
+import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -37,10 +37,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.jellemax.maproulette.data.BadgeKind
 import com.jellemax.maproulette.data.BadgeState
 import com.jellemax.maproulette.data.BadgeStore
@@ -51,11 +57,11 @@ import kotlinx.coroutines.withContext
 
 private val BadgeKind.icon: ImageVector
     get() = when (this) {
-        BadgeKind.DISTANCE -> Icons.Default.Route
-        BadgeKind.TOP_SPEED -> Icons.Default.Speed
-        BadgeKind.TRIP_DISTANCE -> Icons.Default.Flag
-        BadgeKind.MUNICIPALITY -> Icons.Default.LocationCity
-        BadgeKind.COVERAGE -> Icons.Default.Map
+        BadgeKind.DISTANCE -> Icons.Outlined.Route
+        BadgeKind.TOP_SPEED -> Icons.Outlined.Speed
+        BadgeKind.TRIP_DISTANCE -> Icons.Outlined.Flag
+        BadgeKind.MUNICIPALITY -> Icons.Outlined.LocationCity
+        BadgeKind.COVERAGE -> Icons.Outlined.Map
     }
 
 /** Formats a badge value in the unit its threshold is expressed in. */
@@ -119,7 +125,21 @@ fun BadgesScreen(onBack: () -> Unit) {
                 val states = loaded.states.filter { it.def.kind == kind }
                 if (states.isEmpty()) continue
                 item { SectionHeader(kind.label) }
-                items(states.size) { i -> BadgeRow(states[i]) }
+                // LazyVerticalGrid inside a LazyColumn nests badly (both want to
+                // scroll); chunking into rows of 3 keeps everything in one list.
+                for (row in states.chunked(3)) {
+                    item {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            row.forEach { state ->
+                                BadgeCell(state, Modifier.weight(1f))
+                            }
+                            repeat(3 - row.size) { Box(Modifier.weight(1f)) }
+                        }
+                    }
+                }
             }
 
             item { SectionHeader("Coverage") }
@@ -207,74 +227,85 @@ private fun CoverageRow(entry: Coverage.Entry) {
     }
 }
 
+/** One badge in the 3-column grid: a 44dp medal (gold radial gradient once
+ *  earned, a progress arc around a dimmed icon while locked) plus a two-line
+ *  caption. Replaces the old full-width row — three per screen instead of one
+ *  is what makes a whole badge kind scannable without scrolling past it. */
 @Composable
-private fun BadgeRow(state: BadgeState) {
+private fun BadgeCell(state: BadgeState, modifier: Modifier = Modifier) {
     val kind = state.def.kind
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (state.earned) MaterialTheme.colorScheme.surfaceContainerHigh
-                else MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
+    Column(
+        modifier.padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Medal(kind.icon, state.earned, state.progress)
+        Text(
+            state.def.title,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+            fontWeight = if (state.earned) FontWeight.Bold else FontWeight.Normal,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+        )
+        Text(
+            if (state.earned) "Earned ${formatDate(state.earnedAtMs!!)}"
+            else "${kind.format(state.value)} / ${kind.format(state.def.threshold)}",
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+            color = if (state.earned) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+        )
+    }
+}
+
+@Composable
+private fun Medal(icon: ImageVector, earned: Boolean, progress: Float, modifier: Modifier = Modifier) {
+    Box(modifier.size(44.dp), contentAlignment = Alignment.Center) {
+        if (earned) {
+            val primary = MaterialTheme.colorScheme.primary
+            val primaryContainer = MaterialTheme.colorScheme.primaryContainer
             Box(
                 Modifier
-                    .size(48.dp)
+                    .fillMaxSize()
                     .clip(CircleShape)
-                    .background(
-                        if (state.earned) MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.surfaceContainerHighest,
-                    )
-                    .alpha(if (state.earned) 1f else 0.35f),
+                    .background(Brush.radialGradient(listOf(primaryContainer, primary))),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null,
+                    Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+        } else {
+            val trackColor = MaterialTheme.colorScheme.outlineVariant
+            val progressColor = MaterialTheme.colorScheme.primary
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    kind.icon,
-                    contentDescription = null,
-                    Modifier.size(32.dp),
-                    tint = if (state.earned) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    icon, contentDescription = null,
+                    Modifier.size(20.dp).alpha(0.4f),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        state.def.title,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = if (state.earned) FontWeight.Bold else FontWeight.Normal,
-                    )
-                    Text(
-                        kind.format(state.def.threshold),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (state.earned) {
-                    Text(
-                        "Earned ${formatDate(state.earnedAtMs!!)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                } else {
-                    LinearProgressIndicator(
-                        progress = { state.progress },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Text(
-                        kind.format(state.value),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            Canvas(Modifier.fillMaxSize()) {
+                val stroke = 3.dp.toPx()
+                drawArc(
+                    trackColor, startAngle = -90f, sweepAngle = 360f, useCenter = false,
+                    topLeft = Offset(stroke / 2, stroke / 2),
+                    size = Size(size.width - stroke, size.height - stroke),
+                    style = Stroke(width = stroke),
+                )
+                drawArc(
+                    progressColor, startAngle = -90f, sweepAngle = 360f * progress.coerceIn(0f, 1f),
+                    useCenter = false,
+                    topLeft = Offset(stroke / 2, stroke / 2),
+                    size = Size(size.width - stroke, size.height - stroke),
+                    style = Stroke(width = stroke),
+                )
             }
         }
     }

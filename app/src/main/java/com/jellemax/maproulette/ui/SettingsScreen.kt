@@ -2,6 +2,7 @@ package com.jellemax.maproulette.ui
 
 import android.Manifest
 import android.bluetooth.BluetoothManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.Sensor
@@ -9,11 +10,13 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,10 +27,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Brightness6
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.DirectionsCar
+import androidx.compose.material.icons.outlined.Navigation
+import androidx.compose.material.icons.outlined.Tv
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,6 +69,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -78,23 +89,45 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.atan2
 
+/** The six spokes off the Settings root. Internal to this screen — not new
+ *  MainActivity screens — so the same push/pop feel as Hub-and-back applies
+ *  without adding another layer to the app-wide Screen enum. */
+private enum class SettingsPage(val title: String) {
+    ROOT("Settings"),
+    APPEARANCE_MAP("Appearance & map"),
+    TRACKING_VEHICLES("Tracking & vehicles"),
+    NAVIGATION("Navigation"),
+    FOG("Fog of war"),
+    DISPLAYS_MEDIA("Displays & media"),
+    SERVERS_SYNC("Servers & sync"),
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
+    var page by remember { mutableStateOf(SettingsPage.ROOT) }
+    // Back from a spoke returns to the root; only off the root does it fall
+    // through to leaving the screen entirely (same shape as Hub vs. MAP).
+    BackHandler(enabled = page != SettingsPage.ROOT) { page = SettingsPage.ROOT }
+
     val theme by Settings.theme.collectAsStateWithLifecycle()
     val autoDetect by Settings.autoDetectDrives.collectAsStateWithLifecycle()
     val avoidHighways by Settings.avoidHighways.collectAsStateWithLifecycle()
-    val avoidSmallRoads by Settings.avoidSmallRoads.collectAsStateWithLifecycle()
     val fogRadius by Settings.fogRadiusMeters.collectAsStateWithLifecycle()
-    val shareFog by Settings.shareFog.collectAsStateWithLifecycle()
-    val defaultZoom by Settings.defaultZoom.collectAsStateWithLifecycle()
-    var confirmReset by remember { mutableStateOf(false) }
+    val externalDisplayEnabled by Settings.externalDisplayEnabled.collectAsStateWithLifecycle()
+    val authUsername by Settings.authUsername.collectAsStateWithLifecycle()
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = { SubScreenTopBar("Settings", onBack, scrollBehavior) },
+        topBar = {
+            SubScreenTopBar(
+                page.title,
+                onBack = { if (page == SettingsPage.ROOT) onBack() else page = SettingsPage.ROOT },
+                scrollBehavior,
+            )
+        },
     ) { padding ->
         Column(
             Modifier
@@ -102,190 +135,266 @@ fun SettingsScreen(onBack: () -> Unit) {
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(if (page == SettingsPage.ROOT) 10.dp else 16.dp),
         ) {
-            SettingsSection("Appearance") {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    Settings.Theme.entries.forEachIndexed { index, t ->
-                        SegmentedButton(
-                            selected = theme == t,
-                            onClick = { Settings.setTheme(t) },
-                            shape = SegmentedButtonDefaults.itemShape(
-                                index = index, count = Settings.Theme.entries.size,
-                            ),
-                            label = {
-                                Text(t.name.lowercase().replaceFirstChar { it.uppercase() })
-                            },
-                        )
-                    }
-                }
-                if (theme == Settings.Theme.AUTO) {
+            when (page) {
+                SettingsPage.ROOT -> {
+                    HubRow(
+                        icon = Icons.Outlined.Brightness6,
+                        title = SettingsPage.APPEARANCE_MAP.title,
+                        subtitle = theme.name.lowercase().replaceFirstChar { it.uppercase() } + " theme",
+                        onClick = { page = SettingsPage.APPEARANCE_MAP },
+                    )
+                    HubRow(
+                        icon = Icons.Outlined.DirectionsCar,
+                        title = SettingsPage.TRACKING_VEHICLES.title,
+                        subtitle = "Auto-detect drives: " + (if (autoDetect) "on" else "off"),
+                        onClick = { page = SettingsPage.TRACKING_VEHICLES },
+                    )
+                    HubRow(
+                        icon = Icons.Outlined.Navigation,
+                        title = SettingsPage.NAVIGATION.title,
+                        subtitle = "Avoid highways: " + (if (avoidHighways) "on" else "off"),
+                        onClick = { page = SettingsPage.NAVIGATION },
+                    )
+                    HubRow(
+                        icon = Icons.Outlined.VisibilityOff,
+                        title = SettingsPage.FOG.title,
+                        subtitle = "${fogRadius.toInt()} m reveal radius",
+                        onClick = { page = SettingsPage.FOG },
+                    )
+                    HubRow(
+                        icon = Icons.Outlined.Tv,
+                        title = SettingsPage.DISPLAYS_MEDIA.title,
+                        subtitle = "External display: " + (if (externalDisplayEnabled) "on" else "off"),
+                        onClick = { page = SettingsPage.DISPLAYS_MEDIA },
+                    )
+                    HubRow(
+                        icon = Icons.Outlined.Cloud,
+                        title = SettingsPage.SERVERS_SYNC.title,
+                        subtitle = if (authUsername.isBlank()) "Not signed in"
+                            else "Signed in as $authUsername",
+                        onClick = { page = SettingsPage.SERVERS_SYNC },
+                    )
                     Text(
-                        "Light by day, dark by night — follows sunrise and " +
-                            "sunset at your location.",
+                        "Map Roulette ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
+                        textAlign = TextAlign.Center,
                     )
+                }
+                SettingsPage.APPEARANCE_MAP -> {
+                    AppearanceSection(theme)
+                    MapSection()
+                }
+                SettingsPage.TRACKING_VEHICLES -> {
+                    TrackingSection(autoDetect, context)
+                    VehicleSection()
+                    LeanCalibrationSection()
+                }
+                SettingsPage.NAVIGATION -> NavigationSection()
+                SettingsPage.FOG -> FogSection(context)
+                SettingsPage.DISPLAYS_MEDIA -> {
+                    ExternalDisplaySection()
+                    NowPlayingSection()
+                }
+                SettingsPage.SERVERS_SYNC -> {
+                    ServerSection()
+                    SyncSection()
+                    ConfigFileSection()
                 }
             }
+        }
+    }
+}
 
-            SettingsSection("Tracking") {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Auto-detect drives", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Start a trip automatically when driving is detected",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = autoDetect,
-                        onCheckedChange = {
-                            Settings.setAutoDetectDrives(it)
-                            TripTrackingService.refresh(context)
-                        },
-                    )
-                }
-            }
-
-            VehicleSection()
-
-            LeanCalibrationSection()
-
-            SettingsSection("Navigation") {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Avoid highways", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "In-app navigation skips motorways (car mode; " +
-                                "moto and bike never use them)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = avoidHighways,
-                        onCheckedChange = { Settings.setAvoidHighways(it) },
-                    )
-                }
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Avoid small roads", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Prefer real roads over narrow rural lanes, " +
-                                "service roads and unpaved tracks",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = avoidSmallRoads,
-                        onCheckedChange = { Settings.setAvoidSmallRoads(it) },
-                    )
-                }
-            }
-
-            ExternalDisplaySection()
-            NowPlayingSection()
-
-            SettingsSection("Map") {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text("Default zoom", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        "%.1f".format(defaultZoom),
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-                Slider(
-                    value = defaultZoom,
-                    onValueChange = { Settings.setDefaultZoom(it) },
-                    valueRange = Settings.DEFAULT_ZOOM_MIN..Settings.DEFAULT_ZOOM_MAX,
+@Composable
+private fun AppearanceSection(theme: Settings.Theme) {
+    SettingsSection("Appearance") {
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            Settings.Theme.entries.forEachIndexed { index, t ->
+                SegmentedButton(
+                    selected = theme == t,
+                    onClick = { Settings.setTheme(t) },
+                    shape = SegmentedButtonDefaults.itemShape(
+                        index = index, count = Settings.Theme.entries.size,
+                    ),
+                    label = {
+                        Text(t.name.lowercase().replaceFirstChar { it.uppercase() })
+                    },
                 )
+            }
+        }
+        if (theme == Settings.Theme.AUTO) {
+            Text(
+                "Light by day, dark by night — follows sunrise and " +
+                    "sunset at your location.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TrackingSection(autoDetect: Boolean, context: Context) {
+    SettingsSection("Tracking") {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Auto-detect drives", style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "Where the map sits while following you. It zooms out up to " +
-                        "two levels at speed and back in near a turn.",
+                    "Start a trip automatically when driving is detected",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-
-            SettingsSection("Fog of war") {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text("Reveal radius", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        "${fogRadius.toInt()} m",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-                Slider(
-                    value = fogRadius,
-                    onValueChange = { Settings.setFogRadiusMeters(it) },
-                    valueRange = 100f..500f,
-                )
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Share fog with friends", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Uncover the map together: your accepted friends see the " +
-                                "roads you have driven, and you see theirs. Only friends " +
-                                "who share back can see yours. Off, nobody sees either.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = shareFog,
-                        onCheckedChange = {
-                            Settings.setShareFog(it)
-                            // Tell the server now: leaving it to the next trip sync
-                            // would keep serving traces after the switch went off.
-                            SyncClient.syncQuietly(context)
-                        },
-                    )
-                }
-                TextButton(onClick = { confirmReset = true }) {
-                    Text("Reset explored area", color = MaterialTheme.colorScheme.error)
-                }
-            }
-
-            ServerSection()
-
-            SyncSection()
-
-            ConfigFileSection()
-
-            Text(
-                "Map Roulette v${BuildConfig.VERSION_NAME}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.align(Alignment.CenterHorizontally),
+            Switch(
+                checked = autoDetect,
+                onCheckedChange = {
+                    Settings.setAutoDetectDrives(it)
+                    TripTrackingService.refresh(context)
+                },
             )
         }
+    }
+}
+
+@Composable
+private fun NavigationSection() {
+    val avoidHighways by Settings.avoidHighways.collectAsStateWithLifecycle()
+    val avoidSmallRoads by Settings.avoidSmallRoads.collectAsStateWithLifecycle()
+    SettingsSection("Navigation") {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Avoid highways", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "In-app navigation skips motorways (car mode; " +
+                        "moto and bike never use them)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = avoidHighways,
+                onCheckedChange = { Settings.setAvoidHighways(it) },
+            )
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Avoid small roads", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Prefer real roads over narrow rural lanes, " +
+                        "service roads and unpaved tracks",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = avoidSmallRoads,
+                onCheckedChange = { Settings.setAvoidSmallRoads(it) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun MapSection() {
+    val defaultZoom by Settings.defaultZoom.collectAsStateWithLifecycle()
+    SettingsSection("Map") {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("Default zoom", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "%.1f".format(defaultZoom),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        Slider(
+            value = defaultZoom,
+            onValueChange = { Settings.setDefaultZoom(it) },
+            valueRange = Settings.DEFAULT_ZOOM_MIN..Settings.DEFAULT_ZOOM_MAX,
+        )
+        Text(
+            "Where the map sits while following you. It zooms out up to " +
+                "two levels at speed and back in near a turn.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun FogSection(context: Context) {
+    val fogRadius by Settings.fogRadiusMeters.collectAsStateWithLifecycle()
+    val shareFog by Settings.shareFog.collectAsStateWithLifecycle()
+    var confirmReset by remember { mutableStateOf(false) }
+
+    SettingsSection("Fog of war") {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text("Reveal radius", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "${fogRadius.toInt()} m",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        Slider(
+            value = fogRadius,
+            onValueChange = { Settings.setFogRadiusMeters(it) },
+            valueRange = 100f..500f,
+        )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Share fog with friends", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Uncover the map together: your accepted friends see the " +
+                        "roads you have driven, and you see theirs. Only friends " +
+                        "who share back can see yours. Off, nobody sees either.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = shareFog,
+                onCheckedChange = {
+                    Settings.setShareFog(it)
+                    // Tell the server now: leaving it to the next trip sync
+                    // would keep serving traces after the switch went off.
+                    SyncClient.syncQuietly(context)
+                },
+            )
+        }
+    }
+
+    // Danger action at the bottom of its own spoke, same as before — just no
+    // longer sharing a card with the rest of the fog settings.
+    TextButton(onClick = { confirmReset = true }) {
+        Text("Reset explored area", color = MaterialTheme.colorScheme.error)
     }
 
     if (confirmReset) {
@@ -632,7 +741,7 @@ private fun VehicleSection() {
                 Text(mode.label, style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold)
                 TextButton(onClick = { addTarget = mode }) {
-                    Icon(Icons.Default.Add, contentDescription = null, Modifier.size(18.dp))
+                    Icon(Icons.Outlined.Add, contentDescription = null, Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Add device")
                 }
@@ -661,7 +770,7 @@ private fun VehicleSection() {
                             },
                             modifier = Modifier.size(28.dp),
                         ) {
-                            Icon(Icons.Default.Close, contentDescription = "Remove ${d.name}",
+                            Icon(Icons.Outlined.Close, contentDescription = "Remove ${d.name}",
                                 Modifier.size(18.dp))
                         }
                     }

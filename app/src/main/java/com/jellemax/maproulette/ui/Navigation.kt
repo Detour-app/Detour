@@ -1,6 +1,7 @@
 package com.jellemax.maproulette.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -30,13 +32,16 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -114,7 +119,39 @@ fun NavigationBanner(
     }
 }
 
-/** Bottom bar during navigation: remaining distance, arrival time, exit. */
+/** Small glass pill under the banner naming the maneuver after the current
+ *  one, so a driver can see a turn-then-turn coming before the first is done. */
+@Composable
+fun ThenPill(
+    progress: NavEngine.Progress?,
+    modifier: Modifier = Modifier,
+) {
+    val nextNext = progress?.nextNextInstruction ?: return
+    val distance = progress.distanceToNextNextMeters ?: return
+    Card(
+        modifier = modifier.glassBorder(CircleShape),
+        shape = CircleShape,
+        colors = glassCardColors(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "then",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Icon(signIcon(nextNext.sign), contentDescription = null, Modifier.size(20.dp))
+            Text(formatDistanceKm(distance), style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+/** Bottom bar during navigation: route progress, remaining distance, arrival
+ *  time, exit. */
 @Composable
 fun NavigationBottomBar(
     progress: NavEngine.Progress?,
@@ -128,33 +165,82 @@ fun NavigationBottomBar(
         colors = glassCardColors(),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column {
-                Text(
-                    progress?.let { formatDistanceKm(it.remainingMeters) } ?: "—",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    when {
-                        offRoute -> "Off route"
-                        else -> progress?.remainingTimeMs?.let { "Arrival ${eta(it)}" } ?: ""
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (offRoute) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            IconButton(onClick = onExit) {
-                Icon(Icons.Default.Close, contentDescription = "Exit navigation")
+        Column {
+            // Guard divide-by-zero: no route yet (routeMeters == 0) reads as
+            // just-departed rather than crashing the fraction.
+            val fraction = progress?.let {
+                if (it.routeMeters > 0) (1.0 - it.remainingMeters / it.routeMeters)
+                    .coerceIn(0.0, 1.0).toFloat()
+                else 0f
+            } ?: 0f
+            RouteProgressTrack(fraction, Modifier.fillMaxWidth())
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text(
+                        progress?.let {
+                            "${formatDistanceKm(it.remainingMeters)} · " +
+                                "%.0f min".format((it.remainingTimeMs ?: 0L) / 60_000.0)
+                        } ?: "—",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        when {
+                            offRoute -> "Off route"
+                            else -> progress?.remainingTimeMs?.let { "Arrival ${eta(it)}" } ?: ""
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (offRoute) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(
+                    onClick = onExit,
+                    modifier = Modifier.size(34.dp),
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    ),
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Exit navigation",
+                        Modifier.size(18.dp))
+                }
             }
         }
+    }
+}
+
+/** Thin route-progress bar: primary fill up to [fraction], with a dot riding
+ *  its leading edge. */
+@Composable
+private fun RouteProgressTrack(fraction: Float, modifier: Modifier = Modifier) {
+    val trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+    val fillColor = MaterialTheme.colorScheme.primary
+    Canvas(modifier.height(4.dp)) {
+        drawLine(
+            trackColor,
+            start = Offset(0f, size.height / 2f),
+            end = Offset(size.width, size.height / 2f),
+            strokeWidth = size.height,
+            cap = StrokeCap.Round,
+        )
+        val x = size.width * fraction
+        if (x > 0f) {
+            drawLine(
+                fillColor,
+                start = Offset(0f, size.height / 2f),
+                end = Offset(x, size.height / 2f),
+                strokeWidth = size.height,
+                cap = StrokeCap.Round,
+            )
+        }
+        drawCircle(fillColor, radius = 5.dp.toPx(), center = Offset(x, size.height / 2f))
     }
 }
 

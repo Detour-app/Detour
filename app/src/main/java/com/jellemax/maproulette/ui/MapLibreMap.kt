@@ -238,6 +238,11 @@ fun setCamera(map: MapLibreMap, lat: Double, lon: Double, zoom: Double, bearingD
  */
 class FogView(context: Context) : View(context) {
     var map: MapLibreMap? = null
+        set(value) {
+            field?.removeOnCameraIdleListener(idleListener)
+            field = value
+            value?.addOnCameraIdleListener(idleListener)
+        }
     // Raw GPS tracks carry a point every few metres; the fog corridor is tens of
     // metres wide, so projecting every one through the per-point JNI call is the
     // bulk of the pan cost. Store a decimated copy — points within ~25 m of the
@@ -248,12 +253,59 @@ class FogView(context: Context) : View(context) {
     var currentLocation: LatLon? = null
     var corridorMeters: Float = 200f
     var active: Boolean = false
+        set(value) {
+            // Rising edge: the last snapshot (if any) predates the toggle, so ask
+            // for a fresh one instead of waiting for the next camera gesture.
+            val request = value && !field
+            field = value
+            if (request) requestSnapshot()
+        }
 
     init {
         setWillNotDraw(false)
     }
 
     private val fogColor = Color.argb(150, 8, 10, 26)
+    // Undiscovered ground reads as "not yet seen" better when it's out of focus,
+    // not just darker. A sibling View can't backdrop-blur the GL map surface, so
+    // the frost is faked from a map snapshot taken when the camera settles:
+    // downscale hard, upscale back (a cheap two-pass box blur), then dim. While
+    // the camera is moving the snapshot no longer lines up, so onDraw falls back
+    // to the plain scrim and the frost returns on the next idle.
+    private var blurred: Bitmap? = null
+    private var blurredCam: CameraPosition? = null
+    private val blurTint = Color.argb(110, 8, 10, 26)
+    private val idleListener = MapLibreMap.OnCameraIdleListener { requestSnapshot() }
+
+    private fun requestSnapshot() {
+        val m = map ?: return
+        if (!active || width <= 0 || height <= 0) return
+        val cam = m.cameraPosition
+        m.snapshot { shot ->
+            if (!active) return@snapshot
+            val bw = max(1, (width + FOG_DOWNSCALE - 1) / FOG_DOWNSCALE)
+            val bh = max(1, (height + FOG_DOWNSCALE - 1) / FOG_DOWNSCALE)
+            // Two createScaledBitmap passes: down to ~1/12 screen res for the
+            // blur radius, back up to buffer res with filtering for the frost.
+            val tiny = Bitmap.createScaledBitmap(shot, max(1, bw / 4), max(1, bh / 4), true)
+            blurred = Bitmap.createScaledBitmap(tiny, bw, bh, true)
+            tiny.recycle()
+            blurredCam = cam
+            invalidate()
+        }
+    }
+
+    /** The snapshot only lines up while the camera sits exactly where it was taken. */
+    private fun blurUsable(cam: CameraPosition, bw: Int, bh: Int): Boolean {
+        val b = blurred ?: return false
+        val c = blurredCam ?: return false
+        val t = cam.target ?: return false
+        val ct = c.target ?: return false
+        return b.width == bw && b.height == bh &&
+            abs(t.latitude - ct.latitude) < 1e-7 && abs(t.longitude - ct.longitude) < 1e-7 &&
+            abs(cam.zoom - c.zoom) < 1e-4 && abs(cam.bearing - c.bearing) < 1e-3 &&
+            abs(cam.tilt - c.tilt) < 1e-3
+    }
     private val clearPaint = Paint().apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
@@ -290,7 +342,16 @@ class FogView(context: Context) : View(context) {
                 bufferCanvas = Canvas(it)
             }
         val bufCanvas = bufferCanvas ?: return
-        buf.eraseColor(fogColor)
+        val frost = blurred?.takeIf { blurUsable(m.cameraPosition, bw, bh) }
+        if (frost != null) {
+            // Frosted base: the blurred snapshot is opaque and buffer-sized, so
+            // it fully covers the stale buffer; the tint restores the dimming
+            // the corridor contrast relies on.
+            bufCanvas.drawBitmap(frost, 0f, 0f, null)
+            bufCanvas.drawColor(blurTint)
+        } else {
+            buf.eraseColor(fogColor)
+        }
 
         // Buffer space: full-res screen coords scaled down by FOG_DOWNSCALE.
         val s = 1f / FOG_DOWNSCALE

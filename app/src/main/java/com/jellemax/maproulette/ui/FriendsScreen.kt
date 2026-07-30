@@ -1,17 +1,25 @@
 package com.jellemax.maproulette.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -19,6 +27,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -27,14 +36,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -42,9 +54,12 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.maproulette.data.Account
+import com.jellemax.maproulette.data.BadgeStore
+import com.jellemax.maproulette.data.Coverage
 import com.jellemax.maproulette.data.FriendLists
 import com.jellemax.maproulette.data.FriendStats
 import com.jellemax.maproulette.data.Friends
+import com.jellemax.maproulette.data.RiderStats
 import com.jellemax.maproulette.data.SyncClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +70,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun FriendsScreen(onBack: () -> Unit) {
     val username by Account.username.collectAsStateWithLifecycle()
+    var addOpen by remember { mutableStateOf(false) }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
@@ -82,8 +98,16 @@ fun FriendsScreen(onBack: () -> Unit) {
                 )
                 return@Column
             }
-            if (username.isBlank()) SignInSection() else FriendsSection(username)
+            if (username.isBlank()) {
+                SignInSection()
+            } else {
+                FriendsSection(username, onAddFriend = { addOpen = true })
+            }
         }
+    }
+
+    if (addOpen) {
+        AddFriendDialog(onDismiss = { addOpen = false })
     }
 }
 
@@ -162,19 +186,17 @@ private fun SignInSection() {
 }
 
 @Composable
-private fun FriendsSection(username: String) {
+private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var lists by remember { mutableStateOf<FriendLists?>(null) }
     var stats by remember { mutableStateOf<List<FriendStats>>(emptyList()) }
-    var addName by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var status by remember { mutableStateOf<String?>(null) }
     // Bumped after every mutation so the lists below reload.
     var reloads by remember { mutableIntStateOf(0) }
 
-    androidx.compose.runtime.LaunchedEffect(reloads) {
+    LaunchedEffect(reloads) {
         try {
             val loaded = withContext(Dispatchers.IO) { Friends.lists(context) to Friends.stats(context) }
             lists = loaded.first
@@ -182,6 +204,19 @@ private fun FriendsSection(username: String) {
             error = null
         } catch (e: Exception) {
             error = e.message ?: "Could not reach the server"
+        }
+    }
+
+    // Own totals, computed the same way BadgesScreen and the Hub do — the
+    // server never sends them back to us, only to friends, so this is the
+    // only way to put "me" in my own leaderboard.
+    val own by produceState<FriendStats?>(initialValue = null) {
+        value = withContext(Dispatchers.IO) {
+            val coverage = Coverage.compute(context)
+            val riderStats = BadgeStore.stats(context, coverage)
+            val badgeIds = BadgeStore.refresh(context, riderStats).states
+                .filter { it.earned }.map { it.def.id }
+            FriendStats(username, riderStats, badgeIds)
         }
     }
 
@@ -227,33 +262,6 @@ private fun FriendsSection(username: String) {
         Text(it, color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall)
     }
-    status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-
-    Text("Add a friend", style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary)
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        OutlinedTextField(
-            value = addName, onValueChange = { addName = it },
-            label = { Text("Their username") },
-            singleLine = true,
-            modifier = Modifier.weight(1f),
-        )
-        Button(
-            enabled = !busy && addName.isNotBlank(),
-            onClick = {
-                val target = addName.trim()
-                act(scope) {
-                    val result = Friends.request(context, target)
-                    status = if (result == "accepted") "You are now friends with $target"
-                        else "Request sent to $target"
-                }
-                addName = ""
-            },
-        ) { Text("Send") }
-    }
 
     val loaded = lists
     if (loaded == null) {
@@ -261,31 +269,18 @@ private fun FriendsSection(username: String) {
         return
     }
 
+    // Requests first — answering them is the one thing here that's actually
+    // time-sensitive; the leaderboard just sits and waits to be looked at.
     if (loaded.incoming.isNotEmpty()) {
         Text("Requests", style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary)
         for (name in loaded.incoming) {
-            Card {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(start = 16.dp, top = 4.dp, bottom = 4.dp, end = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(name, style = MaterialTheme.typography.bodyLarge)
-                    Row {
-                        IconButton(
-                            enabled = !busy,
-                            onClick = { act(scope) { Friends.respond(context, name, true) } },
-                        ) { Icon(Icons.Default.Check, contentDescription = "Accept $name") }
-                        IconButton(
-                            enabled = !busy,
-                            onClick = { act(scope) { Friends.respond(context, name, false) } },
-                        ) { Icon(Icons.Default.Close, contentDescription = "Decline $name") }
-                    }
-                }
-            }
+            RequestRow(
+                name = name,
+                busy = busy,
+                onAccept = { act(scope) { Friends.respond(context, name, true) } },
+                onDecline = { act(scope) { Friends.respond(context, name, false) } },
+            )
         }
     }
 
@@ -297,63 +292,181 @@ private fun FriendsSection(username: String) {
         )
     }
 
-    Text("Leaderboard", style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary)
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Leaderboard", style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary)
+        TextButton(onClick = onAddFriend) {
+            Icon(Icons.Outlined.Add, contentDescription = null, Modifier.size(18.dp))
+            Text("Add a friend")
+        }
+    }
     if (stats.isEmpty()) {
         Text(
-            "No friends yet. Send a request above — you'll see their totals, " +
+            "No friends yet. Add one above — you'll see their totals, " +
                 "never their routes.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     } else {
-        for (friend in stats) {
-            FriendCard(friend, busy) { act(scope) { Friends.remove(context, friend.username) } }
+        val ranked = (stats + listOfNotNull(own))
+            .sortedByDescending { it.stats.totalDistanceMeters }
+        ranked.forEachIndexed { i, friend ->
+            LeaderboardRow(rank = i + 1, friend = friend, isMe = friend.username == username)
         }
     }
 }
 
 @Composable
-private fun FriendCard(friend: FriendStats, busy: Boolean, onRemove: () -> Unit) {
+private fun RequestRow(name: String, busy: Boolean, onAccept: () -> Unit, onDecline: () -> Unit) {
     Card {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(friend.username, style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold)
-                TextButton(onClick = onRemove, enabled = !busy) {
-                    Text("Remove", color = MaterialTheme.colorScheme.error)
-                }
-            }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                FriendStat("Distance", "%,.0f km".format(friend.stats.totalDistanceMeters / 1000))
-                FriendStat("Top speed", "%.0f km/h".format(friend.stats.topSpeedKmh))
-                FriendStat("Rides", "${friend.stats.tripCount}")
-                FriendStat("Badges", "${friend.badgeIds.size}")
-            }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                FriendStat("Longest ride", "%,.0f km".format(friend.stats.longestTripMeters / 1000))
-                FriendStat("Places", "${friend.stats.municipalitiesVisited}")
-                FriendStat("Best coverage", "%.1f%%".format(friend.stats.bestCoveragePercent))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, top = 4.dp, bottom = 4.dp, end = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(name, style = MaterialTheme.typography.bodyLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                IconButton(
+                    enabled = !busy,
+                    onClick = onAccept,
+                    modifier = Modifier.size(30.dp),
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ),
+                ) { Icon(Icons.Outlined.Check, contentDescription = "Accept $name", Modifier.size(16.dp)) }
+                IconButton(
+                    enabled = !busy,
+                    onClick = onDecline,
+                    modifier = Modifier.size(30.dp),
+                ) { Icon(Icons.Outlined.Close, contentDescription = "Decline $name", Modifier.size(16.dp)) }
             }
         }
     }
 }
 
+/** One leaderboard row: rank, initial avatar, name, trailing distance. The
+ *  signed-in user's own row (synthesized locally, see [own] above) gets a
+ *  primary outline and a tinted background so it's easy to find at a glance. */
 @Composable
-private fun FriendStat(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+private fun LeaderboardRow(rank: Int, friend: FriendStats, isMe: Boolean) {
+    Card(
+        modifier = if (isMe) {
+            Modifier.border(
+                1.5.dp,
+                MaterialTheme.colorScheme.primary,
+                RoundedCornerShape(12.dp),
+            )
+        } else Modifier,
+        colors = CardDefaults.cardColors(
+            containerColor = if (isMe) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+            } else MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "$rank",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = if (rank == 1) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(20.dp),
+            )
+            Box(
+                Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    friend.username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    friend.username + if (isMe) " (you)" else "",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "${friend.stats.tripCount} rides · ${friend.badgeIds.size} badges",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                "%,.0f km".format(friend.stats.totalDistanceMeters / 1000),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
+}
+
+/** "Add a friend" moved behind the top bar's + — this dialog is the whole form. */
+@Composable
+private fun AddFriendDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var name by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var status by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add a friend") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it },
+                    label = { Text("Their username") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                error?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy && name.isNotBlank(),
+                onClick = {
+                    val target = name.trim()
+                    busy = true
+                    error = null
+                    scope.launch {
+                        try {
+                            val result = withContext(Dispatchers.IO) { Friends.request(context, target) }
+                            status = if (result == "accepted") "You are now friends with $target"
+                                else "Request sent to $target"
+                        } catch (e: Exception) {
+                            error = e.message ?: "Failed"
+                        }
+                        busy = false
+                    }
+                },
+            ) { if (busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp) else Text("Send") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
 }
