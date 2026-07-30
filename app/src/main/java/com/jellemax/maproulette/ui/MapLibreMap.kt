@@ -2,7 +2,6 @@ package com.jellemax.maproulette.ui
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -10,6 +9,9 @@ import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import android.graphics.RenderEffect
+import android.graphics.Shader
+import android.os.Build
 import android.view.View
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
@@ -251,6 +253,11 @@ class FogView(context: Context) : View(context) {
     // no visible change to the corridor.
     var traces: List<List<LatLon>> = emptyList()
         set(value) { field = value.map { decimate(it) } }
+    // The in-progress trace, kept out of [traces] because it grows with every
+    // GPS fix — folding it in re-decimated the whole stored set once a second.
+    // This one small list is decimated alone instead.
+    var liveTrace: List<LatLon> = emptyList()
+        set(value) { field = decimate(value) }
     var currentLocation: LatLon? = null
     var corridorMeters: Float = 200f
     // Dark fog reads as night on a light basemap and vice versa, so the scrim/
@@ -267,6 +274,17 @@ class FogView(context: Context) : View(context) {
 
     init {
         setWillNotDraw(false)
+        // Feathered corridor edges. A BlurMaskFilter on the clear paints did
+        // this in software and cost a full CPU blur per trace per frame — with
+        // a screen of traces that alone blew the frame budget (measured 150 ms+
+        // frames, 100% jank). A RenderEffect blurs the view's composited output
+        // once, on the RenderThread's GPU pass, for ~nothing; the corridors are
+        // punched hard-edged and soften in that pass. Below API 31 there is no
+        // RenderEffect: edges stay hard, softened only by the 1/3-res upscale.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            setRenderEffect(RenderEffect.createBlurEffect(
+                FEATHER_RADIUS_PX, FEATHER_RADIUS_PX, Shader.TileMode.CLAMP))
+        }
     }
 
     // Scrim + frost tint both key off the same per-theme RGB (FOG_DARK/FOG_LIGHT)
@@ -289,25 +307,43 @@ class FogView(context: Context) : View(context) {
     private val frostPaint = Paint()
     private val idleListener = MapLibreMap.OnCameraIdleListener { requestSnapshot() }
 
+    private var lastSnapshotMs = 0L
+
     private fun requestSnapshot() {
         val m = map ?: return
         if (!active || width <= 0 || height <= 0) return
+        val bw = max(1, (width + FOG_DOWNSCALE - 1) / FOG_DOWNSCALE)
+        val bh = max(1, (height + FOG_DOWNSCALE - 1) / FOG_DOWNSCALE)
+        // The follow loop eases the camera every frame, so onCameraIdle fires in
+        // bursts; unthrottled that meant a full-screen GL readback plus an ~18 MB
+        // bitmap allocation per burst (the measured second-long main-thread
+        // stalls). Rate-limit, and skip entirely when the standing frost already
+        // matches the camera.
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastSnapshotMs < SNAPSHOT_MIN_INTERVAL_MS) return
+        if (blurUsable(m.cameraPosition, bw, bh)) return
+        lastSnapshotMs = now
         val cam = m.cameraPosition
         m.snapshot { shot ->
             if (!active) return@snapshot
-            val bw = max(1, (width + FOG_DOWNSCALE - 1) / FOG_DOWNSCALE)
-            val bh = max(1, (height + FOG_DOWNSCALE - 1) / FOG_DOWNSCALE)
-            // Three createScaledBitmap passes (down to ~1/6, up to ~1/2, up to
-            // full buffer res, all bilinear-filtered) — a single down/up pass was
-            // too weak to read as frost once the tint went light; the extra step
-            // smooths the falloff for barely more cost.
-            val tiny = Bitmap.createScaledBitmap(shot, max(1, bw / 6), max(1, bh / 6), true)
-            val mid = Bitmap.createScaledBitmap(tiny, max(1, bw / 2), max(1, bh / 2), true)
-            tiny.recycle()
-            blurred = Bitmap.createScaledBitmap(mid, bw, bh, true)
-            mid.recycle()
-            blurredCam = cam
-            invalidate()
+            // The scale chain walks millions of source pixels; off the UI thread
+            // so the settle never hitches. One worker at a time by construction:
+            // requests are throttled well above a scale pass's duration.
+            Thread {
+                // Three createScaledBitmap passes (down to ~1/6, up to ~1/2, up
+                // to full buffer res, all bilinear) — a single down/up pass was
+                // too weak to read as frost once the tint went light.
+                val tiny = Bitmap.createScaledBitmap(shot, max(1, bw / 6), max(1, bh / 6), true)
+                val mid = Bitmap.createScaledBitmap(tiny, max(1, bw / 2), max(1, bh / 2), true)
+                tiny.recycle()
+                val result = Bitmap.createScaledBitmap(mid, bw, bh, true)
+                mid.recycle()
+                post {
+                    blurred = result
+                    blurredCam = cam
+                    invalidate()
+                }
+            }.start()
         }
     }
 
@@ -333,12 +369,6 @@ class FogView(context: Context) : View(context) {
         isAntiAlias = true
         xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
     }
-    // Feathers the punched corridor into a soft edge instead of a hard aliased
-    // one — PorterDuff CLEAR honors the mask filter's alpha ramp, so this reads
-    // as a gradual erase. Only works because bufCanvas is a software canvas over
-    // a Bitmap buffer: BlurMaskFilter is silently ignored on hardware-accelerated
-    // canvases, so this drawing must stay off the GL/hardware path.
-    private var lastBlurRadiusPx = 0f
     // A soft scrim doesn't need pixel-exact edges, so the buffer is rendered at a
     // fraction of screen resolution and blown back up on draw. Everything here is
     // a software (CPU, main-thread) canvas — erasing and path-filling a full 1440×
@@ -390,17 +420,6 @@ class FogView(context: Context) : View(context) {
         val corridorPx = max(18f, corridorMeters / metersPerPx)
         clearPaint.strokeWidth = corridorPx * s
 
-        // Corridor width (and so the blur radius) changes with zoom every frame;
-        // only rebuild the BlurMaskFilter when it's moved enough to matter, since
-        // it's an allocation and this runs on every onDraw.
-        val blurRadiusPx = max(2f, clearPaint.strokeWidth * 0.35f)
-        if (abs(blurRadiusPx - lastBlurRadiusPx) > 0.5f) {
-            lastBlurRadiusPx = blurRadiusPx
-            val mask = BlurMaskFilter(blurRadiusPx, BlurMaskFilter.Blur.NORMAL)
-            clearPaint.maskFilter = mask
-            clearFillPaint.maskFilter = mask
-        }
-
         // toScreenLocation is a per-point JNI call, so projecting every trace
         // every frame is what made panning lag. Cull whole traces whose bounding
         // box doesn't touch the padded viewport first — most are off-screen when
@@ -413,7 +432,7 @@ class FogView(context: Context) : View(context) {
         val west = vb.longitudeWest - padDeg
 
         val pt = PointF()
-        for (trace in traces) {
+        for (trace in traces + listOf(liveTrace)) {
             if (trace.isEmpty()) continue
             var tN = -90.0; var tS = 90.0; var tE = -180.0; var tW = 180.0
             for (p in trace) {
@@ -446,6 +465,11 @@ class FogView(context: Context) : View(context) {
         // 1/3 resolution: the scrim edge stays soft, the CPU fill drops ~9×.
         private const val FOG_DOWNSCALE = 3
         private const val FROST_FADE_MS = 250L
+        // Screen-space feather for the corridor edges via RenderEffect (GPU).
+        private const val FEATHER_RADIUS_PX = 6f
+        // Idle fires in bursts while the follow loop eases the camera; one
+        // snapshot a second is plenty for a static frost.
+        private const val SNAPSHOT_MIN_INTERVAL_MS = 1_000L
         // ~25 m in degrees of latitude; used as the decimation floor for traces.
         private const val DECIMATE_DEG = 2.25e-4
 

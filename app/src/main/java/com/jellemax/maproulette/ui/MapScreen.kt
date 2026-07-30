@@ -734,14 +734,20 @@ fun MapScreen(
         )
     }
 
-    // Fog-of-war: keep the overlay view fed with the current traces, then redraw.
-    LaunchedEffect(fogEnabled, fogRadius, traces, friendTraces, liveTrace, myLocation, darkTheme) {
-        val mine = if (liveTrace.size >= 2) traces + listOf(liveTrace) else traces
+    // Fog-of-war, fed in two effects on purpose: stored traces change rarely
+    // but cost a full re-decimation to assign, while the live fix and trace
+    // arrive every second — one combined effect re-paid the decimation on
+    // every GPS fix.
+    LaunchedEffect(fogEnabled, fogRadius, traces, friendTraces, darkTheme) {
         fogView.active = fogEnabled
-        fogView.traces = mine + friendTraces
-        fogView.currentLocation = myLocation
+        fogView.traces = traces + friendTraces
         fogView.corridorMeters = fogRadius
         fogView.darkTheme = darkTheme
+        fogView.invalidate()
+    }
+    LaunchedEffect(liveTrace, myLocation) {
+        fogView.liveTrace = liveTrace
+        fogView.currentLocation = myLocation
         fogView.invalidate()
     }
 
