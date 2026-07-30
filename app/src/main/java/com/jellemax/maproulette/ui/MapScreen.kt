@@ -735,12 +735,13 @@ fun MapScreen(
     }
 
     // Fog-of-war: keep the overlay view fed with the current traces, then redraw.
-    LaunchedEffect(fogEnabled, fogRadius, traces, friendTraces, liveTrace, myLocation) {
+    LaunchedEffect(fogEnabled, fogRadius, traces, friendTraces, liveTrace, myLocation, darkTheme) {
         val mine = if (liveTrace.size >= 2) traces + listOf(liveTrace) else traces
         fogView.active = fogEnabled
         fogView.traces = mine + friendTraces
         fogView.currentLocation = myLocation
         fogView.corridorMeters = fogRadius
+        fogView.darkTheme = darkTheme
         fogView.invalidate()
     }
 

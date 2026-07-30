@@ -2,6 +2,7 @@ package com.jellemax.maproulette.ui
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -252,6 +253,9 @@ class FogView(context: Context) : View(context) {
         set(value) { field = value.map { decimate(it) } }
     var currentLocation: LatLon? = null
     var corridorMeters: Float = 200f
+    // Dark fog reads as night on a light basemap and vice versa, so the scrim/
+    // frost tint switch with the app theme; see FOG_DARK/FOG_LIGHT below.
+    var darkTheme: Boolean = true
     var active: Boolean = false
         set(value) {
             // Rising edge: the last snapshot (if any) predates the toggle, so ask
@@ -265,7 +269,10 @@ class FogView(context: Context) : View(context) {
         setWillNotDraw(false)
     }
 
-    private val fogColor = Color.argb(150, 8, 10, 26)
+    // Scrim + frost tint both key off the same per-theme RGB (FOG_DARK/FOG_LIGHT)
+    // so they can't drift apart when one gets retuned without the other.
+    private val fogTheme: FogTheme
+        get() = if (darkTheme) FOG_DARK else FOG_LIGHT
     // Undiscovered ground reads as "not yet seen" better when it's out of focus,
     // not just darker. A sibling View can't backdrop-blur the GL map surface, so
     // the frost is faked from a map snapshot taken when the camera settles:
@@ -290,11 +297,15 @@ class FogView(context: Context) : View(context) {
             if (!active) return@snapshot
             val bw = max(1, (width + FOG_DOWNSCALE - 1) / FOG_DOWNSCALE)
             val bh = max(1, (height + FOG_DOWNSCALE - 1) / FOG_DOWNSCALE)
-            // Two createScaledBitmap passes: down to ~1/12 screen res for the
-            // blur radius, back up to buffer res with filtering for the frost.
-            val tiny = Bitmap.createScaledBitmap(shot, max(1, bw / 4), max(1, bh / 4), true)
-            blurred = Bitmap.createScaledBitmap(tiny, bw, bh, true)
+            // Three createScaledBitmap passes (down to ~1/6, up to ~1/2, up to
+            // full buffer res, all bilinear-filtered) — a single down/up pass was
+            // too weak to read as frost once the tint went light; the extra step
+            // smooths the falloff for barely more cost.
+            val tiny = Bitmap.createScaledBitmap(shot, max(1, bw / 6), max(1, bh / 6), true)
+            val mid = Bitmap.createScaledBitmap(tiny, max(1, bw / 2), max(1, bh / 2), true)
             tiny.recycle()
+            blurred = Bitmap.createScaledBitmap(mid, bw, bh, true)
+            mid.recycle()
             blurredCam = cam
             invalidate()
         }
@@ -322,6 +333,12 @@ class FogView(context: Context) : View(context) {
         isAntiAlias = true
         xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
     }
+    // Feathers the punched corridor into a soft edge instead of a hard aliased
+    // one — PorterDuff CLEAR honors the mask filter's alpha ramp, so this reads
+    // as a gradual erase. Only works because bufCanvas is a software canvas over
+    // a Bitmap buffer: BlurMaskFilter is silently ignored on hardware-accelerated
+    // canvases, so this drawing must stay off the GL/hardware path.
+    private var lastBlurRadiusPx = 0f
     // A soft scrim doesn't need pixel-exact edges, so the buffer is rendered at a
     // fraction of screen resolution and blown back up on draw. Everything here is
     // a software (CPU, main-thread) canvas — erasing and path-filling a full 1440×
@@ -348,7 +365,8 @@ class FogView(context: Context) : View(context) {
             }
         val bufCanvas = bufferCanvas ?: return
         val frost = blurred?.takeIf { blurUsable(m.cameraPosition, bw, bh) }
-        buf.eraseColor(fogColor)
+        val theme = fogTheme
+        buf.eraseColor(Color.argb(theme.scrimAlpha, theme.r, theme.g, theme.b))
         if (frost != null) {
             // Frosted base cross-faded over the scrim; the tint restores the
             // dimming the corridor contrast relies on, scaled with the fade so
@@ -358,7 +376,7 @@ class FogView(context: Context) : View(context) {
             val a = ((now - frostFadeStartMs) * 255 / FROST_FADE_MS).toInt().coerceAtMost(255)
             frostPaint.alpha = a
             bufCanvas.drawBitmap(frost, 0f, 0f, frostPaint)
-            bufCanvas.drawColor(Color.argb(FROST_TINT_ALPHA * a / 255, 8, 10, 26))
+            bufCanvas.drawColor(Color.argb(theme.frostTintAlpha * a / 255, theme.r, theme.g, theme.b))
             if (a < 255) postInvalidateOnAnimation()
         } else {
             frostFadeStartMs = 0L
@@ -371,6 +389,17 @@ class FogView(context: Context) : View(context) {
         val metersPerPx = proj.getMetersPerPixelAtLatitude(lat).toFloat()
         val corridorPx = max(18f, corridorMeters / metersPerPx)
         clearPaint.strokeWidth = corridorPx * s
+
+        // Corridor width (and so the blur radius) changes with zoom every frame;
+        // only rebuild the BlurMaskFilter when it's moved enough to matter, since
+        // it's an allocation and this runs on every onDraw.
+        val blurRadiusPx = max(2f, clearPaint.strokeWidth * 0.35f)
+        if (abs(blurRadiusPx - lastBlurRadiusPx) > 0.5f) {
+            lastBlurRadiusPx = blurRadiusPx
+            val mask = BlurMaskFilter(blurRadiusPx, BlurMaskFilter.Blur.NORMAL)
+            clearPaint.maskFilter = mask
+            clearFillPaint.maskFilter = mask
+        }
 
         // toScreenLocation is a per-point JNI call, so projecting every trace
         // every frame is what made panning lag. Cull whole traces whose bounding
@@ -417,11 +446,17 @@ class FogView(context: Context) : View(context) {
         // 1/3 resolution: the scrim edge stays soft, the CPU fill drops ~9×.
         private const val FOG_DOWNSCALE = 3
         private const val FROST_FADE_MS = 250L
-        // Lighter than the scrim's 150: once frosted, the blur itself carries
-        // part of the "hidden" signal, so the dim can ease off.
-        private const val FROST_TINT_ALPHA = 110
         // ~25 m in degrees of latitude; used as the decimation floor for traces.
         private const val DECIMATE_DEG = 2.25e-4
+
+        // One RGB per theme feeds both the scrim and the frost tint, so the two
+        // can't be retuned out of sync with each other.
+        private class FogTheme(val r: Int, val g: Int, val b: Int, val scrimAlpha: Int, val frostTintAlpha: Int)
+        private val FOG_DARK = FogTheme(r = 8, g = 10, b = 26, scrimAlpha = 150,
+            // Lighter than the scrim: once frosted, the blur itself carries part
+            // of the "hidden" signal, so the dim can ease off.
+            frostTintAlpha = 110)
+        private val FOG_LIGHT = FogTheme(r = 231, g = 236, b = 243, scrimAlpha = 170, frostTintAlpha = 120)
 
         /** Drop points within [DECIMATE_DEG] of the last kept one; endpoints stay. */
         private fun decimate(trace: List<LatLon>): List<LatLon> {
