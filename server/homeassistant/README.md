@@ -64,7 +64,35 @@ appear under `sensor.map_roulette_*`.
 Both endpoints are polled every 5 minutes; `/ha/rides` fetches the newest 25
 (raise `params: limit:` up to 200).
 
-## 4. Cards
+## 4. The dashboard
+
+`dashboard.yaml` is a ready-made dashboard for these entities: lifetime totals
+and a coverage gauge, speed/lean gauges with a kilometres-per-day bar chart, the
+last ride broken out with the track map beside it, and a table of the last 15
+rides. A second view lists the badges with their earned dates.
+
+Copy it to `config/dashboards/map_roulette.yaml`, set the iframe card's `url` to
+your own server and key, and register it in `configuration.yaml`:
+
+```yaml
+lovelace:
+  # Storage mode is the default; naming it here keeps the UI-editable
+  # dashboards working alongside the YAML one.
+  mode: storage
+  dashboards:
+    map-roulette:
+      mode: yaml
+      title: Map Roulette
+      icon: mdi:motorbike
+      show_in_sidebar: true
+      filename: dashboards/map_roulette.yaml
+```
+
+Restart, and *Map Roulette* appears in the sidebar. YAML dashboards have no UI
+editor — edit the file and use the three-dot menu → *Reload*. Everything is a
+built-in card, so no HACS packages are needed.
+
+## 5. Cards of your own
 
 Recent rides as a table:
 
@@ -103,7 +131,7 @@ round it, both on your side:
 - reach the sync server directly on your LAN instead of through the tunnel (see
   below), which also gets Home Assistant off the tunnel for the sensors.
 
-## 5. Optional: skip the tunnel on your LAN
+## 6. Optional: skip the tunnel on your LAN
 
 The server listens on `127.0.0.1:8790` by default. To let Home Assistant talk to
 it directly, drop a systemd override in:
