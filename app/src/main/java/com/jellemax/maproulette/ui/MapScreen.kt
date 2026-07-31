@@ -137,6 +137,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -2262,6 +2263,7 @@ private fun MapTopChrome(
                             alignment = Alignment.TopEnd,
                             offset = with(density) { IntOffset(0, 48.dp.roundToPx()) },
                             onDismissRequest = { layersOpen = false },
+                            properties = PopupProperties(dismissOnClickOutside = false),
                         ) {
                             Card(
                                 modifier = Modifier.glassBorder(MaterialTheme.shapes.large),
