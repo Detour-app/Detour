@@ -58,7 +58,10 @@ Auth notes
 
 This still expects to sit behind the Cloudflare tunnel + Access, exactly as the
 old version did. Access is a gate on the hostname; the bearer token is identity.
-Bind to localhost.
+Bind to localhost — HOST=0.0.0.0 also serves the LAN, which is how Home
+Assistant reaches /ha/* without the tunnel. Note that TRUST_CF_HEADER then
+believes a LAN client's CF-Connecting-IP too, so the rate limiter can be
+side-stepped from inside the network.
 
 Python 3.8+ stdlib only. DATA_DIR env var sets the storage directory.
 

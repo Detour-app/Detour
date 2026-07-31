@@ -100,11 +100,38 @@ round it, both on your side:
 
 - add a Cloudflare Access *bypass* policy for the `/ha/ride.html` path on that
   hostname — the API key still gates the data; or
-- reach the sync server directly on your LAN instead of through the tunnel. It
-  listens on `127.0.0.1:8790` by default, so this means setting
-  `Environment=HOST=0.0.0.0` in the systemd unit and pointing the card (and, if
-  you like, the sensors) at `http://<server-ip>:8790`. That exposes the API to
-  everything on your LAN, still key-gated.
+- reach the sync server directly on your LAN instead of through the tunnel (see
+  below), which also gets Home Assistant off the tunnel for the sensors.
+
+## 5. Optional: skip the tunnel on your LAN
+
+The server listens on `127.0.0.1:8790` by default. To let Home Assistant talk to
+it directly, drop a systemd override in:
+
+```
+# /etc/systemd/system/maproulette-sync.service.d/lan.conf
+[Service]
+Environment=HOST=0.0.0.0
+```
+
+then `systemctl daemon-reload && systemctl restart maproulette-sync`. Point the
+secrets at the LAN address and drop the two `CF-Access-*` header lines from both
+`rest:` blocks in `maproulette.yaml`:
+
+```yaml
+maproulette_stats_url: http://192.168.0.8:8790/ha/stats
+maproulette_rides_url: http://192.168.0.8:8790/ha/rides
+```
+
+The iframe card then works too, at `http://192.168.0.8:8790/ha/ride.html?key=…`.
+
+Two things this changes. Every host on the LAN can now reach the API — still
+key-gated for `/ha/*`, and login/register still need credentials, but they are
+reachable where before only the tunnel was. And if the unit sets
+`TRUST_CF_HEADER=1` (correct while the only way in was Cloudflare), a LAN client
+can now send its own `CF-Connecting-IP` and get a fresh rate-limit bucket per
+guess on `/login`. Keep the port off any WAN port-forward, and use a real
+password.
 
 ## Notes
 

@@ -80,7 +80,9 @@ systemd: maproulette-sync.service        the sync API,   127.0.0.1:8790
 
 **Both services listen on localhost only.** The installer does not open a port,
 touch your firewall, or configure a tunnel. Exposing them is your decision, and
-the next section is about making it safely.
+the next section is about making it safely. (`HOST=0.0.0.0` on the sync service
+makes it listen on the LAN as well — worth it for Home Assistant, see
+[`homeassistant/README.md`](homeassistant/README.md#5-optional-skip-the-tunnel-on-your-lan).)
 
 Re-running the installer is safe. It will not overwrite your database, and it
 keeps the invite code it generated the first time.
