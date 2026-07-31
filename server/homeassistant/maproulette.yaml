@@ -97,9 +97,12 @@ rest:
         unique_id: maproulette_last_ride
         # State is when the ride started; everything else rides along as
         # attributes, so one entity feeds a whole card.
+        # isoformat is a datetime method, not a Jinja filter — calling it as a
+        # filter leaves the state unknown, since a timestamp device_class only
+        # accepts a timezone-aware ISO string.
         value_template: >-
           {% set rides = value_json.rides %}
-          {{ (rides[0].startMs / 1000) | as_datetime | isoformat if rides else none }}
+          {{ ((rides[0].startMs / 1000) | as_datetime).isoformat() if rides else none }}
         device_class: timestamp
         json_attributes_path: "$.rides[0]"
         json_attributes:
