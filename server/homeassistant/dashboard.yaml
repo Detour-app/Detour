@@ -1,0 +1,231 @@
+# Map Roulette dashboard — YAML mode, registered from configuration.yaml.
+# Entities come from packages/maproulette.yaml (REST sensors on the sync
+# server's /ha/* endpoints). Edit this file and reload from the dashboard's
+# three-dot menu; the UI editor is disabled for YAML dashboards.
+
+title: Map Roulette
+
+views:
+  - title: Rides
+    path: rides
+    icon: mdi:motorbike
+    type: sections
+    max_columns: 3
+    badges:
+      - type: entity
+        entity: sensor.map_roulette_last_ride
+        name: Last ride
+      - type: entity
+        entity: sensor.map_roulette_last_ride_vehicle
+        name: Vehicle
+      - type: entity
+        entity: sensor.map_roulette_rides
+
+    sections:
+      # ------------------------------------------------------------ lifetime --
+      - type: grid
+        cards:
+          - type: heading
+            heading: Lifetime
+            icon: mdi:road-variant
+
+          - type: tile
+            entity: sensor.map_roulette_total_distance
+            name: Distance ridden
+            hide_state: false
+
+          - type: tile
+            entity: sensor.map_roulette_rides
+            name: Rides
+
+          - type: tile
+            entity: sensor.map_roulette_badges
+            name: Badges
+
+          - type: tile
+            entity: sensor.map_roulette_municipalities
+            name: Municipalities
+
+          - type: gauge
+            entity: sensor.map_roulette_best_coverage
+            name: Best coverage
+            min: 0
+            max: 100
+            needle: true
+            severity:
+              green: 50
+              yellow: 20
+              red: 0
+
+      # ------------------------------------------------------------- records --
+      - type: grid
+        cards:
+          - type: heading
+            heading: Records
+            icon: mdi:trophy-outline
+
+          - type: gauge
+            entity: sensor.map_roulette_top_speed
+            name: Top speed
+            min: 0
+            max: 200
+            needle: true
+            severity:
+              green: 0
+              yellow: 120
+              red: 160
+
+          - type: gauge
+            entity: sensor.map_roulette_max_lean
+            name: Max lean
+            min: 0
+            max: 70
+            needle: true
+            severity:
+              green: 0
+              yellow: 40
+              red: 55
+
+          - type: tile
+            entity: sensor.map_roulette_longest_ride
+            name: Longest single ride
+
+          # Distance added per day. total_increasing, so "change" is the daily
+          # delta rather than the running total.
+          - type: statistic-graph
+            title: Kilometres per day
+            entities:
+              - sensor.map_roulette_total_distance
+            stat_types:
+              - change
+            period: day
+            days_to_show: 30
+            chart_type: bar
+
+      # ----------------------------------------------------------- last ride --
+      - type: grid
+        cards:
+          - type: heading
+            heading: Last ride
+            icon: mdi:map-marker-path
+
+          - type: tile
+            entity: sensor.map_roulette_last_ride_distance
+            name: Distance
+
+          - type: tile
+            entity: sensor.map_roulette_last_ride_duration
+            name: Duration
+
+          - type: tile
+            entity: sensor.map_roulette_last_ride_average_speed
+            name: Average
+
+          - type: tile
+            entity: sensor.map_roulette_last_ride_top_speed
+            name: Top speed
+
+          - type: markdown
+            content: >-
+              {% set lean = state_attr('sensor.map_roulette_last_ride', 'maxLeanDeg') %}
+              {% set g = state_attr('sensor.map_roulette_last_ride', 'maxGForce') %}
+              {% set pts = state_attr('sensor.map_roulette_last_ride', 'pointCount') %}
+              {% set start = state_attr('sensor.map_roulette_last_ride', 'startMs') %}
+              {% if start %}
+              Started **{{ (start / 1000) | timestamp_custom('%A %d %B, %H:%M') }}**
+              on the {{ states('sensor.map_roulette_last_ride_vehicle') | lower }}.
+
+              | | |
+              |---|---|
+              | Max lean | {{ (lean | round(1) ~ '°') if lean else '—' }} |
+              | Max g | {{ (g | round(2)) if g else '—' }} |
+              | Track points | {{ pts | default('—') }} |
+              {% else %}
+              Waiting for the first ride to sync.
+              {% endif %}
+
+      # ----------------------------------------------------------------- map --
+      - type: grid
+        column_span: 2
+        cards:
+          - type: heading
+            heading: Where you went
+            icon: mdi:map
+
+          # The sync server renders the last ride's track, coloured by lean.
+          # The key rides in the URL because an iframe cannot send a header —
+          # it is read-only, but treat this dashboard's raw config as secret.
+          - type: iframe
+            url: http://your-sync-server.local:8790/ha/ride.html?key=YOUR_KEY
+            aspect_ratio: 70%
+
+      # -------------------------------------------------------------- history --
+      - type: grid
+        cards:
+          - type: heading
+            heading: Recent rides
+            icon: mdi:format-list-bulleted
+
+          - type: markdown
+            content: >-
+              {% set rides = state_attr('sensor.map_roulette_recent_rides', 'rides') %}
+              {% if rides %}
+              | When | Vehicle | Distance | Top | Lean |
+              |---|---|---|---|---|
+              {% for r in rides[:15] -%}
+              | {{ (r.startMs / 1000) | timestamp_custom('%a %d %b %H:%M') }} | {{ r.mode | default('?') | title }} | {{ r.distanceKm }} km | {{ r.topSpeedKmh | round(0) }} km/h | {{ (r.maxLeanDeg | round(0) ~ '°') if r.maxLeanDeg else '—' }} |
+              {% endfor %}
+              {% else %}
+              No rides fetched yet.
+              {% endif %}
+
+  # --------------------------------------------------------------- badges --
+  - title: Badges
+    path: badges
+    icon: mdi:trophy-outline
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Earned
+            icon: mdi:medal
+
+          - type: markdown
+            content: >-
+              {% set badges = state_attr('sensor.map_roulette_badges', 'badges') %}
+              {% if badges %}
+              **{{ badges | count }} earned.**
+
+              | Badge | Earned |
+              |---|---|
+              {% for id, at in badges.items() | sort(attribute='1', reverse=true) -%}
+              | `{{ id }}` | {{ (at / 1000) | timestamp_custom('%d %b %Y') }} |
+              {% endfor %}
+              {% else %}
+              No badges synced yet.
+              {% endif %}
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Coverage
+            icon: mdi:map-check-outline
+
+          - type: gauge
+            entity: sensor.map_roulette_best_coverage
+            name: Best municipality
+            min: 0
+            max: 100
+            needle: true
+
+          - type: tile
+            entity: sensor.map_roulette_municipalities
+            name: Municipalities entered
+
+          - type: history-graph
+            title: Coverage over time
+            hours_to_show: 720
+            entities:
+              - sensor.map_roulette_best_coverage
