@@ -684,7 +684,11 @@ class TripTrackingService : Service() {
 
     /** [startTimeMs] backdates an auto-started trip to when the drive really
      *  began, rather than to the fix that finally proved it. */
-    private fun beginTrip(auto: Boolean, startTimeMs: Long = System.currentTimeMillis()) {
+    private fun beginTrip(
+        auto: Boolean,
+        startTimeMs: Long = System.currentTimeMillis(),
+        initialDistanceMeters: Double = 0.0,
+    ) {
         autoStarted = auto
         origin = null
         awayFromOrigin = false
@@ -700,7 +704,7 @@ class TripTrackingService : Service() {
         // last trip. Answers async, retagging through refreshTripMode.
         seedConnectedVehicles()
         // Classify by connected device / pace / tab; refined live as the trip runs.
-        _stats.value = TripStats(startTimeMs = startTimeMs)
+        _stats.value = TripStats(startTimeMs = startTimeMs, distanceMeters = initialDistanceMeters)
         val mode = resolvedMode()
         _stats.value = _stats.value?.copy(mode = mode)
         ensureLocationUpdates()
@@ -949,11 +953,12 @@ class TripTrackingService : Service() {
             return
         }
         fastFixes++
+        val runDistanceMeters = RoadRoulette.distanceMeters(runStart, here)
         if (fastFixes >= FAST_FIXES_TO_START &&
             location.time - fastRunStartMs >= MIN_FAST_RUN_MS &&
-            RoadRoulette.distanceMeters(runStart, here) >= MIN_FAST_RUN_METERS
+            runDistanceMeters >= MIN_FAST_RUN_METERS
         ) {
-            beginTrip(auto = true, startTimeMs = fastRunStartMs)
+            beginTrip(auto = true, startTimeMs = fastRunStartMs, initialDistanceMeters = runDistanceMeters)
         }
     }
 
