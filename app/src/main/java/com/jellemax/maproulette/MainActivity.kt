@@ -24,6 +24,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.maproulette.ble.BleNavServer
 import com.jellemax.maproulette.data.Settings
+import com.jellemax.maproulette.data.Trip
 import com.jellemax.maproulette.ui.BadgesScreen
 import com.jellemax.maproulette.ui.FriendsScreen
 import com.jellemax.maproulette.ui.HistoryScreen
@@ -33,6 +34,7 @@ import com.jellemax.maproulette.ui.GraphiteDark
 import com.jellemax.maproulette.ui.GraphiteLight
 import com.jellemax.maproulette.ui.SavedPlacesScreen
 import com.jellemax.maproulette.ui.SettingsScreen
+import com.jellemax.maproulette.ui.TripDetailScreen
 import com.jellemax.maproulette.ui.isAppDarkTheme
 import org.maplibre.android.MapLibre
 
@@ -66,18 +68,26 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { MAP, HUB, HISTORY, BADGES, FRIENDS, SETTINGS, SAVED }
+private enum class Screen { MAP, HUB, HISTORY, TRIP_DETAIL, BADGES, FRIENDS, SETTINGS, SAVED }
 
 @Composable
 private fun AppRoot() {
     var screen by remember { mutableStateOf(Screen.MAP) }
+    // The trip a TRIP_DETAIL screen is showing — set on the way in from
+    // History, left stale (but unread) once we've navigated away from it.
+    var detailTrip by remember { mutableStateOf<Trip?>(null) }
     // System back from any sub-screen returns to the map instead of exiting the
     // app — only enabled off the map, so back on the map itself still falls
     // through to the default (exit) behaviour. The five destinations off Hub
     // step back to Hub, not all the way to the map, so back always undoes one
-    // level of the push it followed to get here.
+    // level of the push it followed to get here — except TRIP_DETAIL, which is
+    // pushed from History rather than Hub, so it steps back to History instead.
     BackHandler(enabled = screen != Screen.MAP) {
-        screen = if (screen == Screen.HUB) Screen.MAP else Screen.HUB
+        screen = when (screen) {
+            Screen.HUB -> Screen.MAP
+            Screen.TRIP_DETAIL -> Screen.HISTORY
+            else -> Screen.HUB
+        }
     }
     // Sub-screens slide in over the map from the right and slide back out the
     // same way, so opening/closing feels like a push/pop instead of a hard swap.
@@ -103,7 +113,13 @@ private fun AppRoot() {
                 onOpenSettings = { screen = Screen.SETTINGS },
                 onOpenSavedPlaces = { screen = Screen.SAVED },
             )
-            Screen.HISTORY -> HistoryScreen(onBack = { screen = Screen.HUB })
+            Screen.HISTORY -> HistoryScreen(
+                onBack = { screen = Screen.HUB },
+                onOpenTrip = { trip -> detailTrip = trip; screen = Screen.TRIP_DETAIL },
+            )
+            Screen.TRIP_DETAIL -> detailTrip?.let { trip ->
+                TripDetailScreen(trip = trip, onBack = { screen = Screen.HISTORY })
+            }
             Screen.BADGES -> BadgesScreen(onBack = { screen = Screen.HUB })
             Screen.FRIENDS -> FriendsScreen(onBack = { screen = Screen.HUB })
             Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.HUB })

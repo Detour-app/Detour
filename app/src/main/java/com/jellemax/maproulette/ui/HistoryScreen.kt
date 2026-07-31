@@ -68,12 +68,14 @@ import java.util.Locale
  *  exists — thumbnails need points, not just the trip's summary numbers. */
 private data class HistoryEntry(val trip: Trip, val thumbnail: List<LatLon>?)
 
+/** One decoded trace line: its points plus the timestamp window they span. */
+private data class TraceSegment(val points: List<LatLon>, val startMs: Long, val endMs: Long)
+
 /** Reads the raw trace lines directly rather than [TraceStore.loadAll], which
  *  drops the per-point timestamp — the one thing this screen needs to match a
  *  trace back to the trip that was running when it was recorded. */
-private fun matchThumbnails(context: android.content.Context, trips: List<Trip>): Map<Long, List<LatLon>> {
-    data class Segment(val points: List<LatLon>, val startMs: Long, val endMs: Long)
-    val segments = TraceStore.rawLines(context).mapNotNull { line ->
+private fun readTraceSegments(context: android.content.Context): List<TraceSegment> =
+    TraceStore.rawLines(context).mapNotNull { line ->
         try {
             val arr = JSONArray(line)
             if (arr.length() < 2) return@mapNotNull null
@@ -89,20 +91,27 @@ private fun matchThumbnails(context: android.content.Context, trips: List<Trip>)
                     if (t > end) end = t
                 }
             }
-            if (points.size < 2 || start == Long.MAX_VALUE) null else Segment(points, start, end)
+            if (points.size < 2 || start == Long.MAX_VALUE) null else TraceSegment(points, start, end)
         } catch (e: Exception) {
             null
         }
     }
+
+/** The one segment recorded during [trip], if its trace is still on disk. A
+ *  trace starts inside the trip's window (with a little slack for the
+ *  tracker's own startup lag); nearest match wins when more than one
+ *  candidate qualifies. Shared by [matchThumbnails] and [loadTripTrace] so
+ *  the two never disagree on which trace belongs to which trip. */
+private fun matchSegment(segments: List<TraceSegment>, trip: Trip): TraceSegment? =
+    segments
+        .filter { it.startMs in (trip.startTimeMs - 10_000)..(trip.endTimeMs + 10_000) }
+        .minByOrNull { Math.abs(it.startMs - trip.startTimeMs) }
+
+private fun matchThumbnails(context: android.content.Context, trips: List<Trip>): Map<Long, List<LatLon>> {
+    val segments = readTraceSegments(context)
     val result = HashMap<Long, List<LatLon>>()
     for (trip in trips) {
-        // A trace recorded during this trip starts inside its window (with a
-        // little slack for the tracker's own startup lag); nearest match wins
-        // when more than one candidate qualifies.
-        val match = segments
-            .filter { it.startMs in (trip.startTimeMs - 10_000)..(trip.endTimeMs + 10_000) }
-            .minByOrNull { Math.abs(it.startMs - trip.startTimeMs) }
-            ?: continue
+        val match = matchSegment(segments, trip) ?: continue
         // Cap the point count a thumbnail actually needs — a multi-hour ride
         // can carry thousands of points, all wasted on a 52dp canvas.
         val pts = if (match.points.size > 200) {
@@ -114,12 +123,20 @@ private fun matchThumbnails(context: android.content.Context, trips: List<Trip>)
     return result
 }
 
+/** The full (undecimated) polyline driven during [trip], for [TripDetailScreen]
+ *  — unlike the thumbnail map this isn't capped to 200 points, so it's loaded
+ *  for one trip at a time on demand rather than held for the whole history
+ *  list. Empty if no trace matches (shouldn't happen when the caller only
+ *  opens trips whose thumbnail was already matched). */
+fun loadTripTrace(context: android.content.Context, trip: Trip): List<LatLon> =
+    matchSegment(readTraceSegments(context), trip)?.points ?: emptyList()
+
 private val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
 private fun monthKey(timeMs: Long) = SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(timeMs)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HistoryScreen(onBack: () -> Unit) {
+fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Loaded off the main thread: reading + JSON-parsing the store inside a
@@ -190,6 +207,7 @@ fun HistoryScreen(onBack: () -> Unit) {
                             // Deleting a trip slides the rest up instead of snapping.
                             modifier = Modifier.animateItem(),
                             entry = entry,
+                            onOpen = { onOpenTrip(entry.trip) },
                             onChangeMode = { newMode ->
                                 scope.launch {
                                     withContext(Dispatchers.IO) {
@@ -218,10 +236,13 @@ fun HistoryScreen(onBack: () -> Unit) {
 
 /** One trip: a thumbnail of its trace (or the mode icon when none was kept), a
  *  title and one stat line, and a single overflow menu for the two edit actions
- *  that used to be their own icon buttons. */
+ *  that used to be their own icon buttons. Tapping the card opens the route
+ *  detail screen, but only when there's a trace to show — a trip with no
+ *  matched thumbnail has nothing to draw on a map either. */
 @Composable
 private fun TripCard(
     entry: HistoryEntry,
+    onOpen: () -> Unit,
     onChangeMode: (TravelMode) -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -230,7 +251,11 @@ private fun TripCard(
     var menuOpen by remember { mutableStateOf(false) }
     var vehicleMenuOpen by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
-    Card(modifier) {
+    Card(
+        // The overflow IconButton below has its own clickable, so a tap on it
+        // is consumed there and never reaches this one.
+        modifier = if (entry.thumbnail != null) modifier.clickable(onClick = onOpen) else modifier,
+    ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -349,7 +374,7 @@ private fun TripCard(
 /** "duration · distance · avg X · top Y" plus lean/G when the vehicle tracks
  *  them — the numbers that used to be four separate labelled columns,
  *  collapsed to the one line a history row now has room for. */
-private fun tripStatLine(trip: Trip): String {
+fun tripStatLine(trip: Trip): String {
     val parts = mutableListOf(
         formatDurationHistory(trip.durationMs),
         formatDistanceKm(trip.distanceMeters),
