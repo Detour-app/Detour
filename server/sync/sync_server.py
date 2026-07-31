@@ -29,6 +29,7 @@ Protocol
   GET  /friends/stats                           -> [{username, stats, badges}]
   GET  /friends/fog                             -> {sharing, traces: [line, …]}
   GET  /ha/rides?key=[&limit=]                  -> {rides: [{startMs, maxLeanDeg, …}]}
+  GET  /ha/stats?key=                           -> {stats, badges, rideCount, lastRideMs}
   GET  /ha/ride.geojson?key=&start=             -> GeoJSON, one Feature per segment
   GET  /ha/ride.html?key=[&start=]              -> Leaflet page, path coloured by lean
 
@@ -939,9 +940,38 @@ def ha_ride_html(user, params):
     return RIDE_HTML % {"start": start, "geojson": geojson}
 
 
+def ha_stats(user, params):
+    """Lifetime totals and badges — the numbers the app's You screen shows.
+    /ha/rides only ever returns a page of rides (200 at most), so a dashboard
+    that wants "total km" cannot get it by summing that; this reads the same
+    stored aggregate the app uploads, and needs no login token."""
+    uid = user["id"]
+    stats = json.loads(user["stats_json"] or "{}")
+    badges = json.loads(user["badges_json"] or "{}")
+    row = db().execute(
+        "SELECT COUNT(*) AS n, MAX(start_ms) AS last_ms FROM trips WHERE user_id = ?",
+        (uid,),
+    ).fetchone()
+    traces = db().execute(
+        "SELECT COUNT(*) AS n FROM traces WHERE user_id = ?", (uid,)
+    ).fetchone()["n"]
+    return {
+        "username": user["username"],
+        "stats": stats,
+        "badges": badges,
+        "badgeCount": len(badges),
+        # Stored rides, which is what the dashboard can actually drill into —
+        # stats["tripCount"] is whatever the phone last computed locally.
+        "rideCount": row["n"],
+        "lastRideMs": row["last_ms"] or 0,
+        "traceSegments": traces,
+    }
+
+
 HA_GET = {
     "/ha/rides": ha_rides,
     "/ha/ride.geojson": ha_ride,
+    "/ha/stats": ha_stats,
 }
 
 

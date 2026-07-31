@@ -425,6 +425,22 @@ string to the user verbatim — so keep any you add plain.
 | GET | `/friends/stats` | — | `[{username, stats, badges}]` |
 | GET | `/friends/fog` | — | `{sharing, traces}` |
 
+The `/ha/*` endpoints are the exception: read-only, and authenticated with a
+dashboard API key (`?key=` or `X-API-Key`) instead of a login token, so a Home
+Assistant config never holds credentials that could write anything.
+
+| Method | Path | Returns |
+|---|---|---|
+| GET | `/ha/stats?key=` | `{stats, badges, rideCount, lastRideMs, traceSegments}` |
+| GET | `/ha/rides?key=[&limit=]` | `{rides: [{startMs, mode, distanceKm, topSpeedKmh, maxLeanDeg, …}]}` (newest first, max 200) |
+| GET | `/ha/ride.geojson?key=&start=` | GeoJSON, one Feature per segment |
+| GET | `/ha/ride.html?key=[&start=]` | Leaflet page, path coloured by lean |
+
+Mint a key with `sync_server.py --api-key <username> <label>`; revoke every key
+for a user with `--revoke-keys <username>`. A ready-made Home Assistant package
+(totals, badges, last-ride and recent-rides sensors) lives in
+[`homeassistant/`](homeassistant/README.md).
+
 Merging is idempotent. Trips deduplicate on `(user, startTimeMs)`, traces on
 `(user, sha256(line))`, badges keep the **earliest** earned date so a reinstall
 cannot push it forward. `stats` and `shareFog` are only touched when the key is
