@@ -15,3 +15,7 @@ __pycache__/
 # Release signing key — must never be committed; CI gets it as a base64 secret.
 *.jks
 *.keystore
+
+# Claude Code local state — permission settings (can contain secrets typed
+# into allowed commands) and worktrees (each its own nested git checkout).
+.claude/
