@@ -214,6 +214,19 @@ class TripTrackingService : Service() {
             refresh(context)
         }
 
+        /** True while a convoy is joined. A live-shared position is only worth
+         *  anything to friends watching it if it's actually live, so joining a
+         *  convoy earns the same [LocationMode.LIVE] cadence as having the map
+         *  open — see [currentMode] — even with no trip running and the map
+         *  backgrounded. */
+        private var convoyActive = false
+
+        fun setConvoyActive(context: Context, active: Boolean) {
+            if (convoyActive == active) return
+            convoyActive = active
+            refresh(context)
+        }
+
         /**
          * Every entry point goes through here, because a location-type
          * foreground service may only be started while the location permission
@@ -753,8 +766,9 @@ class TripTrackingService : Service() {
         _stats.value != null -> LocationMode.TRIP
         probeUntilMs?.let { System.currentTimeMillis() < it } == true -> LocationMode.PROBE
         // Beats SLEEP: someone watching the map wants a live speed even if
-        // activity recognition still thinks the phone is sitting still.
-        uiVisible -> LocationMode.LIVE
+        // activity recognition still thinks the phone is sitting still, and a
+        // joined convoy wants the same cadence whether or not the map is open.
+        uiVisible || convoyActive -> LocationMode.LIVE
         stationary -> LocationMode.SLEEP
         else -> LocationMode.IDLE
     }

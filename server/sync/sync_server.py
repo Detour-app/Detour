@@ -14,6 +14,11 @@ Privacy rules, each enforced in exactly one place:
     the traces being served from the next request on.
   - Friends otherwise see only the aggregate numbers the owner's app computed
     (total km, top speed, badges, …), via `friend_stats`.
+  - A convoy's live position and push-to-talk audio are **never persisted**
+    anywhere - they exist only as long as the WebSocket relay connection
+    does, relayed only to that convoy's own 'accepted' members, and only for
+    as long as you're actively joined to it. Joining requires already being
+    an accepted friend of whoever invited you.
 
 Protocol
   GET  /health                                  -> "ok"
@@ -28,6 +33,11 @@ Protocol
   POST /friends/remove  {username}              -> {}
   GET  /friends/stats                           -> [{username, stats, badges}]
   GET  /friends/fog                             -> {sharing, traces: [line, …]}
+  POST /convoys {name}                          -> {id, name} (creator auto-joins)
+  GET  /convoys                                 -> [{id, name, status, members: [{username, status}]}]
+  POST /convoys/{id}/invite {username}          -> {status} (must already be friends)
+  POST /convoys/{id}/respond {accept}           -> {status}
+  POST /convoys/{id}/leave                      -> {}
   GET  /ha/rides?key=[&limit=]                  -> {rides: [{startMs, maxLeanDeg, …}]}
   GET  /ha/stats?key=                           -> {stats, badges, rideCount, lastRideMs}
   GET  /ha/ride.geojson?key=&start=             -> GeoJSON, one Feature per segment
@@ -36,6 +46,13 @@ Protocol
 Everything except /health, /auth/* and /ha/* needs `Authorization: Bearer
 <token>`. The /ha/* endpoints are read-only and take an API key instead
 (?key= or X-API-Key), so a Home Assistant config never holds a login token.
+
+Convoy live location + push-to-talk run over a *second* listener, a
+WebSocket relay on LIVE_PORT (default 8990) - see the "convoy live relay"
+section below for its message protocol. It requires `pip install
+websockets`; without that package installed, the REST /convoys endpoints
+still work (create/invite/manage convoys), but the relay itself logs a
+warning and never starts, so live location/PTT silently do nothing.
 
 Merging is idempotent:
   - trips key on (user, startTimeMs); a re-upload updates the stored copy, so
@@ -63,7 +80,10 @@ Assistant reaches /ha/* without the tunnel. Note that TRUST_CF_HEADER then
 believes a LAN client's CF-Connecting-IP too, so the rate limiter can be
 side-stepped from inside the network.
 
-Python 3.8+ stdlib only. DATA_DIR env var sets the storage directory.
+Python 3.8+ stdlib only, except the convoy live relay which needs the
+`websockets` package (optional - see above). DATA_DIR env var sets the
+storage directory; LIVE_PORT sets the relay's port (default 8990, same HOST
+as the main server).
 
 CLI:
   python3 sync_server.py                      run the server
@@ -73,6 +93,7 @@ CLI:
   python3 sync_server.py --revoke-keys USER       delete all API keys for a user
   python3 sync_server.py --revoke-tokens USER     sign a user out everywhere
 """
+import asyncio
 import gzip
 import hashlib
 import hmac
@@ -87,6 +108,15 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+
+# Optional: only the convoy live-location/PTT relay needs this. The rest of
+# the server (trips, friends, fog, HA endpoints) works with stdlib alone, so
+# a homelab that hasn't run `pip install websockets` yet still gets a
+# working sync server - just without the live relay.
+try:
+    import websockets
+except ImportError:
+    websockets = None
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_FILE = os.path.join(DATA_DIR, "maproulette.db")
@@ -236,8 +266,27 @@ def init_db():
             created_ms   INTEGER NOT NULL,
             PRIMARY KEY (low_id, high_id)
         );
+        -- A convoy is the "granted access" gate for live location + PTT: you
+        -- can only be invited by an accepted friend (checked in
+        -- do_convoy_invite), and only members with status='accepted' show up
+        -- to each other. Nothing about a convoy's live position/audio is
+        -- stored anywhere — these two tables are membership only.
+        CREATE TABLE IF NOT EXISTS convoys (
+            id         INTEGER PRIMARY KEY,
+            name       TEXT NOT NULL,
+            owner_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_ms INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS convoy_members (
+            convoy_id  INTEGER NOT NULL REFERENCES convoys(id) ON DELETE CASCADE,
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            status     TEXT NOT NULL CHECK (status IN ('invited', 'accepted')),
+            joined_ms  INTEGER NOT NULL,
+            PRIMARY KEY (convoy_id, user_id)
+        );
         CREATE INDEX IF NOT EXISTS idx_tokens_user ON tokens(user_id);
         CREATE INDEX IF NOT EXISTS idx_points_user_t ON track_points(user_id, t_ms);
+        CREATE INDEX IF NOT EXISTS idx_convoy_members_user ON convoy_members(user_id);
         """
     )
     # Added after the first release; CREATE TABLE IF NOT EXISTS won't add it to
@@ -386,6 +435,9 @@ def do_logout(user, headers):
         conn = db()
         with conn:  # commits on success, rolls back on exception
             conn.execute("DELETE FROM tokens WHERE token_hash = ?", (token_hash(raw),))
+    # A revoked token must not keep relaying through an already-open convoy
+    # socket - see evict_user_everywhere in the convoy live relay section.
+    evict_user_everywhere(user["id"])
     return {}
 
 
@@ -721,6 +773,455 @@ def friend_fog(user):
 
 
 # --------------------------------------------------------------------------
+# convoys (live location + push-to-talk membership)
+#
+# Membership here is the only privacy gate for the live WebSocket relay
+# (see the `websockets` listener below): a socket can only join a convoy's
+# broadcast if it authenticates as a user with an 'accepted' row for that
+# convoy_id. Nothing about a convoy's live position or PTT audio is ever
+# written to SQLite — these tables hold membership only.
+
+
+def _convoy_member(convoy_id, user_id):
+    return db().execute(
+        "SELECT * FROM convoy_members WHERE convoy_id = ? AND user_id = ?",
+        (convoy_id, user_id),
+    ).fetchone()
+
+
+def is_convoy_member(convoy_id, user_id):
+    """Used by the WS join handshake, where a 404 vs 403 distinction isn't
+    worth the extra round trip - it just wants a yes/no."""
+    row = _convoy_member(convoy_id, user_id)
+    return row is not None and row["status"] == "accepted"
+
+
+def do_convoy_create(user, body):
+    name = str(body.get("name", "")).strip()
+    if not 1 <= len(name) <= 40:
+        raise HttpError(400, "name must be 1-40 characters")
+    now = now_ms()
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            cur = conn.execute(
+                "INSERT INTO convoys (name, owner_id, created_ms) VALUES (?, ?, ?)",
+                (name, user["id"], now),
+            )
+            convoy_id = cur.lastrowid
+            conn.execute(
+                "INSERT INTO convoy_members (convoy_id, user_id, status, joined_ms)"
+                " VALUES (?, ?, 'accepted', ?)",
+                (convoy_id, user["id"], now),
+            )
+    return {"id": convoy_id, "name": name}
+
+
+def do_convoy_invite(user, convoy_id, body):
+    # Membership checked before anything else exists to distinguish "no such
+    # convoy" from "not a member" - either way the caller gets the same 403,
+    # so a random convoy id can't be used to probe which ids are real.
+    membership = _convoy_member(convoy_id, user["id"])
+    if membership is None or membership["status"] != "accepted":
+        raise HttpError(403, "not a member of this convoy")
+    target = other_user(body)
+    if target["id"] == user["id"]:
+        raise HttpError(400, "you are already in this convoy")
+    # Convoy membership can only ever come from an existing friendship - this
+    # is what makes "granted access" mean something instead of an open room.
+    fs = friendship(user["id"], target["id"])
+    if fs is None or fs["status"] != "accepted":
+        raise HttpError(403, "you can only invite friends")
+    existing = _convoy_member(convoy_id, target["id"])
+    if existing is not None:
+        return {"status": existing["status"]}
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "INSERT INTO convoy_members (convoy_id, user_id, status, joined_ms)"
+                " VALUES (?, ?, 'invited', ?)",
+                (convoy_id, target["id"], now_ms()),
+            )
+    return {"status": "invited"}
+
+
+def do_convoy_respond(user, convoy_id, body):
+    membership = _convoy_member(convoy_id, user["id"])
+    if membership is None or membership["status"] != "invited":
+        raise HttpError(404, "no pending invite to that convoy")
+    accept = bool(body.get("accept"))
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            if accept:
+                conn.execute(
+                    "UPDATE convoy_members SET status = 'accepted', joined_ms = ?"
+                    " WHERE convoy_id = ? AND user_id = ?",
+                    (now_ms(), convoy_id, user["id"]),
+                )
+            else:
+                conn.execute(
+                    "DELETE FROM convoy_members WHERE convoy_id = ? AND user_id = ?",
+                    (convoy_id, user["id"]),
+                )
+    return {"status": "accepted" if accept else "declined"}
+
+
+def do_convoy_leave(user, convoy_id, body):
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "DELETE FROM convoy_members WHERE convoy_id = ? AND user_id = ?",
+                (convoy_id, user["id"]),
+            )
+            # No one left in it: drop the row rather than let empty convoys
+            # accumulate forever - there's no owner-transfer flow, so an
+            # empty convoy is just dead weight.
+            remaining = conn.execute(
+                "SELECT COUNT(*) AS n FROM convoy_members WHERE convoy_id = ?", (convoy_id,)
+            ).fetchone()["n"]
+            if remaining == 0:
+                conn.execute("DELETE FROM convoys WHERE id = ?", (convoy_id,))
+    # Instantly drops any live socket this user still has open on this
+    # convoy - see evict_convoy_member in the convoy live relay section.
+    # A no-op (harmlessly) if they were never a member or had no live socket.
+    evict_convoy_member(convoy_id, user["id"])
+    return {}
+
+
+def do_convoys(user):
+    rows = db().execute(
+        "SELECT c.id, c.name, m.status"
+        " FROM convoy_members m JOIN convoys c ON c.id = m.convoy_id"
+        " WHERE m.user_id = ?",
+        (user["id"],),
+    ).fetchall()
+    out = []
+    for row in rows:
+        members = db().execute(
+            "SELECT u.username, m.status FROM convoy_members m"
+            " JOIN users u ON u.id = m.user_id WHERE m.convoy_id = ?",
+            (row["id"],),
+        ).fetchall()
+        out.append({
+            "id": row["id"],
+            "name": row["name"],
+            "status": row["status"],
+            "members": [{"username": m["username"], "status": m["status"]} for m in members],
+        })
+    return out
+
+
+CONVOY_ACTION_RE = re.compile(r"^/convoys/(\d+)/(invite|respond|leave)$")
+
+
+# --------------------------------------------------------------------------
+# convoy live relay (WebSocket, separate port)
+#
+# A second listener next to the HTTP server, since a live position feed and
+# push-to-talk audio need push, not request/response. Runs its own asyncio
+# loop in a background thread; the HTTP server's threads never touch this
+# module-level state, so no lock is needed around it.
+#
+# Protocol, one JSON text message per line, after connecting with the same
+# `Authorization: Bearer <token>` header the REST API uses:
+#   -> {"type": "join", "convoyId": N}
+#   <- {"type": "joined", "convoyId": N}  or  {"type": "error", "message": ...}
+#   -> {"type": "location", "lat", "lon", "headingDeg"?, "speedKmh"?, "ts"}
+#   <- {"type": "location", "user": "<username>", ...same fields}  (per peer)
+#   -> {"type": "ptt_start"}                    <- relayed with "user" added
+#   -> {"type": "ptt_audio", "chunk": "<base64 16kHz mono PCM16>"}  <- same
+#   -> {"type": "ptt_end"}                      <- relayed with "user" added
+#   <- {"type": "left", "user": "<username>"}   (peer disconnected or left)
+#
+# Nothing here is written to SQLite - a convoy's live position and audio
+# exist only as long as the socket does, same spirit as fog: it's a live
+# view between consenting members, not a record.
+#
+# convoy_id -> {user_id: (username, websocket, token_hash)}. A socket may
+# only be in one convoy's dict at a time; joining a new one parts it from
+# the old one. token_hash is kept per-entry so the staleness sweep below can
+# tell a revoked session from a healthy one without re-touching the socket.
+_convoy_sockets = {}
+
+# Set once run_live_server's event loop is running, so HTTP-thread code
+# (do_convoy_leave, do_logout) can reach into this asyncio-only state via
+# run_coroutine_threadsafe instead of racing it from another thread.
+_live_loop = None
+
+# How often the sweep below re-validates every open socket against the DB -
+# the backstop for revocations that don't go through a convoy endpoint (e.g.
+# `--revoke-tokens`, run from a separate process with nothing to signal this
+# one directly).
+STALE_SWEEP_INTERVAL_SEC = 15
+# A 40ms 16kHz mono PCM16 chunk is ~1.7KB base64'd; this just bounds
+# worst-case abuse from a broken or malicious client, generously.
+MAX_AUDIO_CHUNK_B64 = 20_000
+# A send that blocks this long is a peer on a bad connection, not a slow
+# network blip - drop it rather than let it stall everyone else's traffic.
+BROADCAST_SEND_TIMEOUT_SEC = 2.0
+
+
+async def _ws_authenticate(websocket):
+    headers = getattr(websocket, "request_headers", None)
+    if headers is None:
+        headers = websocket.request.headers  # websockets >= 13 API
+    raw = headers.get("Authorization", "")
+    thash = token_hash(raw[7:].strip()) if raw.startswith("Bearer ") else ""
+    user = await asyncio.to_thread(authenticate, headers)
+    return user, thash
+
+
+async def _ws_send(websocket, obj):
+    try:
+        await websocket.send(json.dumps(obj))
+    except websockets.ConnectionClosed:
+        pass
+
+
+async def _safe_close(websocket):
+    try:
+        await websocket.close()
+    except websockets.ConnectionClosed:
+        pass
+
+
+async def _convoy_broadcast(convoy_id, obj, exclude_user_id):
+    peers = _convoy_sockets.get(convoy_id)
+    if not peers:
+        return
+    payload = json.dumps(obj)
+    dead = []
+    for uid, (_uname, ws, _thash) in list(peers.items()):
+        if uid == exclude_user_id:
+            continue
+        try:
+            await asyncio.wait_for(ws.send(payload), timeout=BROADCAST_SEND_TIMEOUT_SEC)
+        except (websockets.ConnectionClosed, asyncio.TimeoutError):
+            dead.append(uid)
+    for uid in dead:
+        peers.pop(uid, None)
+
+
+def _convoy_join(convoy_id, user_id, username, websocket, thash):
+    """Registers the socket, returning the websocket it replaced (if any) so
+    the caller can close it - a reconnect must not leave the old connection
+    both evicted-from-the-registry and still open, receiving forever."""
+    peers = _convoy_sockets.setdefault(convoy_id, {})
+    old = peers.get(user_id)
+    peers[user_id] = (username, websocket, thash)
+    return old[1] if old is not None else None
+
+
+def _convoy_part(convoy_id, user_id, websocket):
+    """Only removes the registry entry if it still points at *this* socket -
+    a stale connection's own cleanup must not evict a newer one that already
+    replaced it. Without this check, a slow-to-close old socket races a fast
+    reconnect and evicts the live one, leaving it open but invisible."""
+    peers = _convoy_sockets.get(convoy_id)
+    if peers is None:
+        return False
+    entry = peers.get(user_id)
+    if entry is None or entry[1] is not websocket:
+        return False
+    peers.pop(user_id, None)
+    if not peers:
+        _convoy_sockets.pop(convoy_id, None)
+    return True
+
+
+def _valid_location(msg):
+    """Coerces and range-checks an incoming location message; None if it
+    isn't usable. Relaying NaN/garbage through crashes every peer's map
+    (their GeoJSON layer rejects NaN coordinates) - one broken or malicious
+    client must not be able to take down everyone else's."""
+    try:
+        lat = float(msg.get("lat"))
+        lon = float(msg.get("lon"))
+    except (TypeError, ValueError):
+        return None
+    if not (lat == lat and lon == lon and -90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    heading = msg.get("headingDeg")
+    try:
+        heading = float(heading) if heading is not None else None
+    except (TypeError, ValueError):
+        heading = None
+    if heading is not None and not (heading == heading and -360 <= heading <= 360):
+        heading = None
+    speed = msg.get("speedKmh")
+    try:
+        speed = float(speed) if speed is not None else None
+    except (TypeError, ValueError):
+        speed = None
+    if speed is not None and not (speed == speed and 0 <= speed <= 500):
+        speed = None
+    try:
+        ts = int(msg.get("ts"))
+    except (TypeError, ValueError):
+        ts = now_ms()
+    return {"lat": lat, "lon": lon, "headingDeg": heading, "speedKmh": speed, "ts": ts}
+
+
+async def handle_live_socket(websocket):
+    try:
+        user, thash = await _ws_authenticate(websocket)
+    except HttpError as e:
+        await websocket.close(code=4401, reason=e.message)
+        return
+
+    convoy_id = None
+    try:
+        async for raw in websocket:
+            if not isinstance(raw, str):
+                continue  # no binary frames in this protocol
+            try:
+                msg = json.loads(raw)
+            except ValueError:
+                continue
+            mtype = msg.get("type")
+
+            if mtype == "join":
+                try:
+                    target_convoy = int(msg.get("convoyId"))
+                except (TypeError, ValueError):
+                    await _ws_send(websocket, {"type": "error", "message": "bad convoyId"})
+                    continue
+                is_member = await asyncio.to_thread(
+                    is_convoy_member, target_convoy, user["id"]
+                )
+                if not is_member:
+                    await _ws_send(
+                        websocket, {"type": "error", "message": "not a member of that convoy"}
+                    )
+                    continue
+                if convoy_id is not None and convoy_id != target_convoy:
+                    if _convoy_part(convoy_id, user["id"], websocket):
+                        await _convoy_broadcast(
+                            convoy_id, {"type": "left", "user": user["username"]},
+                            exclude_user_id=user["id"],
+                        )
+                convoy_id = target_convoy
+                old_ws = _convoy_join(convoy_id, user["id"], user["username"], websocket, thash)
+                if old_ws is not None and old_ws is not websocket:
+                    # A previous connection for this user was still open (a
+                    # reconnect that outran the old socket's close) - kill it
+                    # rather than leave a ghost that keeps receiving forever.
+                    await _safe_close(old_ws)
+                await _ws_send(websocket, {"type": "joined", "convoyId": convoy_id})
+
+            elif convoy_id is None:
+                continue  # everything else requires having joined first
+
+            elif mtype == "location":
+                loc = _valid_location(msg)
+                if loc is not None:
+                    await _convoy_broadcast(
+                        convoy_id, dict(loc, type="location", user=user["username"]),
+                        exclude_user_id=user["id"],
+                    )
+            elif mtype == "ptt_start":
+                await _convoy_broadcast(
+                    convoy_id, {"type": "ptt_start", "user": user["username"]},
+                    exclude_user_id=user["id"],
+                )
+            elif mtype == "ptt_audio":
+                chunk = msg.get("chunk")
+                if isinstance(chunk, str) and 0 < len(chunk) <= MAX_AUDIO_CHUNK_B64:
+                    await _convoy_broadcast(
+                        convoy_id,
+                        {"type": "ptt_audio", "user": user["username"], "chunk": chunk},
+                        exclude_user_id=user["id"],
+                    )
+            elif mtype == "ptt_end":
+                await _convoy_broadcast(
+                    convoy_id, {"type": "ptt_end", "user": user["username"]},
+                    exclude_user_id=user["id"],
+                )
+    except websockets.ConnectionClosed:
+        pass
+    finally:
+        if convoy_id is not None and _convoy_part(convoy_id, user["id"], websocket):
+            await _convoy_broadcast(
+                convoy_id, {"type": "left", "user": user["username"]}, exclude_user_id=user["id"]
+            )
+
+
+async def _evict(convoy_id, user_id):
+    peers = _convoy_sockets.get(convoy_id)
+    entry = peers.get(user_id) if peers else None
+    if entry is None:
+        return
+    username, ws, _thash = entry
+    if _convoy_part(convoy_id, user_id, ws):
+        await _safe_close(ws)
+        await _convoy_broadcast(convoy_id, {"type": "left", "user": username}, exclude_user_id=user_id)
+
+
+async def _evict_everywhere(user_id):
+    for convoy_id in list(_convoy_sockets.keys()):
+        await _evict(convoy_id, user_id)
+
+
+def evict_convoy_member(convoy_id, user_id):
+    """Called from an HTTP handler thread (do_convoy_leave) to instantly
+    drop a live socket the moment membership is revoked, instead of waiting
+    for the periodic sweep below to notice."""
+    if _live_loop is not None:
+        asyncio.run_coroutine_threadsafe(_evict(convoy_id, user_id), _live_loop)
+
+
+def evict_user_everywhere(user_id):
+    """Called from do_logout so revoking your own session takes every live
+    convoy socket down with it immediately, rather than up to
+    STALE_SWEEP_INTERVAL_SEC seconds later."""
+    if _live_loop is not None:
+        asyncio.run_coroutine_threadsafe(_evict_everywhere(user_id), _live_loop)
+
+
+def _socket_still_valid(convoy_id, user_id, thash):
+    row = db().execute("SELECT 1 FROM tokens WHERE token_hash = ?", (thash,)).fetchone()
+    if row is None:
+        return False
+    return is_convoy_member(convoy_id, user_id)
+
+
+async def _sweep_stale_sockets():
+    """Catches what the instant eviction hooks above can't: a token revoked
+    from a separate process (`--revoke-tokens`, the lost-phone remedy has no
+    way to signal a running server) or membership changing underneath a
+    socket some other way. Runs only in this loop, so no lock is needed for
+    the dict scan."""
+    while True:
+        await asyncio.sleep(STALE_SWEEP_INTERVAL_SEC)
+        for convoy_id, peers in list(_convoy_sockets.items()):
+            for user_id, (_username, _ws, thash) in list(peers.items()):
+                ok = await asyncio.to_thread(_socket_still_valid, convoy_id, user_id, thash)
+                if not ok:
+                    await _evict(convoy_id, user_id)
+
+
+def run_live_server(host, port):
+    if websockets is None:
+        print("live convoy relay disabled: run `pip install websockets` to enable it")
+        return
+
+    async def main():
+        global _live_loop
+        _live_loop = asyncio.get_running_loop()
+        asyncio.create_task(_sweep_stale_sockets())
+        # 1 MB cap: a PTT chunk is a couple hundred ms of 16kHz mono PCM16,
+        # a few KB even base64'd - this just bounds worst-case abuse.
+        async with websockets.serve(handle_live_socket, host, port, max_size=1024 * 1024):
+            print("maproulette-live (convoy relay) on %s:%s" % (host, port))
+            await asyncio.Future()  # run forever
+
+    asyncio.run(main())
+
+
+# --------------------------------------------------------------------------
 # home assistant (read-only, API key)
 
 
@@ -987,6 +1488,7 @@ AUTHED_GET = {
     "/friends": do_friends,
     "/friends/stats": friend_stats,
     "/friends/fog": friend_fog,
+    "/convoys": do_convoys,
 }
 
 
@@ -1040,8 +1542,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, do_friend_respond(authenticate(self.headers), body))
             elif self.path == "/friends/remove":
                 self._json(200, do_friend_remove(authenticate(self.headers), body))
+            elif self.path == "/convoys":
+                self._json(200, do_convoy_create(authenticate(self.headers), body))
             else:
-                raise HttpError(404, "not found")
+                match = CONVOY_ACTION_RE.match(self.path)
+                if match is None:
+                    raise HttpError(404, "not found")
+                convoy_id, action = int(match.group(1)), match.group(2)
+                user = authenticate(self.headers)
+                if action == "invite":
+                    self._json(200, do_convoy_invite(user, convoy_id, body))
+                elif action == "respond":
+                    self._json(200, do_convoy_respond(user, convoy_id, body))
+                else:
+                    self._json(200, do_convoy_leave(user, convoy_id, body))
         except HttpError as e:
             self._json(e.code, {"error": e.message})
         except (ValueError, KeyError, TypeError) as e:
@@ -1261,6 +1775,7 @@ if __name__ == "__main__":
 
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8790"))
+    live_port = int(os.environ.get("LIVE_PORT", "8990"))
     print("maproulette-sync on %s:%s, db at %s" % (host, port, DB_FILE))
     print("registration: %s" % ("open" if REGISTRATION_OPEN else "closed"))
     # An empty database with registration closed and no invite code is a
@@ -1271,4 +1786,5 @@ if __name__ == "__main__":
         if user_count == 0:
             print("*** no users exist yet, and registration is closed. ***")
             print("*** set REGISTRATION_OPEN=1 or INVITE_CODE=... to create the first account. ***")
+    threading.Thread(target=run_live_server, args=(host, live_port), daemon=True).start()
     ThreadingHTTPServer((host, port), Handler).serve_forever()

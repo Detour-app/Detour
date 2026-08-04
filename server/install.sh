@@ -32,7 +32,7 @@ GEO_CC="${GEO_CC:-be}"            # Photon country-code index (single country)
 PHOTON_VERSION="${PHOTON_VERSION:-1.2.1}"
 CTID="" CT_HOSTNAME="maproulette" CT_BRIDGE="vmbr0" CT_STORAGE=""
 OPEN_REGISTRATION=0
-SYNC_PORT=8790 GH_PORT=8989 PHOTON_PORT=2322
+SYNC_PORT=8790 LIVE_PORT=8990 GH_PORT=8989 PHOTON_PORT=2322
 
 SYNC_USER=maproulette-sync
 SYNC_DIR=/opt/maproulette-sync
@@ -289,7 +289,12 @@ require_debian() {
 
 install_sync() {
   step "Installing the sync server"
-  apt-get install -y -qq python3 curl >/dev/null
+  # python3-websockets (Debian/Ubuntu's packaged build, not pip — keeps this
+  # a plain apt install with no venv) powers the convoy live-location/PTT
+  # relay. The rest of the server is stdlib-only and still runs fine without
+  # it; the relay just logs a warning and stays off if this package is
+  # missing for some reason.
+  apt-get install -y -qq python3 python3-websockets curl >/dev/null
   id -u "$SYNC_USER" >/dev/null 2>&1 || useradd --system --home "$SYNC_DATA" --shell /usr/sbin/nologin "$SYNC_USER"
   install -d -m 0755 "$SYNC_DIR"
   install -d -o "$SYNC_USER" -g "$SYNC_USER" -m 0750 "$SYNC_DATA"
@@ -311,6 +316,7 @@ User=$SYNC_USER
 Environment=DATA_DIR=$SYNC_DATA
 Environment=HOST=127.0.0.1
 Environment=PORT=$SYNC_PORT
+Environment=LIVE_PORT=$LIVE_PORT
 # This installer's documented topology puts the server behind the Cloudflare
 # tunnel, so CF-Connecting-IP is trustworthy here — see sync_server.py.
 Environment=TRUST_CF_HEADER=1
@@ -379,6 +385,21 @@ EOF
     sleep 1
   done
   ok "sync server healthy on 127.0.0.1:$SYNC_PORT"
+  # Best-effort only: the live relay is optional (see the python3-websockets
+  # note above), and its absence must not fail the whole install.
+  if command -v python3 >/dev/null && python3 -c "import websockets" 2>/dev/null; then
+    for i in $(seq 1 10); do
+      python3 -c "import socket; socket.create_connection(('127.0.0.1', $LIVE_PORT), 1).close()" 2>/dev/null && break
+      sleep 1
+    done
+    if python3 -c "import socket; socket.create_connection(('127.0.0.1', $LIVE_PORT), 1).close()" 2>/dev/null; then
+      ok "convoy live relay listening on 127.0.0.1:$LIVE_PORT"
+    else
+      warn "convoy live relay did not come up on 127.0.0.1:$LIVE_PORT — check: journalctl -u maproulette-sync -n 40"
+    fi
+  else
+    warn "python3-websockets not importable — convoy live location/PTT will stay disabled"
+  fi
   ok "nightly backup timer enabled"
   [ -n "$invite" ] && { echo; info "${B}Invite code: ${invite}${N}"; info "Enter this in the app's sign-in screen to register."; }
   return 0
@@ -688,12 +709,16 @@ $B  Exposing them — pick one:$N
        - install cloudflared, create a tunnel, point a hostname at
 EOF
   [ "$DO_SYNC" = 1 ]     && echo "           http://localhost:$SYNC_PORT   (sync)"
+  [ "$DO_SYNC" = 1 ]     && echo "           http://localhost:$LIVE_PORT   (convoy live relay, WebSocket — optional)"
   [ "$DO_ROUTING" = 1 ]  && echo "           http://localhost:$GH_PORT   (routing)"
   [ "$DO_GEOCODER" = 1 ] && echo "           http://localhost:$PHOTON_PORT   (geocoder / search)"
   cat <<EOF
+       - the live relay needs its OWN Cloudflare hostname (a WebSocket
+         upgrade doesn't route through the sync hostname's rule) — same
+         Access application/service token as the others.
        - protect EVERY hostname with an Access application whose policy is
          Action=Service Auth, including the SAME service token. The app sends
-         that one token's headers to routing, sync and the geocoder alike.
+         that one token's headers to routing, sync, live and the geocoder alike.
        - Neither GraphHopper nor Photon has authentication of its own. If you
          expose either without Access in front, it is open to the internet.
 

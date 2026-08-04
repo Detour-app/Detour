@@ -24,8 +24,8 @@ android {
         applicationId = "com.jellemax.maproulette"
         minSdk = 26
         targetSdk = 35
-        versionCode = 48
-        versionName = "1.41"
+        versionCode = 49
+        versionName = "1.42"
 
         buildConfigField("String", "ROUTING_URL",
             "\"${routingCfg("routing.url", "ROUTING_SERVER_URL")}\"")
@@ -37,6 +37,11 @@ android {
             "\"${routingCfg("sync.url", "SYNC_SERVER_URL")}\"")
         buildConfigField("String", "GEOCODER_URL",
             "\"${routingCfg("geocoder.url", "GEOCODER_URL")}\"")
+        // Convoy live-location/PTT relay: a separate WebSocket listener next
+        // to the sync server (see server/sync/sync_server.py's LIVE_PORT),
+        // so this is its own URL rather than derived from SYNC_URL.
+        buildConfigField("String", "LIVE_URL",
+            "\"${routingCfg("live.url", "LIVE_SERVER_URL")}\"")
     }
 
     // Release signing reads from the environment rather than local.properties:
@@ -100,5 +105,8 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+    // WebSocket client for the convoy live-location/PTT relay - Android has
+    // no built-in WS client and hand-rolling RFC 6455 framing isn't worth it.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     wearApp(project(":wear"))
 }

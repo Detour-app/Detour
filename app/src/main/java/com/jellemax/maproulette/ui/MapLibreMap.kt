@@ -18,6 +18,7 @@ import androidx.core.graphics.drawable.toBitmap
 import com.jellemax.maproulette.R
 import com.jellemax.maproulette.data.LatLon
 import com.jellemax.maproulette.data.SpeedCameras
+import com.jellemax.maproulette.net.FriendPosition
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -58,9 +59,11 @@ private const val SRC_CANDIDATES = "mr-candidates"
 private const val SRC_DEST = "mr-dest"
 private const val SRC_POSITION = "mr-position"
 private const val SRC_CAMERAS = "mr-cameras"
+private const val SRC_FRIENDS = "mr-friends"
 private const val IMG_DEST = "mr-img-dest"
 private const val IMG_POSITION = "mr-img-position"
 private const val IMG_CAMERA = "mr-img-camera"
+private const val IMG_FRIEND = "mr-img-friend"
 const val LAYER_CANDIDATES = "mr-candidates-dot"
 // Below city zoom the speed-camera icons pile up into an unreadable blob, and
 // at loop-planning zoom they're just noise — hide them until zoomed past this.
@@ -88,7 +91,10 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
         ContextCompat.getDrawable(context, R.drawable.ic_map_camera)?.let {
             style.addImage(IMG_CAMERA, it.toBitmap())
         }
-        listOf(SRC_REACH, SRC_WEDGE, SRC_ROUTE, SRC_CANDIDATES, SRC_DEST, SRC_POSITION, SRC_CAMERAS)
+        ContextCompat.getDrawable(context, R.drawable.ic_map_friend)?.let {
+            style.addImage(IMG_FRIEND, it.toBitmap())
+        }
+        listOf(SRC_REACH, SRC_WEDGE, SRC_ROUTE, SRC_CANDIDATES, SRC_DEST, SRC_POSITION, SRC_CAMERAS, SRC_FRIENDS)
             .forEach { style.addSource(GeoJsonSource(it)) }
 
         // Bottom-to-top: fills, then the route (dark casing under the colored
@@ -114,6 +120,18 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
         style.addLayer(SymbolLayer("mr-dest", SRC_DEST).withProperties(
             PropertyFactory.iconImage(IMG_DEST), PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
             PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)))
+        // Convoy friends: heading arrow rotated per-feature, username labelled
+        // underneath so several friends on screen stay distinguishable.
+        style.addLayer(SymbolLayer("mr-friends", SRC_FRIENDS).withProperties(
+            PropertyFactory.iconImage(IMG_FRIEND),
+            PropertyFactory.iconRotate(Expression.get("bearing")),
+            PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
+            PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
+            PropertyFactory.textField(Expression.get("name")),
+            PropertyFactory.textSize(11f), PropertyFactory.textOffset(arrayOf(0f, 1.6f)),
+            PropertyFactory.textColor("#FFFFFFFF"), PropertyFactory.textHaloColor("#FF000000"),
+            PropertyFactory.textHaloWidth(1.2f),
+            PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(true)))
         // Speed cameras: static markers fed by the prefetch loop. Sit under the
         // candidate dots so a spin result is never hidden behind a camera.
         style.addLayer(SymbolLayer("mr-cameras", SRC_CAMERAS).withProperties(
@@ -138,6 +156,20 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
     fun setCameras(cameras: List<SpeedCameras.Camera>) {
         setData(SRC_CAMERAS, FeatureCollection.fromFeatures(
             cameras.map { Feature.fromGeometry(Point.fromLngLat(it.at.lon, it.at.lat)) }))
+    }
+
+    /** Replace the convoy friend markers. Fed on its own cadence by
+     *  [ConvoyLiveClient]'s peer flow, not [render] — same reasoning as
+     *  [setCameras]: this refreshes on a completely different rhythm than the
+     *  spin/route state [render] pushes. */
+    fun setFriends(friends: Collection<FriendPosition>) {
+        setData(SRC_FRIENDS, FeatureCollection.fromFeatures(
+            friends.map { f ->
+                Feature.fromGeometry(Point.fromLngLat(f.lon, f.lat)).apply {
+                    addStringProperty("name", f.username)
+                    addNumberProperty("bearing", f.headingDeg ?: 0.0)
+                }
+            }))
     }
 
     /** Push the current world state to the overlay sources. Pass [reachMeters]

@@ -30,6 +30,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -57,6 +58,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.DirectionsBike
 import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.outlined.Casino
 import androidx.compose.material.icons.outlined.Clear
@@ -123,6 +125,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
@@ -145,6 +148,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.maproulette.R
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.jellemax.maproulette.audio.PushToTalk
+import com.jellemax.maproulette.net.ConvoyLiveClient
 import com.jellemax.maproulette.data.Account
 import com.jellemax.maproulette.data.ExploredArea
 import com.jellemax.maproulette.data.FriendFog
@@ -435,6 +440,10 @@ fun MapScreen(
     val stats by TripTrackingService.stats.collectAsStateWithLifecycle()
     val liveFix by TripTrackingService.lastFix.collectAsStateWithLifecycle()
     val liveTrace by TripTrackingService.liveTrace.collectAsStateWithLifecycle()
+    // Convoy: only present while ConvoyLiveService is running (started/stopped
+    // from FriendsScreen's convoy list, see Convoys.join/leave there).
+    val convoyConnected by ConvoyLiveClient.connected.collectAsStateWithLifecycle()
+    val convoyTalking by ConvoyLiveClient.talking.collectAsStateWithLifecycle()
 
     var navigating by remember { mutableStateOf(false) }
     var navProgress by remember { mutableStateOf<NavEngine.Progress?>(null) }
@@ -526,7 +535,16 @@ fun MapScreen(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> TripTrackingService.setUiVisible(context, true)
-                Lifecycle.Event.ON_STOP -> TripTrackingService.setUiVisible(context, false)
+                // Belt-and-braces for push-to-talk: the button's own
+                // awaitRelease() releases the mic on a normal press-and-let-go,
+                // but backgrounding mid-press (e.g. an incoming call taking
+                // over) may not deliver a pointer-up at all. A stuck-open mic
+                // is the worst failure mode here, so this stops it regardless
+                // of whether the gesture ever saw a release.
+                Lifecycle.Event.ON_STOP -> {
+                    TripTrackingService.setUiVisible(context, false)
+                    PushToTalk.stopTalking()
+                }
                 else -> {}
             }
         }
@@ -534,6 +552,7 @@ fun MapScreen(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             TripTrackingService.setUiVisible(context, false)
+            PushToTalk.stopTalking()
         }
     }
 
@@ -648,6 +667,20 @@ fun MapScreen(
     val bgLocationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
+
+    // Mic permission is asked for once a convoy is actually joined, not
+    // upfront with location — nothing needs it until push-to-talk does.
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+    LaunchedEffect(convoyConnected) {
+        if (convoyConnected &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     fun onLocationGranted() {
         fetchLocation()
@@ -895,6 +928,13 @@ fun MapScreen(
     // because cameras change on the prefetch cadence, not per drawable-state flip.
     LaunchedEffect(mapOverlays, speedCameras) {
         mapOverlays?.setCameras(speedCameras)
+    }
+
+    // Convoy friend markers, on ConvoyLiveClient's own relay-driven cadence —
+    // same reasoning as the camera markers above.
+    LaunchedEffect(mapOverlays) {
+        val overlays = mapOverlays ?: return@LaunchedEffect
+        ConvoyLiveClient.peers.collect { peers -> overlays.setFriends(peers.values) }
     }
 
     // Chime when a camera lies ahead, close, and we're over the posted limit —
@@ -1329,6 +1369,17 @@ fun MapScreen(
                         .statusBarsPadding()
                         .padding(12.dp),
                 )
+            }
+
+            // Hold-to-talk: only shown while a convoy's live relay is actually
+            // connected (see ConvoyLiveService, started from FriendsScreen).
+            AnimatedVisibility(
+                visible = convoyConnected,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp),
+            ) {
+                PushToTalkButton(talking = convoyTalking.isNotEmpty())
             }
 
             Column(
@@ -2386,6 +2437,63 @@ private fun EndTripButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
         Icon(Icons.Outlined.Stop, contentDescription = null, Modifier.size(20.dp))
         Spacer(Modifier.width(8.dp))
         Text("End trip", maxLines = 1, fontWeight = FontWeight.Bold)
+    }
+}
+
+/** Hold to talk; only shown while a convoy's live relay is connected (see
+ *  ConvoyLiveService). Solid red while you're pressing it; a primary-colored
+ *  ring while [talking] — a friend currently transmitting — so incoming PTT
+ *  audio isn't silent-and-invisible. */
+@Composable
+private fun PushToTalkButton(talking: Boolean, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pressed by remember { mutableStateOf(false) }
+    val containerColor = when {
+        pressed -> MaterialTheme.colorScheme.error
+        talking -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    Surface(
+        modifier = modifier
+            .size(64.dp)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        if (ContextCompat.checkSelfPermission(
+                                context, Manifest.permission.RECORD_AUDIO,
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            return@detectTapGestures
+                        }
+                        pressed = true
+                        // Off the main thread: AudioRecord construction and
+                        // stopTalking's join(500) can both take real time,
+                        // and this fires from a gesture handler on a screen
+                        // meant to be glanced at while riding.
+                        scope.launch(Dispatchers.IO) { PushToTalk.startTalking() }
+                        try {
+                            awaitRelease()
+                        } finally {
+                            pressed = false
+                            scope.launch(Dispatchers.IO) { PushToTalk.stopTalking() }
+                        }
+                    },
+                )
+            },
+        shape = CircleShape,
+        color = containerColor,
+        shadowElevation = 4.dp,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                Icons.Filled.Mic,
+                contentDescription = "Push to talk",
+                tint = if (pressed) MaterialTheme.colorScheme.onError
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(28.dp),
+            )
+        }
     }
 }
 

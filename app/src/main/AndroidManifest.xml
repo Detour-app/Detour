@@ -12,7 +12,14 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Push-to-talk capture while a convoy is joined. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Lets ConvoyLiveService set MODE_IN_COMMUNICATION for echo
+         cancellation during push-to-talk; without it AudioManager.setMode()
+         is silently ignored. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Read bonded devices + Classic ACL connect/disconnect, to auto-pick the
          vehicle from a connected Cardo/infotainment. Never scans, so no location. -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
@@ -43,6 +50,14 @@
         <service
             android:name=".tracking.TripTrackingService"
             android:foregroundServiceType="location"
+            android:exported="false" />
+
+        <!-- Keeps the convoy WebSocket alive and hosts push-to-talk capture
+             while a convoy is joined; runs independently of trip tracking
+             (a convoy can be joined without a trip running). -->
+        <service
+            android:name=".convoy.ConvoyLiveService"
+            android:foregroundServiceType="location|microphone"
             android:exported="false" />
 
         <service

@@ -64,13 +64,15 @@ which is usually a bad idea) with `--in-place`.
 ## What you end up with
 
 ```
-/opt/maproulette-sync/sync_server.py     the service (stdlib Python, no deps)
+/opt/maproulette-sync/sync_server.py     the service (stdlib Python; python3-websockets
+                                          is the one optional dep, for convoy live location/PTT)
 /var/lib/maproulette-sync/maproulette.db SQLite: accounts, trips, traces, badges
 /var/backups/maproulette/                nightly backups, 14 days
 /opt/graphhopper/                        docker-compose.yml, config.yml, OSM data
 /opt/photon/                             docker-compose.yml, photon.jar, the country index
 
-systemd: maproulette-sync.service        the sync API,   127.0.0.1:8790
+systemd: maproulette-sync.service        the sync API,       127.0.0.1:8790
+                                          + convoy live relay (WebSocket), 127.0.0.1:8990
          maproulette-backup.timer        nightly, 00:00 + jitter
          graphhopper-refresh.timer       monthly OSM refresh + re-import
          photon-refresh.timer            monthly index refresh
@@ -107,14 +109,19 @@ stranger, and you open nothing on your router.
    | Hostname | Service |
    |---|---|
    | `sync.example.com` | `http://localhost:8790` |
+   | `live.example.com` | `http://localhost:8990` (WebSocket — convoy live location/PTT, optional) |
    | `routing.example.com` | `http://localhost:8989` |
    | `geocoder.example.com` | `http://localhost:2322` |
 
+   The live relay needs its own hostname — a WebSocket upgrade doesn't ride
+   along on the sync hostname's rule, even though both are the same process.
+   Skip it if you don't want the convoy feature; the rest of the server
+   works fine without it.
 3. Create a **service token** (Access → Service Auth).
 4. Create an **Access application** for *each* hostname, with one policy:
    Action = **Service Auth**, include → that service token. Reuse the same
-   token for all three hostnames — the app sends one CF Access ID/secret pair
-   to routing, sync and the geocoder alike, entered once under Settings.
+   token for all four hostnames — the app sends one CF Access ID/secret pair
+   to routing, sync, live and the geocoder alike, entered once under Settings.
 5. Check it from anywhere:
 
    ```bash
