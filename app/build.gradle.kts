@@ -48,8 +48,8 @@ android {
         applicationId = "com.jellemax.maproulette"
         minSdk = 26
         targetSdk = 35
-        versionCode = 59
-        versionName = "1.52"
+        versionCode = 60
+        versionName = "1.53"
 
         buildConfigField("String", "ROUTING_URL",
             "\"${serviceUrl("routing.url", "ROUTING_SERVER_URL")}\"")
@@ -85,6 +85,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Distinct package so a debug build installs alongside the
+            // release-signed app instead of forcing an uninstall (which would
+            // take the trip history with it).
+            applicationIdSuffix = ".debug"
+        }
         release {
             // R8 shrinks and obfuscates; MapLibre and Play Services ship their
             // own consumer proguard rules so this is expected to be near

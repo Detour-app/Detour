@@ -78,6 +78,11 @@ class NavScreen(
     init {
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
+                // The car can be the only thing driving this trip — the phone
+                // UI may never be opened — and every position on this screen
+                // comes from TripTrackingService.lastFix, so without this the
+                // map never leaves the world view and the HUD stays empty.
+                TripTrackingService.start(carContext, destination.lat, destination.lon)
                 carContext.getCarService(AppManager::class.java).setSurfaceCallback(renderer)
                 // navigationStarted() throws unless a callback is registered
                 // first. onStopNavigation fires when the host hands navigation

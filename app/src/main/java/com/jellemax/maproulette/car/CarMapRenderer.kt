@@ -1,12 +1,15 @@
 package com.jellemax.maproulette.car
 
-import android.graphics.Bitmap
+import android.app.Presentation
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
+import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
 import android.view.Surface
 import android.view.View
+import android.widget.FrameLayout
 import androidx.car.app.CarContext
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
@@ -14,35 +17,29 @@ import com.jellemax.maproulette.data.LatLon
 import com.jellemax.maproulette.ui.MapOverlays
 import com.jellemax.maproulette.ui.openFreeMapStyleUrl
 import com.jellemax.maproulette.ui.setCamera
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import org.maplibre.android.MapLibre
 import org.maplibre.android.maps.MapLibreMap
-import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 
 /**
  * Android Auto gives an app only a raw [Surface] via [SurfaceCallback] — no
- * map widget. Drives an offscreen [MapView] the same way the phone's map
- * does (same style, same [MapOverlays]) and blits a bitmap snapshot of it
- * onto the car surface at ~30fps: MapLibre's own documented pattern for this
- * (github.com/maplibre/MapLibre-Android-Auto-Sample), since there is no
- * native car-surface renderer. Texture mode + a hardware layer are required
- * for `View.draw(Canvas)` to actually capture the GL content — the default
- * SurfaceView-backed mode renders outside the view hierarchy and would
- * produce a blank bitmap.
+ * map widget — so the car screen is turned into a real [android.view.Display]:
+ * a [VirtualDisplay] backed by that surface, with a [Presentation] hosting the
+ * same [MapView] and [MapOverlays] the phone map uses.
  *
- * Also draws the speed/speed-limit HUD directly onto the surface's canvas
- * each frame, since that can't be a MapLibre layer.
+ * The obvious alternative — keep the MapView offscreen and blit snapshots of
+ * it onto the surface — cannot work: MapLibre only creates its GL renderer
+ * once the view is attached to a window, so an unattached MapView never draws
+ * anything and `getMapAsync` never fires. Going through a display attaches it
+ * for real, and MapLibre renders straight to the car surface.
+ *
+ * The speed/speed-limit HUD sits in a [HudOverlay] above the map in the same
+ * Presentation, since it can't be a MapLibre layer.
  */
 class CarMapRenderer(
     private val carContext: CarContext,
-    darkTheme: Boolean,
+    private val darkTheme: Boolean,
 ) : SurfaceCallback {
 
     // MainActivity initialises MapLibre for the phone UI, but the car flow can
@@ -51,24 +48,55 @@ class CarMapRenderer(
     // constructor throws when it isn't initialised. getInstance is idempotent.
     private val mapView = run {
         MapLibre.getInstance(carContext)
-        MapView(
-            carContext,
-            MapLibreMapOptions.createFromAttributes(carContext).textureMode(true),
-        ).apply { setLayerType(View.LAYER_TYPE_HARDWARE, null) }
+        MapView(carContext)
     }
+
+    private val hud = HudOverlay(carContext)
 
     private var mapLibreMap: MapLibreMap? = null
     var overlays: MapOverlays? = null
         private set
 
-    private var surface: Surface? = null
-    private var renderJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.Main)
+    private var virtualDisplay: VirtualDisplay? = null
+    private var presentation: Presentation? = null
 
-    @Volatile private var currentSpeedKmh: Double? = null
-    @Volatile private var speedLimitKmh: Double? = null
+    /** Called on every GPS fix: follows the camera and updates the HUD numbers. */
+    fun updatePosition(pos: LatLon, bearingDeg: Float, speedKmh: Double, limitKmh: Double?, zoom: Double) {
+        hud.update(speedKmh, limitKmh)
+        mapLibreMap?.let { setCamera(it, pos.lat, pos.lon, zoom, bearingDeg) }
+    }
 
-    init {
+    override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
+        val surface = surfaceContainer.surface ?: return
+        val width = surfaceContainer.width
+        val height = surfaceContainer.height
+        if (width <= 0 || height <= 0) return
+        tearDownDisplay()
+
+        val display = carContext.getSystemService(DisplayManager::class.java).createVirtualDisplay(
+            "MapRouletteCarMap",
+            width,
+            height,
+            surfaceContainer.dpi,
+            surface,
+            // OWN_CONTENT_ONLY is not optional: without it the platform treats
+            // the display as screen mirroring and demands CAPTURE_VIDEO_OUTPUT.
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION or
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY,
+        ) ?: return
+        virtualDisplay = display
+
+        presentation = Presentation(carContext, display.display).apply {
+            setContentView(
+                FrameLayout(context).apply {
+                    addView(mapView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+                    addView(hud, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+                },
+            )
+            show()
+        }
+
         mapView.onCreate(null)
         mapView.onStart()
         mapView.onResume()
@@ -80,26 +108,6 @@ class CarMapRenderer(
                 overlays = MapOverlays(style, carContext, darkTheme)
             }
         }
-    }
-
-    /** Called on every GPS fix: follows the camera and updates the HUD numbers. */
-    fun updatePosition(pos: LatLon, bearingDeg: Float, speedKmh: Double, limitKmh: Double?, zoom: Double) {
-        currentSpeedKmh = speedKmh
-        speedLimitKmh = limitKmh
-        mapLibreMap?.let { setCamera(it, pos.lat, pos.lon, zoom, bearingDeg) }
-    }
-
-    override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
-        surface = surfaceContainer.surface
-        val width = surfaceContainer.width
-        val height = surfaceContainer.height
-        if (width <= 0 || height <= 0) return
-        mapView.measure(
-            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
-        )
-        mapView.layout(0, 0, width, height)
-        startRenderLoop()
     }
 
     override fun onVisibleAreaChanged(visibleArea: Rect) {
@@ -115,52 +123,41 @@ class CarMapRenderer(
     }
 
     override fun onSurfaceDestroyed(surfaceContainer: SurfaceContainer) {
-        stopRenderLoop()
-        surface = null
+        tearDownDisplay()
     }
 
-    /** Tears down the offscreen map. Call once, when the nav screen is destroyed. */
+    /** Tears down the map. Call once, when the nav screen is destroyed. */
     fun destroy() {
-        stopRenderLoop()
-        mapView.onPause()
-        mapView.onStop()
-        mapView.onDestroy()
+        tearDownDisplay()
     }
 
-    private fun startRenderLoop() {
-        stopRenderLoop()
-        renderJob = scope.launch {
-            while (isActive) {
-                drawFrame()
-                delay(33)
-            }
+    private fun tearDownDisplay() {
+        if (presentation == null && virtualDisplay == null) return
+        mapLibreMap = null
+        overlays = null
+        runCatching {
+            mapView.onPause()
+            mapView.onStop()
+            mapView.onDestroy()
         }
+        presentation?.dismiss()
+        presentation = null
+        virtualDisplay?.release()
+        virtualDisplay = null
+        (mapView.parent as? FrameLayout)?.removeAllViews()
     }
+}
 
-    private fun stopRenderLoop() {
-        renderJob?.cancel()
-        renderJob = null
-    }
+/** Speed and posted-limit readouts, drawn over the map inside the Presentation. */
+private class HudOverlay(context: android.content.Context) : View(context) {
 
-    private fun drawFrame() {
-        val target = surface?.takeIf { it.isValid } ?: return
-        val width = mapView.width
-        val height = mapView.height
-        if (width <= 0 || height <= 0) return
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        mapView.draw(Canvas(bitmap))
-        val canvas = try {
-            target.lockCanvas(null)
-        } catch (e: Exception) {
-            null
-        } ?: run { bitmap.recycle(); return }
-        try {
-            canvas.drawBitmap(bitmap, 0f, 0f, null)
-            drawHud(canvas)
-        } finally {
-            target.unlockCanvasAndPost(canvas)
-            bitmap.recycle()
-        }
+    private var speedKmh: Double? = null
+    private var limitKmh: Double? = null
+
+    fun update(speed: Double, limit: Double?) {
+        speedKmh = speed
+        limitKmh = limit
+        postInvalidate()
     }
 
     private val speedBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#CC1A1A1A") }
@@ -181,16 +178,16 @@ class CarMapRenderer(
         textSize = 52f
     }
 
-    private fun drawHud(canvas: Canvas) {
-        val speed = currentSpeedKmh
-        val cy = canvas.height - 140f
+    override fun onDraw(canvas: Canvas) {
+        val speed = speedKmh
+        val cy = height - 140f
         var cx = 140f
         if (speed != null) {
             canvas.drawCircle(cx, cy, 100f, speedBgPaint)
             canvas.drawText("%.0f".format(speed), cx, cy + 20f, speedTextPaint)
             cx += 240f
         }
-        val limit = speedLimitKmh
+        val limit = limitKmh
         if (limit != null) {
             canvas.drawCircle(cx, cy, 100f, limitRingBgPaint)
             canvas.drawCircle(cx, cy, 90f, limitRingPaint)
