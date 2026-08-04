@@ -20,6 +20,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.maplibre.android.MapLibre
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
@@ -44,10 +45,17 @@ class CarMapRenderer(
     darkTheme: Boolean,
 ) : SurfaceCallback {
 
-    private val mapView = MapView(
-        carContext,
-        MapLibreMapOptions.createFromAttributes(carContext).textureMode(true),
-    ).apply { setLayerType(View.LAYER_TYPE_HARDWARE, null) }
+    // MainActivity initialises MapLibre for the phone UI, but the car flow can
+    // be the first thing to touch the SDK in this process — the head unit
+    // starts the app without the activity ever running — and MapView's
+    // constructor throws when it isn't initialised. getInstance is idempotent.
+    private val mapView = run {
+        MapLibre.getInstance(carContext)
+        MapView(
+            carContext,
+            MapLibreMapOptions.createFromAttributes(carContext).textureMode(true),
+        ).apply { setLayerType(View.LAYER_TYPE_HARDWARE, null) }
+    }
 
     private var mapLibreMap: MapLibreMap? = null
     var overlays: MapOverlays? = null
