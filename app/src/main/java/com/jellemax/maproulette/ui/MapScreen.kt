@@ -65,6 +65,7 @@ import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.LocationSearching
@@ -151,6 +152,7 @@ import com.google.android.gms.location.Priority
 import com.jellemax.maproulette.audio.PushToTalk
 import com.jellemax.maproulette.net.ConvoyLiveClient
 import com.jellemax.maproulette.data.Account
+import com.jellemax.maproulette.data.Convoys
 import com.jellemax.maproulette.data.ExploredArea
 import com.jellemax.maproulette.data.FriendFog
 import com.jellemax.maproulette.data.GeocodeResult
@@ -444,6 +446,20 @@ fun MapScreen(
     // from FriendsScreen's convoy list, see Convoys.join/leave there).
     val convoyConnected by ConvoyLiveClient.connected.collectAsStateWithLifecycle()
     val convoyTalking by ConvoyLiveClient.talking.collectAsStateWithLifecycle()
+    val activeConvoyId by ConvoyLiveClient.activeConvoyId.collectAsStateWithLifecycle()
+    // ConvoyLiveClient only knows the id it's connected to; resolve it to a
+    // name for display by asking the same list FriendsScreen uses.
+    var convoyName by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(activeConvoyId) {
+        val id = activeConvoyId
+        convoyName = if (id == null) null else withContext(Dispatchers.IO) {
+            try {
+                Convoys.list(context).find { it.id == id }?.name
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
 
     var navigating by remember { mutableStateOf(false) }
     var navProgress by remember { mutableStateOf<NavEngine.Progress?>(null) }
@@ -498,7 +514,7 @@ fun MapScreen(
     // Pull from the sync server on launch: restores everything after a
     // reinstall and picks up trips recorded while the app was closed.
     LaunchedEffect(Unit) {
-        if (SyncClient.configured && Account.signedIn) {
+        if (SyncClient.configured(context) && Account.signedIn) {
             withContext(Dispatchers.IO) {
                 try {
                     SyncClient.sync(context)
@@ -1358,6 +1374,7 @@ fun MapScreen(
                     followMe = following,
                     fogEnabled = fogEnabled,
                     username = accountUsername,
+                    convoyName = if (convoyConnected) convoyName else null,
                     onToggleFollow = {
                         if (following) followMe = false
                         else { followMe = true; camSuspended = false }
@@ -2284,6 +2301,7 @@ private fun MapTopChrome(
     followMe: Boolean,
     fogEnabled: Boolean,
     username: String,
+    convoyName: String?,
     onToggleFollow: () -> Unit,
     onSearch: () -> Unit,
     onToggleFog: () -> Unit,
@@ -2293,6 +2311,9 @@ private fun MapTopChrome(
     var layersOpen by remember { mutableStateOf(false) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SearchPill(username = username, onSearch = onSearch, onAvatarClick = onOpenHub)
+        AnimatedVisibility(visible = convoyName != null, enter = fadeIn(), exit = fadeOut()) {
+            ConvoyPill(name = convoyName ?: "")
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 GlassRailButton(
@@ -2314,7 +2335,7 @@ private fun MapTopChrome(
                             alignment = Alignment.TopEnd,
                             offset = with(density) { IntOffset(0, 48.dp.roundToPx()) },
                             onDismissRequest = { layersOpen = false },
-                            properties = PopupProperties(dismissOnClickOutside = false),
+                            properties = PopupProperties(dismissOnClickOutside = true),
                         ) {
                             Card(
                                 modifier = Modifier.glassBorder(MaterialTheme.shapes.large),
@@ -2390,6 +2411,32 @@ private fun SearchPill(
                     color = MaterialTheme.colorScheme.onPrimary,
                 )
             }
+        }
+    }
+}
+
+/** Small pill under [SearchPill] naming the convoy this device is currently
+ *  live in, i.e. whenever [ConvoyLiveClient.connected] is true. */
+@Composable
+private fun ConvoyPill(name: String, modifier: Modifier = Modifier) {
+    Card(
+        modifier = modifier.glassBorder(CircleShape),
+        shape = CircleShape,
+        colors = CardDefaults.cardColors(containerColor = glassContainerColor()),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Outlined.Groups,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(name, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
