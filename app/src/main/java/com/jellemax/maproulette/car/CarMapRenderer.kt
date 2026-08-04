@@ -47,19 +47,33 @@ class CarMapRenderer(
     // be the first thing to touch the SDK in this process — the head unit
     // starts the app without the activity ever running — and MapView's
     // constructor throws when it isn't initialised. getInstance is idempotent.
-    private val mapView = run {
+    init {
         MapLibre.getInstance(carContext)
-        MapView(carContext)
     }
 
     private val hud = HudOverlay(carContext)
 
+    // Built fresh for each surface instead of once per renderer. Tearing the
+    // display down has to call MapView.onDestroy(), which releases the native
+    // renderer permanently, so the same view cannot be re-attached to the next
+    // Presentation — onCreate/getMapAsync on a destroyed MapView never draws.
+    // A real head unit hands out a new surface every time the user switches to
+    // another car app and comes back, which left the map black from the second
+    // surface on; the DHU only ever creates one, so this never showed up there.
+    private var mapView: MapView? = null
     private var mapLibreMap: MapLibreMap? = null
     var overlays: MapOverlays? = null
         private set
 
     private var virtualDisplay: VirtualDisplay? = null
     private var presentation: Presentation? = null
+
+    // The host reports the visible area independently of the surface, and does
+    // not repeat it for a replacement surface, so it is kept and re-applied to
+    // each new map rather than read back from the callback.
+    private val visibleArea = Rect()
+    private var surfaceWidth = 0
+    private var surfaceHeight = 0
 
     /** Called on every GPS fix: follows the camera and updates the HUD numbers. */
     fun updatePosition(pos: LatLon, bearingDeg: Float, speedKmh: Double, limitKmh: Double?, zoom: Double) {
@@ -73,6 +87,8 @@ class CarMapRenderer(
         val height = surfaceContainer.height
         if (width <= 0 || height <= 0) return
         tearDownDisplay()
+        surfaceWidth = width
+        surfaceHeight = height
 
         val display = carContext.getSystemService(DisplayManager::class.java).createVirtualDisplay(
             "MapRouletteCarMap",
@@ -88,20 +104,25 @@ class CarMapRenderer(
         ) ?: return
         virtualDisplay = display
 
+        // The HUD carries its numbers and safe area across a surface swap, so
+        // it is the one child that outlives the Presentation it was in.
+        val view = MapView(carContext)
+        mapView = view
+
         presentation = Presentation(carContext, display.display).apply {
             setContentView(
                 FrameLayout(context).apply {
-                    addView(mapView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+                    addView(view, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
                     addView(hud, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
                 },
             )
             show()
         }
 
-        mapView.onCreate(null)
-        mapView.onStart()
-        mapView.onResume()
-        mapView.getMapAsync { map ->
+        view.onCreate(null)
+        view.onStart()
+        view.onResume()
+        view.getMapAsync { map ->
             map.uiSettings.isCompassEnabled = false
             map.uiSettings.isRotateGesturesEnabled = false
             // Attribution has to stay, but every other corner is taken: the
@@ -113,6 +134,7 @@ class CarMapRenderer(
             map.uiSettings.setLogoMargins(edge, edge, 0, 0)
             map.uiSettings.setAttributionMargins(edge, edge, 0, 0)
             mapLibreMap = map
+            applyPadding(map)
             map.setStyle(Style.Builder().fromUri(openFreeMapStyleUrl(darkTheme))) { style ->
                 overlays = MapOverlays(style, carContext, darkTheme)
             }
@@ -123,12 +145,22 @@ class CarMapRenderer(
         // Keep the followed position centered in what's actually visible,
         // not behind the action strip / trip-status chrome the host draws
         // over part of the surface.
+        if (visibleArea.isEmpty) return
+        this.visibleArea.set(visibleArea)
         hud.setSafeArea(visibleArea)
-        val map = mapLibreMap ?: return
+        mapLibreMap?.let { applyPadding(it) }
+    }
+
+    /** Insets the camera to [visibleArea]. Measured against the surface rather
+     *  than the MapView, whose width/height are still 0 when the style loads
+     *  before the Presentation's first layout pass — the map fills the virtual
+     *  display, so the two are the same size once laid out. */
+    private fun applyPadding(map: MapLibreMap) {
+        if (visibleArea.isEmpty || surfaceWidth <= 0 || surfaceHeight <= 0) return
         map.setPadding(
             visibleArea.left, visibleArea.top,
-            (mapView.width - visibleArea.right).coerceAtLeast(0),
-            (mapView.height - visibleArea.bottom).coerceAtLeast(0),
+            (surfaceWidth - visibleArea.right).coerceAtLeast(0),
+            (surfaceHeight - visibleArea.bottom).coerceAtLeast(0),
         )
     }
 
@@ -145,16 +177,21 @@ class CarMapRenderer(
         if (presentation == null && virtualDisplay == null) return
         mapLibreMap = null
         overlays = null
-        runCatching {
-            mapView.onPause()
-            mapView.onStop()
-            mapView.onDestroy()
+        mapView?.let { view ->
+            runCatching {
+                view.onPause()
+                view.onStop()
+                view.onDestroy()
+            }
+            (view.parent as? FrameLayout)?.removeAllViews()
         }
+        // Dropped rather than kept for the next surface: onDestroy() above is
+        // one-way, so the replacement has to be a new MapView.
+        mapView = null
         presentation?.dismiss()
         presentation = null
         virtualDisplay?.release()
         virtualDisplay = null
-        (mapView.parent as? FrameLayout)?.removeAllViews()
     }
 }
 

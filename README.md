@@ -27,6 +27,7 @@ Ghent. Nothing in them is a real location.</sub>
 - [You: history, badges, friends](#you-history-badges-friends)
 - [Settings reference](#settings-reference)
 - [On your wrist](#on-your-wrist)
+- [On the car screen](#on-the-car-screen)
 - [Stack](#stack)
 - [Build](#build)
 - [Self-hosting the server](#self-hosting-the-server)
@@ -348,6 +349,18 @@ your history and fog from the server.
 A Wear OS companion shows the next maneuver and the distance to it, and wakes
 itself on the watch when navigation starts on the phone. Install the watch APK
 from the same release.
+
+## On the car screen
+
+Android Auto gets a car-sized spin: pick a radius, spin a destination, and drive
+it turn by turn on the head unit, with the same map, speed readout and camera
+warnings as the phone. Search works there too.
+
+One catch, and it is Google's rather than the app's: a real head unit only lists
+apps built on the Android for Cars App Library when they were installed **from
+Google Play**. The Desktop Head Unit accepts a sideloaded APK, a car never does.
+[docs/ANDROID_AUTO.md](docs/ANDROID_AUTO.md) covers the Internal App Sharing
+route and how to debug the car screen.
 
 ## Stack
 
