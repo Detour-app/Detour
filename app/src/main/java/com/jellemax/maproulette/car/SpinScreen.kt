@@ -7,16 +7,19 @@ import androidx.car.app.CarContext
 import androidx.car.app.Screen
 import androidx.car.app.model.Action
 import androidx.car.app.model.ActionStrip
+import androidx.car.app.model.CarIcon
 import androidx.car.app.model.MessageTemplate
 import androidx.car.app.model.Pane
 import androidx.car.app.model.PaneTemplate
 import androidx.car.app.model.Row
 import androidx.car.app.model.Template
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.IconCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.google.android.gms.location.LocationServices
+import com.jellemax.maproulette.R
 import com.jellemax.maproulette.data.ExploredArea
 import com.jellemax.maproulette.data.LatLon
 import com.jellemax.maproulette.data.PoiKind
@@ -119,6 +122,18 @@ class SpinScreen(carContext: CarContext) : Screen(carContext) {
             .setHeaderAction(Action.APP_ICON)
             .setActionStrip(
                 ActionStrip.Builder()
+                    // Icon-only: a strip allows just one action with a custom
+                    // title, and that is Spin.
+                    .addAction(
+                        Action.Builder()
+                            .setIcon(
+                                CarIcon.Builder(
+                                    IconCompat.createWithResource(carContext, R.drawable.ic_car_search),
+                                ).build(),
+                            )
+                            .setOnClickListener { screenManager.push(SearchScreen(carContext)) }
+                            .build(),
+                    )
                     .addAction(
                         Action.Builder()
                             .setTitle("Spin")
