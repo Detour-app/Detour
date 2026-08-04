@@ -22,6 +22,7 @@ import com.jellemax.maproulette.data.LatLon
 import com.jellemax.maproulette.data.PoiKind
 import com.jellemax.maproulette.data.RouteCandidate
 import com.jellemax.maproulette.data.RoutingServer
+import com.jellemax.maproulette.data.ServerConfig
 import com.jellemax.maproulette.data.TravelMode
 import com.jellemax.maproulette.data.pickCandidate
 import com.jellemax.maproulette.ui.formatDistanceKm
@@ -43,6 +44,7 @@ class SpinScreen(carContext: CarContext) : Screen(carContext) {
 
     private var myLocation: LatLon? = null
     private var candidate: RouteCandidate? = null
+    private var serverConfig: ServerConfig? = null
     private var spinning = false
     private var errorText: String? = null
 
@@ -82,10 +84,20 @@ class SpinScreen(carContext: CarContext) : Screen(carContext) {
                         .addText(formatDistanceKm(meters))
                         .build()
                 )
+                // Turn-by-turn only when the pick actually has turn data (own
+                // server reachable); otherwise fall back to handing off to
+                // whatever nav app is default on the head unit.
+                val hasTurnData = c.route?.instructions?.isNotEmpty() == true
                 pane.addAction(
                     Action.Builder()
-                        .setTitle("Navigate")
-                        .setOnClickListener { navigate(c.destination) }
+                        .setTitle(if (hasTurnData) "Start Navigation" else "Navigate")
+                        .setOnClickListener {
+                            val config = serverConfig
+                            val navScreen = if (config != null)
+                                NavScreen.forCandidate(carContext, myLocation!!, c, config) else null
+                            if (navScreen != null) screenManager.push(navScreen)
+                            else navigate(c.destination)
+                        }
                         .build()
                 )
             }
@@ -144,6 +156,7 @@ class SpinScreen(carContext: CarContext) : Screen(carContext) {
         lifecycleScope.launch {
             try {
                 val config = withContext(Dispatchers.IO) { RoutingServer.load(carContext) }
+                serverConfig = config
                 val explored = withContext(Dispatchers.IO) { ExploredArea.load(carContext) }
                 val radiusMeters = radiusPresetsKm[radiusIndex].toDouble() * 1000.0
                 candidate = withContext(Dispatchers.IO) {

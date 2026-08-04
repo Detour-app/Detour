@@ -262,10 +262,6 @@ private const val FIT_PADDING_PX = 140
 private const val CAM_RESUME_SPEED_MPS = 3.0
 private const val CAM_RESUME_QUIET_MS = 8_000L
 
-// How far ahead a speed camera triggers the over-speed chime. ~400 m is ~12 s
-// of warning at motorway speed — time to ease off before the camera.
-private const val CAMERA_WARN_METERS = 400.0
-
 // How close to a section's device node counts as passing it, for entering and
 // leaving a trajectcontrole average-speed measurement.
 private const val SECTION_GATE_METERS = 60.0
@@ -918,7 +914,7 @@ fun MapScreen(
             val pos = LatLon(fix.lat, fix.lon)
             val heading = fix.bearingDeg?.toDouble()
             val ahead = speedCamerasRef.value.filter { cam ->
-                RoadRoulette.distanceMeters(pos, cam.at) <= CAMERA_WARN_METERS &&
+                RoadRoulette.distanceMeters(pos, cam.at) <= SpeedCameras.WARN_METERS &&
                     (heading == null ||
                         RoadRoulette.withinWedge(pos, cam.at, heading, 45.0))
             }.minByOrNull { RoadRoulette.distanceMeters(pos, it.at) }
