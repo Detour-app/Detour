@@ -129,7 +129,7 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
             PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
             PropertyFactory.textField(Expression.get("name")),
             PropertyFactory.textSize(11f), PropertyFactory.textOffset(arrayOf(0f, 1.6f)),
-            PropertyFactory.textColor("#FFFFFFFF"), PropertyFactory.textHaloColor("#FF000000"),
+            PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("#000000"),
             PropertyFactory.textHaloWidth(1.2f),
             PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(true)))
         // Speed cameras: static markers fed by the prefetch loop. Sit under the

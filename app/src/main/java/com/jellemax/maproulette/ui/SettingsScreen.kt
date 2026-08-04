@@ -504,9 +504,9 @@ private fun ConfigFileSection() {
 
     SettingsSection("Server config file") {
         Text(
-            "Save the routing server, its Cloudflare credentials, the sync " +
-                "server and your sign-in to a file. After a reinstall, import " +
-                "it instead of typing everything again.",
+            "Save the server URL, its Cloudflare credentials and your " +
+                "sign-in to a file. After a reinstall, import it instead of " +
+                "typing everything again.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
