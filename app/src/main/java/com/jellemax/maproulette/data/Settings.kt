@@ -16,6 +16,10 @@ object Settings {
     /** AUTO = light by day, dark by night (sun position at last location). */
     enum class Theme { SYSTEM, LIGHT, DARK, AUTO }
 
+    /** ASK = today's behavior, the Go dropdown opens every tap. Anything else
+     *  and a tap goes straight to that app; long-press still reopens the menu. */
+    enum class NavApp { ASK, IN_APP, GOOGLE_MAPS, WAZE, OTHER }
+
     const val FOG_RADIUS_DEFAULT = 200f
     const val DEFAULT_ZOOM_DEFAULT = 16f
     const val DEFAULT_ZOOM_MIN = 12f
@@ -103,6 +107,10 @@ object Settings {
     private val _leanOffsetDeg = MutableStateFlow(0f)
     val leanOffsetDeg: StateFlow<Float> = _leanOffsetDeg
 
+    /** Remembered nav app for the Go button. ASK until the user picks one. */
+    private val _preferredNavApp = MutableStateFlow(NavApp.ASK)
+    val preferredNavApp: StateFlow<NavApp> = _preferredNavApp
+
     fun init(context: Context) {
         if (::prefs.isInitialized) return
         prefs = context.applicationContext
@@ -123,6 +131,9 @@ object Settings {
         _authToken.value = prefs.getString("auth_token", "") ?: ""
         _authUsername.value = prefs.getString("auth_username", "") ?: ""
         _leanOffsetDeg.value = prefs.getFloat("lean_offset_deg", 0f)
+        _preferredNavApp.value = runCatching {
+            NavApp.valueOf(prefs.getString("preferred_nav_app", NavApp.ASK.name)!!)
+        }.getOrDefault(NavApp.ASK)
         _vehicleDevices.value = readVehicleDevices()
     }
 
@@ -229,5 +240,10 @@ object Settings {
     fun setLeanOffsetDeg(value: Float) {
         _leanOffsetDeg.value = value
         prefs.edit().putFloat("lean_offset_deg", value).apply()
+    }
+
+    fun setPreferredNavApp(value: NavApp) {
+        _preferredNavApp.value = value
+        prefs.edit().putString("preferred_nav_app", value.name).apply()
     }
 }

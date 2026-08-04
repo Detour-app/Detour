@@ -48,8 +48,8 @@ android {
         applicationId = "com.jellemax.maproulette"
         minSdk = 26
         targetSdk = 35
-        versionCode = 53
-        versionName = "1.46"
+        versionCode = 54
+        versionName = "1.47"
 
         buildConfigField("String", "ROUTING_URL",
             "\"${serviceUrl("routing.url", "ROUTING_SERVER_URL")}\"")
@@ -124,9 +124,12 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("org.maplibre.gl:android-sdk:11.8.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
+    // Android Auto: projects a car-screen "Spin" flow onto the head unit.
+    implementation("androidx.car.app:app:1.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
     // WebSocket client for the convoy live-location/PTT relay - Android has
     // no built-in WS client and hand-rolling RFC 6455 framing isn't worth it.

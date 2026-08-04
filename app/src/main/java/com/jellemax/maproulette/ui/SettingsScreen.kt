@@ -266,11 +266,40 @@ private fun TrackingSection(autoDetect: Boolean, context: Context) {
     }
 }
 
+private fun navAppLabel(app: Settings.NavApp): String = when (app) {
+    Settings.NavApp.ASK -> "Ask each time"
+    Settings.NavApp.IN_APP -> "Navigate in app"
+    Settings.NavApp.GOOGLE_MAPS -> "Google Maps"
+    Settings.NavApp.WAZE -> "Waze"
+    Settings.NavApp.OTHER -> "Other app"
+}
+
 @Composable
 private fun NavigationSection() {
     val avoidHighways by Settings.avoidHighways.collectAsStateWithLifecycle()
     val avoidSmallRoads by Settings.avoidSmallRoads.collectAsStateWithLifecycle()
+    val preferredNavApp by Settings.preferredNavApp.collectAsStateWithLifecycle()
     SettingsSection("Navigation") {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Remembered nav app", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Go currently launches: ${navAppLabel(preferredNavApp)}. " +
+                        "Long-press Go to change it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (preferredNavApp != Settings.NavApp.ASK) {
+                TextButton(onClick = { Settings.setPreferredNavApp(Settings.NavApp.ASK) }) {
+                    Text("Reset")
+                }
+            }
+        }
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

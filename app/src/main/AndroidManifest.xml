@@ -38,6 +38,13 @@
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true">
 
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="1" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -59,6 +66,18 @@
             android:name=".convoy.ConvoyLiveService"
             android:foregroundServiceType="location|microphone"
             android:exported="false" />
+
+        <!-- Android Auto: "Spin" from the car screen, hand off to the phone's
+             default nav app. Same APK/process as the phone UI — no separate
+             module, unlike the genuinely standalone :wear app. -->
+        <service
+            android:name=".car.MapRouletteCarAppService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <category android:name="androidx.car.app.category.POI" />
+            </intent-filter>
+        </service>
 
         <service
             android:name=".media.MediaListenerService"

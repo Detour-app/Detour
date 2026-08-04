@@ -29,7 +29,9 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -163,9 +165,11 @@ import com.jellemax.maproulette.data.PoiKind
 import com.jellemax.maproulette.data.PoiRoulette
 import com.jellemax.maproulette.data.RecentSearchStore
 import com.jellemax.maproulette.data.RoadRoulette
+import com.jellemax.maproulette.data.RouteCandidate
 import com.jellemax.maproulette.data.RoundTripPlanner
 import com.jellemax.maproulette.data.RouteResult
 import com.jellemax.maproulette.data.RoutingServer
+import com.jellemax.maproulette.data.pickCandidate
 import com.jellemax.maproulette.data.SavedPlace
 import com.jellemax.maproulette.data.SavedPlaces
 import com.jellemax.maproulette.data.ServerConfig
@@ -303,15 +307,6 @@ private fun sectionExitGate(
 private val CANDIDATE_COLORS = listOf(0xFF7E57C2, 0xFF00897B, 0xFFF4511E)
     .map { it.toInt() }
 
-/** One spin result awaiting a pick; [route] is null when the routing server
- *  couldn't be reached — the card then shows straight-line distance only. */
-private data class RouteCandidate(
-    val destination: LatLon,
-    val name: String?,
-    val route: RouteResult?,
-    val straightLineMeters: Double,
-)
-
 /** The last spin outcome, kept outside `remember` so it survives activity
  *  recreation (rotation, split-screen resize, a backgrounded process losing
  *  just the Activity) — process-scoped, not a substitute for the stores that
@@ -326,54 +321,6 @@ private data class SpinResult(
 
 private object SpinResultHolder {
     val state = MutableStateFlow(SpinResult())
-}
-
-/** Picks one destination candidate and eagerly routes to it, so the card list
- *  can show real road distance/ETA instead of a straight line. */
-private suspend fun pickCandidate(
-    config: ServerConfig,
-    loc: LatLon,
-    radiusMeters: Double,
-    minRadiusMeters: Double,
-    mode: TravelMode,
-    poiKind: PoiKind,
-    bearing: Double?,
-    explored: ExploredArea,
-): RouteCandidate {
-    val (dest, name) = if (poiKind != PoiKind.ROAD) {
-        val poi = PoiRoulette.randomPoi(loc, radiusMeters, poiKind, bearing, explored, minRadiusMeters)
-        poi.location to poi.name
-    } else {
-        // Own server snaps a random point to a road reachable in this mode's
-        // profile; Overpass fallback below.
-        val server = if (config.usable) {
-            try {
-                RoutingServer.randomRoadDestination(
-                    config, loc, radiusMeters, bearing, explored, mode.ghProfile, minRadiusMeters)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                null
-            }
-        } else null
-        val d = server ?: RoadRoulette.randomRoadPoint(
-            loc, radiusMeters, mode.highwayRegex, bearing, explored, minRadiusMeters)
-        d to null
-    }
-    val route = try {
-        RoutingServer.route(config, loc, dest, mode.ghProfile,
-            Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        null
-    }
-    return RouteCandidate(
-        destination = dest,
-        name = name,
-        route = route,
-        straightLineMeters = RoadRoulette.distanceMeters(loc, dest),
-    )
 }
 
 /** What currently occupies the bottom-card slot on the map. */
@@ -1844,6 +1791,71 @@ private fun ScrollingPillRow(
     }
 }
 
+/** Launches navigation via [app] and remembers it as the default for next
+ *  time — the single dispatch point behind the dropdown items in
+ *  [NavMenuItems] and the direct-tap bypass on [NavButton]/[NavIconButton]. */
+private fun launchNav(
+    context: Context,
+    app: Settings.NavApp,
+    destination: LatLon?,
+    route: List<LatLon>?,
+    origin: LatLon?,
+    mode: TravelMode,
+    onNavigateInApp: () -> Unit,
+    onNavigate: () -> Unit,
+) {
+    when (app) {
+        Settings.NavApp.IN_APP -> onNavigateInApp()
+        Settings.NavApp.GOOGLE_MAPS -> {
+            onNavigate()
+            // Waze can't take multi-waypoint routes; Google Maps only.
+            if (route != null && origin != null) navigateRoundTrip(context, origin, route)
+            else destination?.let { navigateGoogleMaps(context, it, mode) }
+        }
+        Settings.NavApp.WAZE -> { onNavigate(); destination?.let { navigateWaze(context, it) } }
+        Settings.NavApp.OTHER -> { onNavigate(); destination?.let { navigateGeo(context, it) } }
+        Settings.NavApp.ASK -> return // unreachable — callers only pass a concrete app
+    }
+    Settings.setPreferredNavApp(app)
+}
+
+/** Whether [app] can be launched right now without opening the menu — false
+ *  for ASK (nothing remembered yet), and false when a round-trip route is
+ *  active but [app] can't take multi-waypoint routes (Waze/"Other app"). */
+private fun navAppUsableDirectly(
+    app: Settings.NavApp,
+    inAppAvailable: Boolean,
+    route: List<LatLon>?,
+    origin: LatLon?,
+): Boolean = when (app) {
+    Settings.NavApp.ASK -> false
+    Settings.NavApp.IN_APP -> inAppAvailable
+    Settings.NavApp.GOOGLE_MAPS -> true
+    Settings.NavApp.WAZE, Settings.NavApp.OTHER -> !(route != null && origin != null)
+}
+
+/** A tap on [NavButton]/[NavIconButton]: go straight to the remembered app
+ *  when it's usable here, otherwise fall back to opening the menu — the
+ *  same fallback a long-press always takes. */
+private fun handleGoTap(
+    context: Context,
+    preferred: Settings.NavApp,
+    inAppAvailable: Boolean,
+    destination: LatLon?,
+    route: List<LatLon>?,
+    origin: LatLon?,
+    mode: TravelMode,
+    onNavigateInApp: () -> Unit,
+    onNavigate: () -> Unit,
+    openMenu: () -> Unit,
+) {
+    if (navAppUsableDirectly(preferred, inAppAvailable, route, origin)) {
+        launchNav(context, preferred, destination, route, origin, mode, onNavigateInApp, onNavigate)
+    } else {
+        openMenu()
+    }
+}
+
 /** Shared "Go" menu items — in-app when reachable, otherwise the external-app
  *  chooser. Backs both the full-width [NavButton] and the dock's compact
  *  [NavIconButton] so the routing logic lives in exactly one place. */
@@ -1859,36 +1871,40 @@ private fun NavMenuItems(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    fun pick(app: Settings.NavApp) {
+        onDismiss()
+        launchNav(context, app, destination, route, origin, mode, onNavigateInApp, onNavigate)
+    }
     if (inAppAvailable) {
         DropdownMenuItem(
             text = { Text("Navigate in app") },
-            onClick = { onDismiss(); onNavigateInApp() },
+            onClick = { pick(Settings.NavApp.IN_APP) },
         )
     }
     if (route != null && origin != null) {
-        // Waze can't take multi-waypoint routes; Google Maps only.
         DropdownMenuItem(
             text = { Text("Google Maps (round trip)") },
-            onClick = { onDismiss(); onNavigate(); navigateRoundTrip(context, origin, route) },
+            onClick = { pick(Settings.NavApp.GOOGLE_MAPS) },
         )
     } else {
         DropdownMenuItem(
             text = { Text("Google Maps") },
-            onClick = { onDismiss(); onNavigate(); destination?.let { navigateGoogleMaps(context, it, mode) } },
+            onClick = { pick(Settings.NavApp.GOOGLE_MAPS) },
         )
         DropdownMenuItem(
             text = { Text("Waze") },
-            onClick = { onDismiss(); onNavigate(); destination?.let { navigateWaze(context, it) } },
+            onClick = { pick(Settings.NavApp.WAZE) },
         )
         DropdownMenuItem(
             text = { Text("Other app") },
-            onClick = { onDismiss(); onNavigate(); destination?.let { navigateGeo(context, it) } },
+            onClick = { pick(Settings.NavApp.OTHER) },
         )
     }
 }
 
 /** Compact circular "Go" trigger for the dock — same menu as [NavButton],
  *  just a 40dp icon button instead of a labelled tonal one. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun NavIconButton(
     destination: LatLon?,
@@ -1901,13 +1917,30 @@ private fun NavIconButton(
     modifier: Modifier = Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val preferred by Settings.preferredNavApp.collectAsStateWithLifecycle()
+    val enabled = destination != null || (route != null && origin != null)
     Box(modifier) {
-        FilledTonalIconButton(
-            onClick = { menuOpen = true },
-            enabled = destination != null || (route != null && origin != null),
-            modifier = Modifier.size(40.dp),
+        Surface(
+            modifier = Modifier
+                .size(40.dp)
+                .combinedClickable(
+                    enabled = enabled,
+                    onClick = {
+                        handleGoTap(context, preferred, inAppAvailable, destination, route, origin,
+                            mode, onNavigateInApp, onNavigate) { menuOpen = true }
+                    },
+                    onLongClick = { menuOpen = true },
+                ),
+            shape = CircleShape,
+            color = if (enabled) MaterialTheme.colorScheme.secondaryContainer
+                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+            contentColor = if (enabled) MaterialTheme.colorScheme.onSecondaryContainer
+                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
         ) {
-            Icon(Icons.Outlined.Navigation, contentDescription = "Go")
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Icon(Icons.Outlined.Navigation, contentDescription = "Go")
+            }
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             NavMenuItems(destination, route, origin, mode, inAppAvailable,
@@ -2637,6 +2670,7 @@ private fun SectionAverageChip(averageKmh: Double, limitKmh: Double?, modifier: 
 }
 
 /** "Go" button with a chooser for the navigation app. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun NavButton(
     destination: LatLon?,
@@ -2649,15 +2683,37 @@ private fun NavButton(
     modifier: Modifier = Modifier,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val preferred by Settings.preferredNavApp.collectAsStateWithLifecycle()
+    val enabled = destination != null || (route != null && origin != null)
     Box(modifier) {
-        FilledTonalButton(
-            onClick = { menuOpen = true },
-            enabled = destination != null || (route != null && origin != null),
-            modifier = Modifier.fillMaxWidth(),
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(40.dp)
+                .combinedClickable(
+                    enabled = enabled,
+                    onClick = {
+                        handleGoTap(context, preferred, inAppAvailable, destination, route, origin,
+                            mode, onNavigateInApp, onNavigate) { menuOpen = true }
+                    },
+                    onLongClick = { menuOpen = true },
+                ),
+            shape = ButtonDefaults.shape,
+            color = if (enabled) MaterialTheme.colorScheme.secondaryContainer
+                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+            contentColor = if (enabled) MaterialTheme.colorScheme.onSecondaryContainer
+                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
         ) {
-            Icon(Icons.Outlined.Navigation, contentDescription = null, Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Go", maxLines = 1)
+            Row(
+                Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Outlined.Navigation, contentDescription = null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Go", maxLines = 1)
+            }
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             NavMenuItems(destination, route, origin, mode, inAppAvailable,
