@@ -80,14 +80,6 @@ object Settings {
     private val _shareFog = MutableStateFlow(false)
     val shareFog: StateFlow<Boolean> = _shareFog
 
-    /** User-entered sync server URL; blank = use the baked-in default. */
-    private val _syncUrl = MutableStateFlow("")
-    val syncUrl: StateFlow<String> = _syncUrl
-
-    /** User-entered geocoder (Photon) URL; blank = baked default, else public Photon. */
-    private val _geocoderUrl = MutableStateFlow("")
-    val geocoderUrl: StateFlow<String> = _geocoderUrl
-
     /** Whether search may retry via the public Photon instance (komoot.io) when
      *  a configured custom/baked geocoder is unreachable — sends the query and
      *  the user's approximate location off their own hardware. Only consulted
@@ -127,8 +119,6 @@ object Settings {
         _fogEnabled.value = prefs.getBoolean("fog_enabled", true)
         _fogRadiusMeters.value = prefs.getFloat("fog_radius_m", FOG_RADIUS_DEFAULT)
         _defaultZoom.value = prefs.getFloat("default_zoom", DEFAULT_ZOOM_DEFAULT)
-        _syncUrl.value = prefs.getString("sync_url", "") ?: ""
-        _geocoderUrl.value = prefs.getString("geocoder_url", "") ?: ""
         _geocoderPublicFallback.value = prefs.getBoolean("geocoder_public_fallback", true)
         _authToken.value = prefs.getString("auth_token", "") ?: ""
         _authUsername.value = prefs.getString("auth_username", "") ?: ""
@@ -229,16 +219,6 @@ object Settings {
     fun setDefaultZoom(value: Float) {
         _defaultZoom.value = value
         prefs.edit().putFloat("default_zoom", value).apply()
-    }
-
-    fun setSyncUrl(value: String) {
-        _syncUrl.value = value.trim()
-        prefs.edit().putString("sync_url", value.trim()).apply()
-    }
-
-    fun setGeocoderUrl(value: String) {
-        _geocoderUrl.value = value.trim()
-        prefs.edit().putString("geocoder_url", value.trim()).apply()
     }
 
     fun setGeocoderPublicFallback(value: Boolean) {

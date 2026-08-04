@@ -28,8 +28,6 @@ object ConfigFile {
             .put("routingUrl", server.url)
             .put("routingClientId", server.clientId)
             .put("routingClientSecret", server.clientSecret)
-            .put("syncUrl", SyncClient.url(context) ?: "")
-            .put("geocoderUrl", Settings.geocoderUrl.value)
             .put("authToken", Settings.authToken.value)
             .put("authUsername", Settings.authUsername.value)
         context.contentResolver.openOutputStream(uri, "wt")?.use {
@@ -56,8 +54,6 @@ object ConfigFile {
                 enabled = true,
             ))
         }
-        Settings.setSyncUrl(json.optString("syncUrl"))
-        Settings.setGeocoderUrl(json.optString("geocoderUrl"))
         val token = json.optString("authToken").trim()
         if (token.isNotBlank()) {
             Settings.setAuth(token, json.optString("authUsername").trim())

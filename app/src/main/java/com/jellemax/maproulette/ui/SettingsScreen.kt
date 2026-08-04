@@ -420,8 +420,6 @@ private fun FogSection(context: Context) {
 private fun SyncSection() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val syncUrl by Settings.syncUrl.collectAsStateWithLifecycle()
-    var urlField by remember { mutableStateOf(syncUrl) }
     var status by remember { mutableStateOf<String?>(null) }
     var syncing by remember { mutableStateOf(false) }
 
@@ -431,9 +429,8 @@ private fun SyncSection() {
         Text(
             "Trips, explored area and badges are merged with your server after " +
                 "every trip and on app start, so a reinstall restores everything. " +
-                "Only needed if sync runs on a different host than the Server " +
-                "URL under Server settings — leave empty to reuse that. Uses " +
-                "the same Cloudflare Access credentials.",
+                "Uses the Server URL and Cloudflare Access credentials under " +
+                "Server settings.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -443,21 +440,10 @@ private fun SyncSection() {
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Bold,
         )
-        OutlinedTextField(
-            value = urlField, onValueChange = { urlField = it },
-            label = { Text("Sync server URL override (optional)") },
-            placeholder = { Text("https://…") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = {
-                Settings.setSyncUrl(urlField)
-                status = "Saved"
-            }) { Text("Save") }
             TextButton(
                 enabled = !syncing && SyncClient.configured(context) && signedInAs.isNotBlank(),
                 onClick = {
@@ -924,7 +910,6 @@ private fun ServerSection() {
     var url by remember { mutableStateOf(custom?.url ?: "") }
     var clientId by remember { mutableStateOf(custom?.clientId ?: "") }
     var clientSecret by remember { mutableStateOf(custom?.clientSecret ?: "") }
-    var geocoderUrl by remember { mutableStateOf(Settings.geocoderUrl.value) }
     val geocoderPublicFallback by Settings.geocoderPublicFallback.collectAsStateWithLifecycle()
     var saved by remember { mutableStateOf(false) }
 
@@ -942,8 +927,7 @@ private fun ServerSection() {
             "Optional: one self-hosted address for routing, search, sync " +
                 "and the convoy live relay (see server/INSTALL.md's " +
                 "one-hostname layout). Leave empty to use the built-in " +
-                "routing/search servers, with sync and live off. The " +
-                "fields below override this for a single service.",
+                "routing/search servers, with sync and live off.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -963,21 +947,6 @@ private fun ServerSection() {
         OutlinedTextField(
             value = clientSecret, onValueChange = { clientSecret = it; saved = false },
             label = { Text("CF Access Client Secret (optional)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Text(
-            "Only needed if search runs on a different host than the " +
-                "Server URL above. Leave empty to reuse it (or the public " +
-                "Photon instance if that's empty too). Reuses the " +
-                "Cloudflare Access credentials above.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        OutlinedTextField(
-            value = geocoderUrl, onValueChange = { geocoderUrl = it; saved = false },
-            label = { Text("Search server URL override (optional)") },
-            placeholder = { Text("https://…") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -1009,14 +978,12 @@ private fun ServerSection() {
                     RoutingServer.save(
                         context, ServerConfig(url, clientId, clientSecret, enabled = true))
                 }
-                Settings.setGeocoderUrl(geocoderUrl)
                 saved = true
             }) { Text(if (saved) "Saved ✓" else "Save server") }
             if (custom != null) {
                 TextButton(onClick = {
                     RoutingServer.clearCustom(context)
-                    Settings.setGeocoderUrl("")
-                    url = ""; clientId = ""; clientSecret = ""; geocoderUrl = ""
+                    url = ""; clientId = ""; clientSecret = ""
                     saved = true
                 }) { Text("Remove custom server") }
             }

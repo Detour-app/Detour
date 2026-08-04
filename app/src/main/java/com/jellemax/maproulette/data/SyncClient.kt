@@ -20,10 +20,9 @@ object SyncClient {
 
     data class SyncResult(val trips: Int, val traces: Int, val badges: Int)
 
-    /** Effective sync URL: user setting → shared server URL (Settings) → baked default. */
+    /** Effective sync URL: the one server address (Settings) → baked default. */
     fun url(context: Context): String? =
-        Settings.syncUrl.value
-            .ifBlank { RoutingServer.loadCustom(context)?.url ?: "" }
+        (RoutingServer.loadCustom(context)?.url ?: "")
             .ifBlank { BuildConfig.SYNC_URL }
             .ifBlank { null }
 

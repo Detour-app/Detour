@@ -27,9 +27,8 @@ object Geocoder {
 
     private const val PUBLIC = "https://photon.komoot.io"
 
-    /** Effective Photon base URL: custom → shared server URL (Settings) → baked → public. */
+    /** Effective Photon base URL: the one server address (Settings) → baked → public. */
     private fun baseUrl(context: Context): String {
-        Settings.geocoderUrl.value.trim().takeIf { it.isNotBlank() }?.let { return it }
         RoutingServer.loadCustom(context)?.url?.takeIf { it.isNotBlank() }?.let { return it }
         BuildConfig.GEOCODER_URL.takeIf { it.isNotBlank() }?.let { return it }
         return PUBLIC
