@@ -92,7 +92,7 @@ views:
 
           # Distance added per day. total_increasing, so "change" is the daily
           # delta rather than the running total.
-          - type: statistic-graph
+          - type: statistics-graph
             title: Kilometres per day
             entities:
               - sensor.map_roulette_total_distance
@@ -126,7 +126,7 @@ views:
             name: Top speed
 
           - type: markdown
-            content: >-
+            content: |-
               {% set lean = state_attr('sensor.map_roulette_last_ride', 'maxLeanDeg') %}
               {% set g = state_attr('sensor.map_roulette_last_ride', 'maxGForce') %}
               {% set pts = state_attr('sensor.map_roulette_last_ride', 'pointCount') %}
@@ -167,7 +167,7 @@ views:
             icon: mdi:format-list-bulleted
 
           - type: markdown
-            content: >-
+            content: |-
               {% set rides = state_attr('sensor.map_roulette_recent_rides', 'rides') %}
               {% if rides %}
               | When | Vehicle | Distance | Top | Lean |
@@ -193,7 +193,7 @@ views:
             icon: mdi:medal
 
           - type: markdown
-            content: >-
+            content: |-
               {% set badges = state_attr('sensor.map_roulette_badges', 'badges') %}
               {% if badges %}
               **{{ badges | count }} earned.**
