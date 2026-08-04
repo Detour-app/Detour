@@ -288,7 +288,8 @@ private fun TripCard(
                 }
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "${trip.mode.label} · ${formatDate(trip.startTimeMs)}",
+                        "${trip.mode.label} · ${formatDate(trip.startTimeMs)} – " +
+                            formatTimeOfDay(trip.endTimeMs),
                         style = MaterialTheme.typography.titleSmall,
                     )
                     Text(

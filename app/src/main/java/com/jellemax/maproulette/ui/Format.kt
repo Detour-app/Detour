@@ -36,6 +36,10 @@ private val tripDateFormat = SimpleDateFormat("EEE d MMM yyyy, HH:mm", Locale.ge
 
 fun formatDate(timeMs: Long): String = tripDateFormat.format(Date(timeMs))
 
+private val timeOfDayFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+
+fun formatTimeOfDay(timeMs: Long): String = timeOfDayFormat.format(Date(timeMs))
+
 fun formatLeanAngle(deg: Double): String = "%.0f°".format(deg)
 
 fun formatGForce(g: Double): String = "%.1f g".format(g)
