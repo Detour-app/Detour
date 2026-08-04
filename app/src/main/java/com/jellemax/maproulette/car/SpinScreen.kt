@@ -67,7 +67,18 @@ class SpinScreen(carContext: CarContext) : Screen(carContext) {
         pane.addRow(
             Row.Builder()
                 .setTitle("Radius: ${radiusPresetsKm[radiusIndex].toInt()} km")
-                .addText("Use the radius button above to change it")
+                .addText("Tap the radius button below to change it")
+                .build()
+        )
+        // Lives in the pane, not the action strip: a strip allows only one
+        // action with a custom title, and that slot goes to Spin.
+        pane.addAction(
+            Action.Builder()
+                .setTitle("Radius: ${radiusPresetsKm[radiusIndex].toInt()} km")
+                .setOnClickListener {
+                    radiusIndex = (radiusIndex + 1) % radiusPresetsKm.size
+                    invalidate()
+                }
                 .build()
         )
         when {
@@ -108,15 +119,6 @@ class SpinScreen(carContext: CarContext) : Screen(carContext) {
             .setHeaderAction(Action.APP_ICON)
             .setActionStrip(
                 ActionStrip.Builder()
-                    .addAction(
-                        Action.Builder()
-                            .setTitle("Radius: ${radiusPresetsKm[radiusIndex].toInt()} km")
-                            .setOnClickListener {
-                                radiusIndex = (radiusIndex + 1) % radiusPresetsKm.size
-                                invalidate()
-                            }
-                            .build()
-                    )
                     .addAction(
                         Action.Builder()
                             .setTitle("Spin")
