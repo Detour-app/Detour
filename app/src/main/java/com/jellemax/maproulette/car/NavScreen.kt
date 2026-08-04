@@ -11,6 +11,7 @@ import androidx.car.app.model.ActionStrip
 import androidx.car.app.model.Distance
 import androidx.car.app.model.Template
 import androidx.car.app.navigation.NavigationManager
+import androidx.car.app.navigation.NavigationManagerCallback
 import androidx.car.app.navigation.model.Maneuver
 import androidx.car.app.navigation.model.NavigationTemplate
 import androidx.car.app.navigation.model.RoutingInfo
@@ -78,12 +79,21 @@ class NavScreen(
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 carContext.getCarService(AppManager::class.java).setSurfaceCallback(renderer)
+                // navigationStarted() throws unless a callback is registered
+                // first. onStopNavigation fires when the host hands navigation
+                // to another app, which for us means leaving this screen.
+                navigationManager.setNavigationManagerCallback(object : NavigationManagerCallback {
+                    override fun onStopNavigation() {
+                        screenManager.pop()
+                    }
+                })
                 navigationManager.navigationStarted()
             }
             // Covers every way this screen leaves the front of the stack —
             // the Exit action, arrival, and the car's own back control alike.
             override fun onStop(owner: LifecycleOwner) {
                 navigationManager.navigationEnded()
+                navigationManager.clearNavigationManagerCallback()
             }
             override fun onDestroy(owner: LifecycleOwner) {
                 renderer.destroy()
