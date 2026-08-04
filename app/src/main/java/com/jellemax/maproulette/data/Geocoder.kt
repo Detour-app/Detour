@@ -27,15 +27,16 @@ object Geocoder {
 
     private const val PUBLIC = "https://photon.komoot.io"
 
-    /** Effective Photon base URL: custom → baked → public. */
-    private fun baseUrl(): String {
+    /** Effective Photon base URL: custom → shared server URL (Settings) → baked → public. */
+    private fun baseUrl(context: Context): String {
         Settings.geocoderUrl.value.trim().takeIf { it.isNotBlank() }?.let { return it }
+        RoutingServer.loadCustom(context)?.url?.takeIf { it.isNotBlank() }?.let { return it }
         BuildConfig.GEOCODER_URL.takeIf { it.isNotBlank() }?.let { return it }
         return PUBLIC
     }
 
     fun search(context: Context, query: String, near: LatLon?, limit: Int = 8): List<GeocodeResult> {
-        val primary = baseUrl().trimEnd('/')
+        val primary = baseUrl(context).trimEnd('/')
         // If a custom/baked instance is down, fail over to the public one so search
         // keeps working — but only when the user has allowed it (Settings): that
         // fallback sends the query and an approximate location to a third party,

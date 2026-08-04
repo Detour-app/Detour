@@ -23,7 +23,7 @@ object FriendFog {
     /** Blocking; call off the main thread. Never throws — a friend's fog going
      *  missing is not worth interrupting the map for. */
     fun refresh(context: Context) {
-        if (!SyncClient.configured || !Account.signedIn || !Settings.shareFog.value) {
+        if (!SyncClient.configured(context) || !Account.signedIn || !Settings.shareFog.value) {
             _traces.value = emptyList()
             return
         }

@@ -20,15 +20,18 @@ object SyncClient {
 
     data class SyncResult(val trips: Int, val traces: Int, val badges: Int)
 
-    /** Effective sync URL: user setting first, baked default second. */
-    fun url(): String? =
-        Settings.syncUrl.value.ifBlank { BuildConfig.SYNC_URL }.ifBlank { null }
+    /** Effective sync URL: user setting → shared server URL (Settings) → baked default. */
+    fun url(context: Context): String? =
+        Settings.syncUrl.value
+            .ifBlank { RoutingServer.loadCustom(context)?.url ?: "" }
+            .ifBlank { BuildConfig.SYNC_URL }
+            .ifBlank { null }
 
-    val configured: Boolean get() = url() != null
+    fun configured(context: Context): Boolean = url(context) != null
 
     /** Fire-and-forget sync for the tracking service; never throws. */
     fun syncQuietly(context: Context) {
-        if (!configured || !Account.signedIn) return
+        if (!configured(context) || !Account.signedIn) return
         Thread {
             try {
                 sync(context)

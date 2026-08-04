@@ -101,13 +101,26 @@ object ConvoyLiveClient {
     )
     val audioChunks: SharedFlow<IncomingAudioChunk> = _audioChunks
 
+    /** Effective live-relay URL: baked default (its own hostname) → derived
+     *  from the shared server URL (Settings) — same host, ws(s):// scheme,
+     *  /live path, matching the ingress rule from server/INSTALL.md. */
+    fun liveUrl(context: Context): String {
+        BuildConfig.LIVE_URL.takeIf { it.isNotBlank() }?.let { return it }
+        val base = RoutingServer.loadCustom(context)?.url?.trimEnd('/') ?: return ""
+        return when {
+            base.startsWith("https://") -> "wss://" + base.removePrefix("https://") + "/live"
+            base.startsWith("http://") -> "ws://" + base.removePrefix("http://") + "/live"
+            else -> ""
+        }
+    }
+
     /** Join [convoyId]'s live relay; forwards [TripTrackingService.lastFix]
      *  as throttled location updates until [leave] is called. Safe to call
      *  again with a different id to switch convoys. */
     fun join(context: Context, convoyId: Int) {
         if (_activeConvoyId.value == convoyId && scope != null) return
         leave()
-        if (BuildConfig.LIVE_URL.isBlank()) {
+        if (liveUrl(context).isBlank()) {
             // Refuse to start the retry loop at all rather than spin it
             // forever against a server that was never configured - see
             // ConvoyLiveService's matching guard, which is what stops the
@@ -193,7 +206,7 @@ object ConvoyLiveClient {
     /** Suspends until the socket closes; returns whether it ever received a
      *  "joined" reply, which decides the next retry's backoff. */
     private suspend fun connectAndAwaitClose(context: Context, convoyId: Int): Boolean {
-        val liveUrl = BuildConfig.LIVE_URL
+        val liveUrl = liveUrl(context)
         val token = Settings.authToken.value
         if (liveUrl.isBlank() || token.isBlank()) {
             _lastError.value = if (liveUrl.isBlank()) "No live server configured" else "Not signed in"

@@ -17,7 +17,6 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import com.jellemax.maproulette.BuildConfig
 import com.jellemax.maproulette.MainActivity
 import com.jellemax.maproulette.audio.PushToTalk
 import com.jellemax.maproulette.net.ConvoyLiveClient
@@ -101,7 +100,7 @@ class ConvoyLiveService : Service() {
             },
         )
 
-        if (BuildConfig.LIVE_URL.isBlank()) {
+        if (ConvoyLiveClient.liveUrl(this).isBlank()) {
             // Nothing to connect to. Refusing to proceed here (rather than
             // handing off to ConvoyLiveClient's retry loop) is what stops a
             // misconfigured server from escalating GPS to LIVE cadence and

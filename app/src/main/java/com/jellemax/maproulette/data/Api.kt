@@ -30,7 +30,7 @@ internal object Api {
         body: JSONObject? = null,
         auth: Boolean = true,
     ): String {
-        val base = SyncClient.url() ?: throw IOException("No sync server configured")
+        val base = SyncClient.url(context) ?: throw IOException("No sync server configured")
         val token = Settings.authToken.value
         if (auth && token.isBlank()) throw AuthException("Sign in to sync")
 

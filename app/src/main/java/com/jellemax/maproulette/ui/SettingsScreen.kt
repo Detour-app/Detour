@@ -431,7 +431,9 @@ private fun SyncSection() {
         Text(
             "Trips, explored area and badges are merged with your server after " +
                 "every trip and on app start, so a reinstall restores everything. " +
-                "Uses the routing server's Cloudflare Access credentials.",
+                "Only needed if sync runs on a different host than the Server " +
+                "URL under Server settings — leave empty to reuse that. Uses " +
+                "the same Cloudflare Access credentials.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -443,7 +445,7 @@ private fun SyncSection() {
         )
         OutlinedTextField(
             value = urlField, onValueChange = { urlField = it },
-            label = { Text("Sync server URL") },
+            label = { Text("Sync server URL override (optional)") },
             placeholder = { Text("https://…") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
@@ -457,7 +459,7 @@ private fun SyncSection() {
                 status = "Saved"
             }) { Text("Save") }
             TextButton(
-                enabled = !syncing && SyncClient.configured && signedInAs.isNotBlank(),
+                enabled = !syncing && SyncClient.configured(context) && signedInAs.isNotBlank(),
                 onClick = {
                     syncing = true
                     status = "Syncing…"
@@ -926,7 +928,7 @@ private fun ServerSection() {
     val geocoderPublicFallback by Settings.geocoderPublicFallback.collectAsStateWithLifecycle()
     var saved by remember { mutableStateOf(false) }
 
-    SettingsSection("Routing server") {
+    SettingsSection("Server") {
         Text(
             when {
                 custom != null -> "Custom server: ${custom.url}"
@@ -937,9 +939,11 @@ private fun ServerSection() {
             fontWeight = FontWeight.Bold,
         )
         Text(
-            "Optional: your own GraphHopper server for spins and round " +
-                "trips. Leave empty to use the built-in one. Falls back " +
-                "to public servers when unreachable.",
+            "Optional: one self-hosted address for routing, search, sync " +
+                "and the convoy live relay (see server/INSTALL.md's " +
+                "one-hostname layout). Leave empty to use the built-in " +
+                "routing/search servers, with sync and live off. The " +
+                "fields below override this for a single service.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -963,15 +967,16 @@ private fun ServerSection() {
             modifier = Modifier.fillMaxWidth(),
         )
         Text(
-            "Optional: your own Photon geocoder for address/place search. " +
-                "Leave empty to use the public one. Reuses the Cloudflare " +
-                "Access credentials above.",
+            "Only needed if search runs on a different host than the " +
+                "Server URL above. Leave empty to reuse it (or the public " +
+                "Photon instance if that's empty too). Reuses the " +
+                "Cloudflare Access credentials above.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         OutlinedTextField(
             value = geocoderUrl, onValueChange = { geocoderUrl = it; saved = false },
-            label = { Text("Search server URL (optional)") },
+            label = { Text("Search server URL override (optional)") },
             placeholder = { Text("https://…") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),

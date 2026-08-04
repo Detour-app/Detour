@@ -107,7 +107,7 @@ fun HubScreen(
             AccountCard(
                 username = username,
                 signedIn = signedIn,
-                synced = SyncClient.configured && signedIn,
+                synced = SyncClient.configured(context) && signedIn,
                 onClick = if (!signedIn) onOpenFriends else null,
             )
 

@@ -28,7 +28,7 @@ object ConfigFile {
             .put("routingUrl", server.url)
             .put("routingClientId", server.clientId)
             .put("routingClientSecret", server.clientSecret)
-            .put("syncUrl", SyncClient.url() ?: "")
+            .put("syncUrl", SyncClient.url(context) ?: "")
             .put("geocoderUrl", Settings.geocoderUrl.value)
             .put("authToken", Settings.authToken.value)
             .put("authUsername", Settings.authUsername.value)

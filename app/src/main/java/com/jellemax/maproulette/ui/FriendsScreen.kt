@@ -81,6 +81,7 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FriendsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
     val username by Account.username.collectAsStateWithLifecycle()
     var addOpen by remember { mutableStateOf(false) }
 
@@ -102,7 +103,7 @@ fun FriendsScreen(onBack: () -> Unit) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (!SyncClient.configured) {
+            if (!SyncClient.configured(context)) {
                 Text(
                     "No sync server configured. Set one in Settings first — " +
                         "friends live on your own server.",
