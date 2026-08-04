@@ -104,14 +104,14 @@ class CarMapRenderer(
         mapView.getMapAsync { map ->
             map.uiSettings.isCompassEnabled = false
             map.uiSettings.isRotateGesturesEnabled = false
-            // Attribution has to stay, but its default bottom-left corner is
-            // where the host draws the ETA card. Bottom right is the one spot
-            // neither the host nor the HUD uses.
+            // Attribution has to stay, but every other corner is taken: the
+            // host draws its ETA card bottom left and the action strip top
+            // right, and the HUD owns the bottom right.
             val edge = (8 * carContext.resources.displayMetrics.density).toInt()
-            map.uiSettings.logoGravity = Gravity.BOTTOM or Gravity.END
-            map.uiSettings.attributionGravity = Gravity.BOTTOM or Gravity.END
-            map.uiSettings.setLogoMargins(0, 0, edge, edge)
-            map.uiSettings.setAttributionMargins(0, 0, edge, edge)
+            map.uiSettings.logoGravity = Gravity.TOP or Gravity.START
+            map.uiSettings.attributionGravity = Gravity.TOP or Gravity.START
+            map.uiSettings.setLogoMargins(edge, edge, 0, 0)
+            map.uiSettings.setAttributionMargins(edge, edge, 0, 0)
             mapLibreMap = map
             map.setStyle(Style.Builder().fromUri(openFreeMapStyleUrl(darkTheme))) { style ->
                 overlays = MapOverlays(style, carContext, darkTheme)
@@ -164,9 +164,9 @@ class CarMapRenderer(
  * Sizes are in dp rather than raw pixels — a car screen reports a low density
  * (160dpi on the DHU, so 800x400 logical px for the whole display), and fixed
  * pixel sizes that look fine on a phone cover a quarter of it. Everything is
- * anchored to the top **left** of [safeArea]: the host puts its ETA card in
- * the bottom left and the action strip in the top right, and the DHU's debug
- * overlay sits bottom right, so the top left is the corner that stays clear.
+ * anchored to the bottom **right** of [safeArea], where Waze and Google Maps
+ * put the same readouts: the host owns the bottom left (ETA card) and the top
+ * right (action strip).
  */
 private class HudOverlay(context: android.content.Context) : View(context) {
 
@@ -216,22 +216,24 @@ private class HudOverlay(context: android.content.Context) : View(context) {
     private fun baselineOffset(paint: Paint) = -(paint.fontMetrics.ascent + paint.fontMetrics.descent) / 2f
 
     override fun onDraw(canvas: Canvas) {
-        val top = (if (safeArea.isEmpty) 0 else safeArea.top) + margin
-        var cx = (if (safeArea.isEmpty) 0 else safeArea.left) + margin
+        val bottom = (if (safeArea.isEmpty) height else safeArea.bottom) - margin
+        var cx = (if (safeArea.isEmpty) width else safeArea.right) - margin
 
+        // Right to left, so the current speed ends up in the corner itself and
+        // the posted limit sits inboard of it.
         val speed = speedKmh
         if (speed != null) {
-            cx += speedRadius
-            val cy = top + speedRadius
+            cx -= speedRadius
+            val cy = bottom - speedRadius
             canvas.drawCircle(cx, cy, speedRadius, speedBgPaint)
             canvas.drawText("%.0f".format(speed), cx, cy + baselineOffset(speedTextPaint), speedTextPaint)
-            cx += speedRadius + gap
+            cx -= speedRadius + gap
         }
 
         val limit = limitKmh
         if (limit != null) {
-            cx += limitRadius
-            val cy = top + limitRadius
+            cx -= limitRadius
+            val cy = bottom - limitRadius
             canvas.drawCircle(cx, cy, limitRadius, limitRingBgPaint)
             canvas.drawCircle(cx, cy, limitRadius - limitRingPaint.strokeWidth / 2f, limitRingPaint)
             canvas.drawText("%.0f".format(limit), cx, cy + baselineOffset(limitTextPaint), limitTextPaint)
