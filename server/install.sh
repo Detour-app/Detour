@@ -33,6 +33,13 @@ PHOTON_VERSION="${PHOTON_VERSION:-0.4.4}"
 CTID="" CT_HOSTNAME="maproulette" CT_BRIDGE="vmbr0" CT_STORAGE=""
 OPEN_REGISTRATION=0
 SYNC_PORT=8790 LIVE_PORT=8990 GH_PORT=8989 PHOTON_PORT=2322
+# Which address the two Docker services publish on. Localhost by default —
+# exposure is your decision (see the notes at the end). Set these when
+# cloudflared, or anything else that has to reach them, runs on a *different*
+# machine than the service: a re-run would otherwise quietly put the binding
+# back to 127.0.0.1 and break a tunnel hostname that was working.
+#   GH_BIND=10.0.0.5 PHOTON_BIND=10.0.0.6 bash server/install.sh …
+GH_BIND="${GH_BIND:-127.0.0.1}" PHOTON_BIND="${PHOTON_BIND:-127.0.0.1}"
 
 SYNC_USER=maproulette-sync
 SYNC_DIR=/opt/maproulette-sync
@@ -509,9 +516,10 @@ services:
       JAVA_OPTS: "-Xmx${heap}g -Xms1g"
     volumes:
       - ./data:/data
-    # localhost only: the exposure decision is yours, see the notes at the end.
+    # localhost only unless GH_BIND says otherwise: the exposure decision is
+    # yours, see the notes at the end.
     ports:
-      - "127.0.0.1:${GH_PORT}:${GH_PORT}"
+      - "${GH_BIND}:${GH_PORT}:${GH_PORT}"
     restart: unless-stopped
 EOF
 
@@ -568,7 +576,7 @@ EOF
 
   local profiles
   profiles="$(curl -fsS "http://localhost:$GH_PORT/info" | python3 -c 'import sys,json; print(",".join(p["name"] for p in json.load(sys.stdin)["profiles"]))')"
-  ok "graphhopper up on 127.0.0.1:$GH_PORT — profiles: $profiles"
+  ok "graphhopper up on $GH_BIND:$GH_PORT — profiles: $profiles"
   ok "monthly OSM refresh timer enabled"
 }
 
@@ -636,9 +644,10 @@ services:
     command: java -Xmx2g -jar /photon/photon.jar -data-dir /photon -listen-ip 0.0.0.0 -listen-port ${PHOTON_PORT}
     volumes:
       - ./data:/photon
-    # localhost only: exposure is your decision, see the notes at the end.
+    # localhost only unless PHOTON_BIND says otherwise: exposure is your
+    # decision, see the notes at the end.
     ports:
-      - "127.0.0.1:${PHOTON_PORT}:${PHOTON_PORT}"
+      - "${PHOTON_BIND}:${PHOTON_PORT}:${PHOTON_PORT}"
     restart: unless-stopped
 EOF
 
@@ -696,7 +705,7 @@ EOF
     fi
     sleep 6
   done
-  ok "photon up on 127.0.0.1:$PHOTON_PORT"
+  ok "photon up on $PHOTON_BIND:$PHOTON_PORT"
   ok "monthly index refresh timer enabled"
 }
 

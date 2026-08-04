@@ -16,6 +16,30 @@ val localProps = Properties().apply {
 fun routingCfg(propKey: String, envKey: String): String =
     localProps.getProperty(propKey) ?: System.getenv(envKey) ?: ""
 
+// The four services can sit behind one hostname, path-routed by the tunnel:
+// /route to GraphHopper, /api to Photon, /live to the convoy relay, anything
+// else to the sync server. Those paths are exactly what each client already
+// appends to its base URL, so a single `server.url` is enough to reach all
+// four. The per-service keys below still win wherever they're set, so a
+// split deployment (a hostname each, which is what this started as) keeps
+// working unchanged.
+val serverUrl = routingCfg("server.url", "SERVER_URL").trimEnd('/')
+
+fun serviceUrl(propKey: String, envKey: String): String =
+    routingCfg(propKey, envKey).ifBlank { serverUrl }
+
+// The relay is the one service that can't just take the base as-is: it's a
+// WebSocket, and it lives on the path the ingress rule matches.
+fun liveUrl(): String {
+    val explicit = routingCfg("live.url", "LIVE_SERVER_URL")
+    if (explicit.isNotBlank()) return explicit
+    return when {
+        serverUrl.startsWith("https://") -> "wss://" + serverUrl.removePrefix("https://") + "/live"
+        serverUrl.startsWith("http://") -> "ws://" + serverUrl.removePrefix("http://") + "/live"
+        else -> ""
+    }
+}
+
 android {
     namespace = "com.jellemax.maproulette"
     compileSdk = 35
@@ -28,20 +52,19 @@ android {
         versionName = "1.42"
 
         buildConfigField("String", "ROUTING_URL",
-            "\"${routingCfg("routing.url", "ROUTING_SERVER_URL")}\"")
+            "\"${serviceUrl("routing.url", "ROUTING_SERVER_URL")}\"")
         buildConfigField("String", "ROUTING_CF_ID",
             "\"${routingCfg("routing.cfId", "ROUTING_CF_ID")}\"")
         buildConfigField("String", "ROUTING_CF_SECRET",
             "\"${routingCfg("routing.cfSecret", "ROUTING_CF_SECRET")}\"")
         buildConfigField("String", "SYNC_URL",
-            "\"${routingCfg("sync.url", "SYNC_SERVER_URL")}\"")
+            "\"${serviceUrl("sync.url", "SYNC_SERVER_URL")}\"")
         buildConfigField("String", "GEOCODER_URL",
-            "\"${routingCfg("geocoder.url", "GEOCODER_URL")}\"")
+            "\"${serviceUrl("geocoder.url", "GEOCODER_URL")}\"")
         // Convoy live-location/PTT relay: a separate WebSocket listener next
-        // to the sync server (see server/sync/sync_server.py's LIVE_PORT),
-        // so this is its own URL rather than derived from SYNC_URL.
-        buildConfigField("String", "LIVE_URL",
-            "\"${routingCfg("live.url", "LIVE_SERVER_URL")}\"")
+        // to the sync server (see server/sync/sync_server.py's LIVE_PORT), so
+        // it needs its own scheme and path rather than the plain base URL.
+        buildConfigField("String", "LIVE_URL", "\"${liveUrl()}\"")
     }
 
     // Release signing reads from the environment rather than local.properties:

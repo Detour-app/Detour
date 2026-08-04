@@ -25,7 +25,10 @@ minified release build; see `README.md` for how CI produces a signed one.
 No server URLs, API keys, or Cloudflare Access secrets are required to build.
 The app takes all of that at runtime (Settings), or from `local.properties`
 for a personal local build — see the `routingCfg()` helper in
-`app/build.gradle.kts` for the property/env-var names it reads.
+`app/build.gradle.kts` for the property/env-var names it reads. If your
+services sit behind one path-routed hostname (see `server/INSTALL.md`), a
+single `server.url` covers sync, routing, the geocoder and the convoy relay;
+the per-service keys override it where they're set.
 
 ## Running the sync server locally
 

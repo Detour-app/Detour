@@ -113,15 +113,33 @@ stranger, and you open nothing on your router.
    | `routing.example.com` | `http://localhost:8989` |
    | `geocoder.example.com` | `http://localhost:2322` |
 
-   The live relay needs its own hostname — a WebSocket upgrade doesn't ride
-   along on the sync hostname's rule, even though both are the same process.
-   Skip it if you don't want the convoy feature; the rest of the server
-   works fine without it.
+   The live relay needs its own rule — a WebSocket upgrade doesn't ride along
+   on the sync hostname's rule, even though both are the same process. Skip it
+   if you don't want the convoy feature; the rest of the server works fine
+   without it.
+
+   **Or: one hostname, path-routed.** Each client appends a path the others
+   never use, so all four fit behind a single hostname with a `Path` on each
+   rule. Order matters — the bare rule matches everything, so it goes last:
+
+   | Hostname | Path | Service |
+   |---|---|---|
+   | `maproulette.example.com` | `^/route` | `http://localhost:8989` |
+   | `maproulette.example.com` | `^/api` | `http://localhost:2322` |
+   | `maproulette.example.com` | `^/live` | `http://localhost:8990` |
+   | `maproulette.example.com` | *(none)* | `http://localhost:8790` |
+
+   cloudflared matches the path and passes it through unchanged, which is
+   what each origin wants: GraphHopper serves `/route`, Photon serves
+   `/api/`, and the relay ignores the path entirely. One hostname means one
+   Access application and one address to type into the app. The cost is that
+   a future sync endpoint named `/route…` or `/api…` would be shadowed by
+   the rule above it.
 3. Create a **service token** (Access → Service Auth).
-4. Create an **Access application** for *each* hostname, with one policy:
-   Action = **Service Auth**, include → that service token. Reuse the same
-   token for all four hostnames — the app sends one CF Access ID/secret pair
-   to routing, sync, live and the geocoder alike, entered once under Settings.
+4. Create an **Access application** for each hostname you added, with one
+   policy: Action = **Service Auth**, include → that service token. Reuse the
+   same token everywhere — the app sends one CF Access ID/secret pair to
+   routing, sync, live and the geocoder alike, entered once under Settings.
 5. Check it from anywhere:
 
    ```bash
@@ -218,6 +236,18 @@ Search server URL  https://geocoder.example.com   (only if you installed the geo
 CF Access ID / Secret     (only for option 1 above; the same pair for all three)
 Invite code               (on the sign-in screen, first time only)
 ```
+
+With the one-hostname layout above, all three URLs are the same address —
+`https://maproulette.example.com`. The convoy relay has no Settings field; it
+is baked at build time from `local.properties`, where a single
+
+```properties
+server.url=https://maproulette.example.com
+```
+
+supplies all four (`sync.url`, `routing.url`, `geocoder.url` and `live.url`
+still override it individually if you kept a hostname per service). See
+`routingCfg()`/`serviceUrl()` in `app/build.gradle.kts`.
 
 Then sign in. The app refuses to sync until you do — an un-upgraded phone
 silently stops syncing rather than erroring.
