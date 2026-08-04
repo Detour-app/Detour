@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.view.Gravity
 import android.view.Surface
 import android.view.View
 import android.widget.FrameLayout
@@ -103,6 +104,14 @@ class CarMapRenderer(
         mapView.getMapAsync { map ->
             map.uiSettings.isCompassEnabled = false
             map.uiSettings.isRotateGesturesEnabled = false
+            // Attribution has to stay, but its default bottom-left corner is
+            // where the host draws the ETA card. Bottom right is the one spot
+            // neither the host nor the HUD uses.
+            val edge = (8 * carContext.resources.displayMetrics.density).toInt()
+            map.uiSettings.logoGravity = Gravity.BOTTOM or Gravity.END
+            map.uiSettings.attributionGravity = Gravity.BOTTOM or Gravity.END
+            map.uiSettings.setLogoMargins(0, 0, edge, edge)
+            map.uiSettings.setAttributionMargins(0, 0, edge, edge)
             mapLibreMap = map
             map.setStyle(Style.Builder().fromUri(openFreeMapStyleUrl(darkTheme))) { style ->
                 overlays = MapOverlays(style, carContext, darkTheme)
@@ -114,6 +123,7 @@ class CarMapRenderer(
         // Keep the followed position centered in what's actually visible,
         // not behind the action strip / trip-status chrome the host draws
         // over part of the surface.
+        hud.setSafeArea(visibleArea)
         val map = mapLibreMap ?: return
         map.setPadding(
             visibleArea.left, visibleArea.top,
@@ -148,11 +158,29 @@ class CarMapRenderer(
     }
 }
 
-/** Speed and posted-limit readouts, drawn over the map inside the Presentation. */
+/**
+ * Speed and posted-limit readouts, drawn over the map inside the Presentation.
+ *
+ * Sizes are in dp rather than raw pixels — a car screen reports a low density
+ * (160dpi on the DHU, so 800x400 logical px for the whole display), and fixed
+ * pixel sizes that look fine on a phone cover a quarter of it. Everything is
+ * anchored to the top **left** of [safeArea]: the host puts its ETA card in
+ * the bottom left and the action strip in the top right, and the DHU's debug
+ * overlay sits bottom right, so the top left is the corner that stays clear.
+ */
 private class HudOverlay(context: android.content.Context) : View(context) {
+
+    private val density = resources.displayMetrics.density
+    private fun dp(value: Float) = value * density
+
+    private val speedRadius = dp(26f)
+    private val limitRadius = dp(24f)
+    private val gap = dp(10f)
+    private val margin = dp(12f)
 
     private var speedKmh: Double? = null
     private var limitKmh: Double? = null
+    private val safeArea = Rect()
 
     fun update(speed: Double, limit: Double?) {
         speedKmh = speed
@@ -160,38 +188,53 @@ private class HudOverlay(context: android.content.Context) : View(context) {
         postInvalidate()
     }
 
+    fun setSafeArea(area: Rect) {
+        if (area.isEmpty || area == safeArea) return
+        safeArea.set(area)
+        postInvalidate()
+    }
+
     private val speedBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#CC1A1A1A") }
     private val speedTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textAlign = Paint.Align.CENTER
-        textSize = 56f
+        textSize = dp(20f)
     }
     private val limitRingBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     private val limitRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.RED
         style = Paint.Style.STROKE
-        strokeWidth = 14f
+        strokeWidth = dp(4f)
     }
     private val limitTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK
         textAlign = Paint.Align.CENTER
-        textSize = 52f
+        textSize = dp(18f)
     }
 
+    /** Baseline offset that centers text of [paint] on a circle's center. */
+    private fun baselineOffset(paint: Paint) = -(paint.fontMetrics.ascent + paint.fontMetrics.descent) / 2f
+
     override fun onDraw(canvas: Canvas) {
+        val top = (if (safeArea.isEmpty) 0 else safeArea.top) + margin
+        var cx = (if (safeArea.isEmpty) 0 else safeArea.left) + margin
+
         val speed = speedKmh
-        val cy = height - 140f
-        var cx = 140f
         if (speed != null) {
-            canvas.drawCircle(cx, cy, 100f, speedBgPaint)
-            canvas.drawText("%.0f".format(speed), cx, cy + 20f, speedTextPaint)
-            cx += 240f
+            cx += speedRadius
+            val cy = top + speedRadius
+            canvas.drawCircle(cx, cy, speedRadius, speedBgPaint)
+            canvas.drawText("%.0f".format(speed), cx, cy + baselineOffset(speedTextPaint), speedTextPaint)
+            cx += speedRadius + gap
         }
+
         val limit = limitKmh
         if (limit != null) {
-            canvas.drawCircle(cx, cy, 100f, limitRingBgPaint)
-            canvas.drawCircle(cx, cy, 90f, limitRingPaint)
-            canvas.drawText("%.0f".format(limit), cx, cy + 18f, limitTextPaint)
+            cx += limitRadius
+            val cy = top + limitRadius
+            canvas.drawCircle(cx, cy, limitRadius, limitRingBgPaint)
+            canvas.drawCircle(cx, cy, limitRadius - limitRingPaint.strokeWidth / 2f, limitRingPaint)
+            canvas.drawText("%.0f".format(limit), cx, cy + baselineOffset(limitTextPaint), limitTextPaint)
         }
     }
 }

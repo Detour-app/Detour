@@ -48,8 +48,8 @@ android {
         applicationId = "com.jellemax.maproulette"
         minSdk = 26
         targetSdk = 35
-        versionCode = 60
-        versionName = "1.53"
+        versionCode = 61
+        versionName = "1.54"
 
         buildConfigField("String", "ROUTING_URL",
             "\"${serviceUrl("routing.url", "ROUTING_SERVER_URL")}\"")
