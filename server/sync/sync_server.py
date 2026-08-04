@@ -38,10 +38,14 @@ Protocol
   POST /convoys/{id}/invite {username}          -> {status} (must already be friends)
   POST /convoys/{id}/respond {accept}           -> {status}
   POST /convoys/{id}/leave                      -> {}
-  GET  /ha/rides?key=[&limit=]                  -> {rides: [{startMs, maxLeanDeg, …}]}
-  GET  /ha/stats?key=                           -> {stats, badges, rideCount, lastRideMs}
+  GET  /ha/stats?key=                           -> {stats, rideCount, badges, badgeCatalogue}
+  GET  /ha/rides?key=[&limit=]                  -> {rides: [{startMs, maxLeanDeg, …}]} (limit <= 500)
   GET  /ha/ride.geojson?key=&start=             -> GeoJSON, one Feature per segment
-  GET  /ha/ride.html?key=[&start=]              -> Leaflet page, path coloured by lean
+  GET  /ha/traces?key=[&every=]                 -> {traces: [[[lat, lon], …], …]}, caller's own lines only
+  GET  /ha/track?key=[&start=&tol=&max=]        -> one ride, simplified, {…stats, geojson, speed{b0…}, lean{b0…}}
+  GET  /ha/coverage?key=[&tol=&max=&cell=]      -> all traces, simplified, {…, geojson, heat{b0…}} (heat = rides per cell)
+  GET  /ha/ride.html?key=[&start=]              -> the dashboard (Map/Heat/General/Badges tabs)
+  GET  /ha/dashboard.html?key=[&start=]         -> alias for /ha/ride.html
 
 Everything except /health, /auth/* and /ha/* needs `Authorization: Bearer
 <token>`. The /ha/* endpoints are read-only and take an API key instead
@@ -49,10 +53,10 @@ Everything except /health, /auth/* and /ha/* needs `Authorization: Bearer
 
 Convoy live location + push-to-talk run over a *second* listener, a
 WebSocket relay on LIVE_PORT (default 8990) - see the "convoy live relay"
-section below for its message protocol. It requires `pip install
-websockets`; without that package installed, the REST /convoys endpoints
-still work (create/invite/manage convoys), but the relay itself logs a
-warning and never starts, so live location/PTT silently do nothing.
+section below for its message protocol. It requires the `websockets`
+package; without that installed, the REST /convoys endpoints still work
+(create/invite/manage convoys), but the relay itself logs a warning and
+never starts, so live location/PTT silently do nothing.
 
 Merging is idempotent:
   - trips key on (user, startTimeMs); a re-upload updates the stored copy, so
@@ -81,7 +85,8 @@ old version did. Access is a gate on the hostname; the bearer token is identity.
 Bind to localhost — HOST=0.0.0.0 also serves the LAN, which is how Home
 Assistant reaches /ha/* without the tunnel. Note that TRUST_CF_HEADER then
 believes a LAN client's CF-Connecting-IP too, so the rate limiter can be
-side-stepped from inside the network.
+side-stepped from inside the network. HOST also decides where the convoy
+relay binds.
 
 Python 3.8+ stdlib only, except the convoy live relay which needs the
 `websockets` package (optional - see above). DATA_DIR env var sets the
@@ -102,6 +107,7 @@ import hashlib
 import hmac
 import io
 import json
+import math
 import os
 import re
 import secrets
@@ -110,7 +116,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote as urlquote, urlparse
 
 # Optional: only the convoy live-location/PTT relay needs this. The rest of
 # the server (trips, friends, fog, HA endpoints) works with stdlib alone, so
@@ -1307,7 +1313,9 @@ def ha_rides(user, params):
     honestly unknown, rather than a zero that reads as "never leaned"."""
     uid = user["id"]
     try:
-        limit = min(int((params.get("limit") or ["25"])[0]), 200)
+        # 500 comfortably covers the dashboard's "everything" fetch (118 rides
+        # in production today) without leaving the cap effectively unbounded.
+        limit = min(int((params.get("limit") or ["25"])[0]), 500)
     except ValueError:
         limit = 25
     out = []
@@ -1345,12 +1353,947 @@ def ha_rides(user, params):
     return {"rides": out}
 
 
+def ha_traces(user, params):
+    """The caller's own trace lines, position-only, for the all-rides heatmap.
+
+    Goes through api_key_user like every other /ha/* endpoint and reads only
+    `WHERE user_id = ?` — friend_fog stays the one path to another user's
+    traces, and this is not it. Lines predate track_points and carry 2- or
+    5-element points ([lat, lon] or [lat, lon, tMs, speedKmh, leanDeg]); either
+    way only the first two elements matter for a heatmap.
+    """
+    uid = user["id"]
+    try:
+        # Clamp both ends: 0 or negative would divide-by-zero-shaped skip
+        # everything, and there is no reason to thin by more than 1 in 50.
+        every = max(1, min(int((params.get("every") or ["1"])[0]), 50))
+    except ValueError:
+        every = 1
+    traces = []
+    for r in db().execute("SELECT line FROM traces WHERE user_id = ?", (uid,)):
+        try:
+            points = json.loads(r["line"])
+        except (ValueError, TypeError):
+            continue  # one corrupt line must not fail the whole heatmap
+        if not isinstance(points, list):
+            continue
+        line = []
+        for i, p in enumerate(points):
+            if i % every:
+                continue
+            if not isinstance(p, list) or len(p) < 2:
+                continue
+            try:
+                lat, lon = float(p[0]), float(p[1])
+            except (TypeError, ValueError):
+                continue
+            if -90 <= lat <= 90 and -180 <= lon <= 180:
+                line.append([lat, lon])
+        if line:
+            traces.append(line)
+    return {"traces": traces}
+
+
+# One degree of latitude in metres. Longitude covers less ground the further
+# from the equator, by cos(lat); simplify_track corrects for that so a
+# tolerance given in metres means the same thing north-south and east-west.
+DEG_METRES = 111_320.0
+
+
+def simplify_track(points, tolerance_m, lat_ref):
+    """Douglas-Peucker on [(lat, lon), …] — the points themselves.
+
+    See simplify_indices for why the work happens there; a caller that only
+    wants the thinned shape has no use for the indices.
+    """
+    return [points[i] for i in simplify_indices(points, tolerance_m, lat_ref)]
+
+
+def simplify_indices(points, tolerance_m, lat_ref):
+    """Douglas-Peucker on [(lat, lon), …], tolerance in metres, as indices.
+
+    Indices rather than points because the overlays need to look back at what
+    the raw track recorded between two kept points — the speed held over that
+    stretch, the deepest lean in it. Dropping a point must not drop the 55°
+    corner it was carrying.
+
+    A raw GPS track is a point per second, which is three orders of magnitude
+    more detail than a map at road zoom can show. The /ha/* JSON endpoints hand
+    the whole thing to a browser that thins it client-side; the entity-attribute
+    endpoints below cannot — whatever comes out of here is what Home Assistant
+    stores and ships on every dashboard render. Dropping points that sit within
+    `tolerance_m` of the line they'd fall on is invisible at map zoom and cuts a
+    typical ride by 70-80%.
+
+    Iterative rather than recursive: a 100k-point trace would otherwise be a
+    stack overflow waiting for a straight enough road.
+    """
+    if len(points) < 3:
+        return list(range(len(points)))
+    # cos() of the track's own latitude, not of the equator: at 51°N a degree of
+    # longitude is 63% of a degree of latitude, and treating them as equal would
+    # simplify roughly a third harder east-west than north-south.
+    lon_scale = math.cos(math.radians(lat_ref)) or 1.0
+    tol = tolerance_m / DEG_METRES
+    tol_sq = tol * tol
+    keep = [False] * len(points)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(points) - 1)]
+    while stack:
+        i, j = stack.pop()
+        if j <= i + 1:
+            continue
+        ax, ay = points[i][1] * lon_scale, points[i][0]
+        bx, by = points[j][1] * lon_scale, points[j][0]
+        dx, dy = bx - ax, by - ay
+        den = dx * dx + dy * dy
+        best, best_sq = -1, 0.0
+        for k in range(i + 1, j):
+            px, py = points[k][1] * lon_scale, points[k][0]
+            if den == 0:
+                # Endpoints coincide (a stop with drift); fall back to plain
+                # distance from that one spot.
+                d_sq = (px - ax) ** 2 + (py - ay) ** 2
+            else:
+                t = ((px - ax) * dx + (py - ay) * dy) / den
+                t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+                d_sq = (px - ax - t * dx) ** 2 + (py - ay - t * dy) ** 2
+            if d_sq > best_sq:
+                best, best_sq = k, d_sq
+        if best > 0 and best_sq > tol_sq:
+            keep[best] = True
+            stack.append((i, best))
+            stack.append((best, j))
+    return [i for i, k in enumerate(keep) if k]
+
+
+def thin_to(points, limit):
+    """Hard cap on point count, for when simplification alone isn't enough.
+
+    Simplification is shape-aware but its output size depends on the road: a
+    ride through a city keeps far more points than one down a motorway. The cap
+    is what keeps a pathological track from landing a megabyte in an entity
+    attribute, so it takes an even stride and always keeps the last point.
+    """
+    if limit <= 0 or len(points) <= limit:
+        return points
+    step = (len(points) + limit - 1) // limit
+    out = points[::step]
+    if out[-1] != points[-1]:
+        out.append(points[-1])
+    return out
+
+
+# A single ride is read at street zoom, everything else at overview zoom.
+TRACK_DECIMALS = 6
+
+
+def _coord(lat, lon, decimals=5):
+    """GeoJSON [lon, lat], rounded to ~1 m by default.
+
+    Full precision is 7 decimals — 11 mm, about six wasted characters per
+    coordinate on a payload that has to fit in an entity attribute.
+
+    5 decimals is invisible at the zoom a whole-country coverage map is read
+    at. It is not invisible on a single ride: 1 m is 5 px at zoom 19 and 10 px
+    at zoom 20, which turns a straight road into a staircase exactly when
+    someone zooms in to look at a corner. A ride is a few hundred coordinates,
+    so 6 decimals there costs a few hundred bytes and settles it.
+    """
+    return [round(lon, decimals), round(lat, decimals)]
+
+
+def _bounds(points):
+    """{ne, sw, latitude, longitude} for a list of (lat, lon), or None."""
+    if not points:
+        return None
+    lats = [p[0] for p in points]
+    lons = [p[1] for p in points]
+    return {
+        "ne": {"latitude": round(max(lats), 5), "longitude": round(max(lons), 5)},
+        "sw": {"latitude": round(min(lats), 5), "longitude": round(min(lons), 5)},
+        "latitude": round((max(lats) + min(lats)) / 2, 5),
+        "longitude": round((max(lons) + min(lons)) / 2, 5),
+    }
+
+
+def _int_param(params, name, default, low, high):
+    try:
+        value = int((params.get(name) or [str(default)])[0])
+    except ValueError:
+        raise HttpError(400, "%s must be a number" % name)
+    return max(low, min(value, high))
+
+
+# --------------------------------------------------------------------------
+# Bucketed overlays for the Home Assistant map card
+#
+# The bundled Leaflet page colours a track continuously: one Feature per
+# segment, each with its own colour in its properties. custom:map-card cannot
+# do that — it styles a whole GeoJSON layer at once
+# (`style: () => config.getStyle()`), so a per-feature colour is ignored. The
+# way to get a coloured line into that card is therefore one *layer* per
+# colour: the track is cut into bands, each band comes back as its own
+# MultiLineString, and the dashboard declares one geojson layer per band with a
+# fixed colour. Consecutive segments in the same band are merged into a single
+# line so a band costs about as many coordinates as the stretch it covers.
+#
+# (upper bound — exclusive, label, colour). The final band has no upper bound.
+# The colours are duplicated in dashboards/map_roulette.yaml, which is what the
+# card actually paints with; these travel with the legend so the two can be
+# checked against each other. Keep them in step.
+def _hex(rgb):
+    return "#%02x%02x%02x" % tuple(max(0, min(255, int(round(c)))) for c in rgb)
+
+
+def _ramp(stops, t):
+    """Colour at 0..1 along a list of (position, (r, g, b)) stops."""
+    t = max(0.0, min(1.0, t))
+    for i in range(len(stops) - 1):
+        p0, c0 = stops[i]
+        p1, c1 = stops[i + 1]
+        if t <= p1 or i == len(stops) - 2:
+            k = 0.0 if p1 == p0 else (t - p0) / (p1 - p0)
+            k = max(0.0, min(1.0, k))
+            return _hex([c0[j] + (c1[j] - c0[j]) * k for j in range(3)])
+    return _hex(stops[-1][1])
+
+
+def _stepped_bands(step, top, unit, stops, decimals=0, sep=" "):
+    """Bands every `step` up to `top`, then one open-ended band.
+
+    Steps rather than hand-picked breaks because the question these answer is
+    "how fast was I here", and a reader converts a colour to a number by
+    counting bands. Uneven bands make that arithmetic, and a legend nobody can
+    do arithmetic on is decoration.
+    """
+    edges = []
+    value = 0.0
+    while value < top - 1e-9:
+        edges.append((value, value + step))
+        value += step
+    bands = []
+    for i, (low, high) in enumerate(edges):
+        fmt = "%.*f" % (decimals, low), "%.*f" % (decimals, high)
+        bands.append((high, "%s–%s%s%s" % (fmt[0], fmt[1], sep, unit),
+                      _ramp(stops, i / float(len(edges)))))
+    bands.append((None, "%.*f+%s%s" % (decimals, top, sep, unit), _ramp(stops, 1.0)))
+    return tuple(bands)
+
+
+# Pale blue through to near-black navy: monotone in lightness, so the ramp
+# still reads as "more" on a phone in sunlight and in greyscale.
+SPEED_STOPS = ((0.0, (168, 200, 236)), (0.45, (58, 125, 202)),
+               (0.75, (26, 66, 132)), (1.0, (10, 26, 62)))
+SPEED_BANDS = _stepped_bands(5.0, 130.0, "km/h", SPEED_STOPS)
+
+# Lean is banded on |lean|, not the signed value the Leaflet page diverges on.
+# Direction is still in the ride's own data for anyone who wants
+# /ha/ride.geojson. Grey (upright) through amber to deep red: the colour is
+# about how far over, and upright should not shout.
+LEAN_STOPS = ((0.0, (154, 160, 166)), (0.3, (242, 193, 78)),
+              (0.6, (240, 139, 51)), (0.82, (226, 71, 42)), (1.0, (128, 16, 16)))
+LEAN_BANDS = _stepped_bands(2.0, 40.0, "°", LEAN_STOPS, sep="")
+
+# Distinct rides through a cell, for the coverage heat map. Bands rather than a
+# gradient for the same reason as above, and the ramp runs cool-to-hot so a road
+# ridden once still reads as ridden.
+#
+# The steps double because the counts do: on a real history a fifth of the
+# distance sits above 30 rides and the roads out of the front door run to 130,
+# so evenly spaced bands would paint the whole home region one flat red.
+HEAT_BANDS = (
+    (2, "1 ride", "#4a8fe0"),
+    (3, "2 rides", "#2ba8a8"),
+    (5, "3–4 rides", "#2e9e52"),
+    (9, "5–8 rides", "#a7bf1e"),
+    (16, "9–15 rides", "#f2b705"),
+    (32, "16–31 rides", "#ee6a20"),
+    (None, "32+ rides", "#d62222"),
+)
+
+# Segments the track carries no reading for — an old ride recorded before the
+# app stored lean, a GPS drop-out. Drawn, in grey, rather than left as a gap:
+# a hole in the line reads as "didn't go there", which is worse than "don't
+# know how fast".
+NO_DATA_KEY = "bn"
+NO_DATA_LABEL = "no data"
+NO_DATA_COLOR = "#6b7060"
+
+
+def _band_index(value, bands):
+    for i, (upper, _label, _color) in enumerate(bands):
+        if upper is None or value < upper:
+            return i
+    return len(bands) - 1
+
+
+def _band_key(index):
+    return "b%d" % index
+
+
+def _key_for(value, bands):
+    return NO_DATA_KEY if value is None else _band_key(_band_index(value, bands))
+
+
+def _smooth(values, window=5):
+    """Rolling median, Nones passed through.
+
+    Raw GPS speed jitters a few km/h point to point, and a band edge turns that
+    jitter into colour: a steady 51 km/h crossing 50 back and forth comes out
+    as a run of alternating two-colour dashes. Zoomed out, where those runs are
+    a pixel or two long, that is what "the overlay is broken" looks like. A
+    median over five seconds keeps genuine acceleration — five seconds of it is
+    30 km/h on a bike — and drops the noise.
+    """
+    if window < 3 or len(values) < window:
+        return list(values)
+    half = window // 2
+    out = []
+    for i in range(len(values)):
+        if values[i] is None:
+            out.append(None)
+            continue
+        near = [v for v in values[max(0, i - half):i + half + 1] if v is not None]
+        out.append(sorted(near)[len(near) // 2] if near else None)
+    return out
+
+
+def _banded_layers(pairs, bands, name_fmt, decimals=5, tick_every=None):
+    """Cut lines into one MultiLineString per band.
+
+    `pairs` is [(coords, keys), …]: `coords` is a [(lat, lon), …] and `keys`
+    holds one band key per *segment*, so it is one shorter. Consecutive
+    segments in the same band become one LineString, which is what keeps this
+    close in size to the single-line version: a motorway stretch at a steady
+    120 is one line, not four hundred.
+    """
+    all_keys = [NO_DATA_KEY] + [_band_key(i) for i in range(len(bands))]
+    parts = {k: [] for k in all_keys}
+    metres = {k: 0.0 for k in all_keys}
+    for coords, keys in pairs:
+        run_key, run = None, []
+        for i, key in enumerate(keys):
+            if key != run_key:
+                if run_key is not None and len(run) >= 2:
+                    parts[run_key].append(run)
+                run_key, run = key, [coords[i]]
+            run.append(coords[i + 1])
+            metres[key] += _haversine_m(coords[i], coords[i + 1])
+        if run_key is not None and len(run) >= 2:
+            parts[run_key].append(run)
+
+    out = {}
+    for key in all_keys:
+        out[key] = {
+            "type": "Feature",
+            "geometry": {
+                "type": "MultiLineString",
+                "coordinates": [[_coord(lat, lon, decimals) for lat, lon in run]
+                                for run in parts[key]],
+            },
+            "properties": {"name": name_fmt % _band_label(key, bands)},
+        }
+    out["legend"] = [
+        {"key": key, "label": _band_label(key, bands),
+         "color": _band_color(key, bands), "km": round(metres[key] / 1000.0, 1)}
+        # No-data last: it is the footnote, not the bottom of the scale.
+        for key in [_band_key(i) for i in range(len(bands))] + [NO_DATA_KEY]
+        if metres[key] > 0
+    ]
+    out["legend_svg"] = _legend_svg(out["legend"], bands, tick_every)
+    return out
+
+
+def _legend_svg(legend, bands, tick_every):
+    """The legend as one image: a bar per band, height by distance ridden.
+
+    A list of rows worked at six bands and does not at twenty-seven — nobody
+    reads a twenty-seven row table on a phone, and the shape of the ride is the
+    interesting part anyway: where the distance actually sat. Bars carry the
+    band colour, so the map and the legend are read with the same eye.
+
+    Returned as a data URI because Home Assistant's markdown card strips inline
+    `style` — a coloured swatch has to arrive as an image or not at all.
+    """
+    km_by_key = {row["key"]: row["km"] for row in legend}
+    rows = [(_band_key(i), bands[i]) for i in range(len(bands))]
+    peak = max([km_by_key.get(k, 0.0) for k, _b in rows] or [0.0])
+    if peak <= 0:
+        return None
+    w, bar_h, foot = 340, 54, 16
+    step = w / float(len(rows))
+    parts = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" '
+             'viewBox="0 0 %d %d">' % (w, bar_h + foot, w, bar_h + foot)]
+    for i, (key, band) in enumerate(rows):
+        km = km_by_key.get(key, 0.0)
+        h = max(1.0, bar_h * (km / peak)) if km > 0 else 1.0
+        parts.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s"'
+                     ' opacity="%s"/>'
+                     % (i * step, bar_h - h, max(1.0, step - 1.0), h, band[2],
+                        "1" if km > 0 else "0.25"))
+        # Tick labels every `tick_every` units of the banded value, so the axis
+        # is read in km/h or degrees rather than in band numbers.
+        low = 0.0 if i == 0 else bands[i - 1][0]
+        # Skip ticks that would collide with the open-ended band's label.
+        if (low is not None and tick_every and abs(low % tick_every) < 1e-9
+                and i * step < w - 70):
+            parts.append('<text x="%.1f" y="%d" font-family="sans-serif" '
+                         'font-size="9" fill="#888">%d</text>'
+                         % (i * step, bar_h + 11, int(low)))
+    parts.append('<line x1="0" y1="%d" x2="%d" y2="%d" stroke="#888" '
+                 'stroke-width="0.5" opacity="0.5"/>' % (bar_h, w, bar_h))
+    parts.append('<text x="%d" y="%d" font-family="sans-serif" font-size="9" '
+                 'fill="#888" text-anchor="end">%s</text>'
+                 % (w, bar_h + 11, bands[-1][1]))
+    parts.append('</svg>')
+    return "data:image/svg+xml," + urlquote("".join(parts), safe="")
+
+
+def _flatten_bands(prefix, layers):
+    """{b0: Feature, …, legend: […]} -> {speed_b0: Feature, …, speed_legend: […]}.
+
+    Flat because of how custom:map-card reads a layer's data. Its *top-level*
+    `geojson:` layers do understand a dotted path, but they are stored keyed by
+    entity id, so several layers on one entity silently collapse to whichever
+    was configured last — which looks exactly like a broken overlay. The form
+    that works is one `entities:` entry per band, and that one reads
+    `entity.attributes[attribute]` with no path walking at all. Hence one
+    attribute per band.
+    """
+    return {"%s_%s" % (prefix, key): value for key, value in layers.items()}
+
+
+def _band_label(key, bands):
+    if key == NO_DATA_KEY:
+        return NO_DATA_LABEL
+    return bands[int(key[1:])][1]
+
+
+def _band_color(key, bands):
+    if key == NO_DATA_KEY:
+        return NO_DATA_COLOR
+    return bands[int(key[1:])][2]
+
+
+def _haversine_m(a, b):
+    """Metres between two (lat, lon), flat-earth — fine over a GPS segment."""
+    lat_scale = DEG_METRES
+    lon_scale = DEG_METRES * math.cos(math.radians((a[0] + b[0]) / 2.0))
+    return math.hypot((b[0] - a[0]) * lat_scale, (b[1] - a[1]) * lon_scale)
+
+
+def _visit_counts(lines, cell_m, lat_ref):
+    """How many distinct traces pass through each grid cell.
+
+    A heat map wants "how often have I ridden this road", and roads are not
+    stored as roads here — they are GPS points that never repeat exactly. So
+    the world is cut into ~`cell_m` squares and a road becomes the cells it
+    runs through; two rides down the same street hit the same cells even though
+    no two fixes match. Counting is per trace, not per point: sitting at a
+    traffic light for two minutes must not paint that junction as the most
+    ridden place in the country.
+
+    Points are walked, not sampled — at 120 km/h a 1 Hz fix moves 33 m, which
+    would leave gaps in a 60 m grid, so each segment is stepped along in
+    half-cell strides.
+    """
+    d_lat = cell_m / DEG_METRES
+    d_lon = d_lat / (math.cos(math.radians(lat_ref)) or 1.0)
+    # cell -> [last trace seen here, count of distinct traces]. Traces are
+    # walked one at a time, so "have I already counted this trace here" is just
+    # a comparison against the last one.
+    seen = {}
+
+    def mark(idx, lat, lon):
+        key = (int(math.floor(lat / d_lat)), int(math.floor(lon / d_lon)))
+        hit = seen.get(key)
+        if hit is None:
+            seen[key] = [idx, 1]
+        elif hit[0] != idx:
+            hit[0] = idx
+            hit[1] += 1
+
+    for idx, line in enumerate(lines):
+        for k in range(len(line) - 1):
+            a, b = line[k], line[k + 1]
+            mark(idx, a[0], a[1])
+            steps = int(_haversine_m(a, b) / (cell_m / 2.0))
+            for s in range(1, min(steps, 200)):
+                t = s / float(steps)
+                mark(idx, a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+        if line:
+            mark(idx, line[-1][0], line[-1][1])
+    return seen, d_lat, d_lon
+
+
+def _visits_at(seen, d_lat, d_lon, lat, lon):
+    hit = seen.get((int(math.floor(lat / d_lat)), int(math.floor(lon / d_lon))))
+    return hit[1] if hit else 1
+
+
+def _cells_along(a, b, d_lat, d_lon, step_m=30.0):
+    """The grid cells a segment passes through."""
+    steps = max(1, int(_haversine_m(a, b) / step_m))
+    out = set()
+    for i in range(min(steps, 400) + 1):
+        t = i / float(steps)
+        out.add((int(math.floor((a[0] + (b[0] - a[0]) * t) / d_lat)),
+                 int(math.floor((a[1] + (b[1] - a[1]) * t) / d_lon))))
+    return out
+
+
+def _road_runs(lines, seen, d_lat, d_lon):
+    """Each stretch of road once, with the rides that came through it.
+
+    Drawing every trace is what the flat coverage overlay does, and at 350
+    traces the commute home is 130 lines stacked on the same street: the top
+    one wins, the colour underneath is invisible, and the result is a scribble.
+    A frequency map wants the opposite — one line per road, coloured by how
+    many rides used it — so a segment whose cells are already on the map is
+    dropped, and the count comes from the visit grid rather than from how many
+    times something was drawn.
+
+    Half a segment's cells being new is enough to keep it: a road rejoined
+    part-way through has to be drawn, or the map grows gaps where two rides
+    merge.
+    """
+    drawn = set()
+    pairs = []
+    for line in lines:
+        run, values = [], []
+        for k in range(len(line) - 1):
+            a, b = line[k], line[k + 1]
+            cells = _cells_along(a, b, d_lat, d_lon)
+            fresh = sum(1 for c in cells if c not in drawn)
+            if fresh < max(1, len(cells) * 0.5):
+                # Already on the map: close the run rather than bridge the gap.
+                if len(run) >= 2:
+                    pairs.append((run, values))
+                run, values = [], []
+                continue
+            drawn.update(cells)
+            mid = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+            if not run:
+                run = [a]
+            run.append(b)
+            values.append(_key_for(max(_visits_at(seen, d_lat, d_lon, p[0], p[1])
+                                       for p in (a, mid, b)), HEAT_BANDS))
+        if len(run) >= 2:
+            pairs.append((run, values))
+    return pairs
+
+
+def _overlay_pairs(coords, values, bands, tolerance, lat_ref, limit,
+                   min_run_m=60.0):
+    """Colour bands cut where the reading changes, not where the shape does.
+
+    The obvious construction — simplify the track, then reduce each surviving
+    segment's readings to one value — is wrong in a way that looks like a bug.
+    Douglas-Peucker keeps points where the road *bends*, so a straight two-mile
+    dual carriageway survives as a single segment, and on a real ride that one
+    segment spans 22 to 126 km/h: 15 km of a 24 km ride sat in segments longer
+    than 300 m, 18 km of it in segments whose speed spanned more than 20 km/h.
+    Averaging that paints a uniform mid-blue over the whole thing and puts the
+    colour changes at bends rather than where the riding changed.
+
+    So the bands come first: every raw point is banded, consecutive points in
+    the same band become a run, and only then is each run simplified for size.
+    A band boundary now falls exactly where the reading crossed it, and a bend
+    inside one band costs nothing.
+
+    Runs shorter than `min_run_m` are folded into their neighbour, into the one
+    whose band is nearest so a brief burst of 115 km/h joins the 90-110 stretch
+    around it rather than something two bands away. GPS speed wobbles either
+    side of a threshold, and without this a steady 51 km/h comes out as a
+    dashed line of two colours — which at low zoom, where a 20 m run is
+    sub-pixel, is exactly what a broken overlay looks like.
+
+    Runs carry their own key: reading it back out of a per-point array would
+    make each fold recolour the *next* run too, since neighbouring runs share
+    the boundary point that array is indexed by.
+    """
+    point_keys = [_key_for(v, bands) for v in _smooth(values)]
+    if len(point_keys) < 2:
+        return []
+
+    # [start, end, key] over the raw track. Neighbours share their boundary
+    # point, so the bands meet instead of leaving a one-segment gap.
+    runs = []
+    start = 0
+    for i in range(1, len(point_keys)):
+        if point_keys[i] != point_keys[start]:
+            runs.append([start, i, point_keys[start]])
+            start = i
+    runs.append([start, len(point_keys) - 1, point_keys[start]])
+
+    def run_metres(run):
+        return sum(_haversine_m(coords[i], coords[i + 1])
+                   for i in range(run[0], run[1]))
+
+    def band_rank(key):
+        # NO_DATA sorts far from every band: folding a real reading into "no
+        # data" (or the reverse) would be a lie either way, so it only happens
+        # when there is no other neighbour.
+        return -99 if key == NO_DATA_KEY else int(key[1:])
+
+    # Fold repeatedly: swallowing one run can leave its neighbours adjacent and
+    # in the same band, and that pair should merge too.
+    while len(runs) > 1:
+        lengths = [run_metres(r) for r in runs]
+        i = min(range(len(runs)), key=lambda k: lengths[k])
+        if lengths[i] >= min_run_m:
+            break
+        if i == 0:
+            target = 1
+        elif i == len(runs) - 1:
+            target = len(runs) - 2
+        else:
+            near = abs(band_rank(runs[i - 1][2]) - band_rank(runs[i][2])) - \
+                abs(band_rank(runs[i + 1][2]) - band_rank(runs[i][2]))
+            if near < 0:
+                target = i - 1
+            elif near > 0:
+                target = i + 1
+            else:
+                target = i - 1 if lengths[i - 1] >= lengths[i + 1] else i + 1
+        lo, hi = min(i, target), max(i, target)
+        runs[lo] = [runs[lo][0], runs[hi][1], runs[target][2]]
+        del runs[hi]
+
+    pairs = []
+    for run_start, run_end, key in runs:
+        line = coords[run_start:run_end + 1]
+        if len(line) < 2:
+            continue
+        line = simplify_track(line, tolerance, lat_ref)
+        if len(line) < 2:
+            line = [coords[run_start], coords[run_end]]
+        pairs.append((line, [key] * (len(line) - 1)))
+
+    total = sum(len(line) for line, _k in pairs)
+    if limit and total > limit:
+        share = limit / float(total)
+        pairs = [(thin_to(line, max(2, int(len(line) * share))), keys)
+                 for line, keys in pairs]
+        pairs = [(line, [keys[0]] * (len(line) - 1))
+                 for line, keys in pairs if keys]
+    return pairs
+
+
+# A ride's overlays are one computation shared by many callers: Home Assistant
+# holds each colour band in its own entity, and refreshing them after a ride is
+# picked means ~50 requests for the same bytes within a second or two. Keyed on
+# everything that changes the answer, held briefly — long enough for the burst,
+# short enough that a ride that grows mid-sync shows up on the next poll.
+_track_cache = {}
+_track_cache_lock = threading.Lock()
+TRACK_CACHE_SEC = 20
+
+
+def _cached_track(key, build):
+    now = time.time()
+    with _track_cache_lock:
+        hit = _track_cache.get(key)
+        if hit and now - hit[0] < TRACK_CACHE_SEC:
+            return hit[1]
+    value = build()
+    with _track_cache_lock:
+        _track_cache[key] = (now, value)
+        if len(_track_cache) > 32:
+            for stale in [k for k, (t, _v) in _track_cache.items()
+                          if now - t > TRACK_CACHE_SEC]:
+                _track_cache.pop(stale, None)
+    return value
+
+
+def latest_ride_start(uid):
+    row = db().execute(
+        "SELECT start_ms FROM trips WHERE user_id = ? ORDER BY start_ms DESC LIMIT 1",
+        (uid,),
+    ).fetchone()
+    return int(row["start_ms"]) if row else None
+
+
+def ha_track(user, params):
+    """One ride as a single simplified LineString, sized for an entity attribute.
+
+    /ha/ride.geojson exists for the bundled Leaflet page: a Feature per segment
+    so each can be coloured by the lean recorded there, which costs 74 kB for a
+    13 km ride. A native Home Assistant map card colours a whole geometry at
+    once, so per-segment features buy nothing and the size is a real cost — the
+    attribute is re-sent on every dashboard render and, unless excluded, written
+    to the recorder on every poll. One line, simplified, is a few kB.
+
+    No ?start= means the newest ride, so the sensor polling this needs no
+    template and no second request to find out what "latest" is.
+    """
+    uid = user["id"]
+    start = _int_param(params, "start", 0, 0, 2 ** 63 - 1)
+    tolerance = _int_param(params, "tol", 6, 0, 200)
+    limit = _int_param(params, "max", 400, 0, 5000)
+    return _cached_track((uid, start, tolerance, limit),
+                         lambda: _ha_track(uid, start, tolerance, limit))
+
+
+def _ha_track(uid, start, tolerance, limit):
+    empty = {"type": "FeatureCollection", "features": []}
+    if start <= 0:
+        start = latest_ride_start(uid)
+        if start is None:
+            return {"startMs": None, "pointCount": 0, "usedPoints": 0,
+                    "geojson": empty}
+    trip, end = ride_window(uid, start)
+    pts = ride_points(uid, start, end)
+    coords = [(p["lat"], p["lon"]) for p in pts]
+    bounds = _bounds(coords)
+    # Indices, not points: the speed and lean overlays below have to read what
+    # the raw track held between each pair of kept points.
+    kept = thin_to(
+        simplify_indices(coords, tolerance, bounds["latitude"] if bounds else 0.0),
+        limit,
+    ) if coords else []
+    line = [coords[i] for i in kept]
+    leans = [abs(p["lean"]) for p in pts if p["lean"] is not None]
+    speeds = [p["speed"] for p in pts if p["speed"] is not None]
+    distance_km = round((trip.get("distanceMeters") or 0) / 1000.0, 2)
+    features = []
+    if len(line) >= 2:
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [_coord(lat, lon, TRACK_DECIMALS) for lat, lon in line],
+            },
+            # Shown as a tooltip when the line is hovered on the map card.
+            "properties": {
+                "name": "%s km · %s" % (distance_km, (trip.get("mode") or "ride").title()),
+            },
+        })
+    out = {
+        "startMs": start,
+        "endMs": end,
+        "mode": trip.get("mode"),
+        "distanceKm": distance_km,
+        "topSpeedKmh": round(max(speeds), 1) if speeds else None,
+        "maxLeanDeg": round(max(leans), 1) if leans else None,
+        "pointCount": len(pts),
+        "usedPoints": len(line),
+        "geojson": {"type": "FeatureCollection", "features": features},
+    }
+    if len(line) >= 2:
+        # One layer per colour band, for a card that cannot colour per feature.
+        # Built off the raw points, not off `line`: see _overlay_pairs.
+        lat_ref = bounds["latitude"] if bounds else 0.0
+        # A band change worth drawing scales with the ride: 60 m of 110 km/h
+        # matters on a commute and is invisible on a 400 km day out, where
+        # keeping it would be several hundred runs and 60 kB of attribute.
+        min_run = max(60.0, min(distance_km * 2.0, 800.0))
+        out.update(_flatten_bands("speed", _banded_layers(
+            _overlay_pairs(coords, [p["speed"] for p in pts],
+                           SPEED_BANDS, tolerance, lat_ref, limit, min_run),
+            SPEED_BANDS, "%s", TRACK_DECIMALS, 25,
+        )))
+        out.update(_flatten_bands("lean", _banded_layers(
+            _overlay_pairs(coords,
+                           [None if p["lean"] is None else abs(p["lean"])
+                            for p in pts],
+                           LEAN_BANDS, tolerance, lat_ref, limit, min_run),
+            LEAN_BANDS, "%s lean", TRACK_DECIMALS, 10,
+        )))
+    if bounds:
+        out.update(bounds)
+        out["bounds"] = {"ne": bounds["ne"], "sw": bounds["sw"]}
+    return out
+
+
+def ha_coverage(user, params):
+    """Every trace the caller owns as one MultiLineString, aggressively thinned.
+
+    This is the entity-attribute counterpart to /ha/traces, which is 950 kB at
+    full detail — fine for a page that fetches once and thins in the browser,
+    impossible for something Home Assistant has to hold in state. Simplification
+    runs per line so a single long trace can't eat the whole budget, then the
+    total is capped: `max` is a budget across all lines, not per line.
+    """
+    uid = user["id"]
+    tolerance = _int_param(params, "tol", 25, 0, 500)
+    limit = _int_param(params, "max", 6000, 0, 40000)
+    cell_m = _int_param(params, "cell", 60, 10, 1000)
+    lines = []
+    raw_points = 0
+    for r in db().execute("SELECT line FROM traces WHERE user_id = ?", (uid,)):
+        try:
+            points = json.loads(r["line"])
+        except (ValueError, TypeError):
+            continue  # one corrupt line must not fail the whole overlay
+        if not isinstance(points, list):
+            continue
+        line = []
+        for p in points:
+            if not isinstance(p, list) or len(p) < 2:
+                continue
+            try:
+                lat, lon = float(p[0]), float(p[1])
+            except (TypeError, ValueError):
+                continue
+            if -90 <= lat <= 90 and -180 <= lon <= 180:
+                line.append((lat, lon))
+        if len(line) >= 2:
+            raw_points += len(line)
+            lines.append(line)
+    bounds = _bounds([p for line in lines for p in line])
+    lat_ref = bounds["latitude"] if bounds else 0.0
+    # Counted on the raw lines, before simplification: thinning a trace moves
+    # its points off the road it was on, and a heat map that is a cell out is
+    # worse than none.
+    seen, d_lat, d_lon = _visit_counts(lines, cell_m, lat_ref)
+    lines = [simplify_track(line, tolerance, lat_ref) for line in lines]
+    kept = sum(len(line) for line in lines)
+    if limit and kept > limit:
+        # Spend the budget in proportion to how much of the total each line is,
+        # so one long ride doesn't get thinned to nothing next to a short one.
+        share = limit / float(kept)
+        lines = [thin_to(line, max(2, int(len(line) * share))) for line in lines]
+        kept = sum(len(line) for line in lines)
+    geometry = [[_coord(lat, lon) for lat, lon in line] for line in lines if len(line) >= 2]
+    # Each segment takes the busiest cell it touches — its two ends and its
+    # middle. Taking only the midpoint loses junctions, where a long simplified
+    # segment ends on a road that has been ridden a hundred times.
+    pairs = _road_runs([line for line in lines if len(line) >= 2],
+                       seen, d_lat, d_lon)
+    out = {
+        "lineCount": len(geometry),
+        "pointCount": raw_points,
+        "usedPoints": kept,
+        "cellMetres": cell_m,
+        "maxVisits": max((c for _last, c in seen.values()), default=0),
+        "geojson": {
+            "type": "Feature",
+            "geometry": {"type": "MultiLineString", "coordinates": geometry},
+            "properties": {"name": "%d rides" % len(geometry)},
+        },
+    }
+    out["roadKm"] = round(
+        sum(_haversine_m(run[i], run[i + 1])
+            for run, _v in pairs for i in range(len(run) - 1)) / 1000.0, 1)
+    out.update(_flatten_bands("heat", _banded_layers(pairs, HEAT_BANDS,
+                                                     "ridden %s")))
+    if bounds:
+        out.update(bounds)
+        out["bounds"] = {"ne": bounds["ne"], "sw": bounds["sw"]}
+    return out
+
+
+# Mirrors BadgeStore.ALL in the app (app/.../data/Badges.kt). The app syncs only
+# *when* each badge was earned; the definitions are derived state and get
+# recomputed from stats — there for the phone's screen, here for the dashboard's.
+# Keep the two lists in step when a tier is added.
+BADGE_TIERS = (
+    ("dist", "Distance", "totalDistanceMeters", (
+        (100_000, "First hundred"),
+        (500_000, "Getting somewhere"),
+        (1_000_000, "Four figures"),
+        (5_000_000, "Long hauler"),
+        (10_000_000, "Ten thousand"),
+        (25_000_000, "Round the world"),
+    )),
+    ("speed", "Top speed", "topSpeedKmh", (
+        (100, "Ton up"),
+        (130, "Motorway legal"),
+        (160, "Quick"),
+        (200, "Double ton"),
+        (250, "Terminal velocity"),
+    )),
+    ("ride", "Single ride", "longestTripMeters", (
+        (100_000, "Day out"),
+        (250_000, "Proper ride"),
+        (500_000, "Iron butt"),
+    )),
+    ("muni", "Places", "municipalitiesVisited", (
+        (3, "Wanderer"),
+        (10, "Explorer"),
+        (25, "Cartographer"),
+        (50, "Conqueror"),
+    )),
+    ("cover", "Coverage", "bestCoveragePercent", (
+        (10, "Local knowledge"),
+        (25, "Know the back roads"),
+        (50, "Half the town"),
+        (100, "Every last street"),
+    )),
+)
+
+
+def ha_stats(user, params):
+    """Lifetime totals and badges for the dashboard's number cards.
+
+    `stats` is what the phone last synced, with two corrections the server is
+    better placed to make: the ride count comes from the trips it actually
+    holds, and maxLeanDeg is null — not 0 — when nothing has ever recorded a
+    lean, because "never measured" and "rode upright" are different answers.
+
+    `badges` is id -> earned-at ms, the raw synced map. `badgeCatalogue` scores
+    every defined badge, earned or not, so a card can show progress towards the
+    next one without knowing the tiers itself."""
+    uid = user["id"]
+    row = db().execute(
+        "SELECT stats_json, badges_json FROM users WHERE id = ?", (uid,)
+    ).fetchone()
+    if row is None:
+        raise HttpError(404, "no such user")
+    stats = json.loads(row["stats_json"] or "{}")
+    earned = json.loads(row["badges_json"] or "{}")
+
+    ride_count = db().execute(
+        "SELECT COUNT(*) AS n FROM trips WHERE user_id = ?", (uid,)
+    ).fetchone()["n"]
+    stats["tripCount"] = ride_count
+
+    # The points table only goes back as far as lean has been stored, and the
+    # phone's own figure only counts rides it still holds — so take whichever
+    # is deeper, and null when neither has anything.
+    point_lean = db().execute(
+        "SELECT MAX(ABS(lean_deg)) AS lean FROM track_points WHERE user_id = ?", (uid,)
+    ).fetchone()["lean"]
+    leans = [v for v in (point_lean, stats.get("maxLeanDeg")) if v]
+    stats["maxLeanDeg"] = round(max(leans), 1) if leans else None
+
+    catalogue = []
+    for prefix, kind, stat_key, tiers in BADGE_TIERS:
+        value = float(stats.get(stat_key) or 0)
+        for threshold, title in tiers:
+            badge_id = "%s_%d" % (prefix, threshold)
+            catalogue.append({
+                "id": badge_id,
+                "kind": kind,
+                "title": title,
+                "threshold": threshold,
+                "value": round(value, 1),
+                "earnedMs": earned.get(badge_id),
+                "progressPercent": round(min(value / threshold, 1.0) * 100, 1),
+            })
+
+    return {
+        "stats": stats,
+        "rideCount": ride_count,
+        "badgeCount": len(earned),
+        "badges": earned,
+        "badgeCatalogue": catalogue,
+    }
+
+
 def ha_ride(user, params):
     """One ride as GeoJSON: a Feature per segment, carrying the speed and lean
     recorded at its far end. Per-segment rather than one line, because a line
     can only be one colour — and colouring by lean is the whole point."""
     uid = user["id"]
-    start = int((params.get("start") or ["0"])[0])
+    # A junk ?start= is a bad request, not a server fault: bare int() raised
+    # ValueError out of the handler, which the catch-all turned into a 500.
+    try:
+        start = int((params.get("start") or ["0"])[0])
+    except ValueError:
+        raise HttpError(400, "start must be a timestamp in milliseconds")
     trip, end = ride_window(uid, start)
     pts = ride_points(uid, start, end)
     features = []
@@ -1364,13 +2307,16 @@ def ha_ride(user, params):
             "properties": {"tMs": b["t"], "speedKmh": b["speed"], "leanDeg": b["lean"]},
         })
     leans = [abs(p["lean"]) for p in pts if p["lean"] is not None]
+    speeds = [p["speed"] for p in pts if p["speed"] is not None]
     return {
         "type": "FeatureCollection",
         "features": features,
         "properties": {
             "startMs": start,
+            "endMs": end,
             "mode": trip.get("mode"),
             "distanceKm": round((trip.get("distanceMeters") or 0) / 1000.0, 2),
+            "topSpeedKmh": round(max(speeds), 1) if speeds else None,
             "maxLeanDeg": round(max(leans), 1) if leans else None,
             "pointCount": len(pts),
         },
@@ -1379,117 +2325,1169 @@ def ha_ride(user, params):
 
 # Leaflet comes from a CDN: the dashboard embedding this already needs the
 # internet for map tiles, and vendoring a copy here would be a second thing to
-# keep patched.
-RIDE_HTML = """<!doctype html>
+# keep patched. leaflet.heat is the one addition over the old single-ride page,
+# for the Heat tab's density layer.
+#
+# %-formatting is gone from this page on purpose: a page this size interpolated
+# with % would need every literal % in the CSS/JS doubled, which is a landmine
+# (see the old RIDE_HTML for what that looked like). str.replace() on one
+# explicit placeholder has no such trap.
+DASH_HTML = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Ride %(start)s</title>
+<title>Map Roulette</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
-  html, body, #map { height: 100%%; margin: 0; background: #11131a; }
-  .legend { background: rgba(20,22,30,.85); color: #eee; padding: 8px 10px;
-            font: 12px system-ui, sans-serif; border-radius: 6px; }
-  .legend b { display: block; margin-bottom: 4px; font-weight: 600; }
-  .bar { width: 160px; height: 10px; border-radius: 5px; margin: 4px 0;
-         background: linear-gradient(90deg,#2f6fed,#5b8def,#9aa4b2,#ef8a5b,#e2402a); }
-  .ends { display: flex; justify-content: space-between; }
-</style>
-<div id="map"></div>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-const data = %(geojson)s;
-const MAX_LEAN = 45;
-// Diverging: blue leaning left, red leaning right, grey upright. Segments with
-// no lean recorded (a car, or a ride from before lean was stored) stay grey.
-function colour(lean) {
-  if (lean === null || lean === undefined) return '#9aa4b2';
-  const t = Math.max(-1, Math.min(1, lean / MAX_LEAN));
-  const mix = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
-  const grey = [154, 164, 178];
-  const rgb = t < 0 ? mix(grey, [47, 111, 237], -t) : mix(grey, [226, 64, 42], t);
-  return 'rgb(' + rgb.join(',') + ')';
-}
-const map = L.map('map', { zoomControl: true });
-L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19, attribution: '&copy; OpenStreetMap'
-}).addTo(map);
-const layer = L.geoJSON(data, {
-  style: f => ({ color: colour(f.properties.leanDeg), weight: 6, opacity: 0.95 }),
-  onEachFeature: (f, l) => {
-    const p = f.properties;
-    l.bindTooltip(
-      (p.leanDeg === null ? 'lean n/a' : p.leanDeg.toFixed(0) + '\\u00b0 lean') +
-      ' \\u00b7 ' + (p.speedKmh === null ? '?' : p.speedKmh.toFixed(0)) + ' km/h');
+  :root {
+    color-scheme: dark;
+    --bg: #14170f; --panel: #191c14; --panel-2: #21241a; --border: #3a3d31;
+    --text: #ede9db; --muted: #b7af98; --accent: #e8b04b; --accent-ink: #2a2205;
+    --neutral: #6b7060; --red: #e2402a; --blue: #2f6fed; --green: #1baf7a;
+    --shadow: 0 2px 10px rgba(0,0,0,.45);
   }
-}).addTo(map);
-if (data.features.length) map.fitBounds(layer.getBounds(), { padding: [20, 20] });
-else map.setView([50.85, 4.35], 9);
-const legend = L.control({ position: 'bottomright' });
-legend.onAdd = () => {
-  const d = L.DomUtil.create('div', 'legend');
-  const max = data.properties.maxLeanDeg;
-  d.innerHTML = '<b>Lean' + (max === null ? '' : ' \\u00b7 max ' + max + '\\u00b0') +
-    '</b><div class="bar"></div><div class="ends"><span>left ' + MAX_LEAN +
-    '\\u00b0</span><span>right ' + MAX_LEAN + '\\u00b0</span></div>';
-  return d;
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+  }
+  button, select, input { font: inherit; color: inherit; }
+  a { color: var(--accent); }
+
+  /* -- top bar / tabs ---------------------------------------------------- */
+  .topbar { flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  .brand { font-weight: 700; font-size: 14px; white-space: nowrap; color: var(--accent); }
+  .tabs { display: flex; gap: 2px; overflow-x: auto; flex: 1 1 auto; }
+  .tab-btn { flex: 0 0 auto; padding: 9px 14px; border: 1px solid transparent; border-radius: 8px;
+    background: transparent; color: var(--muted); cursor: pointer; min-height: 40px; }
+  .tab-btn.active { background: var(--panel-2); color: var(--text); border-color: var(--border); }
+  .tab-btn:hover { color: var(--text); }
+
+  .tab-panel { display: none; flex: 1 1 auto; min-height: 0; flex-direction: column; }
+  .tab-panel.active { display: flex; }
+
+  /* -- generic states ------------------------------------------------------ */
+  .banner { margin: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+  .banner.error { background: rgba(226,64,42,.12); border: 1px solid rgba(226,64,42,.4); color: #f2b3a8; }
+  .banner.info { background: rgba(232,176,75,.1); border: 1px solid rgba(232,176,75,.35); color: var(--accent); }
+  .empty { margin: auto; padding: 30px 16px; text-align: center; color: var(--muted); }
+  .empty b { display: block; color: var(--text); margin-bottom: 4px; font-size: 15px; }
+  .spinner { margin: auto; color: var(--muted); padding: 30px; text-align: center; }
+
+  /* -- map tab ------------------------------------------------------------ */
+  .map-layout { flex: 1 1 auto; display: flex; min-height: 0; }
+  .sidebar { flex: 0 0 280px; display: flex; flex-direction: column; background: var(--panel);
+    border-right: 1px solid var(--border); min-height: 0; }
+  .sidebar-toggle { display: none; width: 100%; padding: 10px; background: var(--panel);
+    border: none; border-bottom: 1px solid var(--border); color: var(--text); text-align: left;
+    min-height: 44px; }
+  .sidebar-filters { flex: 0 0 auto; display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); }
+  .sidebar-filters input, .sidebar-filters select { background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; padding: 7px 8px; min-height: 36px; }
+  .sidebar-filters input { flex: 1 1 auto; min-width: 0; }
+  .ride-list { flex: 1 1 auto; overflow-y: auto; }
+  .ride-item { display: flex; flex-direction: column; gap: 2px; padding: 9px 12px; cursor: pointer;
+    border-bottom: 1px solid rgba(58,61,49,.5); min-height: 44px; justify-content: center; }
+  .ride-item:hover { background: var(--panel-2); }
+  .ride-item.selected { background: var(--accent); color: var(--accent-ink); }
+  .ride-item .line1 { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; }
+  .ride-item .line2 { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .ride-item.selected .line2 { color: var(--accent-ink); opacity: .8; }
+
+  .map-main { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  .overlay-bar { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    padding: 8px 10px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  .overlay-bar label { font-size: 12px; color: var(--muted); }
+  .overlay-bar select { background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 7px 8px; min-height: 36px; }
+  #map { flex: 1 1 auto; min-height: 0; background: #11131a; }
+
+  .legend { background: rgba(25,28,20,.92); color: var(--text); padding: 8px 10px;
+    font: 12px system-ui, sans-serif; border-radius: 8px; border: 1px solid var(--border); box-shadow: var(--shadow); }
+  .legend b { display: block; margin-bottom: 4px; font-weight: 600; }
+  .legend .bar { width: 160px; height: 10px; border-radius: 5px; margin: 4px 0; }
+  .legend .ends { display: flex; justify-content: space-between; color: var(--muted); }
+  .legend .note { color: var(--muted); font-style: italic; margin-top: 4px; max-width: 180px; }
+
+  .profile-strip { flex: 0 0 auto; height: 110px; background: var(--panel); border-top: 1px solid var(--border); position: relative; }
+  .profile-strip svg { width: 100%; height: 100%; display: block; touch-action: none; }
+  .profile-tip { position: absolute; pointer-events: none; background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 7px; font-size: 11px; color: var(--text); white-space: nowrap; box-shadow: var(--shadow); }
+
+  .stat-row { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: 0; background: var(--panel); border-top: 1px solid var(--border); }
+  .stat-row .stat { flex: 1 1 90px; padding: 8px 10px; font-size: 11px; color: var(--muted); border-right: 1px solid var(--border); }
+  .stat-row .stat b { display: block; font-size: 15px; font-weight: 600; color: var(--text); margin-top: 2px; }
+  .stat-row .stat:last-child { border-right: none; }
+
+  @media (max-width: 820px) {
+    .map-layout { flex-direction: column; }
+    .sidebar { flex: 0 0 auto; max-height: 0; overflow: hidden; border-right: none; border-bottom: 1px solid var(--border); transition: max-height .2s ease; }
+    .sidebar.open { max-height: 50vh; overflow-y: auto; }
+    .sidebar-toggle { display: block; }
+    .stat-row { overflow-x: auto; }
+  }
+
+  /* -- heat tab ------------------------------------------------------------ */
+  .heat-bar { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    padding: 8px 10px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  .heat-bar button { background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 8px 12px; min-height: 36px; cursor: pointer; }
+  .heat-bar button.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .heat-bar .note { font-size: 12px; color: var(--muted); }
+  #heatmap { flex: 1 1 auto; min-height: 0; background: #11131a; }
+
+  /* -- general / badges scroll area ---------------------------------------- */
+  .scroll-tab { flex: 1 1 auto; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 18px; }
+  .section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--muted); margin: 0 0 8px; }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+  .stat-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .stat-card .label { font-size: 11px; color: var(--muted); }
+  .stat-card .value { font-size: 20px; font-weight: 700; margin-top: 3px; }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+  .chart-wrap { overflow-x: auto; }
+  .chart-wrap svg { display: block; }
+  .axis-label { fill: var(--muted); font-size: 10px; }
+  .bar-label { fill: var(--text); font-size: 10px; }
+
+  .records-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+  .record-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+    cursor: pointer; text-align: left; color: inherit; min-height: 44px; }
+  .record-card:hover { border-color: var(--accent); }
+  .record-card .label { font-size: 11px; color: var(--muted); }
+  .record-card .value { font-size: 18px; font-weight: 700; color: var(--accent); margin-top: 2px; }
+  .record-card .when { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 12px; }
+  th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--panel); }
+  th.sorted::after { content: " \25BE"; color: var(--accent); }
+  th.sorted.desc::after { content: " \25B4"; }
+  tr:hover td { background: var(--panel-2); }
+
+  .cal-grid { display: block; }
+  .cal-cell { stroke: var(--border); stroke-width: .5; }
+
+  /* -- badges tab ---------------------------------------------------------- */
+  .badge-overall { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+  .badge-overall b { font-size: 22px; color: var(--accent); }
+  .badge-kind { margin-bottom: 6px; }
+  .badge-kind h3 { font-size: 13px; margin: 0 0 6px; color: var(--text); }
+  .badge-tier { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid rgba(58,61,49,.5); }
+  .badge-tier .dot { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; font-size: 12px; }
+  .badge-tier.earned .dot { background: var(--accent); color: var(--accent-ink); }
+  .badge-tier.locked .dot { background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); }
+  .badge-tier .body { flex: 1 1 auto; min-width: 0; }
+  .badge-tier .title { font-size: 13px; font-weight: 600; }
+  .badge-tier.locked .title { color: var(--muted); }
+  .badge-tier .meta { font-size: 11px; color: var(--muted); }
+  .badge-tier .progress { height: 5px; border-radius: 3px; background: var(--panel-2); margin-top: 4px; overflow: hidden; }
+  .badge-tier .progress i { display: block; height: 100%; background: var(--accent); }
+  .timeline-item { display: flex; gap: 8px; font-size: 12px; padding: 4px 0; color: var(--muted); }
+  .timeline-item b { color: var(--text); font-weight: 600; }
+</style>
+
+<div class="topbar">
+  <div class="brand">Map Roulette</div>
+  <div class="tabs" role="tablist">
+    <button class="tab-btn" data-tab="map">Map</button>
+    <button class="tab-btn" data-tab="heat">Heat</button>
+    <button class="tab-btn" data-tab="general">General</button>
+    <button class="tab-btn" data-tab="badges">Badges</button>
+  </div>
+</div>
+
+<section class="tab-panel" id="tab-map">
+  <div class="map-layout">
+    <aside class="sidebar" id="sidebar">
+      <button class="sidebar-toggle" id="sidebarToggle" type="button">Rides &#9662;</button>
+      <div class="sidebar-filters">
+        <select id="modeFilter"><option value="">All modes</option></select>
+        <input id="rideSearch" type="search" placeholder="Search date or mode&hellip;">
+      </div>
+      <div class="ride-list" id="rideList"><div class="spinner">Loading rides&hellip;</div></div>
+    </aside>
+    <div class="map-main">
+      <div class="overlay-bar">
+        <label for="overlaySelect">Colour by</label>
+        <select id="overlaySelect">
+          <option value="speed">Speed</option>
+          <option value="lean">Lean</option>
+          <option value="gforce">Cornering g</option>
+          <option value="accel">Accel / brake</option>
+          <option value="time">Time</option>
+        </select>
+        <span class="banner error" id="mapError" style="display:none"></span>
+      </div>
+      <div id="map"></div>
+      <div class="profile-strip" id="profileStrip"><svg id="profileSvg"></svg></div>
+      <div class="stat-row" id="statRow"></div>
+    </div>
+  </div>
+</section>
+
+<section class="tab-panel" id="tab-heat">
+  <div class="heat-bar">
+    <button id="heatModeHeat" class="active" type="button">Heat</button>
+    <button id="heatModeLines" type="button">Raw fog (lines)</button>
+    <button id="heatFit" type="button">Fit to coverage</button>
+    <span class="note">Every recorded trace, position only. Rides from before speed/lean were tracked still show up here &mdash; they just have nothing else to offer.</span>
+  </div>
+  <div id="heatmap"></div>
+</section>
+
+<section class="tab-panel" id="tab-general">
+  <div class="scroll-tab" id="generalBody"><div class="spinner">Loading&hellip;</div></div>
+</section>
+
+<section class="tab-panel" id="tab-badges">
+  <div class="scroll-tab" id="badgesBody"><div class="spinner">Loading&hellip;</div></div>
+</section>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script>
+"use strict";
+// __START_MS__ is the only thing the server templates into this page — cast
+// through int() server-side, so it can never carry markup. Everything else
+// (including the API key) is read here, client-side, from the URL the
+// browser already has.
+const INITIAL_START = __START_MS__;
+const API_KEY = new URLSearchParams(location.search).get("key") || "";
+
+/* ------------------------------------------------------------------------ *
+ * formatting helpers
+ * ------------------------------------------------------------------------ */
+function fmtKm(m) { return m == null ? "—" : (m / 1000).toFixed(1) + " km"; }
+function fmtSpeed(kmh) { return kmh == null ? "—" : Math.round(kmh) + " km/h"; }
+function fmtLean(deg) { return deg == null ? "—" : deg.toFixed(0) + "°"; }
+function fmtG(g) { return g == null ? "—" : g.toFixed(2) + "g"; }
+function fmtInt(n) { return n == null ? "—" : Math.round(n).toLocaleString(); }
+function fmtPct(v) { return v == null ? "—" : Math.round(v) + "%"; }
+function fmtDuration(ms) {
+  if (ms == null || ms < 0) return "—";
+  const m = Math.round(ms / 60000);
+  return m < 60 ? m + " min" : Math.floor(m / 60) + "h " + (m % 60) + "m";
+}
+function fmtDate(ms) { return ms ? new Date(ms).toLocaleDateString([], { dateStyle: "medium" }) : "—"; }
+function fmtDateTime(ms) {
+  return ms ? new Date(ms).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "—";
+}
+// `mode` is whatever the app synced: trips are stored as the client sent them
+// (do_sync json.dumps'es the whole trip dict), so it is user-controlled text,
+// not an enum the server has vetted. The old single-ride page guarded it where
+// it embedded the geojson; this page builds HTML strings instead, so every
+// interpolation of it goes through esc() and fmtMode never returns raw markup.
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function fmtMode(m) { return m ? esc(m.charAt(0) + m.slice(1).toLowerCase()) : "Ride"; }
+
+/* ------------------------------------------------------------------------ *
+ * API layer — every call forwards the key read from our own URL, never one
+ * templated server-side (see header comment).
+ * ------------------------------------------------------------------------ */
+class ApiError extends Error {
+  constructor(status, message) { super(message); this.status = status; }
+}
+async function api(path, params) {
+  const url = new URL(path, location.origin);
+  url.searchParams.set("key", API_KEY);
+  for (const k in (params || {})) url.searchParams.set(k, params[k]);
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (e) {
+    throw new ApiError(0, "Couldn't reach the server — check your connection.");
+  }
+  let body = null;
+  try { body = await res.json(); } catch (e) { /* non-JSON error page, fall through */ }
+  if (!res.ok) {
+    if (res.status === 401) throw new ApiError(401, "Check the API key in this page's URL.");
+    throw new ApiError(res.status, (body && body.error) || ("request failed (" + res.status + ")"));
+  }
+  return body;
+}
+function errorMessage(e) {
+  return e instanceof ApiError ? e.message : "Something went wrong.";
+}
+
+/* ------------------------------------------------------------------------ *
+ * state — fetched once and reused across tabs; geojson cached per ride so
+ * flipping the overlay selector never re-fetches.
+ * ------------------------------------------------------------------------ */
+const state = {
+  tab: "map",
+  startMs: INITIAL_START || null,
+  rides: null,          // array from /ha/rides, newest first
+  ridesByStart: new Map(),
+  stats: null,
+  geojsonCache: new Map(),
+  traces: null,
+  current: null,        // { geo, verts, cumKm, speedVals, leanVals, gVals, accelVals, timeVals, speedRange }
 };
-legend.addTo(map);
+let ridesPromise = null, statsPromise = null, tracesPromise = null;
+function loadRides() {
+  if (!ridesPromise) ridesPromise = api("/ha/rides", { limit: 500 }).then(d => {
+    state.rides = d.rides;
+    state.ridesByStart = new Map(d.rides.map(r => [r.startMs, r]));
+    return d.rides;
+  });
+  return ridesPromise;
+}
+function loadStats() {
+  if (!statsPromise) statsPromise = api("/ha/stats").then(d => { state.stats = d; return d; });
+  return statsPromise;
+}
+function loadTraces() {
+  if (!tracesPromise) tracesPromise = api("/ha/traces").then(d => { state.traces = d.traces; return d.traces; });
+  return tracesPromise;
+}
+async function loadGeojson(startMs) {
+  if (state.geojsonCache.has(startMs)) return state.geojsonCache.get(startMs);
+  const geo = await api("/ha/ride.geojson", { start: startMs });
+  state.geojsonCache.set(startMs, geo);
+  return geo;
+}
+
+/* ------------------------------------------------------------------------ *
+ * routing — tab in the hash, selected ride in the query string, so a reload
+ * lands back where it was without re-templating anything server-side.
+ * ------------------------------------------------------------------------ */
+function currentUrlState() {
+  const tab = (location.hash || "#map").slice(1);
+  const start = new URLSearchParams(location.search).get("start");
+  return { tab: ["map", "heat", "general", "badges"].includes(tab) ? tab : "map", start: start ? Number(start) : null };
+}
+function setUrl(tab, startMs) {
+  const url = new URL(location.href);
+  url.hash = tab;
+  if (startMs) url.searchParams.set("start", startMs); else url.searchParams.delete("start");
+  history.replaceState(null, "", url);
+}
+
+/* ==========================================================================
+ * derived metrics — the formulas the task calls "derived": g has no per-point
+ * field anywhere upstream, so cornering g and accel/brake g are computed here
+ * from consecutive points, and clamped because GPS noise on a short baseline
+ * produces the occasional absurd spike.
+ * ========================================================================== */
+const CORNER_G_CEIL = 1.5;   // sport-riding cornering rarely clears this; treat anything past it as noise
+const ACCEL_G_CEIL = 1.0;    // roughly the traction limit for street tires; a bigger reading is a GPS artifact
+const EARTH_R = 6371000;
+const toRad = d => d * Math.PI / 180;
+
+function haversine(a, b) {
+  const dLat = toRad(b.lat - a.lat), dLon = toRad(b.lon - a.lon);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * EARTH_R * Math.asin(Math.sqrt(s));
+}
+function toXY(p, refLat) {
+  // Local equirectangular projection around a reference latitude, good enough
+  // over the tens-of-metres baseline between three consecutive trace points.
+  return { x: EARTH_R * toRad(p.lon) * Math.cos(toRad(refLat)), y: EARTH_R * toRad(p.lat) };
+}
+function buildVerts(geo) {
+  const feats = geo.features;
+  if (!feats.length) return [];
+  const verts = [{
+    lat: feats[0].geometry.coordinates[0][1], lon: feats[0].geometry.coordinates[0][0],
+    t: geo.properties.startMs, speed: null, lean: null,
+  }];
+  for (const f of feats) {
+    const c = f.geometry.coordinates[1];
+    verts.push({ lat: c[1], lon: c[0], t: f.properties.tMs, speed: f.properties.speedKmh, lean: f.properties.leanDeg });
+  }
+  return verts;
+}
+function cumulativeKm(verts) {
+  const out = [0];
+  for (let i = 1; i < verts.length; i++) out.push(out[i - 1] + haversine(verts[i - 1], verts[i]) / 1000);
+  return out;
+}
+function corneringG(verts) {
+  // Circumradius r through three consecutive points, then a_lat = v^2 / r.
+  // Assigned to the segment centred on the middle point; the first and last
+  // segments have no interior neighbour and stay null (edge of the ride, not
+  // "zero g").
+  const g = new Array(Math.max(verts.length - 1, 0)).fill(null);
+  for (let i = 1; i < verts.length - 1; i++) {
+    const A = verts[i - 1], B = verts[i], C = verts[i + 1];
+    if (B.speed == null) continue;
+    const ref = B.lat;
+    const a = toXY(A, ref), b = toXY(B, ref), c = toXY(C, ref);
+    const area = Math.abs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y)) / 2;
+    const ab = Math.hypot(b.x - a.x, b.y - a.y), bc = Math.hypot(c.x - b.x, c.y - b.y), ac = Math.hypot(c.x - a.x, c.y - a.y);
+    if (ab < 0.5 || bc < 0.5) continue; // points on top of each other (stopped/dupe) — not a corner, not noise either
+    if (area < 0.05) { g[i] = 0; continue; } // collinear: r -> infinity -> no lateral acceleration
+    const r = (ab * bc * ac) / (4 * area);
+    const v = B.speed / 3.6;
+    g[i] = Math.min((v * v / r) / 9.81, CORNER_G_CEIL);
+  }
+  return g;
+}
+function accelBrakeG(verts) {
+  const out = new Array(Math.max(verts.length - 1, 0)).fill(null);
+  for (let i = 0; i < verts.length - 1; i++) {
+    const A = verts[i], B = verts[i + 1];
+    if (A.speed == null || B.speed == null || A.t == null || B.t == null) continue;
+    const dt = (B.t - A.t) / 1000;
+    // Guard both ends: a non-positive/duplicate timestamp divides by ~0, and
+    // a multi-second gap in recording turns an ordinary speed change into a
+    // spike that never really happened at that rate.
+    if (dt <= 0.2 || dt > 8) continue;
+    const dv = (B.speed - A.speed) / 3.6;
+    out[i] = Math.max(-ACCEL_G_CEIL, Math.min(ACCEL_G_CEIL, dv / dt / 9.81));
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------------ *
+ * colour ramps — see the dataviz skill: sequential = one hue, light->dark;
+ * diverging = two hues + a neutral grey midpoint. Hues are chosen to match
+ * (and stay validated against) the categorical set used for mode split:
+ * blue #3987e5 (~214deg), orange #d95926 (~20deg), aqua #199e70 (~162deg);
+ * time reuses the app's own accent hue (~40deg) instead of a new one.
+ * ------------------------------------------------------------------------ */
+const NEUTRAL = "#6b7060"; // "no data for this segment" — same grey everywhere so it always reads the same way
+function seqColor(t, hue) {
+  t = Math.max(0, Math.min(1, t));
+  const l = 82 - t * 60; // 82% (near-surface) -> 22% (near-black), one hue throughout
+  return "hsl(" + hue + " 68% " + l + "%)";
+}
+function seqStops(hue, n) {
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(seqColor(i / (n - 1), hue));
+  return out;
+}
+function mixRgb(a, b, k) { return a.map((v, i) => Math.round(v + (b[i] - v) * k)); }
+function divergeColor(t, negRgb, posRgb) {
+  t = Math.max(-1, Math.min(1, t));
+  const grey = [107, 112, 96];
+  const rgb = t < 0 ? mixRgb(grey, negRgb, -t) : mixRgb(grey, posRgb, t);
+  return "rgb(" + rgb.join(",") + ")";
+}
+const LEAN_BLUE = [47, 111, 237], LEAN_RED = [226, 64, 42];
+const BRAKE_RED = [226, 64, 42], ACCEL_GREEN = [27, 175, 122];
+
+const OVERLAYS = {
+  speed: {
+    label: "Speed", kind: "sequential", hue: 214,
+    value: (d, i) => d.speedVals[i],
+    color: (d, i) => { const v = d.speedVals[i]; if (v == null) return NEUTRAL;
+      const { min, max } = d.speedRange; return seqColor(max > min ? (v - min) / (max - min) : 0, 214); },
+    tip: (d, i) => { const v = d.speedVals[i]; return v == null ? "speed n/a" : Math.round(v) + " km/h"; },
+    legend(d) {
+      const { min, max } = d.speedRange;
+      return { grad: seqStops(214, 6), left: (min == null ? "—" : Math.round(min) + " km/h"),
+        right: (max == null ? "—" : Math.round(max) + " km/h") };
+    },
+  },
+  lean: {
+    label: "Lean", kind: "diverging", hue: null,
+    value: (d, i) => d.leanVals[i],
+    color: (d, i) => { const v = d.leanVals[i]; return v == null ? NEUTRAL : divergeColor(v / 45, LEAN_BLUE, LEAN_RED); },
+    tip: (d, i) => { const v = d.leanVals[i]; return v == null ? "lean n/a" : v.toFixed(0) + "° lean"; },
+    legend(d) {
+      const grad = [LEAN_BLUE, [107, 112, 96], LEAN_RED].map(c => "rgb(" + c.join(",") + ")");
+      const note = d.leanVals.every(v => v == null) ? "No lean recorded for this ride — grey throughout." : null;
+      return { grad, left: "left 45°", right: "right 45°", note };
+    },
+  },
+  gforce: {
+    label: "Cornering g", kind: "sequential", hue: 20,
+    value: (d, i) => d.gVals[i],
+    color: (d, i) => { const v = d.gVals[i]; return v == null ? NEUTRAL : seqColor(v / CORNER_G_CEIL, 20); },
+    tip: (d, i) => { const v = d.gVals[i]; return v == null ? "corner g n/a" : v.toFixed(2) + "g corner (derived)"; },
+    legend(d) {
+      return { grad: seqStops(20, 6), left: "0g", right: "≥" + CORNER_G_CEIL + "g (clamped)",
+        note: "Derived from GPS speed + curvature, not a device sensor — different from the trip's Max g stat below." };
+    },
+  },
+  accel: {
+    label: "Accel / brake", kind: "diverging", hue: null,
+    value: (d, i) => d.accelVals[i],
+    color: (d, i) => { const v = d.accelVals[i]; return v == null ? NEUTRAL : divergeColor(v / ACCEL_G_CEIL, BRAKE_RED, ACCEL_GREEN); },
+    tip: (d, i) => { const v = d.accelVals[i]; if (v == null) return "accel n/a";
+      return (v < 0 ? "braking " : "accelerating ") + Math.abs(v).toFixed(2) + "g"; },
+    legend(d) {
+      const grad = [BRAKE_RED, [107, 112, 96], ACCEL_GREEN].map(c => "rgb(" + c.join(",") + ")");
+      return { grad, left: "braking " + ACCEL_G_CEIL + "g", right: "accel " + ACCEL_G_CEIL + "g",
+        note: "Δspeed / Δt between points — derived, not measured." };
+    },
+  },
+  time: {
+    label: "Time", kind: "sequential", hue: 40,
+    value: (d, i) => d.timeVals[i],
+    color: (d, i) => { const v = d.timeVals[i]; if (v == null) return NEUTRAL;
+      const { startMs, endMs } = d.geo.properties; return seqColor(endMs > startMs ? (v - startMs) / (endMs - startMs) : 0, 40); },
+    tip: (d, i) => { const v = d.timeVals[i]; return v == null ? "" : fmtDateTime(v); },
+    legend(d) { return { grad: seqStops(40, 6), left: "start", right: "finish" }; },
+  },
+};
+
+/* ==========================================================================
+ * Map tab
+ * ========================================================================== */
+let map = null, rideLayer = null, startMarker = null, endMarker = null, hlMarker = null, legendCtl = null;
+let overlayName = "speed";
+
+function ensureMap() {
+  if (map) return;
+  map = L.map("map", { zoomControl: true });
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, attribution: "&copy; OpenStreetMap",
+  }).addTo(map);
+  map.setView([50.85, 4.35], 9);
+  legendCtl = L.control({ position: "bottomright" });
+  legendCtl.onAdd = () => L.DomUtil.create("div", "legend");
+  legendCtl.addTo(map);
+}
+
+function renderLegend() {
+  const spec = OVERLAYS[overlayName];
+  const l = spec.legend(state.current);
+  const el = legendCtl.getContainer();
+  el.innerHTML = "<b>" + spec.label + "</b>" +
+    '<div class="bar" style="background:linear-gradient(90deg,' + l.grad.join(",") + ')"></div>' +
+    '<div class="ends"><span>' + l.left + "</span><span>" + l.right + "</span></div>" +
+    (l.note ? '<div class="note">' + l.note + "</div>" : "");
+}
+
+function clearMapError() { const el = document.getElementById("mapError"); el.style.display = "none"; el.textContent = ""; }
+function showMapError(msg) { const el = document.getElementById("mapError"); el.style.display = "inline"; el.textContent = msg; }
+
+function setHighlight(idx) {
+  if (!state.current) return;
+  const verts = state.current.verts;
+  if (idx == null || !verts[idx + 1]) {
+    if (hlMarker) { map.removeLayer(hlMarker); hlMarker = null; }
+  } else {
+    const v = verts[idx + 1];
+    if (!hlMarker) {
+      hlMarker = L.circleMarker([v.lat, v.lon], { radius: 7, color: "#e8b04b", weight: 2, fillColor: "#e8b04b", fillOpacity: .9 }).addTo(map);
+    } else {
+      hlMarker.setLatLng([v.lat, v.lon]);
+    }
+  }
+  updateProfileGuide(idx);
+}
+
+async function renderStatRow(geo) {
+  const p = geo.properties;
+  const ride = state.ridesByStart.get(p.startMs);
+  const avgSpeed = p.distanceKm && (p.endMs > p.startMs)
+    ? p.distanceKm / ((p.endMs - p.startMs) / 3600000) : null;
+  const stats = [
+    ["Distance", fmtKm((p.distanceKm || 0) * 1000)],
+    ["Duration", fmtDuration(p.endMs - p.startMs)],
+    ["Avg speed", fmtSpeed(avgSpeed)],
+    ["Top speed", fmtSpeed(p.topSpeedKmh)],
+    ["Max lean", fmtLean(p.maxLeanDeg)],
+    ["Max g (device)", ride && ride.maxGForce != null ? fmtG(ride.maxGForce) : "—"],
+    ["Points", fmtInt(p.pointCount)],
+  ];
+  document.getElementById("statRow").innerHTML = stats.map(([label, value]) =>
+    '<div class="stat">' + label + "<b>" + value + "</b></div>").join("");
+}
+
+// Clicking a second ride while the first is still loading must not let the
+// first one win when it lands: a cached ride resolves instantly, an uncached
+// one a network round-trip later, so "last click" and "last to resolve" are
+// not the same order. Every load takes a ticket and drops what it drew if a
+// newer one has been issued since.
+let selectSeq = 0;
+async function selectRide(startMs) {
+  if (!startMs) {
+    ensureMap();
+    showEmptyMap("No ride selected.");
+    return;
+  }
+  const seq = ++selectSeq;
+  state.startMs = startMs;
+  setUrl(state.tab, startMs);
+  highlightSidebar(startMs);
+  clearMapError();
+  ensureMap();
+  try {
+    const geo = await loadGeojson(startMs);
+    if (seq !== selectSeq) return;  // a newer selection has already drawn
+    if (!geo.features.length) {
+      clearRideLayers();
+      showEmptyMap("This ride has no recorded points.");
+      state.current = { geo, verts: [], cumKm: [], speedVals: [], leanVals: [], gVals: [], accelVals: [], timeVals: [], speedRange: {} };
+      renderStatRow(geo);
+      renderProfile();
+      return;
+    }
+    hideEmptyMap();
+    // Leaflet hands the style/onEachFeature callbacks the feature, not its
+    // position, and looking that up with indexOf() is a linear scan inside a
+    // per-feature loop — a few hundred thousand comparisons on an ordinary
+    // ride, repeated on every overlay switch. Number them once instead.
+    geo.features.forEach((f, i) => { f.properties._i = i; });
+    const verts = buildVerts(geo);
+    const speedVals = geo.features.map(f => f.properties.speedKmh);
+    const leanVals = geo.features.map(f => f.properties.leanDeg);
+    const timeVals = geo.features.map(f => f.properties.tMs);
+    const speeds = speedVals.filter(v => v != null);
+    state.current = {
+      geo, verts, cumKm: cumulativeKm(verts),
+      speedVals, leanVals, timeVals,
+      gVals: corneringG(verts), accelVals: accelBrakeG(verts),
+      speedRange: { min: speeds.length ? Math.min(...speeds) : null, max: speeds.length ? Math.max(...speeds) : null },
+    };
+    drawRide();
+    renderStatRow(geo);
+    renderProfile();
+  } catch (e) {
+    if (seq === selectSeq) showMapError(errorMessage(e));
+  }
+}
+
+function showEmptyMap(msg) {
+  let el = document.getElementById("mapEmpty");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "mapEmpty";
+    el.className = "empty";
+    el.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(20,23,15,.85);z-index:500;";
+    document.getElementById("map").style.position = "relative";
+    document.getElementById("map").appendChild(el);
+  }
+  el.innerHTML = "<div><b>Nothing to show</b>" + msg + "</div>";
+  el.style.display = "flex";
+}
+function hideEmptyMap() { const el = document.getElementById("mapEmpty"); if (el) el.style.display = "none"; }
+
+function clearRideLayers() {
+  if (rideLayer) { map.removeLayer(rideLayer); rideLayer = null; }
+  if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
+  if (endMarker) { map.removeLayer(endMarker); endMarker = null; }
+  if (hlMarker) { map.removeLayer(hlMarker); hlMarker = null; }
+}
+
+function drawRide() {
+  clearRideLayers();
+  const d = state.current;
+  const spec = OVERLAYS[overlayName];
+  rideLayer = L.geoJSON(d.geo, {
+    style: (f) => ({ color: spec.color(d, f.properties._i), weight: 5, opacity: .92 }),
+    onEachFeature: (f, layer) => {
+      const i = f.properties._i;
+      const p = f.properties;
+      layer.bindTooltip(spec.tip(d, i) + " · " + (p.speedKmh == null ? "?" : Math.round(p.speedKmh)) + " km/h");
+      layer.on("mouseover", () => setHighlight(i));
+    },
+  }).addTo(map);
+  const verts = d.verts;
+  startMarker = L.circleMarker([verts[0].lat, verts[0].lon], { radius: 6, color: "#1baf7a", weight: 2, fillColor: "#1baf7a", fillOpacity: 1 })
+    .bindTooltip("Start").addTo(map);
+  const last = verts[verts.length - 1];
+  endMarker = L.circleMarker([last.lat, last.lon], { radius: 6, color: "#e2402a", weight: 2, fillColor: "#e2402a", fillOpacity: 1 })
+    .bindTooltip("End").addTo(map);
+  map.fitBounds(rideLayer.getBounds(), { padding: [24, 24] });
+  renderLegend();
+}
+
+function onOverlayChange() {
+  overlayName = document.getElementById("overlaySelect").value;
+  if (state.current && state.current.verts.length) { drawRide(); renderProfile(); }
+}
+
+/* -- profile strip -------------------------------------------------------- */
+function renderProfile() {
+  const svg = document.getElementById("profileSvg");
+  const d = state.current;
+  if (!d || !d.verts.length) { svg.innerHTML = ""; return; }
+  const spec = OVERLAYS[overlayName];
+  const values = d.geo.features.map((_, i) => spec.value(d, i));
+  const cumKm = d.cumKm;
+  const w = svg.clientWidth || 600, h = svg.clientHeight || 110;
+  const pad = { l: 4, r: 4, t: 8, b: 4 };
+  const totalKm = cumKm[cumKm.length - 1] || 1;
+  const xAt = km => pad.l + (km / totalKm) * (w - pad.l - pad.r);
+  const finite = values.filter(v => v != null);
+  let domainMin, domainMax;
+  if (spec.kind === "diverging") {
+    const ceil = overlayName === "lean" ? 45 : ACCEL_G_CEIL;
+    domainMin = -ceil; domainMax = ceil;
+  } else if (overlayName === "gforce") {
+    domainMin = 0; domainMax = CORNER_G_CEIL;
+  } else if (overlayName === "time") {
+    domainMin = d.geo.properties.startMs; domainMax = d.geo.properties.endMs || (domainMin + 1);
+  } else {
+    domainMin = finite.length ? Math.min(...finite) : 0;
+    domainMax = finite.length ? Math.max(...finite) : 1;
+  }
+  const yAt = v => h - pad.b - ((v - domainMin) / ((domainMax - domainMin) || 1)) * (h - pad.t - pad.b);
+
+  let svgParts = "";
+  if (spec.kind === "diverging") {
+    const zeroY = yAt(0);
+    svgParts += '<line x1="' + pad.l + '" y1="' + zeroY + '" x2="' + (w - pad.r) + '" y2="' + zeroY +
+      '" stroke="var(--border)" stroke-dasharray="3,3" />';
+  }
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    if (v == null) continue;
+    const x1 = xAt(cumKm[i]), x2 = xAt(cumKm[i + 1]);
+    const y1 = yAt(v), y2 = yAt(v);
+    svgParts += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 +
+      '" stroke="' + spec.color(d, i) + '" stroke-width="2" stroke-linecap="round" data-i="' + i + '" />';
+  }
+  svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+  svg.innerHTML = svgParts + '<g id="profileGuide" style="display:none"><line x1="0" y1="0" x2="0" y2="' + h +
+    '" stroke="#e8b04b" stroke-width="1" /></g>';
+
+  svg.onpointermove = (ev) => {
+    const rect = svg.getBoundingClientRect();
+    const x = (ev.clientX - rect.left) / rect.width * w;
+    const km = Math.max(0, Math.min(totalKm, (x - pad.l) / (w - pad.l - pad.r) * totalKm));
+    let idx = 0, best = Infinity;
+    for (let i = 0; i < cumKm.length; i++) { const dd = Math.abs(cumKm[i] - km); if (dd < best) { best = dd; idx = i; } }
+    setHighlight(Math.max(0, Math.min(values.length - 1, idx)));
+  };
+  svg.onpointerleave = () => setHighlight(null);
+}
+function updateProfileGuide(idx) {
+  const svg = document.getElementById("profileSvg");
+  const guide = document.getElementById("profileGuide");
+  if (!guide || !state.current) return;
+  if (idx == null) { guide.style.display = "none"; return; }
+  const d = state.current;
+  const w = svg.clientWidth || 600;
+  const totalKm = d.cumKm[d.cumKm.length - 1] || 1;
+  const km = d.cumKm[idx + 1] != null ? d.cumKm[idx + 1] : 0;
+  const x = 4 + (km / totalKm) * (w - 8);
+  guide.querySelector("line").setAttribute("x1", x);
+  guide.querySelector("line").setAttribute("x2", x);
+  guide.style.display = "block";
+}
+
+/* -- sidebar / ride list ---------------------------------------------------- */
+function highlightSidebar(startMs) {
+  document.querySelectorAll(".ride-item").forEach(el => el.classList.toggle("selected", Number(el.dataset.start) === startMs));
+}
+function renderRideList() {
+  const modeSel = document.getElementById("modeFilter");
+  const modes = [...new Set(state.rides.map(r => r.mode).filter(Boolean))];
+  if (modeSel.options.length <= 1) modes.forEach(m => modeSel.add(new Option(fmtMode(m), m)));
+
+  const q = document.getElementById("rideSearch").value.trim().toLowerCase();
+  const modeFilter = modeSel.value;
+  const list = document.getElementById("rideList");
+  if (!state.rides.length) { list.innerHTML = '<div class="empty"><b>No rides yet</b>Once a ride syncs it will show up here.</div>'; return; }
+  const rows = state.rides.filter(r => {
+    if (modeFilter && r.mode !== modeFilter) return false;
+    if (!q) return true;
+    const hay = (fmtDate(r.startMs) + " " + (r.mode || "")).toLowerCase();
+    return hay.includes(q);
+  });
+  if (!rows.length) { list.innerHTML = '<div class="empty">No rides match that filter.</div>'; return; }
+  list.innerHTML = rows.map(r => {
+    const headline = (r.mode === "MOTO" && r.maxLeanDeg != null) ? r.maxLeanDeg.toFixed(0) + "° lean" : fmtSpeed(r.topSpeedKmh);
+    return '<div class="ride-item" data-start="' + r.startMs + '">' +
+      '<div class="line1"><span>' + fmtDate(r.startMs) + "</span><span>" + headline + "</span></div>" +
+      '<div class="line2"><span>' + fmtMode(r.mode) + " · " + fmtKm((r.distanceKm || 0) * 1000) + "</span><span>" +
+      fmtDuration(r.endMs - r.startMs) + "</span></div></div>";
+  }).join("");
+  list.querySelectorAll(".ride-item").forEach(el => el.addEventListener("click", () => {
+    selectRide(Number(el.dataset.start));
+    document.getElementById("sidebar").classList.remove("open");
+  }));
+  highlightSidebar(state.startMs);
+}
+
+async function initMapTab() {
+  ensureMap();
+  try {
+    await loadRides();
+  } catch (e) {
+    document.getElementById("rideList").innerHTML = '<div class="banner error">' + errorMessage(e) + "</div>";
+    return;
+  }
+  renderRideList();
+  if (!state.rides.length) { showEmptyMap("No rides yet."); return; }
+  const target = state.startMs && state.ridesByStart.has(state.startMs) ? state.startMs : state.rides[0].startMs;
+  selectRide(target);
+}
+
+/* ==========================================================================
+ * Heat tab
+ * ========================================================================== */
+let heatMap = null, heatLayer = null, lineLayer = null, heatMode = "heat";
+function ensureHeatMap() {
+  if (heatMap) return;
+  heatMap = L.map("heatmap", { zoomControl: true });
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, attribution: "&copy; OpenStreetMap",
+  }).addTo(heatMap);
+  heatMap.setView([50.85, 4.35], 9);
+}
+async function initHeatTab() {
+  ensureHeatMap();
+  const container = document.getElementById("heatmap");
+  try {
+    const traces = await loadTraces();
+    if (!traces.length) {
+      let el = document.getElementById("heatEmpty");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "heatEmpty"; el.className = "empty";
+        el.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(20,23,15,.85);z-index:500;";
+        container.style.position = "relative";
+        container.appendChild(el);
+      }
+      el.innerHTML = "<div><b>No traces yet</b>Ride with the app syncing and they'll show up here.</div>";
+      return;
+    }
+    const allPoints = [];
+    for (const line of traces) for (const p of line) allPoints.push(p);
+    heatLayer = L.heatLayer(allPoints, { radius: 14, blur: 18, maxZoom: 15 });
+    lineLayer = L.layerGroup(traces.map(line => L.polyline(line, { color: "#e8b04b", weight: 1, opacity: .35 })));
+    applyHeatMode();
+    heatMap.fitBounds(L.latLngBounds(allPoints), { padding: [20, 20] });
+  } catch (e) {
+    container.innerHTML = '<div class="banner error">' + errorMessage(e) + "</div>";
+  }
+}
+function applyHeatMode() {
+  if (!heatLayer) return;
+  if (heatMode === "heat") {
+    if (lineLayer && heatMap.hasLayer(lineLayer)) heatMap.removeLayer(lineLayer);
+    if (!heatMap.hasLayer(heatLayer)) heatLayer.addTo(heatMap);
+  } else {
+    if (heatMap.hasLayer(heatLayer)) heatMap.removeLayer(heatLayer);
+    if (lineLayer && !heatMap.hasLayer(lineLayer)) lineLayer.addTo(heatMap);
+  }
+  document.getElementById("heatModeHeat").classList.toggle("active", heatMode === "heat");
+  document.getElementById("heatModeLines").classList.toggle("active", heatMode === "lines");
+}
+
+/* ==========================================================================
+ * General tab — lifetime numbers, all charts hand-rolled inline SVG per the
+ * dataviz skill: sequential magnitude for the month bars and calendar,
+ * categorical (validated) for the mode split.
+ * ========================================================================== */
+const MODE_COLORS = { CAR: "#3987e5", MOTO: "#d95926" }; // validated categorical slots 1/2 against this panel's surface
+const MODE_FALLBACK = "#199e70"; // slot 3, for anything that isn't CAR/MOTO
+
+function svgEl(tag, attrs) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+}
+
+function renderStatCards(stats) {
+  const cards = [
+    ["Total distance", fmtKm(stats.stats.totalDistanceMeters)],
+    ["Top speed", fmtSpeed(stats.stats.topSpeedKmh)],
+    ["Longest ride", fmtKm(stats.stats.longestTripMeters)],
+    ["Max lean", fmtLean(stats.stats.maxLeanDeg)],
+    ["Municipalities", fmtInt(stats.stats.municipalitiesVisited)],
+    ["Best coverage", fmtPct(stats.stats.bestCoveragePercent)],
+    ["Rides", fmtInt(stats.rideCount)],
+  ];
+  return '<div class="card-grid">' + cards.map(([l, v]) =>
+    '<div class="stat-card"><div class="label">' + l + '</div><div class="value">' + v + "</div></div>").join("") + "</div>";
+}
+
+function monthBarChart(rides) {
+  const byMonth = new Map();
+  for (const r of rides) {
+    const d = new Date(r.startMs);
+    const key = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+    byMonth.set(key, (byMonth.get(key) || 0) + (r.distanceKm || 0));
+  }
+  const keys = [...byMonth.keys()].sort().slice(-12); // last 12 months with any riding
+  if (!keys.length) return '<div class="empty">No rides yet.</div>';
+  const max = Math.max(...keys.map(k => byMonth.get(k)));
+  const w = Math.max(360, keys.length * 46), h = 140, pad = { l: 6, r: 6, t: 10, b: 22 };
+  const bw = (w - pad.l - pad.r) / keys.length;
+  let bars = "";
+  keys.forEach((k, i) => {
+    const v = byMonth.get(k);
+    const bh = max > 0 ? (v / max) * (h - pad.t - pad.b) : 0;
+    const x = pad.l + i * bw, y = h - pad.b - bh;
+    const label = new Date(k + "-02").toLocaleDateString([], { month: "short" });
+    bars += '<rect x="' + (x + 3) + '" y="' + y + '" width="' + (bw - 6) + '" height="' + Math.max(bh, 1) +
+      '" rx="3" fill="' + seqColor(max > 0 ? v / max : 0, 214) + '"><title>' + k + ": " + v.toFixed(1) + " km</title></rect>";
+    bars += '<text class="axis-label" x="' + (x + bw / 2) + '" y="' + (h - 6) + '" text-anchor="middle">' + label + "</text>";
+  });
+  return '<div class="chart-wrap"><svg viewBox="0 0 ' + w + " " + h + '" width="' + w + '" height="' + h + '">' + bars + "</svg></div>";
+}
+
+function modeSplitChart(rides) {
+  if (!rides.length) return '<div class="empty">No rides yet.</div>';
+  const byMode = new Map();
+  for (const r of rides) byMode.set(r.mode || "?", (byMode.get(r.mode || "?") || 0) + 1);
+  const total = rides.length;
+  const entries = [...byMode.entries()].sort((a, b) => b[1] - a[1]);
+  // Flex percentages rather than an SVG stretched with preserveAspectRatio
+  // ="none": that scale is non-uniform, so it squashes the rounded corners
+  // into ellipses at any width but the viewBox's own.
+  let segs = "", legend = "";
+  entries.forEach(([mode, count]) => {
+    const color = MODE_COLORS[mode] || MODE_FALLBACK;
+    const pct = (count / total) * 100;
+    segs += '<div style="flex:0 0 ' + pct + '%;background:' + color + '" title="' +
+      fmtMode(mode) + ": " + count + '"></div>';
+    legend += '<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-size:12px;color:var(--muted)">' +
+      '<span style="width:10px;height:10px;border-radius:2px;background:' + color + ';display:inline-block"></span>' +
+      fmtMode(mode) + " " + Math.round(pct) + "%</span>";
+  });
+  return '<div style="display:flex;gap:2px;height:26px;border-radius:4px;overflow:hidden">' + segs +
+    "</div><div style=\"margin-top:8px\">" + legend + "</div>";
+}
+
+function recordsSection(rides) {
+  if (!rides.length) return '<div class="empty">No rides yet.</div>';
+  const by = (key) => rides.reduce((best, r) => (r[key] != null && (!best || r[key] > best[key]) ? r : best), null);
+  const recs = [
+    ["Fastest", by("topSpeedKmh"), r => fmtSpeed(r.topSpeedKmh)],
+    ["Longest", by("distanceKm"), r => fmtKm((r.distanceKm || 0) * 1000)],
+    ["Deepest lean", by("maxLeanDeg"), r => fmtLean(r.maxLeanDeg)],
+    ["Highest g", by("maxGForce"), r => fmtG(r.maxGForce)],
+  ].filter(([, r]) => r);
+  return '<div class="records-grid">' + recs.map(([label, r, fmt]) =>
+    '<button class="record-card" data-start="' + r.startMs + '"><div class="label">' + label + '</div>' +
+    '<div class="value">' + fmt(r) + '</div><div class="when">' + fmtDate(r.startMs) + "</div></button>").join("") + "</div>";
+}
+
+let tableSort = { key: "startMs", dir: -1 };
+function ridesTable(rides) {
+  const cols = [
+    ["startMs", "Date", r => fmtDate(r.startMs)],
+    ["mode", "Mode", r => fmtMode(r.mode)],
+    ["distanceKm", "Distance", r => fmtKm((r.distanceKm || 0) * 1000)],
+    ["duration", "Duration", r => fmtDuration(r.endMs - r.startMs)],
+    ["topSpeedKmh", "Top speed", r => fmtSpeed(r.topSpeedKmh)],
+    ["maxLeanDeg", "Max lean", r => fmtLean(r.maxLeanDeg)],
+    ["maxGForce", "Max g", r => fmtG(r.maxGForce)],
+    ["pointCount", "Points", r => fmtInt(r.pointCount)],
+  ];
+  const sortVal = (r) => tableSort.key === "duration" ? (r.endMs - r.startMs) : r[tableSort.key];
+  const sorted = [...rides].sort((a, b) => {
+    const av = sortVal(a), bv = sortVal(b);
+    if (av == null) return 1; if (bv == null) return -1;
+    return av < bv ? -tableSort.dir : av > bv ? tableSort.dir : 0;
+  });
+  const head = cols.map(([key, label]) => '<th data-key="' + key + '" class="' +
+    (tableSort.key === key ? "sorted" + (tableSort.dir < 0 ? " desc" : "") : "") + '">' + label + "</th>").join("");
+  const body = sorted.map(r => '<tr data-start="' + r.startMs + '">' +
+    cols.map(([, , fmt]) => "<td>" + fmt(r) + "</td>").join("") + "</tr>").join("");
+  return '<div class="table-wrap"><table><thead><tr>' + head + "</tr></thead><tbody>" + body + "</tbody></table></div>";
+}
+
+// Both sides of this chart have to agree on what "a day" is. toISOString()
+// answers in UTC, which for anywhere east of Greenwich puts a local-midnight
+// cursor on the *previous* date — the grid would sit one day off its own
+// tooltips, and today's ride would never appear. Local calendar fields both
+// for the ride's day and for the cell's.
+function dayKey(d) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") +
+    "-" + String(d.getDate()).padStart(2, "0");
+}
+function calendarHeatmap(rides) {
+  const byDay = new Map();
+  for (const r of rides) {
+    const key = dayKey(new Date(r.startMs));
+    byDay.set(key, (byDay.get(key) || 0) + (r.distanceKm || 0));
+  }
+  const days = 371; // 53 full weeks
+  const end = new Date(); end.setHours(0, 0, 0, 0);
+  const start = new Date(end); start.setDate(start.getDate() - days + 1);
+  // align to the start of its week (Monday) so columns line up
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  const cell = 11, gap = 2;
+  // Walk actual calendar days rather than dividing a millisecond span: a DST
+  // change makes a week 167 or 169 hours long, and the grid would gain or lose
+  // a column twice a year. The width falls out of how many cells were drawn.
+  let rects = "", i = 0;
+  for (let cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1), i++) {
+    const key = dayKey(cursor);
+    const km = byDay.get(key) || 0;
+    const bucket = km <= 0 ? 0 : km < 20 ? 1 : km < 60 ? 2 : km < 150 ? 3 : 4;
+    const fill = bucket === 0 ? "var(--panel-2)" : seqColor(bucket / 4, 214);
+    const col = Math.floor(i / 7), row = i % 7;
+    rects += '<rect class="cal-cell" x="' + (col * (cell + gap)) + '" y="' + (row * (cell + gap)) +
+      '" width="' + cell + '" height="' + cell + '" rx="2" fill="' + fill + '"><title>' + key +
+      (km ? ": " + km.toFixed(1) + " km" : ": no ride") + "</title></rect>";
+  }
+  const w = Math.ceil(i / 7) * (cell + gap), h = 7 * (cell + gap);
+  return '<div class="chart-wrap"><svg class="cal-grid" viewBox="0 0 ' + w + " " + h + '" width="100%" height="' +
+    (h + 4) + '" preserveAspectRatio="xMinYMin meet">' + rects + "</svg></div>";
+}
+
+function renderTableSection(rides) {
+  // Re-renders just the table on a sort click, rebinding both the header
+  // (for the next sort) and the rows (for row -> Map-tab navigation) —
+  // simpler than diffing, and 118 rows is nothing to redraw whole.
+  const container = document.getElementById("ridesTableContainer");
+  container.innerHTML = ridesTable(rides);
+  container.querySelectorAll("th[data-key]").forEach(th => th.addEventListener("click", () => {
+    const key = th.dataset.key;
+    tableSort.dir = (tableSort.key === key) ? -tableSort.dir : -1;
+    tableSort.key = key;
+    renderTableSection(rides);
+  }));
+  container.querySelectorAll("tr[data-start]").forEach(el => el.addEventListener("click", () => goToRide(Number(el.dataset.start))));
+}
+
+async function initGeneralTab() {
+  const body = document.getElementById("generalBody");
+  try {
+    const [stats, rides] = await Promise.all([loadStats(), loadRides()]);
+    body.innerHTML =
+      '<div><div class="section-title">Lifetime</div>' + renderStatCards(stats) + "</div>" +
+      '<div><div class="section-title">Distance per month</div><div class="panel">' + monthBarChart(rides) + "</div></div>" +
+      '<div><div class="section-title">Mode split</div><div class="panel">' + modeSplitChart(rides) + "</div></div>" +
+      '<div><div class="section-title">Records</div>' + recordsSection(rides) + "</div>" +
+      '<div><div class="section-title">Riding days</div><div class="panel">' + calendarHeatmap(rides) + "</div></div>" +
+      '<div><div class="section-title">All rides</div><div id="ridesTableContainer"></div></div>';
+    body.querySelectorAll(".record-card").forEach(el => el.addEventListener("click", () => goToRide(Number(el.dataset.start))));
+    renderTableSection(rides);
+  } catch (e) {
+    body.innerHTML = '<div class="banner error">' + errorMessage(e) + "</div>";
+  }
+}
+function goToRide(startMs) {
+  // Set the selection *before* showing the tab: on the first visit showTab
+  // runs initMapTab, which picks a ride of its own from state.startMs. Left
+  // stale, that fires a second, competing selectRide for the newest ride.
+  state.startMs = startMs;
+  state.tab = "map"; setUrl("map", startMs);
+  showTab("map");
+  selectRide(startMs);
+}
+
+/* ==========================================================================
+ * Badges tab
+ * ========================================================================== */
+const KIND_FMT = {
+  "Distance": v => (v / 1000).toFixed(1) + " km",
+  "Top speed": v => Math.round(v) + " km/h",
+  "Single ride": v => (v / 1000).toFixed(1) + " km",
+  "Places": v => Math.round(v) + " municipalities",
+  "Coverage": v => Math.round(v) + "%",
+};
+function fmtBadgeValue(kind, v) { return (KIND_FMT[kind] || (x => String(x)))(v); }
+
+async function initBadgesTab() {
+  const body = document.getElementById("badgesBody");
+  try {
+    const stats = await loadStats();
+    const cat = stats.badgeCatalogue || [];
+    const earnedCount = cat.filter(b => b.earnedMs).length;
+    const byKind = new Map();
+    for (const b of cat) { if (!byKind.has(b.kind)) byKind.set(b.kind, []); byKind.get(b.kind).push(b); }
+
+    let html = '<div class="badge-overall"><b>' + earnedCount + " / " + cat.length + "</b><span>badges earned</span></div>";
+    for (const [kind, tiers] of byKind) {
+      tiers.sort((a, b) => a.threshold - b.threshold);
+      html += '<div class="badge-kind"><h3>' + kind + "</h3>";
+      html += tiers.map(t => {
+        const earned = !!t.earnedMs;
+        return '<div class="badge-tier ' + (earned ? "earned" : "locked") + '">' +
+          '<div class="dot">' + (earned ? "✓" : "—") + "</div>" +
+          '<div class="body"><div class="title">' + t.title + '</div>' +
+          '<div class="meta">' + (earned
+            ? "Earned " + fmtDate(t.earnedMs)
+            : fmtBadgeValue(kind, t.value) + " / " + fmtBadgeValue(kind, t.threshold)) + "</div>" +
+          (earned ? "" : '<div class="progress"><i style="width:' + t.progressPercent + '%"></i></div>') +
+          "</div></div>";
+      }).join("");
+      html += "</div>";
+    }
+    const timeline = cat.filter(b => b.earnedMs).sort((a, b) => a.earnedMs - b.earnedMs);
+    if (timeline.length) {
+      html += '<div><div class="section-title">Timeline</div>' +
+        timeline.map(b => '<div class="timeline-item"><b>' + fmtDate(b.earnedMs) + "</b> — " + b.title + " (" + b.kind + ")</div>").join("") +
+        "</div>";
+    }
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = '<div class="banner error">' + errorMessage(e) + "</div>";
+  }
+}
+
+/* ==========================================================================
+ * tabs / init
+ * ========================================================================== */
+const TAB_INIT = { map: initMapTab, heat: initHeatTab, general: initGeneralTab, badges: initBadgesTab };
+const loadedTabs = new Set();
+function showTab(name) {
+  state.tab = name;
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + name));
+  if (!loadedTabs.has(name)) { loadedTabs.add(name); TAB_INIT[name](); }
+  else if (name === "map" && map) map.invalidateSize();
+  else if (name === "heat" && heatMap) heatMap.invalidateSize();
+  setUrl(name, state.startMs);
+}
+
+function init() {
+  if (!API_KEY) {
+    document.body.innerHTML = '<div class="banner error" style="margin:20px">No API key in the URL. Check the API key ' +
+      "in this page's link (it should end with <code>?key=...</code>).</div>";
+    return;
+  }
+  const { tab, start } = currentUrlState();
+  state.tab = tab;
+  if (start) state.startMs = start;
+
+  document.querySelectorAll(".tab-btn").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+  window.addEventListener("hashchange", () => { const s = currentUrlState(); showTab(s.tab); });
+  document.getElementById("overlaySelect").addEventListener("change", onOverlayChange);
+  document.getElementById("modeFilter").addEventListener("change", renderRideList);
+  document.getElementById("rideSearch").addEventListener("input", renderRideList);
+  document.getElementById("sidebarToggle").addEventListener("click", () => document.getElementById("sidebar").classList.toggle("open"));
+  document.getElementById("heatModeHeat").addEventListener("click", () => { heatMode = "heat"; applyHeatMode(); });
+  document.getElementById("heatModeLines").addEventListener("click", () => { heatMode = "lines"; applyHeatMode(); });
+  document.getElementById("heatFit").addEventListener("click", () => {
+    if (heatMap && state.traces && state.traces.length) {
+      const pts = [];
+      for (const line of state.traces) for (const p of line) pts.push(p);
+      heatMap.fitBounds(L.latLngBounds(pts), { padding: [20, 20] });
+    }
+  });
+
+  showTab(state.tab);
+}
+init();
 </script>
 """
 
 
-def ha_ride_html(user, params):
-    start = int((params.get("start") or ["0"])[0])
-    if not start:
-        # No ride named: the newest one is what a dashboard card wants.
-        row = db().execute(
-            "SELECT start_ms FROM trips WHERE user_id = ? ORDER BY start_ms DESC LIMIT 1",
-            (user["id"],),
-        ).fetchone()
-        if row is None:
-            raise HttpError(404, "no rides")
-        start = row["start_ms"]
-        params = dict(params, start=[str(start)])
-    geo = ha_ride(user, params)
-    # json.dumps does not escape "</script>", and mode comes from user-supplied
-    # trip JSON — a user could otherwise break out of the <script> block on
-    # their own dashboard page. Standard guard: split up the closing tag.
-    geojson = json.dumps(geo).replace("</", "<\\/")
-    return RIDE_HTML % {"start": start, "geojson": geojson}
-
-
-def ha_stats(user, params):
-    """Lifetime totals and badges — the numbers the app's You screen shows.
-    /ha/rides only ever returns a page of rides (200 at most), so a dashboard
-    that wants "total km" cannot get it by summing that; this reads the same
-    stored aggregate the app uploads, and needs no login token."""
-    uid = user["id"]
-    stats = json.loads(user["stats_json"] or "{}")
-    badges = json.loads(user["badges_json"] or "{}")
-    row = db().execute(
-        "SELECT COUNT(*) AS n, MAX(start_ms) AS last_ms FROM trips WHERE user_id = ?",
-        (uid,),
-    ).fetchone()
-    traces = db().execute(
-        "SELECT COUNT(*) AS n FROM traces WHERE user_id = ?", (uid,)
-    ).fetchone()["n"]
-    return {
-        "username": user["username"],
-        "stats": stats,
-        "badges": badges,
-        "badgeCount": len(badges),
-        # Stored rides, which is what the dashboard can actually drill into —
-        # stats["tripCount"] is whatever the phone last computed locally.
-        "rideCount": row["n"],
-        "lastRideMs": row["last_ms"] or 0,
-        "traceSegments": traces,
-    }
-
+def ha_dashboard_html(params):
+    """The dashboard shell: no DB reads here at all. Every number on the page
+    comes from a client-side fetch that carries its own key (read from
+    location.search, never templated), so the only thing this handler threads
+    through is which ride to preselect. Casting through int() is the XSS
+    guard — whatever lands in ?start= becomes a plain integer or 0, never
+    markup. 0 means "no ride requested"; the page's own JS resolves that to
+    the newest ride via /ha/rides, same as the old server-side fallback did.
+    """
+    try:
+        start = int((params.get("start") or ["0"])[0])
+    except ValueError:
+        start = 0
+    return DASH_HTML.replace("__START_MS__", str(start))
 
 HA_GET = {
+    "/ha/stats": ha_stats,
     "/ha/rides": ha_rides,
     "/ha/ride.geojson": ha_ride,
-    "/ha/stats": ha_stats,
+    "/ha/traces": ha_traces,
+    "/ha/track": ha_track,
+    "/ha/coverage": ha_coverage,
 }
 
 
@@ -1504,6 +3502,16 @@ AUTHED_GET = {
     "/friends/fog": friend_fog,
     "/convoys": do_convoys,
 }
+
+
+def redact(text):
+    """Strip API keys out of anything on its way to a log.
+
+    The access log has always done this; the error path used to print
+    `self.path` raw, which put a live dashboard key in the journal on nothing
+    worse than a malformed query string.
+    """
+    return re.sub(r"key=[^&\s]+", "key=REDACTED", text)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1537,7 +3545,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(e.code, {"error": e.message})
         except Exception as e:  # noqa: BLE001 - never leak a stack trace
             self._json(500, {"error": "internal error"})
-            print("ERROR %s: %r" % (self.path, e))
+            print("ERROR %s: %r" % (redact(self.path), e))
 
     def do_POST(self):
         try:
@@ -1576,7 +3584,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "bad request: %s" % e})
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": "internal error"})
-            print("ERROR %s: %r" % (self.path, e))
+            print("ERROR %s: %r" % (redact(self.path), e))
 
     def _ha(self, path, params):
         # The header form exists for REST sensors, which can send one; iframes
@@ -1584,9 +3592,11 @@ class Handler(BaseHTTPRequestHandler):
         header_key = self.headers.get("X-API-Key")
         if header_key and "key" not in params:
             params = dict(params, key=[header_key])
+        # Still gates the dashboard itself — the page just reads the key from
+        # its own URL client-side instead of having it templated back in.
         user = api_key_user(params)
-        if path == "/ha/ride.html":
-            self._reply(200, ha_ride_html(user, params).encode(), "text/html")
+        if path in ("/ha/ride.html", "/ha/dashboard.html"):
+            self._reply(200, ha_dashboard_html(params).encode(), "text/html")
             return
         handler = HA_GET.get(path)
         if handler is None:
@@ -1633,8 +3643,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         # Dashboard URLs carry the API key in the query string; a log file is
         # not a place to keep credentials.
-        line = re.sub(r"key=[^&\s]+", "key=REDACTED", fmt % args)
-        print("%s %s" % (self.address_string(), line))
+        print("%s %s" % (self.address_string(), redact(fmt % args)))
 
 
 # --------------------------------------------------------------------------
