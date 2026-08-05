@@ -4591,23 +4591,38 @@ class Handler(BaseHTTPRequestHandler):
             raise HttpError(404, "not found")
         self._json(200, handler(user, params))
 
+    def _admin_cookie(self, raw, max_age):
+        """Secure only when the request really came in over https.
+
+        The tunnel terminates TLS and forwards plain http with
+        X-Forwarded-Proto set, so that header — not the socket — is what says
+        how the browser is talking. Marking the cookie Secure unconditionally
+        would have the browser silently drop it when the dashboard is opened
+        over the LAN address (HOST=0.0.0.0, the same path Home Assistant uses
+        for /ha/*), leaving a login form that succeeds and then loops.
+        SameSite=Strict is the CSRF defence either way, with admin_write()
+        behind it.
+        """
+        proto = self.headers.get("X-Forwarded-Proto", "").lower()
+        secure = "; Secure" if proto == "https" else ""
+        return "%s=%s; Path=/admin; HttpOnly%s; SameSite=Strict; Max-Age=%d" % (
+            ADMIN_COOKIE, raw, secure, max_age,
+        )
+
     def _admin(self, body):
         path = self.path
         if path == "/admin/login":
             payload, raw = do_admin_login(body, self.client_ip())
-            # Secure is unconditional: this only ever gets used over the
-            # Cloudflare tunnel, and a cookie that would travel in the clear on
-            # a plain-HTTP LAN test is not one worth having. SameSite=Strict is
-            # the primary CSRF defence; admin_write() is the second.
-            cookie = (
-                "%s=%s; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=%d"
-                % (ADMIN_COOKIE, raw, ADMIN_SESSION_IDLE_MS // 1000)
+            self._json(
+                200, payload,
+                [("Set-Cookie", self._admin_cookie(raw, ADMIN_SESSION_IDLE_MS // 1000))],
             )
-            self._json(200, payload, [("Set-Cookie", cookie)])
             return
         if path == "/admin/logout":
-            expire = "%s=; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=0" % ADMIN_COOKIE
-            self._json(200, do_admin_logout(self.headers), [("Set-Cookie", expire)])
+            self._json(
+                200, do_admin_logout(self.headers),
+                [("Set-Cookie", self._admin_cookie("", 0))],
+            )
             return
         session = admin_write(self.headers)
         if path == "/admin/api/invite/create":
