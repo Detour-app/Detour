@@ -5372,7 +5372,16 @@ class Handler(BaseHTTPRequestHandler):
                 # The shell is public; every number on it comes from the
                 # authenticated overview call below, which is what the cookie
                 # actually gates.
-                self._reply(200, ADMIN_HTML.encode(), "text/html")
+                #
+                # no-store because the page ships inside this file: after a
+                # deploy the browser must fetch the new one, and a stale copy
+                # looks exactly like a deploy that silently did nothing.
+                self._reply(
+                    200,
+                    ADMIN_HTML.encode(),
+                    "text/html; charset=utf-8",
+                    [("Cache-Control", "no-store, must-revalidate")],
+                )
                 return
             if path == "/admin/api/overview":
                 self._json(200, admin_overview(admin_session(self.headers)))
