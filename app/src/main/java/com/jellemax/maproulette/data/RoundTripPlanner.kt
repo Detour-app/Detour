@@ -65,6 +65,59 @@ object Curviness {
         return curvy / total
     }
 
+    /**
+     * Bend density of a *routed* polyline: the same 25–300 m radius window as
+     * [score], measured over a route the server already returned.
+     *
+     * [score] works on raw OSM ways and needs the junction node set to skip
+     * intersection corners. A route has no node ids, but it carries something
+     * better: GraphHopper's own turn instructions. Every real maneuver is one,
+     * so skipping the geometry within [JUNCTION_SKIP_METERS] of each one drops
+     * exactly the corners that aren't the road being curvy. Points a route
+     * passes straight through raise no instruction and are straight anyway.
+     */
+    fun routeScore(polyline: List<LatLon>, instructions: List<NavInstruction>): Double {
+        if (polyline.size < 3) return 0.0
+        val nearJunction = BooleanArray(polyline.size)
+        for (ins in instructions) {
+            if (ins.sign == 0) continue // "continue onto…" bends no road
+            markAround(polyline, ins.startIndex, nearJunction)
+        }
+        var total = 0.0
+        var curvy = 0.0
+        for (i in 1 until polyline.size - 1) {
+            val half = (RoadRoulette.distanceMeters(polyline[i - 1], polyline[i]) +
+                RoadRoulette.distanceMeters(polyline[i], polyline[i + 1])) / 2
+            total += half
+            if (nearJunction[i]) continue
+            if (circumradiusMeters(polyline[i - 1], polyline[i], polyline[i + 1]) in 25.0..300.0) {
+                curvy += half
+            }
+        }
+        return if (total > 0) curvy / total else 0.0
+    }
+
+    /** Flags every vertex within [JUNCTION_SKIP_METERS] of [index], walking out
+     *  in both directions — a maneuver's corner is spread over the vertices
+     *  around it, not just the one the instruction points at. */
+    private fun markAround(polyline: List<LatLon>, index: Int, out: BooleanArray) {
+        if (index !in polyline.indices) return
+        out[index] = true
+        for (dir in intArrayOf(-1, 1)) {
+            var i = index
+            var walked = 0.0
+            while (walked < JUNCTION_SKIP_METERS) {
+                val next = i + dir
+                if (next !in polyline.indices) break
+                walked += RoadRoulette.distanceMeters(polyline[i], polyline[next])
+                out[next] = true
+                i = next
+            }
+        }
+    }
+
+    private const val JUNCTION_SKIP_METERS = 25.0
+
     /** Circumcircle radius of three points, in meters (planar approximation). */
     private fun circumradiusMeters(a: LatLon, b: LatLon, c: LatLon): Double {
         val cosLat = cos(Math.toRadians(b.lat))

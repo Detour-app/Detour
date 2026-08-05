@@ -165,6 +165,7 @@ import com.jellemax.maproulette.data.PoiKind
 import com.jellemax.maproulette.data.PoiRoulette
 import com.jellemax.maproulette.data.RecentSearchStore
 import com.jellemax.maproulette.data.RoadRoulette
+import com.jellemax.maproulette.data.Curviness
 import com.jellemax.maproulette.data.RouteCandidate
 import com.jellemax.maproulette.data.RoundTripPlanner
 import com.jellemax.maproulette.data.RouteResult
@@ -254,6 +255,14 @@ private const val CAM_BEARING_EPS_DEG = 0.1f
 // Padding kept around a fitted route/candidate spread so pins and the trip card
 // don't sit against the screen edge.
 private const val FIT_PADDING_PX = 140
+
+// How many round trips to roll before picking one. GraphHopper's round_trip is
+// seed-driven and its curvature weighting only biases the search, so seeds
+// differ a lot in how much of the loop is actually bends — rolling a few and
+// keeping the curviest is what turns "avoids motorways" into a ride worth
+// taking. Three: the requests run in parallel, so this costs latency only when
+// the server is already saturated, and the gain flattens out after ~3 rolls.
+private const val CURVY_CANDIDATES = 3
 
 // Panning or pinching parks the camera instead of forcing you to hunt for the
 // follow button. Driving off takes it back: above this speed, this long after
@@ -1167,23 +1176,44 @@ fun MapScreen(
                 // Bias destinations toward territory the fog hasn't uncovered.
                 val explored = withContext(Dispatchers.IO) { ExploredArea.load(context) }
                 if (mode.roundTrip) {
-                    // Prefer the self-hosted routing server (single fast request,
-                    // real road-following loop); fall back to Overpass sampling.
+                    // Prefer the self-hosted routing server (real road-following
+                    // loops, curviest of a few rolls); fall back to Overpass
+                    // sampling.
                     val tripMeters = radiusKm * 1000.0
                     var result: RouteResult? = null
                     if (serverConfig.usable) {
                         result = try {
-                            withContext(Dispatchers.IO) {
-                                RoutingServer.roundTrip(
-                                    serverConfig, loc, tripMeters, Random.nextLong(),
-                                    headingDeg = directionDeg?.toDouble(),
-                                    avoidSmallRoads = Settings.avoidSmallRoads.value)
+                            val rolls = coroutineScope {
+                                (1..CURVY_CANDIDATES).map {
+                                    async(Dispatchers.IO) {
+                                        runCatching {
+                                            val loop = RoutingServer.roundTrip(
+                                                serverConfig, loc, tripMeters, Random.nextLong(),
+                                                headingDeg = directionDeg?.toDouble(),
+                                                avoidSmallRoads = Settings.avoidSmallRoads.value)
+                                            // Scored here so it stays off the main
+                                            // thread with the request that produced it.
+                                            loop to Curviness.routeScore(
+                                                loop.polyline, loop.instructions)
+                                        }
+                                    }
+                                }.awaitAll()
+                            }
+                            val loops = rolls.mapNotNull { it.getOrNull() }
+                            if (loops.isEmpty()) {
+                                // Every roll failed the same way; report the first.
+                                val e = rolls.firstNotNullOfOrNull { it.exceptionOrNull() }
+                                if (e is CancellationException) throw e
+                                serverError = e?.message ?: e?.javaClass?.simpleName ?: "no route"
+                                null // fall back to Overpass below, but say why
+                            } else {
+                                loops.maxBy { it.second }.first
                             }
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
                             serverError = e.message ?: e.javaClass.simpleName
-                            null // fall back to Overpass below, but say why
+                            null
                         }
                     }
                     if (result == null) {

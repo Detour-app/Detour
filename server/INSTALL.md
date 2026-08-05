@@ -304,9 +304,21 @@ GraphHopper comes up with three profiles, all defined by the installer in
   from "curviness" — it can never be scored as a curvy road, unlike a
   heading-change heuristic which would count it. Motorways and residential
   streets are penalized (multiplied down), near-straight edges are penalized
-  more as `curvature` climbs toward 1.0. No CH (contraction hierarchies)
-  profile — `round_trip` and the app's per-query custom models both need
-  flexible routing, which CH doesn't support.
+  more as `curvature` climbs toward 1.0, on a four-step ladder between 0.85
+  and 1.0 — that band is where nearly every road lands. No CH (contraction
+  hierarchies) profile — `round_trip` and the app's per-query custom models
+  both need flexible routing, which CH doesn't support.
+
+  The weighting only biases GraphHopper's search; which loop you actually get
+  is decided in the app, which rolls several seeds per spin and keeps the one
+  whose polyline spends the most length in 25–300 m bends
+  (`Curviness.routeScore`). That is why these multipliers are deliberately mild: `moto`
+  also routes plain A-to-B, and a profile tuned hard enough to guarantee a
+  curvy loop would send every ordinary ride the scenic way round.
+
+  Changing these multipliers is a query-time custom model — restart
+  GraphHopper (`docker compose restart` in `/opt/graphhopper`) and it takes
+  effect. No re-import, no graph rebuild.
 - **`car`** — fastest route, motorways allowed. The app can also POST a
   `custom_model` on this profile (e.g. to avoid motorways) — that only works
   because `car` also has no CH profile.

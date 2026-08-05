@@ -477,8 +477,18 @@ graphhopper:
           # penalises boring roads rather than boosting curvy ones.
           - { if: "road_class == MOTORWAY || road_class == TRUNK", multiply_by: "0.1" }
           - { if: "road_class == RESIDENTIAL", multiply_by: "0.5" }
-          - { if: "curvature > 0.95", multiply_by: "0.4" }
-          - { else_if: "curvature > 0.85", multiply_by: "0.7" }
+          # curvature is 1.0 for a dead-straight edge and falls as it bends.
+          # Four steps rather than two: nearly every road sits between 0.95 and
+          # 1.0, so that is where the resolution has to be — two buckets put a
+          # genuinely twisty road and a mildly kinked one in the same class.
+          # The steps stay mild on purpose, because moto also serves plain
+          # A-to-B navigation; a round trip gets its curviness from the app
+          # rolling several loops and keeping the curviest (CURVY_CANDIDATES),
+          # not from bending every route out of shape.
+          - { if: "curvature > 0.98", multiply_by: "0.3" }
+          - { else_if: "curvature > 0.95", multiply_by: "0.45" }
+          - { else_if: "curvature > 0.90", multiply_by: "0.7" }
+          - { else_if: "curvature > 0.85", multiply_by: "0.9" }
 
     - name: car
       weighting: custom
