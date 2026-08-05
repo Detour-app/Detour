@@ -316,9 +316,14 @@ GraphHopper comes up with three profiles, all defined by the installer in
   also routes plain A-to-B, and a profile tuned hard enough to guarantee a
   curvy loop would send every ordinary ride the scenic way round.
 
-  Changing these multipliers is a query-time custom model — restart
-  GraphHopper (`docker compose restart` in `/opt/graphhopper`) and it takes
-  effect. No re-import, no graph rebuild.
+  **Changing these multipliers needs a re-import, not just a restart.**
+  GraphHopper stores each profile alongside the graph and validates it at
+  load; an edited `custom_model` makes it refuse to start with
+  `IllegalStateException: Profile 'moto' does not match.` (verified on
+  GraphHopper 12.0). Delete the graph directory so the next start rebuilds
+  it — and make sure you delete the one actually in use, see the
+  `graph.location` warning below. Edit the ladder and restart on its own and
+  the routing server goes into a crash loop until the config is reverted.
 - **`car`** — fastest route, motorways allowed. The app can also POST a
   `custom_model` on this profile (e.g. to avoid motorways) — that only works
   because `car` also has no CH profile.
