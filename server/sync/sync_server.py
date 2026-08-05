@@ -2679,7 +2679,8 @@ DASH_HTML = r"""<!doctype html>
   html, body { height: 100%; margin: 0; }
   body {
     display: flex; flex-direction: column; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      Helvetica, Arial, sans-serif;
     font-size: 14px;
   }
   button, select, input { font: inherit; color: inherit; }
@@ -4179,7 +4180,15 @@ ADMIN_HTML = r"""<!doctype html>
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.5;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+    /* Helvetica and Arial sit before the generic on purpose. With
+       privacy.fingerprintingProtection on, Firefox hides non-standard families
+       AND stops honouring the sans-serif generic, falling back to the user's
+       default font — which, if they have set that to a monospace, renders this
+       page in it: spaced-out digits, doubled word gaps. Arial is on the
+       allowlist, so naming it keeps a proportional face in that case, and
+       changes nothing anywhere else. */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter,
+      Helvetica, Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
   button, select, input { font: inherit; color: inherit; }
