@@ -4138,236 +4138,259 @@ ADMIN_HTML = r"""<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Map Roulette — manager</title>
 <style>
-  /* Dark is the default and the design's home; light is a full second theme
-     rather than an inverted afterthought, because half of managing a server
-     happens on a laptop in daylight. */
+  /* Dark is the design's home; light is a full second theme rather than an
+     inverted afterthought, because half of managing a server happens on a
+     laptop in daylight.
+
+     Two text colours, not three: --text for anything you read, --muted for
+     anything you glance at. A third tier only made the page harder to scan. */
   :root {
     color-scheme: dark;
-    --bg: #12150e; --surface: #191d13; --surface-2: #21261a; --raise: #272d1e;
-    --border: #333a28; --border-soft: #2a3021;
-    --text: #ece8da; --muted: #a9a290; --faint: #7c7768;
-    --accent: #e8b04b; --accent-ink: #241c02; --accent-soft: rgba(232,176,75,.13);
-    --red: #e2543a; --red-soft: rgba(226,84,58,.13);
-    --green: #35b487; --green-soft: rgba(53,180,135,.13);
-    --shadow: 0 10px 30px rgba(0,0,0,.45);
+    --bg: #12150e; --surface: #191d13; --surface-2: #232819; --raise: #2c3222;
+    --border: #363d29; --border-soft: #292f20;
+    --text: #f0ecdf; --muted: #b6ae99;
+    --accent: #edb851; --accent-ink: #241c02; --accent-soft: rgba(237,184,81,.14);
+    --red: #ef6a4e; --red-soft: rgba(239,106,78,.15);
+    --green: #43c295; --green-soft: rgba(67,194,149,.15);
+    --shadow: 0 12px 34px rgba(0,0,0,.5);
     --radius: 12px;
   }
   @media (prefers-color-scheme: light) {
-    :root:not([data-theme="dark"]) {
-      color-scheme: light;
-      --bg: #f4f2e9; --surface: #fffefa; --surface-2: #f2efe3; --raise: #eae6d6;
-      --border: #ddd8c4; --border-soft: #e7e3d4;
-      --text: #23261c; --muted: #6b6858; --faint: #8b8877;
-      --accent: #9a6c0c; --accent-ink: #fff8e8; --accent-soft: rgba(154,108,12,.10);
-      --red: #b93a20; --red-soft: rgba(185,58,32,.10);
-      --green: #167d5b; --green-soft: rgba(22,125,91,.10);
-      --shadow: 0 10px 30px rgba(60,54,30,.12);
+    :root:not([data-theme="dark"]) { color-scheme: light;
+      --bg: #f1eee3; --surface: #fffdf7; --surface-2: #f3f0e4; --raise: #e9e5d4;
+      --border: #d8d2bd; --border-soft: #e6e2d2;
+      --text: #1f2218; --muted: #5d5a4a;
+      --accent: #8a5f08; --accent-ink: #fffaf0; --accent-soft: rgba(138,95,8,.11);
+      --red: #a8331b; --red-soft: rgba(168,51,27,.10);
+      --green: #106c4e; --green-soft: rgba(16,108,78,.10);
+      --shadow: 0 12px 34px rgba(60,54,30,.13);
     }
   }
-  :root[data-theme="light"] {
-    color-scheme: light;
-    --bg: #f4f2e9; --surface: #fffefa; --surface-2: #f2efe3; --raise: #eae6d6;
-    --border: #ddd8c4; --border-soft: #e7e3d4;
-    --text: #23261c; --muted: #6b6858; --faint: #8b8877;
-    --accent: #9a6c0c; --accent-ink: #fff8e8; --accent-soft: rgba(154,108,12,.10);
-    --red: #b93a20; --red-soft: rgba(185,58,32,.10);
-    --green: #167d5b; --green-soft: rgba(22,125,91,.10);
-    --shadow: 0 10px 30px rgba(60,54,30,.12);
+  :root[data-theme="light"] { color-scheme: light;
+    --bg: #f1eee3; --surface: #fffdf7; --surface-2: #f3f0e4; --raise: #e9e5d4;
+    --border: #d8d2bd; --border-soft: #e6e2d2;
+    --text: #1f2218; --muted: #5d5a4a;
+    --accent: #8a5f08; --accent-ink: #fffaf0; --accent-soft: rgba(138,95,8,.11);
+    --red: #a8331b; --red-soft: rgba(168,51,27,.10);
+    --green: #106c4e; --green-soft: rgba(16,108,78,.10);
+    --shadow: 0 12px 34px rgba(60,54,30,.13);
   }
 
   * { box-sizing: border-box; }
-  html, body { height: 100%; }
   body {
-    margin: 0; background: var(--bg); color: var(--text); font-size: 14px;
-    line-height: 1.45;
+    margin: 0; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.5;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  button, select, input, textarea { font: inherit; color: inherit; }
+  button, select, input { font: inherit; color: inherit; }
   a { color: var(--accent); }
   h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
-  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   .muted { color: var(--muted); }
-  .faint { color: var(--faint); }
-  .small { font-size: 12.5px; }
+  .small { font-size: 13px; }
   .grow { flex: 1 1 auto; }
   .hidden { display: none !important; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .stack { display: flex; flex-direction: column; gap: 4px; }
+  .nowrap { flex-wrap: nowrap; }
   svg.i { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor;
     stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
   /* --- controls ------------------------------------------------------- */
   input, select {
     background: var(--bg); border: 1px solid var(--border); color: var(--text);
-    border-radius: 9px; padding: 8px 10px; min-height: 38px; min-width: 0;
+    border-radius: 9px; padding: 8px 11px; min-height: 40px; min-width: 0;
     transition: border-color .12s, box-shadow .12s;
   }
-  input::placeholder { color: var(--faint); }
+  input::placeholder { color: var(--muted); opacity: .8; }
   input:focus, select:focus, button:focus-visible {
-    outline: none; border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft);
+    outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
   }
   button {
-    display: inline-flex; align-items: center; gap: 6px; justify-content: center;
+    display: inline-flex; align-items: center; gap: 7px; justify-content: center;
     background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
-    border-radius: 9px; padding: 8px 12px; min-height: 38px; cursor: pointer;
-    font-weight: 550; transition: background .12s, border-color .12s, color .12s;
+    border-radius: 9px; padding: 8px 13px; min-height: 40px; cursor: pointer;
+    font-weight: 550; white-space: nowrap;
+    transition: background .12s, border-color .12s, color .12s;
   }
   button:hover:not(:disabled) { background: var(--raise); border-color: var(--muted); }
   button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-  button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); border-color: var(--accent); }
+  button.primary:hover:not(:disabled) { filter: brightness(1.07); background: var(--accent);
+    border-color: var(--accent); }
   button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
   button.ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
-  button.danger { color: var(--red); border-color: var(--border); }
+  button.danger { color: var(--red); }
   button.danger:hover:not(:disabled) { background: var(--red-soft); border-color: var(--red); }
-  button.icon { padding: 0; width: 38px; }
-  button.tiny { min-height: 30px; padding: 3px 9px; font-size: 12.5px; border-radius: 8px; }
-  button.tiny.icon { width: 30px; }
-  button:disabled { opacity: .45; cursor: default; }
-  label.check { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
-  label.check input { min-height: 0; width: 16px; height: 16px; accent-color: var(--accent); }
-  .field { display: flex; flex-direction: column; gap: 5px; }
-  .field > span { font-size: 12px; color: var(--muted); font-weight: 550; }
+  button.icon { padding: 0; width: 40px; }
+  button.tiny { min-height: 32px; padding: 4px 10px; font-size: 13px; border-radius: 8px; }
+  button.tiny.icon { width: 32px; }
+  button:disabled { opacity: .42; cursor: default; }
+  label.check { display: inline-flex; align-items: center; gap: 7px; }
+  label.check input { min-height: 0; width: 17px; height: 17px; accent-color: var(--accent); }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field > span { font-size: 13px; color: var(--muted); font-weight: 550; }
 
   /* --- shell ---------------------------------------------------------- */
   .topbar {
     position: sticky; top: 0; z-index: 30;
-    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+    display: flex; align-items: center; gap: 12px; padding: 0 18px; height: 56px;
     background: var(--surface); border-bottom: 1px solid var(--border);
   }
-  .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; letter-spacing: -.02em; }
-  .brand .dot {
-    width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center;
-    background: var(--accent); color: var(--accent-ink);
-  }
-  .brand .dot svg.i { width: 15px; height: 15px; stroke-width: 2.1; }
-  .whoami { display: flex; align-items: center; gap: 7px; padding: 4px 6px 4px 10px;
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 700;
+    letter-spacing: -.02em; white-space: nowrap; }
+  .brand .dot { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center;
+    background: var(--accent); color: var(--accent-ink); }
+  .brand .dot svg.i { width: 16px; height: 16px; stroke-width: 2.1; }
+  .whoami { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 5px;
     border: 1px solid var(--border); border-radius: 99px; background: var(--surface-2); }
-  .avatar { width: 24px; height: 24px; border-radius: 99px; display: grid; place-items: center;
-    background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700; }
+  .avatar { width: 26px; height: 26px; border-radius: 99px; display: grid; place-items: center;
+    background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 700;
+    flex: none; }
 
-  .shell { display: grid; grid-template-columns: 216px minmax(0, 1fr); align-items: start; }
-  .side { position: sticky; top: 55px; padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; }
-  .side .navhead { padding: 8px 10px 4px; font-size: 11px; letter-spacing: .08em;
-    text-transform: uppercase; color: var(--faint); font-weight: 600; }
+  /* Sidebar + content are one centred block, so the content column stops at a
+     readable width instead of stretching a five-column table across a 1400px
+     screen — which was the single biggest thing making rows hard to scan. */
+  .shell { display: grid; grid-template-columns: 200px minmax(0, 1fr);
+    max-width: 1180px; margin: 0 auto; align-items: start; gap: 8px; }
+  .side { position: sticky; top: 56px; padding: 18px 8px; display: flex; flex-direction: column;
+    gap: 3px; }
   .navlink {
-    display: flex; align-items: center; gap: 9px; padding: 9px 10px; border-radius: 9px;
+    display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 9px;
     color: var(--muted); cursor: pointer; border: 1px solid transparent; font-weight: 550;
     background: transparent; width: 100%; justify-content: flex-start; min-height: 0;
   }
-  .navlink:hover { background: var(--surface-2); color: var(--text); border-color: transparent; }
-  .navlink.on { background: var(--accent-soft); color: var(--accent); }
-  .navlink .count { margin-left: auto; font-size: 12px; color: var(--faint); font-weight: 600; }
+  .navlink:hover { background: var(--surface-2); color: var(--text); }
+  .navlink.on { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+  .navlink .count { margin-left: auto; font-size: 13px; color: var(--muted);
+    font-variant-numeric: tabular-nums; }
   .navlink.on .count { color: var(--accent); }
-  main { padding: 18px 20px 64px; max-width: 1180px; min-width: 0; }
-  .pagehead { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-  .pagehead h1 { font-size: 21px; }
-  .pagehead p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  main { padding: 18px 18px 72px; min-width: 0; }
+  .pagehead { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+  .pagehead h1 { font-size: 22px; }
+  .pagehead p { margin: 1px 0 0; color: var(--muted); font-size: 13.5px; }
 
   /* --- cards ---------------------------------------------------------- */
-  .card {
-    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 16px; margin-bottom: 16px;
-  }
-  .card > header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-  .card > header h2 { font-size: 14.5px; }
-  .cards2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px;
+  .card { background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 16px; overflow: hidden; }
+  .card > header { display: flex; align-items: center; gap: 10px 12px; padding: 12px 16px;
+    border-bottom: 1px solid var(--border-soft); flex-wrap: wrap; }
+  /* A narrow screen scrolls the table sideways inside its card; the page body
+     itself must never scroll horizontally. */
+  .tscroll { overflow-x: auto; }
+  .card > header h2 { font-size: 15px; }
+  .card .pad { padding: 16px; }
+  .card > header + .pad { padding-top: 14px; }
+  .cards2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 16px;
     align-items: start; }
   .cards2 .card { margin: 0; }
 
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px;
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;
     margin-bottom: 16px; }
   .tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 14px 15px; }
-  .tile .k { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px;
-    font-weight: 600; letter-spacing: .02em; }
-  .tile .v { font-size: 26px; font-weight: 680; letter-spacing: -.02em; margin-top: 6px;
-    font-variant-numeric: tabular-nums; }
-  .tile .v small { font-size: 14px; font-weight: 600; color: var(--muted); margin-left: 3px; }
-  .tile .s { color: var(--faint); font-size: 12px; margin-top: 2px; }
+    padding: 13px 15px; }
+  .tile .k { color: var(--muted); font-size: 13px; font-weight: 550; }
+  .tile .v { font-size: 27px; font-weight: 680; letter-spacing: -.025em; margin-top: 3px;
+    font-variant-numeric: tabular-nums; line-height: 1.15; }
+  .tile .v small { font-size: 15px; font-weight: 600; color: var(--muted); margin-left: 2px; }
+  .tile .s { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
 
-  /* --- table ---------------------------------------------------------- */
-  .tablewrap { overflow-x: auto; margin: 0 -16px -16px; padding: 0 0 2px; }
+  /* --- lists & tables --------------------------------------------------- */
   table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 10px 12px; border-top: 1px solid var(--border-soft);
-    vertical-align: middle; }
-  thead th { border-top: none; border-bottom: 1px solid var(--border); color: var(--muted);
-    font-weight: 600; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase;
-    white-space: nowrap; }
+  th, td { text-align: left; padding: 11px 14px; vertical-align: middle; }
+  tbody td { border-top: 1px solid var(--border-soft); }
+  thead th { padding-top: 9px; padding-bottom: 9px; color: var(--muted); font-weight: 600;
+    font-size: 13px; white-space: nowrap; border-bottom: 1px solid var(--border-soft); }
   thead th.sortable { cursor: pointer; user-select: none; }
   thead th.sortable:hover { color: var(--text); }
-  thead th .arrow { opacity: .0; margin-left: 3px; }
+  thead th .arrow { visibility: hidden; margin-left: 2px; }
   thead th.on { color: var(--accent); }
-  thead th.on .arrow { opacity: 1; }
-  tbody tr { cursor: pointer; }
-  tbody tr:hover { background: var(--surface-2); }
+  thead th.on .arrow { visibility: visible; }
+  tbody tr.pick { cursor: pointer; }
+  tbody tr.pick:hover { background: var(--surface-2); }
+  tbody tr.pick:hover .chev { color: var(--accent); transform: translateX(2px); }
+  .chev { color: var(--muted); opacity: .7; transition: transform .12s, color .12s; }
   td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
   td.right, th.right { text-align: right; }
-  .empty { padding: 34px 16px; text-align: center; color: var(--muted); }
-  .empty svg.i { width: 26px; height: 26px; opacity: .5; margin-bottom: 6px; }
+  .search { flex: 0 1 240px; min-width: 130px; min-height: 34px; padding: 5px 11px; }
+  .empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+  .empty svg.i { width: 28px; height: 28px; opacity: .55; margin-bottom: 8px; }
+  .who { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
+  .who b { font-weight: 650; }
+  .meta { color: var(--muted); font-size: 13px; }
 
-  .pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 99px;
-    font-size: 11px; font-weight: 600; border: 1px solid var(--border); color: var(--muted);
+  .pill { display: inline-flex; align-items: center; padding: 1px 9px; border-radius: 99px;
+    font-size: 12px; font-weight: 600; border: 1px solid var(--border); color: var(--muted);
     white-space: nowrap; }
   .pill.admin { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
   .pill.live, .pill.ok { border-color: var(--green); color: var(--green); background: var(--green-soft); }
   .pill.expired, .pill.bad { border-color: var(--red); color: var(--red); background: var(--red-soft); }
   .pill.used { background: var(--surface-2); }
   .chips { display: flex; gap: 6px; flex-wrap: wrap; }
-  .chip { padding: 5px 11px; border-radius: 99px; border: 1px solid var(--border);
-    background: transparent; color: var(--muted); font-size: 12.5px; min-height: 0; }
+  .chip { padding: 5px 12px; border-radius: 99px; border: 1px solid var(--border);
+    background: transparent; color: var(--muted); font-size: 13px; min-height: 0; }
   .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 
   code, .code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     background: var(--bg); border: 1px solid var(--border); border-radius: 7px;
-    padding: 3px 7px; font-size: 12.5px; word-break: break-all; }
-  .secret { display: flex; gap: 8px; align-items: center; background: var(--bg);
-    border: 1px dashed var(--accent); border-radius: 10px; padding: 10px 12px; }
+    padding: 3px 8px; font-size: 13.5px; word-break: break-all; }
+  .secret { display: flex; gap: 10px; align-items: center; background: var(--bg);
+    border: 1px dashed var(--accent); border-radius: 10px; padding: 12px; }
   .secret .code { border: none; background: transparent; padding: 0; flex: 1 1 auto;
-    font-size: 14px; color: var(--accent); }
+    font-size: 15px; color: var(--accent); }
 
-  .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
-  .kv > div > .k { font-size: 11.5px; color: var(--muted); font-weight: 600; }
-  .kv > div > .v { font-size: 14.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  /* A note list that reads as prose with a status colour, rather than a column
+     of meaningless "note" badges. */
+  .notes { display: flex; flex-direction: column; }
+  .note { display: flex; gap: 10px; padding: 11px 0; border-top: 1px solid var(--border-soft);
+    font-size: 13.5px; }
+  .note:first-child { border-top: none; padding-top: 2px; }
+  .note .bullet { width: 7px; height: 7px; border-radius: 99px; background: var(--muted);
+    flex: none; margin-top: 7px; }
+  .note.warn .bullet { background: var(--red); }
+  .note.good { color: var(--muted); }
+  .note.good .bullet { background: var(--green); }
+
+  .kv { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 10px; }
+  .kv .k { font-size: 12.5px; color: var(--muted); }
+  .kv .v { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .facts { display: flex; flex-direction: column; }
+  .fact { display: flex; gap: 12px; align-items: center; padding: 10px 0;
+    border-top: 1px solid var(--border-soft); font-size: 13.5px; }
+  .fact:first-child { border-top: none; }
+  .fact .k { color: var(--muted); flex: 1 1 auto; }
 
   /* --- drawer --------------------------------------------------------- */
-  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 40;
+  .scrim { position: fixed; inset: 0; background: rgba(10,12,7,.55); z-index: 40;
     opacity: 0; pointer-events: none; transition: opacity .16s; }
   .scrim.on { opacity: 1; pointer-events: auto; }
   .drawer {
-    position: fixed; top: 0; right: 0; bottom: 0; width: min(430px, 100%); z-index: 50;
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 100%); z-index: 50;
     background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow);
     transform: translateX(102%); transition: transform .2s cubic-bezier(.3,.7,.3,1);
     display: flex; flex-direction: column;
   }
   .drawer.on { transform: none; }
-  .drawer > header { display: flex; align-items: flex-start; gap: 10px; padding: 16px;
+  .drawer > header { display: flex; align-items: center; gap: 11px; padding: 14px 16px;
     border-bottom: 1px solid var(--border); }
-  .drawer .body { overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 18px; }
-  .sect { display: flex; flex-direction: column; gap: 9px; }
-  .sect > h3 { font-size: 11.5px; letter-spacing: .07em; text-transform: uppercase;
-    color: var(--faint); font-weight: 600; }
-  .sect.danger { border-top: 1px solid var(--border); padding-top: 14px; }
+  .drawer .body { overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 20px; }
+  .sect { display: flex; flex-direction: column; gap: 10px; }
+  .sect > h3 { font-size: 13px; color: var(--muted); font-weight: 600; }
+  .sect.danger { border-top: 1px solid var(--border); padding-top: 16px; }
 
   /* --- dialogs & toasts ------------------------------------------------ */
-  dialog {
-    border: 1px solid var(--border); background: var(--surface); color: var(--text);
-    border-radius: var(--radius); padding: 0; width: min(420px, calc(100vw - 32px));
-    box-shadow: var(--shadow);
-  }
-  dialog::backdrop { background: rgba(0,0,0,.5); }
-  dialog .dbody { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
-  dialog h2 { font-size: 16px; }
-  dialog .dfoot { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 18px;
+  dialog { border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    border-radius: var(--radius); padding: 0; width: min(440px, calc(100vw - 32px));
+    box-shadow: var(--shadow); }
+  dialog::backdrop { background: rgba(10,12,7,.55); }
+  dialog .dbody { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+  dialog h2 { font-size: 17px; }
+  dialog .dfoot { display: flex; gap: 8px; justify-content: flex-end; padding: 13px 20px;
     border-top: 1px solid var(--border); background: var(--surface-2);
     border-radius: 0 0 var(--radius) var(--radius); }
-  #toasts { position: fixed; right: 16px; bottom: 16px; z-index: 60; display: flex;
-    flex-direction: column; gap: 8px; align-items: flex-end; max-width: min(380px, calc(100vw - 32px)); }
-  .toast { display: flex; gap: 9px; align-items: flex-start; background: var(--surface);
+  #toasts { position: fixed; right: 18px; bottom: 18px; z-index: 60; display: flex;
+    flex-direction: column; gap: 8px; align-items: flex-end;
+    max-width: min(400px, calc(100vw - 36px)); }
+  .toast { display: flex; gap: 10px; align-items: flex-start; background: var(--surface);
     border: 1px solid var(--border); border-left: 3px solid var(--muted); border-radius: 10px;
-    padding: 10px 12px; box-shadow: var(--shadow); font-size: 13px;
-    animation: pop .18s ease-out; }
+    padding: 11px 13px; box-shadow: var(--shadow); font-size: 13.5px; animation: pop .18s ease-out; }
   .toast.ok { border-left-color: var(--green); }
   .toast.ok svg.i { color: var(--green); }
   .toast.error { border-left-color: var(--red); }
@@ -4375,31 +4398,31 @@ ADMIN_HTML = r"""<!doctype html>
   @keyframes pop { from { opacity: 0; transform: translateY(6px); } }
 
   /* --- login ---------------------------------------------------------- */
-  .login { max-width: 360px; margin: 12vh auto; }
-  .login .card { padding: 22px; }
-  .login .brand { justify-content: center; margin-bottom: 4px; font-size: 16px; }
-  .login .field { margin-bottom: 10px; }
+  .login { max-width: 370px; margin: 11vh auto; }
+  .login .card { padding: 24px; }
+  .login .brand { justify-content: center; font-size: 17px; }
+  .login .field { margin-bottom: 12px; }
   .login input { width: 100%; }
 
-  .skel { height: 88px; border-radius: var(--radius); border: 1px solid var(--border);
-    background: linear-gradient(90deg, var(--surface), var(--surface-2), var(--surface));
-    background-size: 300% 100%; animation: sweep 1.3s linear infinite; }
-  @keyframes sweep { from { background-position: 100% 0; } to { background-position: -100% 0; } }
-
   @media (max-width: 900px) {
-    .shell { grid-template-columns: minmax(0, 1fr); }
-    .side { position: sticky; top: 55px; z-index: 20; flex-direction: row; overflow-x: auto;
-      padding: 8px 12px; background: var(--bg); border-bottom: 1px solid var(--border); gap: 6px; }
-    .side .navhead { display: none; }
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .side { position: sticky; top: 56px; z-index: 20; flex-direction: row; overflow-x: auto;
+      padding: 8px 12px; background: var(--bg); border-bottom: 1px solid var(--border); gap: 6px;
+      scrollbar-width: none; }
+    .side::-webkit-scrollbar { display: none; }
     .navlink { width: auto; white-space: nowrap; }
-    .navlink .count { margin-left: 4px; }
-    main { padding: 16px 12px 64px; }
+    .navlink .count { margin-left: 5px; }
+    main { padding: 16px 12px 72px; }
     #toasts { left: 16px; right: 16px; bottom: 12px; max-width: none; align-items: stretch; }
   }
-  @media (max-width: 620px) {
+  @media (max-width: 680px) {
     .t-opt { display: none; }
-    .topbar .whoami .uname { display: none; }
+    .card > header h2 { font-size: 14px; }
+    .topbar { padding: 0 12px; gap: 8px; }
+    .wordmark, #freshness { display: none; }
+    th, td { padding: 11px 10px; }
   }
+  @media (max-width: 480px) { .t-opt2 { display: none; } }
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
@@ -4428,15 +4451,15 @@ ADMIN_HTML = r"""<!doctype html>
 </defs></svg>
 
 <div class="topbar hidden" id="bar">
-  <span class="brand"><span class="dot"><svg class="i"><use href="#i-compass"/></svg></span>Map Roulette</span>
+  <span class="brand"><span class="dot"><svg class="i"><use href="#i-compass"/></svg></span><span class="wordmark">Map Roulette</span></span>
   <span class="pill" id="regpill" title="How new accounts are created"></span>
   <span class="grow"></span>
-  <span class="small faint" id="freshness"></span>
+  <span class="small muted" id="freshness"></span>
   <button class="ghost icon" id="theme" title="Light / dark"><svg class="i"><use href="#i-moon"/></svg></button>
   <button class="ghost icon" id="refresh" title="Refresh (r)"><svg class="i"><use href="#i-refresh"/></svg></button>
   <span class="whoami">
     <span class="avatar" id="initial"></span>
-    <span class="uname small" id="who"></span>
+    <span class="small" id="who"></span>
     <button class="ghost icon tiny" id="logout" title="Sign out"><svg class="i"><use href="#i-out"/></svg></button>
   </span>
 </div>
@@ -4458,7 +4481,6 @@ ADMIN_HTML = r"""<!doctype html>
 
 <div class="shell hidden" id="app">
   <nav class="side">
-    <div class="navhead">Manage</div>
     <button class="navlink" data-view="overview"><svg class="i"><use href="#i-grid"/></svg>Overview</button>
     <button class="navlink" data-view="users"><svg class="i"><use href="#i-users"/></svg>Users<span class="count" id="n-users"></span></button>
     <button class="navlink" data-view="invites"><svg class="i"><use href="#i-ticket"/></svg>Invites<span class="count" id="n-invites"></span></button>
@@ -4526,6 +4548,9 @@ function fmtAgo(ms) {
   return fmtDate(ms);
 }
 const fmtNum = (n) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+// "1 session" / "3 sessions" — these labels are read on every button in the
+// drawer, and "(s)" reads like a form nobody finished.
+const plural = (n, one, many) => fmtNum(n) + " " + (n === 1 ? one : (many || one + "s"));
 function fmtKm(km) {
   if (km >= 10000) return fmtNum(Math.round(km));
   return km.toLocaleString(undefined, { maximumFractionDigits: km < 100 ? 1 : 0 });
@@ -4701,11 +4726,35 @@ function pagehead(title, sub, ...actions) {
 
 // --- overview -----------------------------------------------------------
 
-function tile(name, value, unit, sub) {
+function card(title, iconName, ...tools) {
+  const c = el("div", { className: "card" });
+  if (title) {
+    c.append(el("header", {}, iconName ? icon(iconName) : null,
+      el("h2", { className: "grow" }, title), ...tools));
+  }
+  return c;
+}
+const pad = (...kids) => el("div", { className: "pad" }, ...kids);
+
+function tile(label, value, unit, sub) {
   return el("div", { className: "tile" },
-    el("div", { className: "k" }, icon(name.icon), name.label),
+    el("div", { className: "k" }, label),
     el("div", { className: "v" }, value, unit ? el("small", {}, unit) : null),
     el("div", { className: "s" }, sub));
+}
+
+function personLine(u, right) {
+  const line = el("div", { className: "row nowrap",
+    style: "padding:10px 0;border-top:1px solid var(--border-soft)" },
+    el("span", { className: "avatar" }, (u.username[0] || "?").toUpperCase()),
+    el("div", { className: "grow", style: "min-width:0" },
+      el("div", { className: "row nowrap", style: "gap:7px" }, el("b", {}, u.username),
+        u.isAdmin ? el("span", { className: "pill admin" }, "manager") : null),
+      el("div", { className: "meta" }, u.trips + " trips · " + fmtKm(u.distanceKm) + " km")),
+    el("span", { className: "meta" }, right));
+  line.style.cursor = "pointer";
+  line.onclick = () => openDrawer(u.id);
+  return line;
 }
 
 function viewOverview() {
@@ -4714,63 +4763,71 @@ function viewOverview() {
   const km = us.reduce((a, u) => a + u.distanceKm, 0);
   const active = us.filter((u) => u.lastSeenMs > Date.now() - 7 * DAY).length;
   const live = inv.filter((i) => i.status === "live").length;
-  const sessions = us.reduce((a, u) => a + u.sessions, 0);
   const noEmail = us.filter((u) => !u.email).length;
 
   const root = el("div", {},
     pagehead("Overview", "Everything this server is holding, at a glance."));
 
   root.append(el("div", { className: "tiles" },
-    tile({ icon: "users", label: "Accounts" }, fmtNum(us.length), null,
-      adminCount() + " with manager rights"),
-    tile({ icon: "pulse", label: "Active" }, fmtNum(active), null, "synced in the last 7 days"),
-    tile({ icon: "route", label: "Trips" }, fmtNum(trips), null,
+    tile("Accounts", fmtNum(us.length), null, adminCount() + " with manager rights"),
+    tile("Active", fmtNum(active), null, "synced this week"),
+    tile("Trips", fmtNum(trips), null,
       fmtNum(us.reduce((a, u) => a + u.traces, 0)) + " traces stored"),
-    tile({ icon: "gauge", label: "Distance" }, fmtKm(km), " km",
+    tile("Distance", fmtKm(km), " km",
       us.length ? fmtKm(km / us.length) + " km per account" : "nothing driven yet"),
-    tile({ icon: "ticket", label: "Live invites" }, fmtNum(live), null,
+    tile("Live invites", fmtNum(live), null,
       inv.filter((i) => i.status === "used").length + " already claimed")));
 
   // Recently active, which is the one list an admin actually scans daily.
   const recent = us.slice().sort((a, b) => b.lastSeenMs - a.lastSeenMs).slice(0, 6);
-  const recentCard = el("div", { className: "card" },
-    el("header", {}, icon("pulse"), el("h2", { className: "grow" }, "Recent activity")));
-  if (!recent.length) recentCard.append(el("p", { className: "muted small" }, "No accounts yet."));
-  for (const u of recent) {
-    const line = el("div", { className: "row", style: "padding:7px 0;border-top:1px solid var(--border-soft)" },
-      el("span", { className: "avatar" }, (u.username[0] || "?").toUpperCase()),
-      el("div", { className: "stack grow" },
-        el("div", {}, el("b", {}, u.username), " ",
-          u.isAdmin ? el("span", { className: "pill admin" }, "manager") : null),
-        el("div", { className: "small faint" }, u.trips + " trips · " + fmtKm(u.distanceKm) + " km")),
-      el("span", { className: "small muted" }, fmtAgo(u.lastSeenMs)));
-    line.style.cursor = "pointer";
-    line.onclick = () => openDrawer(u.id);
-    recentCard.append(line);
-  }
+  const recentCard = card("Recently active", "pulse");
+  const recentBody = pad();
+  if (!recent.length) recentBody.append(el("p", { className: "muted", style: "margin:0" }, "No accounts yet."));
+  for (const u of recent) recentBody.append(personLine(u, fmtAgo(u.lastSeenMs)));
+  if (recent.length) recentBody.firstChild.style.borderTop = "none";
+  recentCard.append(recentBody);
 
-  // Things worth doing something about. Silent when there is nothing to say.
+  // Things worth doing something about, worst first. Silent when there is
+  // nothing to say — a permanent panel of "all good" is just noise.
   const flags = [];
-  if (!state.data.mail) flags.push(["No SMTP relay configured — invites and reset links can only be passed on by hand.", "bad"]);
-  if (state.data.registration === "open") flags.push(["Registration is open: anyone who can reach this server can create an account.", "bad"]);
+  if (state.data.registration === "open") flags.push(["Registration is open: anyone who can reach this server can create an account.", "warn"]);
+  if (!state.data.mail) flags.push(["No SMTP relay configured, so invites and reset links can only be passed on by hand.", "warn"]);
   if (adminCount() === 1) flags.push(["One manager account. If it loses its password, only the server CLI can let you back in.", ""]);
-  if (noEmail) flags.push([noEmail + " account(s) have no email on file, so they cannot be mailed a reset link.", ""]);
+  if (noEmail) flags.push([noEmail + " account" + (noEmail > 1 ? "s have" : " has") + " no email on file and cannot be mailed a reset link.", ""]);
   const expired = inv.filter((i) => i.status === "expired").length;
-  if (expired) flags.push([expired + " invite(s) expired unused.", ""]);
+  if (expired) flags.push([expired + " invite" + (expired > 1 ? "s" : "") + " expired unused.", ""]);
 
-  const notes = el("div", { className: "card" },
-    el("header", {}, icon("shield"), el("h2", { className: "grow" }, "Worth knowing")));
+  const notes = card("Worth knowing", "shield");
+  const noteList = el("div", { className: "notes" });
   if (!flags.length) {
-    notes.append(el("p", { className: "muted small", style: "margin:0" },
-      "Nothing needs attention: mail works, registration is closed and every account has an address on file."));
+    noteList.append(el("div", { className: "note good" }, el("span", { className: "bullet" }),
+      el("span", {}, "Nothing needs attention: mail works, registration is closed and every "
+        + "account has an address on file.")));
   }
   for (const [text, kind] of flags) {
-    notes.append(el("div", { className: "row", style: "padding:7px 0;border-top:1px solid var(--border-soft);flex-wrap:nowrap" },
-      el("span", { className: "pill " + kind }, kind === "bad" ? "check" : "note"),
-      el("span", { className: "small" }, text)));
+    noteList.append(el("div", { className: "note " + kind },
+      el("span", { className: "bullet" }), el("span", {}, text)));
   }
+  notes.append(pad(noteList));
 
-  root.append(el("div", { className: "cards2" }, recentCard, notes));
+  // A compact echo of the Server tab, so the right column carries its weight
+  // and the two settings that decide who gets in are visible from the start.
+  const setup = card("Setup", "server");
+  const jump = el("button", { className: "tiny" }, "Server settings");
+  jump.onclick = () => go("server");
+  setup.append(pad(el("div", { className: "facts" },
+    el("div", { className: "fact" }, el("span", { className: "k" }, "Registration"),
+      el("span", { className: "pill " + (state.data.registration === "open" ? "bad" : "ok") },
+        state.data.registration)),
+    el("div", { className: "fact" }, el("span", { className: "k" }, "Mail"),
+      el("span", { className: "pill " + (state.data.mail ? "ok" : "bad") },
+        state.data.mail ? "configured" : "off")),
+    el("div", { className: "fact" }, el("span", { className: "k" }, "Managers"),
+      el("span", {}, String(adminCount())))),
+    el("div", { className: "row", style: "margin-top:12px;justify-content:flex-end" }, jump)));
+
+  root.append(el("div", { className: "cards2" }, recentCard,
+    el("div", {}, notes, setup)));
   return root;
 }
 
@@ -4786,7 +4843,7 @@ const SORTS = {
 
 function sortHeader(label, key, extra) {
   const th = el("th", { className: "sortable " + (extra || "") + (state.sort === key ? " on" : "") },
-    label, el("span", { className: "arrow" }, state.desc ? "↓" : "↑"));
+    label, el("span", { className: "arrow" }, state.desc ? " ↓" : " ↑"));
   th.onclick = () => {
     if (state.sort === key) state.desc = !state.desc;
     else { state.sort = key; state.desc = key !== "username"; }
@@ -4802,59 +4859,56 @@ function viewUsers() {
     .sort(SORTS[state.sort]);
   if (state.desc) list.reverse();
 
+  // The search box lives in the card header, right above the rows it filters,
+  // rather than floating off in the page title.
   const search = el("input", { placeholder: "Search name or email", value: state.q, type: "search",
-    style: "min-width:220px" });
-  // Re-rendering the page replaces this very input, so the caret is put back
-  // where it was on the fresh one.
+    id: "usearch", className: "search" });
+  // Re-rendering replaces this very input, so the caret is put back afterwards.
   search.oninput = () => {
     state.q = search.value;
     render(true);
     const again = $("usearch");
     if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
   };
-  search.id = "usearch";
 
-  const root = el("div", {},
-    pagehead("Users", users().length + " account(s) on this server", search));
+  const root = el("div", {}, pagehead("Users", plural(users().length, "account") + " on this server"));
+  const c = card(state.q ? list.length + " of " + users().length : "All accounts", "users", search);
 
-  const card = el("div", { className: "card" });
-  const table = el("table", {},
-    el("thead", {}, el("tr", {},
-      sortHeader("User", "username"),
-      el("th", { className: "t-opt" }, "Email"),
-      sortHeader("Trips", "trips", "right t-opt"),
-      sortHeader("Distance", "distanceKm", "right t-opt"),
-      sortHeader("Last sync", "lastSeenMs"),
-      el("th", { className: "right" }, ""))));
-  const tbody = el("tbody", {});
-  for (const u of list) tbody.append(userRow(u));
-  table.append(tbody);
-  card.append(el("div", { className: "tablewrap" }, table));
   if (!list.length) {
-    card.textContent = "";
-    card.append(el("div", { className: "empty" }, icon("users"),
+    c.append(el("div", { className: "empty" }, icon("users"),
       el("div", {}, state.q ? "No account matches “" + state.q + "”." : "No accounts yet.")));
+  } else {
+    const tbody = el("tbody", {});
+    for (const u of list) tbody.append(userRow(u));
+    c.append(el("div", { className: "tscroll" }, el("table", {},
+      el("thead", {}, el("tr", {},
+        sortHeader("User", "username"),
+        el("th", { className: "t-opt" }, "Email"),
+        sortHeader("Trips", "trips", "right t-opt"),
+        sortHeader("Distance", "distanceKm", "right t-opt2"),
+        sortHeader("Last sync", "lastSeenMs", "right"),
+        el("th", { style: "width:24px" }, ""))),
+      tbody)));
   }
-  root.append(card);
+  root.append(c);
   return root;
 }
 
 function userRow(u) {
-  const manage = el("button", { className: "tiny" }, "Manage");
-  const tr = el("tr", {},
+  const tr = el("tr", { className: "pick" },
     el("td", {},
-      el("div", { className: "row", style: "flex-wrap:nowrap;gap:9px" },
+      el("div", { className: "who" },
         el("span", { className: "avatar" }, (u.username[0] || "?").toUpperCase()),
-        el("div", { className: "stack" },
-          el("div", {}, el("b", {}, u.username), " ",
-            u.isAdmin ? el("span", { className: "pill admin" }, "manager") : null, " ",
+        el("div", { style: "min-width:0" },
+          el("div", { className: "row nowrap", style: "gap:7px" }, el("b", {}, u.username),
+            u.isAdmin ? el("span", { className: "pill admin" }, "manager") : null,
             u.isSelf ? el("span", { className: "pill" }, "you") : null),
-          el("div", { className: "small faint" }, "joined " + fmtDate(u.createdMs))))),
-    el("td", { className: "t-opt small" }, u.email || el("span", { className: "faint" }, "—")),
+          el("div", { className: "meta t-opt" }, "joined " + fmtDate(u.createdMs))))),
+    el("td", { className: "t-opt meta" }, u.email || "—"),
     el("td", { className: "num right t-opt" }, fmtNum(u.trips)),
-    el("td", { className: "num right t-opt" }, fmtKm(u.distanceKm) + " km"),
-    el("td", { className: "small muted" }, fmtAgo(u.lastSeenMs)),
-    el("td", { className: "right" }, manage));
+    el("td", { className: "num right t-opt2" }, fmtKm(u.distanceKm) + " km"),
+    el("td", { className: "num right meta" }, fmtAgo(u.lastSeenMs)),
+    el("td", { className: "right" }, el("span", { className: "chev" }, "›")));
   tr.onclick = () => openDrawer(u.id);
   return tr;
 }
@@ -4896,8 +4950,8 @@ function renderDrawer() {
   drawer.append(el("header", {},
     el("span", { className: "avatar", style: "width:34px;height:34px;font-size:15px" },
       (u.username[0] || "?").toUpperCase()),
-    el("div", { className: "stack grow" },
-      el("div", { style: "font-size:16px;font-weight:650" }, u.username),
+    el("div", { className: "grow", style: "min-width:0" },
+      el("div", { style: "font-size:17px;font-weight:650" }, u.username),
       el("div", { className: "row", style: "gap:5px" },
         u.isAdmin ? el("span", { className: "pill admin" }, "manager") : null,
         u.isSelf ? el("span", { className: "pill" }, "you") : null,
@@ -4914,7 +4968,8 @@ function renderDrawer() {
     stat("Sessions", fmtNum(u.sessions)),
     stat("API keys", fmtNum(u.apiKeys)),
     stat("Joined", fmtDate(u.createdMs))));
-  body.append(el("div", { className: "small faint" }, "Last sync " + fmtDateTime(u.lastSeenMs)));
+  body.append(el("div", { className: "meta", style: "margin-top:-10px" },
+    "Last sync " + fmtDateTime(u.lastSeenMs)));
 
   // Email
   const emailInput = el("input", { value: u.email, placeholder: "no address on file", type: "email",
@@ -4969,20 +5024,22 @@ function renderDrawer() {
   adminBtn.title = u.isSelf ? "Use another manager account to take your own access away."
     : (onlyAdmin ? "The only manager left." : "");
 
-  const signOut = action("Sign out " + u.sessions + " session(s)", "out", async () => {
+  const signOut = action(u.sessions ? "Sign out " + plural(u.sessions, "session") : "No sessions",
+    "out", async () => {
     if (!await confirmDialog("Sign out every device?",
       u.username + " will have to sign in again on each phone.", "Sign out", true)) return;
     const r = await post(u.id, "revoke", { what: "tokens" });
-    toast("Revoked " + r.revoked + " session(s) for " + u.username);
+    toast("Revoked " + plural(r.revoked, "session") + " for " + u.username);
     await load(true);
   });
   signOut.disabled = !u.sessions;
 
-  const revokeKeys = action("Revoke " + u.apiKeys + " API key(s)", "key", async () => {
+  const revokeKeys = action(u.apiKeys ? "Revoke " + plural(u.apiKeys, "API key") : "No API keys",
+    "key", async () => {
     if (!await confirmDialog("Revoke every API key?",
       "Any dashboard or Home Assistant card using one of " + u.username + "'s keys stops working.", "Revoke", true)) return;
     const r = await post(u.id, "revoke", { what: "keys" });
-    toast("Revoked " + r.revoked + " key(s) for " + u.username);
+    toast("Revoked " + plural(r.revoked, "key") + " for " + u.username);
     await load(true);
   });
   revokeKeys.disabled = !u.apiKeys;
@@ -5033,12 +5090,12 @@ function viewInvites() {
   const root = el("div", {},
     pagehead("Invites", "One code, one account. Codes are single use."));
 
-  const label = el("input", { placeholder: "Who is it for (a note to yourself)", className: "grow",
-    style: "min-width:180px" });
-  const email = el("input", { placeholder: "Email (optional)", type: "email", style: "min-width:170px",
+  // Every control gets a label above it, so the row shares one baseline
+  // instead of one field sitting lower than its neighbours.
+  const label = el("input", { placeholder: "a note to yourself" });
+  const email = el("input", { placeholder: "optional", type: "email",
     autocapitalize: "none", spellcheck: false });
-  const days = el("input", { type: "number", min: "0", value: "14", style: "width:120px",
-    title: "Days until it expires; 0 = never" });
+  const days = el("input", { type: "number", min: "0", value: "14" });
   const send = el("input", { type: "checkbox", disabled: !state.data.mail });
 
   const make = action("Generate code", "plus", async () => {
@@ -5053,14 +5110,22 @@ function viewInvites() {
     await load(true);
   }, "primary");
 
-  root.append(el("div", { className: "card" },
-    el("header", {}, icon("ticket"), el("h2", { className: "grow" }, "Invite someone")),
-    el("div", { className: "row" }, label, email,
-      el("label", { className: "field" }, el("span", {}, "Expires in (days)"), days),
-      el("label", { className: "check" }, send, "mail it"), make),
+  const form = el("div", { style: "display:grid;gap:12px;"
+    + "grid-template-columns:minmax(150px,1.6fr) minmax(140px,1.3fr) 110px;align-items:end" },
+    el("label", { className: "field" }, el("span", {}, "Who is it for"), label),
+    el("label", { className: "field" }, el("span", {}, "Email"), email),
+    el("label", { className: "field" }, el("span", {}, "Expires in (days)"), days));
+
+  const inviteCard = card("Invite someone", "ticket");
+  inviteCard.append(pad(form,
+    el("div", { className: "row", style: "margin-top:14px" },
+      el("label", { className: "check" }, send,
+        el("span", { className: state.data.mail ? "" : "muted" }, "mail it to them")),
+      el("span", { className: "grow" }), make),
     el("p", { className: "muted small", style: "margin:12px 0 0" }, state.data.mail
       ? "Mail goes out as " + state.data.mailFrom + ". Reset links last " + state.data.resetMinutes + " minutes."
-      : "No SMTP relay configured (SMTP_HOST is unset), so nothing is mailed — codes and links are shown here to pass on yourself.")));
+      : "No SMTP relay configured (SMTP_HOST is unset), so nothing is mailed — codes are shown here to pass on yourself.")));
+  root.append(inviteCard);
 
   const counts = { all: invites().length, live: 0, used: 0, expired: 0 };
   for (const i of invites()) counts[i.status]++;
@@ -5073,21 +5138,20 @@ function viewInvites() {
   }
 
   const list = invites().filter((i) => state.inviteFilter === "all" || i.status === state.inviteFilter);
-  const card = el("div", { className: "card" },
-    el("header", {}, el("h2", { className: "grow" }, "Codes"), chips));
+  const c = card("Codes", null, chips);
   if (!list.length) {
-    card.append(el("div", { className: "empty" }, icon("ticket"),
+    c.append(el("div", { className: "empty" }, icon("ticket"),
       el("div", {}, counts.all ? "No " + state.inviteFilter + " invites." : "No invites yet.")));
   } else {
     const tbody = el("tbody", {});
     for (const inv of list) tbody.append(inviteRow(inv));
-    card.append(el("div", { className: "tablewrap" }, el("table", {},
+    c.append(el("div", { className: "tscroll" }, el("table", {},
       el("thead", {}, el("tr", {},
         el("th", {}, "Code"), el("th", { className: "t-opt" }, "For"),
-        el("th", {}, "Status"), el("th", { className: "right" }, ""))),
+        el("th", {}, "Status"), el("th", { style: "width:24px" }, ""))),
       tbody)));
   }
-  root.append(card);
+  root.append(c);
   return root;
 }
 
@@ -5107,55 +5171,57 @@ function inviteRow(inv) {
     : (inv.expiresMs ? (inv.status === "expired" ? "expired " : "expires ") + fmtDate(inv.expiresMs)
       : "never expires");
 
-  const tr = el("tr", { style: "cursor:default" },
-    el("td", {}, el("div", { className: "row", style: "flex-wrap:nowrap" },
+  return el("tr", {},
+    el("td", {}, el("div", { className: "row nowrap", style: "gap:6px" },
       el("span", { className: "code" }, inv.code), copyButton(inv.code))),
-    el("td", { className: "t-opt small" },
-      el("div", {}, inv.label || el("span", { className: "faint" }, "—")),
-      inv.email ? el("div", { className: "faint" }, inv.email) : null),
+    el("td", { className: "t-opt" },
+      el("div", {}, inv.label || el("span", { className: "muted" }, "—")),
+      inv.email ? el("div", { className: "meta" }, inv.email) : null),
     el("td", {},
-      el("div", {}, el("span", { className: "pill " + inv.status }, inv.status)),
-      el("div", { className: "small faint" }, sub)),
+      el("div", { className: "row nowrap", style: "gap:8px" },
+        el("span", { className: "pill " + inv.status }, inv.status),
+        el("span", { className: "meta" }, sub))),
     el("td", { className: "right" }, revoke));
-  return tr;
 }
 
 // --- server -------------------------------------------------------------
 
 function viewServer() {
   const d = state.data;
-  const row = (k, v, pill) => el("div", { className: "row", style: "padding:9px 0;border-top:1px solid var(--border-soft)" },
-    el("span", { className: "muted small grow" }, k),
-    pill ? el("span", { className: "pill " + pill }, v) : el("span", { className: "small" }, v));
+  const fact = (k, v, pill) => el("div", { className: "fact" },
+    el("span", { className: "k" }, k),
+    pill ? el("span", { className: "pill " + pill }, v) : el("span", {}, v));
 
   const root = el("div", {},
     pagehead("Server", "How this instance is configured. Change these with environment variables and a restart."));
 
   const open = d.registration === "open";
-  root.append(el("div", { className: "cards2" },
-    el("div", { className: "card" },
-      el("header", {}, icon("shield"), el("h2", { className: "grow" }, "Accounts")),
-      row("Registration", d.registration, open ? "bad" : "ok"),
-      row("Shared invite code", d.sharedCode ? "set (INVITE_CODE)" : "not set", d.sharedCode ? "" : "ok"),
-      row("Managers", String(adminCount())),
-      row("Reset link lifetime", d.resetMinutes + " minutes"),
-      el("p", { className: "muted small", style: "margin:12px 0 0" },
-        open ? "REGISTRATION_OPEN is on: anyone who can reach this server can create an account. Turn it off once your accounts exist."
-             : "New accounts need an invite code from this dashboard.")),
-    el("div", { className: "card" },
-      el("header", {}, icon("mail"), el("h2", { className: "grow" }, "Mail")),
-      row("SMTP relay", d.mail ? "configured" : "off", d.mail ? "ok" : "bad"),
-      row("Sends as", d.mailFrom || "—"),
-      el("p", { className: "muted small", style: "margin:12px 0 0" }, d.mail
-        ? "Invites and password resets can be mailed straight from here."
-        : "Set SMTP_HOST, SMTP_USER, SMTP_PASS and SMTP_FROM to mail invites and reset links. Without it everything still works — codes and links are shown on screen to pass on yourself."))));
+  const accounts = card("Accounts", "shield");
+  accounts.append(pad(el("div", { className: "facts" },
+    fact("Registration", d.registration, open ? "bad" : "ok"),
+    fact("Shared invite code", d.sharedCode ? "set (INVITE_CODE)" : "not set", d.sharedCode ? "" : "ok"),
+    fact("Managers", String(adminCount())),
+    fact("Reset link lifetime", d.resetMinutes + " minutes")),
+    el("p", { className: "muted small", style: "margin:12px 0 0" },
+      open ? "REGISTRATION_OPEN is on: anyone who can reach this server can create an account. Turn it off once your accounts exist."
+           : "New accounts need an invite code from this dashboard.")));
 
-  root.append(el("div", { className: "card" },
-    el("header", {}, icon("lock"), el("h2", { className: "grow" }, "What this dashboard can see")),
-    el("p", { className: "muted small", style: "margin:0" },
-      "Account metadata and row counts only. There is no endpoint here that reads a trip, "
-      + "a trace or a place — a manager can delete a user's data but never look at it. "
-      + "Sessions here are a separate cookie from the phones' sync tokens, and idle out on their own.")));
+  const mail = card("Mail", "mail");
+  mail.append(pad(el("div", { className: "facts" },
+    fact("SMTP relay", d.mail ? "configured" : "off", d.mail ? "ok" : "bad"),
+    fact("Sends as", d.mailFrom || "—")),
+    el("p", { className: "muted small", style: "margin:12px 0 0" }, d.mail
+      ? "Invites and password resets can be mailed straight from here."
+      : "Set SMTP_HOST, SMTP_USER, SMTP_PASS and SMTP_FROM to mail invites and reset links. Without it everything still works — codes and links are shown on screen to pass on yourself.")));
+
+  root.append(el("div", { className: "cards2" }, accounts, mail));
+
+  const privacy = card("What this dashboard can see", "lock");
+  privacy.append(pad(el("p", { className: "muted", style: "margin:0" },
+    "Account metadata and row counts only. There is no endpoint here that reads a trip, "
+    + "a trace or a place — a manager can delete a user's data but never look at it. "
+    + "Sessions here are a separate cookie from the phones' sync tokens, and idle out on their own.")));
+  root.append(privacy);
   return root;
 }
 
