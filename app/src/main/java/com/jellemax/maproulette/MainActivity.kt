@@ -1,5 +1,6 @@
 package com.jellemax.maproulette
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -15,6 +16,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.maproulette.ble.BleNavServer
+import com.jellemax.maproulette.data.PendingReset
 import com.jellemax.maproulette.data.Settings
 import com.jellemax.maproulette.data.Trip
 import com.jellemax.maproulette.ui.BadgesScreen
@@ -41,6 +44,7 @@ import org.maplibre.android.MapLibre
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        takeResetLink(intent)
         enableEdgeToEdge()
         // A map app is glanced at while driving: keep the screen awake while visible.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -66,6 +70,22 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    // singleTop means a reset link tapped while the app is already open is
+    // delivered here instead of through onCreate.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        takeResetLink(intent)
+    }
+
+    /** Parks the code from a `maproulette://reset?token=…` link for the
+     *  Friends screen, which AppRoot then brings to the front. */
+    private fun takeResetLink(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme == "maproulette" && data.host == "reset") {
+            PendingReset.offer(data.getQueryParameter("token").orEmpty())
+        }
+    }
 }
 
 private enum class Screen { MAP, HUB, HISTORY, TRIP_DETAIL, BADGES, FRIENDS, SETTINGS, SAVED }
@@ -76,6 +96,11 @@ private fun AppRoot() {
     // The trip a TRIP_DETAIL screen is showing — set on the way in from
     // History, left stale (but unread) once we've navigated away from it.
     var detailTrip by remember { mutableStateOf<Trip?>(null) }
+    // A reset link opens the screen that can spend it, wherever the app was.
+    val resetToken by PendingReset.token.collectAsStateWithLifecycle()
+    LaunchedEffect(resetToken) {
+        if (resetToken.isNotBlank()) screen = Screen.FRIENDS
+    }
     // System back from any sub-screen returns to the map instead of exiting the
     // app — only enabled off the map, so back on the map itself still falls
     // through to the default (exit) behaviour. The five destinations off Hub

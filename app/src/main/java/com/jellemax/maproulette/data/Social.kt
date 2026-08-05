@@ -1,9 +1,31 @@
 package com.jellemax.maproulette.data
 
 import android.content.Context
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
+
+/**
+ * A reset code that arrived by deep link (`maproulette://reset?token=…`),
+ * parked until the Friends screen can show the form that spends it.
+ *
+ * Deliberately in memory only: a code left on disk outlives the mail it came
+ * from, and the whole point of it is being short lived.
+ */
+object PendingReset {
+    private val _token = MutableStateFlow("")
+    val token: StateFlow<String> = _token.asStateFlow()
+
+    fun offer(value: String) {
+        _token.value = value
+    }
+
+    fun clear() {
+        _token.value = ""
+    }
+}
 
 /** Account state and the sign-in/out calls. All network calls block. */
 object Account {
@@ -11,15 +33,47 @@ object Account {
     val username: StateFlow<String> = Settings.authUsername
     val signedIn: Boolean get() = Settings.authToken.value.isNotBlank()
 
-    fun register(context: Context, user: String, password: String, invite: String = "") {
+    fun register(
+        context: Context,
+        user: String,
+        password: String,
+        invite: String = "",
+        email: String = "",
+    ) {
         val body = JSONObject().put("username", user).put("password", password)
         if (invite.isNotBlank()) body.put("invite", invite)
+        if (email.isNotBlank()) body.put("email", email)
         store(context, Api.requestJson(context, "POST", "/auth/register", body, auth = false))
     }
 
     fun login(context: Context, user: String, password: String) {
         val body = JSONObject().put("username", user).put("password", password)
         store(context, Api.requestJson(context, "POST", "/auth/login", body, auth = false))
+    }
+
+    /**
+     * Asks the server to mail a reset link to whoever owns [who] — a username
+     * or an email address. The server answers the same way whether or not that
+     * account exists, so there is nothing here to report back beyond "sent, if
+     * there was anywhere to send it".
+     */
+    fun forgotPassword(context: Context, who: String) {
+        Api.request(
+            context, "POST", "/auth/forgot", JSONObject().put("username", who), auth = false,
+        )
+    }
+
+    /**
+     * Redeems the code from a reset mail. The server signs every device out as
+     * part of this, so the caller lands back on the sign-in form with a
+     * password that works.
+     */
+    fun resetPassword(context: Context, token: String, password: String) {
+        Api.request(
+            context, "POST", "/auth/reset",
+            JSONObject().put("token", token).put("password", password),
+            auth = false,
+        )
     }
 
     /**

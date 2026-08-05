@@ -70,6 +70,7 @@ import com.jellemax.maproulette.data.Coverage
 import com.jellemax.maproulette.data.FriendLists
 import com.jellemax.maproulette.data.FriendStats
 import com.jellemax.maproulette.data.Friends
+import com.jellemax.maproulette.data.PendingReset
 import com.jellemax.maproulette.data.RiderStats
 import com.jellemax.maproulette.data.SyncClient
 import com.jellemax.maproulette.net.ConvoyLiveClient
@@ -132,12 +133,21 @@ private fun SignInSection() {
     var user by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var invite by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var note by remember { mutableStateOf<String?>(null) }
+    var forgotOpen by remember { mutableStateOf(false) }
+    var resetOpen by remember { mutableStateOf(false) }
+    // A tapped link from a reset mail lands here; opening the form with the
+    // code already in it is the whole point of the deep link.
+    val linkToken by PendingReset.token.collectAsStateWithLifecycle()
+    LaunchedEffect(linkToken) { if (linkToken.isNotBlank()) resetOpen = true }
 
     fun run(block: () -> Unit) {
         busy = true
         error = null
+        note = null
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { block() }
@@ -173,9 +183,19 @@ private fun SignInSection() {
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
     )
+    OutlinedTextField(
+        value = email, onValueChange = { email = it },
+        label = { Text("Email (new accounts, optional)") },
+        supportingText = { Text("Only used to mail you a link if you forget your password.") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
     error?.let {
         Text(it, color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall)
+    }
+    note?.let {
+        Text(it, style = MaterialTheme.typography.bodySmall)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(
@@ -187,15 +207,176 @@ private fun SignInSection() {
             else Text("Sign in")
         }
         OutlinedButton(
-            onClick = { run { Account.register(context, user.trim(), password, invite.trim()) } },
+            onClick = {
+                run { Account.register(context, user.trim(), password, invite.trim(), email.trim()) }
+            },
             enabled = !busy && user.isNotBlank() && password.isNotBlank(),
             modifier = Modifier.weight(1f),
         ) { Text("Create account") }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(onClick = { forgotOpen = true }, enabled = !busy) {
+            Text("Forgot password")
+        }
+        TextButton(onClick = { resetOpen = true }, enabled = !busy) {
+            Text("I have a reset code")
+        }
     }
     Text(
         "Passwords must be at least 8 characters.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    if (forgotOpen) {
+        ForgotPasswordDialog(
+            initial = user.trim(),
+            onDismiss = { forgotOpen = false },
+            onSent = {
+                forgotOpen = false
+                note = "If that account has an email on file, a reset link is on its way. " +
+                    "Open it on this phone, or paste the code under \"I have a reset code\"."
+            },
+        )
+    }
+    if (resetOpen) {
+        ResetPasswordDialog(
+            initialToken = linkToken,
+            onDismiss = {
+                resetOpen = false
+                PendingReset.clear()
+            },
+            onDone = {
+                resetOpen = false
+                PendingReset.clear()
+                password = ""
+                note = "Password changed. Sign in with the new one — every other device " +
+                    "was signed out."
+            },
+        )
+    }
+}
+
+/** Asks the server to mail a reset link. The server answers the same either
+ *  way, so this can only ever report "sent, if there was anywhere to send". */
+@Composable
+private fun ForgotPasswordDialog(
+    initial: String,
+    onDismiss: () -> Unit,
+    onSent: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var who by remember { mutableStateOf(initial) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Forgot password") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Your server mails the link, so this only works if your account " +
+                        "has an email address on it.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedTextField(
+                    value = who, onValueChange = { who = it },
+                    label = { Text("Username or email") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                error?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy && who.isNotBlank(),
+                onClick = {
+                    busy = true
+                    error = null
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                Account.forgotPassword(context, who.trim())
+                            }
+                            onSent()
+                        } catch (e: Exception) {
+                            error = e.message ?: "Could not reach the server"
+                        }
+                        busy = false
+                    }
+                },
+            ) { Text("Send link") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** Spends a reset code — either the one a deep link arrived with, or one
+ *  pasted out of the mail by hand when the link wasn't tappable. */
+@Composable
+private fun ResetPasswordDialog(
+    initialToken: String,
+    onDismiss: () -> Unit,
+    onDone: () -> Unit,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var token by remember { mutableStateOf(initialToken) }
+    var password by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Set a new password") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = token, onValueChange = { token = it },
+                    label = { Text("Reset code") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = password, onValueChange = { password = it },
+                    label = { Text("New password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                error?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy && token.isNotBlank() && password.length >= 8,
+                onClick = {
+                    busy = true
+                    error = null
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                Account.resetPassword(context, token.trim(), password)
+                            }
+                            onDone()
+                        } catch (e: Exception) {
+                            error = e.message ?: "Could not reach the server"
+                        }
+                        busy = false
+                    }
+                },
+            ) { Text("Change password") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 

@@ -53,10 +53,23 @@
 
         <activity
             android:name=".MainActivity"
+            android:launchMode="singleTop"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Password reset links from the server's mails. A custom scheme
+                 rather than https on purpose: the sync server sits behind
+                 Cloudflare Access, so a browser following an https link would
+                 meet the Access wall, while the app already holds the service
+                 token. singleTop above keeps a tapped link from stacking a
+                 second copy of the app on top of the running one. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="maproulette" android:host="reset" />
             </intent-filter>
         </activity>
 
