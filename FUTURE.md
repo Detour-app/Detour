@@ -1,27 +1,28 @@
 # Future ideas
 
-## Real routing engine for Moto round trips (calimoto-style)
+## Done: real routing engine for Moto round trips
 
-Current MVP hands waypoints to Google Maps, which may pick boring connector roads.
-Upgrade path with an actual routing engine:
+Shipped. Self-hosted GraphHopper (`server/install.sh`, `server/INSTALL.md`) with a
+`moto` profile weighted on the built-in `curvature` encoded value, `round_trip`
+loops from `RoutingServer.roundTrip`, and in-app turn-by-turn (`NavEngine.kt`,
+`car/NavScreen.kt`) — the Google Maps handoff this file once planned around is
+only the fallback now.
 
-- **Engine: GraphHopper** — JVM, open source, built-in `round_trip` algorithm
-  (point + distance + seed → loop), custom models for re-weighting roads.
-- **Pipeline**: Geofabrik country extract → run the junction-aware curviness scorer
-  (`Curviness.kt` algorithm) over every way in the extract → write `curvy_score` tag
-  into the pbf (osmium) → GraphHopper imports it as a custom encoded value.
-- **Custom model**: motorcycle profile, priority boost where `curvy_score` high,
-  penalize trunk/urban. Round trips then follow curvy roads end to end.
-- **Navigation handoff**: sample 9 waypoints from the computed route into a Google
-  Maps directions URL — Maps follows essentially our route with voice/traffic.
-  In-app turn-by-turn is months of work; skip.
-- **Hosting tiers**: (1) self-hosted Docker server, ~€5/mo VPS or home server,
-  ~2–4 days work — recommended first step; (2) on-device GraphHopper with prebuilt
-  graph (~100–300 MB/country, build in CI, host on GitHub releases), offline, ~1 week+;
-  (3) GraphHopper Cloud API — custom models are paywalled, least control.
-- Tuning knobs once real: bend radius window (now 25–300 m), score threshold (0.12),
-  loop shape, avoid-repeat-roads.
+The one part of the original plan that was **not** built, deliberately: baking a
+`curvy_score` tag into the pbf with osmium and importing it as a custom encoded
+value. GraphHopper cannot define an encoded value from an arbitrary OSM tag
+without a source fork and recompile, which would mean maintaining a fork across
+every monthly OSM refresh. Instead the app rolls `CURVY_CANDIDATES` loops per
+spin and keeps the one whose polyline spends the most length in 25–300 m bends
+(`Curviness.routeScore`) — the same junction-aware metric, applied to the routes
+that actually came back, with junctions identified from GraphHopper's own turn
+instructions.
+
+Tuning knobs, in the order worth touching: bend radius window (now 25–300 m),
+`CURVY_CANDIDATES` (now 3), the moto profile's curvature ladder in `install.sh`,
+avoid-repeat-roads.
 
 ## Other ideas (unprioritized)
 - Avoid destinations too close to start (min distance slider or % of radius)
-- Export trips (GPX/JSON share)
+- Voice guidance — turn-by-turn is silent on both phone and car screen
+- Import a GPX and ride it (export exists; `Gpx.kt` has no reader)

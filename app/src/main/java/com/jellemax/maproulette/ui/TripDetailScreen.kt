@@ -1,15 +1,22 @@
 package com.jellemax.maproulette.ui
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -20,6 +27,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,11 +37,14 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.jellemax.maproulette.data.LatLon
+import com.jellemax.maproulette.data.Gpx
 import com.jellemax.maproulette.data.Settings
+import com.jellemax.maproulette.data.TraceStore
 import com.jellemax.maproulette.data.Trip
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
@@ -45,6 +56,15 @@ import org.maplibre.android.maps.Style
 private const val FIT_PADDING_DP = 32
 private const val FIT_BOTTOM_PADDING_DP = 170
 
+/** Hands one exported track to whichever app the user picks. The read grant is
+ *  what makes the content:// Uri usable on the other side — the provider is
+ *  not exported, so without it the receiver sees nothing. */
+private fun shareGpxIntent(uri: Uri): Intent = Intent(Intent.ACTION_SEND).apply {
+    type = "application/gpx+xml"
+    putExtra(Intent.EXTRA_STREAM, uri)
+    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+}
+
 /**
  * Trip history detail: the full driven route on a real map, with the trip's
  * stats in a glass card over the bottom. [HistoryScreen] only opens this for
@@ -55,12 +75,14 @@ private const val FIT_BOTTOM_PADDING_DP = 170
 @Composable
 fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     // Loaded off the main thread, same reasoning as HistoryScreen: reading and
     // JSON-parsing the trace store during composition would stall the first
-    // frame. Null means "still loading".
-    var trace by remember { mutableStateOf<List<LatLon>?>(null) }
+    // frame. Null means "still loading". The timestamps come along because the
+    // GPX export needs them; the map only reads the coordinates.
+    var trace by remember { mutableStateOf<List<TraceStore.TracePoint>?>(null) }
     LaunchedEffect(trip.startTimeMs) {
-        trace = withContext(Dispatchers.IO) { loadTripTrace(context, trip) }
+        trace = withContext(Dispatchers.IO) { loadTripPoints(context, trip) }
     }
 
     val themePref by Settings.theme.collectAsStateWithLifecycle()
@@ -102,7 +124,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
     val fitPaddingPx = with(LocalDensity.current) { FIT_PADDING_DP.dp.roundToPx() }
     val fitBottomPaddingPx = with(LocalDensity.current) { FIT_BOTTOM_PADDING_DP.dp.roundToPx() }
     LaunchedEffect(trace, mapOverlays) {
-        val points = trace ?: return@LaunchedEffect
+        val points = trace?.map { it.at } ?: return@LaunchedEffect
         val overlays = mapOverlays ?: return@LaunchedEffect
         val map = mapLibreMap ?: return@LaunchedEffect
         overlays.render(
@@ -117,10 +139,41 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
         if (points.isNotEmpty()) cameraForPoints(map, points, fitPaddingPx, fitBottomPaddingPx)
     }
 
+    // Only ever set by a failed share; shown in the stats card because this
+    // screen has no other error surface.
+    var exportError by remember { mutableStateOf<String?>(null) }
+
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = { SubScreenTopBar(formatDate(trip.startTimeMs), onBack, scrollBehavior) },
+        topBar = {
+            SubScreenTopBar(formatDate(trip.startTimeMs), onBack, scrollBehavior) {
+                // Disabled until the trace is loaded: a trip with no recorded
+                // points has nothing to put in a track.
+                val points = trace.orEmpty()
+                IconButton(
+                    enabled = points.isNotEmpty(),
+                    onClick = {
+                        scope.launch {
+                            exportError = try {
+                                val uri = withContext(Dispatchers.IO) {
+                                    Gpx.writeForShare(context, trip, points)
+                                }
+                                context.startActivity(Intent.createChooser(
+                                    shareGpxIntent(uri), "Export GPX"))
+                                null
+                            } catch (e: ActivityNotFoundException) {
+                                "No app to receive a GPX file"
+                            } catch (e: IOException) {
+                                "Export failed: ${e.message}"
+                            }
+                        }
+                    },
+                ) {
+                    Icon(Icons.Filled.Share, contentDescription = "Export GPX")
+                }
+            }
+        },
     ) { padding ->
         Box(
             Modifier
@@ -161,6 +214,13 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    exportError?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             }
         }

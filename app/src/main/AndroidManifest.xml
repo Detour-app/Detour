@@ -94,6 +94,19 @@
             </intent-filter>
         </service>
 
+        <!-- Hands a single exported GPX to the app the user picks. Not
+             exported and no granted paths beyond the share cache — the trace
+             store itself never becomes readable to another app. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <receiver
             android:name=".tracking.BootReceiver"
             android:exported="false">

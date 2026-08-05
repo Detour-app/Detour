@@ -60,7 +60,6 @@ import com.jellemax.maproulette.data.TripStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -69,32 +68,27 @@ import java.util.Locale
 private data class HistoryEntry(val trip: Trip, val thumbnail: List<LatLon>?)
 
 /** One decoded trace line: its points plus the timestamp window they span. */
-private data class TraceSegment(val points: List<LatLon>, val startMs: Long, val endMs: Long)
+private data class TraceSegment(
+    val points: List<TraceStore.TracePoint>,
+    val startMs: Long,
+    val endMs: Long,
+)
 
-/** Reads the raw trace lines directly rather than [TraceStore.loadAll], which
- *  drops the per-point timestamp — the one thing this screen needs to match a
- *  trace back to the trip that was running when it was recorded. */
+/** Reads the raw trace lines through [TraceStore.parsePoints] rather than
+ *  [TraceStore.loadAll], which drops the per-point timestamp — the one thing
+ *  this screen needs to match a trace back to the trip that was running when it
+ *  was recorded, and the one thing a GPX export can't be built without. */
 private fun readTraceSegments(context: android.content.Context): List<TraceSegment> =
     TraceStore.rawLines(context).mapNotNull { line ->
-        try {
-            val arr = JSONArray(line)
-            if (arr.length() < 2) return@mapNotNull null
-            val points = ArrayList<LatLon>(arr.length())
-            var start = Long.MAX_VALUE
-            var end = Long.MIN_VALUE
-            for (i in 0 until arr.length()) {
-                val p = arr.getJSONArray(i)
-                points.add(LatLon(p.getDouble(0), p.getDouble(1)))
-                val t = p.optLong(2, -1L)
-                if (t >= 0) {
-                    if (t < start) start = t
-                    if (t > end) end = t
-                }
-            }
-            if (points.size < 2 || start == Long.MAX_VALUE) null else TraceSegment(points, start, end)
-        } catch (e: Exception) {
-            null
+        val points = TraceStore.parsePoints(line) ?: return@mapNotNull null
+        var start = Long.MAX_VALUE
+        var end = Long.MIN_VALUE
+        for (p in points) {
+            if (p.timeMs < 0) continue // written before points carried a time
+            if (p.timeMs < start) start = p.timeMs
+            if (p.timeMs > end) end = p.timeMs
         }
+        if (start == Long.MAX_VALUE) null else TraceSegment(points, start, end)
     }
 
 /** The one segment recorded during [trip], if its trace is still on disk. A
@@ -118,7 +112,7 @@ private fun matchThumbnails(context: android.content.Context, trips: List<Trip>)
             val step = match.points.size / 200
             match.points.filterIndexed { i, _ -> i % step == 0 }
         } else match.points
-        result[trip.startTimeMs] = pts
+        result[trip.startTimeMs] = pts.map { it.at }
     }
     return result
 }
@@ -129,6 +123,12 @@ private fun matchThumbnails(context: android.content.Context, trips: List<Trip>)
  *  list. Empty if no trace matches (shouldn't happen when the caller only
  *  opens trips whose thumbnail was already matched). */
 fun loadTripTrace(context: android.content.Context, trip: Trip): List<LatLon> =
+    loadTripPoints(context, trip).map { it.at }
+
+/** The same trace with its timestamps kept, for the GPX export — a track
+ *  without times is just a shape, and every tool that would receive one wants
+ *  to know when it was ridden. */
+fun loadTripPoints(context: android.content.Context, trip: Trip): List<TraceStore.TracePoint> =
     matchSegment(readTraceSegments(context), trip)?.points ?: emptyList()
 
 private val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())

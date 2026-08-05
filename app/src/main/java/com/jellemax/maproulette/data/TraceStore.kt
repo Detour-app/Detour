@@ -83,6 +83,27 @@ object TraceStore {
         }
     }
 
+    /** Decodes one stored line keeping the tail [parseLines] throws away — the
+     *  timestamps are what tie a point to a trip, and what a GPX export needs
+     *  to be a track rather than a bare shape. Null when the line doesn't
+     *  decode or is too short to be a polyline. */
+    fun parsePoints(line: String): List<TracePoint>? = try {
+        val arr = JSONArray(line)
+        (0 until arr.length()).map { i ->
+            val p = arr.getJSONArray(i)
+            TracePoint(
+                at = LatLon(p.getDouble(0), p.getDouble(1)),
+                // Points written before the tail existed are two long; the
+                // getters below read those as "unknown" rather than failing.
+                timeMs = p.optLong(2, -1L),
+                speedKmh = p.optDouble(3, 0.0),
+                leanDeg = if (p.isNull(4)) null else p.optDouble(4).takeIf { !it.isNaN() },
+            )
+        }.takeIf { it.size >= 2 }
+    } catch (e: Exception) {
+        null
+    }
+
     fun clear(context: Context) {
         file(context).delete()
         _version.value++
