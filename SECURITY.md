@@ -21,7 +21,7 @@ In scope:
   handling, per-user data isolation, the friends privacy boundary (friends
   may see totals/badges, never trips or traces), rate limiting, SQL
   injection, anything that could leak or corrupt another user's data.
-- **The BLE surface** (`app/src/main/java/com/jellemax/maproulette/ble/`) —
+- **The BLE surface** (`app/src/main/java/com/jellemax/detour/ble/`) —
   the GATT peripheral that talks to an external nav display. Known and
   accepted: characteristics are unencrypted and unbonded, so anyone in BLE
   range while the feature is on could read nav/music state or write fake

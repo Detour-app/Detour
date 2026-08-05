@@ -1,4 +1,4 @@
-# Map Roulette — codebase audit
+# Detour — codebase audit
 
 Audit date: 2026-07-29, at commit `4fafdfe` (plus uncommitted BLE board-telemetry work).
 Scope: Android app (`app/`, `wear/`), sync server (`server/`), installer, CI, docs, repo
@@ -242,7 +242,7 @@ invisible contract a contributor breaks. `@Volatile`/synchronized init, or
 
 **What**: `Api`, `RoutingServer` (×2), `Geocoder`, `SpeedCameras`… each re-implements
 timeouts, gzip decode, CF headers, error handling; user-agents disagree
-(`MapRoulette/1.4`, `/1.11`, `BuildConfig.VERSION_NAME`).
+(`Detour/1.4`, `/1.11`, `BuildConfig.VERSION_NAME`).
 
 **How**: extract one small `Http.get/post(url, headers, body)` helper (or adopt OkHttp,
 which also brings connection reuse and HTTP/2 — one dependency, big deletion). Not

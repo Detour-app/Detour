@@ -202,7 +202,7 @@ across reinstalls.
 ### Task 2.2 — validate BLE board telemetry
 
 **Problem** (audit 1.1, validation half): `parseTelemetry` in
-`app/src/main/java/com/jellemax/maproulette/ble/BleNavServer.kt` accepts any
+`app/src/main/java/com/jellemax/detour/ble/BleNavServer.kt` accepts any
 double, including NaN/Infinity/absurd values, and TripTrackingService treats board
 data as truth.
 
@@ -225,7 +225,7 @@ change — see [HUMAN] note at the end of the guide).
 **Problem** (audit §7): rides record physically impossible max G (6.7 g observed).
 The lean pipeline already has a slew gate + plausibility cap; G has only an EMA.
 
-**File**: `app/src/main/java/com/jellemax/maproulette/tracking/TripTrackingService.kt`.
+**File**: `app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt`.
 
 **Change**, mirroring the lean constants' style and placement:
 1. Add constants next to `G_EMA_ALPHA`:
@@ -249,8 +249,8 @@ The lean pipeline already has a slew gate + plausibility cap; G has only an EMA.
 `OnBackInvokedCallback is not enabled`.
 
 **Files**: `app/src/main/AndroidManifest.xml`,
-`app/src/main/java/com/jellemax/maproulette/MainActivity.kt` (and
-`app/src/main/java/com/jellemax/maproulette/ui/Theme.kt` if the theme decision
+`app/src/main/java/com/jellemax/detour/MainActivity.kt` (and
+`app/src/main/java/com/jellemax/detour/ui/Theme.kt` if the theme decision
 lives there — read both first).
 
 **Change**:
@@ -273,8 +273,8 @@ from History/Settings.
 
 **Problems** (audit §7 items 2–4).
 
-**Files**: `app/src/main/java/com/jellemax/maproulette/ui/MapScreen.kt`,
-`app/src/main/java/com/jellemax/maproulette/ui/MapLibreMap.kt`. Read both before
+**Files**: `app/src/main/java/com/jellemax/detour/ui/MapScreen.kt`,
+`app/src/main/java/com/jellemax/detour/ui/MapLibreMap.kt`. Read both before
 editing; find where the camera is fitted to a route/candidate bounds, where the
 speed-camera symbol layer is added, and where the MapView/attribution is set up.
 
@@ -307,7 +307,7 @@ card collapsed.
 **Problem** (audit 3.2): `traces.jsonl` is >1 MB and re-uploaded raw on every sync.
 Server side accepts gzip after Task 1.5.
 
-**File**: `app/src/main/java/com/jellemax/maproulette/data/Api.kt`.
+**File**: `app/src/main/java/com/jellemax/detour/data/Api.kt`.
 
 **Change**: in `request()`, when `body != null`, write
 `GZIPOutputStream`-compressed bytes and set `Content-Encoding: gzip`. Keep it
@@ -325,9 +325,9 @@ equivalence test with a gzipped body).
 **Problem** (audit 2.1): search silently falls back to `photon.komoot.io`, sending
 query + user location to a third party even when the user self-hosts.
 
-**Files**: `app/src/main/java/com/jellemax/maproulette/data/Settings.kt`,
-`app/src/main/java/com/jellemax/maproulette/data/Geocoder.kt`,
-`app/src/main/java/com/jellemax/maproulette/ui/SettingsScreen.kt`.
+**Files**: `app/src/main/java/com/jellemax/detour/data/Settings.kt`,
+`app/src/main/java/com/jellemax/detour/data/Geocoder.kt`,
+`app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt`.
 
 **Change**:
 1. `Settings`: add a persisted `StateFlow<Boolean>` `geocoderPublicFallback`,
@@ -354,7 +354,7 @@ query + user location to a third party even when the user self-hosts.
 
 **Problem** (audit §7 item 5): "7:19" is ambiguous.
 
-**Files**: `app/src/main/java/com/jellemax/maproulette/ui/Format.kt` (read first —
+**Files**: `app/src/main/java/com/jellemax/detour/ui/Format.kt` (read first —
 the formatter likely lives here) and its call site in `HistoryScreen.kt`.
 
 **Change**: format durations as `"7 min"` (< 1 h) and `"1 h 12 min"` (≥ 1 h),
@@ -371,7 +371,7 @@ needed, three similar lines beat a clever abstraction).
 **Problem** (audit §7, functional bug 1): activity recreation wipes the spin
 result/route (all `remember`, no ViewModel).
 
-**File**: `app/src/main/java/com/jellemax/maproulette/ui/MapScreen.kt`.
+**File**: `app/src/main/java/com/jellemax/detour/ui/MapScreen.kt`.
 
 **This is the riskiest app task — smallest possible diff.** Do NOT introduce a
 ViewModel or restructure state. Approach:
@@ -389,7 +389,7 @@ If after reading the file this cannot be done without touching more than ~40
 lines, STOP and report what a correct fix needs instead of forcing it.
 
 **Verify**: `./gradlew :app:assembleDebug`; on device: spin, then
-`adb shell am start -n com.jellemax.maproulette/.MainActivity` (recreate), route
+`adb shell am start -n com.jellemax.detour/.MainActivity` (recreate), route
 still shown.
 
 **Commit**: `fix(map): keep spin result across recreation`
@@ -509,11 +509,11 @@ any reference to a deleted file.
 ### Task 4.4 — Badges screen ordering + search dedupe (polish)
 
 **Change** (audit §7 items 6–7):
-1. `app/src/main/java/com/jellemax/maproulette/ui/BadgesScreen.kt`: put a compact
+1. `app/src/main/java/com/jellemax/detour/ui/BadgesScreen.kt`: put a compact
    badges section (the earned/total header already exists) *before* Coverage, or
    simply move the Coverage block below the badge categories — read the file and
    pick the smaller diff.
-2. `app/src/main/java/com/jellemax/maproulette/data/Geocoder.kt`: after `parse`,
+2. `app/src/main/java/com/jellemax/detour/data/Geocoder.kt`: after `parse`,
    dedupe results: drop a result whose name equals a previous one and whose
    location is within ~250 m of it (reuse `RoadRoulette.distanceMeters`).
 

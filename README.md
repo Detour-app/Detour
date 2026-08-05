@@ -1,4 +1,4 @@
-# Map Roulette
+# Detour
 
 Don't know where to drive? Set a radius, spin, get a random point on a real road, and go.
 
@@ -160,7 +160,7 @@ Overpass data and says so.
 
 The navigate button offers:
 
-- **Navigate in app** — turn-by-turn inside Map Roulette, routed by your own
+- **Navigate in app** — turn-by-turn inside Detour, routed by your own
   GraphHopper instance (configured under Settings → Servers & sync). Without a
   routing server configured, this option isn't available.
 - **Google Maps** / **Waze** / **Other app** — hand the destination off. For a
@@ -385,7 +385,7 @@ Releases published from CI are signed and minified (R8). To verify a
 downloaded release APK's signature yourself:
 
 ```
-apksigner verify --print-certs map-roulette-<version>.apk
+apksigner verify --print-certs detour-<version>.apk
 ```
 
 ## Self-hosting the server

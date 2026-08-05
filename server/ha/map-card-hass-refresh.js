@@ -5,7 +5,7 @@
 // (EntitiesRenderService.render() only calls entity.update()). Home Assistant
 // replaces the hass object on every state change rather than mutating it, so
 // every position and attribute the card reads through an Entity is frozen at
-// card-construction time. Two consequences on the Map Roulette dashboard:
+// card-construction time. Two consequences on the Detour dashboard:
 // picking another ride left the map framed on the previous one, and any
 // entity-attribute GeoJSON never changed at all.
 //

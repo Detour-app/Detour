@@ -1,6 +1,6 @@
-# Map Roulette — Server Install Guide
+# Detour — Server Install Guide
 
-Map Roulette is an Android app that records rides and paints a "fog of war" of
+Detour is an Android app that records rides and paints a "fog of war" of
 the roads you have explored. It can talk to two self-hosted services:
 
 | Service | What it does | Needs |
@@ -21,15 +21,15 @@ Run it as root on the **host**, not inside a container. It creates an
 unprivileged LXC, sizes it for what you asked for, and installs inside it.
 
 ```bash
-git clone https://github.com/maxke24/map_roulette.git
-bash map_roulette/server/install.sh
+git clone https://github.com/maxke24/detour.git
+bash detour/server/install.sh
 ```
 
 It will ask what to install, then print an invite code and what to do next.
 Non-interactive:
 
 ```bash
-bash map_roulette/server/install.sh --all --yes --region europe/belgium
+bash detour/server/install.sh --all --yes --region europe/belgium
 ```
 
 ### On any Debian or Ubuntu machine
@@ -38,7 +38,7 @@ A VM, a Raspberry Pi, an existing LXC, bare metal — anything with systemd.
 The same script detects it is not a Proxmox host and installs in place.
 
 ```bash
-sudo bash map_roulette/server/install.sh --sync
+sudo bash detour/server/install.sh --sync
 ```
 
 Force this mode on a Proxmox host (installing directly onto the hypervisor,
@@ -53,7 +53,7 @@ which is usually a bad idea) with `--in-place`.
 | `--geo-country be` | Two-letter country code for the geocoder's prebuilt index (see below). |
 | `--yes` | No prompts. |
 | `--ctid 150` | Pick the container ID instead of the next free one. |
-| `--storage local-lvm` `--bridge vmbr0` `--hostname maproulette` | Container placement. |
+| `--storage local-lvm` `--bridge vmbr0` `--hostname detour` | Container placement. |
 | `--open-registration` | Skip the invite code. Read the warning below first. |
 | `--in-place` | Install here, never create a container. |
 | `--uninstall` | Remove the services, keep the data. |
@@ -64,16 +64,16 @@ which is usually a bad idea) with `--in-place`.
 ## What you end up with
 
 ```
-/opt/maproulette-sync/sync_server.py     the service (stdlib Python; python3-websockets
+/opt/detour-sync/sync_server.py     the service (stdlib Python; python3-websockets
                                           is the one optional dep, for convoy live location/PTT)
-/var/lib/maproulette-sync/maproulette.db SQLite: accounts, trips, traces, badges, invites
-/var/backups/maproulette/                nightly backups, 14 days
+/var/lib/detour-sync/detour.db SQLite: accounts, trips, traces, badges, invites
+/var/backups/detour/                nightly backups, 14 days
 /opt/graphhopper/                        docker-compose.yml, config.yml, OSM data
 /opt/photon/                             docker-compose.yml, photon.jar, the country index
 
-systemd: maproulette-sync.service        the sync API,       127.0.0.1:8790
+systemd: detour-sync.service        the sync API,       127.0.0.1:8790
                                           + convoy live relay (WebSocket), 127.0.0.1:8990
-         maproulette-backup.timer        nightly, 00:00 + jitter
+         detour-backup.timer        nightly, 00:00 + jitter
          graphhopper-refresh.timer       monthly OSM refresh + re-import
          photon-refresh.timer            monthly index refresh
          docker: graphhopper             the routing API, 127.0.0.1:8989
@@ -88,7 +88,7 @@ makes it listen on the LAN as well — worth it for Home Assistant, see
 
 Re-running the installer is safe. It will not overwrite your database, and it
 keeps the invite code it generated the first time — and any SMTP settings you
-have put in `maproulette-sync.service.d/mail.conf`.
+have put in `detour-sync.service.d/mail.conf`.
 
 The sync service also serves `/admin`, the [manager
 dashboard](#the-manager-dashboard): invites, password resets and account
@@ -129,10 +129,10 @@ stranger, and you open nothing on your router.
 
    | Hostname | Path | Service |
    |---|---|---|
-   | `maproulette.example.com` | `^/route` | `http://localhost:8989` |
-   | `maproulette.example.com` | `^/api` | `http://localhost:2322` |
-   | `maproulette.example.com` | `^/live` | `http://localhost:8990` |
-   | `maproulette.example.com` | *(none)* | `http://localhost:8790` |
+   | `detour.example.com` | `^/route` | `http://localhost:8989` |
+   | `detour.example.com` | `^/api` | `http://localhost:2322` |
+   | `detour.example.com` | `^/live` | `http://localhost:8990` |
+   | `detour.example.com` | *(none)* | `http://localhost:8790` |
 
    cloudflared matches the path and passes it through unchanged, which is
    what each origin wants: GraphHopper serves `/route`, Photon serves
@@ -201,7 +201,7 @@ that is what decides whose trips come back from `/sync`.
 The sync server would otherwise let anyone who reaches it create an account, so
 the installer generates a shared invite code and prints it. Enter it in the
 app's sign-in screen. It lives in
-`/etc/systemd/system/maproulette-sync.service.d/invite.conf`.
+`/etc/systemd/system/detour-sync.service.d/invite.conf`.
 
 That one code is the same for everybody and never expires. For handing out
 access one person at a time, generate single-use codes in the [manager
@@ -217,8 +217,8 @@ Once everyone you care about has an account, close the door entirely:
 
 ```bash
 echo 'Environment=REGISTRATION_OPEN=0' \
-  >> /etc/systemd/system/maproulette-sync.service.d/invite.conf
-systemctl daemon-reload && systemctl restart maproulette-sync
+  >> /etc/systemd/system/detour-sync.service.d/invite.conf
+systemctl daemon-reload && systemctl restart detour-sync
 ```
 
 ### The privacy rule
@@ -247,8 +247,8 @@ sign in with your own account, and that account needs the admin flag. Nothing
 in the dashboard can grant the first one, so do it on the server:
 
 ```bash
-sudo -u maproulette-sync DATA_DIR=/var/lib/maproulette-sync \
-  python3 /opt/maproulette-sync/sync_server.py --make-admin YOURNAME
+sudo -u detour-sync DATA_DIR=/var/lib/detour-sync \
+  python3 /opt/detour-sync/sync_server.py --make-admin YOURNAME
 ```
 
 `--drop-admin YOURNAME` takes it away again. The server refuses to remove the
@@ -260,7 +260,7 @@ in would be editing SQLite by hand.
 | | |
 |---|---|
 | **Invite someone** | Generates a single-use code, optionally addressed to an email and expiring after N days (0 = never). Mails it if SMTP is set up, otherwise shows it to you to pass on. The invite list shows which codes are still live and who spent the used ones. |
-| **Reset a password** | *Reset mail* sends a `maproulette://reset?token=…` link that opens the app's reset form; the code is valid once, for an hour. *Set password* changes it there and then and shows you the new one — use it when the account has no email. Either way every device the account was signed in on is signed out. |
+| **Reset a password** | *Reset mail* sends a `detour://reset?token=…` link that opens the app's reset form; the code is valid once, for an hour. *Set password* changes it there and then and shows you the new one — use it when the account has no email. Either way every device the account was signed in on is signed out. |
 | **Emails** | Set or change the address on any account. It is only ever used for reset links; nothing else mails users. |
 | **Sessions and keys** | Sign an account out everywhere, or mint/revoke read-only `/ha/*` dashboard keys without touching the phone's login. |
 | **Admin rights** | Promote or demote other accounts. |
@@ -272,8 +272,8 @@ user's own app computed) and never the routes themselves — the [privacy
 rule](#the-privacy-rule) is not relaxed for the person who owns the server.
 
 **Sending mail.** Fill in the SMTP block in
-`/etc/systemd/system/maproulette-sync.service.d/mail.conf`, then
-`systemctl daemon-reload && systemctl restart maproulette-sync`:
+`/etc/systemd/system/detour-sync.service.d/mail.conf`, then
+`systemctl daemon-reload && systemctl restart detour-sync`:
 
 ```ini
 [Service]
@@ -283,7 +283,7 @@ Environment=SMTP_SECURITY=starttls
 Environment=SMTP_USER=you@gmail.com
 Environment=SMTP_PASS=your-app-password
 Environment=SMTP_FROM=you@gmail.com
-Environment=SITE_NAME=Map Roulette
+Environment=SITE_NAME=Detour
 ```
 
 Gmail needs an [app password](https://myaccount.google.com/apppasswords), not
@@ -295,7 +295,7 @@ whoever needs it.
 Reset links use a custom scheme rather than an `https://` page on purpose: the
 server sits behind Cloudflare Access, and a browser following an `https` link
 would hit the Access wall, while the app already holds the service token. If a
-mail client refuses to make `maproulette://…` tappable, the mail also carries
+mail client refuses to make `detour://…` tappable, the mail also carries
 the bare code — paste it into **Friends → I have a reset code**.
 
 **A user can start a reset themselves** with **Friends → Forgot password**,
@@ -310,7 +310,7 @@ here.
 | `RESET_TTL_MINUTES` | 60 | How long a reset link stays valid |
 | `INVITE_DEFAULT_DAYS` | 14 | Prefilled expiry for new invites |
 | `ADMIN_SESSION_HOURS` | 12 | Idle timeout for the dashboard cookie |
-| `SITE_NAME` | Map Roulette | Name used in the mails |
+| `SITE_NAME` | Detour | Name used in the mails |
 
 ---
 
@@ -327,11 +327,11 @@ Invite code               (on the sign-in screen, first time only)
 ```
 
 With the one-hostname layout above, all three URLs are the same address —
-`https://maproulette.example.com`. The convoy relay has no Settings field; it
+`https://detour.example.com`. The convoy relay has no Settings field; it
 is baked at build time from `local.properties`, where a single
 
 ```properties
-server.url=https://maproulette.example.com
+server.url=https://detour.example.com
 ```
 
 supplies all four (`sync.url`, `routing.url`, `geocoder.url` and `live.url`
@@ -355,7 +355,7 @@ friends privacy guarantee, fog-sharing in both directions, idempotent merging
 and the brute-force lockout, then deletes the accounts. `ALL PASS` is the only
 acceptable result.
 
-The installer copies it to `/usr/local/bin/maproulette-verify.sh`.
+The installer copies it to `/usr/local/bin/detour-verify.sh`.
 
 ---
 
@@ -453,24 +453,24 @@ same way `graphhopper-refresh.timer` refreshes the routing extract.
 
 ## Maintenance
 
-**Backups.** Nightly, automatic, 14 days, in `/var/backups/maproulette`. They
+**Backups.** Nightly, automatic, 14 days, in `/var/backups/detour`. They
 use SQLite's backup API, not `cp` — a plain copy of a live WAL database can be
 torn — and each one is checked with `PRAGMA integrity_check`. Run one now:
 
 ```bash
-/usr/local/bin/maproulette-backup.sh
+/usr/local/bin/detour-backup.sh
 ```
 
 To restore, stop the service and put the file back:
 
 ```bash
-systemctl stop maproulette-sync
-cp /var/backups/maproulette/maproulette-2026-07-10.db \
-   /var/lib/maproulette-sync/maproulette.db
-rm -f /var/lib/maproulette-sync/maproulette.db-wal \
-      /var/lib/maproulette-sync/maproulette.db-shm
-chown maproulette-sync: /var/lib/maproulette-sync/maproulette.db
-systemctl start maproulette-sync
+systemctl stop detour-sync
+cp /var/backups/detour/detour-2026-07-10.db \
+   /var/lib/detour-sync/detour.db
+rm -f /var/lib/detour-sync/detour.db-wal \
+      /var/lib/detour-sync/detour.db-shm
+chown detour-sync: /var/lib/detour-sync/detour.db
+systemctl start detour-sync
 ```
 
 If the server lives in an LXC, the container-local backup dies with the
@@ -482,8 +482,8 @@ admin, or to get back in if you have locked yourself out. Run them as the
 service user so they write the same database:
 
 ```bash
-sudo -u maproulette-sync DATA_DIR=/var/lib/maproulette-sync \
-  python3 /opt/maproulette-sync/sync_server.py --make-admin NAME
+sudo -u detour-sync DATA_DIR=/var/lib/detour-sync \
+  python3 /opt/detour-sync/sync_server.py --make-admin NAME
 ```
 
 | Flag | Does |
@@ -560,10 +560,10 @@ Earlier versions stored `trips.json` and `traces.jsonl` with no accounts. To
 adopt that data, register your account, then attribute the files to it:
 
 ```bash
-systemctl stop maproulette-sync
-sudo -u maproulette-sync DATA_DIR=/var/lib/maproulette-sync \
-  python3 /opt/maproulette-sync/sync_server.py --import-legacy <username>
-systemctl start maproulette-sync
+systemctl stop detour-sync
+sudo -u detour-sync DATA_DIR=/var/lib/detour-sync \
+  python3 /opt/detour-sync/sync_server.py --import-legacy <username>
+systemctl start detour-sync
 ```
 
 It uses `INSERT OR IGNORE`, so running it twice is harmless, and it leaves the

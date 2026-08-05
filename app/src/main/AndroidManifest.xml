@@ -35,9 +35,9 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
 
     <application
-        android:label="Map Roulette"
+        android:label="Detour"
         android:icon="@mipmap/ic_launcher"
-        android:theme="@style/Theme.MapRoulette"
+        android:theme="@style/Theme.Detour"
         android:supportsRtl="true"
         android:allowBackup="true"
         android:fullBackupContent="@xml/backup_rules"
@@ -69,7 +69,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="maproulette" android:host="reset" />
+                <data android:scheme="detour" android:host="reset" />
             </intent-filter>
         </activity>
 
@@ -90,7 +90,7 @@
              default nav app. Same APK/process as the phone UI — no separate
              module, unlike the genuinely standalone :wear app. -->
         <service
-            android:name=".car.MapRouletteCarAppService"
+            android:name=".car.DetourCarAppService"
             android:exported="true">
             <intent-filter>
                 <action android:name="androidx.car.app.CarAppService" />

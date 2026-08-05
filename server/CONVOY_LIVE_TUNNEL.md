@@ -41,7 +41,7 @@ topology rather than assuming it; it may have changed.
 ### 1. Update and restart the sync server
 
 ```bash
-# on the host running maproulette-sync
+# on the host running detour-sync
 cd <wherever the repo/install source lives>
 git pull   # or however this host tracks the repo — check first
 bash server/install.sh   # re-running is safe; see INSTALL.md
@@ -50,23 +50,23 @@ bash server/install.sh   # re-running is safe; see INSTALL.md
 Re-running `install.sh` is idempotent (documented behavior — it won't touch
 your database or the existing invite code) and is what installs
 `python3-websockets` and adds `Environment=LIVE_PORT=8990` to the
-`maproulette-sync` systemd unit. If this host doesn't use `install.sh` for
+`detour-sync` systemd unit. If this host doesn't use `install.sh` for
 its updates (e.g. it deploys `sync_server.py` some other way), do the
 equivalent by hand:
 
 ```bash
 apt-get install -y python3-websockets
-# add to the systemd unit (systemctl edit maproulette-sync, or the unit file directly):
+# add to the systemd unit (systemctl edit detour-sync, or the unit file directly):
 #   Environment=LIVE_PORT=8990
 systemctl daemon-reload
-systemctl restart maproulette-sync
+systemctl restart detour-sync
 ```
 
 Confirm it came up:
 
 ```bash
-journalctl -u maproulette-sync -n 30 --no-pager
-# expect a line: "maproulette-live (convoy relay) on 127.0.0.1:8990"
+journalctl -u detour-sync -n 30 --no-pager
+# expect a line: "detour-live (convoy relay) on 127.0.0.1:8990"
 ss -ltnp | grep 8990   # or: python3 -c "import socket; socket.create_connection(('127.0.0.1',8990),1)"
 ```
 

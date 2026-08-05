@@ -5,14 +5,14 @@ plugins {
 }
 
 android {
-    namespace = "com.jellemax.maproulette.wear"
+    namespace = "com.jellemax.detour.wear"
     compileSdk = 35
 
     defaultConfig {
         // MessageClient.sendMessage() routes by matching applicationId across
         // the phone/watch node pair — must equal the phone app's id or the
         // system silently drops every message ("Failed to deliver to AppKey").
-        applicationId = "com.jellemax.maproulette"
+        applicationId = "com.jellemax.detour"
         minSdk = 30
         targetSdk = 35
         versionCode = 21

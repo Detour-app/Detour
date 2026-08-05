@@ -51,7 +51,7 @@ Roulette: it shows the same turn-by-turn info as the Wear OS watch (turn,
 distance to turn, speed, speeding warning), plus extras the bigger screen
 has room for — speed limit number, road name, remaining distance/ETA.
 
-- **Phone side** (this repo): `app/src/main/java/com/jellemax/maproulette/ble/BleNavServer.kt`
+- **Phone side** (this repo): `app/src/main/java/com/jellemax/detour/ble/BleNavServer.kt`
   runs a BLE GATT peripheral that broadcasts nav state, gated behind
   Settings → External display (grants `BLUETOOTH_CONNECT` +
   `BLUETOOTH_ADVERTISE`, then advertises + notifies while navigating).

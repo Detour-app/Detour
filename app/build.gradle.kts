@@ -41,11 +41,11 @@ fun liveUrl(): String {
 }
 
 android {
-    namespace = "com.jellemax.maproulette"
+    namespace = "com.jellemax.detour"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.jellemax.maproulette"
+        applicationId = "com.jellemax.detour"
         minSdk = 26
         targetSdk = 35
         versionCode = 66

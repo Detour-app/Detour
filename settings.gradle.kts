@@ -12,6 +12,6 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "MapRoulette"
+rootProject.name = "Detour"
 include(":app")
 include(":wear")

@@ -1,9 +1,9 @@
-# Map Roulette dashboard — YAML mode, registered from configuration.yaml.
-# Entities come from packages/maproulette.yaml (REST sensors on the sync
+# Detour dashboard — YAML mode, registered from configuration.yaml.
+# Entities come from packages/detour.yaml (REST sensors on the sync
 # server's /ha/* endpoints). Edit this file and reload from the dashboard's
 # three-dot menu; the UI editor is disabled for YAML dashboards.
 
-title: Map Roulette
+title: Detour
 
 views:
   - title: Rides

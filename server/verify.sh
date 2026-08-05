@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verifies a Map Roulette server install against the success criteria.
+# Verifies a Detour server install against the success criteria.
 #
 #   ./verify.sh                 # check the sync server on localhost:8790
 #   ./verify.sh --routing       # also check GraphHopper on localhost:8989
@@ -11,7 +11,7 @@ set -u
 
 SYNC="${SYNC_URL:-http://localhost:8790}"
 GH="${GH_URL:-http://localhost:8989}"
-DB="${DB:-/var/lib/maproulette-sync/maproulette.db}"
+DB="${DB:-/var/lib/detour-sync/detour.db}"
 INVITE="${INVITE:-}"
 CHECK_ROUTING=0
 [ "${1:-}" = "--routing" ] && CHECK_ROUTING=1

@@ -1,4 +1,4 @@
-# Map Roulette in Home Assistant
+# Detour in Home Assistant
 
 Lifetime totals, badges and your recent rides as Home Assistant entities, read
 from the sync server's `/ha/*` endpoints. Those are read-only and authenticate
@@ -9,8 +9,8 @@ with a dashboard API key, so no login token ever lands in your HA config.
 On the sync server:
 
 ```
-cd /opt/maproulette-sync
-DATA_DIR=/var/lib/maproulette-sync python3 sync_server.py --api-key <username> home-assistant
+cd /opt/detour-sync
+DATA_DIR=/var/lib/detour-sync python3 sync_server.py --api-key <username> home-assistant
 ```
 
 It prints the key once — only its hash is stored. `--revoke-keys <username>`
@@ -21,21 +21,21 @@ drops every dashboard key for that user if one leaks.
 In `config/secrets.yaml`:
 
 ```yaml
-maproulette_stats_url: https://your-sync-server.example/ha/stats
-maproulette_rides_url: https://your-sync-server.example/ha/rides
-maproulette_key: <the key from step 1>
+detour_stats_url: https://your-sync-server.example/ha/stats
+detour_rides_url: https://your-sync-server.example/ha/rides
+detour_key: <the key from step 1>
 # Only if the server sits behind Cloudflare Access — the same service token
 # the app uses for the routing server works here:
-maproulette_cf_id: <service token client id>
-maproulette_cf_secret: <service token client secret>
+detour_cf_id: <service token client id>
+detour_cf_secret: <service token client secret>
 ```
 
 If your server is *not* behind Cloudflare Access, delete the two
-`CF-Access-*` header lines from each `rest:` block in `maproulette.yaml`.
+`CF-Access-*` header lines from each `rest:` block in `detour.yaml`.
 
 ## 3. Install the package
 
-Copy `maproulette.yaml` to `config/packages/maproulette.yaml`, and make sure
+Copy `detour.yaml` to `config/packages/detour.yaml`, and make sure
 `configuration.yaml` loads packages:
 
 ```yaml
@@ -71,7 +71,7 @@ and a coverage gauge, speed/lean gauges with a kilometres-per-day bar chart, the
 last ride broken out with the track map beside it, and a table of the last 15
 rides. A second view lists the badges with their earned dates.
 
-Copy it to `config/dashboards/map_roulette.yaml`, set the iframe card's `url` to
+Copy it to `config/dashboards/detour.yaml`, set the iframe card's `url` to
 your own server and key, and register it in `configuration.yaml`:
 
 ```yaml
@@ -80,15 +80,15 @@ lovelace:
   # dashboards working alongside the YAML one.
   mode: storage
   dashboards:
-    map-roulette:
+    detour:
       mode: yaml
-      title: Map Roulette
+      title: Detour
       icon: mdi:motorbike
       show_in_sidebar: true
-      filename: dashboards/map_roulette.yaml
+      filename: dashboards/detour.yaml
 ```
 
-Restart, and *Map Roulette* appears in the sidebar. YAML dashboards have no UI
+Restart, and *Detour* appears in the sidebar. YAML dashboards have no UI
 editor — edit the file and use the three-dot menu → *Reload*. Everything is a
 built-in card, so no HACS packages are needed.
 
@@ -137,18 +137,18 @@ The server listens on `127.0.0.1:8790` by default. To let Home Assistant talk to
 it directly, drop a systemd override in:
 
 ```
-# /etc/systemd/system/maproulette-sync.service.d/lan.conf
+# /etc/systemd/system/detour-sync.service.d/lan.conf
 [Service]
 Environment=HOST=0.0.0.0
 ```
 
-then `systemctl daemon-reload && systemctl restart maproulette-sync`. Point the
+then `systemctl daemon-reload && systemctl restart detour-sync`. Point the
 secrets at the LAN address and drop the two `CF-Access-*` header lines from both
-`rest:` blocks in `maproulette.yaml`:
+`rest:` blocks in `detour.yaml`:
 
 ```yaml
-maproulette_stats_url: http://192.168.0.8:8790/ha/stats
-maproulette_rides_url: http://192.168.0.8:8790/ha/rides
+detour_stats_url: http://192.168.0.8:8790/ha/stats
+detour_rides_url: http://192.168.0.8:8790/ha/rides
 ```
 
 The iframe card then works too, at `http://192.168.0.8:8790/ha/ride.html?key=…`.

@@ -1,7 +1,7 @@
 # Android Auto
 
-The car screen lives in `app/src/main/java/com/jellemax/maproulette/car/`, in the
-same APK and process as the phone UI. `MapRouletteCarAppService` is what Android
+The car screen lives in `app/src/main/java/com/jellemax/detour/car/`, in the
+same APK and process as the phone UI. `DetourCarAppService` is what Android
 Auto binds to; `SpinScreen` is the first screen, `NavScreen` the turn-by-turn one.
 
 ## Why it works on the Desktop Head Unit but not in the car
@@ -19,7 +19,7 @@ different rule to the two:
   Library**", and that "to test your app in real vehicles, you must install it
   from a trusted source such as Google Play".
 
-Map Roulette's car screen *is* an Android for Cars App Library app
+Detour's car screen *is* an Android for Cars App Library app
 (`androidx.car.app`, `CarAppService`, `androidx.car.app.category.NAVIGATION`), so
 it falls squarely under the exclusion. Installed by sideloading — `adb install`,
 a file manager, a browser download — it will never appear in the car's app
@@ -53,14 +53,14 @@ head unit is actually checking.
 Uninstall any sideloaded copy first. A debug build installs alongside the
 release one (`applicationIdSuffix = ".debug"`, see `app/build.gradle.kts`), and
 that one stays invisible in the car regardless — only the Play-installed
-`com.jellemax.maproulette` will list.
+`com.jellemax.detour` will list.
 
 ## After it appears
 
 Reconnect the phone to the car once the install source is right; head units
 cache the app list across a session. If the icon still does not show, confirm
 the app is not switched off under **Android Auto → Customise launcher** on the
-phone, and open Map Roulette on the phone once so it has location permission —
+phone, and open Detour on the phone once so it has location permission —
 `SpinScreen` cannot spin without it and shows a "Location needed" message
 instead.
 

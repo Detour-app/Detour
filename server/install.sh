@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Map Roulette server installer.
+# Detour server installer.
 #
 # Installs the sync server (accounts, trips, fog of war), the GraphHopper
 # routing engine, and/or the Photon geocoder that the Android app talks to.
@@ -20,8 +20,8 @@
 #
 set -euo pipefail
 
-REPO="${MAPROULETTE_REPO:-maxke24/map_roulette}"
-REF="${MAPROULETTE_REF:-main}"
+REPO="${DETOUR_REPO:-maxke24/detour}"
+REF="${DETOUR_REF:-main}"
 RAW="https://raw.githubusercontent.com/${REPO}/${REF}"
 
 # Defaults
@@ -30,7 +30,7 @@ ASSUME_YES=0 UNINSTALL=0 PURGE=0 FORCE_IN_PLACE=0
 REGION="${REGION:-europe/belgium}"
 GEO_CC="${GEO_CC:-be}"            # Photon country-code index (single country)
 PHOTON_VERSION="${PHOTON_VERSION:-0.4.4}"
-CTID="" CT_HOSTNAME="maproulette" CT_BRIDGE="vmbr0" CT_STORAGE=""
+CTID="" CT_HOSTNAME="detour" CT_BRIDGE="vmbr0" CT_STORAGE=""
 OPEN_REGISTRATION=0
 SYNC_PORT=8790 LIVE_PORT=8990 GH_PORT=8989 PHOTON_PORT=2322
 # Which address the two Docker services publish on. Localhost by default —
@@ -41,9 +41,9 @@ SYNC_PORT=8790 LIVE_PORT=8990 GH_PORT=8989 PHOTON_PORT=2322
 #   GH_BIND=10.0.0.5 PHOTON_BIND=10.0.0.6 bash server/install.sh …
 GH_BIND="${GH_BIND:-127.0.0.1}" PHOTON_BIND="${PHOTON_BIND:-127.0.0.1}"
 
-SYNC_USER=maproulette-sync
-SYNC_DIR=/opt/maproulette-sync
-SYNC_DATA=/var/lib/maproulette-sync
+SYNC_USER=detour-sync
+SYNC_DIR=/opt/detour-sync
+SYNC_DATA=/var/lib/detour-sync
 GH_DIR=/opt/graphhopper
 PHOTON_DIR=/opt/photon
 
@@ -94,7 +94,7 @@ done
 # Prefer files from a local checkout; fall back to fetching from GitHub so that
 # `curl … | bash` works too.
 SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || true)"
-SRCDIR="${MAPROULETTE_SRC:-}"
+SRCDIR="${DETOUR_SRC:-}"
 if [ -z "$SRCDIR" ] && [ -n "$SELF" ] && [ -f "$(dirname "$SELF")/sync/sync_server.py" ]; then
   SRCDIR="$(dirname "$SELF")"
 fi
@@ -102,7 +102,7 @@ fi
 # Files the installer needs beyond itself. When run from a checkout these are
 # copied straight across (which also means an LXC install gets exactly the code
 # you have, not whatever the default branch happens to hold today).
-PAYLOAD=(sync/sync_server.py sync/maproulette-backup.sh verify.sh)
+PAYLOAD=(sync/sync_server.py sync/detour-backup.sh verify.sh)
 
 # fetch <path under server/> <destination>
 fetch() {
@@ -113,10 +113,10 @@ fetch() {
     curl -fsSL "$RAW/server/$rel" -o "$dest" || die \
 "could not fetch server/$rel from $RAW
 
-The repository may be private, or MAPROULETTE_REF may not exist. Either make it
+The repository may be private, or DETOUR_REF may not exist. Either make it
 public, or run this script from a clone so it can copy the files directly:
 
-    git clone git@github.com:${REPO}.git && bash map_roulette/server/install.sh"
+    git clone git@github.com:${REPO}.git && bash detour/server/install.sh"
   fi
 }
 
@@ -146,7 +146,7 @@ pick_components() {
 # ================================================================= uninstall
 do_uninstall() {
   step "Removing services"
-  for unit in maproulette-sync maproulette-backup.timer maproulette-backup \
+  for unit in detour-sync detour-backup.timer detour-backup \
               graphhopper-refresh.timer graphhopper-refresh \
               photon-refresh.timer photon-refresh; do
     # `systemctl cat` rather than `list-unit-files | grep -q`: grep exits at the
@@ -157,7 +157,7 @@ do_uninstall() {
       ok "removed $unit"
     fi
   done
-  rm -rf /etc/systemd/system/maproulette-sync.service.d
+  rm -rf /etc/systemd/system/detour-sync.service.d
   systemctl daemon-reload
   if [ -d "$GH_DIR" ] && command -v docker >/dev/null 2>&1; then
     (cd "$GH_DIR" && docker compose down 2>/dev/null) || true
@@ -167,7 +167,7 @@ do_uninstall() {
     (cd "$PHOTON_DIR" && docker compose down 2>/dev/null) || true
     ok "stopped photon"
   fi
-  rm -rf "$SYNC_DIR" /usr/local/bin/maproulette-backup.sh \
+  rm -rf "$SYNC_DIR" /usr/local/bin/detour-backup.sh \
          /usr/local/bin/graphhopper-refresh.sh /usr/local/bin/photon-refresh.sh
 
   if [ "$PURGE" = 1 ]; then
@@ -179,7 +179,7 @@ do_uninstall() {
     ok "purged"
   else
     info "Kept your data: $SYNC_DATA and $GH_DIR"
-    info "Backups (if any) are still in /var/backups/maproulette"
+    info "Backups (if any) are still in /var/backups/detour"
   fi
   echo; ok "Uninstalled."
 }
@@ -246,7 +246,7 @@ create_lxc() {
   ok "network up"
 
   step "Installing inside CT $CTID"
-  local inner=/root/maproulette-install.sh src="$SELF"
+  local inner=/root/detour-install.sh src="$SELF"
   if [ -z "$src" ] || [ ! -f "$src" ]; then
     # Running via `curl … | bash`: there is no file to push, so fetch one.
     src="$(mktemp)"; trap 'rm -f "$src"' RETURN
@@ -258,7 +258,7 @@ create_lxc() {
   # GitHub (and a private repo works fine).
   local inner_src=""
   if [ -n "$SRCDIR" ]; then
-    inner_src=/root/maproulette-src
+    inner_src=/root/detour-src
     pct exec "$CTID" -- mkdir -p "$inner_src/sync"
     local f
     for f in "${PAYLOAD[@]}"; do
@@ -276,7 +276,7 @@ create_lxc() {
 
   # LC_ALL=C silences the template's missing-locale warnings from apt/perl.
   pct exec "$CTID" -- env LC_ALL=C LANG=C \
-    MAPROULETTE_REPO="$REPO" MAPROULETTE_REF="$REF" MAPROULETTE_SRC="$inner_src" \
+    DETOUR_REPO="$REPO" DETOUR_REF="$REF" DETOUR_SRC="$inner_src" \
     bash "$inner" $flags
 
   local ip
@@ -305,17 +305,17 @@ install_sync() {
   id -u "$SYNC_USER" >/dev/null 2>&1 || useradd --system --home "$SYNC_DATA" --shell /usr/sbin/nologin "$SYNC_USER"
   install -d -m 0755 "$SYNC_DIR"
   install -d -o "$SYNC_USER" -g "$SYNC_USER" -m 0750 "$SYNC_DATA"
-  install -d -o "$SYNC_USER" -g "$SYNC_USER" -m 0750 /var/backups/maproulette
+  install -d -o "$SYNC_USER" -g "$SYNC_USER" -m 0750 /var/backups/detour
 
   fetch "sync/sync_server.py" "$SYNC_DIR/sync_server.py"
   chmod 0644 "$SYNC_DIR/sync_server.py"
-  fetch "sync/maproulette-backup.sh" /usr/local/bin/maproulette-backup.sh
-  chmod 0755 /usr/local/bin/maproulette-backup.sh
+  fetch "sync/detour-backup.sh" /usr/local/bin/detour-backup.sh
+  chmod 0755 /usr/local/bin/detour-backup.sh
   ok "installed $SYNC_DIR/sync_server.py"
 
-  cat > /etc/systemd/system/maproulette-sync.service <<EOF
+  cat > /etc/systemd/system/detour-sync.service <<EOF
 [Unit]
-Description=Map Roulette sync server
+Description=Detour sync server
 After=network.target
 
 [Service]
@@ -338,7 +338,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=$SYNC_DATA /var/backups/maproulette
+ReadWritePaths=$SYNC_DATA /var/backups/detour
 
 [Install]
 WantedBy=multi-user.target
@@ -349,23 +349,23 @@ EOF
   # the one thing a stranger could reach the moment it is exposed.
   local invite=""
   if [ "$OPEN_REGISTRATION" = 1 ]; then
-    rm -rf /etc/systemd/system/maproulette-sync.service.d
+    rm -rf /etc/systemd/system/detour-sync.service.d
     warn "registration is OPEN — anyone who can reach the server can create an account"
-  elif [ ! -f /etc/systemd/system/maproulette-sync.service.d/invite.conf ]; then
+  elif [ ! -f /etc/systemd/system/detour-sync.service.d/invite.conf ]; then
     invite="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
-    install -d -m 0755 /etc/systemd/system/maproulette-sync.service.d
+    install -d -m 0755 /etc/systemd/system/detour-sync.service.d
     printf '[Service]\nEnvironment=INVITE_CODE=%s\n' "$invite" \
-      > /etc/systemd/system/maproulette-sync.service.d/invite.conf
-    chmod 0600 /etc/systemd/system/maproulette-sync.service.d/invite.conf
+      > /etc/systemd/system/detour-sync.service.d/invite.conf
+    chmod 0600 /etc/systemd/system/detour-sync.service.d/invite.conf
   fi
 
   # Outgoing mail for the manager dashboard's invite and password-reset links.
   # Left commented out: without it the dashboard still works and simply shows
   # you the code to pass on yourself. Written once, never overwritten, so an
   # upgrade cannot clobber a working relay config.
-  if [ ! -f /etc/systemd/system/maproulette-sync.service.d/mail.conf ]; then
-    install -d -m 0755 /etc/systemd/system/maproulette-sync.service.d
-    cat > /etc/systemd/system/maproulette-sync.service.d/mail.conf <<'EOF'
+  if [ ! -f /etc/systemd/system/detour-sync.service.d/mail.conf ]; then
+    install -d -m 0755 /etc/systemd/system/detour-sync.service.d
+    cat > /etc/systemd/system/detour-sync.service.d/mail.conf <<'EOF'
 [Service]
 # Uncomment and fill in to let the dashboard mail invites and reset links.
 # For Gmail, SMTP_PASS is an app password, not the account password.
@@ -375,23 +375,23 @@ EOF
 #Environment=SMTP_USER=you@gmail.com
 #Environment=SMTP_PASS=app-password-here
 #Environment=SMTP_FROM=you@gmail.com
-#Environment=SITE_NAME=Map Roulette
+#Environment=SITE_NAME=Detour
 EOF
-    chmod 0600 /etc/systemd/system/maproulette-sync.service.d/mail.conf
+    chmod 0600 /etc/systemd/system/detour-sync.service.d/mail.conf
   fi
 
-  cat > /etc/systemd/system/maproulette-backup.service <<EOF
+  cat > /etc/systemd/system/detour-backup.service <<EOF
 [Unit]
-Description=Back up the Map Roulette sync database
+Description=Back up the Detour sync database
 
 [Service]
 Type=oneshot
 User=$SYNC_USER
-ExecStart=/usr/local/bin/maproulette-backup.sh
+ExecStart=/usr/local/bin/detour-backup.sh
 EOF
-  cat > /etc/systemd/system/maproulette-backup.timer <<'EOF'
+  cat > /etc/systemd/system/detour-backup.timer <<'EOF'
 [Unit]
-Description=Nightly Map Roulette database backup
+Description=Nightly Detour database backup
 
 [Timer]
 OnCalendar=daily
@@ -403,13 +403,13 @@ WantedBy=timers.target
 EOF
 
   systemctl daemon-reload
-  systemctl enable --now maproulette-sync >/dev/null 2>&1
-  systemctl enable --now maproulette-backup.timer >/dev/null 2>&1
+  systemctl enable --now detour-sync >/dev/null 2>&1
+  systemctl enable --now detour-backup.timer >/dev/null 2>&1
 
   local i
   for i in $(seq 1 20); do
     [ "$(curl -fsS "http://localhost:$SYNC_PORT/health" 2>/dev/null || true)" = "ok" ] && break
-    [ "$i" = 20 ] && { journalctl -u maproulette-sync -n 20 --no-pager; die "sync server did not come up"; }
+    [ "$i" = 20 ] && { journalctl -u detour-sync -n 20 --no-pager; die "sync server did not come up"; }
     sleep 1
   done
   ok "sync server healthy on 127.0.0.1:$SYNC_PORT"
@@ -423,7 +423,7 @@ EOF
     if python3 -c "import socket; socket.create_connection(('127.0.0.1', $LIVE_PORT), 1).close()" 2>/dev/null; then
       ok "convoy live relay listening on 127.0.0.1:$LIVE_PORT"
     else
-      warn "convoy live relay did not come up on 127.0.0.1:$LIVE_PORT — check: journalctl -u maproulette-sync -n 40"
+      warn "convoy live relay did not come up on 127.0.0.1:$LIVE_PORT — check: journalctl -u detour-sync -n 40"
     fi
   else
     warn "python3-websockets not importable — convoy live location/PTT will stay disabled"
@@ -782,17 +782,17 @@ $B  Verify anytime:$N
        bash verify.sh $([ "$DO_ROUTING" = 1 ] && echo --routing)
 
 $B  Useful:$N
-       systemctl status maproulette-sync
-       journalctl -u maproulette-sync -f
-       /usr/local/bin/maproulette-backup.sh          # backup now
+       systemctl status detour-sync
+       journalctl -u detour-sync -f
+       /usr/local/bin/detour-backup.sh          # backup now
        bash install.sh --uninstall                   # remove, keep data
 
 EOF
-  if [ "$DO_SYNC" = 1 ] && [ -f /etc/systemd/system/maproulette-sync.service.d/invite.conf ]; then
-    echo "  Invite code (needed to register): $(sed -n 's/^Environment=INVITE_CODE=//p' /etc/systemd/system/maproulette-sync.service.d/invite.conf)"
+  if [ "$DO_SYNC" = 1 ] && [ -f /etc/systemd/system/detour-sync.service.d/invite.conf ]; then
+    echo "  Invite code (needed to register): $(sed -n 's/^Environment=INVITE_CODE=//p' /etc/systemd/system/detour-sync.service.d/invite.conf)"
     echo "  Close registration entirely once your friends have accounts:"
-    echo "       echo 'Environment=REGISTRATION_OPEN=0' >> /etc/systemd/system/maproulette-sync.service.d/invite.conf"
-    echo "       systemctl daemon-reload && systemctl restart maproulette-sync"
+    echo "       echo 'Environment=REGISTRATION_OPEN=0' >> /etc/systemd/system/detour-sync.service.d/invite.conf"
+    echo "       systemctl daemon-reload && systemctl restart detour-sync"
     echo
   fi
   if [ "$DO_SYNC" = 1 ]; then
@@ -804,8 +804,8 @@ ${B}  Manager dashboard${N} (invites, password resets, removing people): /admin 
   writes the same database the service reads.
 
   To have it mail invites and reset links, fill in the SMTP block in
-  /etc/systemd/system/maproulette-sync.service.d/mail.conf, then
-  systemctl daemon-reload && systemctl restart maproulette-sync.
+  /etc/systemd/system/detour-sync.service.d/mail.conf, then
+  systemctl daemon-reload && systemctl restart detour-sync.
   Without it the dashboard just shows you each code to send on yourself.
 
 EOF
@@ -834,10 +834,10 @@ main() {
   [ "$DO_GEOCODER" = 1 ] && install_geocoder
 
   if [ -n "$SRCDIR" ] && [ -f "$SRCDIR/verify.sh" ]; then
-    install -m 0755 "$SRCDIR/verify.sh" /usr/local/bin/maproulette-verify.sh
+    install -m 0755 "$SRCDIR/verify.sh" /usr/local/bin/detour-verify.sh
   else
-    curl -fsSL "$RAW/server/verify.sh" -o /usr/local/bin/maproulette-verify.sh 2>/dev/null \
-      && chmod 0755 /usr/local/bin/maproulette-verify.sh || true
+    curl -fsSL "$RAW/server/verify.sh" -o /usr/local/bin/detour-verify.sh 2>/dev/null \
+      && chmod 0755 /usr/local/bin/detour-verify.sh || true
   fi
 
   print_next_steps

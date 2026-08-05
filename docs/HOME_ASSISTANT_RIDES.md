@@ -29,7 +29,7 @@ values are gone for good — see the note at the end.
 
 ```bash
 # on the server host
-systemctl restart maproulette-sync          # picks up the new tables
+systemctl restart detour-sync          # picks up the new tables
 
 # read-only key for the dashboard — printed once, store it in HA secrets
 python3 sync_server.py --api-key YOURNAME home-assistant
@@ -67,7 +67,7 @@ Max lean and distance of the latest ride, as sensors:
 rest:
   - resource: https://YOUR-SYNC-HOST/ha/rides?limit=1
     headers:
-      X-API-Key: !secret maproulette_key
+      X-API-Key: !secret detour_key
     scan_interval: 300
     sensor:
       - name: "Last ride max lean"

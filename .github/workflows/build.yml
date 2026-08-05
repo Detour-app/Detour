@@ -91,20 +91,20 @@ jobs:
       - name: Rename APK
         run: |
           cp app/build/outputs/apk/release/app-release*.apk \
-             map-roulette-${{ steps.version.outputs.name }}.apk
+             detour-${{ steps.version.outputs.name }}.apk
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: map-roulette-apk-${{ steps.version.outputs.name }}
-          path: map-roulette-${{ steps.version.outputs.name }}.apk
+          name: detour-apk-${{ steps.version.outputs.name }}
+          path: detour-${{ steps.version.outputs.name }}.apk
 
       # mapping.txt de-obfuscates R8's minified stack traces; published per
       # release so a crash report from an issue can be matched back to source.
       - name: Upload mapping.txt
         uses: actions/upload-artifact@v4
         with:
-          name: map-roulette-mapping-${{ steps.version.outputs.name }}
+          name: detour-mapping-${{ steps.version.outputs.name }}
           path: app/build/outputs/mapping/release/mapping.txt
 
       # Tagged per version, so old builds stay downloadable instead of being
@@ -121,10 +121,10 @@ jobs:
           name: v${{ steps.version.outputs.name }}
           make_latest: true
           files: |
-            map-roulette-${{ steps.version.outputs.name }}.apk
+            detour-${{ steps.version.outputs.name }}.apk
             app/build/outputs/mapping/release/mapping.txt
           body: |
-            Map Roulette v${{ steps.version.outputs.name }} (versionCode
+            Detour v${{ steps.version.outputs.name }} (versionCode
             ${{ steps.version.outputs.code }}), built from
             ${{ github.sha }}.
 

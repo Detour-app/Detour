@@ -6,7 +6,7 @@
     <application
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
-        android:theme="@style/Theme.MapRouletteWear"
+        android:theme="@style/Theme.DetourWear"
         android:allowBackup="false">
 
         <!-- Paired with the phone app; not installable standalone. -->

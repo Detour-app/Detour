@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.MapRouletteWear" parent="android:Theme.DeviceDefault" />
+    <style name="Theme.DetourWear" parent="android:Theme.DeviceDefault" />
 </resources>

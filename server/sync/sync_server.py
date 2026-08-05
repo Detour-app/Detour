@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Map Roulette sync + social server.
+"""Detour sync + social server.
 
 Stores each user's trip history, fog-of-war traces and badges in SQLite, and
 lets users befriend each other and compare aggregate stats.
@@ -157,7 +157,7 @@ except ImportError:
     websockets = None
 
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
-DB_FILE = os.path.join(DATA_DIR, "maproulette.db")
+DB_FILE = os.path.join(DATA_DIR, "detour.db")
 LEGACY_TRIPS = os.path.join(DATA_DIR, "trips.json")
 LEGACY_TRACES = os.path.join(DATA_DIR, "traces.jsonl")
 
@@ -212,12 +212,12 @@ SMTP_USER = os.environ.get("SMTP_USER", "")
 SMTP_PASS = os.environ.get("SMTP_PASS", "")
 SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USER)
 SMTP_SECURITY = os.environ.get("SMTP_SECURITY", "starttls").lower()  # starttls|ssl|none
-SITE_NAME = os.environ.get("SITE_NAME", "Map Roulette")
+SITE_NAME = os.environ.get("SITE_NAME", "Detour")
 # Reset mails link into the app, not into a web page: the server sits behind
 # Cloudflare Access, so a browser link would hit the Access login wall, while
 # the app already holds the service token. The mail carries the raw code too,
 # for a mail client that won't linkify a custom scheme.
-APP_SCHEME = os.environ.get("APP_SCHEME", "maproulette")
+APP_SCHEME = os.environ.get("APP_SCHEME", "detour")
 
 # Only trust the Cloudflare header when explicitly deployed behind the tunnel;
 # otherwise any client could spoof it and reset the rate limiter per request.
@@ -1565,7 +1565,7 @@ def run_live_server(host, port):
         # 1 MB cap: a PTT chunk is a couple hundred ms of 16kHz mono PCM16,
         # a few KB even base64'd - this just bounds worst-case abuse.
         async with websockets.serve(handle_live_socket, host, port, max_size=1024 * 1024):
-            print("maproulette-live (convoy relay) on %s:%s" % (host, port))
+            print("detour-live (convoy relay) on %s:%s" % (host, port))
             await asyncio.Future()  # run forever
 
     asyncio.run(main())
@@ -1869,7 +1869,7 @@ def _int_param(params, name, default, low, high):
 # line so a band costs about as many coordinates as the stretch it covers.
 #
 # (upper bound — exclusive, label, colour). The final band has no upper bound.
-# The colours are duplicated in dashboards/map_roulette.yaml, which is what the
+# The colours are duplicated in dashboards/detour.yaml, which is what the
 # card actually paints with; these travel with the legend so the two can be
 # checked against each other. Keep them in step.
 def _hex(rgb):
@@ -2665,7 +2665,7 @@ def ha_ride(user, params):
 DASH_HTML = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Map Roulette</title>
+<title>Detour</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
   :root {
@@ -2824,7 +2824,7 @@ DASH_HTML = r"""<!doctype html>
 </style>
 
 <div class="topbar">
-  <div class="brand">Map Roulette</div>
+  <div class="brand">Detour</div>
   <div class="tabs" role="tablist">
     <button class="tab-btn" data-tab="map">Map</button>
     <button class="tab-btn" data-tab="heat">Heat</button>
@@ -4137,7 +4137,7 @@ def do_admin_user_action(session, uid, action, body):
 ADMIN_HTML = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Map Roulette — manager</title>
+<title>Detour — manager</title>
 <style>
   /* Dark is the design's home; light is a full second theme rather than an
      inverted afterthought, because half of managing a server happens on a
@@ -4462,7 +4462,7 @@ ADMIN_HTML = r"""<!doctype html>
 </defs></svg>
 
 <div class="topbar hidden" id="bar">
-  <span class="brand"><span class="dot"><svg class="i"><use href="#i-compass"/></svg></span><span class="wordmark">Map Roulette</span></span>
+  <span class="brand"><span class="dot"><svg class="i"><use href="#i-compass"/></svg></span><span class="wordmark">Detour</span></span>
   <span class="pill" id="regpill" title="How new accounts are created"></span>
   <span class="grow"></span>
   <span class="small muted" id="freshness"></span>
@@ -4477,7 +4477,7 @@ ADMIN_HTML = r"""<!doctype html>
 
 <div class="login hidden" id="login">
   <div class="card">
-    <div class="brand"><span class="dot"><svg class="i"><use href="#i-compass"/></svg></span>Map Roulette</div>
+    <div class="brand"><span class="dot"><svg class="i"><use href="#i-compass"/></svg></span>Detour</div>
     <p class="muted small" style="text-align:center;margin:0 0 16px">Manager sign-in</p>
     <label class="field"><span>Username</span>
       <input id="lu" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
@@ -5785,7 +5785,7 @@ if __name__ == "__main__":
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8790"))
     live_port = int(os.environ.get("LIVE_PORT", "8990"))
-    print("maproulette-sync on %s:%s, db at %s" % (host, port, DB_FILE))
+    print("detour-sync on %s:%s, db at %s" % (host, port, DB_FILE))
     print("registration: %s" % ("open" if REGISTRATION_OPEN else "closed"))
     print("mail: %s" % ("via %s as %s" % (SMTP_HOST, SMTP_FROM) if mail_configured() else "off"))
     admins = admin_count_admins()
