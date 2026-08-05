@@ -293,7 +293,9 @@ opted into sharing it.
 
 Signing in takes a username, a password and — if your server asks for one — an
 invite code. The same account drives trip/trace sync, so a reinstall restores
-your history and fog from the server.
+your history and fog from the server. Leave an email address and the server can
+mail you a reset link if you forget the password; the link opens straight back
+into this screen.
 
 <br clear="right">
 
@@ -395,6 +397,11 @@ route against your own GraphHopper instance. One script installs either or both
 ```
 bash server/install.sh
 ```
+
+Accounts are managed from a web dashboard at `/admin` on the sync hostname:
+hand out single-use invite codes, mail password resets, revoke sessions, remove
+people. It shows account metadata and row counts only — no admin can read
+anyone's rides.
 
 See [`server/INSTALL.md`](server/INSTALL.md) for exposing it safely, choosing an
 OSM region, backups, and the API. Verify a running install with

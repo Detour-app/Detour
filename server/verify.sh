@@ -29,6 +29,10 @@ PW="verify-password-123"
 echo "== sync server ($SYNC)"
 ck "health"          "$(curl -s $SYNC/health)" "ok"
 ck "sync needs auth" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $SYNC/sync -d '{}')" "401"
+# The dashboard shell is public; its data is not. A 200 on the second line here
+# would mean anyone reaching the hostname can list every account.
+ck "admin page serves"  "$(curl -s -o /dev/null -w '%{http_code}' $SYNC/admin)" "200"
+ck "admin data private" "$(curl -s -o /dev/null -w '%{http_code}' $SYNC/admin/api/overview)" "401"
 
 # Registration body carries the invite code only when one is configured. A wrong
 # invite counts as a failed auth attempt, so never guess here.

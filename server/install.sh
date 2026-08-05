@@ -359,6 +359,27 @@ EOF
     chmod 0600 /etc/systemd/system/maproulette-sync.service.d/invite.conf
   fi
 
+  # Outgoing mail for the manager dashboard's invite and password-reset links.
+  # Left commented out: without it the dashboard still works and simply shows
+  # you the code to pass on yourself. Written once, never overwritten, so an
+  # upgrade cannot clobber a working relay config.
+  if [ ! -f /etc/systemd/system/maproulette-sync.service.d/mail.conf ]; then
+    install -d -m 0755 /etc/systemd/system/maproulette-sync.service.d
+    cat > /etc/systemd/system/maproulette-sync.service.d/mail.conf <<'EOF'
+[Service]
+# Uncomment and fill in to let the dashboard mail invites and reset links.
+# For Gmail, SMTP_PASS is an app password, not the account password.
+#Environment=SMTP_HOST=smtp.gmail.com
+#Environment=SMTP_PORT=587
+#Environment=SMTP_SECURITY=starttls
+#Environment=SMTP_USER=you@gmail.com
+#Environment=SMTP_PASS=app-password-here
+#Environment=SMTP_FROM=you@gmail.com
+#Environment=SITE_NAME=Map Roulette
+EOF
+    chmod 0600 /etc/systemd/system/maproulette-sync.service.d/mail.conf
+  fi
+
   cat > /etc/systemd/system/maproulette-backup.service <<EOF
 [Unit]
 Description=Back up the Map Roulette sync database
@@ -773,6 +794,21 @@ EOF
     echo "       echo 'Environment=REGISTRATION_OPEN=0' >> /etc/systemd/system/maproulette-sync.service.d/invite.conf"
     echo "       systemctl daemon-reload && systemctl restart maproulette-sync"
     echo
+  fi
+  if [ "$DO_SYNC" = 1 ]; then
+    cat <<EOF
+${B}  Manager dashboard${N} (invites, password resets, removing people): /admin on the
+  sync hostname. Register your own account in the app first, then let it in:
+       python3 $SYNC_DIR/sync_server.py --make-admin YOURNAME
+  Run that as $SYNC_USER (sudo -u $SYNC_USER DATA_DIR=$SYNC_DATA python3 ...) so it
+  writes the same database the service reads.
+
+  To have it mail invites and reset links, fill in the SMTP block in
+  /etc/systemd/system/maproulette-sync.service.d/mail.conf, then
+  systemctl daemon-reload && systemctl restart maproulette-sync.
+  Without it the dashboard just shows you each code to send on yourself.
+
+EOF
   fi
 }
 

@@ -22,9 +22,11 @@ Privacy rules, each enforced in exactly one place:
 
 Protocol
   GET  /health                                  -> "ok"
-  POST /auth/register {username, password, invite?}  -> {token, username}
+  POST /auth/register {username, password, invite?, email?} -> {token, username}
   POST /auth/login    {username, password}      -> {token, username}
   POST /auth/logout                             -> {} (revokes the bearer token)
+  POST /auth/forgot   {username|email}          -> {} (always; mails a reset link)
+  POST /auth/reset    {token, password}         -> {} (consumes the link's token)
   GET  /me                                      -> {username, stats, badges}
   POST /sync {trips, traces, badges, savedPlaces?, stats, shareFog?, deletedTrips?} -> merged {trips, traces, badges, savedPlaces}
   GET  /friends                                 -> {friends, incoming, outgoing}
@@ -46,10 +48,29 @@ Protocol
   GET  /ha/coverage?key=[&tol=&max=&cell=]      -> all traces, simplified, {…, geojson, heat{b0…}} (heat = rides per cell)
   GET  /ha/ride.html?key=[&start=]              -> the dashboard (Map/Heat/General/Badges tabs)
   GET  /ha/dashboard.html?key=[&start=]         -> alias for /ha/ride.html
+  GET  /admin                                   -> the manager dashboard (login + users + invites)
+  POST /admin/login {username, password}        -> {username, csrf} + session cookie
+  POST /admin/logout                            -> {}
+  GET  /admin/api/overview                      -> {admin, users: [...], invites: [...], mail, registration}
+  POST /admin/api/invite/create {label?, email?, days?, send?} -> {code, mailed}
+  POST /admin/api/invite/revoke {code}          -> {}
+  POST /admin/api/user/<id>/email    {email}    -> {}
+  POST /admin/api/user/<id>/password {password?}-> {password?} (blank = generate one)
+  POST /admin/api/user/<id>/reset    {}         -> {mailed, link} (mails the reset deep link)
+  POST /admin/api/user/<id>/admin    {admin}    -> {}
+  POST /admin/api/user/<id>/revoke   {what}     -> {revoked} (what = tokens|keys)
+  POST /admin/api/user/<id>/apikey   {label?}   -> {key} (shown once)
+  POST /admin/api/user/<id>/delete   {}         -> {} (user and every row they own)
 
-Everything except /health, /auth/* and /ha/* needs `Authorization: Bearer
-<token>`. The /ha/* endpoints are read-only and take an API key instead
+Everything except /health, /auth/*, /ha/* and /admin/* needs `Authorization:
+Bearer <token>`. The /ha/* endpoints are read-only and take an API key instead
 (?key= or X-API-Key), so a Home Assistant config never holds a login token.
+
+The manager dashboard is a fourth credential path, separate again: a browser
+session cookie held only by users with `is_admin`, signed in with their normal
+account password. It can hand out invites, reset passwords and delete accounts,
+but it never reads anyone's trips or traces — the privacy rules above are not
+relaxed for admins, who see only account metadata and row counts.
 
 Convoy live location + push-to-talk run over a *second* listener, a
 WebSocket relay on LIVE_PORT (default 8990) - see the "convoy live relay"
@@ -100,6 +121,8 @@ CLI:
   python3 sync_server.py --backfill-points USER   re-unpack traces into points
   python3 sync_server.py --revoke-keys USER       delete all API keys for a user
   python3 sync_server.py --revoke-tokens USER     sign a user out everywhere
+  python3 sync_server.py --make-admin USER        let USER into /admin
+  python3 sync_server.py --drop-admin USER        take that away again
 """
 import asyncio
 import gzip
@@ -111,10 +134,14 @@ import math
 import os
 import re
 import secrets
+import smtplib
 import sqlite3
+import ssl
 import sys
 import threading
 import time
+from email.message import EmailMessage
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote as urlquote, urlparse
 
@@ -165,6 +192,30 @@ STAT_KEYS = (
 # gate it on a shared invite code instead.
 REGISTRATION_OPEN = os.environ.get("REGISTRATION_OPEN", "0") != "0"
 INVITE_CODE = os.environ.get("INVITE_CODE", "")
+
+# Single-use invites and password-reset links both expire; an invite that sits
+# in a mailbox for a year is a way in long after you stopped meaning to offer
+# one, and a reset link is a live account takeover for as long as it lasts.
+INVITE_DEFAULT_DAYS = int(os.environ.get("INVITE_DEFAULT_DAYS", "14"))
+RESET_TTL_MS = int(os.environ.get("RESET_TTL_MINUTES", "60")) * 60 * 1000
+ADMIN_SESSION_IDLE_MS = int(os.environ.get("ADMIN_SESSION_HOURS", "12")) * 3600 * 1000
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s.]+\.[^@\s]+$")
+
+# Outgoing mail. Unset SMTP_HOST simply means no mail is ever sent: every
+# caller falls back to handing the admin the link to pass on by hand, so the
+# dashboard is fully usable without an SMTP relay.
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASS = os.environ.get("SMTP_PASS", "")
+SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USER)
+SMTP_SECURITY = os.environ.get("SMTP_SECURITY", "starttls").lower()  # starttls|ssl|none
+SITE_NAME = os.environ.get("SITE_NAME", "Map Roulette")
+# Reset mails link into the app, not into a web page: the server sits behind
+# Cloudflare Access, so a browser link would hit the Access login wall, while
+# the app already holds the service token. The mail carries the raw code too,
+# for a mail client that won't linkify a custom scheme.
+APP_SCHEME = os.environ.get("APP_SCHEME", "maproulette")
 
 # Only trust the Cloudflare header when explicitly deployed behind the tunnel;
 # otherwise any client could spoof it and reset the rate limiter per request.
@@ -293,7 +344,42 @@ def init_db():
             joined_ms  INTEGER NOT NULL,
             PRIMARY KEY (convoy_id, user_id)
         );
+        -- Invites the manager dashboard hands out: one code, one account.
+        -- The code is stored in the clear on purpose, unlike every other
+        -- credential here. It is a permission to create an account, not access
+        -- to one, and the whole point of the invite list is being able to read
+        -- a code back out weeks later to re-send it to whoever lost the mail.
+        CREATE TABLE IF NOT EXISTS invites (
+            code       TEXT PRIMARY KEY,
+            label      TEXT NOT NULL DEFAULT '',
+            email      TEXT,
+            created_ms INTEGER NOT NULL,
+            expires_ms INTEGER,
+            used_ms    INTEGER,
+            used_by    TEXT
+        );
+        -- Password reset links. Hashed like a token, single use, short lived;
+        -- redeeming one signs the account out everywhere, because a reset is
+        -- also the answer to "someone else has my phone".
+        CREATE TABLE IF NOT EXISTS password_resets (
+            token_hash TEXT PRIMARY KEY,
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_ms INTEGER NOT NULL,
+            expires_ms INTEGER NOT NULL,
+            used_ms    INTEGER
+        );
+        -- Browser sessions for /admin. Separate from tokens so signing out of
+        -- the dashboard never touches a phone's sync session, and so a stolen
+        -- bearer token cannot be replayed at the admin API.
+        CREATE TABLE IF NOT EXISTS admin_sessions (
+            session_hash TEXT PRIMARY KEY,
+            user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            csrf         TEXT NOT NULL,
+            created_ms   INTEGER NOT NULL,
+            last_used_ms INTEGER NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS idx_tokens_user ON tokens(user_id);
+        CREATE INDEX IF NOT EXISTS idx_resets_user ON password_resets(user_id);
         CREATE INDEX IF NOT EXISTS idx_points_user_t ON track_points(user_id, t_ms);
         CREATE INDEX IF NOT EXISTS idx_convoy_members_user ON convoy_members(user_id);
         """
@@ -303,6 +389,10 @@ def init_db():
     columns = {r["name"] for r in conn.execute("PRAGMA table_info(users)")}
     if "share_fog" not in columns:
         conn.execute("ALTER TABLE users ADD COLUMN share_fog INTEGER NOT NULL DEFAULT 0")
+    if "email" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
+    if "is_admin" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
     conn.commit()
 
 
@@ -388,19 +478,165 @@ def find_user(username):
     ).fetchone()
 
 
+def clean_email(raw):
+    """Normalise an address, or None for "not set". Deliberately loose: the
+    only thing the server does with an address is send to it, so the relay is
+    the real validator. This just keeps obvious junk out of the table."""
+    email = str(raw or "").strip()
+    if not email:
+        return None
+    if len(email) > 254 or not EMAIL_RE.match(email):
+        raise HttpError(400, "that does not look like an email address")
+    return email
+
+
+# --------------------------------------------------------------------------
+# mail
+#
+# Every mail this server sends is a link the recipient asked for (an invite, a
+# password reset). Nothing here is required: with SMTP_HOST unset the dashboard
+# just shows the admin the code to pass on by hand.
+
+
+def mail_configured():
+    return bool(SMTP_HOST and SMTP_FROM)
+
+
+def send_mail(to, subject, body):
+    """Best effort; True when the relay accepted the message.
+
+    Never raises. A dead relay must not become a 500 — the admin paths fall
+    back to showing the link, and the self-service path must answer a stranger
+    identically whether or not an address existed to mail.
+    """
+    if not mail_configured() or not to:
+        return False
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = SMTP_FROM
+    msg["To"] = to
+    # 7bit where the text allows it. The default is quoted-printable, which
+    # soft-wraps long lines with a trailing "=" — landing in the middle of a
+    # reset link for any client that shows the raw body.
+    msg.set_content(body, cte="7bit" if body.isascii() else "quoted-printable")
+    try:
+        context = ssl.create_default_context()
+        if SMTP_SECURITY == "ssl":
+            smtp = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15, context=context)
+        else:
+            smtp = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15)
+        with smtp:
+            if SMTP_SECURITY == "starttls":
+                smtp.starttls(context=context)
+            if SMTP_USER:
+                smtp.login(SMTP_USER, SMTP_PASS)
+            smtp.send_message(msg)
+        return True
+    except Exception as e:  # noqa: BLE001 - a relay problem is not a request failure
+        print("MAIL to %s failed: %r" % (to, e))
+        return False
+
+
+def reset_link(raw):
+    return "%s://reset?token=%s" % (APP_SCHEME, urlquote(raw))
+
+
+def send_reset_mail(username, email, raw):
+    return send_mail(
+        email,
+        "%s: reset your password" % SITE_NAME,
+        "Someone asked to reset the password for %s on %s.\n\n"
+        "Open this link on the phone that has the app installed:\n\n"
+        "  %s\n\n"
+        "If the link is not tappable, open the app, go to Friends > Forgot "
+        "password, and paste this code instead:\n\n"
+        "  %s\n\n"
+        "The link is good for %d minutes and can be used once. Setting a new "
+        "password signs the account out on every device.\n\n"
+        # Plain ASCII on purpose: one em dash would push the whole body into
+        # quoted-printable, and a soft-wrapped "=" inside the link is exactly
+        # the kind of thing a picky mail client mangles.
+        "If this was not you, ignore this mail. Nothing has changed yet.\n"
+        % (username, SITE_NAME, reset_link(raw), raw, RESET_TTL_MS // 60000),
+    )
+
+
+def send_invite_mail(email, code, expires_ms):
+    when = (
+        "It expires on %s."
+        % time.strftime("%d %b %Y", time.localtime(expires_ms / 1000))
+        if expires_ms
+        else "It does not expire."
+    )
+    return send_mail(
+        email,
+        "%s: your invite" % SITE_NAME,
+        "You have been invited to %s.\n\n"
+        "Install the app, open Friends, and create an account with this invite "
+        "code:\n\n"
+        "  %s\n\n"
+        "%s It works once.\n" % (SITE_NAME, code, when),
+    )
+
+
+# --------------------------------------------------------------------------
+# invites
+
+
+def invite_row(code):
+    """The usable invite for a code, or None. Used and expired codes stay in
+    the table (the dashboard shows what became of them) but never match here."""
+    code = str(code or "").strip()
+    if not code:
+        return None
+    row = db().execute("SELECT * FROM invites WHERE code = ?", (code,)).fetchone()
+    if row is None or row["used_ms"] is not None:
+        return None
+    if row["expires_ms"] is not None and row["expires_ms"] < now_ms():
+        return None
+    return row
+
+
+def create_invite(label="", email=None, days=INVITE_DEFAULT_DAYS):
+    """Mint a single-use code. days <= 0 means it never expires."""
+    code = secrets.token_urlsafe(9)
+    expires = now_ms() + int(days) * 86400 * 1000 if days and int(days) > 0 else None
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "INSERT INTO invites (code, label, email, created_ms, expires_ms)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (code, label or "", email, now_ms(), expires),
+            )
+    return code, expires
+
+
 def do_register(body, ip):
-    if not REGISTRATION_OPEN:
-        raise HttpError(403, "registration is closed")
     rate_limit(ip)
     username = str(body.get("username", "")).strip()
     password = str(body.get("password", ""))
+    code = str(body.get("invite", "")).strip()
+    email = clean_email(body.get("email"))
     if not USERNAME_RE.match(username):
         raise HttpError(400, "username must be 3-24 chars: letters, digits, . _ -")
     if not 8 <= len(password) <= 200:
         raise HttpError(400, "password must be 8-200 characters")
-    if INVITE_CODE and not hmac.compare_digest(str(body.get("invite", "")), INVITE_CODE):
-        note_failure(ip)  # guessing the invite code is an attack, not a typo
-        raise HttpError(403, "invalid invite code")
+
+    # Three ways in, checked in this order: a single-use invite from the
+    # manager dashboard, the shared INVITE_CODE env, or an explicitly open
+    # server with no shared code set. The last clause is what keeps the old
+    # behaviour: a server with both REGISTRATION_OPEN and INVITE_CODE still
+    # demands a code, exactly as it did before invites existed.
+    invite = invite_row(code)
+    if invite is None and not (INVITE_CODE and hmac.compare_digest(code, INVITE_CODE)):
+        if not REGISTRATION_OPEN or INVITE_CODE:
+            if code:
+                note_failure(ip)  # guessing a code is an attack, not a typo
+                raise HttpError(403, "invalid or expired invite code")
+            raise HttpError(403, "this server needs an invite code")
+    if invite is not None and invite["email"] and not email:
+        email = invite["email"]  # the address the invite was addressed to
     if find_user(username):
         raise HttpError(409, "username already taken")
 
@@ -410,14 +646,105 @@ def do_register(body, ip):
         try:
             with conn:  # commits on success, rolls back on exception
                 cur = conn.execute(
-                    "INSERT INTO users (username, pw_salt, pw_hash, iterations, created_ms)"
-                    " VALUES (?, ?, ?, ?, ?)",
-                    (username, salt, digest, iterations, now_ms()),
+                    "INSERT INTO users (username, pw_salt, pw_hash, iterations,"
+                    " created_ms, email) VALUES (?, ?, ?, ?, ?, ?)",
+                    (username, salt, digest, iterations, now_ms(), email),
                 )
                 user_id = cur.lastrowid
+                if invite is not None:
+                    # Burn the code in the same transaction that created the
+                    # account, so two people racing one invite cannot both win.
+                    used = conn.execute(
+                        "UPDATE invites SET used_ms = ?, used_by = ?"
+                        " WHERE code = ? AND used_ms IS NULL",
+                        (now_ms(), username, invite["code"]),
+                    ).rowcount
+                    if not used:
+                        raise HttpError(403, "invalid or expired invite code")
         except sqlite3.IntegrityError:
             raise HttpError(409, "username already taken")
     return {"token": issue_token(user_id), "username": username}
+
+
+# --------------------------------------------------------------------------
+# password reset
+
+
+def create_reset(user_id):
+    """One live link per account: minting a new one drops any earlier unused
+    link, so a second "forgot password" tap cannot leave two ways in."""
+    raw = secrets.token_urlsafe(TOKEN_BYTES)
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute("DELETE FROM password_resets WHERE user_id = ?", (user_id,))
+            conn.execute(
+                "INSERT INTO password_resets (token_hash, user_id, created_ms, expires_ms)"
+                " VALUES (?, ?, ?, ?)",
+                (token_hash(raw), user_id, now_ms(), now_ms() + RESET_TTL_MS),
+            )
+    return raw
+
+
+def set_password(user_id, password):
+    """Set a password and end every session the account had — bearer tokens and
+    the admin cookie both. Whoever knew the old password (or held a stolen
+    token) is out from this call on."""
+    if not 8 <= len(password) <= 200:
+        raise HttpError(400, "password must be 8-200 characters")
+    salt, digest, iterations = hash_password(password)
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "UPDATE users SET pw_salt = ?, pw_hash = ?, iterations = ? WHERE id = ?",
+                (salt, digest, iterations, user_id),
+            )
+            conn.execute("DELETE FROM tokens WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM admin_sessions WHERE user_id = ?", (user_id,))
+    evict_user_everywhere(user_id)
+
+
+def do_forgot(body, ip):
+    """Always answers {}. Whether an account exists, and whether it has an
+    address on file, are not things an unauthenticated caller gets to learn."""
+    rate_limit(ip)
+    note_failure(ip)  # unconditional: this endpoint sends mail, so cap it hard
+    wanted = str(body.get("username", "") or body.get("email", "")).strip()
+    if not wanted:
+        return {}
+    user = find_user(wanted)
+    if user is None and EMAIL_RE.match(wanted):
+        user = db().execute(
+            "SELECT * FROM users WHERE email = ? COLLATE NOCASE", (wanted,)
+        ).fetchone()
+    if user is not None and user["email"]:
+        send_reset_mail(user["username"], user["email"], create_reset(user["id"]))
+    return {}
+
+
+def do_reset(body, ip):
+    rate_limit(ip)
+    password = str(body.get("password", ""))
+    thash = token_hash(str(body.get("token", "")).strip())
+    row = db().execute(
+        "SELECT * FROM password_resets WHERE token_hash = ?", (thash,)
+    ).fetchone()
+    if row is None or row["used_ms"] is not None or row["expires_ms"] < now_ms():
+        note_failure(ip)
+        raise HttpError(400, "that reset link is invalid or has expired")
+    set_password(row["user_id"], password)  # also revokes tokens and sessions
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "UPDATE password_resets SET used_ms = ? WHERE token_hash = ?",
+                (now_ms(), thash),
+            )
+    user = db().execute(
+        "SELECT username FROM users WHERE id = ?", (row["user_id"],)
+    ).fetchone()
+    return {"username": user["username"] if user else ""}
 
 
 def do_login(body, ip):
@@ -626,6 +953,7 @@ def do_sync(user, body):
 def do_me(user):
     return {
         "username": user["username"],
+        "email": user["email"] or "",
         "stats": json.loads(user["stats_json"]),
         "badges": json.loads(user["badges_json"]),
     }
@@ -3481,6 +3809,651 @@ def ha_dashboard_html(params):
         start = 0
     return DASH_HTML.replace("__START_MS__", str(start))
 
+# --------------------------------------------------------------------------
+# manager dashboard
+#
+# A fourth credential path, deliberately separate from the other three: a
+# browser cookie, held only by users with is_admin, proved with the same
+# account password the app uses. It can create and destroy accounts — it
+# cannot read anyone's rides. Nothing in this section touches trips, traces
+# or track_points beyond counting rows.
+
+ADMIN_COOKIE = "mr_admin"
+ADMIN_USER_ACTION_RE = re.compile(r"^/admin/api/user/(\d+)/([a-z]+)$")
+
+
+def admin_session(headers):
+    """The signed-in admin's session row, or 401/403.
+
+    Admin is re-checked on every request rather than trusted from login time,
+    so revoking someone's is_admin takes effect on their next click instead of
+    whenever their cookie happens to expire.
+    """
+    morsel = SimpleCookie(headers.get("Cookie", "")).get(ADMIN_COOKIE)
+    if morsel is None:
+        raise HttpError(401, "sign in to the dashboard")
+    shash = token_hash(morsel.value)
+    row = db().execute(
+        "SELECT s.*, u.username, u.is_admin FROM admin_sessions s"
+        " JOIN users u ON u.id = s.user_id WHERE s.session_hash = ?",
+        (shash,),
+    ).fetchone()
+    if row is None:
+        raise HttpError(401, "sign in to the dashboard")
+    if now_ms() - row["last_used_ms"] > ADMIN_SESSION_IDLE_MS or not row["is_admin"]:
+        drop_admin_session(shash)
+        raise HttpError(401, "session expired; sign in again")
+    if now_ms() - row["last_used_ms"] > TOKEN_TOUCH_INTERVAL_MS:
+        with _write_lock:
+            conn = db()
+            with conn:  # commits on success, rolls back on exception
+                conn.execute(
+                    "UPDATE admin_sessions SET last_used_ms = ? WHERE session_hash = ?",
+                    (now_ms(), shash),
+                )
+    return row
+
+
+def drop_admin_session(session_hash):
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "DELETE FROM admin_sessions WHERE session_hash = ?", (session_hash,)
+            )
+
+
+def admin_write(headers):
+    """Guards every mutating admin call.
+
+    SameSite=Strict already stops a cross-site form post from carrying the
+    cookie; this header check is the belt to that braces, and costs one line
+    in the page's fetch wrapper. A tab left open past a password change fails
+    here rather than silently acting as a stale admin.
+    """
+    row = admin_session(headers)
+    sent = headers.get("X-CSRF-Token", "")
+    if not sent or not hmac.compare_digest(sent, row["csrf"]):
+        raise HttpError(403, "stale dashboard tab — reload the page")
+    return row
+
+
+def do_admin_login(body, ip):
+    """Returns (payload, raw_session_cookie). Non-admins get the same answer as
+    a wrong password: whether an account can reach the dashboard is not
+    something the login form should confirm."""
+    rate_limit(ip)
+    username = str(body.get("username", "")).strip()
+    password = str(body.get("password", ""))
+    user = find_user(username)
+    if user is None:
+        hash_password(password, salt=b"\x00" * 16)  # same work, no timing tell
+        note_failure(ip)
+        raise HttpError(401, "wrong username or password")
+    _, digest, _ = hash_password(password, bytes(user["pw_salt"]), user["iterations"])
+    if not hmac.compare_digest(digest, bytes(user["pw_hash"])) or not user["is_admin"]:
+        note_failure(ip)
+        raise HttpError(401, "wrong username or password")
+    raw = secrets.token_urlsafe(TOKEN_BYTES)
+    csrf = secrets.token_urlsafe(16)
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "INSERT INTO admin_sessions (session_hash, user_id, csrf, created_ms,"
+                " last_used_ms) VALUES (?, ?, ?, ?, ?)",
+                (token_hash(raw), user["id"], csrf, now_ms(), now_ms()),
+            )
+    return {"username": user["username"], "csrf": csrf}, raw
+
+
+def do_admin_logout(headers):
+    morsel = SimpleCookie(headers.get("Cookie", "")).get(ADMIN_COOKIE)
+    if morsel is not None:
+        drop_admin_session(token_hash(morsel.value))
+    return {}
+
+
+def admin_user(uid):
+    row = db().execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()
+    if row is None:
+        raise HttpError(404, "no such user")
+    return row
+
+
+def admin_count(sql, args=()):
+    return db().execute(sql, args).fetchone()[0]
+
+
+def email_taken(email, except_id):
+    if not email:
+        return False
+    row = db().execute(
+        "SELECT id FROM users WHERE email = ? COLLATE NOCASE AND id != ?",
+        (email, except_id or 0),
+    ).fetchone()
+    return row is not None
+
+
+def invite_status(row):
+    if row["used_ms"]:
+        return "used"
+    if row["expires_ms"] is not None and row["expires_ms"] < now_ms():
+        return "expired"
+    return "live"
+
+
+def admin_overview(session):
+    """Account metadata and row counts only — no trip, trace or place content
+    is read here, and there is no endpoint that would let an admin read it."""
+    users = []
+    for u in db().execute(
+        "SELECT u.*,"
+        " (SELECT COUNT(*) FROM trips t WHERE t.user_id = u.id) AS trips,"
+        " (SELECT COUNT(*) FROM traces r WHERE r.user_id = u.id) AS traces,"
+        " (SELECT COUNT(*) FROM tokens k WHERE k.user_id = u.id) AS tokens,"
+        " (SELECT COUNT(*) FROM api_keys a WHERE a.user_id = u.id) AS api_keys,"
+        " (SELECT MAX(k.last_used_ms) FROM tokens k WHERE k.user_id = u.id) AS last_seen_ms"
+        " FROM users u ORDER BY u.username COLLATE NOCASE"
+    ):
+        stats = json.loads(u["stats_json"] or "{}")
+        users.append(
+            {
+                "id": u["id"],
+                "username": u["username"],
+                "email": u["email"] or "",
+                "isAdmin": bool(u["is_admin"]),
+                "isSelf": u["id"] == session["user_id"],
+                "shareFog": bool(u["share_fog"]),
+                "createdMs": u["created_ms"],
+                "lastSeenMs": u["last_seen_ms"] or 0,
+                "trips": u["trips"],
+                "traces": u["traces"],
+                "sessions": u["tokens"],
+                "apiKeys": u["api_keys"],
+                "distanceKm": round(stats.get("totalDistanceMeters", 0) / 1000.0, 1),
+            }
+        )
+    invites = [
+        {
+            "code": r["code"],
+            "label": r["label"],
+            "email": r["email"] or "",
+            "createdMs": r["created_ms"],
+            "expiresMs": r["expires_ms"] or 0,
+            "usedMs": r["used_ms"] or 0,
+            "usedBy": r["used_by"] or "",
+            "status": invite_status(r),
+        }
+        for r in db().execute(
+            "SELECT * FROM invites ORDER BY created_ms DESC LIMIT 200"
+        )
+    ]
+    return {
+        "admin": session["username"],
+        # The page keeps the CSRF token in memory only, so a reload onto a live
+        # cookie has to get it back from somewhere. A cross-origin page cannot
+        # read this response, which is exactly what makes the token worth
+        # something.
+        "csrf": session["csrf"],
+        "users": users,
+        "invites": invites,
+        "mail": mail_configured(),
+        "mailFrom": SMTP_FROM if mail_configured() else "",
+        "registration": "open" if REGISTRATION_OPEN and not INVITE_CODE else "invite only",
+        "sharedCode": bool(INVITE_CODE),
+        "resetMinutes": RESET_TTL_MS // 60000,
+    }
+
+
+def do_admin_invite_create(body):
+    email = clean_email(body.get("email"))
+    label = str(body.get("label", "")).strip()[:80]
+    days = body.get("days", INVITE_DEFAULT_DAYS)
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = INVITE_DEFAULT_DAYS
+    code, expires = create_invite(label, email, days)
+    mailed = bool(body.get("send")) and send_invite_mail(email, code, expires)
+    return {"code": code, "mailed": mailed}
+
+
+def do_admin_invite_revoke(body):
+    code = str(body.get("code", "")).strip()
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            cur = conn.execute("DELETE FROM invites WHERE code = ?", (code,))
+    if not cur.rowcount:
+        raise HttpError(404, "no such invite")
+    return {}
+
+
+def admin_count_admins():
+    return admin_count("SELECT COUNT(*) FROM users WHERE is_admin = 1")
+
+
+def do_admin_user_action(session, uid, action, body):
+    user = admin_user(uid)
+    is_self = user["id"] == session["user_id"]
+
+    if action == "email":
+        email = clean_email(body.get("email"))
+        if email_taken(email, user["id"]):
+            raise HttpError(409, "another account already uses that address")
+        with _write_lock:
+            conn = db()
+            with conn:  # commits on success, rolls back on exception
+                conn.execute(
+                    "UPDATE users SET email = ? WHERE id = ?", (email, user["id"])
+                )
+        return {"email": email or ""}
+
+    if action == "password":
+        # A blank field means "make one up": handing over a generated password
+        # beats an admin inventing a weak one, and it is shown exactly once.
+        password = str(body.get("password", "")) or secrets.token_urlsafe(9)
+        set_password(user["id"], password)
+        return {"password": password}
+
+    if action == "reset":
+        if not user["email"]:
+            raise HttpError(400, "that account has no email address on file")
+        raw = create_reset(user["id"])
+        return {
+            "mailed": send_reset_mail(user["username"], user["email"], raw),
+            "link": reset_link(raw),
+        }
+
+    if action == "admin":
+        wanted = 1 if body.get("admin") else 0
+        # Losing the last admin means the dashboard can only come back through
+        # the CLI on the box itself. Refuse rather than explain that later.
+        if not wanted and user["is_admin"] and admin_count_admins() <= 1:
+            raise HttpError(400, "that is the only admin left")
+        if not wanted and is_self:
+            raise HttpError(400, "use another admin to take your own access away")
+        with _write_lock:
+            conn = db()
+            with conn:  # commits on success, rolls back on exception
+                conn.execute(
+                    "UPDATE users SET is_admin = ? WHERE id = ?", (wanted, user["id"])
+                )
+                if not wanted:
+                    conn.execute(
+                        "DELETE FROM admin_sessions WHERE user_id = ?", (user["id"],)
+                    )
+        return {"isAdmin": bool(wanted)}
+
+    if action == "revoke":
+        what = str(body.get("what", "tokens"))
+        table = "api_keys" if what == "keys" else "tokens"
+        with _write_lock:
+            conn = db()
+            with conn:  # commits on success, rolls back on exception
+                cur = conn.execute(
+                    "DELETE FROM %s WHERE user_id = ?" % table, (user["id"],)
+                )
+        if table == "tokens":
+            evict_user_everywhere(user["id"])
+        return {"revoked": cur.rowcount}
+
+    if action == "apikey":
+        raw = secrets.token_urlsafe(TOKEN_BYTES)
+        label = str(body.get("label", "")).strip()[:60] or "dashboard"
+        with _write_lock:
+            conn = db()
+            with conn:  # commits on success, rolls back on exception
+                conn.execute(
+                    "INSERT INTO api_keys (key_hash, user_id, label, created_ms)"
+                    " VALUES (?, ?, ?, ?)",
+                    (token_hash(raw), user["id"], label, now_ms()),
+                )
+        return {"key": raw}
+
+    if action == "delete":
+        if is_self:
+            raise HttpError(400, "you cannot delete the account you signed in with")
+        if user["is_admin"] and admin_count_admins() <= 1:
+            raise HttpError(400, "that is the only admin left")
+        with _write_lock:
+            conn = db()
+            with conn:  # commits on success, rolls back on exception
+                # Every table that holds this user's rows references users(id)
+                # ON DELETE CASCADE, and foreign_keys is on for the connection,
+                # so this one statement takes the trips, traces, points, places,
+                # friendships, convoy membership, keys and sessions with it.
+                conn.execute("DELETE FROM users WHERE id = ?", (user["id"],))
+        evict_user_everywhere(user["id"])
+        return {}
+
+    raise HttpError(404, "not found")
+
+
+ADMIN_HTML = r"""<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Map Roulette — manager</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #14170f; --panel: #191c14; --panel-2: #21241a; --border: #3a3d31;
+    --text: #ede9db; --muted: #b7af98; --accent: #e8b04b; --accent-ink: #2a2205;
+    --red: #e2402a; --green: #1baf7a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-size: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  button, select, input { font: inherit; color: inherit; }
+  a { color: var(--accent); }
+  .topbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    background: var(--panel); border-bottom: 1px solid var(--border); }
+  .brand { font-weight: 700; color: var(--accent); }
+  .grow { flex: 1 1 auto; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px; margin-bottom: 14px; }
+  .card h2 { margin: 0 0 10px; font-size: 15px; }
+  .muted { color: var(--muted); font-size: 12px; }
+  input, select { background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 8px; min-height: 36px; }
+  input { min-width: 0; }
+  button { background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 7px 10px; min-height: 34px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
+    font-weight: 600; }
+  button.danger:hover { border-color: var(--red); color: #f2b3a8; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid rgba(58,61,49,.6);
+    vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  td.actions { white-space: nowrap; }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 99px; font-size: 11px;
+    border: 1px solid var(--border); color: var(--muted); }
+  .pill.admin { border-color: var(--accent); color: var(--accent); }
+  .pill.live { border-color: var(--green); color: var(--green); }
+  .pill.used { border-color: var(--border); }
+  .pill.expired { border-color: var(--red); color: #f2b3a8; }
+  code { background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
+    padding: 2px 6px; word-break: break-all; }
+  .banner { padding: 10px 12px; border-radius: 8px; margin-bottom: 10px; font-size: 13px; }
+  .banner.error { background: rgba(226,64,42,.12); border: 1px solid rgba(226,64,42,.4); color: #f2b3a8; }
+  .banner.info { background: rgba(232,176,75,.1); border: 1px solid rgba(232,176,75,.35); color: var(--accent); }
+  .login { max-width: 340px; margin: 12vh auto; }
+  .login input { width: 100%; margin-bottom: 8px; }
+  .hidden { display: none; }
+  @media (max-width: 700px) {
+    table, thead, tbody, tr, th, td { display: block; }
+    thead { display: none; }
+    tr { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; padding: 6px; }
+    td { border: none; padding: 4px 6px; }
+  }
+</style>
+
+<div class="topbar hidden" id="bar">
+  <span class="brand">Map Roulette</span>
+  <span class="muted" id="who"></span>
+  <span class="grow"></span>
+  <button id="refresh">Refresh</button>
+  <button id="logout">Sign out</button>
+</div>
+
+<div class="wrap">
+  <div id="messages"></div>
+
+  <div class="card login" id="login">
+    <h2>Manager sign-in</h2>
+    <input id="lu" placeholder="Username" autocomplete="username">
+    <input id="lp" type="password" placeholder="Password" autocomplete="current-password">
+    <button class="primary" id="lgo" style="width:100%">Sign in</button>
+    <p class="muted">Your normal account password. The account needs admin
+      rights — grant the first one on the server with
+      <code>sync_server.py --make-admin NAME</code>.</p>
+  </div>
+
+  <div id="app" class="hidden">
+    <div class="card">
+      <h2>Invite someone</h2>
+      <div class="row">
+        <input id="i-label" placeholder="Who is it for (a note to yourself)">
+        <input id="i-email" placeholder="Email (optional)" type="email">
+        <input id="i-days" type="number" min="0" value="14" style="width:120px" title="Days until it expires; 0 = never">
+        <label class="muted"><input type="checkbox" id="i-send" style="min-height:0"> mail it</label>
+        <button class="primary" id="i-make">Generate code</button>
+      </div>
+      <p class="muted" id="mailnote"></p>
+    </div>
+
+    <div class="card">
+      <h2>Users (<span id="ucount">0</span>)</h2>
+      <table>
+        <thead><tr>
+          <th>User</th><th>Email</th><th>Activity</th><th>Actions</th>
+        </tr></thead>
+        <tbody id="users"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Invites</h2>
+      <table>
+        <thead><tr>
+          <th>Code</th><th>For</th><th>Status</th><th></th>
+        </tr></thead>
+        <tbody id="invites"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+let csrf = "";
+const $ = (id) => document.getElementById(id);
+
+// Every cell is built with textContent, never innerHTML: usernames, labels and
+// invite notes are user input, and this page is the one place an admin reads
+// them all in one list.
+function el(tag, props, ...kids) {
+  const node = document.createElement(tag);
+  Object.assign(node, props || {});
+  for (const kid of kids) {
+    if (kid == null) continue;
+    node.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  }
+  return node;
+}
+
+function flash(text, kind, extra) {
+  const box = el("div", { className: "banner " + (kind || "info") }, text);
+  if (extra) {
+    box.append(" ", el("code", {}, extra));
+    const copy = el("button", { style: "margin-left:8px" }, "Copy");
+    copy.onclick = () => navigator.clipboard.writeText(extra).then(
+      () => { copy.textContent = "Copied"; }, () => { copy.textContent = "Copy failed"; });
+    box.append(" ", copy);
+  }
+  $("messages").prepend(box);
+  if (!extra && kind !== "error") setTimeout(() => box.remove(), 4000);
+}
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: body === undefined ? {} : { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
+  return data;
+}
+
+const fmtDate = (ms) => ms ? new Date(ms).toLocaleDateString(undefined,
+  { day: "numeric", month: "short", year: "numeric" }) : "never";
+
+function userRow(u, state) {
+  const act = (label, fn, cls) => {
+    const b = el("button", { className: cls || "" }, label);
+    b.onclick = async () => {
+      b.disabled = true;
+      try { await fn(); } catch (e) { flash(e.message, "error"); }
+      b.disabled = false;
+    };
+    return b;
+  };
+  const post = (what, body) => api("/admin/api/user/" + u.id + "/" + what, body || {});
+
+  const name = el("td", {},
+    el("div", {}, el("b", {}, u.username), " ",
+      u.isAdmin ? el("span", { className: "pill admin" }, "admin") : null,
+      u.isSelf ? el("span", { className: "pill" }, "you") : null),
+    el("div", { className: "muted" }, "joined " + fmtDate(u.createdMs)));
+
+  const emailInput = el("input", { value: u.email, placeholder: "no email", type: "email" });
+  const email = el("td", {}, el("div", { className: "row" }, emailInput,
+    act("Save", async () => {
+      await post("email", { email: emailInput.value.trim() });
+      flash("Email saved for " + u.username);
+      load();
+    })));
+
+  const activity = el("td", { className: "muted" },
+    el("div", {}, u.trips + " trips · " + u.distanceKm + " km"),
+    el("div", {}, u.sessions + " session(s) · " + u.apiKeys + " API key(s)"),
+    el("div", {}, "last sync " + fmtDate(u.lastSeenMs)));
+
+  const actions = el("td", { className: "actions row" },
+    act("Reset mail", async () => {
+      const r = await post("reset");
+      if (r.mailed) flash("Reset link mailed to " + u.email + " (valid " + state.resetMinutes + " min).");
+      else flash("Not mailed — send this link to " + u.username + " yourself:", "info", r.link);
+    }),
+    act("Set password", async () => {
+      const chosen = prompt("New password for " + u.username + " (blank = generate one):", "");
+      if (chosen === null) return;
+      if (chosen && chosen.length < 8) { flash("Passwords are at least 8 characters.", "error"); return; }
+      const r = await post("password", { password: chosen });
+      flash("Password set for " + u.username + ". Signed out everywhere. New password:", "info", r.password);
+      load();
+    }),
+    act("Sign out", async () => {
+      const r = await post("revoke", { what: "tokens" });
+      flash("Revoked " + r.revoked + " session(s) for " + u.username);
+      load();
+    }),
+    act("New API key", async () => {
+      const r = await post("apikey", { label: "dashboard" });
+      flash("Read-only key for " + u.username + " — shown once:", "info", r.key);
+      load();
+    }),
+    act(u.isAdmin ? "Drop admin" : "Make admin", async () => {
+      await post("admin", { admin: !u.isAdmin });
+      load();
+    }),
+    act("Delete", async () => {
+      if (prompt("Type the username to delete " + u.username + " and every ride they have synced. This cannot be undone.") !== u.username) return;
+      await post("delete");
+      flash("Deleted " + u.username);
+      load();
+    }, "danger"));
+
+  return el("tr", {}, name, email, activity, actions);
+}
+
+function inviteRow(inv) {
+  const code = el("td", {}, el("code", {}, inv.code));
+  const forWho = el("td", { className: "muted" },
+    el("div", {}, inv.label || "—"),
+    el("div", {}, inv.email || ""));
+  const status = el("td", {},
+    el("span", { className: "pill " + inv.status }, inv.status),
+    el("div", { className: "muted" },
+      inv.status === "used" ? "by " + inv.usedBy + " on " + fmtDate(inv.usedMs)
+        : "expires " + fmtDate(inv.expiresMs)));
+  const del = el("button", { className: "danger" }, "Revoke");
+  del.onclick = async () => {
+    del.disabled = true;
+    try { await api("/admin/api/invite/revoke", { code: inv.code }); load(); }
+    catch (e) { flash(e.message, "error"); del.disabled = false; }
+  };
+  const copy = el("button", {}, "Copy");
+  copy.onclick = () => navigator.clipboard.writeText(inv.code).then(
+    () => { copy.textContent = "Copied"; }, () => { copy.textContent = "Copy failed"; });
+  return el("tr", {}, code, forWho, status, el("td", { className: "actions" }, copy, " ", del));
+}
+
+async function load() {
+  let state;
+  try {
+    state = await api("/admin/api/overview");
+  } catch (e) {
+    $("app").classList.add("hidden");
+    $("bar").classList.add("hidden");
+    $("login").classList.remove("hidden");
+    return;
+  }
+  csrf = state.csrf;
+  $("login").classList.add("hidden");
+  $("app").classList.remove("hidden");
+  $("bar").classList.remove("hidden");
+  $("who").textContent = "signed in as " + state.admin + " · registration: " + state.registration;
+  $("mailnote").textContent = state.mail
+    ? "Mail goes out as " + state.mailFrom + ". Reset links last " + state.resetMinutes + " minutes."
+    : "No SMTP relay configured (SMTP_HOST is unset), so nothing is mailed — codes and links are shown here to pass on yourself.";
+  $("i-send").disabled = !state.mail;
+  $("ucount").textContent = state.users.length;
+  const users = $("users");
+  users.textContent = "";
+  for (const u of state.users) users.append(userRow(u, state));
+  const invites = $("invites");
+  invites.textContent = "";
+  if (!state.invites.length) invites.append(el("tr", {}, el("td", { className: "muted" }, "No invites yet.")));
+  for (const inv of state.invites) invites.append(inviteRow(inv));
+}
+
+$("lgo").onclick = async () => {
+  try {
+    const r = await api("/admin/login", { username: $("lu").value.trim(), password: $("lp").value });
+    csrf = r.csrf;
+    $("lp").value = "";
+    $("messages").textContent = "";
+    load();
+  } catch (e) { flash(e.message, "error"); }
+};
+$("lp").addEventListener("keydown", (e) => { if (e.key === "Enter") $("lgo").click(); });
+
+$("logout").onclick = async () => {
+  try { await api("/admin/logout", {}); } catch (e) { /* the cookie is going either way */ }
+  csrf = "";
+  location.reload();
+};
+$("refresh").onclick = () => load();
+
+$("i-make").onclick = async () => {
+  try {
+    const r = await api("/admin/api/invite/create", {
+      label: $("i-label").value.trim(),
+      email: $("i-email").value.trim(),
+      days: Number($("i-days").value || 0),
+      send: $("i-send").checked,
+    });
+    flash(r.mailed ? "Invite mailed. Code:" : "Invite created. Code:", "info", r.code);
+    $("i-label").value = ""; $("i-email").value = "";
+    load();
+  } catch (e) { flash(e.message, "error"); }
+};
+
+// A live cookie from an earlier visit skips the login form; the overview call
+// hands the CSRF token back, so the page is immediately usable. No cookie means
+// that call 401s and the login card stays up.
+load();
+</script>
+"""
+
+
 HA_GET = {
     "/ha/stats": ha_stats,
     "/ha/rides": ha_rides,
@@ -3537,6 +4510,15 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/ha/"):
                 self._ha(path, params)
                 return
+            if path in ("/admin", "/admin/"):
+                # The shell is public; every number on it comes from the
+                # authenticated overview call below, which is what the cookie
+                # actually gates.
+                self._reply(200, ADMIN_HTML.encode(), "text/html")
+                return
+            if path == "/admin/api/overview":
+                self._json(200, admin_overview(admin_session(self.headers)))
+                return
             handler = AUTHED_GET.get(path)
             if handler is None:
                 raise HttpError(404, "not found")
@@ -3556,6 +4538,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, do_login(body, self.client_ip()))
             elif self.path == "/auth/logout":
                 self._json(200, do_logout(authenticate(self.headers), self.headers))
+            elif self.path == "/auth/forgot":
+                self._json(200, do_forgot(body, self.client_ip()))
+            elif self.path == "/auth/reset":
+                self._json(200, do_reset(body, self.client_ip()))
+            elif self.path.startswith("/admin/"):
+                self._admin(body)
             elif self.path == "/sync":
                 self._json(200, do_sync(authenticate(self.headers), body))
             elif self.path == "/friends/request":
@@ -3603,6 +4591,38 @@ class Handler(BaseHTTPRequestHandler):
             raise HttpError(404, "not found")
         self._json(200, handler(user, params))
 
+    def _admin(self, body):
+        path = self.path
+        if path == "/admin/login":
+            payload, raw = do_admin_login(body, self.client_ip())
+            # Secure is unconditional: this only ever gets used over the
+            # Cloudflare tunnel, and a cookie that would travel in the clear on
+            # a plain-HTTP LAN test is not one worth having. SameSite=Strict is
+            # the primary CSRF defence; admin_write() is the second.
+            cookie = (
+                "%s=%s; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=%d"
+                % (ADMIN_COOKIE, raw, ADMIN_SESSION_IDLE_MS // 1000)
+            )
+            self._json(200, payload, [("Set-Cookie", cookie)])
+            return
+        if path == "/admin/logout":
+            expire = "%s=; Path=/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=0" % ADMIN_COOKIE
+            self._json(200, do_admin_logout(self.headers), [("Set-Cookie", expire)])
+            return
+        session = admin_write(self.headers)
+        if path == "/admin/api/invite/create":
+            self._json(200, do_admin_invite_create(body))
+            return
+        if path == "/admin/api/invite/revoke":
+            self._json(200, do_admin_invite_revoke(body))
+            return
+        match = ADMIN_USER_ACTION_RE.match(path)
+        if match is None:
+            raise HttpError(404, "not found")
+        self._json(
+            200, do_admin_user_action(session, int(match.group(1)), match.group(2), body)
+        )
+
     def _body(self):
         length = int(self.headers.get("Content-Length", 0))
         if length == 0:
@@ -3622,10 +4642,10 @@ class Handler(BaseHTTPRequestHandler):
                 raise HttpError(413, "body too large")
         return json.loads(raw)
 
-    def _json(self, code, payload):
-        self._reply(code, json.dumps(payload).encode(), "application/json")
+    def _json(self, code, payload, headers=()):
+        self._reply(code, json.dumps(payload).encode(), "application/json", headers)
 
-    def _reply(self, code, body, content_type):
+    def _reply(self, code, body, content_type, headers=()):
         # Compress replies the client says it can decode. Small bodies (most
         # /health, /friends/* replies) aren't worth the CPU; sync's full trip
         # + trace history is, by a lot — JSON compresses roughly 10:1.
@@ -3634,6 +4654,8 @@ class Handler(BaseHTTPRequestHandler):
             body = gzip.compress(body)
         self.send_response(code)
         self.send_header("Content-Type", content_type)
+        for name, value in headers:
+            self.send_header(name, value)
         if gzipped:
             self.send_header("Content-Encoding", "gzip")
         self.send_header("Content-Length", str(len(body)))
@@ -3700,6 +4722,31 @@ def revoke_tokens(username):
         with conn:  # commits on success, rolls back on exception
             cur = conn.execute("DELETE FROM tokens WHERE user_id = ?", (user["id"],))
     print("Revoked %d token(s) for %s." % (cur.rowcount, username))
+    return 0
+
+
+def set_admin(username, wanted):
+    """Grant or take away access to /admin. The way the first admin is made:
+    the dashboard cannot promote anyone until someone can sign into it."""
+    user = find_user(username)
+    if user is None:
+        print("No such user: %s" % username)
+        return 1
+    if not wanted and admin_count_admins() <= 1 and user["is_admin"]:
+        print("%s is the only admin; promote someone else first." % username)
+        return 1
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "UPDATE users SET is_admin = ? WHERE id = ?",
+                (1 if wanted else 0, user["id"]),
+            )
+            if not wanted:
+                conn.execute(
+                    "DELETE FROM admin_sessions WHERE user_id = ?", (user["id"],)
+                )
+    print("%s %s admin." % (user["username"], "is now" if wanted else "is no longer"))
     return 0
 
 
@@ -3785,14 +4832,26 @@ if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == "--revoke-tokens":
         raise SystemExit(revoke_tokens(sys.argv[2]))
 
+    if len(sys.argv) > 2 and sys.argv[1] == "--make-admin":
+        raise SystemExit(set_admin(sys.argv[2], True))
+
+    if len(sys.argv) > 2 and sys.argv[1] == "--drop-admin":
+        raise SystemExit(set_admin(sys.argv[2], False))
+
     # Tokens idle past TOKEN_MAX_IDLE_MS are already rejected by authenticate();
-    # this just stops them accumulating in the table forever.
+    # this just stops them accumulating in the table forever. Dead reset links
+    # and admin sessions go the same way.
     with _write_lock:
         conn = db()
         with conn:  # commits on success, rolls back on exception
             pruned = conn.execute(
                 "DELETE FROM tokens WHERE last_used_ms < ?", (now_ms() - TOKEN_MAX_IDLE_MS,)
             ).rowcount
+            conn.execute("DELETE FROM password_resets WHERE expires_ms < ?", (now_ms(),))
+            conn.execute(
+                "DELETE FROM admin_sessions WHERE last_used_ms < ?",
+                (now_ms() - ADMIN_SESSION_IDLE_MS,),
+            )
     if pruned:
         print("pruned %d idle token(s)" % pruned)
 
@@ -3801,6 +4860,12 @@ if __name__ == "__main__":
     live_port = int(os.environ.get("LIVE_PORT", "8990"))
     print("maproulette-sync on %s:%s, db at %s" % (host, port, DB_FILE))
     print("registration: %s" % ("open" if REGISTRATION_OPEN else "closed"))
+    print("mail: %s" % ("via %s as %s" % (SMTP_HOST, SMTP_FROM) if mail_configured() else "off"))
+    admins = admin_count_admins()
+    print(
+        "manager dashboard: /admin (%s)"
+        % ("%d admin(s)" % admins if admins else "no admins yet — run --make-admin USER")
+    )
     # An empty database with registration closed and no invite code is a
     # server nobody, including its owner, can sign into. Say so loudly rather
     # than let that be a silent dead end.

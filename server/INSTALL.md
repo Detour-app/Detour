@@ -66,7 +66,7 @@ which is usually a bad idea) with `--in-place`.
 ```
 /opt/maproulette-sync/sync_server.py     the service (stdlib Python; python3-websockets
                                           is the one optional dep, for convoy live location/PTT)
-/var/lib/maproulette-sync/maproulette.db SQLite: accounts, trips, traces, badges
+/var/lib/maproulette-sync/maproulette.db SQLite: accounts, trips, traces, badges, invites
 /var/backups/maproulette/                nightly backups, 14 days
 /opt/graphhopper/                        docker-compose.yml, config.yml, OSM data
 /opt/photon/                             docker-compose.yml, photon.jar, the country index
@@ -87,7 +87,12 @@ makes it listen on the LAN as well — worth it for Home Assistant, see
 [`homeassistant/README.md`](homeassistant/README.md#6-optional-skip-the-tunnel-on-your-lan).)
 
 Re-running the installer is safe. It will not overwrite your database, and it
-keeps the invite code it generated the first time.
+keeps the invite code it generated the first time — and any SMTP settings you
+have put in `maproulette-sync.service.d/mail.conf`.
+
+The sync service also serves `/admin`, the [manager
+dashboard](#the-manager-dashboard): invites, password resets and account
+removal, on the same hostname and behind the same Access policy.
 
 ---
 
@@ -194,9 +199,14 @@ that is what decides whose trips come back from `/sync`.
 ### Registration and the invite code
 
 The sync server would otherwise let anyone who reaches it create an account, so
-the installer generates an invite code and prints it. Enter it in the app's
-sign-in screen. It lives in
+the installer generates a shared invite code and prints it. Enter it in the
+app's sign-in screen. It lives in
 `/etc/systemd/system/maproulette-sync.service.d/invite.conf`.
+
+That one code is the same for everybody and never expires. For handing out
+access one person at a time, generate single-use codes in the [manager
+dashboard](#the-manager-dashboard) instead — a code there works once, can carry
+an expiry date, and shows you afterwards who used it.
 
 The server itself fails closed: run `sync_server.py` by hand with no env set
 and `/auth/register` returns 403 until you set `REGISTRATION_OPEN=1` or
@@ -222,6 +232,85 @@ traces, but only when **both** people have turned sharing on. It is off by
 default, reciprocal (stop sharing and you stop receiving), and revocable on the
 next request. Trips are never returned to anyone but their owner, by any
 endpoint.
+
+---
+
+## The manager dashboard
+
+`https://<your sync hostname>/admin` is a small web page for running the
+server's accounts: who has one, who gets one, and how someone gets back in
+after forgetting a password. It is behind Cloudflare Access like everything
+else on that hostname, so reaching it at all already takes your Access login.
+
+**Getting in the first time.** The dashboard has no separate password — you
+sign in with your own account, and that account needs the admin flag. Nothing
+in the dashboard can grant the first one, so do it on the server:
+
+```bash
+sudo -u maproulette-sync DATA_DIR=/var/lib/maproulette-sync \
+  python3 /opt/maproulette-sync/sync_server.py --make-admin YOURNAME
+```
+
+`--drop-admin YOURNAME` takes it away again. The server refuses to remove the
+last admin, from the CLI and the dashboard both — otherwise the only way back
+in would be editing SQLite by hand.
+
+**What it does.**
+
+| | |
+|---|---|
+| **Invite someone** | Generates a single-use code, optionally addressed to an email and expiring after N days (0 = never). Mails it if SMTP is set up, otherwise shows it to you to pass on. The invite list shows which codes are still live and who spent the used ones. |
+| **Reset a password** | *Reset mail* sends a `maproulette://reset?token=…` link that opens the app's reset form; the code is valid once, for an hour. *Set password* changes it there and then and shows you the new one — use it when the account has no email. Either way every device the account was signed in on is signed out. |
+| **Emails** | Set or change the address on any account. It is only ever used for reset links; nothing else mails users. |
+| **Sessions and keys** | Sign an account out everywhere, or mint/revoke read-only `/ha/*` dashboard keys without touching the phone's login. |
+| **Admin rights** | Promote or demote other accounts. |
+| **Delete** | Removes the account and everything it owns — trips, traces, points, saved places, friendships, convoy membership, keys, sessions. There is no undo; take a backup first if you might regret it. |
+
+**What it deliberately does not do.** No admin can read anyone's rides. The
+dashboard shows counts (trips, trace lines, kilometres from the totals the
+user's own app computed) and never the routes themselves — the [privacy
+rule](#the-privacy-rule) is not relaxed for the person who owns the server.
+
+**Sending mail.** Fill in the SMTP block in
+`/etc/systemd/system/maproulette-sync.service.d/mail.conf`, then
+`systemctl daemon-reload && systemctl restart maproulette-sync`:
+
+```ini
+[Service]
+Environment=SMTP_HOST=smtp.gmail.com
+Environment=SMTP_PORT=587
+Environment=SMTP_SECURITY=starttls
+Environment=SMTP_USER=you@gmail.com
+Environment=SMTP_PASS=your-app-password
+Environment=SMTP_FROM=you@gmail.com
+Environment=SITE_NAME=Map Roulette
+```
+
+Gmail needs an [app password](https://myaccount.google.com/apppasswords), not
+your account password. `SMTP_SECURITY` is `starttls` (port 587), `ssl` (465) or
+`none`. Leave `SMTP_HOST` unset and no mail is ever sent — every code and link
+is shown in the dashboard instead, which is enough if you can text it to
+whoever needs it.
+
+Reset links use a custom scheme rather than an `https://` page on purpose: the
+server sits behind Cloudflare Access, and a browser following an `https` link
+would hit the Access wall, while the app already holds the service token. If a
+mail client refuses to make `maproulette://…` tappable, the mail also carries
+the bare code — paste it into **Friends → I have a reset code**.
+
+**A user can start a reset themselves** with **Friends → Forgot password**,
+which needs an email on the account. That endpoint answers identically whether
+or not the account exists, so it cannot be used to find out who has an account
+here.
+
+**Tuning** (all optional, in the same drop-in file):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `RESET_TTL_MINUTES` | 60 | How long a reset link stays valid |
+| `INVITE_DEFAULT_DAYS` | 14 | Prefilled expiry for new invites |
+| `ADMIN_SESSION_HOURS` | 12 | Idle timeout for the dashboard cookie |
+| `SITE_NAME` | Map Roulette | Name used in the mails |
 
 ---
 
@@ -387,6 +476,23 @@ systemctl start maproulette-sync
 If the server lives in an LXC, the container-local backup dies with the
 container. Add it to your hypervisor's backup job as well.
 
+**Accounts from the command line.** Everything here is also in the [manager
+dashboard](#the-manager-dashboard); the CLI is what you use to create the first
+admin, or to get back in if you have locked yourself out. Run them as the
+service user so they write the same database:
+
+```bash
+sudo -u maproulette-sync DATA_DIR=/var/lib/maproulette-sync \
+  python3 /opt/maproulette-sync/sync_server.py --make-admin NAME
+```
+
+| Flag | Does |
+|---|---|
+| `--make-admin NAME` / `--drop-admin NAME` | Access to `/admin` |
+| `--revoke-tokens NAME` | Sign an account out everywhere |
+| `--api-key NAME [LABEL]` / `--revoke-keys NAME` | Read-only `/ha/*` keys |
+| `--backfill-points NAME` | Re-unpack traces into track points |
+
 **OSM refresh.** `graphhopper-refresh.timer` re-downloads the extract monthly
 and re-imports. Routing is down for the duration of the import. Force it now:
 
@@ -473,10 +579,12 @@ string to the user verbatim — so keep any you add plain.
 | Method | Path | Body | Returns |
 |---|---|---|---|
 | GET | `/health` | — | `ok` |
-| POST | `/auth/register` | `{username, password, invite?}` | `{token, username}` |
+| POST | `/auth/register` | `{username, password, invite?, email?}` | `{token, username}` |
 | POST | `/auth/login` | `{username, password}` | `{token, username}` |
 | POST | `/auth/logout` | — | `{}` |
-| GET | `/me` | — | `{username, stats, badges}` |
+| POST | `/auth/forgot` | `{username}` (or an email) | `{}` — always, mails a link if it can |
+| POST | `/auth/reset` | `{token, password}` | `{username}` |
+| GET | `/me` | — | `{username, email, stats, badges}` |
 | POST | `/sync` | `{trips, traces, badges, stats, shareFog?, deletedTrips?}` | merged `{trips, traces, badges}` |
 | GET | `/friends` | — | `{friends, incoming, outgoing}` |
 | POST | `/friends/request` | `{username}` | `{status}` |
@@ -497,7 +605,8 @@ Assistant config never holds credentials that could write anything.
 | GET | `/ha/ride.html?key=[&start=]` | Leaflet page, path coloured by lean |
 
 Mint a key with `sync_server.py --api-key <username> <label>`; revoke every key
-for a user with `--revoke-keys <username>`. A ready-made Home Assistant package
+for a user with `--revoke-keys <username>`. The manager dashboard does both
+without shell access. A ready-made Home Assistant package
 (totals, badges, last-ride and recent-rides sensors) lives in
 [`homeassistant/`](homeassistant/README.md).
 
@@ -507,7 +616,14 @@ cannot push it forward. `stats` and `shareFog` are only touched when the key is
 present, so an older client cannot blank a user's stats or silently change
 their sharing.
 
+The `/admin/*` endpoints are a third case again: a browser session cookie, held
+only by accounts with the admin flag. They are the [manager
+dashboard's](#the-manager-dashboard) own API, not something the app calls, and
+every mutating one also needs the `X-CSRF-Token` header the login handed back.
+
 Passwords are PBKDF2-HMAC-SHA256, 210,000 rounds, per-user salt. Tokens are 32
 random bytes stored only as a SHA-256 hash, so a database leak hands over no
-live sessions. There is no password reset (there is no mail server) and no
-token expiry — delete the row, or `/auth/logout`.
+live sessions; a token idle for `TOKEN_MAX_IDLE_DAYS` (90) is rejected and
+pruned. Password reset links are hashed the same way, single use, and expire in
+an hour — and redeeming one signs the account out everywhere, because "someone
+else has my phone" is the other reason people reset a password.
