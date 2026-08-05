@@ -4245,13 +4245,14 @@ ADMIN_HTML = r"""<!doctype html>
     background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 700;
     flex: none; }
 
-  /* Sidebar + content are one centred block, so the content column stops at a
-     readable width instead of stretching a five-column table across a 1400px
-     screen — which was the single biggest thing making rows hard to scan. */
-  .shell { display: grid; grid-template-columns: 200px minmax(0, 1fr);
-    max-width: 1180px; margin: 0 auto; align-items: start; gap: 8px; }
-  .side { position: sticky; top: 56px; padding: 18px 8px; display: flex; flex-direction: column;
-    gap: 3px; }
+  /* The sidebar is a rail against the left edge of the window, and only the
+     content column is centred and capped. Centring the pair left a wide screen
+     with a band of dead space on the left and the app adrift in the middle. */
+  .shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); align-items: stretch; }
+  .side { position: sticky; top: 56px; align-self: start; padding: 14px 10px;
+    display: flex; flex-direction: column; gap: 3px;
+    background: var(--surface); border-right: 1px solid var(--border);
+    min-height: calc(100dvh - 56px); }
   .navlink {
     display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 9px;
     color: var(--muted); cursor: pointer; border: 1px solid transparent; font-weight: 550;
@@ -4262,7 +4263,8 @@ ADMIN_HTML = r"""<!doctype html>
   .navlink .count { margin-left: auto; font-size: 13px; color: var(--muted);
     font-variant-numeric: tabular-nums; }
   .navlink.on .count { color: var(--accent); }
-  main { padding: 18px 18px 72px; min-width: 0; }
+  main { padding: 20px 24px 72px; min-width: 0; width: 100%; max-width: 1060px;
+    margin: 0 auto; }
   .pagehead { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
   .pagehead h1 { font-size: 22px; }
   .pagehead p { margin: 1px 0 0; color: var(--muted); font-size: 13.5px; }
@@ -4407,8 +4409,8 @@ ADMIN_HTML = r"""<!doctype html>
   @media (max-width: 900px) {
     .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
     .side { position: sticky; top: 56px; z-index: 20; flex-direction: row; overflow-x: auto;
-      padding: 8px 12px; background: var(--bg); border-bottom: 1px solid var(--border); gap: 6px;
-      scrollbar-width: none; }
+      padding: 8px 12px; background: var(--bg); border-right: none; min-height: 0;
+      border-bottom: 1px solid var(--border); gap: 6px; scrollbar-width: none; }
     .side::-webkit-scrollbar { display: none; }
     .navlink { width: auto; white-space: nowrap; }
     .navlink .count { margin-left: 5px; }
