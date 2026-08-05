@@ -57,22 +57,47 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
         run: |
           missing=""
           [ -z "$RELEASE_KEYSTORE_PASSWORD" ] && missing="$missing RELEASE_KEYSTORE_PASSWORD"
           [ -z "$RELEASE_KEY_ALIAS" ] && missing="$missing RELEASE_KEY_ALIAS"
           [ -z "$RELEASE_KEY_PASSWORD" ] && missing="$missing RELEASE_KEY_PASSWORD"
+          [ -z "$PLAY_SERVICE_ACCOUNT_JSON" ] && missing="$missing PLAY_SERVICE_ACCOUNT_JSON"
           if [ -n "$missing" ]; then
             echo "::error::Missing or empty repository secrets:$missing"
             exit 1
           fi
 
-      - name: Build release APK
+      # Play refuses any upload whose versionCode isn't higher than every code
+      # it has already seen, so a hand-edited number in build.gradle.kts is one
+      # forgotten bump away from a rejected release. The run number only ever
+      # increases, which is the single property Play cares about. Doubling it
+      # leaves an odd slot for the watch artifact: phone and watch share an
+      # applicationId, and Play requires their codes to differ. The +1000 floor
+      # clears the codes already published as GitHub-release APKs (66 at the
+      # time of writing), so an existing sideloaded install still sees Play's
+      # copy as newer.
+      - name: Stamp version codes
+        if: github.event_name == 'push'
+        run: |
+          base=$(( 1000 + GITHUB_RUN_NUMBER * 2 ))
+          echo "VERSION_CODE=$base" >> "$GITHUB_ENV"
+          echo "WEAR_VERSION_CODE=$(( base + 1 ))" >> "$GITHUB_ENV"
+
+      # One invocation, so the version codes stamped above are read once and
+      # every artifact in this release agrees on them. The watch app is built
+      # both ways: .aab for Play, .apk for sideloading off the GitHub release
+      # (it used to ride along inside the phone APK — see the note in
+      # app/build.gradle.kts for why it no longer does).
+      - name: Build release artifacts
         env:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease
+        run: |
+          ./gradlew :app:assembleRelease :app:bundleRelease \
+                    :wear:assembleRelease :wear:bundleRelease
 
       # The APK carries the version in its name, so a downloaded file still says
       # what it is once it's sitting in a Downloads folder next to four others.
@@ -80,24 +105,25 @@ jobs:
         id: version
         run: |
           name=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
-          code=$(grep -oP 'versionCode = \K\d+' app/build.gradle.kts)
-          test -n "$name" && test -n "$code"
+          test -n "$name"
           echo "name=$name" >> "$GITHUB_OUTPUT"
-          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "code=${VERSION_CODE:-local}" >> "$GITHUB_OUTPUT"
 
       # Glob because the artifact name depends on signing: app-release.apk
       # when signed (always, on push — see the decode step), or
       # app-release-unsigned.apk on an unsigned PR build.
-      - name: Rename APK
+      - name: Rename APKs
         run: |
           cp app/build/outputs/apk/release/app-release*.apk \
              detour-${{ steps.version.outputs.name }}.apk
+          cp wear/build/outputs/apk/release/wear-release*.apk \
+             detour-wear-${{ steps.version.outputs.name }}.apk
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: detour-apk-${{ steps.version.outputs.name }}
-          path: detour-${{ steps.version.outputs.name }}.apk
+          path: detour-*-${{ steps.version.outputs.name }}.apk
 
       # mapping.txt de-obfuscates R8's minified stack traces; published per
       # release so a crash report from an issue can be matched back to source.
@@ -107,11 +133,36 @@ jobs:
           name: detour-mapping-${{ steps.version.outputs.name }}
           path: app/build/outputs/mapping/release/mapping.txt
 
+      # Play first, GitHub second: an upload Play rejects (duplicate code, a
+      # bundle that fails its checks) should stop the run before a tag and a
+      # release exist claiming that version shipped.
+      #
+      # Both bundles go into one release edit. They share a package name and
+      # Play tells them apart by the <uses-feature android.hardware.type.watch>
+      # in the watch manifest, which is what routes it to watches and the phone
+      # bundle to phones.
+      #
+      # internal: available to the testers on that list within minutes, no
+      # review queue. Promote to production from the Play Console when a build
+      # has earned it — nothing here writes to a public track.
+      - name: Publish to Play internal track
+        if: github.event_name == 'push'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: io.github.maxke24.detour
+          releaseFiles: |
+            app/build/outputs/bundle/release/app-release.aab
+            wear/build/outputs/bundle/release/wear-release.aab
+          track: internal
+          status: completed
+          mappingFile: app/build/outputs/mapping/release/mapping.txt
+
       # Tagged per version, so old builds stay downloadable instead of being
       # overwritten. Pushing twice without bumping versionName in
       # app/build.gradle.kts replaces that version's release rather than
-      # creating a second one. PRs build the same release APK to prove it still
-      # compiles/minifies clean, but a PR has nothing worth tagging and
+      # creating a second one. PRs build the same release artifacts to prove
+      # they still compile/minify clean, but a PR has nothing worth tagging and
       # publishing — only a push to main cuts a release.
       - name: Publish release
         if: github.event_name == 'push'
@@ -122,14 +173,18 @@ jobs:
           make_latest: true
           files: |
             detour-${{ steps.version.outputs.name }}.apk
+            detour-wear-${{ steps.version.outputs.name }}.apk
             app/build/outputs/mapping/release/mapping.txt
           body: |
             Detour v${{ steps.version.outputs.name }} (versionCode
             ${{ steps.version.outputs.code }}), built from
-            ${{ github.sha }}.
+            ${{ github.sha }}. Also published to the Play internal
+            testing track.
 
             Download the `.apk` below and install it on your phone (allow
-            installs from unknown sources).
+            installs from unknown sources). `detour-wear-*.apk` is the watch
+            app — sideload it separately with `adb`, or take it from Play once
+            you're on the internal testers list.
 
             This build ships with no server configured. Point it at your own
             under Settings → Routing server and Settings → Backup sync, or

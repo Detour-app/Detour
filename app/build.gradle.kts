@@ -41,15 +41,23 @@ fun liveUrl(): String {
 }
 
 android {
+    // The namespace stays on the original name: it's the Kotlin package and the
+    // R class, invisible outside the build. Only applicationId is the identity
+    // Play and the device see, and Play fixes it permanently at first upload.
     namespace = "com.jellemax.detour"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.jellemax.detour"
+        applicationId = "io.github.maxke24.detour"
         minSdk = 26
         targetSdk = 35
-        versionCode = 66
-        versionName = "1.59"
+        // Play rejects an upload whose code isn't higher than every previous
+        // one, and the phone and watch artifacts share an applicationId, so
+        // they also need codes distinct from each other. CI stamps both from
+        // the run number (see .github/workflows/build.yml); a local build
+        // keeps the literal.
+        versionCode = System.getenv("VERSION_CODE")?.toInt() ?: 66
+        versionName = "1.60"
 
         buildConfigField("String", "ROUTING_URL",
             "\"${serviceUrl("routing.url", "ROUTING_SERVER_URL")}\"")
@@ -140,5 +148,11 @@ dependencies {
     // WebSocket client for the convoy live-location/PTT relay - Android has
     // no built-in WS client and hand-rolling RFC 6455 framing isn't worth it.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    wearApp(project(":wear"))
+    // No wearApp(project(":wear")) here on purpose. Embedding the watch APK
+    // inside the phone one only ever auto-installed on Wear OS 1.x, and this
+    // watch app is minSdk 30 (Wear OS 3) — so the embedded copy was 40 MB of
+    // payload that never ran, and Play refuses a bundle that carries one. The
+    // watch app ships as its own artifact instead: same applicationId, its own
+    // versionCode, uploaded alongside the phone bundle in the same Play
+    // release and attached to the GitHub release for sideloading.
 }

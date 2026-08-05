@@ -53,7 +53,7 @@ head unit is actually checking.
 Uninstall any sideloaded copy first. A debug build installs alongside the
 release one (`applicationIdSuffix = ".debug"`, see `app/build.gradle.kts`), and
 that one stays invisible in the car regardless — only the Play-installed
-`com.jellemax.detour` will list.
+`io.github.maxke24.detour` will list.
 
 ## After it appears
 

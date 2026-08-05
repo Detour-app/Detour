@@ -389,7 +389,9 @@ If after reading the file this cannot be done without touching more than ~40
 lines, STOP and report what a correct fix needs instead of forcing it.
 
 **Verify**: `./gradlew :app:assembleDebug`; on device: spin, then
-`adb shell am start -n com.jellemax.detour/.MainActivity` (recreate), route
+`adb shell am start -n io.github.maxke24.detour.debug/com.jellemax.detour.MainActivity`
+(recreate — the activity keeps the old namespace, only the applicationId
+changed), route
 still shown.
 
 **Commit**: `fix(map): keep spin result across recreation`

@@ -41,7 +41,9 @@ want the watch companion.
 
 Releases from CI are signed with a key that a local build does not have, so you
 cannot install a debug build over a release one (or the other way round) without
-uninstalling first — which deletes your trips and fog. Stick to one source.
+uninstalling first — which deletes your trips and fog. Stick to one source. The
+Play build counts as a third source: Play App Signing re-signs it with its own
+key, so it can't be updated by a GitHub APK either.
 
 ## First run
 
@@ -381,8 +383,11 @@ Phone APK lands in `app/build/outputs/apk/debug/app-debug.apk`, watch APK in
 `wear/build/outputs/apk/debug/wear-debug.apk`. Install with
 `adb install app/build/outputs/apk/debug/app-debug.apk`.
 
-Releases published from CI are signed and minified (R8). To verify a
-downloaded release APK's signature yourself:
+Releases published from CI are signed and minified (R8), and a push to `main`
+also uploads the phone and watch bundles to Play's internal testing track — see
+[docs/RELEASING.md](docs/RELEASING.md) for the version-code scheme and the
+one-time Play Console setup. To verify a downloaded release APK's signature
+yourself:
 
 ```
 apksigner verify --print-certs detour-<version>.apk

@@ -66,9 +66,11 @@ opening a PR.
 
 - **One topic per PR.** A security fix and a UI tweak are two PRs, even if
   they're both small.
-- **The build must pass.** CI runs `assembleRelease` (push) or a build check
-  (PRs) on every change — a red build blocks review, don't ask for an
-  exception.
+- **The build must pass.** CI builds the phone and watch release APKs and
+  bundles on every change — a red build blocks review, don't ask for an
+  exception. A push to `main` additionally signs them, publishes a GitHub
+  release, and uploads to Play's internal track (see
+  [docs/RELEASING.md](docs/RELEASING.md)); PRs stop at the build.
 - If you touched the sync server, run `verify.sh` against a local instance
   and mention the result in the PR description.
 - If you touched Android security- or privacy-relevant code (BLE, backup
