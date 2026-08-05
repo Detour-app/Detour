@@ -48,7 +48,7 @@ Protocol
   GET  /ha/coverage?key=[&tol=&max=&cell=]      -> all traces, simplified, {…, geojson, heat{b0…}} (heat = rides per cell)
   GET  /ha/ride.html?key=[&start=]              -> the dashboard (Map/Heat/General/Badges tabs)
   GET  /ha/dashboard.html?key=[&start=]         -> alias for /ha/ride.html
-  GET  /admin                                   -> the manager dashboard (login + users + invites)
+  GET  /admin                                   -> the manager dashboard (Overview/Users/Invites/Server)
   POST /admin/login {username, password}        -> {username, csrf} + session cookie
   POST /admin/logout                            -> {}
   GET  /admin/api/overview                      -> {admin, users: [...], invites: [...], mail, registration}
@@ -4138,149 +4138,400 @@ ADMIN_HTML = r"""<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Map Roulette — manager</title>
 <style>
+  /* Dark is the default and the design's home; light is a full second theme
+     rather than an inverted afterthought, because half of managing a server
+     happens on a laptop in daylight. */
   :root {
     color-scheme: dark;
-    --bg: #14170f; --panel: #191c14; --panel-2: #21241a; --border: #3a3d31;
-    --text: #ede9db; --muted: #b7af98; --accent: #e8b04b; --accent-ink: #2a2205;
-    --red: #e2402a; --green: #1baf7a;
+    --bg: #12150e; --surface: #191d13; --surface-2: #21261a; --raise: #272d1e;
+    --border: #333a28; --border-soft: #2a3021;
+    --text: #ece8da; --muted: #a9a290; --faint: #7c7768;
+    --accent: #e8b04b; --accent-ink: #241c02; --accent-soft: rgba(232,176,75,.13);
+    --red: #e2543a; --red-soft: rgba(226,84,58,.13);
+    --green: #35b487; --green-soft: rgba(53,180,135,.13);
+    --shadow: 0 10px 30px rgba(0,0,0,.45);
+    --radius: 12px;
   }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      color-scheme: light;
+      --bg: #f4f2e9; --surface: #fffefa; --surface-2: #f2efe3; --raise: #eae6d6;
+      --border: #ddd8c4; --border-soft: #e7e3d4;
+      --text: #23261c; --muted: #6b6858; --faint: #8b8877;
+      --accent: #9a6c0c; --accent-ink: #fff8e8; --accent-soft: rgba(154,108,12,.10);
+      --red: #b93a20; --red-soft: rgba(185,58,32,.10);
+      --green: #167d5b; --green-soft: rgba(22,125,91,.10);
+      --shadow: 0 10px 30px rgba(60,54,30,.12);
+    }
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #f4f2e9; --surface: #fffefa; --surface-2: #f2efe3; --raise: #eae6d6;
+    --border: #ddd8c4; --border-soft: #e7e3d4;
+    --text: #23261c; --muted: #6b6858; --faint: #8b8877;
+    --accent: #9a6c0c; --accent-ink: #fff8e8; --accent-soft: rgba(154,108,12,.10);
+    --red: #b93a20; --red-soft: rgba(185,58,32,.10);
+    --green: #167d5b; --green-soft: rgba(22,125,91,.10);
+    --shadow: 0 10px 30px rgba(60,54,30,.12);
+  }
+
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font-size: 14px;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  button, select, input { font: inherit; color: inherit; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text); font-size: 14px;
+    line-height: 1.45;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, select, input, textarea { font: inherit; color: inherit; }
   a { color: var(--accent); }
-  .topbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px;
-    background: var(--panel); border-bottom: 1px solid var(--border); }
-  .brand { font-weight: 700; color: var(--accent); }
+  h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .muted { color: var(--muted); }
+  .faint { color: var(--faint); }
+  .small { font-size: 12.5px; }
   .grow { flex: 1 1 auto; }
-  .wrap { max-width: 1100px; margin: 0 auto; padding: 14px; }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-    padding: 14px; margin-bottom: 14px; }
-  .card h2 { margin: 0 0 10px; font-size: 15px; }
-  .muted { color: var(--muted); font-size: 12px; }
-  input, select { background: var(--bg); border: 1px solid var(--border); color: var(--text);
-    border-radius: 6px; padding: 8px; min-height: 36px; }
-  input { min-width: 0; }
-  button { background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
-    border-radius: 6px; padding: 7px 10px; min-height: 34px; cursor: pointer; }
-  button:hover { border-color: var(--accent); }
-  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
-    font-weight: 600; }
-  button.danger:hover { border-color: var(--red); color: #f2b3a8; }
-  button:disabled { opacity: .5; cursor: default; }
+  .hidden { display: none !important; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .stack { display: flex; flex-direction: column; gap: 4px; }
+  svg.i { width: 17px; height: 17px; flex: none; fill: none; stroke: currentColor;
+    stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* --- controls ------------------------------------------------------- */
+  input, select {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    border-radius: 9px; padding: 8px 10px; min-height: 38px; min-width: 0;
+    transition: border-color .12s, box-shadow .12s;
+  }
+  input::placeholder { color: var(--faint); }
+  input:focus, select:focus, button:focus-visible {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  button {
+    display: inline-flex; align-items: center; gap: 6px; justify-content: center;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 9px; padding: 8px 12px; min-height: 38px; cursor: pointer;
+    font-weight: 550; transition: background .12s, border-color .12s, color .12s;
+  }
+  button:hover:not(:disabled) { background: var(--raise); border-color: var(--muted); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); border-color: var(--accent); }
+  button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+  button.ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+  button.danger { color: var(--red); border-color: var(--border); }
+  button.danger:hover:not(:disabled) { background: var(--red-soft); border-color: var(--red); }
+  button.icon { padding: 0; width: 38px; }
+  button.tiny { min-height: 30px; padding: 3px 9px; font-size: 12.5px; border-radius: 8px; }
+  button.tiny.icon { width: 30px; }
+  button:disabled { opacity: .45; cursor: default; }
+  label.check { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+  label.check input { min-height: 0; width: 16px; height: 16px; accent-color: var(--accent); }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field > span { font-size: 12px; color: var(--muted); font-weight: 550; }
+
+  /* --- shell ---------------------------------------------------------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 30;
+    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; letter-spacing: -.02em; }
+  .brand .dot {
+    width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center;
+    background: var(--accent); color: var(--accent-ink);
+  }
+  .brand .dot svg.i { width: 15px; height: 15px; stroke-width: 2.1; }
+  .whoami { display: flex; align-items: center; gap: 7px; padding: 4px 6px 4px 10px;
+    border: 1px solid var(--border); border-radius: 99px; background: var(--surface-2); }
+  .avatar { width: 24px; height: 24px; border-radius: 99px; display: grid; place-items: center;
+    background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 700; }
+
+  .shell { display: grid; grid-template-columns: 216px minmax(0, 1fr); align-items: start; }
+  .side { position: sticky; top: 55px; padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; }
+  .side .navhead { padding: 8px 10px 4px; font-size: 11px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--faint); font-weight: 600; }
+  .navlink {
+    display: flex; align-items: center; gap: 9px; padding: 9px 10px; border-radius: 9px;
+    color: var(--muted); cursor: pointer; border: 1px solid transparent; font-weight: 550;
+    background: transparent; width: 100%; justify-content: flex-start; min-height: 0;
+  }
+  .navlink:hover { background: var(--surface-2); color: var(--text); border-color: transparent; }
+  .navlink.on { background: var(--accent-soft); color: var(--accent); }
+  .navlink .count { margin-left: auto; font-size: 12px; color: var(--faint); font-weight: 600; }
+  .navlink.on .count { color: var(--accent); }
+  main { padding: 18px 20px 64px; max-width: 1180px; min-width: 0; }
+  .pagehead { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .pagehead h1 { font-size: 21px; }
+  .pagehead p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+
+  /* --- cards ---------------------------------------------------------- */
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; margin-bottom: 16px;
+  }
+  .card > header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .card > header h2 { font-size: 14.5px; }
+  .cards2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px;
+    align-items: start; }
+  .cards2 .card { margin: 0; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px;
+    margin-bottom: 16px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 15px; }
+  .tile .k { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px;
+    font-weight: 600; letter-spacing: .02em; }
+  .tile .v { font-size: 26px; font-weight: 680; letter-spacing: -.02em; margin-top: 6px;
+    font-variant-numeric: tabular-nums; }
+  .tile .v small { font-size: 14px; font-weight: 600; color: var(--muted); margin-left: 3px; }
+  .tile .s { color: var(--faint); font-size: 12px; margin-top: 2px; }
+
+  /* --- table ---------------------------------------------------------- */
+  .tablewrap { overflow-x: auto; margin: 0 -16px -16px; padding: 0 0 2px; }
   table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid rgba(58,61,49,.6);
-    vertical-align: top; }
-  th { color: var(--muted); font-weight: 600; font-size: 12px; }
-  td.actions { white-space: nowrap; }
-  .pill { display: inline-block; padding: 1px 7px; border-radius: 99px; font-size: 11px;
-    border: 1px solid var(--border); color: var(--muted); }
-  .pill.admin { border-color: var(--accent); color: var(--accent); }
-  .pill.live { border-color: var(--green); color: var(--green); }
-  .pill.used { border-color: var(--border); }
-  .pill.expired { border-color: var(--red); color: #f2b3a8; }
-  code { background: var(--bg); border: 1px solid var(--border); border-radius: 5px;
-    padding: 2px 6px; word-break: break-all; }
-  .banner { padding: 10px 12px; border-radius: 8px; margin-bottom: 10px; font-size: 13px; }
-  .banner.error { background: rgba(226,64,42,.12); border: 1px solid rgba(226,64,42,.4); color: #f2b3a8; }
-  .banner.info { background: rgba(232,176,75,.1); border: 1px solid rgba(232,176,75,.35); color: var(--accent); }
-  .login { max-width: 340px; margin: 12vh auto; }
-  .login input { width: 100%; margin-bottom: 8px; }
-  .hidden { display: none; }
-  @media (max-width: 700px) {
-    table, thead, tbody, tr, th, td { display: block; }
-    thead { display: none; }
-    tr { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; padding: 6px; }
-    td { border: none; padding: 4px 6px; }
+  th, td { text-align: left; padding: 10px 12px; border-top: 1px solid var(--border-soft);
+    vertical-align: middle; }
+  thead th { border-top: none; border-bottom: 1px solid var(--border); color: var(--muted);
+    font-weight: 600; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase;
+    white-space: nowrap; }
+  thead th.sortable { cursor: pointer; user-select: none; }
+  thead th.sortable:hover { color: var(--text); }
+  thead th .arrow { opacity: .0; margin-left: 3px; }
+  thead th.on { color: var(--accent); }
+  thead th.on .arrow { opacity: 1; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--surface-2); }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.right, th.right { text-align: right; }
+  .empty { padding: 34px 16px; text-align: center; color: var(--muted); }
+  .empty svg.i { width: 26px; height: 26px; opacity: .5; margin-bottom: 6px; }
+
+  .pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 99px;
+    font-size: 11px; font-weight: 600; border: 1px solid var(--border); color: var(--muted);
+    white-space: nowrap; }
+  .pill.admin { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .pill.live, .pill.ok { border-color: var(--green); color: var(--green); background: var(--green-soft); }
+  .pill.expired, .pill.bad { border-color: var(--red); color: var(--red); background: var(--red-soft); }
+  .pill.used { background: var(--surface-2); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { padding: 5px 11px; border-radius: 99px; border: 1px solid var(--border);
+    background: transparent; color: var(--muted); font-size: 12.5px; min-height: 0; }
+  .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+  code, .code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 7px;
+    padding: 3px 7px; font-size: 12.5px; word-break: break-all; }
+  .secret { display: flex; gap: 8px; align-items: center; background: var(--bg);
+    border: 1px dashed var(--accent); border-radius: 10px; padding: 10px 12px; }
+  .secret .code { border: none; background: transparent; padding: 0; flex: 1 1 auto;
+    font-size: 14px; color: var(--accent); }
+
+  .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
+  .kv > div > .k { font-size: 11.5px; color: var(--muted); font-weight: 600; }
+  .kv > div > .v { font-size: 14.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* --- drawer --------------------------------------------------------- */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 40;
+    opacity: 0; pointer-events: none; transition: opacity .16s; }
+  .scrim.on { opacity: 1; pointer-events: auto; }
+  .drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(430px, 100%); z-index: 50;
+    background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow);
+    transform: translateX(102%); transition: transform .2s cubic-bezier(.3,.7,.3,1);
+    display: flex; flex-direction: column;
+  }
+  .drawer.on { transform: none; }
+  .drawer > header { display: flex; align-items: flex-start; gap: 10px; padding: 16px;
+    border-bottom: 1px solid var(--border); }
+  .drawer .body { overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 18px; }
+  .sect { display: flex; flex-direction: column; gap: 9px; }
+  .sect > h3 { font-size: 11.5px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--faint); font-weight: 600; }
+  .sect.danger { border-top: 1px solid var(--border); padding-top: 14px; }
+
+  /* --- dialogs & toasts ------------------------------------------------ */
+  dialog {
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    border-radius: var(--radius); padding: 0; width: min(420px, calc(100vw - 32px));
+    box-shadow: var(--shadow);
+  }
+  dialog::backdrop { background: rgba(0,0,0,.5); }
+  dialog .dbody { padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+  dialog h2 { font-size: 16px; }
+  dialog .dfoot { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 18px;
+    border-top: 1px solid var(--border); background: var(--surface-2);
+    border-radius: 0 0 var(--radius) var(--radius); }
+  #toasts { position: fixed; right: 16px; bottom: 16px; z-index: 60; display: flex;
+    flex-direction: column; gap: 8px; align-items: flex-end; max-width: min(380px, calc(100vw - 32px)); }
+  .toast { display: flex; gap: 9px; align-items: flex-start; background: var(--surface);
+    border: 1px solid var(--border); border-left: 3px solid var(--muted); border-radius: 10px;
+    padding: 10px 12px; box-shadow: var(--shadow); font-size: 13px;
+    animation: pop .18s ease-out; }
+  .toast.ok { border-left-color: var(--green); }
+  .toast.ok svg.i { color: var(--green); }
+  .toast.error { border-left-color: var(--red); }
+  .toast.error svg.i { color: var(--red); }
+  @keyframes pop { from { opacity: 0; transform: translateY(6px); } }
+
+  /* --- login ---------------------------------------------------------- */
+  .login { max-width: 360px; margin: 12vh auto; }
+  .login .card { padding: 22px; }
+  .login .brand { justify-content: center; margin-bottom: 4px; font-size: 16px; }
+  .login .field { margin-bottom: 10px; }
+  .login input { width: 100%; }
+
+  .skel { height: 88px; border-radius: var(--radius); border: 1px solid var(--border);
+    background: linear-gradient(90deg, var(--surface), var(--surface-2), var(--surface));
+    background-size: 300% 100%; animation: sweep 1.3s linear infinite; }
+  @keyframes sweep { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: minmax(0, 1fr); }
+    .side { position: sticky; top: 55px; z-index: 20; flex-direction: row; overflow-x: auto;
+      padding: 8px 12px; background: var(--bg); border-bottom: 1px solid var(--border); gap: 6px; }
+    .side .navhead { display: none; }
+    .navlink { width: auto; white-space: nowrap; }
+    .navlink .count { margin-left: 4px; }
+    main { padding: 16px 12px 64px; }
+    #toasts { left: 16px; right: 16px; bottom: 12px; max-width: none; align-items: stretch; }
+  }
+  @media (max-width: 620px) {
+    .t-opt { display: none; }
+    .topbar .whoami .uname { display: none; }
   }
 </style>
 
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 19v-1.5A3.5 3.5 0 0 0 12.5 14h-5A3.5 3.5 0 0 0 4 17.5V19"/><circle cx="10" cy="8" r="3.2"/><path d="M20 19v-1.5a3.5 3.5 0 0 0-2.6-3.4M15.4 5.2a3.2 3.2 0 0 1 0 6"/></symbol>
+  <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M4 9V7a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2a2.5 2.5 0 0 0 0 5v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2a2.5 2.5 0 0 0 0-5Z"/><path d="M13 6v2M13 11v2M13 16v2"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18h6a3 3 0 0 0 0-6h-5a3 3 0 0 1 0-6h5"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4 18a9 9 0 1 1 16 0"/><path d="m12 14 4-4"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 4 12L16 12h5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12.5 5 5L20 6.5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5M12 16.2v.1"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14-4.5L4 9"/><path d="M4 5v4h4"/><path d="M4 13a8 8 0 0 0 14 4.5L20 15"/><path d="M20 19v-4h-4"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M14 8V5a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1v-3"/><path d="M10 12h10m0 0-3-3m3 3-3 3"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 7 8.5 6 8.5-6"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="12" r="3.5"/><path d="M11.5 12H21m-3 0v3m-3-3v2"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.5 5 6v5.5c0 4 3 7.3 7 9 4-1.7 7-5 7-9V6z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V5h5v2M6.5 7l.8 12a1 1 0 0 0 1 1h7.4a1 1 0 0 0 1-1l.8-12"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10" width="15" height="10" rx="2"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5v.1M7 16.5v.1"/></symbol>
+</defs></svg>
+
 <div class="topbar hidden" id="bar">
-  <span class="brand">Map Roulette</span>
-  <span class="muted" id="who"></span>
+  <span class="brand"><span class="dot"><svg class="i"><use href="#i-compass"/></svg></span>Map Roulette</span>
+  <span class="pill" id="regpill" title="How new accounts are created"></span>
   <span class="grow"></span>
-  <button id="refresh">Refresh</button>
-  <button id="logout">Sign out</button>
+  <span class="small faint" id="freshness"></span>
+  <button class="ghost icon" id="theme" title="Light / dark"><svg class="i"><use href="#i-moon"/></svg></button>
+  <button class="ghost icon" id="refresh" title="Refresh (r)"><svg class="i"><use href="#i-refresh"/></svg></button>
+  <span class="whoami">
+    <span class="avatar" id="initial"></span>
+    <span class="uname small" id="who"></span>
+    <button class="ghost icon tiny" id="logout" title="Sign out"><svg class="i"><use href="#i-out"/></svg></button>
+  </span>
 </div>
 
-<div class="wrap">
-  <div id="messages"></div>
-
-  <div class="card login" id="login">
-    <h2>Manager sign-in</h2>
-    <input id="lu" placeholder="Username" autocomplete="username">
-    <input id="lp" type="password" placeholder="Password" autocomplete="current-password">
-    <button class="primary" id="lgo" style="width:100%">Sign in</button>
-    <p class="muted">Your normal account password. The account needs admin
-      rights — grant the first one on the server with
+<div class="login hidden" id="login">
+  <div class="card">
+    <div class="brand"><span class="dot"><svg class="i"><use href="#i-compass"/></svg></span>Map Roulette</div>
+    <p class="muted small" style="text-align:center;margin:0 0 16px">Manager sign-in</p>
+    <label class="field"><span>Username</span>
+      <input id="lu" autocomplete="username" autocapitalize="none" spellcheck="false"></label>
+    <label class="field"><span>Password</span>
+      <input id="lp" type="password" autocomplete="current-password"></label>
+    <button class="primary" id="lgo" style="width:100%"><svg class="i"><use href="#i-lock"/></svg>Sign in</button>
+    <p class="muted small" style="margin:14px 0 0">Your normal account password. The account needs
+      admin rights — grant the first one on the server with
       <code>sync_server.py --make-admin NAME</code>.</p>
   </div>
-
-  <div id="app" class="hidden">
-    <div class="card">
-      <h2>Invite someone</h2>
-      <div class="row">
-        <input id="i-label" placeholder="Who is it for (a note to yourself)">
-        <input id="i-email" placeholder="Email (optional)" type="email">
-        <input id="i-days" type="number" min="0" value="14" style="width:120px" title="Days until it expires; 0 = never">
-        <label class="muted"><input type="checkbox" id="i-send" style="min-height:0"> mail it</label>
-        <button class="primary" id="i-make">Generate code</button>
-      </div>
-      <p class="muted" id="mailnote"></p>
-    </div>
-
-    <div class="card">
-      <h2>Users (<span id="ucount">0</span>)</h2>
-      <table>
-        <thead><tr>
-          <th>User</th><th>Email</th><th>Activity</th><th>Actions</th>
-        </tr></thead>
-        <tbody id="users"></tbody>
-      </table>
-    </div>
-
-    <div class="card">
-      <h2>Invites</h2>
-      <table>
-        <thead><tr>
-          <th>Code</th><th>For</th><th>Status</th><th></th>
-        </tr></thead>
-        <tbody id="invites"></tbody>
-      </table>
-    </div>
-  </div>
 </div>
 
+<div class="shell hidden" id="app">
+  <nav class="side">
+    <div class="navhead">Manage</div>
+    <button class="navlink" data-view="overview"><svg class="i"><use href="#i-grid"/></svg>Overview</button>
+    <button class="navlink" data-view="users"><svg class="i"><use href="#i-users"/></svg>Users<span class="count" id="n-users"></span></button>
+    <button class="navlink" data-view="invites"><svg class="i"><use href="#i-ticket"/></svg>Invites<span class="count" id="n-invites"></span></button>
+    <button class="navlink" data-view="server"><svg class="i"><use href="#i-server"/></svg>Server</button>
+  </nav>
+  <main id="view"></main>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="User details"></aside>
+<div id="toasts"></div>
+<dialog id="dlg"></dialog>
+
 <script>
-let csrf = "";
 const $ = (id) => document.getElementById(id);
 
 // Every cell is built with textContent, never innerHTML: usernames, labels and
 // invite notes are user input, and this page is the one place an admin reads
-// them all in one list.
+// them all in one list. The only markup built from a string is icon(), whose
+// argument is always a literal from this file.
 function el(tag, props, ...kids) {
   const node = document.createElement(tag);
   Object.assign(node, props || {});
   for (const kid of kids) {
-    if (kid == null) continue;
+    if (kid == null || kid === false) continue;
     node.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
   }
   return node;
 }
-
-function flash(text, kind, extra) {
-  const box = el("div", { className: "banner " + (kind || "info") }, text);
-  if (extra) {
-    box.append(" ", el("code", {}, extra));
-    const copy = el("button", { style: "margin-left:8px" }, "Copy");
-    copy.onclick = () => navigator.clipboard.writeText(extra).then(
-      () => { copy.textContent = "Copied"; }, () => { copy.textContent = "Copy failed"; });
-    box.append(" ", copy);
-  }
-  $("messages").prepend(box);
-  if (!extra && kind !== "error") setTimeout(() => box.remove(), 4000);
+function icon(name) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "i");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", "#i-" + name);
+  svg.append(use);
+  return svg;
 }
+
+const state = {
+  data: null,       // last /admin/api/overview payload
+  view: "overview",
+  q: "",
+  sort: "username",
+  desc: false,
+  inviteFilter: "all",
+  openUser: null,   // id of the user whose drawer is up
+  fetchedAt: 0,
+};
+let csrf = "";
+
+// --- formatting ---------------------------------------------------------
+
+const DAY = 86400000;
+const fmtDate = (ms) => ms ? new Date(ms).toLocaleDateString(undefined,
+  { day: "numeric", month: "short", year: "numeric" }) : "never";
+const fmtDateTime = (ms) => ms ? new Date(ms).toLocaleString(undefined,
+  { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "never";
+function fmtAgo(ms) {
+  if (!ms) return "never";
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 90) return "just now";
+  if (s < 5400) return Math.round(s / 60) + " min ago";
+  if (s < 129600) return Math.round(s / 3600) + " h ago";
+  if (s < 30 * DAY / 1000) return Math.round(s / 86400) + " days ago";
+  return fmtDate(ms);
+}
+const fmtNum = (n) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+function fmtKm(km) {
+  if (km >= 10000) return fmtNum(Math.round(km));
+  return km.toLocaleString(undefined, { maximumFractionDigits: km < 100 ? 1 : 0 });
+}
+
+// --- api ----------------------------------------------------------------
 
 async function api(path, body) {
   const res = await fetch(path, {
@@ -4292,165 +4543,704 @@ async function api(path, body) {
   if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
   return data;
 }
+const post = (uid, what, body) => api("/admin/api/user/" + uid + "/" + what, body || {});
 
-const fmtDate = (ms) => ms ? new Date(ms).toLocaleDateString(undefined,
-  { day: "numeric", month: "short", year: "numeric" }) : "never";
+// --- toasts -------------------------------------------------------------
 
-function userRow(u, state) {
-  const act = (label, fn, cls) => {
-    const b = el("button", { className: cls || "" }, label);
-    b.onclick = async () => {
-      b.disabled = true;
-      try { await fn(); } catch (e) { flash(e.message, "error"); }
-      b.disabled = false;
-    };
-    return b;
-  };
-  const post = (what, body) => api("/admin/api/user/" + u.id + "/" + what, body || {});
-
-  const name = el("td", {},
-    el("div", {}, el("b", {}, u.username), " ",
-      u.isAdmin ? el("span", { className: "pill admin" }, "admin") : null,
-      u.isSelf ? el("span", { className: "pill" }, "you") : null),
-    el("div", { className: "muted" }, "joined " + fmtDate(u.createdMs)));
-
-  const emailInput = el("input", { value: u.email, placeholder: "no email", type: "email" });
-  const email = el("td", {}, el("div", { className: "row" }, emailInput,
-    act("Save", async () => {
-      await post("email", { email: emailInput.value.trim() });
-      flash("Email saved for " + u.username);
-      load();
-    })));
-
-  const activity = el("td", { className: "muted" },
-    el("div", {}, u.trips + " trips · " + u.distanceKm + " km"),
-    el("div", {}, u.sessions + " session(s) · " + u.apiKeys + " API key(s)"),
-    el("div", {}, "last sync " + fmtDate(u.lastSeenMs)));
-
-  const actions = el("td", { className: "actions row" },
-    act("Reset mail", async () => {
-      const r = await post("reset");
-      if (r.mailed) flash("Reset link mailed to " + u.email + " (valid " + state.resetMinutes + " min).");
-      else flash("Not mailed — send this link to " + u.username + " yourself:", "info", r.link);
-    }),
-    act("Set password", async () => {
-      const chosen = prompt("New password for " + u.username + " (blank = generate one):", "");
-      if (chosen === null) return;
-      if (chosen && chosen.length < 8) { flash("Passwords are at least 8 characters.", "error"); return; }
-      const r = await post("password", { password: chosen });
-      flash("Password set for " + u.username + ". Signed out everywhere. New password:", "info", r.password);
-      load();
-    }),
-    act("Sign out", async () => {
-      const r = await post("revoke", { what: "tokens" });
-      flash("Revoked " + r.revoked + " session(s) for " + u.username);
-      load();
-    }),
-    act("New API key", async () => {
-      const r = await post("apikey", { label: "dashboard" });
-      flash("Read-only key for " + u.username + " — shown once:", "info", r.key);
-      load();
-    }),
-    act(u.isAdmin ? "Drop admin" : "Make admin", async () => {
-      await post("admin", { admin: !u.isAdmin });
-      load();
-    }),
-    act("Delete", async () => {
-      if (prompt("Type the username to delete " + u.username + " and every ride they have synced. This cannot be undone.") !== u.username) return;
-      await post("delete");
-      flash("Deleted " + u.username);
-      load();
-    }, "danger"));
-
-  return el("tr", {}, name, email, activity, actions);
+function toast(text, kind) {
+  const box = el("div", { className: "toast " + (kind || "ok") },
+    icon(kind === "error" ? "alert" : "check"), el("span", { className: "grow" }, text));
+  $("toasts").append(box);
+  setTimeout(() => box.remove(), kind === "error" ? 7000 : 4000);
 }
 
-function inviteRow(inv) {
-  const code = el("td", {}, el("code", {}, inv.code));
-  const forWho = el("td", { className: "muted" },
-    el("div", {}, inv.label || "—"),
-    el("div", {}, inv.email || ""));
-  const status = el("td", {},
-    el("span", { className: "pill " + inv.status }, inv.status),
-    el("div", { className: "muted" },
-      inv.status === "used" ? "by " + inv.usedBy + " on " + fmtDate(inv.usedMs)
-        : "expires " + fmtDate(inv.expiresMs)));
-  const del = el("button", { className: "danger" }, "Revoke");
-  del.onclick = async () => {
-    del.disabled = true;
-    try { await api("/admin/api/invite/revoke", { code: inv.code }); load(); }
-    catch (e) { flash(e.message, "error"); del.disabled = false; }
+function copyButton(text, label) {
+  const b = el("button", { className: "tiny" + (label ? "" : " icon"), title: "Copy" },
+    icon("copy"), label || null);
+  b.onclick = (e) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(text).then(
+      () => { b.textContent = ""; b.append(icon("check"), label ? "Copied" : ""); },
+      () => toast("Could not reach the clipboard — select and copy by hand.", "error"));
   };
-  const copy = el("button", {}, "Copy");
-  copy.onclick = () => navigator.clipboard.writeText(inv.code).then(
-    () => { copy.textContent = "Copied"; }, () => { copy.textContent = "Copy failed"; });
-  return el("tr", {}, code, forWho, status, el("td", { className: "actions" }, copy, " ", del));
+  return b;
 }
 
-async function load() {
-  let state;
-  try {
-    state = await api("/admin/api/overview");
-  } catch (e) {
-    $("app").classList.add("hidden");
-    $("bar").classList.add("hidden");
-    $("login").classList.remove("hidden");
-    return;
+// --- dialogs ------------------------------------------------------------
+
+// One dialog element, rebuilt per call. Resolves with the field values, or
+// null when it is dismissed — so every caller reads as `if (!r) return;`.
+function dialog({ title, lede, fields, confirm, danger, body }) {
+  const dlg = $("dlg");
+  dlg.textContent = "";
+  const inputs = {};
+  const form = el("form", { method: "dialog" });
+  const dbody = el("div", { className: "dbody" }, el("h2", {}, title),
+    lede ? el("p", { className: "muted small", style: "margin:0" }, lede) : null);
+  if (body) dbody.append(body);
+  for (const f of fields || []) {
+    const input = el("input", {
+      type: f.type || "text", placeholder: f.placeholder || "", value: f.value || "",
+      autocomplete: "off", spellcheck: false,
+    });
+    inputs[f.name] = input;
+    dbody.append(el("label", { className: "field" }, el("span", {}, f.label), input));
   }
-  csrf = state.csrf;
-  $("login").classList.add("hidden");
-  $("app").classList.remove("hidden");
-  $("bar").classList.remove("hidden");
-  $("who").textContent = "signed in as " + state.admin + " · registration: " + state.registration;
-  $("mailnote").textContent = state.mail
-    ? "Mail goes out as " + state.mailFrom + ". Reset links last " + state.resetMinutes + " minutes."
-    : "No SMTP relay configured (SMTP_HOST is unset), so nothing is mailed — codes and links are shown here to pass on yourself.";
-  $("i-send").disabled = !state.mail;
-  $("ucount").textContent = state.users.length;
-  const users = $("users");
-  users.textContent = "";
-  for (const u of state.users) users.append(userRow(u, state));
-  const invites = $("invites");
-  invites.textContent = "";
-  if (!state.invites.length) invites.append(el("tr", {}, el("td", { className: "muted" }, "No invites yet.")));
-  for (const inv of state.invites) invites.append(inviteRow(inv));
+  const cancel = el("button", { type: "button" }, "Cancel");
+  const ok = el("button", { className: danger ? "danger" : "primary" }, confirm || "OK");
+  form.append(dbody, el("div", { className: "dfoot" }, cancel, ok));
+  dlg.append(form);
+
+  return new Promise((resolve) => {
+    let done = false;
+    // close() fires onclose, which calls finish again: guard on both sides or
+    // the dismiss path bounces between the two forever.
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      resolve(val);
+      if (dlg.open) dlg.close();
+    };
+    cancel.onclick = () => finish(null);
+    dlg.onclose = () => finish(null);
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      const out = {};
+      for (const k in inputs) out[k] = inputs[k].value;
+      finish(out);
+    };
+    dlg.showModal();
+    const first = Object.values(inputs)[0];
+    if (first) first.focus(); else ok.focus();
+  });
 }
 
-$("lgo").onclick = async () => {
+const confirmDialog = (title, lede, confirm, danger) =>
+  dialog({ title, lede, confirm, danger }).then((r) => r !== null);
+
+// A generated password, an API key and a reset link are all shown exactly
+// once. Give them a dialog of their own so they cannot scroll away.
+function showSecret(title, lede, secret) {
+  const box = el("div", { className: "secret" },
+    el("span", { className: "code" }, secret), copyButton(secret, "Copy"));
+  return dialog({ title, lede, body: box, confirm: "Done" });
+}
+
+// --- login --------------------------------------------------------------
+
+async function signIn() {
+  const btn = $("lgo");
+  btn.disabled = true;
   try {
     const r = await api("/admin/login", { username: $("lu").value.trim(), password: $("lp").value });
     csrf = r.csrf;
     $("lp").value = "";
-    $("messages").textContent = "";
-    load();
-  } catch (e) { flash(e.message, "error"); }
-};
-$("lp").addEventListener("keydown", (e) => { if (e.key === "Enter") $("lgo").click(); });
+    await load();
+  } catch (e) {
+    toast(e.message, "error");
+    $("lp").select();
+  }
+  btn.disabled = false;
+}
 
+// --- data ---------------------------------------------------------------
+
+async function load(silent) {
+  try {
+    state.data = await api("/admin/api/overview");
+    state.fetchedAt = Date.now();
+  } catch (e) {
+    state.data = null;
+    $("app").classList.add("hidden");
+    $("bar").classList.add("hidden");
+    $("login").classList.remove("hidden");
+    closeDrawer();
+    if (silent) toast("Signed out — the session expired.", "error");
+    $("lu").focus();
+    return;
+  }
+  csrf = state.data.csrf;
+  $("login").classList.add("hidden");
+  $("app").classList.remove("hidden");
+  $("bar").classList.remove("hidden");
+  render();
+}
+
+const users = () => (state.data ? state.data.users : []);
+const invites = () => (state.data ? state.data.invites : []);
+const userById = (id) => users().find((u) => u.id === id) || null;
+const adminCount = () => users().filter((u) => u.isAdmin).length;
+
+// --- chrome -------------------------------------------------------------
+
+function renderChrome() {
+  const d = state.data;
+  $("who").textContent = d.admin;
+  $("initial").textContent = (d.admin[0] || "?").toUpperCase();
+  const open = d.registration === "open";
+  const reg = $("regpill");
+  reg.textContent = open ? "registration open" : (d.sharedCode ? "shared invite code" : "invite only");
+  reg.className = "pill " + (open ? "bad" : "");
+  $("n-users").textContent = d.users.length;
+  $("n-invites").textContent = d.invites.filter((i) => i.status === "live").length || "";
+  for (const b of document.querySelectorAll(".navlink")) {
+    b.classList.toggle("on", b.dataset.view === state.view);
+  }
+  tickFreshness();
+}
+
+function tickFreshness() {
+  $("freshness").textContent = state.fetchedAt ? "updated " + fmtAgo(state.fetchedAt) : "";
+}
+
+function pagehead(title, sub, ...actions) {
+  return el("div", { className: "pagehead" },
+    el("div", { className: "grow" }, el("h1", {}, title), el("p", {}, sub)),
+    ...actions);
+}
+
+// --- overview -----------------------------------------------------------
+
+function tile(name, value, unit, sub) {
+  return el("div", { className: "tile" },
+    el("div", { className: "k" }, icon(name.icon), name.label),
+    el("div", { className: "v" }, value, unit ? el("small", {}, unit) : null),
+    el("div", { className: "s" }, sub));
+}
+
+function viewOverview() {
+  const us = users(), inv = invites();
+  const trips = us.reduce((a, u) => a + u.trips, 0);
+  const km = us.reduce((a, u) => a + u.distanceKm, 0);
+  const active = us.filter((u) => u.lastSeenMs > Date.now() - 7 * DAY).length;
+  const live = inv.filter((i) => i.status === "live").length;
+  const sessions = us.reduce((a, u) => a + u.sessions, 0);
+  const noEmail = us.filter((u) => !u.email).length;
+
+  const root = el("div", {},
+    pagehead("Overview", "Everything this server is holding, at a glance."));
+
+  root.append(el("div", { className: "tiles" },
+    tile({ icon: "users", label: "Accounts" }, fmtNum(us.length), null,
+      adminCount() + " with manager rights"),
+    tile({ icon: "pulse", label: "Active" }, fmtNum(active), null, "synced in the last 7 days"),
+    tile({ icon: "route", label: "Trips" }, fmtNum(trips), null,
+      fmtNum(us.reduce((a, u) => a + u.traces, 0)) + " traces stored"),
+    tile({ icon: "gauge", label: "Distance" }, fmtKm(km), " km",
+      us.length ? fmtKm(km / us.length) + " km per account" : "nothing driven yet"),
+    tile({ icon: "ticket", label: "Live invites" }, fmtNum(live), null,
+      inv.filter((i) => i.status === "used").length + " already claimed")));
+
+  // Recently active, which is the one list an admin actually scans daily.
+  const recent = us.slice().sort((a, b) => b.lastSeenMs - a.lastSeenMs).slice(0, 6);
+  const recentCard = el("div", { className: "card" },
+    el("header", {}, icon("pulse"), el("h2", { className: "grow" }, "Recent activity")));
+  if (!recent.length) recentCard.append(el("p", { className: "muted small" }, "No accounts yet."));
+  for (const u of recent) {
+    const line = el("div", { className: "row", style: "padding:7px 0;border-top:1px solid var(--border-soft)" },
+      el("span", { className: "avatar" }, (u.username[0] || "?").toUpperCase()),
+      el("div", { className: "stack grow" },
+        el("div", {}, el("b", {}, u.username), " ",
+          u.isAdmin ? el("span", { className: "pill admin" }, "manager") : null),
+        el("div", { className: "small faint" }, u.trips + " trips · " + fmtKm(u.distanceKm) + " km")),
+      el("span", { className: "small muted" }, fmtAgo(u.lastSeenMs)));
+    line.style.cursor = "pointer";
+    line.onclick = () => openDrawer(u.id);
+    recentCard.append(line);
+  }
+
+  // Things worth doing something about. Silent when there is nothing to say.
+  const flags = [];
+  if (!state.data.mail) flags.push(["No SMTP relay configured — invites and reset links can only be passed on by hand.", "bad"]);
+  if (state.data.registration === "open") flags.push(["Registration is open: anyone who can reach this server can create an account.", "bad"]);
+  if (adminCount() === 1) flags.push(["One manager account. If it loses its password, only the server CLI can let you back in.", ""]);
+  if (noEmail) flags.push([noEmail + " account(s) have no email on file, so they cannot be mailed a reset link.", ""]);
+  const expired = inv.filter((i) => i.status === "expired").length;
+  if (expired) flags.push([expired + " invite(s) expired unused.", ""]);
+
+  const notes = el("div", { className: "card" },
+    el("header", {}, icon("shield"), el("h2", { className: "grow" }, "Worth knowing")));
+  if (!flags.length) {
+    notes.append(el("p", { className: "muted small", style: "margin:0" },
+      "Nothing needs attention: mail works, registration is closed and every account has an address on file."));
+  }
+  for (const [text, kind] of flags) {
+    notes.append(el("div", { className: "row", style: "padding:7px 0;border-top:1px solid var(--border-soft);flex-wrap:nowrap" },
+      el("span", { className: "pill " + kind }, kind === "bad" ? "check" : "note"),
+      el("span", { className: "small" }, text)));
+  }
+
+  root.append(el("div", { className: "cards2" }, recentCard, notes));
+  return root;
+}
+
+// --- users --------------------------------------------------------------
+
+const SORTS = {
+  username: (a, b) => a.username.localeCompare(b.username),
+  lastSeenMs: (a, b) => a.lastSeenMs - b.lastSeenMs,
+  createdMs: (a, b) => a.createdMs - b.createdMs,
+  trips: (a, b) => a.trips - b.trips,
+  distanceKm: (a, b) => a.distanceKm - b.distanceKm,
+};
+
+function sortHeader(label, key, extra) {
+  const th = el("th", { className: "sortable " + (extra || "") + (state.sort === key ? " on" : "") },
+    label, el("span", { className: "arrow" }, state.desc ? "↓" : "↑"));
+  th.onclick = () => {
+    if (state.sort === key) state.desc = !state.desc;
+    else { state.sort = key; state.desc = key !== "username"; }
+    render();
+  };
+  return th;
+}
+
+function viewUsers() {
+  const q = state.q.toLowerCase();
+  const list = users()
+    .filter((u) => !q || u.username.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
+    .sort(SORTS[state.sort]);
+  if (state.desc) list.reverse();
+
+  const search = el("input", { placeholder: "Search name or email", value: state.q, type: "search",
+    style: "min-width:220px" });
+  // Re-rendering the page replaces this very input, so the caret is put back
+  // where it was on the fresh one.
+  search.oninput = () => {
+    state.q = search.value;
+    render(true);
+    const again = $("usearch");
+    if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+  };
+  search.id = "usearch";
+
+  const root = el("div", {},
+    pagehead("Users", users().length + " account(s) on this server", search));
+
+  const card = el("div", { className: "card" });
+  const table = el("table", {},
+    el("thead", {}, el("tr", {},
+      sortHeader("User", "username"),
+      el("th", { className: "t-opt" }, "Email"),
+      sortHeader("Trips", "trips", "right t-opt"),
+      sortHeader("Distance", "distanceKm", "right t-opt"),
+      sortHeader("Last sync", "lastSeenMs"),
+      el("th", { className: "right" }, ""))));
+  const tbody = el("tbody", {});
+  for (const u of list) tbody.append(userRow(u));
+  table.append(tbody);
+  card.append(el("div", { className: "tablewrap" }, table));
+  if (!list.length) {
+    card.textContent = "";
+    card.append(el("div", { className: "empty" }, icon("users"),
+      el("div", {}, state.q ? "No account matches “" + state.q + "”." : "No accounts yet.")));
+  }
+  root.append(card);
+  return root;
+}
+
+function userRow(u) {
+  const manage = el("button", { className: "tiny" }, "Manage");
+  const tr = el("tr", {},
+    el("td", {},
+      el("div", { className: "row", style: "flex-wrap:nowrap;gap:9px" },
+        el("span", { className: "avatar" }, (u.username[0] || "?").toUpperCase()),
+        el("div", { className: "stack" },
+          el("div", {}, el("b", {}, u.username), " ",
+            u.isAdmin ? el("span", { className: "pill admin" }, "manager") : null, " ",
+            u.isSelf ? el("span", { className: "pill" }, "you") : null),
+          el("div", { className: "small faint" }, "joined " + fmtDate(u.createdMs))))),
+    el("td", { className: "t-opt small" }, u.email || el("span", { className: "faint" }, "—")),
+    el("td", { className: "num right t-opt" }, fmtNum(u.trips)),
+    el("td", { className: "num right t-opt" }, fmtKm(u.distanceKm) + " km"),
+    el("td", { className: "small muted" }, fmtAgo(u.lastSeenMs)),
+    el("td", { className: "right" }, manage));
+  tr.onclick = () => openDrawer(u.id);
+  return tr;
+}
+
+// --- user drawer --------------------------------------------------------
+
+function openDrawer(id) {
+  state.openUser = id;
+  renderDrawer();
+  $("drawer").classList.add("on");
+  $("scrim").classList.add("on");
+}
+function closeDrawer() {
+  state.openUser = null;
+  $("drawer").classList.remove("on");
+  $("scrim").classList.remove("on");
+}
+
+// Wraps a click handler so the button disables itself for the round trip and
+// every failure lands in a toast instead of the console.
+function action(label, iconName, fn, cls) {
+  const b = el("button", { className: cls || "" }, iconName ? icon(iconName) : null, label);
+  b.onclick = async () => {
+    b.disabled = true;
+    try { await fn(); } catch (e) { toast(e.message, "error"); }
+    b.disabled = false;
+  };
+  return b;
+}
+
+function renderDrawer() {
+  const u = userById(state.openUser);
+  const drawer = $("drawer");
+  drawer.textContent = "";
+  if (!u) { closeDrawer(); return; }
+
+  const close = el("button", { className: "ghost icon", title: "Close" }, icon("x"));
+  close.onclick = closeDrawer;
+  drawer.append(el("header", {},
+    el("span", { className: "avatar", style: "width:34px;height:34px;font-size:15px" },
+      (u.username[0] || "?").toUpperCase()),
+    el("div", { className: "stack grow" },
+      el("div", { style: "font-size:16px;font-weight:650" }, u.username),
+      el("div", { className: "row", style: "gap:5px" },
+        u.isAdmin ? el("span", { className: "pill admin" }, "manager") : null,
+        u.isSelf ? el("span", { className: "pill" }, "you") : null,
+        el("span", { className: "pill " + (u.shareFog ? "ok" : "") },
+          u.shareFog ? "shares fog" : "fog private"))),
+    close));
+
+  const body = el("div", { className: "body" });
+  const stat = (k, v) => el("div", {}, el("div", { className: "k" }, k), el("div", { className: "v" }, v));
+  body.append(el("div", { className: "kv" },
+    stat("Trips", fmtNum(u.trips)),
+    stat("Distance", fmtKm(u.distanceKm) + " km"),
+    stat("Traces", fmtNum(u.traces)),
+    stat("Sessions", fmtNum(u.sessions)),
+    stat("API keys", fmtNum(u.apiKeys)),
+    stat("Joined", fmtDate(u.createdMs))));
+  body.append(el("div", { className: "small faint" }, "Last sync " + fmtDateTime(u.lastSeenMs)));
+
+  // Email
+  const emailInput = el("input", { value: u.email, placeholder: "no address on file", type: "email",
+    className: "grow", autocapitalize: "none", spellcheck: false });
+  body.append(el("div", { className: "sect" }, el("h3", {}, "Email"),
+    el("div", { className: "row", style: "flex-wrap:nowrap" }, emailInput,
+      action("Save", null, async () => {
+        await post(u.id, "email", { email: emailInput.value.trim() });
+        toast("Email saved for " + u.username);
+        await load(true);
+      }, "primary"))));
+
+  // Password
+  const resetBtn = action("Email a reset link", "mail", async () => {
+    const r = await post(u.id, "reset");
+    if (r.mailed) toast("Reset link mailed to " + u.email + ", valid " + state.data.resetMinutes + " min.");
+    else await showSecret("Reset link", "Not mailed. Send this to " + u.username + " yourself — it is valid for "
+      + state.data.resetMinutes + " minutes.", r.link);
+  });
+  resetBtn.disabled = !u.email;
+  resetBtn.title = u.email ? "" : "This account has no email address on file.";
+  body.append(el("div", { className: "sect" }, el("h3", {}, "Password"),
+    el("div", { className: "row" },
+      action("Set a password", "lock", async () => {
+        const r = await dialog({
+          title: "Set a password for " + u.username,
+          lede: "Leave it blank and the server generates a strong one. Either way every "
+            + "signed-in device of theirs is signed out.",
+          fields: [{ name: "password", label: "New password (blank = generate)", type: "text",
+            placeholder: "at least 8 characters" }],
+          confirm: "Set password",
+        });
+        if (!r) return;
+        if (r.password && r.password.length < 8) { toast("Passwords are at least 8 characters.", "error"); return; }
+        const out = await post(u.id, "password", { password: r.password });
+        await showSecret("New password for " + u.username,
+          "Shown once. They are signed out everywhere and will need this to sign back in.", out.password);
+        await load(true);
+      }),
+      resetBtn)));
+
+  // Access
+  const onlyAdmin = u.isAdmin && adminCount() <= 1;
+  const adminBtn = action(u.isAdmin ? "Revoke manager rights" : "Make manager", "shield", async () => {
+    if (u.isAdmin && !await confirmDialog("Revoke manager rights?",
+      u.username + " keeps their account and rides, but loses this dashboard.", "Revoke", true)) return;
+    await post(u.id, "admin", { admin: !u.isAdmin });
+    toast(u.isAdmin ? "Manager rights revoked from " + u.username : u.username + " is now a manager");
+    await load(true);
+  });
+  adminBtn.disabled = u.isAdmin && (u.isSelf || onlyAdmin);
+  adminBtn.title = u.isSelf ? "Use another manager account to take your own access away."
+    : (onlyAdmin ? "The only manager left." : "");
+
+  const signOut = action("Sign out " + u.sessions + " session(s)", "out", async () => {
+    if (!await confirmDialog("Sign out every device?",
+      u.username + " will have to sign in again on each phone.", "Sign out", true)) return;
+    const r = await post(u.id, "revoke", { what: "tokens" });
+    toast("Revoked " + r.revoked + " session(s) for " + u.username);
+    await load(true);
+  });
+  signOut.disabled = !u.sessions;
+
+  const revokeKeys = action("Revoke " + u.apiKeys + " API key(s)", "key", async () => {
+    if (!await confirmDialog("Revoke every API key?",
+      "Any dashboard or Home Assistant card using one of " + u.username + "'s keys stops working.", "Revoke", true)) return;
+    const r = await post(u.id, "revoke", { what: "keys" });
+    toast("Revoked " + r.revoked + " key(s) for " + u.username);
+    await load(true);
+  });
+  revokeKeys.disabled = !u.apiKeys;
+
+  body.append(el("div", { className: "sect" }, el("h3", {}, "Access"),
+    el("div", { className: "row" }, adminBtn, signOut, revokeKeys,
+      action("New read-only key", "plus", async () => {
+        const r = await dialog({
+          title: "New read-only API key",
+          lede: "For a dashboard or a Home Assistant card. It can read " + u.username
+            + "'s rides and nothing else, and it is shown once.",
+          fields: [{ name: "label", label: "Label", value: "dashboard" }],
+          confirm: "Create key",
+        });
+        if (!r) return;
+        const out = await post(u.id, "apikey", { label: r.label });
+        await showSecret("API key for " + u.username, "Copy it now — it is never shown again.", out.key);
+        await load(true);
+      }))));
+
+  // Danger
+  const del = action("Delete account", "trash", async () => {
+    const r = await dialog({
+      title: "Delete " + u.username + "?",
+      lede: "This removes the account and every trip, trace, place and key it owns. "
+        + "It cannot be undone. Type the username to confirm.",
+      fields: [{ name: "name", label: "Username", placeholder: u.username }],
+      confirm: "Delete for good", danger: true,
+    });
+    if (!r) return;
+    if (r.name !== u.username) { toast("That is not the username — nothing was deleted.", "error"); return; }
+    await post(u.id, "delete");
+    toast("Deleted " + u.username);
+    closeDrawer();
+    await load(true);
+  }, "danger");
+  del.disabled = u.isSelf || onlyAdmin;
+  del.title = u.isSelf ? "You cannot delete the account you signed in with."
+    : (onlyAdmin ? "The only manager left." : "");
+  body.append(el("div", { className: "sect danger" }, el("h3", {}, "Danger zone"), del));
+
+  drawer.append(body);
+}
+
+// --- invites ------------------------------------------------------------
+
+function viewInvites() {
+  const root = el("div", {},
+    pagehead("Invites", "One code, one account. Codes are single use."));
+
+  const label = el("input", { placeholder: "Who is it for (a note to yourself)", className: "grow",
+    style: "min-width:180px" });
+  const email = el("input", { placeholder: "Email (optional)", type: "email", style: "min-width:170px",
+    autocapitalize: "none", spellcheck: false });
+  const days = el("input", { type: "number", min: "0", value: "14", style: "width:120px",
+    title: "Days until it expires; 0 = never" });
+  const send = el("input", { type: "checkbox", disabled: !state.data.mail });
+
+  const make = action("Generate code", "plus", async () => {
+    const r = await api("/admin/api/invite/create", {
+      label: label.value.trim(), email: email.value.trim(),
+      days: Number(days.value || 0), send: send.checked,
+    });
+    await showSecret("Invite code",
+      r.mailed ? "Mailed to " + email.value.trim() + ". Here it is as well." : "Pass this on yourself.",
+      r.code);
+    label.value = ""; email.value = "";
+    await load(true);
+  }, "primary");
+
+  root.append(el("div", { className: "card" },
+    el("header", {}, icon("ticket"), el("h2", { className: "grow" }, "Invite someone")),
+    el("div", { className: "row" }, label, email,
+      el("label", { className: "field" }, el("span", {}, "Expires in (days)"), days),
+      el("label", { className: "check" }, send, "mail it"), make),
+    el("p", { className: "muted small", style: "margin:12px 0 0" }, state.data.mail
+      ? "Mail goes out as " + state.data.mailFrom + ". Reset links last " + state.data.resetMinutes + " minutes."
+      : "No SMTP relay configured (SMTP_HOST is unset), so nothing is mailed — codes and links are shown here to pass on yourself.")));
+
+  const counts = { all: invites().length, live: 0, used: 0, expired: 0 };
+  for (const i of invites()) counts[i.status]++;
+  const chips = el("div", { className: "chips" });
+  for (const key of ["all", "live", "used", "expired"]) {
+    const c = el("button", { className: "chip" + (state.inviteFilter === key ? " on" : "") },
+      key + " " + counts[key]);
+    c.onclick = () => { state.inviteFilter = key; render(); };
+    chips.append(c);
+  }
+
+  const list = invites().filter((i) => state.inviteFilter === "all" || i.status === state.inviteFilter);
+  const card = el("div", { className: "card" },
+    el("header", {}, el("h2", { className: "grow" }, "Codes"), chips));
+  if (!list.length) {
+    card.append(el("div", { className: "empty" }, icon("ticket"),
+      el("div", {}, counts.all ? "No " + state.inviteFilter + " invites." : "No invites yet.")));
+  } else {
+    const tbody = el("tbody", {});
+    for (const inv of list) tbody.append(inviteRow(inv));
+    card.append(el("div", { className: "tablewrap" }, el("table", {},
+      el("thead", {}, el("tr", {},
+        el("th", {}, "Code"), el("th", { className: "t-opt" }, "For"),
+        el("th", {}, "Status"), el("th", { className: "right" }, ""))),
+      tbody)));
+  }
+  root.append(card);
+  return root;
+}
+
+function inviteRow(inv) {
+  const revoke = action("", "trash", async () => {
+    if (!await confirmDialog("Revoke this invite?",
+      inv.status === "live" ? "The code stops working immediately." : "Removes it from the list.",
+      "Revoke", true)) return;
+    await api("/admin/api/invite/revoke", { code: inv.code });
+    toast("Invite revoked");
+    await load(true);
+  }, "tiny icon danger");
+  revoke.title = "Revoke";
+
+  const sub = inv.status === "used"
+    ? "claimed by " + inv.usedBy + " on " + fmtDate(inv.usedMs)
+    : (inv.expiresMs ? (inv.status === "expired" ? "expired " : "expires ") + fmtDate(inv.expiresMs)
+      : "never expires");
+
+  const tr = el("tr", { style: "cursor:default" },
+    el("td", {}, el("div", { className: "row", style: "flex-wrap:nowrap" },
+      el("span", { className: "code" }, inv.code), copyButton(inv.code))),
+    el("td", { className: "t-opt small" },
+      el("div", {}, inv.label || el("span", { className: "faint" }, "—")),
+      inv.email ? el("div", { className: "faint" }, inv.email) : null),
+    el("td", {},
+      el("div", {}, el("span", { className: "pill " + inv.status }, inv.status)),
+      el("div", { className: "small faint" }, sub)),
+    el("td", { className: "right" }, revoke));
+  return tr;
+}
+
+// --- server -------------------------------------------------------------
+
+function viewServer() {
+  const d = state.data;
+  const row = (k, v, pill) => el("div", { className: "row", style: "padding:9px 0;border-top:1px solid var(--border-soft)" },
+    el("span", { className: "muted small grow" }, k),
+    pill ? el("span", { className: "pill " + pill }, v) : el("span", { className: "small" }, v));
+
+  const root = el("div", {},
+    pagehead("Server", "How this instance is configured. Change these with environment variables and a restart."));
+
+  const open = d.registration === "open";
+  root.append(el("div", { className: "cards2" },
+    el("div", { className: "card" },
+      el("header", {}, icon("shield"), el("h2", { className: "grow" }, "Accounts")),
+      row("Registration", d.registration, open ? "bad" : "ok"),
+      row("Shared invite code", d.sharedCode ? "set (INVITE_CODE)" : "not set", d.sharedCode ? "" : "ok"),
+      row("Managers", String(adminCount())),
+      row("Reset link lifetime", d.resetMinutes + " minutes"),
+      el("p", { className: "muted small", style: "margin:12px 0 0" },
+        open ? "REGISTRATION_OPEN is on: anyone who can reach this server can create an account. Turn it off once your accounts exist."
+             : "New accounts need an invite code from this dashboard.")),
+    el("div", { className: "card" },
+      el("header", {}, icon("mail"), el("h2", { className: "grow" }, "Mail")),
+      row("SMTP relay", d.mail ? "configured" : "off", d.mail ? "ok" : "bad"),
+      row("Sends as", d.mailFrom || "—"),
+      el("p", { className: "muted small", style: "margin:12px 0 0" }, d.mail
+        ? "Invites and password resets can be mailed straight from here."
+        : "Set SMTP_HOST, SMTP_USER, SMTP_PASS and SMTP_FROM to mail invites and reset links. Without it everything still works — codes and links are shown on screen to pass on yourself."))));
+
+  root.append(el("div", { className: "card" },
+    el("header", {}, icon("lock"), el("h2", { className: "grow" }, "What this dashboard can see")),
+    el("p", { className: "muted small", style: "margin:0" },
+      "Account metadata and row counts only. There is no endpoint here that reads a trip, "
+      + "a trace or a place — a manager can delete a user's data but never look at it. "
+      + "Sessions here are a separate cookie from the phones' sync tokens, and idle out on their own.")));
+  return root;
+}
+
+// --- router -------------------------------------------------------------
+
+const VIEWS = { overview: viewOverview, users: viewUsers, invites: viewInvites, server: viewServer };
+
+function render(keepScroll) {
+  if (!state.data) return;
+  renderChrome();
+  const main = $("view");
+  const y = keepScroll ? window.scrollY : 0;
+  main.textContent = "";
+  main.append((VIEWS[state.view] || viewOverview)());
+  if (keepScroll) window.scrollTo(0, y);
+  if (state.openUser !== null) renderDrawer();
+}
+
+function go(view) {
+  if (!VIEWS[view]) view = "overview";
+  state.view = view;
+  if (location.hash.slice(1) !== view) location.hash = view;
+  render();
+}
+
+for (const b of document.querySelectorAll(".navlink")) {
+  b.onclick = () => go(b.dataset.view);
+}
+window.addEventListener("hashchange", () => go(location.hash.slice(1) || "overview"));
+
+// --- theme --------------------------------------------------------------
+
+function applyTheme(mode) {
+  if (mode) document.documentElement.setAttribute("data-theme", mode);
+  else document.documentElement.removeAttribute("data-theme");
+  const dark = mode ? mode === "dark"
+    : !window.matchMedia("(prefers-color-scheme: light)").matches;
+  const btn = $("theme");
+  btn.textContent = "";
+  btn.append(icon(dark ? "moon" : "sun"));
+}
+try { applyTheme(localStorage.getItem("mr-theme")); } catch (e) { applyTheme(null); }
+$("theme").onclick = () => {
+  const dark = document.documentElement.getAttribute("data-theme") === "dark"
+    || (!document.documentElement.hasAttribute("data-theme")
+        && !window.matchMedia("(prefers-color-scheme: light)").matches);
+  const next = dark ? "light" : "dark";
+  applyTheme(next);
+  try { localStorage.setItem("mr-theme", next); } catch (e) { /* private mode */ }
+};
+
+// --- wiring -------------------------------------------------------------
+
+$("lgo").onclick = signIn;
+for (const id of ["lu", "lp"]) {
+  $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") signIn(); });
+}
 $("logout").onclick = async () => {
   try { await api("/admin/logout", {}); } catch (e) { /* the cookie is going either way */ }
   csrf = "";
   location.reload();
 };
-$("refresh").onclick = () => load();
+$("refresh").onclick = () => load(true).then(() => toast("Refreshed"));
+$("scrim").onclick = closeDrawer;
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && state.openUser !== null) closeDrawer();
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || $("dlg").open) return;
+  if (e.key === "r") $("refresh").click();
+  if (e.key === "/" && state.view === "users") { e.preventDefault(); const s = $("usearch"); if (s) s.focus(); }
+});
 
-$("i-make").onclick = async () => {
-  try {
-    const r = await api("/admin/api/invite/create", {
-      label: $("i-label").value.trim(),
-      email: $("i-email").value.trim(),
-      days: Number($("i-days").value || 0),
-      send: $("i-send").checked,
-    });
-    flash(r.mailed ? "Invite mailed. Code:" : "Invite created. Code:", "info", r.code);
-    $("i-label").value = ""; $("i-email").value = "";
-    load();
-  } catch (e) { flash(e.message, "error"); }
-};
+// A quiet poll keeps the numbers honest on a dashboard left open all day, but
+// never while a drawer or dialog is up: re-rendering underneath a half-typed
+// email would throw the edit away.
+setInterval(() => {
+  if (!state.data || state.openUser !== null || $("dlg").open || document.hidden) return;
+  load(true);
+}, 60000);
+setInterval(tickFreshness, 20000);
 
 // A live cookie from an earlier visit skips the login form; the overview call
 // hands the CSRF token back, so the page is immediately usable. No cookie means
-// that call 401s and the login card stays up.
+// that call 401s and the login card comes up instead.
+state.view = location.hash.slice(1) || "overview";
+if (!VIEWS[state.view]) state.view = "overview";
 load();
 </script>
 """
