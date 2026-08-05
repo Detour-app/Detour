@@ -489,6 +489,7 @@ sudo -u maproulette-sync DATA_DIR=/var/lib/maproulette-sync \
 | Flag | Does |
 |---|---|
 | `--make-admin NAME` / `--drop-admin NAME` | Access to `/admin` |
+| `--set-password NAME` | Prompts for a new password (blank generates one). The way back in when the only admin has forgotten theirs |
 | `--revoke-tokens NAME` | Sign an account out everywhere |
 | `--api-key NAME [LABEL]` / `--revoke-keys NAME` | Read-only `/ha/*` keys |
 | `--backfill-points NAME` | Re-unpack traces into track points |

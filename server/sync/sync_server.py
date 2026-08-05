@@ -123,8 +123,10 @@ CLI:
   python3 sync_server.py --revoke-tokens USER     sign a user out everywhere
   python3 sync_server.py --make-admin USER        let USER into /admin
   python3 sync_server.py --drop-admin USER        take that away again
+  python3 sync_server.py --set-password USER      set a password (prompts)
 """
 import asyncio
+import getpass
 import gzip
 import hashlib
 import hmac
@@ -4765,6 +4767,37 @@ def set_admin(username, wanted):
     return 0
 
 
+def set_user_password(username):
+    """Set a password from the box itself.
+
+    The dashboard can already do this, which covers every case but one: the
+    only admin has forgotten their own password, so nobody can reach the
+    dashboard to fix it. Prompted rather than taken as an argument, so the new
+    password never lands in shell history or another user's `ps` output.
+    """
+    user = find_user(username)
+    if user is None:
+        print("No such user: %s" % username)
+        return 1
+    password = getpass.getpass("New password for %s (blank to generate one): " % username)
+    if not password:
+        password = secrets.token_urlsafe(9)
+        print("Generated password: %s" % password)
+    elif password != getpass.getpass("Repeat it: "):
+        print("Those did not match; nothing changed.")
+        return 1
+    try:
+        set_password(user["id"], password)
+    except HttpError as e:
+        print(e.message)
+        return 1
+    print(
+        "Password set for %s. Every device it was signed in on has been signed "
+        "out — sign in again in the app." % user["username"]
+    )
+    return 0
+
+
 def backfill_points(username):
     """Re-unpack every stored trace line into track_points.
 
@@ -4852,6 +4885,9 @@ if __name__ == "__main__":
 
     if len(sys.argv) > 2 and sys.argv[1] == "--drop-admin":
         raise SystemExit(set_admin(sys.argv[2], False))
+
+    if len(sys.argv) > 2 and sys.argv[1] == "--set-password":
+        raise SystemExit(set_user_password(sys.argv[2]))
 
     # Tokens idle past TOKEN_MAX_IDLE_MS are already rejected by authenticate();
     # this just stops them accumulating in the table forever. Dead reset links
