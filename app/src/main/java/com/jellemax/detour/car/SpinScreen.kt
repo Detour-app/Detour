@@ -107,8 +107,9 @@ class SpinScreen(carContext: CarContext) : Screen(carContext) {
                         .setTitle(if (hasTurnData) "Start Navigation" else "Navigate")
                         .setOnClickListener {
                             val config = serverConfig
-                            val navScreen = if (config != null)
-                                NavScreen.forCandidate(carContext, myLocation!!, c, config) else null
+                            val from = myLocation
+                            val navScreen = if (config != null && from != null)
+                                NavScreen.forCandidate(carContext, from, c, config) else null
                             if (navScreen != null) screenManager.push(navScreen)
                             else navigate(c.destination)
                         }

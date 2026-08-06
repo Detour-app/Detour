@@ -15,13 +15,52 @@ import androidx.car.app.CarContext
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.SpeedCameras
+import com.jellemax.detour.net.FriendPosition
 import com.jellemax.detour.ui.MapOverlays
 import com.jellemax.detour.ui.openFreeMapStyleUrl
 import com.jellemax.detour.ui.setCamera
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import org.maplibre.android.MapLibre
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import kotlin.math.abs
+import kotlin.math.exp
+
+// Camera easing, ported from the phone map's follow loop (MapScreen.kt): each
+// tick the camera closes the same fraction of its gap to the last fix, covering
+// ~63% of it in one tau. GPS arrives about once a second, and a map that only
+// moves when a fix lands reads as a broken app even when the fix behind it is
+// current — on the car screen doubly so, because there is nothing else on it.
+private const val CAM_POS_TAU = 0.35
+private const val CAM_BEARING_TAU = 0.5
+private const val CAM_ZOOM_TAU = 1.2
+
+// Driven by a plain timer rather than Choreographer/withFrameNanos: the map
+// lives on a VirtualDisplay that keeps running with the phone's own screen off,
+// and vsync callbacks do not. ~30 fps is smooth for a camera that is only ever
+// panning and turning slowly.
+private const val CAM_FRAME_MS = 33L
+
+// Below these an eased step isn't worth a redraw: ~0.2 m of pan (sub-pixel at
+// driving zooms), a hair of zoom, a tenth of a degree of rotation. Once the
+// ease settles inside all three the camera is left alone, so a car stopped at a
+// light stops re-rendering entirely.
+private const val CAM_POS_EPS_DEG = 2e-6
+private const val CAM_ZOOM_EPS = 2e-3
+private const val CAM_BEARING_EPS_DEG = 0.1f
+
+/** Below this the GPS bearing is noise, so the map keeps the heading it had
+ *  instead of spinning while you wait at a junction. */
+private const val BEARING_HOLD_MPS = 2.0
 
 /**
  * Android Auto gives an app only a raw [Surface] via [SurfaceCallback] — no
@@ -37,6 +76,13 @@ import org.maplibre.android.maps.Style
  *
  * The speed/speed-limit HUD sits in a [HudOverlay] above the map in the same
  * Presentation, since it can't be a MapLibre layer.
+ *
+ * Overlay state (route, position, cameras, friends) is *kept here* rather than
+ * pushed from the nav screen on every fix. Two reasons: a surface swap builds a
+ * fresh style with empty sources, which then has to be refilled from something;
+ * and re-serialising a route polyline of a few thousand points into GeoJSON
+ * once a second — which is what a full [MapOverlays.render] per fix costs — is
+ * enough main-thread work on a head unit to make the whole map feel stuck.
  */
 class CarMapRenderer(
     private val carContext: CarContext,
@@ -52,6 +98,7 @@ class CarMapRenderer(
     }
 
     private val hud = HudOverlay(carContext)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     // Built fresh for each surface instead of once per renderer. Tearing the
     // display down has to call MapView.onDestroy(), which releases the native
@@ -62,8 +109,7 @@ class CarMapRenderer(
     // surface on; the DHU only ever creates one, so this never showed up there.
     private var mapView: MapView? = null
     private var mapLibreMap: MapLibreMap? = null
-    var overlays: MapOverlays? = null
-        private set
+    private var overlays: MapOverlays? = null
 
     private var virtualDisplay: VirtualDisplay? = null
     private var presentation: Presentation? = null
@@ -75,10 +121,74 @@ class CarMapRenderer(
     private var surfaceWidth = 0
     private var surfaceHeight = 0
 
-    /** Called on every GPS fix: follows the camera and updates the HUD numbers. */
-    fun updatePosition(pos: LatLon, bearingDeg: Float, speedKmh: Double, limitKmh: Double?, zoom: Double) {
-        hud.update(speedKmh, limitKmh)
-        mapLibreMap?.let { setCamera(it, pos.lat, pos.lon, zoom, bearingDeg) }
+    // What should be on the map. Re-applied to every new style.
+    private var routePolyline: List<LatLon>? = null
+    private var destination: LatLon? = null
+    private var position: LatLon? = null
+    private var cameras: List<SpeedCameras.Camera> = emptyList()
+    private var friends: Collection<FriendPosition> = emptyList()
+
+    // Where the camera is being eased to, and where it currently is.
+    private var targetPos: LatLon? = null
+    private var targetBearing: Float? = null
+    private var targetZoom = 16.0
+    private var camLat = Double.NaN
+    private var camLon = 0.0
+    private var camBearing = 0f
+    private var camZoom = 16.0
+    private var easeJob: Job? = null
+
+    /** Where to point the camera, from the latest fix. The camera itself eases
+     *  there over the following frames rather than jumping on each fix. */
+    fun follow(pos: LatLon, bearingDeg: Float?, speedMps: Double, zoom: Double) {
+        targetPos = pos
+        if (bearingDeg != null && speedMps > BEARING_HOLD_MPS) targetBearing = bearingDeg
+        targetZoom = zoom
+        if (camLat.isNaN()) {
+            // First fix: start from it instead of easing in from the null island.
+            camLat = pos.lat
+            camLon = pos.lon
+            camZoom = zoom
+            camBearing = targetBearing ?: 0f
+            mapLibreMap?.let { applyCamera(it) }
+        }
+    }
+
+    /** Speed and posted-limit readouts. */
+    fun updateHud(speedKmh: Double, limitKmh: Double?) = hud.update(speedKmh, limitKmh)
+
+    /** The line to draw, and the pin at the end of it. Pushed once per route —
+     *  on start and on each reroute — not per fix. */
+    fun setRoute(polyline: List<LatLon>?, destination: LatLon?) {
+        this.routePolyline = polyline
+        this.destination = destination
+        withOverlays { pushRoute(it) }
+    }
+
+    /** The own-position dot. The cheap per-fix update: one point of GeoJSON,
+     *  leaving the route line the map has already tessellated alone. */
+    fun setPosition(pos: LatLon) {
+        position = pos
+        withOverlays { it.setPosition(pos) }
+    }
+
+    fun setCameras(cameras: List<SpeedCameras.Camera>) {
+        this.cameras = cameras
+        withOverlays { it.setCameras(cameras) }
+    }
+
+    fun setFriends(friends: Collection<FriendPosition>) {
+        this.friends = friends
+        withOverlays { it.setFriends(friends) }
+    }
+
+    /** Style calls throw once the map behind them is gone — which on a head
+     *  unit is every time the driver switches to another car app and the
+     *  surface is handed back — and all four callers above are flow collectors,
+     *  where an exception doesn't just skip a frame, it ends the process. */
+    private fun withOverlays(block: (MapOverlays) -> Unit) {
+        val current = overlays ?: return
+        runCatching { block(current) }
     }
 
     override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
@@ -135,9 +245,19 @@ class CarMapRenderer(
             map.uiSettings.setAttributionMargins(edge, edge, 0, 0)
             mapLibreMap = map
             applyPadding(map)
+            if (!camLat.isNaN()) applyCamera(map)
             map.setStyle(Style.Builder().fromUri(openFreeMapStyleUrl(darkTheme))) { style ->
-                overlays = MapOverlays(style, carContext, darkTheme)
+                val fresh = MapOverlays(style, carContext, darkTheme)
+                overlays = fresh
+                // A replacement surface starts with empty sources; refill them
+                // from what we already know instead of waiting for the next
+                // route change to redraw the line.
+                pushRoute(fresh)
+                position?.let { fresh.setPosition(it) }
+                if (cameras.isNotEmpty()) fresh.setCameras(cameras)
+                if (friends.isNotEmpty()) fresh.setFriends(friends)
             }
+            startCameraLoop()
         }
     }
 
@@ -164,6 +284,73 @@ class CarMapRenderer(
         )
     }
 
+    private fun pushRoute(overlays: MapOverlays) {
+        overlays.render(
+            myLocation = position,
+            destination = destination,
+            routePolyline = routePolyline,
+            reachMeters = null,
+            directionDeg = null,
+            candidates = emptyList(),
+            showPosition = position != null,
+        )
+    }
+
+    /**
+     * Eases the camera toward the last fix, a step at a time, and pushes it
+     * only when the step is big enough to see. This is the difference between a
+     * map that glides along the road and one that lurches once a second.
+     */
+    private fun startCameraLoop() {
+        easeJob?.cancel()
+        easeJob = scope.launch {
+            var lastNs = System.nanoTime()
+            var appliedLat = Double.NaN
+            var appliedLon = 0.0
+            var appliedZoom = 0.0
+            var appliedBearing = 0f
+            while (isActive) {
+                delay(CAM_FRAME_MS)
+                val map = mapLibreMap ?: continue
+                val ns = System.nanoTime()
+                // Clamp dt so a stalled render or a paused loop can't teleport.
+                val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.25)
+                lastNs = ns
+                if (camLat.isNaN()) continue
+
+                targetPos?.let { target ->
+                    val a = 1.0 - exp(-dt / CAM_POS_TAU)
+                    camLat += (target.lat - camLat) * a
+                    camLon += (target.lon - camLon) * a
+                }
+                targetBearing?.let { target ->
+                    camBearing = smoothBearing(
+                        camBearing, target, (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat())
+                }
+                camZoom += (targetZoom - camZoom) * (1.0 - exp(-dt / CAM_ZOOM_TAU))
+
+                var dBearing = (camBearing - appliedBearing) % 360f
+                if (dBearing > 180f) dBearing -= 360f
+                if (dBearing < -180f) dBearing += 360f
+                val moved = appliedLat.isNaN() ||
+                    abs(camLat - appliedLat) > CAM_POS_EPS_DEG ||
+                    abs(camLon - appliedLon) > CAM_POS_EPS_DEG ||
+                    abs(camZoom - appliedZoom) > CAM_ZOOM_EPS ||
+                    abs(dBearing) > CAM_BEARING_EPS_DEG
+                if (!moved) continue
+                applyCamera(map)
+                appliedLat = camLat
+                appliedLon = camLon
+                appliedZoom = camZoom
+                appliedBearing = camBearing
+            }
+        }
+    }
+
+    private fun applyCamera(map: MapLibreMap) {
+        setCamera(map, camLat, camLon, camZoom, camBearing)
+    }
+
     override fun onSurfaceDestroyed(surfaceContainer: SurfaceContainer) {
         tearDownDisplay()
     }
@@ -171,9 +358,12 @@ class CarMapRenderer(
     /** Tears down the map. Call once, when the nav screen is destroyed. */
     fun destroy() {
         tearDownDisplay()
+        scope.cancel()
     }
 
     private fun tearDownDisplay() {
+        easeJob?.cancel()
+        easeJob = null
         if (presentation == null && virtualDisplay == null) return
         mapLibreMap = null
         overlays = null
@@ -193,6 +383,16 @@ class CarMapRenderer(
         virtualDisplay?.release()
         virtualDisplay = null
     }
+}
+
+/** Exponentially smooths a compass bearing toward [target], taking the shortest
+ *  way round the 0/360 wrap, so heading-up rotation eases instead of snapping to
+ *  each noisy raw GPS fix. Same as the phone map's. */
+private fun smoothBearing(current: Float, target: Float, alpha: Float): Float {
+    var delta = (target - current) % 360f
+    if (delta > 180f) delta -= 360f
+    if (delta < -180f) delta += 360f
+    return (current + delta * alpha + 360f) % 360f
 }
 
 /**
@@ -220,6 +420,10 @@ private class HudOverlay(context: android.content.Context) : View(context) {
     private val safeArea = Rect()
 
     fun update(speed: Double, limit: Double?) {
+        // Once a second, and only when the rounded readout actually changes:
+        // an invalidate on the virtual display costs a full recomposite of the
+        // car surface, which is the last thing the map needs competing with.
+        if (speedKmh?.let { "%.0f".format(it) } == "%.0f".format(speed) && limit == limitKmh) return
         speedKmh = speed
         limitKmh = limit
         postInvalidate()

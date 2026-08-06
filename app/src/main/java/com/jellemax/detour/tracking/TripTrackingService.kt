@@ -658,13 +658,26 @@ class TripTrackingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Settings.init(this)
         createChannel()
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            buildNotification(),
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0,
-        )
+        // From Android 12 the platform refuses a foreground service started
+        // while the app itself is in the background, and throws rather than
+        // ignoring it — which the Android Auto flow can walk into, since the
+        // car screen starts this with the phone locked in its cradle and no
+        // activity of ours anywhere. Standing down is the only safe answer: a
+        // service that is told a foreground start is coming and neither calls
+        // startForeground() nor stops is killed with an ANR.
+        val foreground = runCatching {
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                buildNotification(),
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0,
+            )
+        }.isSuccess
+        if (!foreground) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (!::fusedClient.isInitialized) {
             fusedClient = LocationServices.getFusedLocationProviderClient(this)
         }
