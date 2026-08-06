@@ -93,15 +93,17 @@ GitHub release; it just doesn't talk to Play. If the variable says `true` but
 `PLAY_SERVICE_ACCOUNT_JSON` is empty, the run warns and skips rather than
 failing.
 
-| Variable | Turns on |
+## The watch bundle goes on its own track
+
+Each bundle gets its own upload, on its own track:
+
+| Bundle | Track |
 | --- | --- |
-| `PUBLISH_TO_PLAY` | uploading the phone bundle to the internal track |
-| `PUBLISH_WEAR_TO_PLAY` | adding the watch bundle to that same upload |
+| `app-release.aab` | `internal` |
+| `wear-release.aab` | `wear:internal` |
 
-## The watch bundle needs the Wear OS form factor first
-
-`PUBLISH_WEAR_TO_PLAY` is a second switch because Play rejects the watch
-bundle for a reason that has nothing to do with the phone build:
+They used to go up together in one release edit, on `internal`, and Play
+rejected the lot:
 
 ```
 The APK or bundle with version code 1189 requires the Wear OS system feature
@@ -109,17 +111,24 @@ android.hardware.type.watch. To publish this app on the current track, remove
 this artifact.
 ```
 
-Play refuses any artifact declaring `<uses-feature
-android:name="android.hardware.type.watch" />` until the app has the Wear OS
-form factor: Play Console → **Test and release → Setup → Advanced settings →
-Form factors → Add form factor → Wear OS**. That adds a Wear-specific store
-listing and screenshots, and the watch build goes through its own review.
+`internal` is a phone track. It will not hold an artifact declaring
+`<uses-feature android:name="android.hardware.type.watch" />` — adding the Wear
+OS form factor in the Console doesn't change that, it's what *creates* the
+separate `wear:` tracks the watch bundle belongs on. Because both bundles rode
+one edit, that rejection failed the phone upload too, and with it the tag and
+the GitHub release.
 
-Both bundles go up in a single release edit, so before this fix that one
-rejection failed the phone upload with it. Now the phone can ship to Play while
-the watch app stays on the GitHub release, where it installs by sideload
-(`adb install detour-wear-*.apk`) and needs nobody's approval. Set
-`PUBLISH_WEAR_TO_PLAY` = `true` after the form factor is live.
+Track names come straight from the [form factor track
+convention](https://developers.google.com/android-publisher/tracks): the form
+factor prefix plus the track name, so `wear:internal`, `wear:production`. The
+upload action validates the name against the tracks Play reports for the app,
+so a form factor that was never added fails with the list of tracks that do
+exist.
+
+The watch upload runs **after** the GitHub release, deliberately. The phone
+build is the product, and the watch APK is on the release for sideloading
+either way; a watch bundle Play turns down still marks the run failed, but by
+then the APKs are published and the tag stands.
 
 The keystore here is the **upload** key. Play App Signing re-signs with its own
 key before distributing, which is why an app installed from Play cannot be
