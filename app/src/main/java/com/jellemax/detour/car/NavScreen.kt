@@ -124,6 +124,7 @@ class NavScreen(
     // through its three prompts we are.
     private var voiceStepKey = Int.MIN_VALUE
     private var voicePhase = 0
+    private var startAnnounced = false
 
     private var speedCameras: List<SpeedCameras.Camera> = emptyList()
     private var camerasCenter: LatLon? = null
@@ -241,9 +242,11 @@ class NavScreen(
                     // reroute is the one moment it has to be pushed again.
                     renderer.setRoute(fresh.polyline, destination)
                     // Instruction indices belong to the old polyline; start the
-                    // prompts for the new one from scratch.
+                    // prompts for the new one from scratch, "Rerouting" followed
+                    // by what the new line asks for next.
                     voiceStepKey = Int.MIN_VALUE
                     voicePhase = 0
+                    startAnnounced = false
                     templateKey = null
                 } catch (e: Exception) {
                     // stay on the old line; retried after the cooldown
@@ -275,9 +278,18 @@ class NavScreen(
             distance <= VOICE_FAR_M -> 1
             else -> 0
         }
+        val cue = instruction.text.ifBlank { "Continue" }
+        // The first prompt of the drive ignores the thresholds: pressing Start
+        // and being told nothing for the next 3 km is indistinguishable from
+        // voice being broken.
+        if (!startAnnounced) {
+            startAnnounced = true
+            voicePhase = phase
+            speak(if (phase == 3) cue else "In ${spokenDistance(distance)}, $cue")
+            return
+        }
         if (phase == 0 || phase <= voicePhase) return
         voicePhase = phase
-        val cue = instruction.text.ifBlank { "Continue" }
         speak(if (phase == 3) cue else "In ${spokenDistance(distance)}, $cue")
     }
 
