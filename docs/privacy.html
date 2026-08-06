@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Detour — Privacy Policy</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial;
+    line-height: 1.6;
+    max-width: 44rem;
+    margin: 0 auto;
+    padding: 2rem 1.25rem 4rem;
+    color: #1a1a1a;
+    background: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e6e6e6; background: #141414; }
+    a { color: #7fb3ff; }
+    code { background: #262626; }
+  }
+  h1 { font-size: 1.9rem; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.25rem; margin-top: 2.25rem; }
+  .updated { color: #666; font-size: 0.9rem; margin-top: 0; }
+  @media (prefers-color-scheme: dark) { .updated { color: #999; } }
+  code { background: #f0f0f0; padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.9em; }
+  ul { padding-left: 1.25rem; }
+  li { margin-bottom: 0.4rem; }
+</style>
+</head>
+<body>
+
+<h1>Privacy Policy — Detour</h1>
+<p class="updated">Last updated: 5 August 2026</p>
+
+<p>Detour is an Android app that picks a random road destination within a radius
+you choose, routes you to it, and records the ride. This policy explains what
+the app does with your data.</p>
+
+<p><strong>The short version:</strong> Detour has no account requirement, no
+analytics, no advertising, no crash reporting and no third-party trackers. Your
+trips, traces and explored area are stored in the app's private storage on your
+device. Nothing is uploaded anywhere unless you deliberately configure a sync
+server, and that server is one you run or choose.</p>
+
+<h2>Who is responsible</h2>
+<p>Detour is developed by an individual developer. For any question about this
+policy or your data, write to
+<a href="mailto:jellemax24@gmail.com">jellemax24@gmail.com</a>.</p>
+
+<h2>What the app stores on your device</h2>
+<ul>
+  <li><strong>Location and trip data</strong> — GPS traces of recorded rides,
+      with distance, duration, speed, and (on moto and car) lean angle and
+      cornering g.</li>
+  <li><strong>Explored area ("fog of war")</strong> — the ground your traces
+      have uncovered on the map.</li>
+  <li><strong>Saved places</strong> — locations you save yourself.</li>
+  <li><strong>Settings</strong> — theme, radius, vehicle mappings, server
+      addresses and credentials you enter.</li>
+  <li><strong>Paired Bluetooth device names</strong> — used to work out which
+      vehicle a trip belongs to. This uses existing Bluetooth bonds; the app
+      does not scan for nearby devices.</li>
+</ul>
+<p>All of this lives in app-private storage. Uninstalling the app deletes it.</p>
+
+<h2>What leaves your device, and when</h2>
+<p>Even with no account, some features need the network. In each case only what
+is listed below is sent:</p>
+<ul>
+  <li><strong>Map tiles</strong> — the area of the map you are looking at is
+      requested from <a href="https://openfreemap.org/">OpenFreeMap</a>.</li>
+  <li><strong>Spin destinations, speed cameras and coverage</strong> — the
+      centre point and radius of a spin are sent to the
+      <a href="https://overpass-api.de/">Overpass API</a>
+      (<code>overpass-api.de</code> or <code>overpass.kumi.systems</code>) to
+      find roads in that area from OpenStreetMap data.</li>
+  <li><strong>Address and place search</strong> — your search text and an
+      approximate location (used to rank nearby results first) are sent to a
+      <a href="https://photon.komoot.io/">Photon</a> geocoder: your own
+      instance if you configure one in Settings, otherwise the public
+      <code>photon.komoot.io</code>. The public fallback can be switched off in
+      Settings &rarr; Server.</li>
+  <li><strong>Routing</strong> — if you configure a GraphHopper routing server,
+      your start and destination coordinates are sent to it. No routing server
+      is configured by default.</li>
+  <li><strong>Handing off navigation</strong> — if you choose to open a
+      destination in Google Maps, Waze or another app, the destination
+      coordinates are passed to that app, which is then governed by its own
+      privacy policy.</li>
+</ul>
+<p>These requests carry no account identifier and no device identifier beyond
+what any HTTPS request necessarily exposes to the server handling it (such as
+your IP address). Their operators are independent of Detour and handle those
+requests under their own policies.</p>
+
+<h2>Optional sync account</h2>
+<p>Detour works fully offline-first with no account. If you choose to sign in to
+a sync server — one you self-host, or one you have been invited to — the
+following is sent to that server:</p>
+<ul>
+  <li>Your username, a password (stored by the server as a hash), and an email
+      address only if you choose to supply one for password resets.</li>
+  <li>Your trips, GPS traces, explored area, saved places, badges and friend
+      list, so that a reinstall restores them.</li>
+  <li>Your explored area is shared with an accepted friend only if you turn on
+      <em>Share fog with friends</em>, which is off by default and strictly
+      reciprocal. Friends otherwise see only totals and badges — never your
+      trips or your map.</li>
+</ul>
+<p>The developer of Detour does not operate a sync server for you and has no
+access to any server you run. Data on a self-hosted server is under your
+control.</p>
+
+<h2>Convoy and the microphone</h2>
+<p>Convoy is an optional feature that shares your live position with the other
+members of a convoy you have joined, through your sync server, for as long as
+you stay joined.</p>
+<p>The microphone is used only while you are holding the push-to-talk button in
+an active convoy. Audio is streamed to the other convoy members in real time. It
+is not recorded, not written to storage, and not retained by the app.</p>
+
+<h2>Permissions and why they are needed</h2>
+<ul>
+  <li><strong>Precise location</strong> — the core function: showing where you
+      are, spinning a destination around you, and recording rides.</li>
+  <li><strong>Background location</strong> — optional, so a ride keeps recording
+      with the screen off. Without it, tracking stops when the app is
+      backgrounded.</li>
+  <li><strong>Physical activity</strong> — to detect automatically that a drive
+      has started. Processed on the device.</li>
+  <li><strong>Microphone</strong> — convoy push-to-talk only, as described
+      above.</li>
+  <li><strong>Bluetooth</strong> — reading which paired device is connected, to
+      pick the right vehicle for a trip, and for the external display feature.</li>
+  <li><strong>Notifications</strong> — the ride-tracking notification and the
+      speed-camera chime.</li>
+</ul>
+
+<h2>What Detour does not do</h2>
+<ul>
+  <li>No advertising and no ad identifiers.</li>
+  <li>No analytics or telemetry SDK of any kind.</li>
+  <li>No crash-reporting service.</li>
+  <li>No selling or sharing of personal data with third parties.</li>
+  <li>No user profiling for advertising purposes.</li>
+</ul>
+
+<h2>Deleting your data</h2>
+<ul>
+  <li><strong>On the device</strong> — delete individual trips from the history
+      list, wipe your explored area with Settings &rarr; Fog of war &rarr; Reset
+      explored area, or uninstall the app to remove everything.</li>
+  <li><strong>On a sync server</strong> — ask the administrator of that server
+      to remove your account, which deletes the rows belonging to it. If you run
+      the server yourself, do this from the <code>/admin</code> dashboard.</li>
+</ul>
+
+<h2>Children</h2>
+<p>Detour is not directed at children and is not designed for use by children
+under 13.</p>
+
+<h2>Changes to this policy</h2>
+<p>If this policy changes, the updated version will be published at this URL
+with a new date at the top.</p>
+
+<h2>Contact</h2>
+<p><a href="mailto:jellemax24@gmail.com">jellemax24@gmail.com</a></p>
+
+</body>
+</html>
