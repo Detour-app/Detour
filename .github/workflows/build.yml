@@ -51,22 +51,46 @@ jobs:
       # Names only, never values: an empty companion secret otherwise
       # surfaces five minutes later as keytool's misleading "keystore
       # password was incorrect" with a blank alias in the message.
+      #
+      # Signing only. The Play service account is checked separately, in the
+      # gate below — the APK is the thing this workflow exists to produce, and
+      # it must not fail to build because a Play credential is missing.
       - name: Check signing secrets are complete
         if: github.event_name != 'pull_request'
         env:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
         run: |
           missing=""
           [ -z "$RELEASE_KEYSTORE_PASSWORD" ] && missing="$missing RELEASE_KEYSTORE_PASSWORD"
           [ -z "$RELEASE_KEY_ALIAS" ] && missing="$missing RELEASE_KEY_ALIAS"
           [ -z "$RELEASE_KEY_PASSWORD" ] && missing="$missing RELEASE_KEY_PASSWORD"
-          [ -z "$PLAY_SERVICE_ACCOUNT_JSON" ] && missing="$missing PLAY_SERVICE_ACCOUNT_JSON"
           if [ -n "$missing" ]; then
             echo "::error::Missing or empty repository secrets:$missing"
             exit 1
+          fi
+
+      # Play publishing is off until the Console account is verified and the
+      # app has had one bundle uploaded by hand — until then every API upload
+      # comes back rejected and takes the whole run, and with it the GitHub
+      # release, down with it. Turn it on in one place when Play is ready:
+      # Settings → Secrets and variables → Actions → Variables,
+      # PUBLISH_TO_PLAY = true. A missing service account keeps it off even
+      # when the variable says true, rather than failing the build.
+      - name: Decide whether to publish to Play
+        id: play
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ "${{ vars.PUBLISH_TO_PLAY }}" != "true" ]; then
+            echo "Play upload skipped: repository variable PUBLISH_TO_PLAY is not 'true'."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          elif [ -z "$PLAY_SERVICE_ACCOUNT_JSON" ]; then
+            echo "::warning::PUBLISH_TO_PLAY is true but the PLAY_SERVICE_ACCOUNT_JSON secret is empty — skipping the Play upload."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
       # Play refuses any upload whose versionCode isn't higher than every code
@@ -135,7 +159,8 @@ jobs:
 
       # Play first, GitHub second: an upload Play rejects (duplicate code, a
       # bundle that fails its checks) should stop the run before a tag and a
-      # release exist claiming that version shipped.
+      # release exist claiming that version shipped. When the gate above turns
+      # it off the step is skipped outright, so the GitHub release still cuts.
       #
       # Both bundles go into one release edit. They share a package name and
       # Play tells them apart by the <uses-feature android.hardware.type.watch>
@@ -146,7 +171,7 @@ jobs:
       # review queue. Promote to production from the Play Console when a build
       # has earned it — nothing here writes to a public track.
       - name: Publish to Play internal track
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && steps.play.outputs.enabled == 'true'
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
@@ -179,8 +204,7 @@ jobs:
           body: |
             Detour v${{ steps.version.outputs.name }} (versionCode
             ${{ steps.version.outputs.code }}), built from
-            ${{ github.sha }}. Also published to the Play internal
-            testing track.
+            ${{ github.sha }}.${{ steps.play.outputs.enabled == 'true' && ' Also published to the Play internal testing track.' || '' }}
 
             Download the `.apk` below and install it on your phone (allow
             installs from unknown sources). `detour-wear-*.apk` is the watch

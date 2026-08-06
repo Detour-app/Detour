@@ -66,9 +66,9 @@ granted release permission.
 
 ## Repository secrets
 
-Settings → Secrets and variables → Actions. All five are required on a push to
-`main`; the workflow fails with the missing names rather than letting a build
-run and break later.
+Settings → Secrets and variables → Actions. The four signing secrets are
+required on a push to `main`; the workflow fails with the missing names rather
+than letting a build run and break later.
 
 | Secret | Value |
 | --- | --- |
@@ -76,7 +76,22 @@ run and break later.
 | `RELEASE_KEYSTORE_PASSWORD` | keystore password |
 | `RELEASE_KEY_ALIAS` | key alias inside the keystore |
 | `RELEASE_KEY_PASSWORD` | key password |
-| `PLAY_SERVICE_ACCOUNT_JSON` | the JSON key file's full contents |
+| `PLAY_SERVICE_ACCOUNT_JSON` | the JSON key file's full contents (only read when Play publishing is switched on, below) |
+
+## Switching Play publishing on
+
+Play publishing is **off by default**. Until the Console account is verified and
+the app has had its first bundle uploaded by hand, every API upload comes back
+rejected — and a failed upload would take the whole run down with it, including
+the GitHub release the APKs are attached to. Off means the step is skipped, not
+that it fails.
+
+Turn it on once Play is ready: Settings → Secrets and variables → Actions →
+**Variables** → `PUBLISH_TO_PLAY` = `true`. With the variable unset, or set to
+anything else, a push to `main` still builds, signs, tags and publishes the
+GitHub release; it just doesn't talk to Play. If the variable says `true` but
+`PLAY_SERVICE_ACCOUNT_JSON` is empty, the run warns and skips rather than
+failing.
 
 The keystore here is the **upload** key. Play App Signing re-signs with its own
 key before distributing, which is why an app installed from Play cannot be
