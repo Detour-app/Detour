@@ -93,6 +93,34 @@ GitHub release; it just doesn't talk to Play. If the variable says `true` but
 `PLAY_SERVICE_ACCOUNT_JSON` is empty, the run warns and skips rather than
 failing.
 
+| Variable | Turns on |
+| --- | --- |
+| `PUBLISH_TO_PLAY` | uploading the phone bundle to the internal track |
+| `PUBLISH_WEAR_TO_PLAY` | adding the watch bundle to that same upload |
+
+## The watch bundle needs the Wear OS form factor first
+
+`PUBLISH_WEAR_TO_PLAY` is a second switch because Play rejects the watch
+bundle for a reason that has nothing to do with the phone build:
+
+```
+The APK or bundle with version code 1189 requires the Wear OS system feature
+android.hardware.type.watch. To publish this app on the current track, remove
+this artifact.
+```
+
+Play refuses any artifact declaring `<uses-feature
+android:name="android.hardware.type.watch" />` until the app has the Wear OS
+form factor: Play Console → **Test and release → Setup → Advanced settings →
+Form factors → Add form factor → Wear OS**. That adds a Wear-specific store
+listing and screenshots, and the watch build goes through its own review.
+
+Both bundles go up in a single release edit, so before this fix that one
+rejection failed the phone upload with it. Now the phone can ship to Play while
+the watch app stays on the GitHub release, where it installs by sideload
+(`adb install detour-wear-*.apk`) and needs nobody's approval. Set
+`PUBLISH_WEAR_TO_PLAY` = `true` after the form factor is live.
+
 The keystore here is the **upload** key. Play App Signing re-signs with its own
 key before distributing, which is why an app installed from Play cannot be
 updated by an APK downloaded from GitHub — the signatures differ. Pick one

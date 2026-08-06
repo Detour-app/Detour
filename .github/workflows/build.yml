@@ -78,6 +78,22 @@ jobs:
       # Settings → Secrets and variables → Actions → Variables,
       # PUBLISH_TO_PLAY = true. A missing service account keeps it off even
       # when the variable says true, rather than failing the build.
+      # The watch bundle rides a second switch, because Play refuses it for a
+      # reason that has nothing to do with the phone build:
+      #
+      #   The APK or bundle with version code 1189 requires the Wear OS system
+      #   feature android.hardware.type.watch. To publish this app on the
+      #   current track, remove this artifact.
+      #
+      # Play will not accept any artifact declaring
+      # <uses-feature android.hardware.type.watch> until the app has the Wear
+      # OS form factor added in the Console (Test and release → Setup →
+      # Advanced settings → Form factors → Add form factor → Wear OS), which
+      # brings its own listing and review. Both bundles go up in one release
+      # edit, so that one rejection failed the phone upload too. Keeping them
+      # on separate switches means the phone can ship to Play while the watch
+      # app is still only on the GitHub release, where it installs by
+      # sideload and needs nobody's approval.
       - name: Decide whether to publish to Play
         id: play
         env:
@@ -92,6 +108,14 @@ jobs:
           else
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
+
+          files="app/build/outputs/bundle/release/app-release.aab"
+          if [ "${{ vars.PUBLISH_WEAR_TO_PLAY }}" = "true" ]; then
+            files="$files,wear/build/outputs/bundle/release/wear-release.aab"
+          else
+            echo "Watch bundle stays off Play: repository variable PUBLISH_WEAR_TO_PLAY is not 'true'. It still ships on the GitHub release as a sideloadable APK."
+          fi
+          echo "files=$files" >> "$GITHUB_OUTPUT"
 
       # Play refuses any upload whose versionCode isn't higher than every code
       # it has already seen, so a hand-edited number in build.gradle.kts is one
@@ -162,10 +186,12 @@ jobs:
       # release exist claiming that version shipped. When the gate above turns
       # it off the step is skipped outright, so the GitHub release still cuts.
       #
-      # Both bundles go into one release edit. They share a package name and
-      # Play tells them apart by the <uses-feature android.hardware.type.watch>
-      # in the watch manifest, which is what routes it to watches and the phone
-      # bundle to phones.
+      # releaseFiles comes from the gate above: the phone bundle always, the
+      # watch bundle only once PUBLISH_WEAR_TO_PLAY says the Console has the
+      # Wear OS form factor. When both go up they share one release edit and
+      # one package name, and Play tells them apart by the
+      # <uses-feature android.hardware.type.watch> in the watch manifest,
+      # which is what routes it to watches and the phone bundle to phones.
       #
       # internal: available to the testers on that list within minutes, no
       # review queue. Promote to production from the Play Console when a build
@@ -179,7 +205,7 @@ jobs:
           # Comma-separated, on one line: this action splits releaseFiles on
           # commas only, so a YAML block scalar hands it one glob with a
           # newline in the middle and it matches nothing.
-          releaseFiles: app/build/outputs/bundle/release/app-release.aab,wear/build/outputs/bundle/release/wear-release.aab
+          releaseFiles: ${{ steps.play.outputs.files }}
           track: internal
           status: completed
           mappingFile: app/build/outputs/mapping/release/mapping.txt
