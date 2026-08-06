@@ -111,6 +111,12 @@ object Settings {
     private val _preferredNavApp = MutableStateFlow(NavApp.ASK)
     val preferredNavApp: StateFlow<NavApp> = _preferredNavApp
 
+    /** Spoken turn instructions while navigating. On by default — a car screen
+     *  you have to look at to be told about a turn is worse than useless — and
+     *  toggled from the speaker button on the car nav screen. */
+    private val _voiceGuidance = MutableStateFlow(true)
+    val voiceGuidance: StateFlow<Boolean> = _voiceGuidance
+
     fun init(context: Context) {
         if (::prefs.isInitialized) return
         prefs = context.applicationContext
@@ -131,6 +137,7 @@ object Settings {
         _authToken.value = prefs.getString("auth_token", "") ?: ""
         _authUsername.value = prefs.getString("auth_username", "") ?: ""
         _leanOffsetDeg.value = prefs.getFloat("lean_offset_deg", 0f)
+        _voiceGuidance.value = prefs.getBoolean("voice_guidance", true)
         _preferredNavApp.value = runCatching {
             NavApp.valueOf(prefs.getString("preferred_nav_app", NavApp.ASK.name)!!)
         }.getOrDefault(NavApp.ASK)
@@ -230,6 +237,11 @@ object Settings {
     fun setDefaultZoom(value: Float) {
         _defaultZoom.value = value
         prefs.edit().putFloat("default_zoom", value).apply()
+    }
+
+    fun setVoiceGuidance(value: Boolean) {
+        _voiceGuidance.value = value
+        prefs.edit().putBoolean("voice_guidance", value).apply()
     }
 
     fun setGeocoderPublicFallback(value: Boolean) {

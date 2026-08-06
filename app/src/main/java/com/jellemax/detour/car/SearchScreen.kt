@@ -142,7 +142,7 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
                     handOff(result.location)
                 } else {
                     screenManager.push(
-                        NavScreen(carContext, from, result.location, route, config),
+                        NavScreen(carContext, from, result.location, route, config, result.name),
                     )
                 }
             } catch (e: Exception) {

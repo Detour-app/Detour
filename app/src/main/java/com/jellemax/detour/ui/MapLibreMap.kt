@@ -172,6 +172,16 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
             }))
     }
 
+    /** Move just the own-position dot. [render] also sets it, but a following
+     *  map only needs *this* once a second — and rewriting the route line's
+     *  GeoJSON at that rate to move one point is what makes a car head unit
+     *  crawl (see [com.jellemax.detour.car.CarMapRenderer]). */
+    fun setPosition(at: LatLon?) {
+        setData(SRC_POSITION, if (at != null)
+            FeatureCollection.fromFeature(Feature.fromGeometry(Point.fromLngLat(at.lon, at.lat)))
+        else FeatureCollection.fromFeatures(emptyList()))
+    }
+
     /** Push the current world state to the overlay sources. Pass [reachMeters]
      *  null to hide the reach circle/wedge (e.g. while navigating). */
     fun render(

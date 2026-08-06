@@ -2,26 +2,33 @@ package com.jellemax.detour.car
 
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.util.Log
 import androidx.car.app.AppManager
 import androidx.car.app.CarContext
 import androidx.car.app.CarToast
 import androidx.car.app.Screen
 import androidx.car.app.model.Action
 import androidx.car.app.model.ActionStrip
+import androidx.car.app.model.CarIcon
 import androidx.car.app.model.Distance
 import androidx.car.app.model.Template
 import androidx.car.app.navigation.NavigationManager
 import androidx.car.app.navigation.NavigationManagerCallback
+import androidx.car.app.navigation.model.Destination
 import androidx.car.app.navigation.model.Maneuver
 import androidx.car.app.navigation.model.NavigationTemplate
 import androidx.car.app.navigation.model.RoutingInfo
 import androidx.car.app.navigation.model.Step
 import androidx.car.app.navigation.model.TravelEstimate
+import androidx.car.app.navigation.model.Trip
+import androidx.core.graphics.drawable.IconCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import com.jellemax.detour.R
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavEngine
+import com.jellemax.detour.data.NavInstruction
 import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
@@ -32,16 +39,35 @@ import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.tracking.TripTrackingService
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.ZonedDateTime
+import kotlin.math.max
+import kotlin.math.roundToInt
+import kotlin.math.roundToLong
+
+private const val TAG = "DetourNav"
 
 private const val ARRIVE_METERS = 40.0
 private const val OFF_ROUTE_METERS = 60.0
 private const val REROUTE_COOLDOWN_MS = 15_000L
 private const val CAMERA_FETCH_MARGIN_M = 1000.0
 private const val CAMERA_FETCH_THROTTLE_MS = 15_000L
+
+// Where the spoken prompts land, in metres before the turn. Three of them: one
+// early enough to change lane on a fast road, one to commit, and one at the
+// turn itself. Each fires at most once per instruction, and a step that starts
+// closer than a threshold simply skips it — in town that usually means only the
+// last two are heard.
+private const val VOICE_FAR_M = 800.0
+private const val VOICE_NEAR_M = 300.0
+private const val VOICE_NOW_M = 80.0
+
+/** Fallback pace for the "time to the next turn" estimate when the router gave
+ *  no travel time, ~50 km/h. Only feeds the cluster's step ETA. */
+private const val FALLBACK_MPS = 14.0
 
 /**
  * The actual turn-by-turn screen, pushed from [SpinScreen] once a candidate
@@ -51,6 +77,17 @@ private const val CAMERA_FETCH_THROTTLE_MS = 15_000L
  * would be a bigger, riskier refactor for no v1 benefit, since starting nav
  * here doesn't need to know what the phone screen is doing, same as the
  * existing wear/BLE relays each drive themselves).
+ *
+ * Turn-by-turn on a head unit is three separate things, and this screen owes
+ * all three:
+ *
+ *  - the **template**, which is what the car draws while Detour is the app on
+ *    screen ([onGetTemplate]);
+ *  - the **trip**, pushed to the host through [NavigationManager.updateTrip],
+ *    which is what feeds the instrument cluster and the host's own turn card
+ *    when the driver is looking at some other car app;
+ *  - the **voice**, via [NavVoice] — the only one of the three that works while
+ *    you are watching the road.
  */
 class NavScreen(
     carContext: CarContext,
@@ -58,10 +95,12 @@ class NavScreen(
     private val destination: LatLon,
     initialRoute: RouteResult,
     private val serverConfig: ServerConfig,
+    private val destinationName: String? = null,
 ) : Screen(carContext) {
 
     private val renderer = CarMapRenderer(carContext, carContext.isDarkMode())
     private val navigationManager = carContext.getCarService(NavigationManager::class.java)
+    private val voice = NavVoice(carContext)
     private val toneGen = runCatching { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90) }.getOrNull()
 
     private var route = initialRoute
@@ -69,6 +108,22 @@ class NavScreen(
     private var currentSpeedKmh = 0.0
     private var rerouting = false
     private var lastRerouteMs = 0L
+
+    /** True between [NavigationManager.navigationStarted] and its end. The
+     *  manager throws on updateTrip/clearCallback in the wrong state, and the
+     *  host can end navigation from its side at any moment, so the state is
+     *  tracked rather than assumed. */
+    private var navigating = false
+    private var arrived = false
+
+    /** What the template last showed, so an unchanged screen isn't rebuilt and
+     *  re-sent over the projection link once a second. */
+    private var templateKey: String? = null
+
+    // Voice bookkeeping: which instruction is being announced, and how far
+    // through its three prompts we are.
+    private var voiceStepKey = Int.MIN_VALUE
+    private var voicePhase = 0
 
     private var speedCameras: List<SpeedCameras.Camera> = emptyList()
     private var camerasCenter: LatLon? = null
@@ -82,37 +137,67 @@ class NavScreen(
                 // UI may never be opened — and every position on this screen
                 // comes from TripTrackingService.lastFix, so without this the
                 // map never leaves the world view and the HUD stays empty.
-                TripTrackingService.start(carContext, destination.lat, destination.lon)
+                // Wrapped: from Android 12 a foreground service started while
+                // the app itself is in the background throws, and a phone
+                // sitting locked in a cradle is exactly that. Losing the trip
+                // recording is survivable; taking the car app down mid-drive
+                // with it is not.
+                runCatching { TripTrackingService.start(carContext, destination.lat, destination.lon) }
+                    .onFailure { Log.w(TAG, "could not start trip tracking", it) }
                 carContext.getCarService(AppManager::class.java).setSurfaceCallback(renderer)
                 // navigationStarted() throws unless a callback is registered
                 // first. onStopNavigation fires when the host hands navigation
                 // to another app, which for us means leaving this screen.
                 navigationManager.setNavigationManagerCallback(object : NavigationManagerCallback {
                     override fun onStopNavigation() {
+                        // The host has already torn navigation down on its
+                        // side; navigationEnded() must not follow it.
+                        navigating = false
+                        voice.stop()
                         screenManager.pop()
                     }
                 })
-                navigationManager.navigationStarted()
+                runCatching {
+                    navigationManager.navigationStarted()
+                    navigating = true
+                }.onFailure { Log.w(TAG, "navigationStarted failed", it) }
+                renderer.setRoute(route.polyline, destination)
             }
             // Covers every way this screen leaves the front of the stack —
             // the Exit action, arrival, and the car's own back control alike.
             override fun onStop(owner: LifecycleOwner) {
-                navigationManager.navigationEnded()
-                navigationManager.clearNavigationManagerCallback()
+                if (navigating) {
+                    navigating = false
+                    runCatching { navigationManager.navigationEnded() }
+                }
+                runCatching { navigationManager.clearNavigationManagerCallback() }
+                voice.stop()
             }
             override fun onDestroy(owner: LifecycleOwner) {
                 renderer.destroy()
                 toneGen?.release()
+                voice.shutdown()
             }
         })
         lifecycleScope.launch {
             TripTrackingService.lastFix.collect { fix ->
                 fix ?: return@collect
-                onFix(LatLon(fix.lat, fix.lon), fix.bearingDeg, fix.speedMps)
+                // One bad fix must not take the app with it. Everything below
+                // runs against live network and host state — a reroute, an
+                // Overpass call, a template the host rejects — and an exception
+                // escaping here reaches the coroutine's default handler, which
+                // means the process dies in the middle of a drive.
+                try {
+                    onFix(LatLon(fix.lat, fix.lon), fix.bearingDeg, fix.speedMps)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "nav update failed", e)
+                }
             }
         }
         lifecycleScope.launch {
-            ConvoyLiveClient.peers.collect { peers -> renderer.overlays?.setFriends(peers.values) }
+            ConvoyLiveClient.peers.collect { peers -> renderer.setFriends(peers.values) }
         }
     }
 
@@ -120,16 +205,23 @@ class NavScreen(
         currentSpeedKmh = speedMps * 3.6
         val p = NavEngine.progress(route, pos) ?: return
         progress = p
-        renderer.updatePosition(pos, bearingDeg ?: 0f, currentSpeedKmh, p.speedLimitKmh,
-            Settings.defaultZoom.value.toDouble())
-        renderer.overlays?.render(
-            myLocation = pos, destination = destination, routePolyline = route.polyline,
-            reachMeters = null, directionDeg = null, candidates = emptyList(), showPosition = true)
+
+        renderer.follow(
+            pos, bearingDeg, speedMps,
+            NavEngine.cameraZoom(
+                Settings.defaultZoom.value.toDouble(), speedMps, p.distanceToTurnMeters),
+        )
+        renderer.updateHud(currentSpeedKmh, p.speedLimitKmh)
+        renderer.setPosition(pos)
+
+        announce(p)
+        pushTrip(p)
+        refreshTemplate(p)
         checkCameras(pos, bearingDeg?.toDouble())
-        invalidate()
 
         // Same arrival/reroute policy as MapScreen.kt's navigating LaunchedEffect.
-        if (p.remainingMeters < ARRIVE_METERS && p.offRouteMeters < OFF_ROUTE_METERS) {
+        if (!arrived && p.remainingMeters < ARRIVE_METERS && p.offRouteMeters < OFF_ROUTE_METERS) {
+            arrived = true
             screenManager.pop()
             return
         }
@@ -137,19 +229,106 @@ class NavScreen(
         if (p.offRouteMeters > OFF_ROUTE_METERS && !rerouting && now - lastRerouteMs > REROUTE_COOLDOWN_MS) {
             rerouting = true
             lastRerouteMs = now
+            speak("Rerouting")
             lifecycleScope.launch {
                 try {
-                    route = withContext(Dispatchers.IO) {
+                    val fresh = withContext(Dispatchers.IO) {
                         RoutingServer.route(serverConfig, pos, destination, TravelMode.CAR.ghProfile,
                             Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
                     }
+                    route = fresh
+                    // The line on the map is only pushed when it changes, so a
+                    // reroute is the one moment it has to be pushed again.
+                    renderer.setRoute(fresh.polyline, destination)
+                    // Instruction indices belong to the old polyline; start the
+                    // prompts for the new one from scratch.
+                    voiceStepKey = Int.MIN_VALUE
+                    voicePhase = 0
+                    templateKey = null
                 } catch (e: Exception) {
                     // stay on the old line; retried after the cooldown
+                    Log.w(TAG, "reroute failed", e)
                 } finally {
                     rerouting = false
                 }
             }
         }
+    }
+
+    // ---- voice ------------------------------------------------------------
+
+    private fun speak(text: String) {
+        if (Settings.voiceGuidance.value) voice.speak(text)
+    }
+
+    /** Announces the upcoming maneuver as it comes up, once per threshold. */
+    private fun announce(p: NavEngine.Progress) {
+        val instruction = p.nextInstruction ?: return
+        if (instruction.startIndex != voiceStepKey) {
+            voiceStepKey = instruction.startIndex
+            voicePhase = 0
+        }
+        val distance = p.distanceToTurnMeters
+        val phase = when {
+            distance <= VOICE_NOW_M -> 3
+            distance <= VOICE_NEAR_M -> 2
+            distance <= VOICE_FAR_M -> 1
+            else -> 0
+        }
+        if (phase == 0 || phase <= voicePhase) return
+        voicePhase = phase
+        val cue = instruction.text.ifBlank { "Continue" }
+        speak(if (phase == 3) cue else "In ${spokenDistance(distance)}, $cue")
+    }
+
+    // ---- host state -------------------------------------------------------
+
+    /**
+     * Pushes the trip to the host: the cluster display, the head unit's own
+     * turn card and the "navigating" state of the car's UI all come from this,
+     * not from the template — which is why the car showed no turn-by-turn of
+     * its own no matter what the Detour screen was drawing.
+     */
+    private fun pushTrip(p: NavEngine.Progress) {
+        if (!navigating) return
+        val step = stepFor(p.nextInstruction) ?: return
+        val remainingSec = ((p.remainingTimeMs ?: 0L) / 1000).coerceAtLeast(0)
+        val stepSec = secondsFor(p, p.distanceToTurnMeters)
+        val trip = runCatching {
+            val builder = Trip.Builder()
+                .addDestination(
+                    Destination.Builder().setName(destinationLabel()).build(),
+                    travelEstimate(p.remainingMeters, remainingSec),
+                )
+                .addStep(step, travelEstimate(p.distanceToTurnMeters, stepSec))
+            val nextStep = stepFor(p.nextNextInstruction)
+            val nextDistance = p.distanceToNextNextMeters
+            if (nextStep != null && nextDistance != null) {
+                builder.addStep(nextStep, travelEstimate(nextDistance, secondsFor(p, nextDistance)))
+            }
+            builder.build()
+        }.getOrElse {
+            Log.w(TAG, "could not build trip", it)
+            return
+        }
+        runCatching { navigationManager.updateTrip(trip) }
+            .onFailure { Log.w(TAG, "updateTrip failed", it) }
+    }
+
+    /** Rebuilds the template only when what it shows would actually differ.
+     *  The host redraws on every invalidate(), and at one fix a second an
+     *  identical redraw is pure cost on the projection link. */
+    private fun refreshTemplate(p: NavEngine.Progress) {
+        val key = buildString {
+            append(p.nextInstruction?.startIndex).append('|')
+            append(p.nextInstruction?.text).append('|')
+            append(displayMeters(p.distanceToTurnMeters)).append('|')
+            append(displayMeters(p.remainingMeters)).append('|')
+            append((p.remainingTimeMs ?: 0L) / 60_000)
+        }
+        if (key == templateKey) return
+        templateKey = key
+        invalidate()
     }
 
     private suspend fun checkCameras(pos: LatLon, headingDeg: Double?) {
@@ -163,7 +342,7 @@ class NavScreen(
             if (result != null) {
                 speedCameras = result.cameras
                 camerasCenter = pos
-                renderer.overlays?.setCameras(speedCameras)
+                renderer.setCameras(speedCameras)
             }
         }
         val ahead = speedCameras.filter { cam ->
@@ -178,39 +357,84 @@ class NavScreen(
         val tooFast = limit != null && currentSpeedKmh > limit + 3.0
         if (tooFast && ahead.at != warnedCameraAt) {
             toneGen?.startTone(ToneGenerator.TONE_PROP_BEEP2, 400)
+            // The toast is on the car screen and the tone is on the phone's
+            // notification stream; only the spoken one reaches a driver who is
+            // looking at the road with the radio on.
+            speak("Speed camera ahead")
             carContext.getCarService(AppManager::class.java)
                 .showToast("Speed camera ahead", CarToast.LENGTH_SHORT)
             warnedCameraAt = ahead.at
         }
     }
 
+    // ---- template ---------------------------------------------------------
+
     override fun onGetTemplate(): Template {
-        val builder = NavigationTemplate.Builder()
-            .setActionStrip(
-                ActionStrip.Builder()
-                    .addAction(Action.Builder().setTitle("Exit")
-                        .setOnClickListener { screenManager.pop() }.build())
-                    .build()
-            )
+        val builder = NavigationTemplate.Builder().setActionStrip(actionStrip())
         val p = progress
-        if (p != null) {
-            val step = Step.Builder(p.nextInstruction?.text ?: "Continue")
-                .setManeuver(Maneuver.Builder(maneuverType(p.nextInstruction?.sign ?: 0)).build())
-                .build()
-            builder.setNavigationInfo(
-                RoutingInfo.Builder()
-                    .setCurrentStep(step, carDistance(p.distanceToTurnMeters.coerceAtLeast(0.0)))
-                    .build()
-            )
-            val remainingSec = (p.remainingTimeMs ?: 0L) / 1000
-            builder.setDestinationTravelEstimate(
-                TravelEstimate.Builder(
-                    carDistance(p.remainingMeters),
-                    ZonedDateTime.now().plusSeconds(remainingSec),
-                ).setRemainingTimeSeconds(remainingSec).build()
-            )
+        if (p == null) {
+            // Before the first fix there is nothing honest to show. A loading
+            // routing card is the host's own "working on it", and beats the
+            // blank template that used to sit there until GPS arrived.
+            builder.setNavigationInfo(RoutingInfo.Builder().setLoading(true).build())
+            return builder.build()
         }
+        stepFor(p.nextInstruction)?.let { step ->
+            val info = RoutingInfo.Builder().setCurrentStep(step, carDistance(p.distanceToTurnMeters))
+            stepFor(p.nextNextInstruction)?.let { info.setNextStep(it) }
+            builder.setNavigationInfo(info.build())
+        }
+        val remainingSec = ((p.remainingTimeMs ?: 0L) / 1000).coerceAtLeast(0)
+        builder.setDestinationTravelEstimate(travelEstimate(p.remainingMeters, remainingSec))
         return builder.build()
+    }
+
+    private fun actionStrip(): ActionStrip {
+        val voiceOn = Settings.voiceGuidance.value
+        return ActionStrip.Builder()
+            .addAction(
+                Action.Builder()
+                    .setIcon(
+                        CarIcon.Builder(
+                            IconCompat.createWithResource(
+                                carContext,
+                                if (voiceOn) R.drawable.ic_car_volume_on
+                                else R.drawable.ic_car_volume_off,
+                            ),
+                        ).build(),
+                    )
+                    .setOnClickListener {
+                        Settings.setVoiceGuidance(!voiceOn)
+                        if (voiceOn) voice.stop()
+                        invalidate()
+                    }
+                    .build(),
+            )
+            // The strip allows a single action with a custom title, and that
+            // one is Exit; anything else added here has to be an icon.
+            .addAction(
+                Action.Builder().setTitle("Exit")
+                    .setOnClickListener { screenManager.pop() }.build(),
+            )
+            .build()
+    }
+
+    private fun destinationLabel(): String =
+        destinationName?.takeIf { it.isNotBlank() } ?: "Destination"
+
+    private fun travelEstimate(meters: Double, seconds: Long): TravelEstimate =
+        TravelEstimate.Builder(carDistance(meters), ZonedDateTime.now().plusSeconds(seconds))
+            .setRemainingTimeSeconds(seconds)
+            .build()
+
+    /** Travel time over [meters] of what's left, at the pace the router implied
+     *  for the rest of the route (or [FALLBACK_MPS] when it gave no time). */
+    private fun secondsFor(p: NavEngine.Progress, meters: Double): Long {
+        val totalMs = p.remainingTimeMs
+        val seconds = if (totalMs != null && p.remainingMeters > 1.0)
+            (totalMs / 1000.0) * (meters / p.remainingMeters)
+        else meters / FALLBACK_MPS
+        return seconds.roundToLong().coerceAtLeast(0)
     }
 
     companion object {
@@ -221,24 +445,82 @@ class NavScreen(
         ): NavScreen? {
             val route = candidate.route ?: return null
             if (route.instructions.isEmpty()) return null
-            return NavScreen(carContext, origin, candidate.destination, route, serverConfig)
+            return NavScreen(
+                carContext, origin, candidate.destination, route, serverConfig, candidate.name)
         }
     }
 }
 
-private fun carDistance(meters: Double): Distance = if (meters >= 1000.0)
-    Distance.create(meters / 1000.0, Distance.UNIT_KILOMETERS_P1)
-else
-    Distance.create(meters, Distance.UNIT_METERS)
+private fun carDistance(meters: Double): Distance {
+    val safe = if (meters.isNaN()) 0.0 else max(0.0, meters)
+    return if (safe >= 1000.0) Distance.create(safe / 1000.0, Distance.UNIT_KILOMETERS_P1)
+    else Distance.create(safe, Distance.UNIT_METERS)
+}
+
+/** Distance as the template shows it — to 10 m up close, 100 m further out.
+ *  Used to decide whether a redraw would change anything. */
+private fun displayMeters(meters: Double): Long =
+    if (meters < 1000.0) (meters / 10.0).roundToLong() * 10
+    else (meters / 100.0).roundToLong() * 100
+
+/** Distance as a driver would say it, for the spoken prompts. */
+private fun spokenDistance(meters: Double): String = when {
+    meters >= 1500.0 -> "${(meters / 1000.0).roundToInt()} kilometers"
+    meters >= 950.0 -> "1 kilometer"
+    meters >= 100.0 -> "${(meters / 100.0).roundToInt() * 100} meters"
+    else -> "${(meters / 10.0).roundToInt() * 10} meters"
+}
+
+/** A car [Step] for [instruction]: the spoken/written cue plus a maneuver icon.
+ *  Null when there is no instruction to show. */
+private fun stepFor(instruction: NavInstruction?): Step? {
+    instruction ?: return null
+    val cue = instruction.text.ifBlank { "Continue" }
+    return runCatching {
+        Step.Builder(cue)
+            .apply { maneuverFor(instruction)?.let { setManeuver(it) } }
+            .build()
+    }.getOrNull()
+}
+
+/**
+ * The car maneuver for a GraphHopper instruction.
+ *
+ * Roundabouts are why this returns a nullable [Maneuver] built inside a
+ * runCatching rather than a bare type int: the enter-and-exit types are the
+ * only ones the host will not accept without an exit number, and
+ * `Maneuver.Builder(TYPE_ROUNDABOUT_ENTER_AND_EXIT_CCW).build()` throws
+ * `IllegalArgumentException("Maneuver missing roundaboutExitNumber")`. Building
+ * one on the first roundabout of the drive is what was killing the car app —
+ * GraphHopper *does* send the exit number (`NavInstruction.exitNumber`), it was
+ * simply never passed on, and where it is missing (0, or negative when the
+ * router can't tell) the plain enter type is used instead.
+ */
+private fun maneuverFor(instruction: NavInstruction): Maneuver? {
+    val exit = instruction.exitNumber
+    val type = maneuverType(instruction.sign, exit)
+    return runCatching {
+        Maneuver.Builder(type)
+            .apply {
+                if (type == Maneuver.TYPE_ROUNDABOUT_ENTER_AND_EXIT_CW ||
+                    type == Maneuver.TYPE_ROUNDABOUT_ENTER_AND_EXIT_CCW
+                ) {
+                    setRoundaboutExitNumber(exit)
+                }
+            }
+            .build()
+    }.getOrNull()
+}
 
 /** GraphHopper sign code → car maneuver type, same table as
  *  ui/Navigation.kt's signIcon(). Roundabout direction assumes right-hand
  *  traffic (Benelux) — CCW when entering. */
-private fun maneuverType(sign: Int): Int = when (sign) {
+private fun maneuverType(sign: Int, exitNumber: Int): Int = when (sign) {
     -98, -8 -> Maneuver.TYPE_U_TURN_LEFT
     8 -> Maneuver.TYPE_U_TURN_RIGHT
-    -7 -> Maneuver.TYPE_FORK_LEFT
-    7 -> Maneuver.TYPE_FORK_RIGHT
+    -7 -> Maneuver.TYPE_KEEP_LEFT
+    7 -> Maneuver.TYPE_KEEP_RIGHT
+    -6 -> Maneuver.TYPE_ROUNDABOUT_EXIT_CCW
     -3 -> Maneuver.TYPE_TURN_SHARP_LEFT
     -2 -> Maneuver.TYPE_TURN_NORMAL_LEFT
     -1 -> Maneuver.TYPE_TURN_SLIGHT_LEFT
@@ -246,6 +528,9 @@ private fun maneuverType(sign: Int): Int = when (sign) {
     2 -> Maneuver.TYPE_TURN_NORMAL_RIGHT
     3 -> Maneuver.TYPE_TURN_SHARP_RIGHT
     4, 5 -> Maneuver.TYPE_DESTINATION
-    6 -> Maneuver.TYPE_ROUNDABOUT_ENTER_AND_EXIT_CCW
+    6 -> {
+        if (exitNumber > 0) Maneuver.TYPE_ROUNDABOUT_ENTER_AND_EXIT_CCW
+        else Maneuver.TYPE_ROUNDABOUT_ENTER_CCW
+    }
     else -> Maneuver.TYPE_STRAIGHT
 }

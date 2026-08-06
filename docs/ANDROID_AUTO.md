@@ -64,6 +64,61 @@ phone, and open Detour on the phone once so it has location permission —
 `SpinScreen` cannot spin without it and shows a "Location needed" message
 instead.
 
+## What turn-by-turn actually consists of
+
+`NavScreen` owes the head unit three separate things, and only the first is the
+one you see while Detour is the app on screen:
+
+- **The template** (`onGetTemplate`) — the `NavigationTemplate` with a
+  `RoutingInfo` card. Rebuilt only when the maneuver, the rounded distance or
+  the ETA minute changes: the host redraws on every `invalidate()`, and at one
+  GPS fix a second an identical redraw is pure traffic over the projection link.
+- **The trip** (`NavigationManager.updateTrip`) — what feeds the instrument
+  cluster and the host's own turn card, i.e. everything the car shows when the
+  driver is looking at a *different* car app. A navigation app that never calls
+  it renders correctly on its own screen and appears to the car as if nothing
+  is being navigated.
+- **The voice** (`NavVoice`) — the only one of the three that works while you
+  are looking at the road. Android Auto has no voice API: a projected app
+  speaks through the phone's TTS, and the head unit routes it by
+  `AudioAttributes` *usage*. `USAGE_ASSISTANCE_NAVIGATION_GUIDANCE` is what puts
+  it on the cabin speakers and ducks the radio;
+  `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK` is what keeps the music playing quietly
+  under it instead of stopping for the whole drive. Prompts fire at 800 m,
+  300 m and at the turn, once each, and the speaker button on the nav screen
+  mutes them (`Settings.voiceGuidance`).
+
+### Maneuvers throw
+
+`Maneuver.Builder(type).build()` is not total. The roundabout enter-and-exit
+types are rejected without an exit number —
+`IllegalArgumentException: Maneuver missing roundaboutExitNumber` — so building
+one from a GraphHopper `sign: 6` instruction without passing its `exit_number`
+crashes the app on the first roundabout of the drive. GraphHopper sends the
+number; it has to be forwarded, and where it is absent (0, or negative when the
+router cannot tell) the plain `TYPE_ROUNDABOUT_ENTER_CCW` is the one that
+builds. The same care applies to anything else built from router output: the
+whole per-fix loop runs inside a `try`, because an exception escaping a
+coroutine here takes the process down mid-drive rather than dropping a frame.
+
+## Keeping the map moving
+
+GPS arrives about once a second. A map that only moves when a fix lands reads
+as a broken app, so `CarMapRenderer` eases the camera toward the last fix on a
+~30 ms timer and pushes it only when the step is big enough to see — the same
+follow loop the phone map uses, with two car-specific differences:
+
+- It is driven by a timer, not `Choreographer`/`withFrameNanos`. The map lives
+  on a `VirtualDisplay` that keeps running with the phone's own screen off, and
+  vsync callbacks do not.
+- Overlay state (route, position, cameras, friends) is held by the renderer
+  rather than pushed per fix. A full `MapOverlays.render` re-serialises the
+  route polyline — a few thousand points on a long route — into GeoJSON and
+  hands the map a new line to tessellate. Once a second, on a head unit, that
+  alone is enough to make everything feel stuck; the per-fix update is now the
+  one-point position source, and the line is re-pushed only when the route
+  changes (start, reroute) or a new surface needs refilling.
+
 ## Debugging on the car
 
 With the phone connected to the head unit over USB, `adb` still works over
