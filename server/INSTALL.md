@@ -236,7 +236,7 @@ default, reciprocal (stop sharing and you stop receiving), and revocable on the
 next request. Trips are never returned to anyone but their owner, by any
 endpoint.
 
-Friends can also send each other saved **routes** (`/routes/share`), which
+Friends can also send each other saved **routes** (`/shared-routes/share`), which
 only works between accepted friends and is revoked the moment the friendship
 is: `/friends/remove` deletes any routes shared between that pair in either
 direction.
@@ -633,9 +633,9 @@ string to the user verbatim — so keep any you add plain.
 | POST | `/friends/remove` | `{username}` | `{}` |
 | GET | `/friends/stats` | — | `[{username, stats, badges}]` |
 | GET | `/friends/fog` | — | `{sharing, traces}` |
-| POST | `/routes/share` | `{to, route}` | `{status}` — `to` must be an accepted friend |
-| GET | `/routes/inbox` | — | `{routes: [{id, from, createdMs, route}]}` — newest first, capped at 100 |
-| POST | `/routes/delete` | `{id}` | `{}` — sender or recipient only |
+| POST | `/shared-routes/share` | `{to, route}` | `{status}` — `to` must be an accepted friend |
+| GET | `/shared-routes/inbox` | — | `{routes: [{id, from, createdMs, route}]}` — newest first, capped at 100 |
+| POST | `/shared-routes/delete` | `{id}` | `{}` — sender or recipient only |
 
 Sharing a route requires an accepted friendship both ways, checked on every
 share — not just once, so a route pushed a moment after you unfriend someone

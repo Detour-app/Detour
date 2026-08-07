@@ -24,6 +24,11 @@ data class SharedRoute(
  */
 object RouteShare {
 
+    // The paths are /shared-routes/… rather than the obvious /routes/…: a
+    // Cloudflare tunnel fronting both this server and a GraphHopper on one
+    // hostname matches its /route rule as a prefix, and answers every
+    // /routes/* request from the router instead.
+
     /**
      * Sends [route] to [username]. The server answers 403 when the two
      * accounts aren't accepted friends, 400 on a route it can't parse, and
@@ -32,7 +37,7 @@ object RouteShare {
      */
     suspend fun share(username: String, route: SavedRoute) {
         Api.request(
-            "POST", "/routes/share",
+            "POST", "/shared-routes/share",
             buildJsonObject {
                 put("to", username)
                 put("route", route.toJson())
@@ -48,7 +53,7 @@ object RouteShare {
      * [pullInbox] is built from).
      */
     suspend fun inbox(): List<SharedRoute> {
-        val o = Api.requestJson("GET", "/routes/inbox")
+        val o = Api.requestJson("GET", "/shared-routes/inbox")
         return o.optArray("routes")?.objects().orEmpty().mapNotNull { entry ->
             val routeObj = entry.optObject("route") ?: return@mapNotNull null
             val route = routeFromJson(routeObj) ?: return@mapNotNull null
@@ -63,7 +68,7 @@ object RouteShare {
 
     /** Removes one inbox entry by its server row id — see [SharedRoute.serverId]. */
     suspend fun delete(serverId: Long) {
-        Api.request("POST", "/routes/delete", buildJsonObject { put("id", serverId) })
+        Api.request("POST", "/shared-routes/delete", buildJsonObject { put("id", serverId) })
     }
 
     /**

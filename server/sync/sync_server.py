@@ -38,9 +38,9 @@ Protocol
   POST /friends/remove  {username}              -> {}
   GET  /friends/stats                           -> [{username, stats, badges}]
   GET  /friends/fog                             -> {sharing, traces: [line, …]}
-  POST /routes/share {to, route}                -> {status} (recipient must be an accepted friend)
-  GET  /routes/inbox                            -> {routes: [{id, from, createdMs, route}]}
-  POST /routes/delete {id}                      -> {} (sender or recipient only)
+  POST /shared-routes/share {to, route}         -> {status} (recipient must be an accepted friend)
+  GET  /shared-routes/inbox                     -> {routes: [{id, from, createdMs, route}]}
+  POST /shared-routes/delete {id}               -> {} (sender or recipient only)
   POST /convoys {name}                          -> {id, name} (creator auto-joins)
   GET  /convoys                                 -> [{id, name, status, members: [{username, status}]}]
   POST /convoys/{id}/invite {username}          -> {status} (must already be friends)
@@ -183,7 +183,7 @@ BADGE_ID_RE = re.compile(r"^[a-z]+_[0-9]+$")
 MAX_BADGES = 200
 
 # A shared route is one JSON blob, stored opaquely like a trip. Cap its
-# serialized size so a malicious or buggy client can't use /routes/share to
+# serialized size so a malicious or buggy client can't use /shared-routes/share to
 # stuff an arbitrarily large blob into a friend's inbox — 512 KB is generous
 # for a polyline-and-stops route and nowhere near MAX_BODY.
 MAX_ROUTE_JSON_BYTES = 512 * 1024
@@ -5527,7 +5527,10 @@ AUTHED_GET = {
     "/friends/stats": friend_stats,
     "/friends/fog": friend_fog,
     "/convoys": do_convoys,
-    "/routes/inbox": do_routes_inbox,
+    # /shared-routes/, not /routes/: a tunnel that fronts both this server and
+    # a GraphHopper on one hostname matches its /route rule as a prefix, and
+    # swallows every /routes/* request before it reaches here.
+    "/shared-routes/inbox": do_routes_inbox,
 }
 
 
@@ -5615,9 +5618,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, do_friend_respond(authenticate(self.headers), body))
             elif self.path == "/friends/remove":
                 self._json(200, do_friend_remove(authenticate(self.headers), body))
-            elif self.path == "/routes/share":
+            elif self.path == "/shared-routes/share":
                 self._json(200, do_route_share(authenticate(self.headers), body))
-            elif self.path == "/routes/delete":
+            elif self.path == "/shared-routes/delete":
                 self._json(200, do_route_delete(authenticate(self.headers), body))
             elif self.path == "/convoys":
                 self._json(200, do_convoy_create(authenticate(self.headers), body))
