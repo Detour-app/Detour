@@ -349,7 +349,7 @@ fun MapScreen(
     val attributionBottomMarginPx = with(LocalDensity.current) { 84.dp.roundToPx() }
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
-    LaunchedEffect(Unit) { SavedPlaces.ensureLoaded(context) }
+    LaunchedEffect(Unit) { SavedPlaces.ensureLoaded() }
     val savedPlaces by SavedPlaces.places.collectAsStateWithLifecycle()
     // Non-null while a name is being entered for the current dropped/destination pin.
     var savePinTarget by remember { mutableStateOf<LatLon?>(null) }
@@ -369,7 +369,7 @@ fun MapScreen(
     var spinning by remember { mutableStateOf(false) }
     var spinJob by remember { mutableStateOf<Job?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    val serverConfig = remember { RoutingServer.load(context) }
+    val serverConfig = remember { RoutingServer.load() }
     var poiKind by rememberSaveable { mutableStateOf(PoiKind.ROAD) }
     var directionDeg by rememberSaveable { mutableStateOf<Float?>(null) }
     var destinationName by remember { mutableStateOf(savedSpin.destinationName) }
@@ -385,7 +385,7 @@ fun MapScreen(
     // straight from the tracking service, so fog and position update in real
     // time instead of only when a trip is saved.
     val storeVersion by TraceStore.version.collectAsStateWithLifecycle()
-    val traces = remember(storeVersion) { TraceStore.loadAll(context) }
+    val traces = remember(storeVersion) { TraceStore.loadAll() }
     // Friends' territory, unioned into the same fog. Empty unless both sides
     // opted in; the overlay can't tell whose trace is whose, and neither can we.
     val shareFog by Settings.shareFog.collectAsStateWithLifecycle()
@@ -406,7 +406,7 @@ fun MapScreen(
         val id = activeConvoyId
         convoyName = if (id == null) null else withContext(Dispatchers.IO) {
             try {
-                Convoys.list(context).find { it.id == id }?.name
+                Convoys.list().find { it.id == id }?.name
             } catch (e: Exception) {
                 null
             }
@@ -466,10 +466,10 @@ fun MapScreen(
     // Pull from the sync server on launch: restores everything after a
     // reinstall and picks up trips recorded while the app was closed.
     LaunchedEffect(Unit) {
-        if (SyncClient.configured(context) && Account.signedIn) {
+        if (SyncClient.configured() && Account.signedIn) {
             withContext(Dispatchers.IO) {
                 try {
-                    SyncClient.sync(context)
+                    SyncClient.sync()
                 } catch (e: Exception) {
                     // offline, server down, or signed out; next launch catches up
                 }
@@ -480,7 +480,7 @@ fun MapScreen(
     // Re-fetch when sharing is switched on, and drop what we hold the moment it
     // is switched off — a stale union would keep revealing a friend's roads.
     LaunchedEffect(shareFog) {
-        if (shareFog) withContext(Dispatchers.IO) { FriendFog.refresh(context) }
+        if (shareFog) withContext(Dispatchers.IO) { FriendFog.refresh() }
         else FriendFog.clear()
     }
 
@@ -1174,7 +1174,7 @@ fun MapScreen(
             var serverError: String? = null
             try {
                 // Bias destinations toward territory the fog hasn't uncovered.
-                val explored = withContext(Dispatchers.IO) { ExploredArea.load(context) }
+                val explored = withContext(Dispatchers.IO) { ExploredArea.load() }
                 if (mode.roundTrip) {
                     // Prefer the self-hosted routing server (real road-following
                     // loops, curviest of a few rolls); fall back to Overpass
@@ -1540,7 +1540,7 @@ fun MapScreen(
         SavePinDialog(
             suggestedName = destinationName?.takeIf { it != "Dropped pin" } ?: "",
             onSave = { name ->
-                SavedPlaces.add(context, name, target)
+                SavedPlaces.add(name, target)
                 savePinTarget = null
             },
             onDismiss = { savePinTarget = null },
@@ -1579,12 +1579,12 @@ private fun SearchDialog(
     var results by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    val recents = remember { RecentSearchStore.load(context) }
+    val recents = remember { RecentSearchStore.load() }
     val recentNames = remember(recents) { recents.map { it.name }.toSet() }
     val focusRequester = remember { FocusRequester() }
 
     fun pick(r: GeocodeResult) {
-        RecentSearchStore.save(context, r)
+        RecentSearchStore.save(r)
         onPick(r)
     }
 
@@ -1609,7 +1609,7 @@ private fun SearchDialog(
         delay(300)
         searching = true
         try {
-            val hits = withContext(Dispatchers.IO) { Geocoder.search(context, q, near) }
+            val hits = withContext(Dispatchers.IO) { Geocoder.search(q, near) }
             val seen = HashSet(recentMatches.map { it.name })
             val merged = ArrayList(recentMatches)
             for (hit in hits) if (seen.add(hit.name)) merged.add(hit)

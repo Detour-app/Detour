@@ -83,10 +83,10 @@ fun HubScreen(
     // produceState, with em-dashes standing in until it lands.
     val data by produceState<HubData?>(initialValue = null) {
         value = withContext(Dispatchers.IO) {
-            val coverage = Coverage.compute(context)
-            val stats = BadgeStore.stats(context, coverage)
-            val earned = BadgeStore.refresh(context, stats).states.count { it.earned }
-            val trips = TripStore.load(context).size
+            val coverage = Coverage.compute()
+            val stats = BadgeStore.stats(coverage)
+            val earned = BadgeStore.refresh(stats).states.count { it.earned }
+            val trips = TripStore.load().size
             HubData(stats, earned, trips)
         }
     }
@@ -107,7 +107,7 @@ fun HubScreen(
             AccountCard(
                 username = username,
                 signedIn = signedIn,
-                synced = SyncClient.configured(context) && signedIn,
+                synced = SyncClient.configured() && signedIn,
                 onClick = if (!signedIn) onOpenFriends else null,
             )
 

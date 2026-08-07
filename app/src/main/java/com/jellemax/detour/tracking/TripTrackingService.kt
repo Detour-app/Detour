@@ -41,6 +41,7 @@ import com.google.android.gms.location.Priority
 import com.jellemax.detour.MainActivity
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.ble.BoardTelemetry
+import com.jellemax.detour.data.syncQuietly
 import com.jellemax.detour.data.BadgeDef
 import com.jellemax.detour.data.BadgeStore
 import com.jellemax.detour.data.Coverage
@@ -53,6 +54,11 @@ import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -656,7 +662,7 @@ class TripTrackingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Settings.init(this)
+        Settings.init()
         createChannel()
         // From Android 12 the platform refuses a foreground service started
         // while the app itself is in the background, and throws rather than
@@ -747,9 +753,7 @@ class TripTrackingService : Service() {
             if (wasAuto) stats.distanceMeters >= MIN_AUTO_TRIP_METERS
             else stats.durationMs > 0
         if (worthSaving) {
-            TripStore.save(
-                this,
-                Trip(
+            TripStore.save(Trip(
                     startTimeMs = stats.startTimeMs,
                     endTimeMs = System.currentTimeMillis(),
                     distanceMeters = stats.distanceMeters,
@@ -761,7 +765,7 @@ class TripTrackingService : Service() {
                     mode = stats.mode,
                 ),
             )
-            SyncClient.syncQuietly(this)
+            SyncClient.syncQuietly()
             checkBadges()
             // Only tell the user about trips they didn't end themselves.
             if (wasAuto) notifyTripEnded()
@@ -1112,32 +1116,36 @@ class TripTrackingService : Service() {
     private fun maybeDiscoverMunicipality(p: LatLon) {
         val now = System.currentTimeMillis()
         if (now - lastMunicipalityLookupMs < MUNICIPALITY_LOOKUP_COOLDOWN_MS) return
-        val app = applicationContext
-        if (!MunicipalityStore.needsLookup(app, p)) return
+        if (!MunicipalityStore.needsLookup(p)) return
         lastMunicipalityLookupMs = now
-        Thread { MunicipalityStore.discoverQuietly(app, p) }.start()
+        serviceScope.launch { MunicipalityStore.discoverQuietly(p) }
     }
 
     /** Rescore badges off the main thread and tell the user about new ones. */
     private fun checkBadges() {
-        val app = applicationContext
-        Thread {
-            val coverage = Coverage.compute(app)
-            val newly = BadgeStore.refresh(app, BadgeStore.stats(app, coverage)).newlyEarned
+        serviceScope.launch {
+            val coverage = Coverage.compute()
+            val newly = BadgeStore.refresh(BadgeStore.stats(coverage)).newlyEarned
             if (newly.isNotEmpty()) notifyBadgesEarned(newly)
-        }.start()
+        }
     }
 
     private fun flushTrace(keepLast: Boolean = false) {
         if (tracePoints.isEmpty()) return
-        TraceStore.append(this, tracePoints)
+        TraceStore.append(tracePoints)
         val last = tracePoints.lastOrNull()
         tracePoints.clear()
         if (keepLast && last != null) tracePoints.add(last)
         _liveTrace.value = tracePoints.map { it.at }
     }
 
+    /** Outlives no single trip: municipality discovery and badge rescoring
+     *  both start as a trip *ends* and must not be cancelled by that. Torn
+     *  down with the service in onDestroy. */
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override fun onDestroy() {
+        serviceScope.cancel()
         if (::fusedClient.isInitialized) {
             fusedClient.removeLocationUpdates(locationCallback)
         }

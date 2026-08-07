@@ -106,7 +106,7 @@ object ConvoyLiveClient {
      *  /live path, matching the ingress rule from server/INSTALL.md. */
     fun liveUrl(context: Context): String {
         BuildConfig.LIVE_URL.takeIf { it.isNotBlank() }?.let { return it }
-        val base = RoutingServer.loadCustom(context)?.url?.trimEnd('/') ?: return ""
+        val base = RoutingServer.loadCustom()?.url?.trimEnd('/') ?: return ""
         return when {
             base.startsWith("https://") -> "wss://" + base.removePrefix("https://") + "/live"
             base.startsWith("http://") -> "ws://" + base.removePrefix("http://") + "/live"
@@ -212,7 +212,7 @@ object ConvoyLiveClient {
             _lastError.value = if (liveUrl.isBlank()) "No live server configured" else "Not signed in"
             return false
         }
-        val cf = RoutingServer.load(context)
+        val cf = RoutingServer.load()
 
         val closed = CompletableDeferred<Boolean>()
         var everJoined = false

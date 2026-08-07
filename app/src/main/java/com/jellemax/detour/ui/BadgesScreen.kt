@@ -86,9 +86,9 @@ fun BadgesScreen(onBack: () -> Unit) {
     // main thread, and off the composition's hot path.
     val data by produceState<ScreenData?>(initialValue = null) {
         value = withContext(Dispatchers.IO) {
-            val coverage = Coverage.compute(context)
-            val stats = BadgeStore.stats(context, coverage)
-            ScreenData(BadgeStore.refresh(context, stats).states, coverage, stats)
+            val coverage = Coverage.compute()
+            val stats = BadgeStore.stats(coverage)
+            ScreenData(BadgeStore.refresh(stats).states, coverage, stats)
         }
     }
 

@@ -51,6 +51,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jellemax.detour.data.syncQuietly
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
@@ -79,7 +80,7 @@ private data class TraceSegment(
  *  this screen needs to match a trace back to the trip that was running when it
  *  was recorded, and the one thing a GPX export can't be built without. */
 private fun readTraceSegments(context: android.content.Context): List<TraceSegment> =
-    TraceStore.rawLines(context).mapNotNull { line ->
+    TraceStore.rawLines().mapNotNull { line ->
         val points = TraceStore.parsePoints(line) ?: return@mapNotNull null
         var start = Long.MAX_VALUE
         var end = Long.MIN_VALUE
@@ -146,7 +147,7 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
     var entries by remember { mutableStateOf<List<HistoryEntry>?>(null) }
     fun reload() = scope.launch {
         entries = withContext(Dispatchers.IO) {
-            val trips = TripStore.load(context)
+            val trips = TripStore.load()
             val thumbnails = matchThumbnails(context, trips)
             trips.map { HistoryEntry(it, thumbnails[it.startTimeMs]) }
         }
@@ -211,17 +212,17 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
                             onChangeMode = { newMode ->
                                 scope.launch {
                                     withContext(Dispatchers.IO) {
-                                        TripStore.updateMode(context, entry.trip.startTimeMs, newMode)
+                                        TripStore.updateMode(entry.trip.startTimeMs, newMode)
                                     }
                                     reload()
                                     // Push the correction so it survives a reinstall / other devices.
-                                    SyncClient.syncQuietly(context)
+                                    SyncClient.syncQuietly()
                                 }
                             },
                             onDelete = {
                                 scope.launch {
                                     withContext(Dispatchers.IO) {
-                                        TripStore.delete(context, entry.trip.startTimeMs)
+                                        TripStore.delete(entry.trip.startTimeMs)
                                     }
                                     reload()
                                 }
