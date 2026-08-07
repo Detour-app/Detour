@@ -10,9 +10,11 @@ name: Detour
 options:
   bundleIdPrefix: io.github.maxke24
   deploymentTarget:
-    # CoreLocation's background updates and SwiftUI's Map both settle down at
-    # 16; going lower buys nothing for a phone app shipped today.
-    iOS: "16.0"
+    # 17, not 16: the screens use ContentUnavailableView and the two-parameter
+    # onChange, both 17-only, and rewriting them to their 16 equivalents buys
+    # nothing — iOS 17 runs on the iPhone XS and later, which is every phone
+    # this app would be installed on.
+    iOS: "17.0"
   createIntermediateGroups: true
 
 packages:
