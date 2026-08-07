@@ -6,10 +6,34 @@
 - Android SDK 35 (compile/target), min SDK 26
 - Python 3.8+ if you're touching the sync server (stdlib only, no dependencies
   to install)
+- A Mac with Xcode 16 **only** if you want to build or run the iOS app locally.
+  Everything else, including type-checking and testing the shared core, works
+  on Linux and Windows.
+
+## Layout
+
+```
+shared/     Kotlin Multiplatform core. Roulette, routing, trips, badges, sync.
+app/        Android app — UI and platform services only.
+iosApp/     SwiftUI app — UI and platform services only.
+wear/       Wear OS companion.
+server/     Python sync server, GraphHopper/Photon install scripts.
+```
+
+The split follows one rule: **the core is handed things, it never reaches for
+them.** Location fixes, audio, Bluetooth and notifications are pushed *into*
+`:shared` by whichever platform is running it. `Platform.kt` deliberately
+expects only three things — a key-value store, a files directory and a file
+system — so wanting to add a fourth is the signal to push the dependency in
+from the platform instead. See
+[docs/IOS_PORT.md](docs/IOS_PORT.md).
+
+New logic goes in `shared/` unless it genuinely cannot — a change that lands
+only in `app/` silently makes iOS diverge.
 
 ## Building
 
-Both Gradle modules build from the repo root:
+All Gradle modules build from the repo root:
 
 ```bash
 ./gradlew assembleDebug          # phone + watch debug APKs
@@ -21,6 +45,38 @@ Phone APK lands in `app/build/outputs/apk/debug/app-debug.apk`, watch APK in
 `wear/build/outputs/apk/debug/wear-debug.apk`. `assembleRelease` also works
 locally without any signing environment set — you'll get an unsigned,
 minified release build; see `README.md` for how CI produces a signed one.
+
+### The shared core
+
+Run these before opening a PR that touches `shared/` — neither needs a Mac:
+
+```bash
+./gradlew :shared:compileCommonMainKotlinMetadata   # no java.* leaked into commonMain
+./gradlew :shared:testDebugUnitTest                 # shared tests
+```
+
+The first is the one that catches the common mistake. `commonMain` compiles
+fine against the Android target with a stray `java.util.Calendar` import and
+then fails only on the iOS targets, which you cannot build on Linux; the
+metadata compilation type-checks against the common intersection and fails
+immediately instead.
+
+### The iOS app
+
+```bash
+brew install xcodegen
+cd iosApp && xcodegen && open Detour.xcodeproj
+```
+
+The Xcode project is generated from `iosApp/project.yml` and is not committed —
+edit `project.yml`, never the `.xcodeproj`. A pre-build phase runs
+`:shared:packForXcode`, so editing Kotlin and pressing Run rebuilds both halves.
+`Config.example.xcconfig` is the iOS equivalent of `local.properties`; copy it
+to `Config.xcconfig` if you want default endpoints baked in.
+
+Without a Mac, push the branch and let the *iOS* workflow build it on
+`macos-15` — it uploads a simulator app, an unsigned `.ipa` and a screenshot of
+the app running.
 
 No server URLs, API keys, or Cloudflare Access secrets are required to build.
 The app takes all of that at runtime (Settings), or from `local.properties`
@@ -62,6 +118,20 @@ INVITE=<code> bash server/verify.sh --routing   # also check GraphHopper
 `sync_server.py` that touches auth, sync merging, or friends, run this before
 opening a PR.
 
+## Branches
+
+Three, and only three:
+
+| Branch | For |
+| --- | --- |
+| `main` | Trunk. Everything lands here. |
+| `android` | Android-only work, branched from `main`. |
+| `ios` | iOS-only work, branched from `main`. |
+
+`android` and `ios` merge **back into** `main`; work that touches `shared/`
+belongs on `main` directly, since it affects both. Short-lived topic branches
+are fine — delete them once they're merged rather than leaving them on origin.
+
 ## Pull requests
 
 - **One topic per PR.** A security fix and a UI tweak are two PRs, even if
@@ -71,10 +141,15 @@ opening a PR.
   exception. A push to `main` additionally signs them, publishes a GitHub
   release, and uploads to Play's internal track (see
   [docs/RELEASING.md](docs/RELEASING.md)); PRs stop at the build.
+- **Touching `shared/` or `iosApp/` also runs the iOS workflow**, which
+  type-checks `commonMain`, runs the shared tests on both the JVM and
+  Kotlin/Native, and builds and boots the app in a simulator. It has to be
+  green too.
 - If you touched the sync server, run `verify.sh` against a local instance
   and mention the result in the PR description.
-- If you touched Android security- or privacy-relevant code (BLE, backup
-  rules, credential storage), say so explicitly — those get a closer look.
+- If you touched security- or privacy-relevant code (BLE, backup rules,
+  credential storage, the keychain), say so explicitly — those get a closer
+  look.
 
 ## Code style
 

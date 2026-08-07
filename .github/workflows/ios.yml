@@ -7,7 +7,7 @@ name: iOS
 # iPhone does need a paid account — that is a separate, signed workflow.
 on:
   push:
-    branches: [ios-port]
+    branches: [main, ios]
     paths:
       - 'shared/**'
       - 'iosApp/**'

@@ -28,6 +28,7 @@ Ghent. Nothing in them is a real location.</sub>
 - [Settings reference](#settings-reference)
 - [On your wrist](#on-your-wrist)
 - [On the car screen](#on-the-car-screen)
+- [On iPhone](#on-iphone)
 - [Stack](#stack)
 - [Build](#build)
 - [Self-hosting the server](#self-hosting-the-server)
@@ -38,6 +39,10 @@ Ghent. Nothing in them is a real location.</sub>
 Grab the APK from the latest release and install it, or build it yourself (see
 [Build](#build)). Min SDK 26 (Android 8.0). A Wear OS APK ships alongside if you
 want the watch companion.
+
+There is an iPhone app too, sharing the same core — it has no release download,
+because putting an iOS build on a phone needs a paid Apple Developer
+certificate. See [On iPhone](#on-iphone). The screenshots below are all Android.
 
 Releases from CI are signed with a key that a local build does not have, so you
 cannot install a debug build over a release one (or the other way round) without
@@ -366,14 +371,58 @@ Google Play**. The Desktop Head Unit accepts a sideloaded APK, a car never does.
 [docs/ANDROID_AUTO.md](docs/ANDROID_AUTO.md) covers the Internal App Sharing
 route and how to debug the car screen.
 
+## On iPhone
+
+A SwiftUI app in `iosApp/` runs on the same core as the Android one: map and
+spin, trip recording in the background, history with GPX export, badges, saved
+places, friends and the leaderboard, in-app turn-by-turn with spoken
+directions, and convoy live location with push-to-talk.
+
+Three things are Android-only and are not coming to iOS: **Android Auto**
+(CarPlay navigation needs an entitlement Apple grants on application, and
+routinely refuses for hobby apps), **now-playing media** on an external display
+(iOS exposes no equivalent), and the **Wear OS** companion.
+
+Where the platforms behave differently — trip auto-detection, how lean and g
+are measured, guidance audio ducking — the reasoning for each is in
+[docs/IOS_PORT.md](docs/IOS_PORT.md).
+
+There is no download. CI builds a simulator app and an **unsigned** `.ipa` on
+every change, but signing one for a real phone needs a certificate from a paid
+Apple Developer account, which no CI trick removes.
+
 ## Stack
 
-Kotlin, Jetpack Compose, Material 3, MapLibre GL (OpenFreeMap vector tiles),
-Overpass API, GraphHopper for routing, fused location provider, Wearable Message
-API for the watch. Trips and traces stored as JSON in app-private storage. Min
-SDK 26 (Android 8.0).
+**Kotlin Multiplatform.** The roulette draw, routing, trip recording, badges,
+coverage and sync all live in `shared/` as `commonMain`, compiled for Android
+and iOS alike. Ktor for HTTP (OkHttp on Android, NSURLSession on iOS),
+kotlinx-serialization, kotlinx-datetime and okio. The core is handed its
+location fixes, audio and Bluetooth by whichever platform is running it — it
+never reaches for them — which is why only three things are `expect`.
+
+**Android** (`app/`, `wear/`): Jetpack Compose, Material 3, MapLibre GL
+(OpenFreeMap vector tiles), fused location provider, Android for Cars App
+Library, Wearable Message API. Min SDK 26 (Android 8.0).
+
+**iOS** (`iosApp/`): SwiftUI, MapLibre GL Native, CoreLocation,
+`CMMotionActivityManager` for the automotive hint and `CMDeviceMotion` for lean
+and g. Targets iOS 17.
+
+Shared throughout: Overpass API for OSM data, GraphHopper for routing, Photon
+for search. Trips and traces stored as JSON in app-private storage.
 
 ## Build
+
+Everything below works on Linux or Windows. Only the last section needs a Mac.
+
+```
+shared/     Kotlin Multiplatform core. All roulette/routing/trip logic.
+app/        Android app — UI and platform services only.
+iosApp/     SwiftUI app — UI and platform services only.
+wear/       Wear OS companion.
+```
+
+**Android:**
 
 ```
 ./gradlew assembleDebug
@@ -382,6 +431,31 @@ SDK 26 (Android 8.0).
 Phone APK lands in `app/build/outputs/apk/debug/app-debug.apk`, watch APK in
 `wear/build/outputs/apk/debug/wear-debug.apk`. Install with
 `adb install app/build/outputs/apk/debug/app-debug.apk`.
+
+**The shared core, without a Mac:**
+
+```
+./gradlew :shared:compileCommonMainKotlinMetadata
+```
+
+This type-checks `commonMain` against the common intersection, which excludes
+`java.*` — so a stray JDK import fails here on Linux exactly as it would on
+macOS. `./gradlew :shared:testDebugUnitTest` runs the shared test suite; CI runs
+it again as `:shared:iosSimulatorArm64Test` on Kotlin/Native, where the same
+tests can fail differently.
+
+**iOS, on a Mac:**
+
+```
+brew install xcodegen
+cd iosApp && xcodegen && open Detour.xcodeproj
+```
+
+The Xcode project is generated from `project.yml`, not committed. A pre-build
+phase runs `:shared:packForXcode`, so editing Kotlin and pressing Run rebuilds
+both halves. Without a Mac, the *iOS* workflow builds it on `macos-15` and
+uploads a simulator app, an unsigned `.ipa` and a screenshot — see
+[docs/IOS_PORT.md](docs/IOS_PORT.md).
 
 Releases published from CI are signed and minified (R8), and a push to `main`
 also uploads the phone and watch bundles to Play's internal testing track — see

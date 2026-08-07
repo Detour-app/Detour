@@ -1,6 +1,8 @@
 # iOS port
 
-Status of the `ios-port` branch. `main` is untouched.
+Merged into `main`. iOS-only work happens on the `ios` branch and merges back;
+anything under `shared/` goes to `main` directly, because it moves both
+platforms at once.
 
 ## Shape
 
@@ -23,7 +25,8 @@ system) and is not on its way to becoming a second app.
 - **`:shared` module**, 22 files, ~4,000 lines of logic shared verbatim, with
   18 tests over the parsing the port was most likely to break.
 - **Android runs on it.** `./gradlew :app:assembleDebug` builds; the phone app
-  behaves as before.
+  behaves as before. This is why the port could not stay on a side branch —
+  it rewrote the Android app too, so the two platforms have one history.
 - **The iOS app is feature-complete against everything that can port**: map and
   spin, trip recording in the background, history and trip detail with GPX
   export, badges, saved places, settings, friends and the leaderboard,
@@ -101,8 +104,8 @@ Unchanged, and none of these have an iOS route.
 
 Neither path needs a Mac except the last line.
 
-**CI (no Mac):** push to `ios-port`, or run the *iOS* workflow by hand. Two
-artifacts come out of it:
+**CI (no Mac):** push to `main` or `ios` touching `shared/` or `iosApp/`, open
+a PR that does, or run the *iOS* workflow by hand. Two artifacts come out of it:
 
 | Artifact | What it is |
 |---|---|
