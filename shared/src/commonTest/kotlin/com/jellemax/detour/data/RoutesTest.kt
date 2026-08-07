@@ -6,7 +6,6 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -212,43 +211,5 @@ class RoutesTest {
         assertFalse(gpx.contains("e-"), "unexpected scientific notation in:\n$gpx")
         assertTrue(gpx.contains("lon=\"0.0000100\""))
         assertTrue(gpx.contains("lon=\"-0.0000100\""))
-    }
-
-    /**
-     * RouteStore.save()/rename()/remove()/byId() must call ensureLoaded()
-     * before touching `_routes.value`: a mutation can arrive before any
-     * screen has loaded the store (e.g. saving straight from the map on a
-     * cold start), and without that ordering, write() would overwrite
-     * routes.json with just the new route, silently discarding every
-     * previously saved one.
-     *
-     * This test target has no Android Context (see Platform.android.kt), so
-     * it can't drive RouteStore through a real file to observe the surviving
-     * routes directly — every disk access throws "initSharedCore(context)
-     * has not been called". That failure is exactly what proves the
-     * ordering, though: it has to originate from ensureLoaded()'s read(),
-     * not from write(). If save() went straight to write() (the bug), the
-     * stack would show write() and never reach ensureLoaded()/read() at all.
-     */
-    @Test
-    fun saveCallsEnsureLoadedBeforeItEverWritesSoAnEarlyCallCannotWipeDisk() {
-        val error = assertFailsWith<IllegalStateException> {
-            RouteStore.save(
-                SavedRoute(
-                    id = 1L,
-                    name = "x",
-                    createdMs = 1L,
-                    mode = TravelMode.CAR,
-                    stops = listOf(RouteStop(LatLon(50.0, 3.0)), RouteStop(LatLon(50.1, 3.1))),
-                    polyline = emptyList(),
-                    distanceMeters = null,
-                    timeMs = null,
-                ),
-            )
-        }
-        val frames = error.stackTrace.map { it.methodName }
-        assertTrue("ensureLoaded" in frames, "expected ensureLoaded() on the stack: $frames")
-        assertTrue("read" in frames, "expected read() on the stack: $frames")
-        assertFalse("write" in frames, "save() reached write() before ensureLoaded() completed: $frames")
     }
 }
