@@ -1,0 +1,19 @@
+// Copy to Config.xcconfig (gitignored) and fill in, or leave empty and
+// configure the server from inside the app. This is the iOS counterpart of
+// local.properties on the Android side — same values, same "all optional"
+// rule, and it never goes near the repo.
+//
+// CI writes this file from GitHub secrets; see .github/workflows/ios.yml.
+
+// One hostname, path-routed by the tunnel, reaches all four services. Setting
+// only DETOUR_SYNC_URL and pointing the others at the same host works, exactly
+// as `server.url` does for the Android build.
+DETOUR_ROUTING_URL =
+DETOUR_ROUTING_CF_ID =
+DETOUR_ROUTING_CF_SECRET =
+DETOUR_SYNC_URL =
+DETOUR_GEOCODER_URL =
+
+// WebSocket, so it needs its own scheme and the /live path:
+//   wss://your.host/live
+DETOUR_LIVE_URL =

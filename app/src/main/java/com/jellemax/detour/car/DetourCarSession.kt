@@ -10,7 +10,7 @@ class DetourCarSession : Session() {
         // The head unit can start this process with the phone UI never having
         // run, and the car screens both read (map zoom) and write (voice
         // guidance) settings from the first frame. init is idempotent.
-        Settings.init(carContext)
+        Settings.init()
         return SpinScreen(carContext)
     }
 }

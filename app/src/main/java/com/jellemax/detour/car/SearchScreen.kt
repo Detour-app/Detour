@@ -50,7 +50,7 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
             override fun onStart(owner: LifecycleOwner) {
                 fetchLocation()
                 lifecycleScope.launch {
-                    recents = withContext(Dispatchers.IO) { RecentSearchStore.load(carContext) }
+                    recents = withContext(Dispatchers.IO) { RecentSearchStore.load() }
                     if (query.isBlank()) invalidate()
                 }
             }
@@ -107,7 +107,7 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
             invalidate()
             try {
                 results = withContext(Dispatchers.IO) {
-                    Geocoder.search(carContext, text, myLocation)
+                    Geocoder.search(text, myLocation)
                 }
             } catch (e: Exception) {
                 results = emptyList()
@@ -130,11 +130,11 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
         invalidate()
         lifecycleScope.launch {
             try {
-                val config = withContext(Dispatchers.IO) { RoutingServer.load(carContext) }
+                val config = withContext(Dispatchers.IO) { RoutingServer.load() }
                 val route = withContext(Dispatchers.IO) {
                     RoutingServer.route(config, from, result.location, TravelMode.CAR.ghProfile)
                 }
-                withContext(Dispatchers.IO) { RecentSearchStore.save(carContext, result) }
+                withContext(Dispatchers.IO) { RecentSearchStore.save(result) }
                 searching = false
                 if (route.instructions.isEmpty()) {
                     // No turn data to drive our own nav screen with — hand off

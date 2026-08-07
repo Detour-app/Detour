@@ -55,7 +55,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun SavedPlacesScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    LaunchedEffect(Unit) { SavedPlaces.ensureLoaded(context) }
+    LaunchedEffect(Unit) { SavedPlaces.ensureLoaded() }
     val places by SavedPlaces.places.collectAsStateWithLifecycle()
     var addOpen by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<SavedPlace?>(null) }
@@ -119,7 +119,7 @@ fun SavedPlacesScreen(onBack: () -> Unit) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            IconButton(onClick = { SavedPlaces.remove(context, place.id) }) {
+                            IconButton(onClick = { SavedPlaces.remove(place.id) }) {
                                 Icon(Icons.Default.Delete, contentDescription = "Delete ${place.name}",
                                     tint = MaterialTheme.colorScheme.error)
                             }
@@ -133,7 +133,7 @@ fun SavedPlacesScreen(onBack: () -> Unit) {
     if (addOpen) {
         AddPlaceDialog(
             onSave = { name, location ->
-                SavedPlaces.add(context, name, location)
+                SavedPlaces.add(name, location)
                 addOpen = false
             },
             onDismiss = { addOpen = false },
@@ -142,7 +142,7 @@ fun SavedPlacesScreen(onBack: () -> Unit) {
     editing?.let { place ->
         RenameDialog(
             initial = place.name,
-            onSave = { SavedPlaces.rename(context, place.id, it); editing = null },
+            onSave = { SavedPlaces.rename(place.id, it); editing = null },
             onDismiss = { editing = null },
         )
     }
@@ -168,7 +168,7 @@ private fun AddPlaceDialog(
         delay(400)
         searching = true
         results = try {
-            withContext(Dispatchers.IO) { Geocoder.search(context, query, null) }
+            withContext(Dispatchers.IO) { Geocoder.search(query, null) }
         } catch (e: Exception) {
             emptyList()
         }

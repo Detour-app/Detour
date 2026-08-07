@@ -173,9 +173,9 @@ class SpinScreen(carContext: CarContext) : Screen(carContext) {
         invalidate()
         lifecycleScope.launch {
             try {
-                val config = withContext(Dispatchers.IO) { RoutingServer.load(carContext) }
+                val config = withContext(Dispatchers.IO) { RoutingServer.load() }
                 serverConfig = config
-                val explored = withContext(Dispatchers.IO) { ExploredArea.load(carContext) }
+                val explored = withContext(Dispatchers.IO) { ExploredArea.load() }
                 val radiusMeters = radiusPresetsKm[radiusIndex].toDouble() * 1000.0
                 candidate = withContext(Dispatchers.IO) {
                     pickCandidate(config, loc, radiusMeters, 0.0,

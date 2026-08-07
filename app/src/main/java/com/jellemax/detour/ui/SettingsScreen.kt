@@ -75,6 +75,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.BuildConfig
 import com.jellemax.detour.ble.BleNavServer
+import com.jellemax.detour.data.syncQuietly
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.ConfigFile
 import com.jellemax.detour.data.RoutingServer
@@ -414,7 +415,7 @@ private fun FogSection(context: Context) {
                     Settings.setShareFog(it)
                     // Tell the server now: leaving it to the next trip sync
                     // would keep serving traces after the switch went off.
-                    SyncClient.syncQuietly(context)
+                    SyncClient.syncQuietly()
                 },
             )
         }
@@ -433,7 +434,7 @@ private fun FogSection(context: Context) {
             text = { Text("All fog-of-war progress will be permanently deleted. Saved trips are kept.") },
             confirmButton = {
                 TextButton(onClick = {
-                    TraceStore.clear(context)
+                    TraceStore.clear()
                     confirmReset = false
                 }) { Text("Reset", color = MaterialTheme.colorScheme.error) }
             },
@@ -474,14 +475,14 @@ private fun SyncSection() {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextButton(
-                enabled = !syncing && SyncClient.configured(context) && signedInAs.isNotBlank(),
+                enabled = !syncing && SyncClient.configured() && signedInAs.isNotBlank(),
                 onClick = {
                     syncing = true
                     status = "Syncing…"
                     scope.launch {
                         status = withContext(Dispatchers.IO) {
                             try {
-                                val r = SyncClient.sync(context)
+                                val r = SyncClient.sync()
                                 "Synced: ${r.trips} trips, ${r.traces} trace segments, " +
                                     "${r.badges} badges"
                             } catch (e: Exception) {
@@ -934,7 +935,7 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun ServerSection() {
     val context = LocalContext.current
-    val custom = remember { RoutingServer.loadCustom(context) }
+    val custom = remember { RoutingServer.loadCustom() }
     val builtInAvailable = remember { RoutingServer.bakedDefaults().usable }
     var url by remember { mutableStateOf(custom?.url ?: "") }
     var clientId by remember { mutableStateOf(custom?.clientId ?: "") }
@@ -1002,16 +1003,15 @@ private fun ServerSection() {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = {
                 if (url.isBlank()) {
-                    RoutingServer.clearCustom(context)
+                    RoutingServer.clearCustom()
                 } else {
-                    RoutingServer.save(
-                        context, ServerConfig(url, clientId, clientSecret, enabled = true))
+                    RoutingServer.save(ServerConfig(url, clientId, clientSecret, enabled = true))
                 }
                 saved = true
             }) { Text(if (saved) "Saved ✓" else "Save server") }
             if (custom != null) {
                 TextButton(onClick = {
-                    RoutingServer.clearCustom(context)
+                    RoutingServer.clearCustom()
                     url = ""; clientId = ""; clientSecret = ""
                     saved = true
                 }) { Text("Remove custom server") }

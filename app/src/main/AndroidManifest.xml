@@ -35,6 +35,7 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
 
     <application
+        android:name=".DetourApplication"
         android:label="Detour"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.Detour"

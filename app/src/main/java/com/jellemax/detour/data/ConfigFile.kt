@@ -23,7 +23,7 @@ object ConfigFile {
     /** The effective config, so exporting from a locally built APK captures
      *  the baked-in defaults that a CI-built APK will not have. */
     fun export(context: Context, uri: Uri) {
-        val server = RoutingServer.load(context)
+        val server = RoutingServer.load()
         val json = JSONObject()
             .put("routingUrl", server.url)
             .put("routingClientId", server.clientId)
@@ -45,9 +45,9 @@ object ConfigFile {
 
         val routingUrl = json.optString("routingUrl").trim()
         if (routingUrl.isBlank()) {
-            RoutingServer.clearCustom(context)
+            RoutingServer.clearCustom()
         } else {
-            RoutingServer.save(context, ServerConfig(
+            RoutingServer.save(ServerConfig(
                 url = routingUrl,
                 clientId = json.optString("routingClientId"),
                 clientSecret = json.optString("routingClientSecret"),

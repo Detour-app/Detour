@@ -104,7 +104,7 @@ fun FriendsScreen(onBack: () -> Unit) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (!SyncClient.configured(context)) {
+            if (!SyncClient.configured()) {
                 Text(
                     "No sync server configured. Set one in Settings first — " +
                         "friends live on your own server.",
@@ -144,7 +144,7 @@ private fun SignInSection() {
     val linkToken by PendingReset.token.collectAsStateWithLifecycle()
     LaunchedEffect(linkToken) { if (linkToken.isNotBlank()) resetOpen = true }
 
-    fun run(block: () -> Unit) {
+    fun run(block: suspend () -> Unit) {
         busy = true
         error = null
         note = null
@@ -199,7 +199,7 @@ private fun SignInSection() {
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(
-            onClick = { run { Account.login(context, user.trim(), password) } },
+            onClick = { run { Account.login(user.trim(), password) } },
             enabled = !busy && user.isNotBlank() && password.isNotBlank(),
             modifier = Modifier.weight(1f),
         ) {
@@ -208,7 +208,7 @@ private fun SignInSection() {
         }
         OutlinedButton(
             onClick = {
-                run { Account.register(context, user.trim(), password, invite.trim(), email.trim()) }
+                run { Account.register(user.trim(), password, invite.trim(), email.trim()) }
             },
             enabled = !busy && user.isNotBlank() && password.isNotBlank(),
             modifier = Modifier.weight(1f),
@@ -302,7 +302,7 @@ private fun ForgotPasswordDialog(
                     scope.launch {
                         try {
                             withContext(Dispatchers.IO) {
-                                Account.forgotPassword(context, who.trim())
+                                Account.forgotPassword(who.trim())
                             }
                             onSent()
                         } catch (e: Exception) {
@@ -365,7 +365,7 @@ private fun ResetPasswordDialog(
                     scope.launch {
                         try {
                             withContext(Dispatchers.IO) {
-                                Account.resetPassword(context, token.trim(), password)
+                                Account.resetPassword(token.trim(), password)
                             }
                             onDone()
                         } catch (e: Exception) {
@@ -393,7 +393,7 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
 
     LaunchedEffect(reloads) {
         try {
-            val loaded = withContext(Dispatchers.IO) { Friends.lists(context) to Friends.stats(context) }
+            val loaded = withContext(Dispatchers.IO) { Friends.lists() to Friends.stats() }
             lists = loaded.first
             stats = loaded.second
             error = null
@@ -407,16 +407,16 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
     // only way to put "me" in my own leaderboard.
     val own by produceState<FriendStats?>(initialValue = null) {
         value = withContext(Dispatchers.IO) {
-            val coverage = Coverage.compute(context)
-            val riderStats = BadgeStore.stats(context, coverage)
-            val badgeIds = BadgeStore.refresh(context, riderStats).states
+            val coverage = Coverage.compute()
+            val riderStats = BadgeStore.stats(coverage)
+            val badgeIds = BadgeStore.refresh(riderStats).states
                 .filter { it.earned }.map { it.def.id }
             FriendStats(username, riderStats, badgeIds)
         }
     }
 
     /** Runs a mutation, then reloads; never leaves [busy] stuck on failure. */
-    fun act(scope: CoroutineScope, block: () -> Unit) {
+    fun act(scope: CoroutineScope, block: suspend () -> Unit) {
         busy = true
         error = null
         scope.launch {
@@ -451,7 +451,7 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
                 // A signed-out session must not keep broadcasting: leaves the
                 // live socket with no valid identity behind it otherwise.
                 ConvoyLiveService.stop(context)
-                act(scope) { Account.signOut(context) }
+                act(scope) { Account.signOut() }
             }) {
                 Text("Sign out")
             }
@@ -478,8 +478,8 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
             RequestRow(
                 name = name,
                 busy = busy,
-                onAccept = { act(scope) { Friends.respond(context, name, true) } },
-                onDecline = { act(scope) { Friends.respond(context, name, false) } },
+                onAccept = { act(scope) { Friends.respond(name, true) } },
+                onDecline = { act(scope) { Friends.respond(name, false) } },
             )
         }
     }
@@ -656,7 +656,7 @@ private fun AddFriendDialog(onDismiss: () -> Unit) {
                     error = null
                     scope.launch {
                         try {
-                            val result = withContext(Dispatchers.IO) { Friends.request(context, target) }
+                            val result = withContext(Dispatchers.IO) { Friends.request(target) }
                             status = if (result == "accepted") "You are now friends with $target"
                                 else "Request sent to $target"
                         } catch (e: Exception) {
@@ -719,14 +719,14 @@ private fun ConvoysSection() {
 
     LaunchedEffect(reloads) {
         try {
-            convoys = withContext(Dispatchers.IO) { Convoys.list(context) }
+            convoys = withContext(Dispatchers.IO) { Convoys.list() }
             error = null
         } catch (e: Exception) {
             error = e.message ?: "Could not reach the server"
         }
     }
 
-    fun act(block: () -> Unit) {
+    fun act(block: suspend () -> Unit) {
         busy = true
         error = null
         scope.launch {
@@ -770,11 +770,11 @@ private fun ConvoysSection() {
                 convoy = convoy,
                 busy = busy,
                 live = liveConvoyId == convoy.id,
-                onAccept = { act { Convoys.respond(context, convoy.id, true) } },
-                onDecline = { act { Convoys.respond(context, convoy.id, false) } },
+                onAccept = { act { Convoys.respond(convoy.id, true) } },
+                onDecline = { act { Convoys.respond(convoy.id, false) } },
                 onLeave = {
                     if (liveConvoyId == convoy.id) ConvoyLiveService.stop(context)
-                    act { Convoys.leave(context, convoy.id) }
+                    act { Convoys.leave(convoy.id) }
                 },
                 onInvite = { inviteFor = convoy },
                 onToggleLive = {
@@ -791,14 +791,14 @@ private fun ConvoysSection() {
     if (createOpen) {
         CreateConvoyDialog(
             onDismiss = { createOpen = false },
-            onCreate = { name -> act { Convoys.create(context, name) }; createOpen = false },
+            onCreate = { name -> act { Convoys.create(name) }; createOpen = false },
         )
     }
     inviteFor?.let { convoy ->
         InviteToConvoyDialog(
             convoy = convoy,
             onDismiss = { inviteFor = null },
-            onInvite = { target -> act { Convoys.invite(context, convoy.id, target) }; inviteFor = null },
+            onInvite = { target -> act { Convoys.invite(convoy.id, target) }; inviteFor = null },
         )
     }
 }
