@@ -203,6 +203,7 @@ final class TripRecorder: NSObject, ObservableObject {
         // CoreLocation reports -1 for an unknown speed; Android reports 0.
         let speed = max(0, location.speed)
         lastFix = location
+        LocationBroadcast.shared.publish(location)
 
         if stats == nil {
             onIdleLocation(location, speed: speed)
