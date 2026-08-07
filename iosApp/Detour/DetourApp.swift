@@ -25,7 +25,7 @@ struct DetourApp: App {
 
     var body: some Scene {
         WindowGroup {
-            MapScreen()
+            RootView()
                 .onOpenURL { url in
                     // detour://reset?token=… from the sync server's mails.
                     guard url.scheme == "detour", url.host == "reset",

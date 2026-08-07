@@ -24,13 +24,24 @@ final class SpinModel: ObservableObject {
     @Published private(set) var state: State = .idle
     /// Route geometry for the map overlay, as plain coordinates.
     @Published private(set) var route: [CLLocationCoordinate2D] = []
+    /// Where we are headed: a spin result, or a place picked from search.
+    @Published private(set) var destination: LatLon?
 
     /// Radius in metres, matching the Android app's slider range.
     @Published var radiusMeters: Double = 25_000
 
+    /// A destination chosen by hand rather than rolled for. Clears any route
+    /// from an earlier spin — that one led somewhere else.
+    func setDestination(_ target: LatLon) {
+        destination = target
+        route = []
+        state = .found(lat: target.lat, lon: target.lon, distanceMeters: nil)
+    }
+
     func spin(from here: CLLocationCoordinate2D) async {
         state = .spinning
         route = []
+        self.destination = nil
 
         let center = LatLon(lat: here.latitude, lon: here.longitude)
         let server = RoutingServer.shared.load()
@@ -70,8 +81,8 @@ final class SpinModel: ObservableObject {
                     from: center,
                     to: destination,
                     profile: "moto",
-                    avoidHighways: Settings.shared.avoidHighways.value as? Bool ?? false,
-                    avoidSmallRoads: Settings.shared.avoidSmallRoads.value as? Bool ?? false
+                    avoidHighways: SettingsValues.shared.avoidHighways,
+                    avoidSmallRoads: SettingsValues.shared.avoidSmallRoads
                 )
                 route = result.polyline.map {
                     CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
@@ -79,6 +90,7 @@ final class SpinModel: ObservableObject {
                 distance = result.distanceMeters?.doubleValue
             }
 
+            self.destination = destination
             state = .found(
                 lat: destination.lat, lon: destination.lon, distanceMeters: distance)
         } catch {
