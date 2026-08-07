@@ -19,6 +19,9 @@ Privacy rules, each enforced in exactly one place:
     does, relayed only to that convoy's own 'accepted' members, and only for
     as long as you're actively joined to it. Joining requires already being
     an accepted friend of whoever invited you.
+  - A route can only be shared with an accepted friend, and unfriending
+    someone deletes every route shared between you in either direction — a
+    route is places you have been, so losing the friendship takes it back.
 
 Protocol
   GET  /health                                  -> "ok"
@@ -35,6 +38,9 @@ Protocol
   POST /friends/remove  {username}              -> {}
   GET  /friends/stats                           -> [{username, stats, badges}]
   GET  /friends/fog                             -> {sharing, traces: [line, …]}
+  POST /routes/share {to, route}                -> {status} (recipient must be an accepted friend)
+  GET  /routes/inbox                            -> {routes: [{id, from, createdMs, route}]}
+  POST /routes/delete {id}                      -> {} (sender or recipient only)
   POST /convoys {name}                          -> {id, name} (creator auto-joins)
   GET  /convoys                                 -> [{id, name, status, members: [{username, status}]}]
   POST /convoys/{id}/invite {username}          -> {status} (must already be friends)
@@ -175,6 +181,22 @@ TOKEN_TOUCH_INTERVAL_MS = 3600 * 1000
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,24}$")
 BADGE_ID_RE = re.compile(r"^[a-z]+_[0-9]+$")
 MAX_BADGES = 200
+
+# A shared route is one JSON blob, stored opaquely like a trip. Cap its
+# serialized size so a malicious or buggy client can't use /routes/share to
+# stuff an arbitrarily large blob into a friend's inbox — 512 KB is generous
+# for a polyline-and-stops route and nowhere near MAX_BODY.
+MAX_ROUTE_JSON_BYTES = 512 * 1024
+# Newest-first, capped so a friend who shares constantly can't grow another
+# user's inbox response without bound.
+ROUTES_INBOX_LIMIT = 100
+# Caps what a sender can WRITE, not just what the inbox returns: without this,
+# ROUTES_INBOX_LIMIT only hides the excess rows while the table itself grows
+# without bound, one 512 KB blob at a time. Enforced per (to, from) pair
+# rather than per recipient, so one friend who shares constantly can only
+# ever push out their *own* older shares — not crowd a quieter friend's
+# routes out of your inbox.
+MAX_SHARED_ROUTES_PER_PAIR = 50
 
 # Only these stat keys are stored, and only as finite numbers. A friend's app
 # cannot push arbitrary blobs into a payload other people will read.
@@ -328,6 +350,24 @@ def init_db():
             created_ms   INTEGER NOT NULL,
             PRIMARY KEY (low_id, high_id)
         );
+        -- A route shared friend-to-friend. Keyed so re-sharing the same route
+        -- (an edited name, a redrawn stop) replaces the earlier copy instead
+        -- of piling up duplicates in the recipient's inbox; from_id is part
+        -- of the key too, so two different friends sharing a route with the
+        -- same client-side id don't collide with each other. route_id is the
+        -- sender's own id for the route and is otherwise meaningless here —
+        -- the server never looks inside the stored JSON beyond what it needs
+        -- to validate and cap it.
+        CREATE TABLE IF NOT EXISTS shared_routes (
+            id          INTEGER PRIMARY KEY,
+            from_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            to_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            route_id    INTEGER NOT NULL,
+            name        TEXT NOT NULL,
+            json        TEXT NOT NULL,
+            created_ms  INTEGER NOT NULL,
+            UNIQUE (to_id, from_id, route_id)
+        );
         -- A convoy is the "granted access" gate for live location + PTT: you
         -- can only be invited by an accepted friend (checked in
         -- do_convoy_invite), and only members with status='accepted' show up
@@ -384,6 +424,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_resets_user ON password_resets(user_id);
         CREATE INDEX IF NOT EXISTS idx_points_user_t ON track_points(user_id, t_ms);
         CREATE INDEX IF NOT EXISTS idx_convoy_members_user ON convoy_members(user_id);
+        CREATE INDEX IF NOT EXISTS idx_shared_routes_to ON shared_routes(to_id);
         """
     )
     # Added after the first release; CREATE TABLE IF NOT EXISTS won't add it to
@@ -1047,6 +1088,15 @@ def do_friend_remove(user, body):
             conn.execute(
                 "DELETE FROM friendships WHERE low_id = ? AND high_id = ?", (low, high)
             )
+            # A shared route carries places you have been — unfriending takes
+            # it back, same as it stops friend_fog and convoy invites. Both
+            # directions: routes either of you sent the other are removed,
+            # not just the ones you received.
+            conn.execute(
+                "DELETE FROM shared_routes WHERE (from_id = ? AND to_id = ?)"
+                " OR (from_id = ? AND to_id = ?)",
+                (user["id"], target["id"], target["id"], user["id"]),
+            )
     return {}
 
 
@@ -1120,6 +1170,140 @@ def friend_fog(user):
         friend_ids,
     )
     return {"sharing": True, "traces": [r["line"] for r in rows]}
+
+
+# --------------------------------------------------------------------------
+# shared routes
+#
+# A route is stored exactly like a trip: one opaque JSON blob the server
+# never parses beyond the little it needs to validate and cap it. Sharing is
+# friend-gated the same way convoy invites are — `friendship()` is the one
+# check that matters, and it is re-checked on every share, not just at invite
+# time, so a route can't be pushed to someone you unfriended a moment ago.
+
+
+def do_route_share(user, body):
+    """Share one route with an accepted friend.
+
+    Upserts on the (to, from, route_id) unique key, so re-sharing a route you
+    already shared — an edited name, a redrawn stop — replaces the earlier
+    copy in the recipient's inbox instead of appearing twice.
+    """
+    # other_user() reads body["username"]; the wire format for this endpoint
+    # is {"to": ..., "route": ...}, so translate rather than duplicate the
+    # username validation it already does.
+    target = other_user({"username": body.get("to")})
+    if target["id"] == user["id"]:
+        raise HttpError(400, "you cannot share a route with yourself")
+    fs = friendship(user["id"], target["id"])
+    if fs is None or fs["status"] != "accepted":
+        raise HttpError(403, "you can only share routes with friends")
+
+    route = body.get("route")
+    if not isinstance(route, dict):
+        raise HttpError(400, "route missing or not an object")
+    # id is a long millisecond timestamp on the wire; validate the type here
+    # rather than letting int() raise ValueError/TypeError for a string or
+    # object id, which do_POST would otherwise turn into an opaque 500. The
+    # finite check matters too: json.loads happily parses Infinity, -Infinity
+    # and NaN (and 1e400 overflows to inf), all of which are instances of
+    # float but blow up in int() with OverflowError/ValueError, same 500 class
+    # as the string case.
+    route_id_raw = route.get("id")
+    if (
+        not isinstance(route_id_raw, (int, float))
+        or isinstance(route_id_raw, bool)
+        or not math.isfinite(route_id_raw)
+    ):
+        raise HttpError(400, "route id must be a number")
+    route_id = int(route_id_raw)
+    stops = route.get("stops")
+    if not isinstance(stops, list) or len(stops) < 2:
+        raise HttpError(400, "route needs at least 2 stops")
+    raw = json.dumps(route)
+    if len(raw.encode("utf-8")) > MAX_ROUTE_JSON_BYTES:
+        raise HttpError(413, "route too large")
+    name = str(route.get("name") or "").strip()[:200] or "Route"
+
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "INSERT INTO shared_routes"
+                " (from_id, to_id, route_id, name, json, created_ms)"
+                " VALUES (?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(to_id, from_id, route_id) DO UPDATE SET"
+                " name = excluded.name, json = excluded.json,"
+                " created_ms = excluded.created_ms",
+                (user["id"], target["id"], route_id, name, raw, now_ms()),
+            )
+            # Enforce the per-pair cap in the same transaction as the write
+            # that could exceed it: keep the newest MAX_SHARED_ROUTES_PER_PAIR
+            # rows for this (to, from) pair, drop the rest. This is a write
+            # cap, not a display cap — ROUTES_INBOX_LIMIT alone would only
+            # hide the excess while the table kept growing.
+            conn.execute(
+                "DELETE FROM shared_routes WHERE id IN ("
+                " SELECT id FROM shared_routes WHERE to_id = ? AND from_id = ?"
+                " ORDER BY created_ms DESC, id DESC LIMIT -1 OFFSET ?)",
+                (target["id"], user["id"], MAX_SHARED_ROUTES_PER_PAIR),
+            )
+    return {"status": "shared"}
+
+
+def do_routes_inbox(user):
+    """Routes shared with the caller, newest first, capped at
+    ROUTES_INBOX_LIMIT.
+
+    sharedBy is set here from the sender's authenticated username, not read
+    out of whatever the sender put in the stored JSON — the same reasoning as
+    friend_fog only ever trusting `share_fog` off the row it just read, not
+    off anything the other side claims.
+    """
+    rows = db().execute(
+        "SELECT sr.id, sr.json, sr.created_ms, u.username AS from_username"
+        " FROM shared_routes sr JOIN users u ON u.id = sr.from_id"
+        " WHERE sr.to_id = ? ORDER BY sr.created_ms DESC LIMIT ?",
+        (user["id"], ROUTES_INBOX_LIMIT),
+    )
+    out = []
+    for row in rows:
+        route = json.loads(row["json"])
+        route["sharedBy"] = row["from_username"]
+        out.append(
+            {
+                "id": row["id"],
+                "from": row["from_username"],
+                "createdMs": row["created_ms"],
+                "route": route,
+            }
+        )
+    return {"routes": out}
+
+
+def do_route_delete(user, body):
+    """Deletes a shared_routes row the caller is either side of: the
+    recipient dropping it from their inbox, or the sender un-sharing it.
+
+    The WHERE clause is the whole access check — a caller who is neither the
+    sender nor the recipient of that row matches nothing and deletes nothing,
+    same shape as do_friend_remove needing no separate ownership lookup.
+    """
+    try:
+        # int(float('inf')) raises OverflowError, not ValueError — a bare
+        # (TypeError, ValueError) here would let an Infinity/NaN id through
+        # to become a 500, same bug as the one just fixed in do_route_share.
+        row_id = int(body.get("id"))
+    except (TypeError, ValueError, OverflowError):
+        raise HttpError(400, "bad id")
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "DELETE FROM shared_routes WHERE id = ? AND (to_id = ? OR from_id = ?)",
+                (row_id, user["id"], user["id"]),
+            )
+    return {}
 
 
 # --------------------------------------------------------------------------
@@ -5343,6 +5527,7 @@ AUTHED_GET = {
     "/friends/stats": friend_stats,
     "/friends/fog": friend_fog,
     "/convoys": do_convoys,
+    "/routes/inbox": do_routes_inbox,
 }
 
 
@@ -5430,6 +5615,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, do_friend_respond(authenticate(self.headers), body))
             elif self.path == "/friends/remove":
                 self._json(200, do_friend_remove(authenticate(self.headers), body))
+            elif self.path == "/routes/share":
+                self._json(200, do_route_share(authenticate(self.headers), body))
+            elif self.path == "/routes/delete":
+                self._json(200, do_route_delete(authenticate(self.headers), body))
             elif self.path == "/convoys":
                 self._json(200, do_convoy_create(authenticate(self.headers), body))
             else:

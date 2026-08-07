@@ -22,8 +22,10 @@ import java.util.TimeZone
  */
 object Gpx {
 
-    /** Cache subdirectory the FileProvider is scoped to in `res/xml/file_paths.xml`. */
-    private const val SHARE_DIR = "shared"
+    /** Cache subdirectory the FileProvider is scoped to in `res/xml/file_paths.xml`.
+     *  Internal (not private) so RouteFiles.kt shares the same convention rather
+     *  than redeclaring it and risking the two drifting apart. */
+    internal const val SHARE_DIR = "shared"
 
     fun build(trip: Trip, points: List<TraceStore.TracePoint>): String {
         val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)

@@ -211,12 +211,9 @@ object RoutingServer {
     }
 
     /**
-     * Turn-by-turn route between two points, for in-app navigation.
-     * [avoidHighways] downgrades motorways/trunks (only matters for the car
-     * profile; moto and bike never use them anyway); [avoidSmallRoads] pushes
-     * the route onto roads worth driving instead of the nearest lane through a
-     * field. Either one switches to a POST with a custom model, which needs
-     * flexible routing — hence `ch.disable`.
+     * Turn-by-turn route between two points, for in-app navigation. Delegates
+     * to [routeVia] so there is a single query-building path for the two-point
+     * and multi-stop cases.
      */
     suspend fun route(
         config: ServerConfig,
@@ -225,23 +222,39 @@ object RoutingServer {
         profile: String,
         avoidHighways: Boolean = false,
         avoidSmallRoads: Boolean = false,
+    ): RouteResult = routeVia(config, listOf(from, to), profile, avoidHighways, avoidSmallRoads)
+
+    /**
+     * Turn-by-turn route through an ordered list of stops (a saved multi-point
+     * route, or the plain two-point case via [route]). [avoidHighways]
+     * downgrades motorways/trunks (only matters for the car profile; moto and
+     * bike never use them anyway); [avoidSmallRoads] pushes the route onto
+     * roads worth driving instead of the nearest lane through a field. Either
+     * one switches to a POST with a custom model, which needs flexible
+     * routing — hence `ch.disable`.
+     */
+    suspend fun routeVia(
+        config: ServerConfig,
+        points: List<LatLon>,
+        profile: String,
+        avoidHighways: Boolean = false,
+        avoidSmallRoads: Boolean = false,
     ): RouteResult {
+        if (points.size < 2) throw IOException("routeVia needs at least two points")
         val rules = preferenceRules(avoidHighways, avoidSmallRoads)
         if (rules.isEmpty()) {
-            return fetchRoute(
-                config,
-                config.url.trimEnd('/') +
-                    "/route?profile=$profile" +
-                    "&point=${from.lat},${from.lon}" +
-                    "&point=${to.lat},${to.lon}" +
-                    "&points_encoded=false&details=max_speed",
-            )
+            val query = buildString {
+                append(config.url.trimEnd('/'))
+                append("/route?profile=").append(profile)
+                for (p in points) append("&point=${p.lat},${p.lon}")
+                append("&points_encoded=false&details=max_speed")
+            }
+            return fetchRoute(config, query)
         }
         val body = buildJsonObject {
             put("profile", profile)
             putJsonArray("points") {
-                addJsonArray { add(from.lon); add(from.lat) }
-                addJsonArray { add(to.lon); add(to.lat) }
+                for (p in points) addJsonArray { add(p.lon); add(p.lat) }
             }
             put("points_encoded", false)
             putJsonArray("details") { add("max_speed") }

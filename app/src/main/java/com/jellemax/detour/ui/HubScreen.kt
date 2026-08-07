@@ -21,6 +21,7 @@ import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Place
+import androidx.compose.material.icons.outlined.Route
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -31,6 +32,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
@@ -46,6 +48,7 @@ import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.BadgeStore
 import com.jellemax.detour.data.Coverage
 import com.jellemax.detour.data.RiderStats
+import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TripStore
@@ -72,11 +75,14 @@ fun HubScreen(
     onOpenFriends: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSavedPlaces: () -> Unit,
+    onOpenRoutes: () -> Unit,
 ) {
     val context = LocalContext.current
     val username by Account.username.collectAsStateWithLifecycle()
     val signedIn = Account.signedIn
     val savedPlaces by SavedPlaces.places.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { RouteStore.ensureLoaded() }
+    val savedRoutes by RouteStore.routes.collectAsStateWithLifecycle()
 
     // Coverage.compute walks every trace point against every boundary — same
     // cost BadgesScreen pays, so it's loaded the same way: off-main, behind a
@@ -119,6 +125,13 @@ fun HubScreen(
                 subtitle = savedPlaces.take(3).joinToString(", ") { it.name }
                     .ifBlank { "None yet" },
                 onClick = onOpenSavedPlaces,
+            )
+            HubRow(
+                icon = Icons.Outlined.Route,
+                title = "Routes",
+                subtitle = if (savedRoutes.isEmpty()) "None saved yet"
+                    else "${savedRoutes.size} saved",
+                onClick = onOpenRoutes,
             )
             HubRow(
                 icon = Icons.Outlined.History,

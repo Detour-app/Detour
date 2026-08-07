@@ -26,6 +26,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.PendingReset
+import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.ui.BadgesScreen
@@ -35,6 +36,8 @@ import com.jellemax.detour.ui.HubScreen
 import com.jellemax.detour.ui.MapScreen
 import com.jellemax.detour.ui.GraphiteDark
 import com.jellemax.detour.ui.GraphiteLight
+import com.jellemax.detour.ui.RouteEditorScreen
+import com.jellemax.detour.ui.RoutesScreen
 import com.jellemax.detour.ui.SavedPlacesScreen
 import com.jellemax.detour.ui.SettingsScreen
 import com.jellemax.detour.ui.TripDetailScreen
@@ -88,7 +91,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { MAP, HUB, HISTORY, TRIP_DETAIL, BADGES, FRIENDS, SETTINGS, SAVED }
+private enum class Screen {
+    MAP, HUB, HISTORY, TRIP_DETAIL, BADGES, FRIENDS, SETTINGS, SAVED, ROUTES, ROUTE_EDITOR,
+}
 
 @Composable
 private fun AppRoot() {
@@ -96,6 +101,9 @@ private fun AppRoot() {
     // The trip a TRIP_DETAIL screen is showing — set on the way in from
     // History, left stale (but unread) once we've navigated away from it.
     var detailTrip by remember { mutableStateOf<Trip?>(null) }
+    // The route a ROUTE_EDITOR screen is showing — null means "new route",
+    // same left-stale-once-navigated-away convention as detailTrip.
+    var editingRoute by remember { mutableStateOf<SavedRoute?>(null) }
     // A reset link opens the screen that can spend it, wherever the app was.
     val resetToken by PendingReset.token.collectAsStateWithLifecycle()
     LaunchedEffect(resetToken) {
@@ -103,14 +111,16 @@ private fun AppRoot() {
     }
     // System back from any sub-screen returns to the map instead of exiting the
     // app — only enabled off the map, so back on the map itself still falls
-    // through to the default (exit) behaviour. The five destinations off Hub
-    // step back to Hub, not all the way to the map, so back always undoes one
-    // level of the push it followed to get here — except TRIP_DETAIL, which is
-    // pushed from History rather than Hub, so it steps back to History instead.
+    // through to the default (exit) behaviour. The destinations off Hub step
+    // back to Hub, not all the way to the map, so back always undoes one level
+    // of the push it followed to get here — except TRIP_DETAIL, which is pushed
+    // from History rather than Hub, so it steps back to History instead, and
+    // ROUTE_EDITOR, which is pushed from ROUTES and steps back there.
     BackHandler(enabled = screen != Screen.MAP) {
         screen = when (screen) {
             Screen.HUB -> Screen.MAP
             Screen.TRIP_DETAIL -> Screen.HISTORY
+            Screen.ROUTE_EDITOR -> Screen.ROUTES
             else -> Screen.HUB
         }
     }
@@ -137,6 +147,7 @@ private fun AppRoot() {
                 onOpenFriends = { screen = Screen.FRIENDS },
                 onOpenSettings = { screen = Screen.SETTINGS },
                 onOpenSavedPlaces = { screen = Screen.SAVED },
+                onOpenRoutes = { screen = Screen.ROUTES },
             )
             Screen.HISTORY -> HistoryScreen(
                 onBack = { screen = Screen.HUB },
@@ -149,6 +160,17 @@ private fun AppRoot() {
             Screen.FRIENDS -> FriendsScreen(onBack = { screen = Screen.HUB })
             Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.HUB })
             Screen.SAVED -> SavedPlacesScreen(onBack = { screen = Screen.HUB })
+            Screen.ROUTES -> RoutesScreen(
+                onBack = { screen = Screen.HUB },
+                onCreateNew = { editingRoute = null; screen = Screen.ROUTE_EDITOR },
+                onEdit = { route -> editingRoute = route; screen = Screen.ROUTE_EDITOR },
+                onNavigate = { screen = Screen.MAP },
+            )
+            Screen.ROUTE_EDITOR -> RouteEditorScreen(
+                editing = editingRoute,
+                onBack = { screen = Screen.ROUTES },
+                onSaved = { screen = Screen.ROUTES },
+            )
             Screen.MAP -> MapScreen(onOpenHub = { screen = Screen.HUB })
         }
     }

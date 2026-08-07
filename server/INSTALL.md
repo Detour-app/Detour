@@ -236,6 +236,11 @@ default, reciprocal (stop sharing and you stop receiving), and revocable on the
 next request. Trips are never returned to anyone but their owner, by any
 endpoint.
 
+Friends can also send each other saved **routes** (`/routes/share`), which
+only works between accepted friends and is revoked the moment the friendship
+is: `/friends/remove` deletes any routes shared between that pair in either
+direction.
+
 ---
 
 ## The manager dashboard
@@ -267,7 +272,7 @@ in would be editing SQLite by hand.
 | **Emails** | Set or change the address on any account. It is only ever used for reset links; nothing else mails users. |
 | **Sessions and keys** | Sign an account out everywhere, or mint/revoke read-only `/ha/*` dashboard keys without touching the phone's login. |
 | **Admin rights** | Promote or demote other accounts. |
-| **Delete** | Removes the account and everything it owns — trips, traces, points, saved places, friendships, convoy membership, keys, sessions. There is no undo; take a backup first if you might regret it. |
+| **Delete** | Removes the account and everything it owns — trips, traces, points, saved places, friendships, shared routes, convoy membership, keys, sessions. There is no undo; take a backup first if you might regret it. |
 
 **What it deliberately does not do.** No admin can read anyone's rides. The
 dashboard shows counts (trips, trace lines, kilometres from the totals the
@@ -628,6 +633,21 @@ string to the user verbatim — so keep any you add plain.
 | POST | `/friends/remove` | `{username}` | `{}` |
 | GET | `/friends/stats` | — | `[{username, stats, badges}]` |
 | GET | `/friends/fog` | — | `{sharing, traces}` |
+| POST | `/routes/share` | `{to, route}` | `{status}` — `to` must be an accepted friend |
+| GET | `/routes/inbox` | — | `{routes: [{id, from, createdMs, route}]}` — newest first, capped at 100 |
+| POST | `/routes/delete` | `{id}` | `{}` — sender or recipient only |
+
+Sharing a route requires an accepted friendship both ways, checked on every
+share — not just once, so a route pushed a moment after you unfriend someone
+is rejected the same as one sent to a stranger. A route needs at least two
+stops and serializes to under 512 KB; the sender's `sharedBy` is ignored and
+rewritten to the authenticated sender's own username, so a recipient never has
+to trust an attribution the sender could have forged. Each sender can have at
+most 50 routes shared with a given friend at once — sharing a 51st silently
+drops their own oldest one, so one chatty friend can never crowd a quieter
+friend's shares out of your inbox. Unfriending someone deletes every route
+shared between you in either direction — a route is places you have been, so
+losing the friendship takes it back too.
 
 The `/ha/*` endpoints are the exception: read-only, and authenticated with a
 dashboard API key (`?key=` or `X-API-Key`) instead of a login token, so a Home

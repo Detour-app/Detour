@@ -11,7 +11,7 @@ struct RootView: View {
     @StateObject private var recorder = TripRecorder()
     @State private var selected = Tab.map
 
-    enum Tab { case map, history, badges, places, friends, settings }
+    enum Tab { case map, history, badges, places, routes, friends, settings }
 
     var body: some View {
         TabView(selection: $selected) {
@@ -31,6 +31,10 @@ struct RootView: View {
             SavedPlacesScreen()
                 .tabItem { Label("Places", systemImage: "mappin.and.ellipse") }
                 .tag(Tab.places)
+
+            RoutesScreen()
+                .tabItem { Label("Routes", systemImage: "signpost.right.and.left") }
+                .tag(Tab.routes)
 
             FriendsScreen()
                 .tabItem { Label("Friends", systemImage: "person.2") }

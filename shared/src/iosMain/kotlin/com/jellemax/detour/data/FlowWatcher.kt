@@ -96,6 +96,16 @@ class SavedPlacesWatcher internal constructor(
         flow.collect { value = it; onChange() }
 }
 
+class SavedRoutesWatcher internal constructor(
+    private val flow: StateFlow<List<SavedRoute>>,
+) : Watcher() {
+    var value: List<SavedRoute> = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
 class TracesWatcher internal constructor(
     private val flow: StateFlow<List<List<LatLon>>>,
 ) : Watcher() {
@@ -125,6 +135,7 @@ object SettingsFlows {
 /** Stores whose changes a screen needs to react to. */
 object StoreFlows {
     fun savedPlaces() = SavedPlacesWatcher(SavedPlaces.places)
+    fun routes() = SavedRoutesWatcher(RouteStore.routes)
     fun traceVersion() = IntWatcher(TraceStore.version)
     fun friendFog() = TracesWatcher(FriendFog.traces)
     fun pendingResetToken() = StringWatcher(PendingReset.token)
