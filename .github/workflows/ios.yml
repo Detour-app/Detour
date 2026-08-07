@@ -132,6 +132,55 @@ jobs:
             ARCHS=arm64 \
             | xcbeautify
 
+      # The simulator build, kept. Runnable with `xcrun simctl install` on any
+      # Mac, which is what a reviewer wants; useless on a phone.
+      - name: Package the simulator app
+        run: |
+          cd build/DerivedData/Build/Products/Debug-iphonesimulator
+          zip -qry "$GITHUB_WORKSPACE/Detour-simulator.app.zip" Detour.app
+
+      # A real device build, Release, arm64, unsigned.
+      #
+      # Unsigned is the whole point: signing needs a certificate from a paid
+      # Apple Developer account, and nothing in CI has one. The .ipa this
+      # produces cannot be installed as-is — it has to be re-signed with your
+      # own certificate (Sideloadly, AltStore, or `xcodebuild -exportArchive`
+      # on a Mac with your account). That is the one wall $99/yr buys past.
+      - name: Build unsigned device app
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project iosApp/Detour.xcodeproj \
+            -scheme Detour \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/Detour.xcarchive \
+            -derivedDataPath build/DerivedDataRelease \
+            ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | xcbeautify
+
+      # An .ipa is a zip with the .app under Payload/ — no export step needed,
+      # and -exportArchive would demand the signing identity we deliberately
+      # do not have.
+      - name: Package unsigned .ipa
+        run: |
+          mkdir -p build/Payload
+          cp -R build/Detour.xcarchive/Products/Applications/Detour.app build/Payload/
+          cd build && zip -qry "$GITHUB_WORKSPACE/Detour-unsigned.ipa" Payload
+
+      - name: Upload the app
+        uses: actions/upload-artifact@v4
+        with:
+          name: detour-ios
+          path: |
+            Detour-simulator.app.zip
+            Detour-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
+
       # A screenshot is the closest thing to "looking at the app" available
       # without a Mac. It boots the simulator, installs the build, gives the
       # map a moment to load a style, and uploads the result as an artifact.

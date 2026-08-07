@@ -75,8 +75,16 @@ tasks.register<Sync>("packForXcode") {
         System.getProperty("os.arch") == "aarch64" -> "iosSimulatorArm64"
         else -> "iosX64"
     }
+    // Xcode spells these "Debug"/"Release"; Kotlin wants the enum. Anything
+    // else (a custom Xcode configuration) links release, which is the safer
+    // guess for a build that isn't plainly a debug one.
+    val buildType = if (configuration.equals("debug", ignoreCase = true)) {
+        org.jetbrains.kotlin.gradle.plugin.mpp.NativeBuildType.DEBUG
+    } else {
+        org.jetbrains.kotlin.gradle.plugin.mpp.NativeBuildType.RELEASE
+    }
     val framework = kotlin.targets.getByName<org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget>(targetName)
-        .binaries.getFramework(configuration)
+        .binaries.getFramework(buildType)
 
     dependsOn(framework.linkTaskName)
     from(framework.outputDirectory)
