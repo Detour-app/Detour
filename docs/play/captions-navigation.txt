@@ -1,0 +1,6 @@
+# start:end:text  ("|" starts a new caption line)
+0:14:Detour - searching for|a destination
+14:30:Destination set, route calculated,|navigation started in the app
+30:62:Turn-by-turn running - distance to|the next turn and to arrival
+62:75:Detour is no longer in the foreground.|Navigation keeps running.
+75:110:Back in the app - further along the|route, distance counted down

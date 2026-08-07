@@ -354,6 +354,10 @@ fun MapScreen(
     // Non-null while a name is being entered for the current dropped/destination pin.
     var savePinTarget by remember { mutableStateOf<LatLon?>(null) }
 
+    // Play policy requires our own disclosure of what background location is
+    // for, shown and accepted before the system prompt may be raised.
+    var showBgLocationDisclosure by remember { mutableStateOf(false) }
+
     // Persisted, because the tracking service reads it too: an auto-detected
     // trip has no other way to know whether it is a ride or a drive.
     val mode by Settings.tripMode.collectAsStateWithLifecycle()
@@ -658,7 +662,7 @@ fun MapScreen(
                 context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            bgLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            showBgLocationDisclosure = true
         }
     }
 
@@ -1536,6 +1540,18 @@ fun MapScreen(
         }
     }
 
+    if (showBgLocationDisclosure) {
+        BackgroundLocationDisclosure(
+            onAllow = {
+                showBgLocationDisclosure = false
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    bgLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                }
+            },
+            onDismiss = { showBgLocationDisclosure = false },
+        )
+    }
+
     savePinTarget?.let { target ->
         SavePinDialog(
             suggestedName = destinationName?.takeIf { it != "Dropped pin" } ?: "",
@@ -1722,6 +1738,38 @@ private fun ShortcutChips(
             )
         }
     }
+}
+
+/** Prominent disclosure for background location, required by Play policy to
+ *  appear — and be accepted — before the system permission prompt is raised.
+ *  The wording has to name the app, the data, the purpose and the fact that
+ *  collection continues while the app is not in use; do not trim it. */
+@Composable
+private fun BackgroundLocationDisclosure(
+    onAllow: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Record rides in the background") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Detour collects location data to start, record and finish your " +
+                        "rides automatically, even when the app is closed or not in use.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    "Without this, a ride only records while Detour is open on screen. " +
+                        "Your routes stay on this device unless you turn on sync to your " +
+                        "own server.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onAllow) { Text("Allow") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Not now") } },
+    )
 }
 
 /** Name the current pin and save it as a shortcut. */

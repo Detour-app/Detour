@@ -1,0 +1,9 @@
+# start:end:text  ("|" starts a new caption line)
+# Boundaries verified with accurate seeking (ffmpeg -i FILE -ss N, not -ss
+# before -i — input seek is inaccurate on screenrecord's variable framerate).
+0:12:Detour - no convoy running
+12:19:The convoys the rider belongs to.|Sharing starts with Go live.
+19:24:The microphone is requested only|when a convoy is joined
+24:37:Convoy live - position is now shared|with the other riders in it
+37:62:Push to talk: holding the button opens|the mic and streams to the convoy
+62:78:Stop live ends both the sharing|and the microphone

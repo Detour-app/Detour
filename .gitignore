@@ -19,3 +19,9 @@ __pycache__/
 # Claude Code local state — permission settings (can contain secrets typed
 # into allowed commands) and worktrees (each its own nested git checkout).
 .claude/
+
+# Raw takes for the Play declaration videos. tools/render_play_videos.sh
+# turns these into the captioned finals next to them, which are what Play
+# actually gets — the raws are ~190 MB of intermediate that would sit in
+# history forever.
+docs/play/*-raw.mp4
