@@ -149,6 +149,24 @@ jobs:
           name: detour-apk-${{ steps.version.outputs.name }}
           path: detour-*.apk
 
+      # The bundles were built for the Play upload steps below, which stay off
+      # until PUBLISH_TO_PLAY is set — and Play Console takes an .aab, never an
+      # .apk, so without this there is nothing in a run to upload by hand. Named
+      # with the version code as well as the name: Play rejects a code it has
+      # already seen, and the code comes from the run number, not the file.
+      - name: Rename bundles
+        run: |
+          cp app/build/outputs/bundle/release/app-release.aab \
+             detour-${{ steps.version.outputs.name }}-${{ steps.version.outputs.code }}.aab
+          cp wear/build/outputs/bundle/release/wear-release.aab \
+             detour-wear-${{ steps.version.outputs.name }}-${{ steps.version.outputs.code }}.aab
+
+      - name: Upload bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: detour-aab-${{ steps.version.outputs.name }}
+          path: detour-*.aab
+
       # mapping.txt de-obfuscates R8's minified stack traces; published per
       # release so a crash report from an issue can be matched back to source.
       - name: Upload mapping.txt
