@@ -91,6 +91,9 @@ jobs:
       # Before xcodegen, so FRAMEWORK_SEARCH_PATHS points at something real
       # by the time xcodebuild links. The in-Xcode preBuild phase does the same
       # thing for a developer pressing Run; CI just does it up front.
+      # arm64 only. The runner is Apple silicon, so packForXcode produces the
+      # iosSimulatorArm64 slice; a generic simulator destination would
+      # otherwise also try to link x86_64 and find nothing.
       - name: Build the shared framework
         run: ./gradlew :shared:packForXcode -Pxcode.sdk=iphonesimulator
 
@@ -125,6 +128,8 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            ARCHS=arm64 \
             | xcbeautify
 
       # A screenshot is the closest thing to "looking at the app" available
