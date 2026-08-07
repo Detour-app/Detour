@@ -1,15 +1,15 @@
 package com.jellemax.detour.data
 
-import android.content.Context
-import android.content.SharedPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import org.json.JSONObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 
 /**
- * App settings backed by SharedPreferences, exposed as StateFlows so the
- * UI and the tracking service both react to changes. Call [init] before
- * reading (idempotent; done in MainActivity and the tracking service).
+ * App settings backed by the platform key-value store, exposed as StateFlows
+ * so the UI and the tracking service both react to changes. Call [init] before
+ * reading (idempotent; done at app start on both platforms).
  */
 object Settings {
 
@@ -25,7 +25,8 @@ object Settings {
     const val DEFAULT_ZOOM_MIN = 12f
     const val DEFAULT_ZOOM_MAX = 19f
 
-    private lateinit var prefs: SharedPreferences
+    private var store: Prefs? = null
+    private val prefs: Prefs get() = store ?: error("Settings.init() not called")
 
     private val _theme = MutableStateFlow(Theme.AUTO)
     val theme: StateFlow<Theme> = _theme
@@ -117,44 +118,43 @@ object Settings {
     private val _voiceGuidance = MutableStateFlow(true)
     val voiceGuidance: StateFlow<Boolean> = _voiceGuidance
 
-    fun init(context: Context) {
-        if (::prefs.isInitialized) return
-        prefs = context.applicationContext
-            .getSharedPreferences("settings", Context.MODE_PRIVATE)
+    fun init() {
+        if (store != null) return
+        store = prefs("settings")
         _theme.value = runCatching {
-            Theme.valueOf(prefs.getString("theme", Theme.AUTO.name)!!)
+            Theme.valueOf(prefs.string("theme", Theme.AUTO.name))
         }.getOrDefault(Theme.AUTO)
-        _autoDetectDrives.value = prefs.getBoolean("auto_detect_drives", true)
-        _avoidHighways.value = prefs.getBoolean("avoid_highways", false)
-        _avoidSmallRoads.value = prefs.getBoolean("avoid_small_roads", false)
-        _externalDisplayEnabled.value = prefs.getBoolean("external_display_enabled", false)
-        _tripMode.value = TravelMode.of(prefs.getString("trip_mode", null))
-        _shareFog.value = prefs.getBoolean("share_fog", false)
-        _fogEnabled.value = prefs.getBoolean("fog_enabled", true)
-        _fogRadiusMeters.value = prefs.getFloat("fog_radius_m", FOG_RADIUS_DEFAULT)
-        _defaultZoom.value = prefs.getFloat("default_zoom", DEFAULT_ZOOM_DEFAULT)
-        _geocoderPublicFallback.value = prefs.getBoolean("geocoder_public_fallback", true)
-        _authToken.value = prefs.getString("auth_token", "") ?: ""
-        _authUsername.value = prefs.getString("auth_username", "") ?: ""
-        _leanOffsetDeg.value = prefs.getFloat("lean_offset_deg", 0f)
-        _voiceGuidance.value = prefs.getBoolean("voice_guidance", true)
+        _autoDetectDrives.value = prefs.bool("auto_detect_drives", true)
+        _avoidHighways.value = prefs.bool("avoid_highways", false)
+        _avoidSmallRoads.value = prefs.bool("avoid_small_roads", false)
+        _externalDisplayEnabled.value = prefs.bool("external_display_enabled", false)
+        _tripMode.value = TravelMode.of(prefs.string("trip_mode").takeIf { it.isNotEmpty() })
+        _shareFog.value = prefs.bool("share_fog", false)
+        _fogEnabled.value = prefs.bool("fog_enabled", true)
+        _fogRadiusMeters.value = prefs.float("fog_radius_m", FOG_RADIUS_DEFAULT)
+        _defaultZoom.value = prefs.float("default_zoom", DEFAULT_ZOOM_DEFAULT)
+        _geocoderPublicFallback.value = prefs.bool("geocoder_public_fallback", true)
+        _authToken.value = prefs.string("auth_token")
+        _authUsername.value = prefs.string("auth_username")
+        _leanOffsetDeg.value = prefs.float("lean_offset_deg", 0f)
+        _voiceGuidance.value = prefs.bool("voice_guidance", true)
         _preferredNavApp.value = runCatching {
-            NavApp.valueOf(prefs.getString("preferred_nav_app", NavApp.ASK.name)!!)
+            NavApp.valueOf(prefs.string("preferred_nav_app", NavApp.ASK.name))
         }.getOrDefault(NavApp.ASK)
         _vehicleDevices.value = readVehicleDevices()
     }
 
     private fun readVehicleDevices(): Map<String, VehicleDevice> {
-        val raw = prefs.getString("vehicle_devices", null) ?: return emptyMap()
+        val raw = prefs.string("vehicle_devices").takeIf { it.isNotEmpty() } ?: return emptyMap()
         return runCatching {
-            val json = JSONObject(raw)
-            json.keys().asSequence().associateWith { addr ->
+            jsonObjectOf(raw).mapValues { (addr, v) ->
                 // New format: {address: {mode, name}}. Old format (v1.24):
                 // {address: "MODE"} with no name — fall back to the address.
-                when (val v = json.get(addr)) {
-                    is JSONObject -> VehicleDevice(
+                when (v) {
+                    is kotlinx.serialization.json.JsonObject -> VehicleDevice(
                         addr, v.optString("name", addr), TravelMode.of(v.optString("mode")))
-                    else -> VehicleDevice(addr, addr, TravelMode.of(v.toString()))
+                    else -> VehicleDevice(
+                        addr, addr, TravelMode.of(v.toString().trim('"')))
                 }
             }
         }.getOrDefault(emptyMap())
@@ -175,87 +175,91 @@ object Settings {
 
     private fun writeVehicleDevices(map: Map<String, VehicleDevice>) {
         _vehicleDevices.value = map
-        val json = JSONObject()
-        map.forEach { (addr, d) ->
-            json.put(addr, JSONObject().put("mode", d.mode.name).put("name", d.name))
+        val json = buildJsonObject {
+            map.forEach { (addr, d) ->
+                putJsonObject(addr) {
+                    put("mode", d.mode.name)
+                    put("name", d.name)
+                }
+            }
         }
-        prefs.edit().putString("vehicle_devices", json.toString()).apply()
+        prefs.put("vehicle_devices", json.string())
     }
 
     fun setAuth(token: String, username: String) {
         _authToken.value = token
         _authUsername.value = username
-        prefs.edit().putString("auth_token", token)
-            .putString("auth_username", username).apply()
+        prefs.put("auth_token", token)
+        prefs.put("auth_username", username)
     }
 
     fun setTheme(value: Theme) {
         _theme.value = value
-        prefs.edit().putString("theme", value.name).apply()
+        prefs.put("theme", value.name)
     }
 
     fun setAutoDetectDrives(value: Boolean) {
         _autoDetectDrives.value = value
-        prefs.edit().putBoolean("auto_detect_drives", value).apply()
+        prefs.put("auto_detect_drives", value)
     }
 
     fun setAvoidHighways(value: Boolean) {
         _avoidHighways.value = value
-        prefs.edit().putBoolean("avoid_highways", value).apply()
+        prefs.put("avoid_highways", value)
     }
 
     fun setAvoidSmallRoads(value: Boolean) {
         _avoidSmallRoads.value = value
-        prefs.edit().putBoolean("avoid_small_roads", value).apply()
+        prefs.put("avoid_small_roads", value)
     }
 
     fun setExternalDisplayEnabled(value: Boolean) {
         _externalDisplayEnabled.value = value
-        prefs.edit().putBoolean("external_display_enabled", value).apply()
+        prefs.put("external_display_enabled", value)
     }
 
     fun setTripMode(value: TravelMode) {
         _tripMode.value = value
-        prefs.edit().putString("trip_mode", value.name).apply()
+        prefs.put("trip_mode", value.name)
     }
 
     fun setShareFog(value: Boolean) {
         _shareFog.value = value
-        prefs.edit().putBoolean("share_fog", value).apply()
+        prefs.put("share_fog", value)
     }
 
     fun setFogEnabled(value: Boolean) {
         _fogEnabled.value = value
-        prefs.edit().putBoolean("fog_enabled", value).apply()
+        prefs.put("fog_enabled", value)
     }
 
     fun setFogRadiusMeters(value: Float) {
         _fogRadiusMeters.value = value
-        prefs.edit().putFloat("fog_radius_m", value).apply()
+        prefs.put("fog_radius_m", value)
     }
 
     fun setDefaultZoom(value: Float) {
         _defaultZoom.value = value
-        prefs.edit().putFloat("default_zoom", value).apply()
+        prefs.put("default_zoom", value)
     }
 
     fun setVoiceGuidance(value: Boolean) {
         _voiceGuidance.value = value
-        prefs.edit().putBoolean("voice_guidance", value).apply()
+        prefs.put("voice_guidance", value)
     }
 
     fun setGeocoderPublicFallback(value: Boolean) {
         _geocoderPublicFallback.value = value
-        prefs.edit().putBoolean("geocoder_public_fallback", value).apply()
+        prefs.put("geocoder_public_fallback", value)
     }
 
     fun setLeanOffsetDeg(value: Float) {
         _leanOffsetDeg.value = value
-        prefs.edit().putFloat("lean_offset_deg", value).apply()
+        prefs.put("lean_offset_deg", value)
     }
 
     fun setPreferredNavApp(value: NavApp) {
         _preferredNavApp.value = value
-        prefs.edit().putString("preferred_nav_app", value.name).apply()
+        prefs.put("preferred_nav_app", value.name)
     }
 }

@@ -1,11 +1,12 @@
 package com.jellemax.detour.data
 
-import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.File
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.addJsonArray
+import kotlinx.serialization.json.buildJsonArray
 import kotlin.math.pow
 
 /**
@@ -39,19 +40,18 @@ object TraceStore {
     private val _version = MutableStateFlow(0)
     val version: StateFlow<Int> = _version
 
-    fun append(context: Context, trace: List<TracePoint>) {
+    fun append(trace: List<TracePoint>) {
         if (trace.size < 2) return
-        val line = JSONArray().apply {
-            for (p in trace) put(
-                JSONArray()
-                    .put(p.at.lat)
-                    .put(p.at.lon)
-                    .put(p.timeMs)
-                    .put(round(p.speedKmh, 1))
-                    .put(p.leanDeg?.let { round(it, 1) } ?: JSONObject.NULL)
-            )
+        val line = buildJsonArray {
+            for (p in trace) addJsonArray {
+                add(p.at.lat)
+                add(p.at.lon)
+                add(p.timeMs)
+                add(round(p.speedKmh, 1))
+                add(p.leanDeg?.let { JsonPrimitive(round(it, 1)) } ?: JsonNull)
+            }
         }
-        file(context).appendText(line.toString() + "\n")
+        appFile(FILE_NAME).appendText(line.string() + "\n")
         _version.value++
     }
 
@@ -62,8 +62,8 @@ object TraceStore {
         return kotlin.math.round(v * f) / f
     }
 
-    fun loadAll(context: Context): List<List<LatLon>> {
-        val f = file(context)
+    fun loadAll(): List<List<LatLon>> {
+        val f = appFile(FILE_NAME)
         if (!f.exists()) return emptyList()
         return parseLines(f.readLines())
     }
@@ -73,11 +73,9 @@ object TraceStore {
      *  same format but have never been near this file. */
     fun parseLines(lines: List<String>): List<List<LatLon>> = lines.mapNotNull { line ->
         try {
-            val arr = JSONArray(line)
-            (0 until arr.length()).map { i ->
-                val p = arr.getJSONArray(i)
-                LatLon(p.getDouble(0), p.getDouble(1))
-            }.takeIf { it.size >= 2 }
+            jsonArrayOf(line).arrays()
+                .map { p -> LatLon(p.optDouble(0), p.optDouble(1)) }
+                .takeIf { it.size >= 2 }
         } catch (e: Exception) {
             null
         }
@@ -88,11 +86,9 @@ object TraceStore {
      *  to be a track rather than a bare shape. Null when the line doesn't
      *  decode or is too short to be a polyline. */
     fun parsePoints(line: String): List<TracePoint>? = try {
-        val arr = JSONArray(line)
-        (0 until arr.length()).map { i ->
-            val p = arr.getJSONArray(i)
+        jsonArrayOf(line).arrays().map { p ->
             TracePoint(
-                at = LatLon(p.getDouble(0), p.getDouble(1)),
+                at = LatLon(p.optDouble(0), p.optDouble(1)),
                 // Points written before the tail existed are two long; the
                 // getters below read those as "unknown" rather than failing.
                 timeMs = p.optLong(2, -1L),
@@ -104,23 +100,18 @@ object TraceStore {
         null
     }
 
-    fun clear(context: Context) {
-        file(context).delete()
+    fun clear() {
+        appFile(FILE_NAME).deleteIfExists()
         _version.value++
     }
 
     /** Raw JSONL lines, for server sync. */
-    fun rawLines(context: Context): List<String> {
-        val f = file(context)
-        return if (f.exists()) f.readLines().filter { it.isNotBlank() } else emptyList()
-    }
+    fun rawLines(): List<String> = appFile(FILE_NAME).readLines().filter { it.isNotBlank() }
 
     /** Overwrite the store with merged lines from the sync server. */
-    fun replaceLines(context: Context, lines: List<String>) {
-        file(context).writeText(
+    fun replaceLines(lines: List<String>) {
+        appFile(FILE_NAME).writeText(
             lines.filter { it.isNotBlank() }.joinToString("\n", postfix = "\n"))
         _version.value++
     }
-
-    private fun file(context: Context) = File(context.filesDir, FILE_NAME)
 }

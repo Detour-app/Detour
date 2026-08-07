@@ -1,7 +1,6 @@
 package com.jellemax.detour.data
 
-import java.io.IOException
-import org.json.JSONObject
+import okio.IOException
 import kotlin.random.Random
 
 /** Destination flavors for a spin. ROAD is the classic random road point. */
@@ -26,7 +25,7 @@ data class Poi(val location: LatLon, val name: String)
 /** Picks a random point of interest within the radius via Overpass. */
 object PoiRoulette {
 
-    fun randomPoi(
+    suspend fun randomPoi(
         center: LatLon,
         radiusMeters: Double,
         kind: PoiKind,
@@ -41,25 +40,25 @@ object PoiRoulette {
             out center 300;
         """.trimIndent()
 
-        val elements = JSONObject(RoadRoulette.rawQuery(query)).getJSONArray("elements")
-        val allPois = ArrayList<Poi>(elements.length())
-        for (i in 0 until elements.length()) {
-            val el = elements.getJSONObject(i)
+        val elements = jsonObjectOf(RoadRoulette.rawQuery(query)).optArray("elements")
+            ?: JsonArrayEmpty
+        val allPois = ArrayList<Poi>(elements.size)
+        for (el in elements.objects()) {
             val lat: Double
             val lon: Double
             if (el.has("lat")) {
-                lat = el.getDouble("lat")
-                lon = el.getDouble("lon")
+                lat = el.optDouble("lat")
+                lon = el.optDouble("lon")
             } else {
-                val c = el.optJSONObject("center") ?: continue
-                lat = c.getDouble("lat")
-                lon = c.getDouble("lon")
+                val c = el.optObject("center") ?: continue
+                lat = c.optDouble("lat")
+                lon = c.optDouble("lon")
             }
             val location = LatLon(lat, lon)
             if (bearingDeg != null &&
                 !RoadRoulette.withinWedge(center, location, bearingDeg, 50.0)
             ) continue
-            val name = el.optJSONObject("tags")?.optString("name").takeUnless { it.isNullOrBlank() }
+            val name = el.optObject("tags")?.optString("name").takeUnless { it.isNullOrBlank() }
                 ?: kind.label
             allPois.add(Poi(location, name))
         }

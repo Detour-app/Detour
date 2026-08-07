@@ -1,8 +1,8 @@
 package com.jellemax.detour.data
 
-import org.json.JSONException
-import org.json.JSONObject
-import java.io.IOException
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.JsonObject
+import okio.IOException
 
 /**
  * Speed cameras and average-speed sections near you, from OpenStreetMap via
@@ -53,7 +53,7 @@ object SpeedCameras {
     const val WARN_METERS = 400.0
 
     /** Null on network error; an empty [Result] means the area really has none. */
-    fun near(
+    suspend fun near(
         center: LatLon,
         radiusMeters: Double = PREFETCH_RADIUS_M,
     ): Result? {
@@ -67,16 +67,19 @@ object SpeedCameras {
         // thing to the caller — no data this time — and letting a JSONException
         // out would kill the collector that drives the prefetch for good.
         val elements = try {
-            JSONObject(RoadRoulette.rawQuery(query)).getJSONArray("elements")
+            jsonObjectOf(RoadRoulette.rawQuery(query)).optArray("elements") ?: JsonArrayEmpty
         } catch (e: IOException) {
             return null
-        } catch (e: JSONException) {
+        } catch (e: SerializationException) {
+            return null
+        } catch (e: IllegalArgumentException) {
+            // parseToJsonElement rejects the HTML error page before it is even
+            // a JSON value, which surfaces here rather than as Serialization.
             return null
         }
         val cameras = ArrayList<Camera>()
         val sections = ArrayList<Section>()
-        for (i in 0 until elements.length()) {
-            val el = elements.getJSONObject(i)
+        for (el in elements.objects()) {
             when (el.optString("type")) {
                 "node" -> {
                     val lat = el.optDouble("lat", Double.NaN)
@@ -101,11 +104,10 @@ object SpeedCameras {
      * mid-section node as an end used to stop the measurement short of the
      * real one.
      */
-    private fun parseSection(relation: JSONObject): Section? {
-        val members = relation.optJSONArray("members") ?: return null
+    private fun parseSection(relation: JsonObject): Section? {
+        val members = relation.optArray("members") ?: return null
         val nodes = ArrayList<LatLon>()
-        for (i in 0 until members.length()) {
-            val m = members.getJSONObject(i)
+        for (m in members.objects()) {
             if (m.optString("type") != "node") continue
             val lat = m.optDouble("lat", Double.NaN)
             val lon = m.optDouble("lon", Double.NaN)
@@ -122,7 +124,7 @@ object SpeedCameras {
         if (span < MIN_SPAN_M) return null
         val endA = nodes.filter { RoadRoulette.distanceMeters(it, a) <= END_CLUSTER_M }
         val endB = nodes.filter { RoadRoulette.distanceMeters(it, b) <= END_CLUSTER_M }
-        val maxspeed = relation.optJSONObject("tags")?.optString("maxspeed")
+        val maxspeed = relation.optObject("tags")?.optString("maxspeed")
             ?.takeIf { it.isNotBlank() }?.let { RoadRoulette.parseMaxSpeed(it) }
         return Section(endA, endB, span, maxspeed)
     }

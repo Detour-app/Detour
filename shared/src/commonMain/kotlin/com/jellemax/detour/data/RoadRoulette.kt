@@ -1,11 +1,7 @@
 package com.jellemax.detour.data
 
-import org.json.JSONObject
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
-import java.util.zip.GZIPInputStream
+import io.ktor.http.encodeURLParameter
+import okio.IOException
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -38,7 +34,7 @@ object RoadRoulette {
         "https://overpass.kumi.systems/api/interpreter",
     )
 
-    fun randomRoadPoint(
+    suspend fun randomRoadPoint(
         center: LatLon,
         radiusMeters: Double,
         highwayRegex: String,
@@ -88,7 +84,7 @@ object RoadRoulette {
         val theta = if (bearingDeg == null) {
             Random.nextDouble(2 * PI)
         } else {
-            Math.toRadians(bearingDeg) + Random.nextDouble(-PI / 4, PI / 4)
+            toRadians(bearingDeg) + Random.nextDouble(-PI / 4, PI / 4)
         }
         val minR = minRadiusMeters.coerceIn(0.0, radiusMeters)
         val r = sqrt(minR * minR + Random.nextDouble() * (radiusMeters * radiusMeters - minR * minR))
@@ -98,8 +94,8 @@ object RoadRoulette {
     /** Compass bearing from [from] to [to], degrees 0–360 (0 = north). */
     fun bearingDeg(from: LatLon, to: LatLon): Double {
         val dLat = to.lat - from.lat
-        val dLon = (to.lon - from.lon) * cos(Math.toRadians(from.lat))
-        return (Math.toDegrees(atan2(dLon, dLat)) + 360.0) % 360.0
+        val dLon = (to.lon - from.lon) * cos(toRadians(from.lat))
+        return (toDegrees(atan2(dLon, dLat)) + 360.0) % 360.0
     }
 
     fun withinWedge(center: LatLon, p: LatLon, bearingDeg: Double, halfAngleDeg: Double): Boolean {
@@ -111,7 +107,7 @@ object RoadRoulette {
     fun offset(center: LatLon, distanceMeters: Double, bearingRad: Double): LatLon {
         val dLat = (distanceMeters * cos(bearingRad)) / 111_320.0
         val dLon = (distanceMeters * sin(bearingRad)) /
-            (111_320.0 * cos(Math.toRadians(center.lat)))
+            (111_320.0 * cos(toRadians(center.lat)))
         return LatLon(center.lat + dLat, center.lon + dLon)
     }
 
@@ -165,7 +161,7 @@ object RoadRoulette {
         return segments.last().b
     }
 
-    fun fetchRoads(
+    suspend fun fetchRoads(
         center: LatLon,
         radiusMeters: Double,
         highwayRegex: String,
@@ -204,7 +200,7 @@ object RoadRoulette {
      * [headingDeg] is known a road must also run roughly along our heading;
      * only if nothing lines up do we fall back to the closest drivable road.
      */
-    fun nearestSpeedLimitKmh(
+    suspend fun nearestSpeedLimitKmh(
         point: LatLon,
         headingDeg: Double? = null,
         radiusMeters: Double = MAX_SNAP_METERS,
@@ -218,24 +214,21 @@ object RoadRoulette {
         } catch (e: IOException) {
             return null
         }
-        val elements = JSONObject(json).getJSONArray("elements")
+        val elements = jsonObjectOf(json).optArray("elements") ?: return null
 
         var aligned: Double? = null
         var alignedDist = Double.MAX_VALUE
         var nearest: Double? = null
         var nearestDist = Double.MAX_VALUE
 
-        for (i in 0 until elements.length()) {
-            val el = elements.getJSONObject(i)
-            val raw = el.optJSONObject("tags")?.optString("maxspeed")
+        for (el in elements.objects()) {
+            val raw = el.optObject("tags")?.optString("maxspeed")
                 ?.takeIf { it.isNotBlank() } ?: continue
             val kmh = parseMaxSpeed(raw) ?: continue
-            val geometry = el.optJSONArray("geometry") ?: continue
-            for (j in 0 until geometry.length() - 1) {
-                val a = geometry.getJSONObject(j)
-                    .let { LatLon(it.getDouble("lat"), it.getDouble("lon")) }
-                val b = geometry.getJSONObject(j + 1)
-                    .let { LatLon(it.getDouble("lat"), it.getDouble("lon")) }
+            val geometry = el.optArray("geometry")?.objects() ?: continue
+            for (j in 0 until geometry.size - 1) {
+                val a = geometry[j].let { LatLon(it.optDouble("lat"), it.optDouble("lon")) }
+                val b = geometry[j + 1].let { LatLon(it.optDouble("lat"), it.optDouble("lon")) }
                 // Distance to the road itself, not to whichever node happened to
                 // be mapped: a straight way can have its nodes hundreds of metres
                 // apart and still pass right under us.
@@ -267,7 +260,7 @@ object RoadRoulette {
      * per GPS fix so the posted sign changes the instant you cross onto a new
      * road — no network round-trip in the loop. Empty on any network error.
      */
-    fun speedLimitWays(
+    suspend fun speedLimitWays(
         center: LatLon,
         radiusMeters: Double = SPEED_PREFETCH_RADIUS_M,
     ): List<SpeedLimitWay> {
@@ -280,18 +273,13 @@ object RoadRoulette {
         } catch (e: IOException) {
             return emptyList()
         }
-        val elements = JSONObject(json).getJSONArray("elements")
-        val ways = ArrayList<SpeedLimitWay>(elements.length())
-        for (i in 0 until elements.length()) {
-            val el = elements.getJSONObject(i)
-            val kmh = el.optJSONObject("tags")?.optString("maxspeed")
+        val elements = jsonObjectOf(json).optArray("elements") ?: return emptyList()
+        val ways = ArrayList<SpeedLimitWay>(elements.size)
+        for (el in elements.objects()) {
+            val kmh = el.optObject("tags")?.optString("maxspeed")
                 ?.takeIf { it.isNotBlank() }?.let { parseMaxSpeed(it) } ?: continue
-            val geometry = el.optJSONArray("geometry") ?: continue
-            val pts = ArrayList<LatLon>(geometry.length())
-            for (j in 0 until geometry.length()) {
-                val g = geometry.getJSONObject(j)
-                pts.add(LatLon(g.getDouble("lat"), g.getDouble("lon")))
-            }
+            val geometry = el.optArray("geometry") ?: continue
+            val pts = geometry.objects().map { LatLon(it.optDouble("lat"), it.optDouble("lon")) }
             if (pts.size >= 2) ways.add(SpeedLimitWay(kmh, pts))
         }
         return ways
@@ -335,7 +323,7 @@ object RoadRoulette {
     /** Distance from [p] to the segment [a]→[b], on a local flat projection. */
     fun distanceToSegmentMeters(p: LatLon, a: LatLon, b: LatLon): Double {
         val mPerLat = 111_320.0
-        val mPerLon = mPerLat * cos(Math.toRadians(p.lat))
+        val mPerLon = mPerLat * cos(toRadians(p.lat))
         val ax = (a.lon - p.lon) * mPerLon
         val ay = (a.lat - p.lat) * mPerLat
         val bx = (b.lon - p.lon) * mPerLon
@@ -351,9 +339,9 @@ object RoadRoulette {
     /** True when segment [a]→[b] runs along [headingDeg], either way round. */
     private fun alignsWith(a: LatLon, b: LatLon, headingDeg: Double): Boolean {
         val dLat = b.lat - a.lat
-        val dLon = (b.lon - a.lon) * cos(Math.toRadians(a.lat))
+        val dLon = (b.lon - a.lon) * cos(toRadians(a.lat))
         if (dLat == 0.0 && dLon == 0.0) return false
-        val segDeg = (Math.toDegrees(atan2(dLon, dLat)) + 360.0) % 360.0
+        val segDeg = (toDegrees(atan2(dLon, dLat)) + 360.0) % 360.0
         var diff = abs(segDeg - headingDeg) % 360.0
         if (diff > 180.0) diff = 360.0 - diff
         return diff <= HEADING_TOLERANCE_DEG || diff >= 180.0 - HEADING_TOLERANCE_DEG
@@ -385,7 +373,7 @@ object RoadRoulette {
     }
 
     /** Runs an Overpass query, rotating across mirrors on failure. */
-    fun rawQuery(query: String, endpointOffset: Int = 0): String {
+    suspend fun rawQuery(query: String, endpointOffset: Int = 0): String {
         var lastError: IOException? = null
         for (i in ENDPOINTS.indices) {
             val endpoint = ENDPOINTS[(i + endpointOffset) % ENDPOINTS.size]
@@ -398,48 +386,33 @@ object RoadRoulette {
         throw lastError ?: IOException("All Overpass endpoints failed")
     }
 
-    private fun post(endpoint: String, query: String): String {
-        val conn = URL(endpoint).openConnection() as HttpURLConnection
-        try {
-            conn.requestMethod = "POST"
-            conn.connectTimeout = 5_000
-            conn.readTimeout = 12_000
-            conn.doOutput = true
-            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
-            conn.setRequestProperty("Accept-Encoding", "gzip")
-            // Overpass usage policy asks for an identifying user agent.
-            conn.setRequestProperty("User-Agent", "Detour/1.4 (personal Android app)")
-            conn.outputStream.use {
-                it.write("data=${URLEncoder.encode(query, "UTF-8")}".toByteArray())
-            }
-            if (conn.responseCode != 200) {
-                throw IOException("Overpass API error: HTTP ${conn.responseCode}")
-            }
-            val stream = if (conn.contentEncoding == "gzip") {
-                GZIPInputStream(conn.inputStream)
-            } else {
-                conn.inputStream
-            }
-            return stream.bufferedReader().readText()
-        } finally {
-            conn.disconnect()
-        }
+    private suspend fun post(endpoint: String, query: String): String = try {
+        Http.request(
+            method = "POST",
+            url = endpoint,
+            body = "data=${query.encodeURLParameter()}",
+            headers = mapOf(
+                "Content-Type" to "application/x-www-form-urlencoded",
+                // Overpass usage policy asks for an identifying user agent.
+                "User-Agent" to "Detour/${BuildDefaults.versionName}",
+            ),
+            readTimeoutMs = 12_000,
+        )
+    } catch (e: HttpStatusException) {
+        throw IOException("Overpass API error: HTTP ${e.code}")
     }
 
     private fun parseWays(json: String): List<OverpassWay> {
-        val elements = JSONObject(json).getJSONArray("elements")
-        val ways = ArrayList<OverpassWay>(elements.length())
-        for (i in 0 until elements.length()) {
-            val el = elements.getJSONObject(i)
-            val geometry = el.optJSONArray("geometry") ?: continue
-            val points = ArrayList<LatLon>(geometry.length())
-            for (j in 0 until geometry.length()) {
-                val p = geometry.getJSONObject(j)
-                points.add(LatLon(p.getDouble("lat"), p.getDouble("lon")))
+        val elements = jsonObjectOf(json).optArray("elements") ?: return emptyList()
+        val ways = ArrayList<OverpassWay>(elements.size)
+        for (el in elements.objects()) {
+            val geometry = el.optArray("geometry") ?: continue
+            val points = geometry.objects().map {
+                LatLon(it.optDouble("lat"), it.optDouble("lon"))
             }
-            val nodeArray = el.optJSONArray("nodes")
-            val nodes = if (nodeArray != null && nodeArray.length() == points.size) {
-                (0 until nodeArray.length()).map { nodeArray.getLong(it) }
+            val nodeArray = el.optArray("nodes")
+            val nodes = if (nodeArray != null && nodeArray.size == points.size) {
+                nodeArray.indices.map { nodeArray.optLong(it) }
             } else {
                 List(points.size) { 0L } // no node info; 0 is never a junction id
             }
@@ -450,10 +423,10 @@ object RoadRoulette {
 
     fun distanceMeters(a: LatLon, b: LatLon): Double {
         val r = 6_371_000.0
-        val dLat = Math.toRadians(b.lat - a.lat)
-        val dLon = Math.toRadians(b.lon - a.lon)
+        val dLat = toRadians(b.lat - a.lat)
+        val dLon = toRadians(b.lon - a.lon)
         val h = sin(dLat / 2) * sin(dLat / 2) +
-            cos(Math.toRadians(a.lat)) * cos(Math.toRadians(b.lat)) *
+            cos(toRadians(a.lat)) * cos(toRadians(b.lat)) *
             sin(dLon / 2) * sin(dLon / 2)
         return 2 * r * atan2(sqrt(h), sqrt(1 - h))
     }

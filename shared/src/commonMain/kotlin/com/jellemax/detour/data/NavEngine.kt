@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
@@ -42,7 +43,7 @@ object NavEngine {
 
         // Local equirectangular projection around pos; fine at route scale.
         val mPerLat = 111_320.0
-        val mPerLon = 111_320.0 * cos(Math.toRadians(pos.lat))
+        val mPerLon = 111_320.0 * cos(pos.lat * PI / 180.0)
         fun x(p: LatLon) = (p.lon - pos.lon) * mPerLon
         fun y(p: LatLon) = (p.lat - pos.lat) * mPerLat
 

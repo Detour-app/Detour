@@ -1,6 +1,6 @@
 package com.jellemax.detour.data
 
-import android.content.Context
+import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.floor
 
@@ -34,7 +34,7 @@ class ExploredArea(traces: List<List<LatLon>>) {
     private fun cell(p: LatLon): Pair<Long, Long> {
         val row = floor(p.lat * METERS_PER_DEG / CELL_METERS).toLong()
         val col = floor(
-            p.lon * METERS_PER_DEG * cos(Math.toRadians(p.lat)) / CELL_METERS).toLong()
+            p.lon * METERS_PER_DEG * cos(p.lat * PI / 180.0) / CELL_METERS).toLong()
         return row to col
     }
 
@@ -47,6 +47,6 @@ class ExploredArea(traces: List<List<LatLon>>) {
         /** Selection weight kept by already-explored candidates (1.0 = no bias). */
         const val EXPLORED_WEIGHT = 0.15
 
-        fun load(context: Context): ExploredArea = ExploredArea(TraceStore.loadAll(context))
+        fun load(): ExploredArea = ExploredArea(TraceStore.loadAll())
     }
 }

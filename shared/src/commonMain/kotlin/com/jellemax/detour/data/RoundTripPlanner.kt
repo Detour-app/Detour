@@ -1,13 +1,12 @@
 package com.jellemax.detour.data
 
-import java.io.IOException
+import okio.IOException
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.random.Random
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -120,11 +119,11 @@ object Curviness {
 
     /** Circumcircle radius of three points, in meters (planar approximation). */
     private fun circumradiusMeters(a: LatLon, b: LatLon, c: LatLon): Double {
-        val cosLat = cos(Math.toRadians(b.lat))
-        val ax = Math.toRadians(a.lon - b.lon) * 6_371_000.0 * cosLat
-        val ay = Math.toRadians(a.lat - b.lat) * 6_371_000.0
-        val cx = Math.toRadians(c.lon - b.lon) * 6_371_000.0 * cosLat
-        val cy = Math.toRadians(c.lat - b.lat) * 6_371_000.0
+        val cosLat = cos(toRadians(b.lat))
+        val ax = toRadians(a.lon - b.lon) * 6_371_000.0 * cosLat
+        val ay = toRadians(a.lat - b.lat) * 6_371_000.0
+        val cx = toRadians(c.lon - b.lon) * 6_371_000.0 * cosLat
+        val cy = toRadians(c.lat - b.lat) * 6_371_000.0
         // b is the origin; cross of (b-a) and (c-a)
         val cross = abs((-ax) * (cy - ay) - (-ay) * (cx - ax))
         if (cross < 1e-6) return Double.MAX_VALUE // collinear = straight
@@ -156,11 +155,11 @@ object RoundTripPlanner {
         withTimeout(45_000) {
             coroutineScope {
                 // A loop covers all directions; a bearing just anchors where it starts.
-                val startAngle = bearingDeg?.let { Math.toRadians(it) }
+                val startAngle = bearingDeg?.let { toRadians(it) }
                     ?: Random.nextDouble(2 * PI)
                 val overpassLimit = Semaphore(2) // be polite to the public API
                 val waypoints = (0 until SECTORS).map { s ->
-                    async(Dispatchers.IO) {
+                    async {
                         overpassLimit.withPermit {
                             // Any single-sector failure just skips that sector.
                             try {
@@ -180,7 +179,7 @@ object RoundTripPlanner {
             }
         }
 
-    private fun sectorWaypoint(
+    private suspend fun sectorWaypoint(
         center: LatLon,
         radiusMeters: Double,
         sectorAngle: Double,

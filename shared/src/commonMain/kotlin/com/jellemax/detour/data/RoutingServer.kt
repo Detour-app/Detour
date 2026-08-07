@@ -1,13 +1,14 @@
 package com.jellemax.detour.data
 
-import android.content.Context
-import com.jellemax.detour.BuildConfig
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
-import java.util.zip.GZIPInputStream
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.addJsonArray
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
+import okio.IOException
 
 data class RouteResult(
     /** Full route geometry (road-following when from GraphHopper). */
@@ -58,42 +59,49 @@ object RoutingServer {
     private const val PREFS = "routing_server"
 
     fun bakedDefaults(): ServerConfig = ServerConfig(
-        url = BuildConfig.ROUTING_URL,
-        clientId = BuildConfig.ROUTING_CF_ID,
-        clientSecret = BuildConfig.ROUTING_CF_SECRET,
-        enabled = BuildConfig.ROUTING_URL.isNotBlank(),
+        url = BuildDefaults.routingUrl,
+        clientId = BuildDefaults.routingCfId,
+        clientSecret = BuildDefaults.routingCfSecret,
+        enabled = BuildDefaults.routingUrl.isNotBlank(),
     )
 
     /** Effective config: user's custom server if set, else baked defaults. */
-    fun load(context: Context): ServerConfig = loadCustom(context) ?: bakedDefaults()
+    fun load(): ServerConfig = loadCustom() ?: bakedDefaults()
 
     /** The user's own server settings, or null when using built-in defaults. */
-    fun loadCustom(context: Context): ServerConfig? {
-        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val url = p.getString("url", "") ?: ""
-        if (!p.getBoolean("saved", false) || url.isBlank()) return null
+    fun loadCustom(): ServerConfig? {
+        val p = prefs(PREFS)
+        val url = p.string("url")
+        if (!p.bool("saved", false) || url.isBlank()) return null
         return ServerConfig(
             url = url,
-            clientId = p.getString("clientId", "") ?: "",
-            clientSecret = p.getString("clientSecret", "") ?: "",
+            clientId = p.string("clientId"),
+            clientSecret = p.string("clientSecret"),
             enabled = true,
         )
     }
 
-    fun save(context: Context, config: ServerConfig) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean("saved", true)
-            .putString("url", config.url.trim())
-            .putString("clientId", config.clientId.trim())
-            .putString("clientSecret", config.clientSecret.trim())
-            .apply()
+    fun save(config: ServerConfig) {
+        prefs(PREFS).apply {
+            put("saved", true)
+            put("url", config.url.trim())
+            put("clientId", config.clientId.trim())
+            put("clientSecret", config.clientSecret.trim())
+        }
     }
 
-    fun clearCustom(context: Context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
+    fun clearCustom() = prefs(PREFS).clear()
+
+    /** Cloudflare Access service-token headers, absent when not behind Access. */
+    private fun headers(config: ServerConfig): Map<String, String> = buildMap {
+        put("User-Agent", "Detour/${BuildDefaults.versionName}")
+        if (config.clientId.isNotBlank()) {
+            put("CF-Access-Client-Id", config.clientId)
+            put("CF-Access-Client-Secret", config.clientSecret)
+        }
     }
 
-    fun roundTrip(
+    suspend fun roundTrip(
         config: ServerConfig,
         start: LatLon,
         distanceMeters: Double,
@@ -119,7 +127,7 @@ object RoutingServer {
         throw lastError ?: IOException("Round trip failed")
     }
 
-    private fun requestRoundTrip(
+    private suspend fun requestRoundTrip(
         config: ServerConfig,
         start: LatLon,
         distanceMeters: Double,
@@ -142,23 +150,26 @@ object RoutingServer {
         }
         // A loop is where this matters most: left to itself, round_trip strings
         // together whatever is nearby, which around here means farm lanes.
-        val body = JSONObject()
-            .put("profile", "moto")
-            .put("points", JSONArray()
-                .put(JSONArray().put(start.lon).put(start.lat)))
-            .put("algorithm", "round_trip")
+        val body = buildJsonObject {
+            put("profile", "moto")
+            putJsonArray("points") {
+                addJsonArray { add(start.lon); add(start.lat) }
+            }
+            put("algorithm", "round_trip")
             // Flat hint keys, exactly as in the query string. Nested under a
             // "round_trip" object they are silently ignored and every loop comes
             // back as GraphHopper's 10 km default.
-            .put("round_trip.distance", distanceMeters.toInt())
-            .put("round_trip.seed", seed)
-            .put("points_encoded", false)
-            .put("details", JSONArray().put("max_speed"))
-            .put("ch.disable", true)
-            .put("custom_model", JSONObject()
-                .put("priority", preferenceRules(avoidHighways = false, avoidSmallRoads = true)))
-        headingDeg?.let { body.put("heading", JSONArray().put(it.toInt())) }
-        return fetchRoute(config, config.url.trimEnd('/') + "/route", body.toString())
+            put("round_trip.distance", distanceMeters.toInt())
+            put("round_trip.seed", seed)
+            put("points_encoded", false)
+            putJsonArray("details") { add("max_speed") }
+            put("ch.disable", true)
+            putJsonObject("custom_model") {
+                put("priority", preferenceRules(avoidHighways = false, avoidSmallRoads = true))
+            }
+            headingDeg?.let { h -> putJsonArray("heading") { add(h.toInt()) } }
+        }
+        return fetchRoute(config, config.url.trimEnd('/') + "/route", body.string())
     }
 
     /**
@@ -171,30 +182,32 @@ object RoutingServer {
     private fun preferenceRules(
         avoidHighways: Boolean,
         avoidSmallRoads: Boolean,
-    ): JSONArray {
-        val rules = JSONArray()
+    ) = buildJsonArray {
         if (avoidHighways) {
-            rules.put(JSONObject()
-                .put("if", "road_class == MOTORWAY || road_class == TRUNK")
-                .put("multiply_by", 0.05))
+            addJsonObject {
+                put("if", "road_class == MOTORWAY || road_class == TRUNK")
+                put("multiply_by", 0.05)
+            }
         }
         if (avoidSmallRoads) {
             // Belgium's landelijke wegen: narrow, badly surfaced, full of
             // 90° farm-track corners. Tertiary and up are left alone; the
             // unclassified layer is where the misery lives, so it takes the
             // heaviest penalty that still leaves it routable.
-            rules.put(JSONObject()
-                .put("if", "road_class == UNCLASSIFIED || road_class == RESIDENTIAL")
-                .put("multiply_by", 0.2))
-            rules.put(JSONObject()
-                .put("if", "road_class == LIVING_STREET || road_class == SERVICE")
-                .put("multiply_by", 0.1))
+            addJsonObject {
+                put("if", "road_class == UNCLASSIFIED || road_class == RESIDENTIAL")
+                put("multiply_by", 0.2)
+            }
+            addJsonObject {
+                put("if", "road_class == LIVING_STREET || road_class == SERVICE")
+                put("multiply_by", 0.1)
+            }
             // Unpaved: never worth it on two wheels or four.
-            rules.put(JSONObject()
-                .put("if", "road_class == TRACK || road_class == PATH")
-                .put("multiply_by", 0.02))
+            addJsonObject {
+                put("if", "road_class == TRACK || road_class == PATH")
+                put("multiply_by", 0.02)
+            }
         }
-        return rules
     }
 
     /**
@@ -205,7 +218,7 @@ object RoutingServer {
      * field. Either one switches to a POST with a custom model, which needs
      * flexible routing — hence `ch.disable`.
      */
-    fun route(
+    suspend fun route(
         config: ServerConfig,
         from: LatLon,
         to: LatLon,
@@ -214,7 +227,7 @@ object RoutingServer {
         avoidSmallRoads: Boolean = false,
     ): RouteResult {
         val rules = preferenceRules(avoidHighways, avoidSmallRoads)
-        if (rules.length() == 0) {
+        if (rules.isEmpty()) {
             return fetchRoute(
                 config,
                 config.url.trimEnd('/') +
@@ -224,90 +237,72 @@ object RoutingServer {
                     "&points_encoded=false&details=max_speed",
             )
         }
-        val body = JSONObject()
-            .put("profile", profile)
-            .put("points", JSONArray()
-                .put(JSONArray().put(from.lon).put(from.lat))
-                .put(JSONArray().put(to.lon).put(to.lat)))
-            .put("points_encoded", false)
-            .put("details", JSONArray().put("max_speed"))
-            .put("ch.disable", true)
-            .put("custom_model", JSONObject().put("priority", rules))
-        return fetchRoute(config, config.url.trimEnd('/') + "/route", body.toString())
+        val body = buildJsonObject {
+            put("profile", profile)
+            putJsonArray("points") {
+                addJsonArray { add(from.lon); add(from.lat) }
+                addJsonArray { add(to.lon); add(to.lat) }
+            }
+            put("points_encoded", false)
+            putJsonArray("details") { add("max_speed") }
+            put("ch.disable", true)
+            putJsonObject("custom_model") { put("priority", rules) }
+        }
+        return fetchRoute(config, config.url.trimEnd('/') + "/route", body.string())
     }
 
-    private fun fetchRoute(
+    private suspend fun fetchRoute(
         config: ServerConfig,
         url: String,
         postBody: String? = null,
     ): RouteResult {
-        val conn = URL(url).openConnection() as HttpURLConnection
-        try {
-            conn.connectTimeout = 5_000
-            conn.readTimeout = 20_000
-            conn.setRequestProperty("Accept-Encoding", "gzip")
-            conn.setRequestProperty("User-Agent", "Detour/1.4")
-            if (config.clientId.isNotBlank()) {
-                conn.setRequestProperty("CF-Access-Client-Id", config.clientId)
-                conn.setRequestProperty("CF-Access-Client-Secret", config.clientSecret)
-            }
-            if (postBody != null) {
-                conn.requestMethod = "POST"
-                conn.doOutput = true
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.outputStream.use { it.write(postBody.toByteArray()) }
-            }
-            if (conn.responseCode != 200) {
-                throw IOException("Routing server error: HTTP ${conn.responseCode}")
-            }
-            val stream = if (conn.contentEncoding == "gzip") {
-                GZIPInputStream(conn.inputStream)
-            } else {
-                conn.inputStream
-            }
-            return parseRoute(stream.bufferedReader().readText())
-        } finally {
-            conn.disconnect()
+        val text = try {
+            Http.request(
+                method = if (postBody != null) "POST" else "GET",
+                url = url,
+                body = postBody,
+                headers = headers(config),
+                readTimeoutMs = 20_000,
+            )
+        } catch (e: HttpStatusException) {
+            throw IOException("Routing server error: HTTP ${e.code}")
         }
+        return parseRoute(text)
     }
 
-    private fun parseRoute(json: String): RouteResult {
-        val path = JSONObject(json).getJSONArray("paths").getJSONObject(0)
-        val coords = path.getJSONObject("points").getJSONArray("coordinates")
-        val polyline = ArrayList<LatLon>(coords.length())
-        for (i in 0 until coords.length()) {
-            val c = coords.getJSONArray(i) // GeoJSON order: [lon, lat]
-            polyline.add(LatLon(c.getDouble(1), c.getDouble(0)))
+    private fun parseRoute(text: String): RouteResult {
+        val path = jsonObjectOf(text).optArray("paths")?.optObject(0)
+            ?: throw IOException("Routing server returned no route")
+        val coords = path.optObject("points")?.optArray("coordinates") ?: JsonArrayEmpty
+        val polyline = ArrayList<LatLon>(coords.size)
+        for (c in coords.arrays()) { // GeoJSON order: [lon, lat]
+            polyline.add(LatLon(c.optDouble(1), c.optDouble(0)))
         }
         if (polyline.size < 2) throw IOException("Routing server returned an empty route")
-        val instructions = ArrayList<NavInstruction>()
-        path.optJSONArray("instructions")?.let { arr ->
-            for (i in 0 until arr.length()) {
-                val ins = arr.getJSONObject(i)
-                val interval = ins.getJSONArray("interval")
-                instructions.add(NavInstruction(
-                    text = ins.optString("text"),
-                    distanceMeters = ins.optDouble("distance", 0.0),
-                    sign = ins.optInt("sign"),
-                    startIndex = interval.getInt(0),
-                    endIndex = interval.getInt(1),
-                    // Only present on roundabout instructions, and negative when
-                    // GraphHopper can't tell which exit; 0 means "don't show one".
-                    exitNumber = ins.optInt("exit_number").coerceAtLeast(0),
-                ))
-            }
+
+        val instructions = path.optArray("instructions")?.objects().orEmpty().map { ins ->
+            val interval = ins.optArray("interval") ?: JsonArrayEmpty
+            NavInstruction(
+                text = ins.optString("text"),
+                distanceMeters = ins.optDouble("distance", 0.0),
+                sign = ins.optInt("sign"),
+                startIndex = interval.optInt(0),
+                endIndex = interval.optInt(1),
+                // Only present on roundabout instructions, and negative when
+                // GraphHopper can't tell which exit; 0 means "don't show one".
+                exitNumber = ins.optInt("exit_number").coerceAtLeast(0),
+            )
         }
-        val speedLimits = ArrayList<SpeedLimitSegment>()
-        path.optJSONObject("details")?.optJSONArray("max_speed")?.let { arr ->
-            for (i in 0 until arr.length()) {
-                val seg = arr.getJSONArray(i)
-                speedLimits.add(SpeedLimitSegment(
-                    fromIndex = seg.getInt(0),
-                    toIndex = seg.getInt(1),
-                    kmh = if (seg.isNull(2)) null else seg.getDouble(2),
-                ))
+
+        val speedLimits = path.optObject("details")?.optArray("max_speed")?.arrays().orEmpty()
+            .map { seg ->
+                SpeedLimitSegment(
+                    fromIndex = seg.optInt(0),
+                    toIndex = seg.optInt(1),
+                    kmh = if (seg.isNull(2)) null else seg.optDouble(2),
+                )
             }
-        }
+
         return RouteResult(
             polyline = polyline,
             waypoints = sampleInterior(polyline, 8),
@@ -325,7 +320,7 @@ object RoutingServer {
      * With [explored] set, undiscovered spots are strongly preferred; an
      * explored result is only used when every attempt landed on known roads.
      */
-    fun randomRoadDestination(
+    suspend fun randomRoadDestination(
         config: ServerConfig,
         center: LatLon,
         radiusMeters: Double,
@@ -355,7 +350,7 @@ object RoutingServer {
             ?: throw IOException("Routing server could not find a road")
     }
 
-    private fun snapToRoad(
+    private suspend fun snapToRoad(
         config: ServerConfig,
         from: LatLon,
         to: LatLon,
@@ -366,30 +361,15 @@ object RoutingServer {
             "&point=${from.lat},${from.lon}" +
             "&point=${to.lat},${to.lon}" +
             "&points_encoded=false"
-        val conn = URL(url).openConnection() as HttpURLConnection
-        try {
-            conn.connectTimeout = 5_000
-            conn.readTimeout = 15_000
-            conn.setRequestProperty("Accept-Encoding", "gzip")
-            conn.setRequestProperty("User-Agent", "Detour/1.4")
-            if (config.clientId.isNotBlank()) {
-                conn.setRequestProperty("CF-Access-Client-Id", config.clientId)
-                conn.setRequestProperty("CF-Access-Client-Secret", config.clientSecret)
-            }
-            if (conn.responseCode != 200) return null // unroutable target: caller retries
-            val stream = if (conn.contentEncoding == "gzip") {
-                GZIPInputStream(conn.inputStream)
-            } else {
-                conn.inputStream
-            }
-            val body = stream.bufferedReader().readText()
-            val snapped = JSONObject(body).getJSONArray("paths").getJSONObject(0)
-                .getJSONObject("snapped_waypoints").getJSONArray("coordinates")
-            val last = snapped.getJSONArray(snapped.length() - 1) // [lon, lat]
-            return LatLon(last.getDouble(1), last.getDouble(0))
-        } finally {
-            conn.disconnect()
+        val body = try {
+            Http.get(url, headers(config), readTimeoutMs = 15_000)
+        } catch (e: HttpStatusException) {
+            return null // unroutable target: caller retries
         }
+        val snapped = jsonObjectOf(body).optArray("paths")?.optObject(0)
+            ?.optObject("snapped_waypoints")?.optArray("coordinates") ?: return null
+        val last = snapped.optArray(snapped.size - 1) ?: return null // [lon, lat]
+        return LatLon(last.optDouble(1), last.optDouble(0))
     }
 
     /** [count] evenly spaced interior points, excluding start and end. */

@@ -1,6 +1,8 @@
 package com.jellemax.detour.data
 
-import java.util.Calendar
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -17,8 +19,8 @@ object SunTimes {
 
     /** Clock-based guess for when no location is available. */
     fun isNightFallback(timeMs: Long): Boolean {
-        val cal = Calendar.getInstance().apply { timeInMillis = timeMs }
-        val hour = cal.get(Calendar.HOUR_OF_DAY)
+        val hour = Instant.fromEpochMilliseconds(timeMs)
+            .toLocalDateTime(TimeZone.currentSystemDefault()).hour
         return hour < 7 || hour >= 21
     }
 
@@ -29,21 +31,21 @@ object SunTimes {
     fun solarElevationDeg(lat: Double, lon: Double, timeMs: Long): Double {
         val n = timeMs / 86_400_000.0 + 2440587.5 - 2451545.0 // days since J2000
         val meanLon = (280.460 + 0.9856474 * n).mod(360.0)
-        val meanAnom = Math.toRadians((357.528 + 0.9856003 * n).mod(360.0))
-        val eclLon = Math.toRadians(
+        val meanAnom = toRadians((357.528 + 0.9856003 * n).mod(360.0))
+        val eclLon = toRadians(
             meanLon + 1.915 * sin(meanAnom) + 0.020 * sin(2 * meanAnom))
-        val obliquity = Math.toRadians(23.439 - 0.0000004 * n)
+        val obliquity = toRadians(23.439 - 0.0000004 * n)
 
         val ra = atan2(cos(obliquity) * sin(eclLon), cos(eclLon))
         val dec = asin(sin(obliquity) * sin(eclLon))
 
         val gmstHours = (18.697374558 + 24.06570982441908 * n).mod(24.0)
-        val localSiderealRad = Math.toRadians(gmstHours * 15.0 + lon)
+        val localSiderealRad = toRadians(gmstHours * 15.0 + lon)
         val hourAngle = localSiderealRad - ra
 
-        val latRad = Math.toRadians(lat)
+        val latRad = toRadians(lat)
         val elevation = asin(
             sin(latRad) * sin(dec) + cos(latRad) * cos(dec) * cos(hourAngle))
-        return Math.toDegrees(elevation)
+        return toDegrees(elevation)
     }
 }
