@@ -9,12 +9,6 @@
 name: Detour
 options:
   bundleIdPrefix: io.github.maxke24
-  # XcodeGen 2.45 defaults to project format 77, which only Xcode 16 can open —
-  # CI's macos-14 runner has 15.4 and refuses it outright ("a future Xcode
-  # project file format"). 56 is the Xcode 14/15 format and opens in everything
-  # from 14 up, so the project is not pinned to whichever Xcode the person
-  # regenerating it happens to have.
-  objectVersion: 56
   deploymentTarget:
     # CoreLocation's background updates and SwiftUI's Map both settle down at
     # 16; going lower buys nothing for a phone app shipped today.

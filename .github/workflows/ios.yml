@@ -26,7 +26,11 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-14
+    # macos-15 (Xcode 16), not macos-14 (15.4): XcodeGen 2.45 writes project
+    # format 77, which 15.4 refuses to open, and its objectVersion option does
+    # not override that. Matching the runner to the generator is one line;
+    # pinning the generator to an older format is a fight with every upgrade.
+    runs-on: macos-15
     timeout-minutes: 45
 
     steps:
@@ -118,7 +122,7 @@ jobs:
             -project iosApp/Detour.xcodeproj \
             -scheme Detour \
             -configuration Debug \
-            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO \
             | xcbeautify
@@ -128,10 +132,9 @@ jobs:
       # map a moment to load a style, and uploads the result as an artifact.
       - name: Screenshot the app
         run: |
-          DEVICE=$(xcrun simctl create detour-shot \
-            com.apple.CoreSimulator.SimDeviceType.iPhone-15 \
-            com.apple.CoreSimulator.SimRuntime.iOS-17-5 2>/dev/null \
-            || xcrun simctl list devices available | grep -m1 -o '[0-9A-F-]\{36\}')
+          # Whichever iPhone this Xcode ships, rather than a hardcoded model.
+          DEVICE=$(xcrun simctl list devices available --json \
+            | python3 -c 'import json,sys; ds=json.load(sys.stdin)["devices"]; print(next(d["udid"] for v in ds.values() for d in v if "iPhone" in d["name"]))')
           xcrun simctl boot "$DEVICE" || true
           xcrun simctl bootstatus "$DEVICE" -b
           APP=$(find build/DerivedData -name 'Detour.app' -type d | head -1)
