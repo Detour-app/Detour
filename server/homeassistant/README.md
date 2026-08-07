@@ -142,7 +142,13 @@ it directly, drop a systemd override in:
 Environment=HOST=0.0.0.0
 ```
 
-then `systemctl daemon-reload && systemctl restart detour-sync`. Point the
+then `systemctl daemon-reload && systemctl restart detour-sync`. A drop-in
+survives a re-run of `install.sh` (which rewrites the unit file itself, so
+editing `HOST=` there would not) — except with `--open-registration`, which
+deletes the whole `.service.d` directory. `SYNC_BIND=0.0.0.0 bash install.sh`
+does the same thing from the installer and always sticks.
+
+Point the
 secrets at the LAN address and drop the two `CF-Access-*` header lines from both
 `rest:` blocks in `detour.yaml`:
 

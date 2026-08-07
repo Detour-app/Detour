@@ -89,7 +89,12 @@ add an entry pointing at the sync host's `8990`, following the exact shape
 of the existing sync entry (same `service:` scheme, same hostname pattern).
 If cloudflared runs in a different container than the sync server (per the
 LXC-105 note above), use the sync host's LAN address, not `localhost` —
-same as the existing sync/routing entries already have to.
+same as the existing sync/routing entries already have to. That also means
+the relay has to be bound to something cloudflared can reach: it follows the
+sync server's `HOST`, which the installer sets from `SYNC_BIND` (default
+`127.0.0.1`), so re-run it as `SYNC_BIND=0.0.0.0 bash server/install.sh`.
+A LAN-reachable relay has no authentication of its own beyond the bearer
+token it checks on connect — keep it off the LAN unless you need it there.
 
 ```yaml
 ingress:

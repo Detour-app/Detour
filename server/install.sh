@@ -40,10 +40,28 @@ SYNC_PORT=8790 LIVE_PORT=8990 GH_PORT=8989 PHOTON_PORT=2322
 # back to 127.0.0.1 and break a tunnel hostname that was working.
 #   GH_BIND=10.0.0.5 PHOTON_BIND=10.0.0.6 bash server/install.sh …
 GH_BIND="${GH_BIND:-127.0.0.1}" PHOTON_BIND="${PHOTON_BIND:-127.0.0.1}"
+# Same story for the sync server and its live relay, which the unit file below
+# is rewritten with on every run: hand-editing HOST in the unit does not
+# survive a re-run. Set this instead when Home Assistant, or a cloudflared in
+# another container, has to reach it over the LAN (0.0.0.0 = every interface).
+SYNC_BIND="${SYNC_BIND:-127.0.0.1}"
+# Where to probe it from once it is up: a service bound to one specific address
+# is not reachable on localhost.
+case "$SYNC_BIND" in
+  0.0.0.0|"") SYNC_PROBE=127.0.0.1 ;;
+  *)          SYNC_PROBE="$SYNC_BIND" ;;
+esac
 
 SYNC_USER=detour-sync
 SYNC_DIR=/opt/detour-sync
 SYNC_DATA=/var/lib/detour-sync
+# What the same install was called before the rename to Detour. Kept only so a
+# host still running that one is taken over rather than shadowed by an empty
+# second service — see adopt_legacy().
+LEGACY_UNIT=maproulette-sync
+LEGACY_DIR=/opt/maproulette-sync
+LEGACY_DATA=/var/lib/maproulette-sync
+LEGACY_DB="$LEGACY_DATA/maproulette.db"
 GH_DIR=/opt/graphhopper
 PHOTON_DIR=/opt/photon
 
@@ -167,7 +185,7 @@ do_uninstall() {
     (cd "$PHOTON_DIR" && docker compose down 2>/dev/null) || true
     ok "stopped photon"
   fi
-  rm -rf "$SYNC_DIR" /usr/local/bin/detour-backup.sh \
+  rm -rf "$SYNC_DIR" /usr/local/bin/detour-backup.sh /usr/local/bin/detour-verify.sh \
          /usr/local/bin/graphhopper-refresh.sh /usr/local/bin/photon-refresh.sh
 
   if [ "$PURGE" = 1 ]; then
@@ -182,6 +200,60 @@ do_uninstall() {
     info "Backups (if any) are still in /var/backups/detour"
   fi
   echo; ok "Uninstalled."
+}
+
+# ============================================================ legacy takeover
+# Before the rename to Detour the same server installed itself as
+# maproulette-sync, with its database in /var/lib/maproulette-sync. Without
+# this, re-running the installer on such a host starts a second, empty
+# detour-sync next to it — two services, one of them holding all the data, and
+# the port already taken by the wrong one.
+#
+# Copies rather than moves: the old directory stays exactly where it is, so
+# undoing this is `systemctl enable --now maproulette-sync`.
+adopt_legacy() {
+  [ -f "$LEGACY_DB" ] || return 0
+  if [ -f "$SYNC_DATA/detour.db" ]; then
+    warn "both $LEGACY_DB and $SYNC_DATA/detour.db exist — leaving both alone"
+    warn "the running service is the detour-sync one; migrate by hand if that is the empty database"
+    return 0
+  fi
+
+  step "Found a pre-rename install ($LEGACY_UNIT)"
+  info "database: $LEGACY_DB ($(du -h "$LEGACY_DB" | cut -f1))"
+  confirm "Stop it and copy its database, invite code and SMTP settings into detour-sync?" || {
+    info "left alone — note that detour-sync will fail to bind port $SYNC_PORT while it runs"
+    return 0
+  }
+
+  # Stop first: copying a live WAL database is how you get a torn one, and the
+  # old service is holding the port the new one wants.
+  systemctl disable --now "$LEGACY_UNIT" >/dev/null 2>&1 || true
+  systemctl disable --now "${LEGACY_UNIT%-sync}-backup.timer" >/dev/null 2>&1 || true
+  ok "stopped and disabled $LEGACY_UNIT"
+
+  local f
+  for f in "$LEGACY_DB" "$LEGACY_DB-wal" "$LEGACY_DB-shm"; do
+    [ -f "$f" ] && cp -a "$f" "$SYNC_DATA/detour.db${f#$LEGACY_DB}"
+  done
+  chown -R "$SYNC_USER:$SYNC_USER" "$SYNC_DATA"
+  ok "copied the database to $SYNC_DATA/detour.db"
+
+  # invite.conf and mail.conf are written once and never overwritten, so
+  # carrying them across is what keeps the invite code and the SMTP password
+  # working after the cutover.
+  install -d -m 0755 /etc/systemd/system/detour-sync.service.d
+  for f in invite.conf mail.conf; do
+    if [ -f "/etc/systemd/system/${LEGACY_UNIT}.service.d/$f" ] \
+       && [ ! -f "/etc/systemd/system/detour-sync.service.d/$f" ]; then
+      install -m 0600 "/etc/systemd/system/${LEGACY_UNIT}.service.d/$f" \
+        "/etc/systemd/system/detour-sync.service.d/$f"
+      ok "carried over $f"
+    fi
+  done
+
+  info "the old $LEGACY_DIR, $LEGACY_DATA and /var/backups/maproulette are untouched"
+  info "delete them once detour-sync has served you for a few days"
 }
 
 # ================================================================= LXC path
@@ -275,8 +347,11 @@ create_lxc() {
   [ "$OPEN_REGISTRATION" = 1 ] && flags="$flags --open-registration"
 
   # LC_ALL=C silences the template's missing-locale warnings from apt/perl.
+  # The bind addresses are environment variables, not flags, so they have to be
+  # handed across explicitly or they quietly do nothing on the Proxmox path.
   pct exec "$CTID" -- env LC_ALL=C LANG=C \
     DETOUR_REPO="$REPO" DETOUR_REF="$REF" DETOUR_SRC="$inner_src" \
+    SYNC_BIND="$SYNC_BIND" GH_BIND="$GH_BIND" PHOTON_BIND="$PHOTON_BIND" \
     bash "$inner" $flags
 
   local ip
@@ -307,6 +382,10 @@ install_sync() {
   install -d -o "$SYNC_USER" -g "$SYNC_USER" -m 0750 "$SYNC_DATA"
   install -d -o "$SYNC_USER" -g "$SYNC_USER" -m 0750 /var/backups/detour
 
+  # Before anything is written that assumes a fresh install — in particular the
+  # invite code below, which is only generated when no invite.conf exists.
+  adopt_legacy
+
   fetch "sync/sync_server.py" "$SYNC_DIR/sync_server.py"
   chmod 0644 "$SYNC_DIR/sync_server.py"
   fetch "sync/detour-backup.sh" /usr/local/bin/detour-backup.sh
@@ -321,7 +400,7 @@ After=network.target
 [Service]
 User=$SYNC_USER
 Environment=DATA_DIR=$SYNC_DATA
-Environment=HOST=127.0.0.1
+Environment=HOST=$SYNC_BIND
 Environment=PORT=$SYNC_PORT
 Environment=LIVE_PORT=$LIVE_PORT
 # This installer's documented topology puts the server behind the Cloudflare
@@ -408,22 +487,22 @@ EOF
 
   local i
   for i in $(seq 1 20); do
-    [ "$(curl -fsS "http://localhost:$SYNC_PORT/health" 2>/dev/null || true)" = "ok" ] && break
+    [ "$(curl -fsS "http://$SYNC_PROBE:$SYNC_PORT/health" 2>/dev/null || true)" = "ok" ] && break
     [ "$i" = 20 ] && { journalctl -u detour-sync -n 20 --no-pager; die "sync server did not come up"; }
     sleep 1
   done
-  ok "sync server healthy on 127.0.0.1:$SYNC_PORT"
+  ok "sync server healthy on $SYNC_BIND:$SYNC_PORT"
   # Best-effort only: the live relay is optional (see the python3-websockets
   # note above), and its absence must not fail the whole install.
   if command -v python3 >/dev/null && python3 -c "import websockets" 2>/dev/null; then
     for i in $(seq 1 10); do
-      python3 -c "import socket; socket.create_connection(('127.0.0.1', $LIVE_PORT), 1).close()" 2>/dev/null && break
+      python3 -c "import socket; socket.create_connection(('$SYNC_PROBE', $LIVE_PORT), 1).close()" 2>/dev/null && break
       sleep 1
     done
-    if python3 -c "import socket; socket.create_connection(('127.0.0.1', $LIVE_PORT), 1).close()" 2>/dev/null; then
-      ok "convoy live relay listening on 127.0.0.1:$LIVE_PORT"
+    if python3 -c "import socket; socket.create_connection(('$SYNC_PROBE', $LIVE_PORT), 1).close()" 2>/dev/null; then
+      ok "convoy live relay listening on $SYNC_BIND:$LIVE_PORT"
     else
-      warn "convoy live relay did not come up on 127.0.0.1:$LIVE_PORT — check: journalctl -u detour-sync -n 40"
+      warn "convoy live relay did not come up on $SYNC_BIND:$LIVE_PORT — check: journalctl -u detour-sync -n 40"
     fi
   else
     warn "python3-websockets not importable — convoy live location/PTT will stay disabled"
@@ -745,8 +824,9 @@ print_next_steps() {
 
 $B==> Installed.$N
 
-  Both services listen on 127.0.0.1 only. Nothing is reachable from the
-  internet yet, and this installer will not change that for you.
+  Bindings: sync $SYNC_BIND, routing $GH_BIND, geocoder $PHOTON_BIND — all
+  127.0.0.1 unless you set SYNC_BIND/GH_BIND/PHOTON_BIND. Nothing is reachable
+  from the internet yet, and this installer will not change that for you.
 
 $B  Exposing them — pick one:$N
 

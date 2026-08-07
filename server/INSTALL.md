@@ -82,9 +82,12 @@ systemd: detour-sync.service        the sync API,       127.0.0.1:8790
 
 **Both services listen on localhost only.** The installer does not open a port,
 touch your firewall, or configure a tunnel. Exposing them is your decision, and
-the next section is about making it safely. (`HOST=0.0.0.0` on the sync service
-makes it listen on the LAN as well — worth it for Home Assistant, see
-[`homeassistant/README.md`](homeassistant/README.md#6-optional-skip-the-tunnel-on-your-lan).)
+the next section is about making it safely. (`SYNC_BIND=0.0.0.0 bash install.sh`
+makes the sync service listen on the LAN as well — worth it for Home Assistant,
+see [`homeassistant/README.md`](homeassistant/README.md#6-optional-skip-the-tunnel-on-your-lan).
+Pass it as an environment variable, not by hand-editing `HOST=` in the unit
+file: the installer rewrites that file on every run and a hand edit is lost.
+`GH_BIND` and `PHOTON_BIND` do the same for routing and the geocoder.)
 
 Re-running the installer is safe. It will not overwrite your database, and it
 keeps the invite code it generated the first time — and any SMTP settings you
@@ -551,6 +554,38 @@ service to clear the in-memory counter.
 
 **The app syncs nothing and reports no error.** It refuses to sync until you
 sign in. Check Settings → Server.
+
+---
+
+## Upgrading a pre-rename (`maproulette-sync`) install
+
+Before the rename to Detour the server installed itself as `maproulette-sync`,
+with its database at `/var/lib/maproulette-sync/maproulette.db`. Re-running the
+installer on such a host takes it over: it stops and disables the old service,
+copies the database to `/var/lib/detour-sync/detour.db`, and carries across
+`invite.conf` and `mail.conf`, so the invite code and SMTP password keep
+working. It asks first, unless you passed `--yes`.
+
+```bash
+bash server/install.sh --sync
+```
+
+Nothing is deleted. `/opt/maproulette-sync`, `/var/lib/maproulette-sync` and
+`/var/backups/maproulette` stay where they are, so the way back is
+`systemctl enable --now maproulette-sync` (stop `detour-sync` first — they want
+the same port). Delete them once the new service has run for a few days.
+
+Two cases it refuses to guess at:
+
+- **Both databases already exist.** It leaves both alone and says so — that
+  usually means an earlier re-run stood up an empty `detour-sync` beside the
+  real one. Stop `detour-sync`, copy `maproulette.db` over `detour.db`
+  yourself, `chown detour-sync:`, start it again.
+- **You declined the prompt.** `detour-sync` will then fail to bind port 8790
+  while the old service holds it.
+
+The database schema is unchanged by the rename; the new server migrates older
+schemas on start regardless.
 
 ---
 
