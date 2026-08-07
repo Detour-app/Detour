@@ -146,13 +146,16 @@ object RouteGpx {
 
     private val LAT_ATTR = Regex("""lat=(["'])(-?[0-9.]+)\1""")
     private val LON_ATTR = Regex("""lon=(["'])(-?[0-9.]+)\1""")
-    private val NAME_TAG = Regex("""<name>(.*?)</name>""", RegexOption.DOT_MATCHES_ALL)
+    // GPX puts newlines inside these elements freely, so every wildcard below
+    // has to cross them. `[\s\S]` rather than RegexOption.DOT_MATCHES_ALL:
+    // that option only exists on the JVM, and this is common code.
+    private val NAME_TAG = Regex("""<name>([\s\S]*?)</name>""")
 
     /** All `<tag .../>` or `<tag ...>...</tag>` elements, in document order,
      *  with lat/lon read from the opening tag's attributes and an optional
      *  name from any inner `<name>`. Points missing lat or lon are skipped. */
     private fun points(text: String, tag: String): List<RouteStop> {
-        val point = Regex("""<$tag\b([^>]*?)(?:/>|>(.*?)</$tag>)""", RegexOption.DOT_MATCHES_ALL)
+        val point = Regex("""<$tag\b([^>]*?)(?:/>|>([\s\S]*?)</$tag>)""")
         return point.findAll(text).mapNotNull { m ->
             val attrs = m.groupValues[1]
             val lat = LAT_ATTR.find(attrs)?.groupValues?.get(2)?.toDoubleOrNull()
@@ -175,7 +178,7 @@ object RouteGpx {
     }
 
     private fun block(text: String, tag: String): String? =
-        Regex("""<$tag\b.*?</$tag>""", RegexOption.DOT_MATCHES_ALL).find(text)?.value
+        Regex("""<$tag\b[\s\S]*?</$tag>""").find(text)?.value
 
     private fun nameIn(block: String): String? =
         NAME_TAG.find(block)?.groupValues?.get(1)?.let { unescape(it).trim() }?.ifEmpty { null }
