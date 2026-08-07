@@ -99,6 +99,18 @@ jobs:
           # rather than leaving xcodebuild to report a missing file.
           test -d Detour.xcodeproj || { echo "xcodegen produced no project"; exit 1; }
 
+      # xcodebuild reported "Unable to read project" on a project xcodegen had
+      # just written successfully, which is a parse failure rather than a
+      # missing file. These print which toolchain is actually selected and
+      # whether it can read the project at all, so the next failure names its
+      # own cause instead of being inferred from the log.
+      - name: Show toolchain and project
+        run: |
+          xcodebuild -version
+          xcode-select -p
+          ls -la iosApp/Detour.xcodeproj
+          xcodebuild -list -project iosApp/Detour.xcodeproj
+
       - name: Build for simulator
         run: |
           set -o pipefail
