@@ -337,7 +337,9 @@ final class TripRecorder: NSObject, ObservableObject {
         guard now - lastMunicipalityLookupMs >= Self.municipalityCooldownMs else { return }
         guard MunicipalityStore.shared.needsLookup(p: p) else { return }
         lastMunicipalityLookupMs = now
-        Task { await MunicipalityStore.shared.discoverQuietly(p: p) }
+        // Never throws by contract; offline just means the next new cell
+        // tries again.
+        Task { try? await MunicipalityStore.shared.discoverQuietly(p: p) }
     }
 
     // MARK: Motion

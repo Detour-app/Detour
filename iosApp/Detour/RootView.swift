@@ -53,7 +53,9 @@ struct RootView: View {
         // friend's roads.
         .task(id: SettingsValues.shared.shareFog) {
             if SettingsValues.shared.shareFog {
-                await FriendFog.shared.refresh()
+                // Documented never to throw: a friend's fog going missing is
+                // not worth interrupting the map for.
+                try? await FriendFog.shared.refresh()
             } else {
                 FriendFog.shared.clear()
             }
