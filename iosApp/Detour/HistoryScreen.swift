@@ -66,13 +66,13 @@ struct HistoryScreen: View {
         editing = nil
         reload()
         // Push the correction so it survives a reinstall / other devices.
-        Task { try? await SyncClient.shared.sync() }
+        Task { _ = try? await SyncClient.shared.sync() }
     }
 
     private func delete(_ trip: Trip) {
         TripStore.shared.delete(startTimeMs: trip.startTimeMs)
         reload()
-        Task { try? await SyncClient.shared.sync() }
+        Task { _ = try? await SyncClient.shared.sync() }
     }
 }
 

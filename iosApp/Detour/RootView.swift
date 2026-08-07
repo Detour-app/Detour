@@ -45,7 +45,7 @@ struct RootView: View {
             // Pull from the sync server on launch: restores everything after a
             // reinstall and picks up trips recorded while the app was closed.
             if SyncClient.shared.configured() && Account.shared.signedIn {
-                try? await SyncClient.shared.sync()
+                _ = try? await SyncClient.shared.sync()
             }
         }
         // Re-fetch when sharing is switched on, and drop what we hold the

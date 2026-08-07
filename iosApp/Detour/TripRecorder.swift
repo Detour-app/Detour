@@ -193,7 +193,7 @@ final class TripRecorder: NSObject, ObservableObject {
             let coverage = Coverage.shared.compute()
             let result = BadgeStore.shared.refresh(stats: BadgeStore.shared.stats(coverage: coverage))
             self.newlyEarned = result.newlyEarned
-            try? await SyncClient.shared.sync()
+            _ = try? await SyncClient.shared.sync()
         }
     }
 

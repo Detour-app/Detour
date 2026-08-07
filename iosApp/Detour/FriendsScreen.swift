@@ -304,7 +304,7 @@ final class FriendsModel: ObservableObject {
         Settings.shared.setShareFog(value: value)
         // Tell the server now: leaving it to the next trip sync would keep
         // serving traces after the switch went off.
-        Task { try? await SyncClient.shared.sync() }
+        Task { _ = try? await SyncClient.shared.sync() }
     }
 
     private func report(_ error: Error) {
