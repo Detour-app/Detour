@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key>
+    <string>Detour</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>UILaunchScreen</key>
+    <dict/>
+
+    <!-- The map and a running trip both need location while the app is open. -->
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Detour uses your location to spin for a destination near you and to draw the map around you.</string>
+    <!-- Trip recording continues with the screen off, which is the whole point
+         of it on a bike. iOS shows this string when the user is asked to
+         upgrade from When In Use. -->
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Detour records your ride in the background so a trip keeps logging with the screen off and your fog of war fills in as you go.</string>
+    <key>NSMotionUsageDescription</key>
+    <string>Detour uses motion data to tell a drive from a walk and to measure lean angle on a bike.</string>
+
+    <key>UIBackgroundModes</key>
+    <array>
+        <!-- Trip tracking. The iOS counterpart of Android's location
+             foreground service: without it every fix stops at lock. -->
+        <string>location</string>
+        <!-- Convoy push-to-talk capture and spoken turn instructions. -->
+        <string>audio</string>
+    </array>
+
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+
+    <!-- Password-reset links from the sync server's mails, matching the
+         Android manifest's detour://reset intent filter. A custom scheme
+         rather than https on purpose: the sync server sits behind Cloudflare
+         Access, so a browser following an https link would meet the Access
+         wall, while the app already holds the service token. -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>io.github.maxke24.detour.reset</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>detour</string>
+            </array>
+        </dict>
+    </array>
+
+    <!-- Server endpoints, filled from Config.xcconfig at build time. These are
+         the iOS half of what BuildConfig does on Android; empty is a valid
+         value and means "no baked default", exactly as in a CI build with no
+         secrets set. -->
+    <key>DetourRoutingURL</key>
+    <string>$(DETOUR_ROUTING_URL)</string>
+    <key>DetourRoutingCFId</key>
+    <string>$(DETOUR_ROUTING_CF_ID)</string>
+    <key>DetourRoutingCFSecret</key>
+    <string>$(DETOUR_ROUTING_CF_SECRET)</string>
+    <key>DetourSyncURL</key>
+    <string>$(DETOUR_SYNC_URL)</string>
+    <key>DetourGeocoderURL</key>
+    <string>$(DETOUR_GEOCODER_URL)</string>
+    <key>DetourLiveURL</key>
+    <string>$(DETOUR_LIVE_URL)</string>
+</dict>
+</plist>

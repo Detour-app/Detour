@@ -19,3 +19,10 @@ __pycache__/
 # Claude Code local state — permission settings (can contain secrets typed
 # into allowed commands) and worktrees (each its own nested git checkout).
 .claude/
+
+# iOS: the Xcode project is generated from iosApp/project.yml by XcodeGen, and
+# Config.xcconfig holds the same server credentials local.properties does.
+iosApp/*.xcodeproj/
+iosApp/Config.xcconfig
+xcuserdata/
+DerivedData/

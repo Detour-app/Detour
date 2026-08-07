@@ -1,0 +1,71 @@
+# XcodeGen spec. The .xcodeproj is generated, not committed: a pbxproj is
+# 1,500 lines of machine-written XML that conflicts on every branch, and this
+# file says the same thing in a form a human can review.
+#
+#   brew install xcodegen && cd iosApp && xcodegen
+#
+# CI does exactly that (see .github/workflows/ios.yml), so the generated
+# project never has to be right in two places at once.
+name: Detour
+options:
+  bundleIdPrefix: io.github.maxke24
+  deploymentTarget:
+    # CoreLocation's background updates and SwiftUI's Map both settle down at
+    # 16; going lower buys nothing for a phone app shipped today.
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+packages:
+  MapLibre:
+    url: https://github.com/maplibre/maplibre-gl-native-distribution
+    minVersion: "6.4.0"
+    maxVersion: "7.0.0"
+
+configs:
+  Debug: debug
+  Release: release
+
+targets:
+  Detour:
+    type: application
+    platform: iOS
+    # Server endpoints, kept out of the repo. Absent on a fresh checkout, which
+    # is why every DETOUR_* variable has to be optional — an unset xcconfig
+    # variable expands to the empty string, and the shared core reads that as
+    # "not configured".
+    configFiles:
+      Debug: Config.xcconfig
+      Release: Config.xcconfig
+    sources:
+      - path: Detour
+    dependencies:
+      - package: MapLibre
+        product: MapLibre
+      # Built by the Gradle phase below, which drops it in build/xcode-frameworks.
+      - framework: ../shared/build/xcode-frameworks/DetourShared.framework
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.maxke24.detour
+        MARKETING_VERSION: "1.60"
+        CURRENT_PROJECT_VERSION: "66"
+        INFOPLIST_FILE: Detour/Info.plist
+        SWIFT_VERSION: "5.9"
+        # Kotlin/Native emits a static framework; this is where Gradle puts it.
+        FRAMEWORK_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/../shared/build/xcode-frameworks
+        # Simulator builds must not try to link the arm64-device slice.
+        ONLY_ACTIVE_ARCH: YES
+    preBuildScripts:
+      # Compiles :shared for whichever architecture/configuration Xcode is
+      # currently building and copies the framework where FRAMEWORK_SEARCH_PATHS
+      # points. Running it from Xcode is what keeps Swift and Kotlin in step —
+      # editing Kotlin and hitting Run rebuilds both.
+      - name: Build Kotlin shared framework
+        script: |
+          cd "$SRCROOT/.."
+          ./gradlew :shared:packForXcode \
+            -Pxcode.configuration="${CONFIGURATION}" \
+            -Pxcode.sdk="${SDK_NAME}"
+        basedOnDependencyAnalysis: false

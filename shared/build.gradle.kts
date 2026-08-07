@@ -56,6 +56,33 @@ kotlin {
     }
 }
 
+/**
+ * Builds the framework for whatever Xcode is currently targeting and drops it
+ * somewhere with a stable name, so the Xcode project can hardcode one search
+ * path instead of one per architecture/configuration.
+ *
+ * Xcode passes CONFIGURATION and SDK_NAME through as Gradle properties (see
+ * iosApp/project.yml); the defaults are what a plain `./gradlew packForXcode`
+ * from the command line should do, which is the simulator debug build.
+ */
+tasks.register<Sync>("packForXcode") {
+    val configuration = (findProperty("xcode.configuration") as? String) ?: "Debug"
+    val sdk = (findProperty("xcode.sdk") as? String) ?: "iphonesimulator"
+    val targetName = when {
+        sdk.startsWith("iphoneos") -> "iosArm64"
+        // Simulator slice has to match the *host*, not the phone: an Apple
+        // silicon Mac runs an arm64 simulator, an Intel one x86_64.
+        System.getProperty("os.arch") == "aarch64" -> "iosSimulatorArm64"
+        else -> "iosX64"
+    }
+    val framework = kotlin.targets.getByName<org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget>(targetName)
+        .binaries.getFramework(configuration)
+
+    dependsOn(framework.linkTaskName)
+    from(framework.outputDirectory)
+    into(layout.buildDirectory.dir("xcode-frameworks"))
+}
+
 android {
     namespace = "com.jellemax.detour.shared"
     compileSdk = 35
