@@ -1,10 +1,7 @@
 package com.jellemax.detour.data
 
-import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import org.json.JSONArray
-import org.json.JSONObject
 
 /**
  * The combined fog of war: your friends' traces unioned with your own, so a
@@ -20,17 +17,16 @@ object FriendFog {
     private val _traces = MutableStateFlow<List<List<LatLon>>>(emptyList())
     val traces: StateFlow<List<List<LatLon>>> = _traces
 
-    /** Blocking; call off the main thread. Never throws — a friend's fog going
-     *  missing is not worth interrupting the map for. */
-    fun refresh(context: Context) {
-        if (!SyncClient.configured(context) || !Account.signedIn || !Settings.shareFog.value) {
+    /** Never throws — a friend's fog going missing is not worth interrupting
+     *  the map for. */
+    suspend fun refresh() {
+        if (!SyncClient.configured() || !Account.signedIn || !Settings.shareFog.value) {
             _traces.value = emptyList()
             return
         }
         _traces.value = try {
-            val response: JSONObject = Api.requestJson(context, "GET", "/friends/fog")
-            val array: JSONArray = response.optJSONArray("traces") ?: JSONArray()
-            TraceStore.parseLines((0 until array.length()).map { array.getString(it) })
+            val array = Api.requestJson("GET", "/friends/fog").optArray("traces") ?: JsonArrayEmpty
+            TraceStore.parseLines(array.indices.map { array.optString(it) })
         } catch (e: Exception) {
             emptyList()
         }

@@ -101,6 +101,11 @@ internal fun JsonArray.arrays(): List<JsonArray> = filterIsInstance<JsonArray>()
 
 // --- building ---------------------------------------------------------------
 
+/** A JSON array of plain strings, for the JSONL trace lines the sync payload
+ *  carries verbatim. */
+internal fun buildJsonArrayOfStrings(values: List<String>): JsonArray =
+    JsonArray(values.map { JsonPrimitive(it) })
+
 /** Stand-in for a missing array, so callers can keep reading positionally
  *  instead of branching on null at every access. */
 internal val JsonArrayEmpty = JsonArray(emptyList())

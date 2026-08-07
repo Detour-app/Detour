@@ -1,10 +1,15 @@
 package com.jellemax.detour.data
 
-import android.content.Context
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.File
-import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.addJsonArray
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlin.concurrent.Volatile
 import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.floor
@@ -48,7 +53,7 @@ data class Municipality(
 
     private val cellDegLat = CELL_METERS / METERS_PER_DEG
     private val cellDegLon = CELL_METERS /
-        (METERS_PER_DEG * cos(Math.toRadians((minLat + maxLat) / 2)))
+        (METERS_PER_DEG * cos(toRadians((minLat + maxLat) / 2)))
 
     /** Every cell whose centre falls inside the boundary. Computed once; this is
      *  the denominator of the coverage percentage. */
@@ -110,17 +115,26 @@ object MunicipalityStore {
 
     @Volatile private var cache: List<Municipality>? = null
 
-    /** Points Overpass had no admin_level=8 boundary for (sea, or outside our
-     *  admin-level assumption). Kept per session so we stop asking. Written from
-     *  the discovery thread, read from the location callback. */
-    private val misses: MutableSet<Long> = ConcurrentHashMap.newKeySet()
+    /**
+     * Points Overpass had no admin_level=8 boundary for (sea, or outside our
+     * admin-level assumption). Kept per session so we stop asking.
+     *
+     * Replaced wholesale rather than mutated: the discovery coroutine writes it
+     * while the location callback reads it, and swapping an immutable set into
+     * a @Volatile field needs no lock on either platform (Kotlin/Native has no
+     * ConcurrentHashMap to borrow).
+     */
+    @Volatile private var misses: Set<Long> = emptySet()
 
-    fun load(context: Context): List<Municipality> {
+    /** Serialises the read-modify-write in [discoverQuietly], which `synchronized`
+     *  used to do; `synchronized` is JVM-only. */
+    private val writeLock = Mutex()
+
+    fun load(): List<Municipality> {
         cache?.let { return it }
-        val f = file(context)
+        val f = appFile(FILE_NAME)
         val loaded = if (!f.exists()) emptyList() else try {
-            val array = JSONArray(f.readText())
-            (0 until array.length()).mapNotNull { parse(array.getJSONObject(it)) }
+            jsonArrayOf(f.readText()).objects().mapNotNull { parse(it) }
         } catch (e: Exception) {
             emptyList()
         }
@@ -129,38 +143,37 @@ object MunicipalityStore {
     }
 
     /** True when [p] is in no known boundary and hasn't already missed. */
-    fun needsLookup(context: Context, p: LatLon): Boolean =
-        missKey(p) !in misses && load(context).none { it.contains(p) }
+    fun needsLookup(p: LatLon): Boolean =
+        missKey(p) !in misses && load().none { it.contains(p) }
 
-    /** Resolves [p] to its municipality and stores it. Never throws; call off
-     *  the main thread. */
-    fun discoverQuietly(context: Context, p: LatLon) {
-        if (!needsLookup(context, p)) return
+    /** Resolves [p] to its municipality and stores it. Never throws. */
+    suspend fun discoverQuietly(p: LatLon) {
+        if (!needsLookup(p)) return
         val found = try {
             fetch(p)
         } catch (e: Exception) {
             return // offline or Overpass down; the next new cell tries again
         }
         if (found == null) {
-            misses.add(missKey(p))
+            misses = misses + missKey(p)
             return
         }
-        synchronized(this) {
-            val existing = load(context)
+        writeLock.withLock {
+            val existing = load()
             if (existing.any { it.id == found.id }) return
-            save(context, existing + found)
+            save(existing + found)
         }
     }
 
-    private fun fetch(p: LatLon): Municipality? {
+    private suspend fun fetch(p: LatLon): Municipality? {
         val query = "[out:json][timeout:25];" +
             "is_in(${p.lat},${p.lon})->.a;" +
             "relation(pivot.a)[\"boundary\"=\"administrative\"][\"admin_level\"=\"8\"];" +
             "out geom;"
-        val elements = JSONObject(RoadRoulette.rawQuery(query)).getJSONArray("elements")
-        if (elements.length() == 0) return null
-        val el = elements.getJSONObject(0)
-        val name = el.optJSONObject("tags")?.optString("name")?.takeIf { it.isNotBlank() }
+        val elements = jsonObjectOf(RoadRoulette.rawQuery(query)).optArray("elements")
+            ?: return null
+        val el = elements.optObject(0) ?: return null
+        val name = el.optObject("tags")?.optString("name")?.takeIf { it.isNotBlank() }
             ?: return null
 
         // Relation members are the boundary's ways, each an open polyline. Only
@@ -169,22 +182,18 @@ object MunicipalityStore {
         // one) are kept: an even-odd ray cast subtracts them for free, which is
         // exactly right, and dropping them would inflate the denominator.
         // Non-geometry members (admin_centre nodes, label nodes) fall out on type.
-        val members = el.optJSONArray("members") ?: return null
+        val members = el.optArray("members") ?: return null
         val ways = ArrayList<List<LatLon>>()
-        for (i in 0 until members.length()) {
-            val m = members.getJSONObject(i)
+        for (m in members.objects()) {
             if (m.optString("type") != "way") continue
             if (m.optString("role").let { it != "outer" && it != "inner" && it.isNotEmpty() }) continue
-            val geometry = m.optJSONArray("geometry") ?: continue
-            val way = (0 until geometry.length()).map {
-                val q = geometry.getJSONObject(it)
-                LatLon(q.getDouble("lat"), q.getDouble("lon"))
-            }
+            val geometry = m.optArray("geometry") ?: continue
+            val way = geometry.objects().map { LatLon(it.optDouble("lat"), it.optDouble("lon")) }
             if (way.size >= 2) ways.add(way)
         }
         val rings = assembleRings(ways).map { decimate(it) }.filter { it.size >= 3 }
         if (rings.isEmpty()) return null
-        return Municipality(el.getLong("id"), name, rings)
+        return Municipality(el.optLong("id"), name, rings)
     }
 
     /** Chains open ways into closed rings by matching their endpoints. */
@@ -227,35 +236,30 @@ object MunicipalityStore {
     private fun missKey(p: LatLon): Long =
         floor(p.lat * 50).toLong() * 100_000L + floor(p.lon * 50).toLong()
 
-    private fun parse(o: JSONObject): Municipality? {
-        val ringsArray = o.getJSONArray("rings")
-        val rings = (0 until ringsArray.length()).map { i ->
-            val ring = ringsArray.getJSONArray(i)
-            (0 until ring.length()).map { j ->
-                val p = ring.getJSONArray(j)
-                LatLon(p.getDouble(0), p.getDouble(1))
-            }
+    private fun parse(o: JsonObject): Municipality? {
+        val ringsArray = o.optArray("rings") ?: return null
+        val rings = ringsArray.arrays().map { ring ->
+            ring.arrays().map { p -> LatLon(p.optDouble(0), p.optDouble(1)) }
         }.filter { it.size >= 3 }
         if (rings.isEmpty()) return null
-        return Municipality(o.getLong("id"), o.getString("name"), rings)
+        return Municipality(o.optLong("id"), o.optString("name"), rings)
     }
 
-    private fun save(context: Context, all: List<Municipality>) {
-        val array = JSONArray()
-        for (m in all) {
-            val rings = JSONArray()
-            for (ring in m.rings) {
-                val r = JSONArray()
-                for (p in ring) r.put(JSONArray().put(p.lat).put(p.lon))
-                rings.put(r)
+    private fun save(all: List<Municipality>) {
+        val array = buildJsonArray {
+            for (m in all) addJsonObject {
+                put("id", m.id)
+                put("name", m.name)
+                putJsonArray("rings") {
+                    for (ring in m.rings) addJsonArray {
+                        for (p in ring) addJsonArray { add(p.lat); add(p.lon) }
+                    }
+                }
             }
-            array.put(JSONObject().put("id", m.id).put("name", m.name).put("rings", rings))
         }
-        file(context).writeText(array.toString())
+        appFile(FILE_NAME).writeText(array.string())
         cache = all
     }
-
-    private fun file(context: Context) = File(context.filesDir, FILE_NAME)
 }
 
 /** How much of each municipality we've driven, from the fog-of-war traces. */
@@ -272,10 +276,10 @@ object Coverage {
 
     /** Walks every trace point once per municipality it could belong to. Cheap
      *  enough for a screen open or a trip end; not for a GPS callback. */
-    fun compute(context: Context): List<Entry> {
-        val municipalities = MunicipalityStore.load(context)
+    fun compute(): List<Entry> {
+        val municipalities = MunicipalityStore.load()
         if (municipalities.isEmpty()) return emptyList()
-        val points = TraceStore.loadAll(context).flatten()
+        val points = TraceStore.loadAll().flatten()
 
         return municipalities.map { m ->
             val explored = HashSet<Long>()

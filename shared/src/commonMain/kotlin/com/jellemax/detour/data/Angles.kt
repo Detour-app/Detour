@@ -11,3 +11,6 @@ import kotlin.math.PI
 internal fun toRadians(degrees: Double): Double = degrees * PI / 180.0
 
 internal fun toDegrees(radians: Double): Double = radians * 180.0 / PI
+
+/** System.currentTimeMillis(), which common Kotlin has no equivalent for. */
+internal fun nowMs(): Long = kotlinx.datetime.Clock.System.now().toEpochMilliseconds()

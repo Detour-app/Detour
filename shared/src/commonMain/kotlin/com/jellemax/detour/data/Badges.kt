@@ -1,8 +1,7 @@
 package com.jellemax.detour.data
 
-import android.content.Context
-import org.json.JSONObject
-import java.io.File
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * No lean-angle badges: [Trip.maxLeanAngleDeg] is only meaningful when the phone
@@ -104,8 +103,8 @@ object BadgeStore {
             100.0 to "Every last street",
         )
 
-    fun stats(context: Context, coverage: List<Coverage.Entry>): RiderStats {
-        val trips = TripStore.load(context)
+    fun stats(coverage: List<Coverage.Entry>): RiderStats {
+        val trips = TripStore.load()
         return RiderStats(
             totalDistanceMeters = trips.sumOf { it.distanceMeters },
             topSpeedKmh = (trips.maxOfOrNull { it.topSpeedMps } ?: 0.0) * 3.6,
@@ -132,9 +131,9 @@ object BadgeStore {
      * threshold, and reports those so the caller can celebrate them. Safe to
      * call repeatedly: a badge keeps the timestamp it was first earned at.
      */
-    fun refresh(context: Context, stats: RiderStats): Result {
-        val earned = load(context).toMutableMap()
-        val now = System.currentTimeMillis()
+    fun refresh(stats: RiderStats): Result {
+        val earned = load().toMutableMap()
+        val now = nowMs()
         val newlyEarned = ArrayList<BadgeDef>()
 
         val states = ALL.map { def ->
@@ -145,39 +144,35 @@ object BadgeStore {
             }
             BadgeState(def, value, earned[def.id])
         }
-        if (newlyEarned.isNotEmpty()) save(context, earned)
+        if (newlyEarned.isNotEmpty()) save(earned)
         return Result(states, newlyEarned)
     }
 
-    private fun load(context: Context): Map<String, Long> {
-        val f = file(context)
+    private fun load(): Map<String, Long> {
+        val f = appFile(FILE_NAME)
         if (!f.exists()) return emptyMap()
         return try {
-            val o = JSONObject(f.readText())
-            o.keys().asSequence().associateWith { o.getLong(it) }
+            jsonObjectOf(f.readText()).mapValues { (_, v) -> v.toString().trim('"').toLong() }
         } catch (e: Exception) {
             emptyMap()
         }
     }
 
-    private fun save(context: Context, earned: Map<String, Long>) {
-        val o = JSONObject()
-        for ((id, at) in earned) o.put(id, at)
-        file(context).writeText(o.toString())
+    private fun save(earned: Map<String, Long>) {
+        val o = buildJsonObject { for ((id, at) in earned) put(id, at) }
+        appFile(FILE_NAME).writeText(o.string())
     }
 
     /** Raw stored JSON, for server sync. */
-    fun rawJson(context: Context): String {
-        val f = file(context)
+    fun rawJson(): String {
+        val f = appFile(FILE_NAME)
         return if (f.exists()) f.readText() else "{}"
     }
 
     /** Overwrite with the merged map from the sync server. The server keeps the
      *  earliest earnedAtMs per badge, so this only ever moves dates backwards. */
-    fun replaceRaw(context: Context, json: String) {
-        JSONObject(json) // validate before overwriting
-        file(context).writeText(json)
+    fun replaceRaw(json: String) {
+        jsonObjectOf(json) // validate before overwriting
+        appFile(FILE_NAME).writeText(json)
     }
-
-    private fun file(context: Context) = File(context.filesDir, FILE_NAME)
 }

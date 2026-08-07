@@ -1,13 +1,8 @@
 package com.jellemax.detour.data
 
-import android.content.Context
-import com.jellemax.detour.BuildConfig
-import org.json.JSONObject
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
-import java.util.zip.GZIPInputStream
+import io.ktor.http.encodeURLParameter
+import kotlinx.serialization.json.JsonObject
+import okio.IOException
 
 data class GeocodeResult(val name: String, val location: LatLon)
 
@@ -19,7 +14,7 @@ data class GeocodeResult(val name: String, val location: LatLon)
  * It also indexes POIs (shops, stations), so "colruyt" finds the nearest store.
  *
  * The endpoint is resolved per request: the user's self-hosted Photon (Settings) if
- * set, else the one baked into the APK, else the public komoot instance as a
+ * set, else the one baked into the app, else the public komoot instance as a
  * fallback. A self-hosted instance sits behind the same Cloudflare Access service
  * token as the routing server, so those credentials are reused here.
  */
@@ -28,14 +23,14 @@ object Geocoder {
     private const val PUBLIC = "https://photon.komoot.io"
 
     /** Effective Photon base URL: the one server address (Settings) → baked → public. */
-    private fun baseUrl(context: Context): String {
-        RoutingServer.loadCustom(context)?.url?.takeIf { it.isNotBlank() }?.let { return it }
-        BuildConfig.GEOCODER_URL.takeIf { it.isNotBlank() }?.let { return it }
+    private fun baseUrl(): String {
+        RoutingServer.loadCustom()?.url?.takeIf { it.isNotBlank() }?.let { return it }
+        BuildDefaults.geocoderUrl.takeIf { it.isNotBlank() }?.let { return it }
         return PUBLIC
     }
 
-    fun search(context: Context, query: String, near: LatLon?, limit: Int = 8): List<GeocodeResult> {
-        val primary = baseUrl(context).trimEnd('/')
+    suspend fun search(query: String, near: LatLon?, limit: Int = 8): List<GeocodeResult> {
+        val primary = baseUrl().trimEnd('/')
         // If a custom/baked instance is down, fail over to the public one so search
         // keeps working — but only when the user has allowed it (Settings): that
         // fallback sends the query and an approximate location to a third party,
@@ -47,7 +42,7 @@ object Geocoder {
             listOf(primary, PUBLIC)
         }
         // A self-hosted Photon is protected by the routing server's CF Access token.
-        val access = RoutingServer.load(context)
+        val access = RoutingServer.load()
 
         var lastError: IOException? = null
         for (base in endpoints) {
@@ -60,7 +55,7 @@ object Geocoder {
         throw lastError ?: IOException("Search failed")
     }
 
-    private fun fetch(
+    private suspend fun fetch(
         base: String,
         query: String,
         near: LatLon?,
@@ -69,42 +64,31 @@ object Geocoder {
     ): List<GeocodeResult> {
         // lat/lon biases ranking toward the user without hard-restricting the area.
         val bias = near?.let { "&lat=${it.lat}&lon=${it.lon}" } ?: ""
-        val url = "$base/api/?q=" +
-            URLEncoder.encode(query, "UTF-8") + "&limit=$limit" + bias
+        val url = "$base/api/?q=" + query.encodeURLParameter() + "&limit=$limit" + bias
 
-        val conn = URL(url).openConnection() as HttpURLConnection
-        try {
-            conn.connectTimeout = 5_000
-            conn.readTimeout = 10_000
-            conn.setRequestProperty("Accept-Encoding", "gzip")
-            conn.setRequestProperty("User-Agent", "Detour/1.11 (personal Android app)")
+        val headers = buildMap {
+            put("User-Agent", "Detour/${BuildDefaults.versionName}")
             if (access != null && access.clientId.isNotBlank()) {
-                conn.setRequestProperty("CF-Access-Client-Id", access.clientId)
-                conn.setRequestProperty("CF-Access-Client-Secret", access.clientSecret)
+                put("CF-Access-Client-Id", access.clientId)
+                put("CF-Access-Client-Secret", access.clientSecret)
             }
-            if (conn.responseCode != 200) {
-                throw IOException("Search failed: HTTP ${conn.responseCode}")
-            }
-            val stream = if (conn.contentEncoding == "gzip") {
-                GZIPInputStream(conn.inputStream)
-            } else {
-                conn.inputStream
-            }
-            return dedupe(parse(stream.bufferedReader().readText()))
-        } finally {
-            conn.disconnect()
         }
+        val body = try {
+            Http.get(url, headers, readTimeoutMs = 10_000)
+        } catch (e: HttpStatusException) {
+            throw IOException("Search failed: HTTP ${e.code}")
+        }
+        return dedupe(parse(body))
     }
 
     private fun parse(json: String): List<GeocodeResult> {
-        val features = JSONObject(json).optJSONArray("features") ?: return emptyList()
-        val results = ArrayList<GeocodeResult>(features.length())
-        for (i in 0 until features.length()) {
-            val feature = features.getJSONObject(i)
-            val coords = feature.optJSONObject("geometry")?.optJSONArray("coordinates") ?: continue
-            val props = feature.optJSONObject("properties") ?: continue
+        val features = jsonObjectOf(json).optArray("features") ?: return emptyList()
+        val results = ArrayList<GeocodeResult>(features.size)
+        for (feature in features.objects()) {
+            val coords = feature.optObject("geometry")?.optArray("coordinates") ?: continue
+            val props = feature.optObject("properties") ?: continue
             // GeoJSON coordinates are [lon, lat].
-            val location = LatLon(coords.getDouble(1), coords.getDouble(0))
+            val location = LatLon(coords.optDouble(1), coords.optDouble(0))
             val label = label(props)
             if (label.isBlank()) continue
             results.add(GeocodeResult(label, location))
@@ -137,7 +121,7 @@ object Geocoder {
     }
 
     /** A concise "primary, locality, country" label from Photon's address fields. */
-    private fun label(props: JSONObject): String {
+    private fun label(props: JsonObject): String {
         fun field(key: String) = props.optString(key).takeIf { it.isNotBlank() }
 
         val name = field("name")
