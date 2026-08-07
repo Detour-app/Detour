@@ -41,9 +41,10 @@ targets:
     dependencies:
       - package: MapLibre
         product: MapLibre
-      # Built by the Gradle phase below, which drops it in build/xcode-frameworks.
-      - framework: ../shared/build/xcode-frameworks/DetourShared.framework
-        embed: false
+    # DetourShared is linked through FRAMEWORK_SEARCH_PATHS + OTHER_LDFLAGS
+    # rather than declared as a `framework:` dependency: that form needs the
+    # .framework to exist when the project is *generated*, and it does not —
+    # Gradle builds it as a phase of the build that follows.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.maxke24.detour
@@ -55,6 +56,10 @@ targets:
         FRAMEWORK_SEARCH_PATHS:
           - $(inherited)
           - $(SRCROOT)/../shared/build/xcode-frameworks
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -framework
+          - DetourShared
         # Simulator builds must not try to link the arm64-device slice.
         ONLY_ACTIVE_ARCH: YES
     preBuildScripts:

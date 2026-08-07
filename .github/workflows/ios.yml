@@ -84,10 +84,20 @@ jobs:
           DETOUR_LIVE_URL = ${DETOUR_LIVE_URL}
           EOF
 
+      # Before xcodegen, so FRAMEWORK_SEARCH_PATHS points at something real
+      # by the time xcodebuild links. The in-Xcode preBuild phase does the same
+      # thing for a developer pressing Run; CI just does it up front.
+      - name: Build the shared framework
+        run: ./gradlew :shared:packForXcode -Pxcode.sdk=iphonesimulator
+
       - name: Generate Xcode project
         run: |
           brew install xcodegen
-          cd iosApp && xcodegen generate
+          cd iosApp
+          xcodegen generate --spec project.yml
+          # xcodegen has exited 0 without writing a project; fail loudly here
+          # rather than leaving xcodebuild to report a missing file.
+          test -d Detour.xcodeproj || { echo "xcodegen produced no project"; exit 1; }
 
       - name: Build for simulator
         run: |
