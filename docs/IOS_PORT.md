@@ -29,7 +29,7 @@ system) and is not on its way to becoming a second app.
   export, badges, saved places, settings, friends and the leaderboard,
   in-app turn-by-turn with spoken directions, and convoy live location with
   push-to-talk.
-- **CI on `macos-14`** — free and unmetered on this public repo. Runs the
+- **CI on `macos-15`** — free and unmetered on this public repo. Runs the
   shared tests on both the JVM and Kotlin/Native, builds the app for the
   simulator, boots it, and uploads a screenshot. No Mac and no Apple Developer
   account involved.
@@ -101,8 +101,22 @@ Unchanged, and none of these have an iOS route.
 
 Neither path needs a Mac except the last line.
 
-**CI (no Mac):** push to `ios-port`, or run the *iOS* workflow by hand. The
-screenshot lands in the run's artifacts.
+**CI (no Mac):** push to `ios-port`, or run the *iOS* workflow by hand. Two
+artifacts come out of it:
+
+| Artifact | What it is |
+|---|---|
+| `Detour-simulator.app.zip` | Debug build for the simulator. `xcrun simctl install booted Detour.app` on any Mac. |
+| `Detour-unsigned.ipa` | Release, arm64, for a real phone — **unsigned**. |
+
+Plus `screenshot.png`, which is the closest thing to looking at the app without
+a Mac.
+
+The .ipa is unsigned because signing needs a certificate from a paid Apple
+Developer account and nothing in CI has one. To get it onto a phone you re-sign
+it yourself — Sideloadly or AltStore on Windows/Linux/macOS, or
+`xcodebuild -exportArchive` on a Mac with your account. That is the wall the
+$99/yr buys past; no CI trick removes it.
 
 **On a Mac:**
 
