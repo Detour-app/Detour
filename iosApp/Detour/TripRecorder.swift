@@ -85,7 +85,7 @@ final class TripRecorder: NSObject, ObservableObject {
 
     // MARK: Recording state
 
-    private var tracePoints: [TraceStoreTracePoint] = []
+    private var tracePoints: [TraceStore.TracePoint] = []
     /// Deepest lean since the last trace point, sign kept: points are 25 m
     /// apart, which is a whole corner at town speed, and the deepest lean
     /// through it is the interesting number.
@@ -304,7 +304,7 @@ final class TripRecorder: NSObject, ObservableObject {
             if gap > Self.traceBreakMeters { flushTrace() }
         }
 
-        tracePoints.append(TraceStoreTracePoint(
+        tracePoints.append(TraceStore.TracePoint(
             at: p,
             timeMs: Int64(location.timestamp.timeIntervalSince1970 * 1000),
             speedKmh: speedMps * 3.6,

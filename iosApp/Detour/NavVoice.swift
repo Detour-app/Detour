@@ -11,6 +11,7 @@ import AVFoundation
 /// The session is deactivated when the utterance ends rather than held for the
 /// whole drive, so music comes back up between prompts instead of staying
 /// ducked from the first turn to the last.
+@MainActor
 final class NavVoice: NSObject {
 
     private let synthesizer = AVSpeechSynthesizer()
@@ -43,7 +44,7 @@ final class NavVoice: NSObject {
 }
 
 extension NavVoice: AVSpeechSynthesizerDelegate {
-    func speechSynthesizer(
+    nonisolated func speechSynthesizer(
         _ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance
     ) {
         try? AVAudioSession.sharedInstance().setActive(
