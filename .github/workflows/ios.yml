@@ -54,7 +54,13 @@ jobs:
       - name: Type-check shared common code
         run: ./gradlew :shared:compileCommonMainKotlinMetadata
 
-      - name: Run shared tests
+      # Same commonTest source set, run twice: the JVM pass is seconds and
+      # catches a logic regression, the Native pass proves it behaves the same
+      # once compiled for the device.
+      - name: Run shared tests (JVM)
+        run: ./gradlew :shared:testDebugUnitTest
+
+      - name: Run shared tests (Kotlin/Native)
         run: ./gradlew :shared:iosSimulatorArm64Test
 
       - name: Write Config.xcconfig

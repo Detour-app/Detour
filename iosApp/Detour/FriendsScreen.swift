@@ -103,7 +103,14 @@ struct FriendsScreen: View {
                                 Button("Decline") { model.respondToConvoy(convoy, accept: false) }
                                     .buttonStyle(.borderless)
                                     .tint(.secondary)
+                            } else if ConvoyLiveClient.shared.activeConvoyId == convoy.id {
+                                Button("Go offline") { ConvoyLiveClient.shared.leave() }
+                                    .buttonStyle(.borderless)
                             } else {
+                                Button("Go live") {
+                                    ConvoyLiveClient.shared.join(convoyId: convoy.id)
+                                }
+                                .buttonStyle(.borderless)
                                 Button("Leave", role: .destructive) { model.leave(convoy) }
                                     .buttonStyle(.borderless)
                             }

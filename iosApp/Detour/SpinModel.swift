@@ -26,6 +26,9 @@ final class SpinModel: ObservableObject {
     @Published private(set) var route: [CLLocationCoordinate2D] = []
     /// Where we are headed: a spin result, or a place picked from search.
     @Published private(set) var destination: LatLon?
+    /// The full routing result, kept because navigation needs the turn
+    /// instructions and the speed limits, not only the line on the map.
+    @Published private(set) var routeResult: RouteResult?
 
     /// Radius in metres, matching the Android app's slider range.
     @Published var radiusMeters: Double = 25_000
@@ -35,12 +38,14 @@ final class SpinModel: ObservableObject {
     func setDestination(_ target: LatLon) {
         destination = target
         route = []
+        routeResult = nil
         state = .found(lat: target.lat, lon: target.lon, distanceMeters: nil)
     }
 
     func spin(from here: CLLocationCoordinate2D) async {
         state = .spinning
         route = []
+        routeResult = nil
         self.destination = nil
 
         let center = LatLon(lat: here.latitude, lon: here.longitude)
@@ -84,6 +89,7 @@ final class SpinModel: ObservableObject {
                     avoidHighways: SettingsValues.shared.avoidHighways,
                     avoidSmallRoads: SettingsValues.shared.avoidSmallRoads
                 )
+                routeResult = result
                 route = result.polyline.map {
                     CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
                 }

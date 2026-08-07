@@ -148,3 +148,21 @@ object SettingsValues {
     val authToken: String get() = Settings.authToken.value
     val authUsername: String get() = Settings.authUsername.value
 }
+
+/**
+ * Values that exist in Kotlin but not in the Objective-C header.
+ *
+ * `enum.entries` has no ObjC representation at all — Kotlin/Native exports the
+ * entries as individual properties and nothing that enumerates them — and a
+ * `const val` inside an object crosses as a static whose spelling depends on
+ * the compiler version. Both are one-liners here rather than a guess at the
+ * generated name in every SwiftUI file that needs to build a Picker.
+ */
+object Enums {
+    val travelModes: List<TravelMode> = TravelMode.entries.toList()
+    val badgeKinds: List<BadgeKind> = BadgeKind.entries.toList()
+
+    val minZoom: Float = Settings.DEFAULT_ZOOM_MIN
+    val maxZoom: Float = Settings.DEFAULT_ZOOM_MAX
+    val defaultFogRadius: Float = Settings.FOG_RADIUS_DEFAULT
+}

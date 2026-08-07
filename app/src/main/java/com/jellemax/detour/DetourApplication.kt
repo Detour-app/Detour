@@ -20,7 +20,7 @@ class DetourApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         initSharedCore(this)
-        BuildDefaults.set(
+        BuildDefaults.configure(
             routingUrl = BuildConfig.ROUTING_URL,
             routingCfId = BuildConfig.ROUTING_CF_ID,
             routingCfSecret = BuildConfig.ROUTING_CF_SECRET,

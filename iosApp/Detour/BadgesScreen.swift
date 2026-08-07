@@ -37,7 +37,7 @@ struct BadgesScreen: View {
 
     private var kinds: [BadgeKind] {
         // Only the kinds that actually have badges, in declaration order.
-        BadgeKind.entries.filter { kind in states.contains { $0.def.kind == kind } }
+        Enums.shared.badgeKinds.filter { kind in states.contains { $0.def.kind == kind } }
     }
 
     private func reload() async {

@@ -38,8 +38,8 @@ struct SettingsScreen: View {
                                 get: { Double(model.defaultZoom) },
                                 set: { Settings.shared.setDefaultZoom(value: Float($0)) }
                             ),
-                            in: Double(Settings.shared.DEFAULT_ZOOM_MIN)
-                                ...Double(Settings.shared.DEFAULT_ZOOM_MAX),
+                            in: Double(Enums.shared.minZoom)
+                                ...Double(Enums.shared.maxZoom),
                             step: 0.5)
                     }
                 }

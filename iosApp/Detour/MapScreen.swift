@@ -10,6 +10,7 @@ struct MapScreen: View {
     @StateObject private var modes = TripModeModel()
 
     @State private var showSearch = false
+    @State private var navigating = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -21,6 +22,7 @@ struct MapScreen: View {
             .ignoresSafeArea()
 
             VStack(spacing: 10) {
+                ConvoyBar()
                 if let stats = recorder.stats {
                     TripCard(stats: stats) { recorder.endTrip() }
                 } else {
@@ -30,6 +32,12 @@ struct MapScreen: View {
             .padding()
         }
         .safeAreaInset(edge: .top) { modePicker }
+        .fullScreenCover(isPresented: $navigating) {
+            if let route = spin.routeResult {
+                NavScreen(route: route, destinationName: nil) { navigating = false }
+                    .environmentObject(recorder)
+            }
+        }
         .sheet(isPresented: $showSearch) {
             SearchSheet { result in
                 spin.setDestination(result.location)
@@ -50,7 +58,7 @@ struct MapScreen: View {
             get: { modes.mode },
             set: { Settings.shared.setTripMode(value: $0) }
         )) {
-            ForEach(TravelMode.entries, id: \.name) { mode in
+            ForEach(Enums.shared.travelModes, id: \.name) { mode in
                 Text(mode.label).tag(mode)
             }
         }
@@ -101,8 +109,14 @@ struct MapScreen: View {
 
                 Button {
                     recorder.startTrip(destination: spin.destination)
+                    // Only navigate when the router actually gave us turns;
+                    // otherwise this is just a recorded ride toward a pin.
+                    if spin.routeResult?.instructions.isEmpty == false {
+                        navigating = true
+                    }
                 } label: {
-                    Image(systemName: "record.circle")
+                    Image(systemName: spin.routeResult?.instructions.isEmpty == false
+                          ? "location.north.fill" : "record.circle")
                         .frame(height: 44)
                         .frame(maxWidth: 56)
                 }

@@ -10,7 +10,7 @@ struct DetourApp: App {
         // Every field is optional — blank means "no baked default", and each
         // consumer already falls back to the user's own server or the public
         // instance, so a build with no secrets behaves like CI's does.
-        BuildDefaults.shared.doSet(
+        BuildDefaults.shared.configure(
             routingUrl: info("DetourRoutingURL"),
             routingCfId: info("DetourRoutingCFId"),
             routingCfSecret: info("DetourRoutingCFSecret"),

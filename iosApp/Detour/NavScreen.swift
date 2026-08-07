@@ -116,7 +116,7 @@ private struct SpeedLimitSign: View {
 @MainActor
 final class NavModel: ObservableObject {
 
-    @Published private(set) var progress: NavEngine.Progress?
+    @Published private(set) var progress: NavEngineProgress?
 
     private var route: RouteResult?
     private let voice = NavVoice()
@@ -152,7 +152,7 @@ final class NavModel: ObservableObject {
     }
 
     /// Announces the upcoming maneuver as it comes up, once per threshold.
-    private func announce(_ p: NavEngine.Progress) {
+    private func announce(_ p: NavEngineProgress) {
         guard let instruction = p.nextInstruction else { return }
         if instruction.startIndex != voiceStepKey {
             voiceStepKey = instruction.startIndex

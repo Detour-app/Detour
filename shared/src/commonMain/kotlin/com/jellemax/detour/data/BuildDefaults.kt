@@ -9,7 +9,7 @@ package com.jellemax.detour.data
  *
  * Every field defaults to blank, which each consumer already treats as "not
  * configured, fall back to the user's own server or the public instance". So
- * a platform that forgets to call [set] degrades exactly like a CI build with
+ * a platform that forgets to call [configure] degrades exactly like a CI build with
  * no secrets, rather than crashing.
  */
 object BuildDefaults {
@@ -29,7 +29,7 @@ object BuildDefaults {
     var versionName: String = "0"
         private set
 
-    fun set(
+    fun configure(
         routingUrl: String = "",
         routingCfId: String = "",
         routingCfSecret: String = "",

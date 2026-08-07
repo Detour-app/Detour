@@ -20,14 +20,19 @@ system) and is not on its way to becoming a second app.
 
 ## Done
 
-- **`:shared` module**, 22 files, ~4,000 lines of logic shared verbatim.
+- **`:shared` module**, 22 files, ~4,000 lines of logic shared verbatim, with
+  18 tests over the parsing the port was most likely to break.
 - **Android runs on it.** `./gradlew :app:assembleDebug` builds; the phone app
   behaves as before.
-- **iOS app** with MapLibre + CoreLocation and one working screen: spin,
-  route, draw.
-- **CI on `macos-14`** — free and unmetered on this public repo. Builds the
-  shared framework, builds the app for the simulator, boots it, and uploads a
-  screenshot. No Mac and no Apple Developer account involved.
+- **The iOS app is feature-complete against everything that can port**: map and
+  spin, trip recording in the background, history and trip detail with GPX
+  export, badges, saved places, settings, friends and the leaderboard,
+  in-app turn-by-turn with spoken directions, and convoy live location with
+  push-to-talk.
+- **CI on `macos-14`** — free and unmetered on this public repo. Runs the
+  shared tests on both the JVM and Kotlin/Native, builds the app for the
+  simulator, boots it, and uploads a screenshot. No Mac and no Apple Developer
+  account involved.
 
 ### What replaced what
 
@@ -54,22 +59,34 @@ This type-checks `commonMain` against the *common* intersection, which excludes
 `java.*`. A stray JDK import fails here on Linux exactly as it would on macOS —
 even though the `ios*` targets themselves can only be **built** on a Mac.
 
+## Where the two platforms deliberately differ
+
+Not gaps — decisions, and the places to look first if behaviour diverges.
+
+- **Trip detection.** Android runs a foreground service tiering location across
+  sleep/idle/probe/trip off activity-recognition transitions. iOS has no
+  foreground service and no passive fixes, so that collapses onto a distance
+  filter plus `CMMotionActivityManager` for the automotive hint. Every
+  threshold is the Android one unchanged.
+- **Lean and g.** `CMDeviceMotion` gives fused attitude, so there is no
+  rotation matrix to assemble. `userAcceleration` excludes gravity, which the
+  Android magnitude includes, so it is added back — otherwise the same ride
+  would record a different number on each phone.
+- **Guidance audio.** Android takes transient-may-duck focus per prompt;
+  iOS uses `.duckOthers` + `.voicePrompt` and deactivates the session when the
+  utterance ends, so music comes back between prompts.
+- **Convoy keep-alive.** OkHttp has `pingInterval`, which stops NAT and the
+  Cloudflare tunnel idling a quiet socket closed. `URLSessionWebSocketTask` has
+  no such setting, so the ping is scheduled by hand.
+
 ## Not done
 
-Ordered by what blocks the most.
-
-1. **The rest of the SwiftUI screens.** History, badges, friends, saved places,
-   settings, in-app navigation. ~6,000 lines of Compose to rewrite. This is the
-   bulk of the remaining work.
-2. **Background trip recording.** `LocationProvider.startBackground()` exists
-   and is wired, but the trip *recorder* — the iOS counterpart of
-   `TripTrackingService` (1,228 lines) — is not written. iOS has no foreground
-   service; it grants background delivery via the `location` background mode,
-   which Info.plist already declares.
-3. **Convoy live location + push-to-talk.** WebSocket and audio capture.
-4. **watchOS app.** Small, nothing reuses from `wear/`.
+1. **watchOS app.** Small, but nothing reuses from `wear/`.
+2. **Signed device builds.** CI builds for the simulator only.
 
 ### Will not port
+
+Unchanged, and none of these have an iOS route.
 
 - **Now-playing media** (`media/MediaListenerService.kt`). Reads other apps'
   media notifications. iOS has no equivalent and no workaround.

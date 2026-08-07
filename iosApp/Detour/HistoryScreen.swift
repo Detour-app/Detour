@@ -49,7 +49,7 @@ struct HistoryScreen: View {
                 isPresented: .constant(editing != nil),
                 presenting: editing
             ) { trip in
-                ForEach(TravelMode.entries, id: \.name) { mode in
+                ForEach(Enums.shared.travelModes, id: \.name) { mode in
                     Button(mode.label) { updateMode(trip, to: mode) }
                 }
                 Button("Cancel", role: .cancel) { editing = nil }
