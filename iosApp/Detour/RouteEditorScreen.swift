@@ -188,7 +188,9 @@ struct RouteEditorScreen: View {
             stops: stops.map(\.stop),
             polyline: polyline,
             distanceMeters: distanceMeters.map { KotlinDouble(double: $0) },
-            timeMs: timeMs.map { KotlinLong(long: $0) },
+            // `long:` is C long, which Swift sees as Int; `value:` is the
+            // Int64 overload, matching the KotlinDouble(value:) use elsewhere.
+            timeMs: timeMs.map { KotlinLong(value: $0) },
             sharedBy: existing?.sharedBy ?? ""
         )
         RouteStore.shared.save(route: route)

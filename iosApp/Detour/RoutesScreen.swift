@@ -196,9 +196,11 @@ struct RoutesScreen: View {
     private func pullInbox() async {
         refreshing = true
         do {
-            let count = try await RouteShare.shared.pullInbox()
+            // A suspend fun returning Int arrives as KotlinInt, which is an
+            // NSNumber and so compares to nothing on its own.
+            let count = try await RouteShare.shared.pullInbox().intValue
             if count > 0 {
-                pulledCount = Int(count)
+                pulledCount = count
             }
         } catch {
             report(error)
