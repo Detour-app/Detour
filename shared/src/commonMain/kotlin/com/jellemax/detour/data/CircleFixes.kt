@@ -44,12 +44,12 @@ object CircleFixes {
      *  Both the phone map and the car map read this, so they can't drift
      *  apart on which members count. */
     suspend fun othersFixes(selfUsername: String): List<MemberFix> =
-        Groups.list("circle")
-            .filter { it.status == "accepted" }
-            .flatMap { fixes(it.id) }
-            .filter { it.username != selfUsername }
-            .groupBy { it.username }
-            .map { (_, forUser) -> forUser.maxBy { it.tsMs } }
+        newestPerOtherMember(
+            Groups.list("circle")
+                .filter { it.status == "accepted" }
+                .flatMap { fixes(it.id) },
+            selfUsername,
+        )
 
     /** Latest fix per accepted, currently-sharing member — the server drops
      *  a paused member's fix here even though the row may still exist, see
@@ -59,6 +59,18 @@ object CircleFixes {
         return o.optArray("fixes")?.objects().orEmpty().map { memberFixFromJson(it) }
     }
 }
+
+/** Extracted from [CircleFixes.othersFixes] for the same reason
+ *  [memberFixFromJson] is: it is the part with rules in it — drop yourself,
+ *  collapse someone you share two circles with to their newest fix — and it
+ *  is otherwise only reachable behind two HTTP calls. */
+internal fun newestPerOtherMember(
+    fixes: List<MemberFix>,
+    selfUsername: String,
+): List<MemberFix> = fixes
+    .filter { it.username != selfUsername }
+    .groupBy { it.username }
+    .map { (_, forUser) -> forUser.maxBy { it.tsMs } }
 
 /** Extracted from [CircleFixes.fixes] so JSON parsing is testable without a
  *  network round trip. */

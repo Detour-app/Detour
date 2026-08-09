@@ -954,9 +954,9 @@ fun MapScreen(
 
     // Convoy friend markers, on ConvoyLiveClient's own relay-driven cadence —
     // same reasoning as the camera markers above.
-    LaunchedEffect(mapOverlays) {
-        val overlays = mapOverlays ?: return@LaunchedEffect
-        ConvoyLiveClient.peers.collect { peers -> overlays.setFriends(peers.values) }
+    val convoyPeers by ConvoyLiveClient.peers.collectAsStateWithLifecycle()
+    LaunchedEffect(mapOverlays, convoyPeers) {
+        mapOverlays?.setFriends(convoyPeers.values)
     }
 
     // Circle member markers: every circle you're in, always — not just
@@ -983,6 +983,16 @@ fun MapScreen(
     }
     LaunchedEffect(mapOverlays, circleFixes) {
         mapOverlays?.setCircleMembers(circleFixes)
+    }
+
+    // The fog scrim is a sibling View over the GL surface, so it covers the
+    // member and peer symbol layers too. Clear it around them, or the markers
+    // the map just drew stay invisible on any ground you haven't driven —
+    // which is most of where a circle member actually is.
+    LaunchedEffect(circleFixes, convoyPeers) {
+        fogView.peers = circleFixes.map { LatLon(it.lat, it.lon) } +
+            convoyPeers.values.map { LatLon(it.lat, it.lon) }
+        fogView.invalidate()
     }
 
     // Chime when a camera lies ahead, close, and we're over the posted limit —

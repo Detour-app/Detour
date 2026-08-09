@@ -7,18 +7,11 @@ import DetourShared
 /// Android's `DEFAULT_CIRCLE_PLACE_RADIUS_M`.
 private let defaultCirclePlaceRadiusM = 150.0
 
-/// Which circle `CirclesScreen` currently has open, if any. `MapScreen` polls
-/// `CircleFixes.fixes(groupId:)` for this id and draws its members — the same
-/// relationship `ConvoyLiveClient.activeConvoyId` has with the convoy peers it
-/// draws, just over HTTP instead of a socket (docs/CIRCLES_AND_CONVOYS.md
-/// sections 2 and 10). Lives here rather than in MapScreen because deciding
-/// which circle is "being viewed" is this screen's business; MapScreen only
-/// ever reads it.
-///
-/// Deliberately not cleared when this screen goes away — switching to the Map
-/// tab to look at who's where has to keep showing the circle you just opened.
-/// Only backing out to the circle list (or picking a different circle) clears
-/// or replaces it — mirrors `CircleMapState` in Android's CirclesScreen.kt.
+/// Which circle `CirclesScreen` currently has open, if any — the places and
+/// events it shows are scoped to that one. The map no longer reads it: it
+/// draws every circle you're in, all the time (docs/CIRCLES_AND_CONVOYS.md
+/// section 2), so there is nothing here for leaving the screen to disagree
+/// with.
 @MainActor
 final class CircleMapState: ObservableObject {
     static let shared = CircleMapState()

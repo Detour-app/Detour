@@ -71,6 +71,26 @@ class GroupsTest {
         assertEquals(1_700_000_000_000L, fix.tsMs)
     }
 
+    // --- what the map actually draws -----------------------------------------
+
+    private fun fix(user: String, ts: Long) =
+        MemberFix(username = user, lat = 50.0, lon = 3.0, accuracyM = 5.0, tsMs = ts)
+
+    @Test
+    fun ownFixIsDroppedSoItDoesNotStackOnTheOwnPositionMarker() {
+        val drawn = newestPerOtherMember(
+            listOf(fix("me", 100L), fix("bob", 100L)), selfUsername = "me")
+        assertEquals(listOf("bob"), drawn.map { it.username })
+    }
+
+    @Test
+    fun someoneInTwoOfYourCirclesIsDrawnOnceAtTheirNewestFix() {
+        val drawn = newestPerOtherMember(
+            listOf(fix("bob", 100L), fix("bob", 300L), fix("bob", 200L)), selfUsername = "me")
+        assertEquals(1, drawn.size)
+        assertEquals(300L, drawn[0].tsMs)
+    }
+
     @Test
     fun placeEventParsesEveryField() {
         val json = buildJsonObject {

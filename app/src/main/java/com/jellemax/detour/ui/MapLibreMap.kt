@@ -70,6 +70,15 @@ private const val IMG_CAMERA = "mr-img-camera"
 private const val IMG_FRIEND = "mr-img-friend"
 private const val IMG_CIRCLE_MEMBER = "mr-img-circle-member"
 const val LAYER_CANDIDATES = "mr-candidates-dot"
+// Every symbol layer that carries a text label must name this font stack.
+// MapLibre's spec default is ["Open Sans Regular", "Arial Unicode MS Regular"]
+// and OpenFreeMap serves neither - both 404 on its glyph endpoint, and it is
+// the only font server we use for both the light and dark basemaps. A symbol
+// layer whose glyphs never load is not merely unlabelled: text and icon are
+// laid out in one bucket, so the *whole* layer, markers included, silently
+// disappears. That is what hid every convoy peer and circle member on the map
+// while the label-free layers (position, destination, cameras) drew fine.
+private val GLYPH_FONT = arrayOf("Noto Sans Regular")
 // The own-position marker is rasterised at this multiple of its intrinsic size
 // and scaled back down by iconSize. A vector drawn 1:1 into a bitmap is only
 // sharp while the map holds still; the marker is the one icon that spends its
@@ -152,7 +161,7 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
             PropertyFactory.iconRotate(Expression.get("bearing")),
             PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
             PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
-            PropertyFactory.textField(Expression.get("name")),
+            PropertyFactory.textField(Expression.get("name")), PropertyFactory.textFont(GLYPH_FONT),
             PropertyFactory.textSize(11f), PropertyFactory.textOffset(arrayOf(0f, 1.6f)),
             PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("#000000"),
             PropertyFactory.textHaloWidth(1.2f),
@@ -164,7 +173,7 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
         style.addLayer(SymbolLayer("mr-circle-members", SRC_CIRCLE_MEMBERS).withProperties(
             PropertyFactory.iconImage(IMG_CIRCLE_MEMBER),
             PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
-            PropertyFactory.textField(Expression.get("label")),
+            PropertyFactory.textField(Expression.get("label")), PropertyFactory.textFont(GLYPH_FONT),
             PropertyFactory.textSize(11f), PropertyFactory.textOffset(arrayOf(0f, 1.6f)),
             PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("#000000"),
             PropertyFactory.textHaloWidth(1.2f),
@@ -402,6 +411,13 @@ class FogView(context: Context) : View(context) {
     var liveTrace: List<LatLon> = emptyList()
         set(value) { field = decimate(value) }
     var currentLocation: LatLon? = null
+    // Everyone else the map is drawing: circle members and convoy peers. The
+    // scrim sits over the GL surface, so a marker on ground you have never
+    // driven is simply invisible under it — and a circle exists precisely to
+    // show someone standing somewhere you haven't been. Cleared like the
+    // corridor is, so the person is visible without lifting the fog anywhere
+    // they aren't.
+    var peers: List<LatLon> = emptyList()
     var corridorMeters: Float = 200f
     // Dark fog reads as night on a light basemap and vice versa, so the scrim/
     // frost tint switch with the app theme; see FOG_DARK/FOG_LIGHT below.
@@ -594,7 +610,7 @@ class FogView(context: Context) : View(context) {
             }
             bufCanvas.drawPath(path, clearPaint)
         }
-        currentLocation?.let { loc ->
+        for (loc in listOfNotNull(currentLocation) + peers) {
             val sp = proj.toScreenLocation(LatLng(loc.lat, loc.lon))
             pt.set(sp.x * s, sp.y * s)
             bufCanvas.drawCircle(pt.x, pt.y,

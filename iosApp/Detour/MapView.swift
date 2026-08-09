@@ -20,9 +20,9 @@ struct MapView: UIViewRepresentable {
     /// else: the spin flow and nav screen only ever display a route, they
     /// never build one, so they never pass this.
     var onTap: ((CLLocationCoordinate2D) -> Void)? = nil
-    /// Last-known positions for whichever circle `CirclesScreen` currently has
-    /// open (see `CircleMapState`), fed by MapScreen's own polling loop on
-    /// `CircleFixes`'s own cadence. Empty everywhere else. Deliberately drawn
+    /// Last-known position per other member, across every circle you're in,
+    /// fed by MapScreen's own polling loop on `CircleFixes`'s own cadence.
+    /// Empty everywhere else. Deliberately drawn
     /// as plain point annotations rather than Android's always-visible
     /// "name · age" style-layer label — this view has no custom style layers
     /// at all yet, only annotations — so the label surfaces on tap, the same

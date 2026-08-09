@@ -8,13 +8,11 @@ struct MapScreen: View {
     @EnvironmentObject private var recorder: TripRecorder
     @StateObject private var spin = SpinModel()
     @StateObject private var modes = TripModeModel()
-    @ObservedObject private var circleMapState = CircleMapState.shared
-
     @State private var showSearch = false
     @State private var navigating = false
-    /// Last-known positions for whichever circle is currently being viewed
-    /// (see `CircleMapState`). Kept across polls even when a fetch fails, so a
-    /// blip doesn't blank the map — see the `.task(id:)` below.
+    /// Last-known position per other member, across every circle you're in.
+    /// Kept across polls even when a fetch fails, so a blip doesn't blank the
+    /// map — see the `.task(id:)` below.
     @State private var circleFixes: [MemberFix] = []
 
     /// Circle members post a fix every `CircleSync.syncIntervalSeconds` at
@@ -43,21 +41,27 @@ struct MapScreen: View {
             }
             .padding()
         }
-        // Circle member markers: whichever circle CirclesScreen last opened,
-        // polled on CircleFixes' own cadence rather than a socket — a circle
-        // fix only changes once a minute or so server-side, so polling faster
-        // would just repeat the same row. Restarts (with an immediate fetch)
-        // whenever the viewed circle changes, and stops entirely — clearing
-        // the markers — the moment none is being viewed. Mirrors the
-        // LaunchedEffect(viewedCircleId) loop in Android's MapScreen.kt.
-        .task(id: circleMapState.viewedCircleId) {
-            guard let groupId = circleMapState.viewedCircleId else {
-                circleFixes = []
+        // Circle member markers: every circle you're in, always — not just
+        // whichever one CirclesScreen last had open. A circle is the always-on
+        // relationship (docs/CIRCLES_AND_CONVOYS.md section 2); making the map
+        // go blank until you walk into another screen and pick one defeats the
+        // point of it, and that selection lived in memory, so every app launch
+        // lost it. Polled rather than socketed: a circle fix only changes once
+        // a minute or so server-side, so polling faster would just repeat the
+        // same row. `othersFixes` is the shared chain Android's MapScreen.kt
+        // reads too, so the two platforms can't drift apart on which members
+        // count — including dropping your own fix, which the server returns
+        // like anyone else's and which would otherwise stack a second marker
+        // on your own position.
+        .task(id: SettingsValues.shared.authUsername) {
+            let me = SettingsValues.shared.authUsername
+            guard !me.isEmpty else {
+                circleFixes = []  // signed out: nothing to ask the server for
                 return
             }
             while !Task.isCancelled {
                 do {
-                    circleFixes = try await CircleFixes.shared.fixes(groupId: groupId)
+                    circleFixes = try await CircleFixes.shared.othersFixes(selfUsername: me)
                 } catch {
                     // Offline or server down; keep the last known positions
                     // and retry on the next tick.
