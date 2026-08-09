@@ -58,8 +58,6 @@ import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.SyncClient
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -67,23 +65,6 @@ import kotlinx.coroutines.withContext
  *  at a house or a workplace doesn't sit right on the line, small enough
  *  that it doesn't spill onto a neighbour's place. Editable per share. */
 private const val DEFAULT_CIRCLE_PLACE_RADIUS_M = 150.0
-
-/**
- * Which circle [CirclesScreen] currently has open, if any. [MapScreen] polls
- * `CircleFixes` for this id and draws its members — the same relationship
- * [com.jellemax.detour.net.ConvoyLiveClient.activeConvoyId] has with the
- * convoy peers MapScreen draws, just over HTTP instead of a socket. Lives
- * here rather than in MapScreen because deciding which circle is "being
- * viewed" is this screen's business; MapScreen only ever reads it.
- */
-object CircleMapState {
-    private val _viewedCircleId = MutableStateFlow<Int?>(null)
-    val viewedCircleId: StateFlow<Int?> = _viewedCircleId
-
-    fun setViewed(id: Int?) {
-        _viewedCircleId.value = id
-    }
-}
 
 /**
  * Circles: the same [Groups] gate as convoys, opposite policy — a circle
@@ -107,17 +88,10 @@ fun CirclesScreen(onBack: () -> Unit) {
     var reloads by remember { mutableIntStateOf(0) }
     var createOpen by remember { mutableStateOf(false) }
     var inviteFor by remember { mutableStateOf<Group?>(null) }
-    // Seeded from CircleMapState so coming back re-opens whichever circle is
-    // still being shown on the map, rather than silently disagreeing with it.
-    var selectedId by remember { mutableStateOf(CircleMapState.viewedCircleId.value) }
-
-    // Tell MapScreen which circle to draw members for. Deliberately *not*
-    // cleared when this screen goes away: seeing where everyone is means
-    // looking at the map, so leaving here to do that has to keep the
-    // selection. Going back to the circle list clears it, which is the
-    // gesture that means "done looking at this one" — and MapScreen's own
-    // polling only runs while the map is on screen either way.
-    LaunchedEffect(selectedId) { CircleMapState.setViewed(selectedId) }
+    // Which circle this screen has open, for its places and events. The map no
+    // longer reads it: it draws every circle you're in, all the time, so there
+    // is nothing here for leaving the screen to disagree with.
+    var selectedId by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(reloads) {
         try {

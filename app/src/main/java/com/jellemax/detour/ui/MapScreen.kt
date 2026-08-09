@@ -959,22 +959,33 @@ fun MapScreen(
         ConvoyLiveClient.peers.collect { peers -> overlays.setFriends(peers.values) }
     }
 
-    // Circle member markers: whichever circle CirclesScreen last opened (see
-    // CircleMapState there), polled on CircleFixes' own cadence rather than a
-    // socket - a circle fix only changes once a minute or so server-side, so
-    // polling faster would just repeat the same row. Cleared the moment no
-    // circle is being viewed, so leaving CirclesScreen also clears the map.
-    val viewedCircleId by CircleMapState.viewedCircleId.collectAsStateWithLifecycle()
+    // Circle member markers: every circle you're in, always — not just
+    // whichever one CirclesScreen last had open. A circle is the always-on
+    // relationship (docs/CIRCLES_AND_CONVOYS.md section 2); making the map go
+    // blank until you walk into another screen and pick one defeats the point
+    // of it, and the selection lived in memory, so every app restart lost it.
+    // Polled rather than socketed: a circle fix only changes once a minute or
+    // so server-side, so polling faster would just repeat the same row.
     var circleFixes by remember { mutableStateOf<List<MemberFix>>(emptyList()) }
-    LaunchedEffect(viewedCircleId) {
-        val id = viewedCircleId
-        if (id == null) {
-            circleFixes = emptyList()
+    LaunchedEffect(accountUsername) {
+        if (accountUsername.isBlank()) {
+            circleFixes = emptyList()  // signed out: nothing to ask the server for
             return@LaunchedEffect
         }
         while (true) {
             circleFixes = try {
-                withContext(Dispatchers.IO) { CircleFixes.fixes(id) }
+                withContext(Dispatchers.IO) {
+                    Groups.list("circle")
+                        .filter { it.status == "accepted" }
+                        .flatMap { CircleFixes.fixes(it.id) }
+                        // Your own fix comes back too — the server returns every
+                        // sharing member — and drawing it would stack a second
+                        // marker and a name label on top of your own vehicle.
+                        .filter { it.username != accountUsername }
+                        // Someone in two of your circles reports once per circle.
+                        .groupBy { it.username }
+                        .map { (_, forUser) -> forUser.maxBy { it.tsMs } }
+                }
             } catch (e: Exception) {
                 circleFixes // offline or server down; keep the last known positions
             }
