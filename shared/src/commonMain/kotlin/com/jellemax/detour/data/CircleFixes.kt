@@ -34,6 +34,23 @@ object CircleFixes {
         )
     }
 
+    /** What a map wants to draw: one newest fix per *other* person, across
+     *  every circle you're in — a circle is the always-on relationship, so
+     *  the map never waits for one to be picked. Your own fix comes back
+     *  from the server too and is dropped here, since drawing it would stack
+     *  a second marker on your own position; someone you share two circles
+     *  with reports once per circle and is collapsed to their newest.
+     *
+     *  Both the phone map and the car map read this, so they can't drift
+     *  apart on which members count. */
+    suspend fun othersFixes(selfUsername: String): List<MemberFix> =
+        Groups.list("circle")
+            .filter { it.status == "accepted" }
+            .flatMap { fixes(it.id) }
+            .filter { it.username != selfUsername }
+            .groupBy { it.username }
+            .map { (_, forUser) -> forUser.maxBy { it.tsMs } }
+
     /** Latest fix per accepted, currently-sharing member — the server drops
      *  a paused member's fix here even though the row may still exist, see
      *  `do_circle_fixes`. */

@@ -257,7 +257,9 @@ fun SpeedLimitSign(kmh: Double?, size: Dp = 64.dp, modifier: Modifier = Modifier
             .size(size)
             .clip(CircleShape)
             .background(Color.White)
-            .border(BorderStroke(size * 0.08f, Color(0xFFD32F2F)), CircleShape),
+            // Traffic red (≈RAL 3020), not Material red 700 — see the car HUD's
+            // signRimPaint for why the darker brick had to go.
+            .border(BorderStroke(size * 0.10f, Color(0xFFE8112D)), CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         Text(

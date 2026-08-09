@@ -39,6 +39,7 @@ import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ui.formatDistanceKm
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -95,6 +96,8 @@ class SpinScreen(
     private var lastLimitFetchMs = 0L
     private var limitMisses = 0
     private var ambientLimitKmh: Double? = null
+    /** The in-flight Overpass fetch — see [updateSpeedLimit]. */
+    private var limitFetchJob: Job? = null
 
     init {
         lifecycle.addObserver(object : DefaultLifecycleObserver {
@@ -132,17 +135,17 @@ class SpinScreen(
                     renderer.setPosition(pos, fix.bearingDeg?.takeIf { fix.speedMps > 2.0 })
                     renderer.follow(pos, fix.bearingDeg, fix.speedMps,
                         Settings.defaultZoom.value.toDouble())
-                    // The limit lookup can go to the network; move the map
-                    // first so a slow Overpass mirror can't stall the camera.
-                    // Wrapped for the same reason NavScreen wraps its own fix
-                    // handler: an exception out of a collector doesn't skip a
-                    // frame, it takes the process down mid-drive.
+                    // Never suspends — the network side runs on its own job, see
+                    // updateSpeedLimit. Still wrapped for the same reason
+                    // NavScreen wraps its own fix handler: an exception out of a
+                    // collector doesn't skip a frame, it takes the process down
+                    // mid-drive.
                     try {
                         updateSpeedLimit(pos, fix.bearingDeg, fix.speedMps)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        Log.w(TAG, "speed limit lookup failed", e)
+                        Log.w(TAG, "speed limit snap failed", e)
                     }
                     renderer.updateHud(fix.speedMps * 3.6, ambientLimitKmh)
                 }
@@ -248,24 +251,38 @@ class SpinScreen(
         )
         .build()
 
-    /** Posted limit for the road you're on, with no route to read it off.
-     *  Refreshes the prefetched set only as you near the edge of what you hold,
-     *  then snaps against it locally on every fix. */
-    private suspend fun updateSpeedLimit(pos: LatLon, bearingDeg: Float?, speedMps: Double) {
+    /**
+     * Posted limit for the road you're on, with no route to read it off.
+     * Refreshes the prefetched set only as you near the edge of what you hold,
+     * then snaps against it locally on every fix.
+     *
+     * The refresh runs in its own coroutine. Moving the camera before this call
+     * was not enough: the fix collector is sequential, so suspending here for a
+     * slow Overpass mirror conflated away every fix that landed meanwhile, and
+     * the camera then had nothing new to ease towards until the request came
+     * back. Same fix as [NavScreen.checkCameras].
+     */
+    private fun updateSpeedLimit(pos: LatLon, bearingDeg: Float?, speedMps: Double) {
         if (speedMps < LIMIT_MIN_MPS) return
         val fromCenter = limitWaysCenter?.let { RoadRoulette.distanceMeters(it, pos) }
             ?: Double.MAX_VALUE
         val now = System.currentTimeMillis()
         if (fromCenter > RoadRoulette.SPEED_PREFETCH_RADIUS_M - LIMIT_FETCH_MARGIN_M &&
-            now - lastLimitFetchMs > LIMIT_FETCH_THROTTLE_MS
+            now - lastLimitFetchMs > LIMIT_FETCH_THROTTLE_MS &&
+            limitFetchJob?.isActive != true
         ) {
             // Throttled on failure too: an empty result is a network blip, and
             // hammering the Overpass mirrors from a moving car fixes nothing.
             lastLimitFetchMs = now
-            val ways = withContext(Dispatchers.IO) { RoadRoulette.speedLimitWays(pos) }
-            if (ways.isNotEmpty()) {
-                limitWays = ways
-                limitWaysCenter = pos
+            limitFetchJob = lifecycleScope.launch {
+                val ways = runCatching {
+                    withContext(Dispatchers.IO) { RoadRoulette.speedLimitWays(pos) }
+                }.onFailure { Log.w(TAG, "speed limit lookup failed", it) }
+                    .getOrDefault(emptyList())
+                if (ways.isNotEmpty()) {
+                    limitWays = ways
+                    limitWaysCenter = pos
+                }
             }
         }
         // Heading lets the snap reject the cross street and the frontage road.

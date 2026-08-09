@@ -4,7 +4,9 @@ import android.app.Presentation
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RadialGradient
 import android.graphics.Rect
+import android.graphics.Shader
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.view.Gravity
@@ -14,9 +16,13 @@ import android.widget.FrameLayout
 import androidx.car.app.CarContext
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
+import com.jellemax.detour.data.Account
+import com.jellemax.detour.data.CircleFixes
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.MemberFix
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
+import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.net.FriendPosition
 import com.jellemax.detour.ui.MapOverlays
 import com.jellemax.detour.ui.openFreeMapStyleUrl
@@ -29,6 +35,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.maplibre.android.MapLibre
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
@@ -64,6 +71,11 @@ private const val CAM_BEARING_EPS_DEG = 0.1f
 /** Below this the GPS bearing is noise, so the map keeps the heading it had
  *  instead of spinning while you wait at a junction. */
 private const val BEARING_HOLD_MPS = 2.0
+
+/** Same cadence the phone map polls at: a circle fix only changes once a
+ *  minute or so server-side, so asking faster would just re-fetch the same
+ *  row (see MapScreen's CIRCLE_FIX_POLL_MS). */
+private const val CIRCLE_FIX_POLL_MS = 120_000L
 
 /**
  * Android Auto gives an app only a raw [Surface] via [SurfaceCallback] — no
@@ -111,6 +123,26 @@ class CarMapRenderer(
         scope.launch {
             Settings.mapIcon.collect { icon -> withOverlays { it.setPositionIcon(icon) } }
         }
+        // Convoy peers and circle members, for the same reason: they belong to
+        // the map, not to whichever screen happens to be on top. Collected in
+        // NavScreen before, which meant they existed only while a route was
+        // running — the following map you get with no route showed nobody, and
+        // circle members were never drawn on the car at all.
+        scope.launch {
+            ConvoyLiveClient.peers.collect { peers -> setFriends(peers.values) }
+        }
+        scope.launch {
+            while (true) {
+                val me = Account.username.value
+                if (me.isNotBlank()) {
+                    // Offline or server down: keep the last known positions
+                    // rather than blanking the map on one failed poll.
+                    runCatching { withContext(Dispatchers.IO) { CircleFixes.othersFixes(me) } }
+                        .onSuccess { setCircleMembers(it) }
+                }
+                delay(CIRCLE_FIX_POLL_MS)
+            }
+        }
     }
 
     // Built fresh for each surface instead of once per renderer. Tearing the
@@ -141,6 +173,7 @@ class CarMapRenderer(
     private var positionBearing: Double? = null
     private var cameras: List<SpeedCameras.Camera> = emptyList()
     private var friends: Collection<FriendPosition> = emptyList()
+    private var circleMembers: Collection<MemberFix> = emptyList()
 
     // Where the camera is being eased to, and where it currently is.
     private var targetPos: LatLon? = null
@@ -195,6 +228,11 @@ class CarMapRenderer(
     fun setFriends(friends: Collection<FriendPosition>) {
         this.friends = friends
         withOverlays { it.setFriends(friends) }
+    }
+
+    fun setCircleMembers(fixes: Collection<MemberFix>) {
+        this.circleMembers = fixes
+        withOverlays { it.setCircleMembers(fixes) }
     }
 
     /** Style calls throw once the map behind them is gone — which on a head
@@ -274,6 +312,7 @@ class CarMapRenderer(
                 position?.let { fresh.setPosition(it, positionBearing) }
                 if (cameras.isNotEmpty()) fresh.setCameras(cameras)
                 if (friends.isNotEmpty()) fresh.setFriends(friends)
+                if (circleMembers.isNotEmpty()) fresh.setCircleMembers(circleMembers)
             }
             startCameraLoop()
         }
@@ -479,11 +518,23 @@ private class HudOverlay(context: android.content.Context) : View(context) {
         postInvalidate()
     }
 
-    private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x40000000 }
+    private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val signFacePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
-    private val signRimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D32F2F") }
+    // Traffic red, not Material red 700. The old #D32F2F is a muted, dark
+    // brick: on a dark map at arm's length it read as brown-ish and the sign
+    // lost the one thing that makes it recognisable before you can read the
+    // number. This is close to RAL 3020, which is what the sign by the road
+    // actually is.
+    private val signRimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#E8112D") }
+    /** Faint dark edge so a white sign doesn't dissolve into a pale map. */
+    private val signEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x33000000
+        style = Paint.Style.STROKE
+    }
     private val speedBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#E60F1116") }
-    private val speedOverBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#E6B3261E") }
+    // Lifted along with the rim: the over-limit disc is read at a glance too,
+    // and #B3261E next to a bright sign looked like a dead pixel.
+    private val speedOverBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#E6C62828") }
 
     // sans-serif-black is the closest stock face to the heavy grotesque on a
     // real sign, and matches the phone HUD's FontWeight.Black.
@@ -505,6 +556,27 @@ private class HudOverlay(context: android.content.Context) : View(context) {
 
     /** Baseline offset that centers text of [paint] on a circle's center. */
     private fun baselineOffset(paint: Paint) = -(paint.fontMetrics.ascent + paint.fontMetrics.descent) / 2f
+
+    /**
+     * Drop shadow under a disc of [radius] at ([cx], [cy]).
+     *
+     * A radial gradient rather than [Paint.setShadowLayer] or a blur mask: both
+     * of those force the view into software rendering, and this one is composited
+     * onto a VirtualDisplay that the head unit is reading every frame. A gradient
+     * is hardware-accelerated and, at this size, indistinguishable from a real
+     * blur — where the flat 25%-black disc it replaces read as a second, offset
+     * sign rather than as a shadow.
+     */
+    private fun drawShadow(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
+        val outer = radius * 1.16f
+        shadowPaint.shader = RadialGradient(
+            cx, cy + radius * 0.06f, outer,
+            intArrayOf(0x59000000, 0x59000000, 0x00000000),
+            floatArrayOf(0f, 0.80f, 1f),
+            Shader.TileMode.CLAMP,
+        )
+        canvas.drawCircle(cx, cy + radius * 0.06f, outer, shadowPaint)
+    }
 
     /** Sets [paint]'s size so [text] is [target] tall but never wider than
      *  [maxWidth] — "130" has to fit the same disc "50" sits comfortably in. */
@@ -540,7 +612,7 @@ private class HudOverlay(context: android.content.Context) : View(context) {
             val cy = bottom - radius
             val limit = limitKmh
             val speeding = limit != null && speed > limit + 5
-            canvas.drawCircle(cx, cy + radius * 0.05f, radius, shadowPaint)
+            drawShadow(canvas, cx, cy, radius)
             canvas.drawCircle(cx, cy, radius, if (speeding) speedOverBgPaint else speedBgPaint)
             // The unit label sits under the number, as on the phone HUD, so the
             // pair reads as one instrument rather than two loose discs.
@@ -556,8 +628,10 @@ private class HudOverlay(context: android.content.Context) : View(context) {
         if (limit != null) {
             cx -= radius
             val cy = bottom - radius
-            canvas.drawCircle(cx, cy + radius * 0.05f, radius, shadowPaint)
+            drawShadow(canvas, cx, cy, radius)
             canvas.drawCircle(cx, cy, radius, signRimPaint)
+            signEdgePaint.strokeWidth = radius * 0.035f
+            canvas.drawCircle(cx, cy, radius - signEdgePaint.strokeWidth / 2f, signEdgePaint)
             canvas.drawCircle(cx, cy, radius * (1f - 2f * SIGN_RIM_RATIO), signFacePaint)
             val text = "%.0f".format(limit)
             val face = diameter * (1f - 2f * SIGN_RIM_RATIO)

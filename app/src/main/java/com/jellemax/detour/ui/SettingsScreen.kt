@@ -289,7 +289,27 @@ private fun NavigationSection() {
     val avoidHighways by Settings.avoidHighways.collectAsStateWithLifecycle()
     val avoidSmallRoads by Settings.avoidSmallRoads.collectAsStateWithLifecycle()
     val preferredNavApp by Settings.preferredNavApp.collectAsStateWithLifecycle()
+    val voiceGuidance by Settings.voiceGuidance.collectAsStateWithLifecycle()
     SettingsSection("Navigation") {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Spoken guidance", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Turn instructions read aloud on the car screen. " +
+                        "Also mutable mid-drive from the speaker button there.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = voiceGuidance,
+                onCheckedChange = { Settings.setVoiceGuidance(it) },
+            )
+        }
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

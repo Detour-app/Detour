@@ -37,10 +37,10 @@ import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.TravelMode
-import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.ZonedDateTime
@@ -132,6 +132,9 @@ class NavScreen(
     private var camerasCenter: LatLon? = null
     private var lastCameraFetchMs = 0L
     private var warnedCameraAt: LatLon? = null
+    /** The in-flight Overpass fetch, so a slow mirror is waited on once rather
+     *  than re-requested by every fix that lands while it is still running. */
+    private var cameraFetchJob: Job? = null
 
     init {
         lifecycle.addObserver(object : DefaultLifecycleObserver {
@@ -162,7 +165,21 @@ class NavScreen(
                 runCatching {
                     navigationManager.navigationStarted()
                     navigating = true
-                }.onFailure { Log.w(TAG, "navigationStarted failed", it) }
+                }.onFailure {
+                    // Silence here is the worst outcome: the host refuses the
+                    // start when another app already owns navigation on this
+                    // head unit, and the visible symptom is simply no turn card
+                    // and no cluster guidance, with the map still moving — which
+                    // reads as "the banner is missing" rather than "Google Maps
+                    // is still navigating".
+                    Log.w(TAG, "navigationStarted failed", it)
+                    runCatching {
+                        carContext.getCarService(AppManager::class.java).showToast(
+                            "Another app is navigating — stop it to get turn guidance here",
+                            CarToast.LENGTH_LONG,
+                        )
+                    }
+                }
                 renderer.setRoute(route.polyline, destination)
             }
             // Covers every way this screen leaves the front of the stack —
@@ -201,12 +218,9 @@ class NavScreen(
                 }
             }
         }
-        lifecycleScope.launch {
-            ConvoyLiveClient.peers.collect { peers -> renderer.setFriends(peers.values) }
-        }
     }
 
-    private suspend fun onFix(pos: LatLon, bearingDeg: Float?, speedMps: Double) {
+    private fun onFix(pos: LatLon, bearingDeg: Float?, speedMps: Double) {
         currentSpeedKmh = speedMps * 3.6
         val p = NavEngine.progress(route, pos) ?: return
         progress = p
@@ -347,18 +361,36 @@ class NavScreen(
         invalidate()
     }
 
-    private suspend fun checkCameras(pos: LatLon, headingDeg: Double?) {
+    /**
+     * Keeps the prefetched camera set current, and warns about the next one
+     * ahead.
+     *
+     * The Overpass fetch runs in its own coroutine rather than inline. This is
+     * the whole fix loop's hot path: [TripTrackingService.lastFix] is a
+     * StateFlow and its collector is sequential, so awaiting a mirror *here*
+     * suspended [onFix] itself — and with it the camera target, the HUD and the
+     * turn card — for however long Overpass took, while every fix that landed
+     * meanwhile was conflated away. A mirror having a slow ten seconds is
+     * normal; a map that stops moving for ten seconds at 100 km/h is not, and
+     * that is what made it look like the map had simply stopped updating.
+     */
+    private fun checkCameras(pos: LatLon, headingDeg: Double?) {
         val fromCenter = camerasCenter?.let { RoadRoulette.distanceMeters(it, pos) } ?: Double.MAX_VALUE
         val now = System.currentTimeMillis()
         if (fromCenter > SpeedCameras.PREFETCH_RADIUS_M - CAMERA_FETCH_MARGIN_M &&
-            now - lastCameraFetchMs > CAMERA_FETCH_THROTTLE_MS
+            now - lastCameraFetchMs > CAMERA_FETCH_THROTTLE_MS &&
+            cameraFetchJob?.isActive != true
         ) {
             lastCameraFetchMs = now
-            val result = withContext(Dispatchers.IO) { SpeedCameras.near(pos) }
-            if (result != null) {
-                speedCameras = result.cameras
-                camerasCenter = pos
-                renderer.setCameras(speedCameras)
+            cameraFetchJob = lifecycleScope.launch {
+                val result = runCatching {
+                    withContext(Dispatchers.IO) { SpeedCameras.near(pos) }
+                }.onFailure { Log.w(TAG, "camera fetch failed", it) }.getOrNull()
+                if (result != null) {
+                    speedCameras = result.cameras
+                    camerasCenter = pos
+                    renderer.setCameras(speedCameras)
+                }
             }
         }
         val ahead = speedCameras.filter { cam ->
@@ -395,7 +427,14 @@ class NavScreen(
             builder.setNavigationInfo(RoutingInfo.Builder().setLoading(true).build())
             return builder.build()
         }
-        stepFor(p.nextInstruction)?.let { step ->
+        val step = stepFor(p.nextInstruction)
+        if (step == null) {
+            // No instruction left, or a cue the host wouldn't build a Step from.
+            // Leaving navigationInfo unset drops the entire turn card, so the
+            // screen goes blank rather than degrading; a loading card keeps it
+            // on screen.
+            builder.setNavigationInfo(RoutingInfo.Builder().setLoading(true).build())
+        } else {
             val info = RoutingInfo.Builder().setCurrentStep(step, carDistance(p.distanceToTurnMeters))
             stepFor(p.nextNextInstruction)?.let { info.setNextStep(it) }
             builder.setNavigationInfo(info.build())

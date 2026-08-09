@@ -974,18 +974,7 @@ fun MapScreen(
         }
         while (true) {
             circleFixes = try {
-                withContext(Dispatchers.IO) {
-                    Groups.list("circle")
-                        .filter { it.status == "accepted" }
-                        .flatMap { CircleFixes.fixes(it.id) }
-                        // Your own fix comes back too — the server returns every
-                        // sharing member — and drawing it would stack a second
-                        // marker and a name label on top of your own vehicle.
-                        .filter { it.username != accountUsername }
-                        // Someone in two of your circles reports once per circle.
-                        .groupBy { it.username }
-                        .map { (_, forUser) -> forUser.maxBy { it.tsMs } }
-                }
+                withContext(Dispatchers.IO) { CircleFixes.othersFixes(accountUsername) }
             } catch (e: Exception) {
                 circleFixes // offline or server down; keep the last known positions
             }
