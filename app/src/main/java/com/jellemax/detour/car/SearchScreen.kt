@@ -35,7 +35,10 @@ private const val SEARCH_DEBOUNCE_MS = 350L
  * [RecentSearchStore] — so a place searched on the phone is one tap away here,
  * which matters when typing on a head unit is the slowest thing in the car.
  */
-class SearchScreen(carContext: CarContext) : Screen(carContext) {
+class SearchScreen(
+    carContext: CarContext,
+    private val renderer: CarMapRenderer,
+) : Screen(carContext) {
 
     private var results: List<GeocodeResult> = emptyList()
     private var recents: List<GeocodeResult> = emptyList()
@@ -142,7 +145,7 @@ class SearchScreen(carContext: CarContext) : Screen(carContext) {
                     handOff(result.location)
                 } else {
                     screenManager.push(
-                        NavScreen(carContext, from, result.location, route, config, result.name),
+                        NavScreen(carContext, renderer, from, result.location, route, config, result.name),
                     )
                 }
             } catch (e: Exception) {

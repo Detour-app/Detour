@@ -91,6 +91,9 @@ private const val FALLBACK_MPS = 14.0
  */
 class NavScreen(
     carContext: CarContext,
+    /** The session's map — shared with [SpinScreen]'s free-drive view, so the
+     *  car surface keeps drawing across the push and the pop. */
+    private val renderer: CarMapRenderer,
     private val origin: LatLon,
     private val destination: LatLon,
     initialRoute: RouteResult,
@@ -98,7 +101,6 @@ class NavScreen(
     private val destinationName: String? = null,
 ) : Screen(carContext) {
 
-    private val renderer = CarMapRenderer(carContext, carContext.isDarkMode())
     private val navigationManager = carContext.getCarService(NavigationManager::class.java)
     private val voice = NavVoice(carContext)
     private val toneGen = runCatching { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90) }.getOrNull()
@@ -145,7 +147,6 @@ class NavScreen(
                 // with it is not.
                 runCatching { TripTrackingService.start(carContext, destination.lat, destination.lon) }
                     .onFailure { Log.w(TAG, "could not start trip tracking", it) }
-                carContext.getCarService(AppManager::class.java).setSurfaceCallback(renderer)
                 // navigationStarted() throws unless a callback is registered
                 // first. onStopNavigation fires when the host hands navigation
                 // to another app, which for us means leaving this screen.
@@ -173,9 +174,12 @@ class NavScreen(
                 }
                 runCatching { navigationManager.clearNavigationManagerCallback() }
                 voice.stop()
+                // The map outlives this screen — hand it back to free drive
+                // without the finished route still drawn on it.
+                renderer.setRoute(null, null)
             }
             override fun onDestroy(owner: LifecycleOwner) {
-                renderer.destroy()
+                // Not renderer.destroy(): the session owns it.
                 toneGen?.release()
                 voice.shutdown()
             }
@@ -453,12 +457,13 @@ class NavScreen(
         /** Builds a [NavScreen] for [candidate], or null if it has no turn
          *  data to navigate with — caller falls back to the external handoff. */
         fun forCandidate(
-            carContext: CarContext, origin: LatLon, candidate: RouteCandidate, serverConfig: ServerConfig,
+            carContext: CarContext, renderer: CarMapRenderer, origin: LatLon,
+            candidate: RouteCandidate, serverConfig: ServerConfig,
         ): NavScreen? {
             val route = candidate.route ?: return null
             if (route.instructions.isEmpty()) return null
             return NavScreen(
-                carContext, origin, candidate.destination, route, serverConfig, candidate.name)
+                carContext, renderer, origin, candidate.destination, route, serverConfig, candidate.name)
         }
     }
 }
