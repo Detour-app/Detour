@@ -25,8 +25,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -68,6 +70,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.runtime.DisposableEffect
@@ -86,6 +89,7 @@ import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.syncQuietly
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.ConfigFile
+import com.jellemax.detour.data.RouteColors
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
@@ -198,6 +202,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 SettingsPage.APPEARANCE_MAP -> {
                     AppearanceSection(theme)
                     MapIconSection()
+                    RouteColorSection(theme)
                     MapSection()
                 }
                 SettingsPage.TRACKING_VEHICLES -> {
@@ -430,6 +435,90 @@ private fun MapIconSection() {
         )
     }
 }
+
+/** Route line colour. Same horizontal strip as [MapIconSection], and for the
+ *  same reason — a lazy grid inside this scrolling page needs a fixed height
+ *  before it will lay out at all.
+ *
+ *  Each swatch is drawn in two halves, driven on the left and ahead on the
+ *  right, because that is the pair the map actually uses: picking a colour
+ *  also picks what the road behind you fades to, and the two are resolved
+ *  against the current basemap (see [RouteColors]), so THEME previews as the
+ *  amber or the blue it will really be. */
+@Composable
+private fun RouteColorSection(theme: Settings.Theme) {
+    val routeColor by Settings.routeColor.collectAsStateWithLifecycle()
+    val darkTheme = isAppDarkTheme(theme)
+    SettingsSection("Route line") {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Settings.RouteColor.entries.forEach { color ->
+                val selected = color == routeColor
+                val shape = RoundedCornerShape(14.dp)
+                Column(
+                    Modifier
+                        .width(78.dp)
+                        .clip(shape)
+                        .background(
+                            if (selected) MaterialTheme.colorScheme.secondaryContainer
+                            else MaterialTheme.colorScheme.surfaceVariant
+                        )
+                        .border(
+                            BorderStroke(
+                                if (selected) 2.dp else 1.dp,
+                                if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.outlineVariant,
+                            ),
+                            shape,
+                        )
+                        .clickable { Settings.setRouteColor(color) }
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(14.dp)
+                            .clip(RoundedCornerShape(7.dp)),
+                    ) {
+                        Spacer(
+                            Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .background(hexColor(RouteColors.drivenHex(color, darkTheme))),
+                        )
+                        Spacer(
+                            Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .background(hexColor(RouteColors.hex(color, darkTheme))),
+                        )
+                    }
+                    Text(
+                        RouteColors.label(color),
+                        style = MaterialTheme.typography.labelSmall,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+        Text(
+            "The line drawn to your destination, on the phone map and on the " +
+                "car screen. While navigating, the part you have already driven " +
+                "fades to the darker shade.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** `#RRGGBB` from [RouteColors] as a Compose colour. */
+private fun hexColor(hex: String): Color = Color(android.graphics.Color.parseColor(hex))
 
 @Composable
 private fun MapSection() {

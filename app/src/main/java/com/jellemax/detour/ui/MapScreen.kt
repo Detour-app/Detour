@@ -543,6 +543,7 @@ fun MapScreen(
     // which is what turns a sequence of jumps into a glide.
     val defaultZoom by Settings.defaultZoom.collectAsStateWithLifecycle()
     val mapIcon by Settings.mapIcon.collectAsStateWithLifecycle()
+    val routeColor by Settings.routeColor.collectAsStateWithLifecycle()
     var camTarget by remember { mutableStateOf<LatLon?>(null) }
     var camTargetBearing by remember { mutableStateOf<Float?>(null) }
     var camTargetZoom by remember { mutableDoubleStateOf(defaultZoom.toDouble()) }
@@ -903,6 +904,12 @@ fun MapScreen(
         mapOverlays?.setPositionIcon(mapIcon)
     }
 
+    // Same reasoning for the route colour: two paint properties, no reason to
+    // re-serialise the line to change them.
+    LaunchedEffect(mapOverlays, routeColor) {
+        mapOverlays?.setRouteColor(routeColor)
+    }
+
     // Fog-of-war, fed in two effects on purpose: stored traces change rarely
     // but cost a full re-decimation to assign, while the live fix and trace
     // arrive every second — one combined effect re-paid the decimation on
@@ -956,6 +963,10 @@ fun MapScreen(
         navigating = false
         navProgress = null
         camTargetBearing = null
+        // The line stays on the map after arrival (and after a stop); without
+        // this it would keep the driven part greyed out with nothing following
+        // it any more.
+        mapOverlays?.setDrivenFraction(null)
         NavRelay.clear(context)
         BleNavServer.clear(context)
     }
@@ -1330,6 +1341,10 @@ fun MapScreen(
         val pos = LatLon(fix.lat, fix.lon)
         val progress = NavEngine.progress(r, pos) ?: return@LaunchedEffect
         navProgress = progress
+        // Fade out the road already behind you. Cheap when it changes nothing —
+        // the overlay drops an update that wouldn't move the line (see
+        // MapOverlays.setDrivenFraction).
+        mapOverlays?.setDrivenFraction(progress.drivenFraction)
         NavRelay.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
         BleNavServer.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
 

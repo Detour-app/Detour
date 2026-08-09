@@ -181,7 +181,9 @@ In-app navigation shows the next maneuver and the distance to it, a **then**
 pill for the maneuver after that (so a turn-then-turn doesn't ambush you), and a
 bottom bar with remaining distance, remaining time, arrival clock time and a
 progress track. Leave the line and it reroutes; while it's off the route the bar
-says so.
+says so. The road behind you fades as you drive it, so what's left of the route
+is the part that stands out — in whichever colour you set under Settings →
+Appearance & map → Route line.
 
 Your speed sits bottom-right with the posted limit beside it, and goes red when
 you're over. **Speed cameras** — fixed cameras and Belgian *trajectcontrole*
@@ -329,6 +331,12 @@ into this screen.
 **Appearance & map**
 - *Theme* — System, Light, Dark, or **Auto** (light by day, dark by night,
   following sunrise and sunset at your location).
+- *Your marker* — what's drawn where you are: the blue dot, or a vehicle seen
+  from above that turns to face your heading.
+- *Route line* — the colour of the drawn route, on the phone and on the car
+  screen. **Theme** (the default) follows the accent: amber by night, blue by
+  day. While navigating, the part you have already driven fades to a darker
+  shade of whichever colour you picked, so the road ahead is the bright one.
 - *Default zoom* — where the map sits while following you. It zooms out up to
   two levels at speed and back in near a turn.
 

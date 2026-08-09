@@ -103,9 +103,8 @@ private const val REPLAY_TARGET_MS = 30_000L
 private val REPLAY_SPEEDS = intArrayOf(1, 2, 4)
 
 // A warm red reads as a distinct "you are here / already driven" marker
-// against both the amber (dark theme) and blue (light theme) route line
-// MapOverlays draws underneath it — see ROUTE_COLOR_DARK/LIGHT in
-// MapLibreMap.kt.
+// against the route line MapOverlays draws underneath it, in whichever colour
+// the user picked — see RouteColors in :shared.
 private const val REPLAY_HIGHLIGHT_COLOR = "#FF5252"
 
 /** Marker position, heading and instantaneous speed at some point into replay. */

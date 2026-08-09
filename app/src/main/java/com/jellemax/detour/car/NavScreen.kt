@@ -232,6 +232,7 @@ class NavScreen(
         )
         renderer.updateHud(currentSpeedKmh, p.speedLimitKmh)
         renderer.setPosition(pos, bearingDeg?.takeIf { speedMps > 2.0 })
+        renderer.setDrivenFraction(p.drivenFraction)
 
         announce(p)
         pushTrip(p)

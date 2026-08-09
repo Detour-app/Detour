@@ -26,6 +26,13 @@ object Settings {
      *  — the artwork lives in each platform's resources. */
     enum class MapIcon { DOT, FRONTERA, SUV, SEDAN, RACECAR, MOTORCYCLE, PICKUP }
 
+    /** The colour of the route line. THEME is what the line always was: the app
+     *  accent, amber on the dark basemap and blue on the light one. Every other
+     *  entry is that one colour whatever the basemap. Only the identity is
+     *  stored here — [RouteColors] turns it into the hexes every platform
+     *  draws with. */
+    enum class RouteColor { THEME, AMBER, BLUE, GREEN, TEAL, PURPLE, PINK, RED }
+
     const val FOG_RADIUS_DEFAULT = 200f
     const val DEFAULT_ZOOM_DEFAULT = 16f
     const val DEFAULT_ZOOM_MIN = 12f
@@ -129,6 +136,11 @@ object Settings {
     private val _mapIcon = MutableStateFlow(MapIcon.DOT)
     val mapIcon: StateFlow<MapIcon> = _mapIcon
 
+    /** The colour the route line is drawn in. THEME (the accent) until the user
+     *  picks one from Settings. */
+    private val _routeColor = MutableStateFlow(RouteColor.THEME)
+    val routeColor: StateFlow<RouteColor> = _routeColor
+
     fun init() {
         if (store != null) return
         store = prefs("settings")
@@ -152,6 +164,9 @@ object Settings {
         _mapIcon.value = runCatching {
             MapIcon.valueOf(prefs.string("map_icon", MapIcon.DOT.name))
         }.getOrDefault(MapIcon.DOT)
+        _routeColor.value = runCatching {
+            RouteColor.valueOf(prefs.string("route_color", RouteColor.THEME.name))
+        }.getOrDefault(RouteColor.THEME)
         _preferredNavApp.value = runCatching {
             NavApp.valueOf(prefs.string("preferred_nav_app", NavApp.ASK.name))
         }.getOrDefault(NavApp.ASK)
@@ -275,6 +290,11 @@ object Settings {
     fun setMapIcon(value: MapIcon) {
         _mapIcon.value = value
         prefs.put("map_icon", value.name)
+    }
+
+    fun setRouteColor(value: RouteColor) {
+        _routeColor.value = value
+        prefs.put("route_color", value.name)
     }
 
     fun setPreferredNavApp(value: NavApp) {

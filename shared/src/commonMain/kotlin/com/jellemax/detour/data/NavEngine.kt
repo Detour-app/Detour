@@ -33,7 +33,16 @@ object NavEngine {
         /** Distance from the current position to [nextNextInstruction], same
          *  basis as [distanceToTurnMeters]. */
         val distanceToNextNextMeters: Double? = null,
-    )
+    ) {
+        /** How much of the route is behind you, 0..1 — [remainingMeters] read
+         *  the other way round. A fraction rather than metres because the map
+         *  that draws it measures the same polyline with its own arithmetic:
+         *  ratios agree between the two where absolute distances need not. */
+        val drivenFraction: Double
+            get() = if (routeMeters > 0.0)
+                ((routeMeters - remainingMeters) / routeMeters).coerceIn(0.0, 1.0)
+            else 0.0
+    }
 
     /** Where [pos] is along [route]: snap to the nearest segment, then derive
      *  the upcoming instruction and remaining distance/time. */
@@ -96,6 +105,57 @@ object NavEngine {
             nextNextInstruction = nextNext,
             distanceToNextNextMeters = distToNextNext,
         )
+    }
+
+    /** Length of [line] in metres, measured along it with the same flat-earth
+     *  approximation [progress] uses. */
+    fun lengthMeters(line: List<LatLon>): Double {
+        var total = 0.0
+        for (i in 0 until line.size - 1) total += segmentMeters(line[i], line[i + 1])
+        return total
+    }
+
+    /**
+     * The first [fraction] (0..1) of [line] — the part already driven, for a map
+     * that draws the road behind you differently from the road ahead.
+     *
+     * The cut lands *inside* a segment rather than at the nearest vertex: on a
+     * motorway the router can leave kilometres between two points, and a line
+     * that only advances when one is passed reads as a stuck map. Empty when
+     * there is nothing to draw yet, and never a single point (a one-point
+     * LineString is not a line).
+     */
+    fun prefix(line: List<LatLon>, fraction: Double): List<LatLon> {
+        if (line.size < 2) return emptyList()
+        val target = lengthMeters(line) * fraction.coerceIn(0.0, 1.0)
+        if (target <= 0.0) return emptyList()
+        val out = ArrayList<LatLon>(line.size)
+        out.add(line[0])
+        var walked = 0.0
+        for (i in 0 until line.size - 1) {
+            val segment = segmentMeters(line[i], line[i + 1])
+            if (walked + segment >= target) {
+                val t = if (segment <= 0.0) 0.0 else (target - walked) / segment
+                out.add(
+                    LatLon(
+                        line[i].lat + (line[i + 1].lat - line[i].lat) * t,
+                        line[i].lon + (line[i + 1].lon - line[i].lon) * t,
+                    ),
+                )
+                return out
+            }
+            walked += segment
+            out.add(line[i + 1])
+        }
+        // Rounding only: the loop above returns for every fraction under 1.
+        return out
+    }
+
+    /** Straight-line metres between two neighbouring route points. */
+    private fun segmentMeters(a: LatLon, b: LatLon): Double {
+        val mPerLat = 111_320.0
+        val mPerLon = mPerLat * cos((a.lat + b.lat) / 2.0 * PI / 180.0)
+        return hypot((b.lon - a.lon) * mPerLon, (b.lat - a.lat) * mPerLat)
     }
 
     /**

@@ -86,6 +86,16 @@ class TravelModeWatcher internal constructor(
         flow.collect { value = it; onChange() }
 }
 
+class RouteColorWatcher internal constructor(
+    private val flow: StateFlow<Settings.RouteColor>,
+) : Watcher() {
+    var value: Settings.RouteColor = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
 class SavedPlacesWatcher internal constructor(
     private val flow: StateFlow<List<SavedPlace>>,
 ) : Watcher() {
@@ -128,6 +138,7 @@ object SettingsFlows {
     fun shareFog() = BoolWatcher(Settings.shareFog)
     fun geocoderPublicFallback() = BoolWatcher(Settings.geocoderPublicFallback)
     fun voiceGuidance() = BoolWatcher(Settings.voiceGuidance)
+    fun routeColor() = RouteColorWatcher(Settings.routeColor)
     fun authUsername() = StringWatcher(Settings.authUsername)
     fun authToken() = StringWatcher(Settings.authToken)
 }
@@ -151,6 +162,7 @@ object SettingsValues {
     val avoidHighways: Boolean get() = Settings.avoidHighways.value
     val avoidSmallRoads: Boolean get() = Settings.avoidSmallRoads.value
     val voiceGuidance: Boolean get() = Settings.voiceGuidance.value
+    val routeColor: Settings.RouteColor get() = Settings.routeColor.value
     val shareFog: Boolean get() = Settings.shareFog.value
     val fogEnabled: Boolean get() = Settings.fogEnabled.value
     val fogRadiusMeters: Float get() = Settings.fogRadiusMeters.value
@@ -172,6 +184,11 @@ object SettingsValues {
 object Enums {
     val travelModes: List<TravelMode> = TravelMode.entries.toList()
     val badgeKinds: List<BadgeKind> = BadgeKind.entries.toList()
+    val routeColors: List<Settings.RouteColor> = RouteColors.all
+
+    /** Spelling an enum *entry* in Swift means trusting Kotlin/Native's name
+     *  mangling for it; naming the one default here does not. */
+    val defaultRouteColor: Settings.RouteColor = Settings.RouteColor.THEME
 
     val minZoom: Float = Settings.DEFAULT_ZOOM_MIN
     val maxZoom: Float = Settings.DEFAULT_ZOOM_MAX

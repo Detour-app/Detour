@@ -19,6 +19,8 @@ import androidx.core.graphics.drawable.toBitmap
 import com.jellemax.detour.R
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MemberFix
+import com.jellemax.detour.data.NavEngine
+import com.jellemax.detour.data.RouteColors
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.net.FriendPosition
@@ -58,6 +60,7 @@ fun openFreeMapStyleUrl(darkTheme: Boolean): String =
 private const val SRC_REACH = "mr-reach"
 private const val SRC_WEDGE = "mr-wedge"
 private const val SRC_ROUTE = "mr-route"
+private const val SRC_ROUTE_DRIVEN = "mr-route-driven"
 private const val SRC_CANDIDATES = "mr-candidates"
 private const val SRC_DEST = "mr-dest"
 private const val SRC_POSITION = "mr-position"
@@ -69,6 +72,8 @@ private const val IMG_POSITION = "mr-img-position"
 private const val IMG_CAMERA = "mr-img-camera"
 private const val IMG_FRIEND = "mr-img-friend"
 private const val IMG_CIRCLE_MEMBER = "mr-img-circle-member"
+private const val LAYER_ROUTE = "mr-route-line"
+private const val LAYER_ROUTE_DRIVEN = "mr-route-driven-line"
 const val LAYER_CANDIDATES = "mr-candidates-dot"
 // Every symbol layer that carries a text label must name this font stack.
 // MapLibre's spec default is ["Open Sans Regular", "Arial Unicode MS Regular"]
@@ -89,6 +94,15 @@ private const val POSITION_ICON_SCALE = 2
 // Below city zoom the speed-camera icons pile up into an unreadable blob, and
 // at loop-planning zoom they're just noise — hide them until zoomed past this.
 private const val SPEED_CAMERA_MIN_ZOOM = 11f
+// Redrawing the driven part of the route costs a GeoJSON push the size of that
+// part, so it advances in steps rather than on every fix: a phone at a red
+// light pushes nothing at all, and at speed this lands at roughly the GPS's own
+// once a second. Twelve metres is under a car length at map scale — the line
+// still creeps forward smoothly.
+private const val DRIVEN_STEP_METERS = 12.0
+// Below this there is nothing worth drawing: a stub of driven line at the very
+// start of a route reads as a rendering glitch, not as progress.
+private const val DRIVEN_MIN_METERS = 20.0
 
 /**
  * Owns the runtime sources and layers drawn on top of the basemap: the reach
@@ -96,15 +110,15 @@ private const val SPEED_CAMERA_MIN_ZOOM = 11f
  * destination + own-position markers. Created once per [Style]; [render] only
  * pushes new GeoJSON, so overlays update without rebuilding the map.
  */
-class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean) {
+class MapOverlays(
+    private val style: Style,
+    context: Context,
+    private val darkTheme: Boolean,
+) {
 
     // Application context: the icons are plain vectors with literal colours, and
     // this outlives the Activity by however long the Style does.
     private val context = context.applicationContext
-
-    // The route line follows the app accent: amber on the dark basemap, blue on
-    // the light one, so navigation matches the chrome instead of always amber.
-    private val routeColor = if (darkTheme) ROUTE_COLOR_DARK else ROUTE_COLOR_LIGHT
 
     init {
         ContextCompat.getDrawable(context, R.drawable.ic_map_pin)?.let {
@@ -120,12 +134,21 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
         ContextCompat.getDrawable(context, R.drawable.ic_map_circle_member)?.let {
             style.addImage(IMG_CIRCLE_MEMBER, it.toBitmap())
         }
-        listOf(SRC_REACH, SRC_WEDGE, SRC_ROUTE, SRC_CANDIDATES, SRC_DEST, SRC_POSITION, SRC_CAMERAS,
-            SRC_FRIENDS, SRC_CIRCLE_MEMBERS)
+        listOf(SRC_REACH, SRC_WEDGE, SRC_ROUTE, SRC_ROUTE_DRIVEN, SRC_CANDIDATES, SRC_DEST,
+            SRC_POSITION, SRC_CAMERAS, SRC_FRIENDS, SRC_CIRCLE_MEMBERS)
             .forEach { style.addSource(GeoJsonSource(it)) }
 
+        // Whatever the user picked in Settings > Route line; the default,
+        // THEME, is the app accent — amber on the dark basemap, blue on the
+        // light one — so navigation matches the chrome instead of always being
+        // amber. Sampled for the layers this style starts with; [setRouteColor]
+        // carries a later change onto them, the same way [setPositionIcon]
+        // does for the marker.
+        val routeColor = Settings.routeColor.value
+
         // Bottom-to-top: fills, then the route (dark casing under the colored
-        // line), then markers, with the tappable candidates on top.
+        // line, and the driven part over it), then markers, with the tappable
+        // candidates on top.
         style.addLayer(FillLayer("mr-reach-fill", SRC_REACH).withProperties(
             PropertyFactory.fillColor("#2196F3"), PropertyFactory.fillOpacity(0.09f)))
         style.addLayer(LineLayer("mr-reach-line", SRC_REACH).withProperties(
@@ -137,8 +160,20 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
             PropertyFactory.lineColor("#0B1220"), PropertyFactory.lineWidth(11f),
             PropertyFactory.lineOpacity(0.85f), PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
-        style.addLayer(LineLayer("mr-route-line", SRC_ROUTE).withProperties(
-            PropertyFactory.lineColor(routeColor), PropertyFactory.lineWidth(7f),
+        style.addLayer(LineLayer(LAYER_ROUTE, SRC_ROUTE).withProperties(
+            PropertyFactory.lineColor(RouteColors.hex(routeColor, darkTheme)),
+            PropertyFactory.lineWidth(7f),
+            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
+        // The part already driven, laid over the live line in the dimmed
+        // colour so the road ahead is the bright one. On top rather than
+        // underneath, and opaque rather than translucent: the line it has to
+        // hide is the one immediately below it (see [RouteColors.drivenHex]).
+        // Empty until [setDrivenFraction] says otherwise, so a route that is
+        // merely drawn — a spin result, a saved trip — is bright end to end.
+        style.addLayer(LineLayer(LAYER_ROUTE_DRIVEN, SRC_ROUTE_DRIVEN).withProperties(
+            PropertyFactory.lineColor(RouteColors.drivenHex(routeColor, darkTheme)),
+            PropertyFactory.lineWidth(7f),
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
         // Rotated to the last known heading, aligned to the map rather than the
@@ -195,6 +230,62 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
 
     private fun setData(sourceId: String, fc: FeatureCollection) {
         (style.getSource(sourceId) as? GeoJsonSource)?.setGeoJson(fc)
+    }
+
+    private fun empty() = FeatureCollection.fromFeatures(emptyList())
+
+    /** Recolour both route layers. Cheap enough to call on every change of the
+     *  setting — two paint properties, no source or layer rebuild — for the
+     *  same reason [setPositionIcon] is. */
+    fun setRouteColor(color: Settings.RouteColor) {
+        // Guarded like [setPositionIcon]: a theme flip can leave this Style
+        // behind mid-load, and a style call thrown from a flow collector ends
+        // the process rather than skipping a frame.
+        runCatching {
+            (style.getLayer(LAYER_ROUTE) as? LineLayer)?.setProperties(
+                PropertyFactory.lineColor(RouteColors.hex(color, darkTheme)))
+            (style.getLayer(LAYER_ROUTE_DRIVEN) as? LineLayer)?.setProperties(
+                PropertyFactory.lineColor(RouteColors.drivenHex(color, darkTheme)))
+        }
+    }
+
+    // The route as last pushed, its length, and how far along it the driven
+    // overlay currently reaches (NaN = nothing drawn). Kept so progress can be
+    // given as a fraction — the caller measures the same polyline with
+    // NavEngine's arithmetic, and ratios agree where absolute metres need not.
+    private var routeLine: List<LatLon>? = null
+    private var routeMeters = 0.0
+    private var drawnDrivenMeters = Double.NaN
+
+    /**
+     * How much of the drawn route is already behind you (0..1, or null when not
+     * navigating): that much of it is redrawn in the dimmed colour, so the road
+     * ahead is the one that stands out.
+     *
+     * Throttled to [DRIVEN_STEP_METERS] of travel. Rewriting the driven part
+     * costs a GeoJSON push proportional to its length, and this is called once
+     * per GPS fix from both the phone map and the car screen — where a
+     * route-sized push per fix is exactly what [setPosition] exists to avoid.
+     */
+    fun setDrivenFraction(fraction: Double?) {
+        val line = routeLine
+        // No fraction, no route, or not far enough along it to draw: whatever
+        // was there comes off. Once, not on every fix that clears nothing.
+        val meters = fraction?.times(routeMeters) ?: -1.0
+        if (line == null || meters < DRIVEN_MIN_METERS) {
+            if (!drawnDrivenMeters.isNaN()) {
+                drawnDrivenMeters = Double.NaN
+                setData(SRC_ROUTE_DRIVEN, empty())
+            }
+            return
+        }
+        if (!drawnDrivenMeters.isNaN() && abs(meters - drawnDrivenMeters) < DRIVEN_STEP_METERS) return
+        drawnDrivenMeters = meters
+        val driven = NavEngine.prefix(line, meters / routeMeters)
+        setData(SRC_ROUTE_DRIVEN, if (driven.size >= 2)
+            FeatureCollection.fromFeature(Feature.fromGeometry(
+                LineString.fromLngLats(driven.map { Point.fromLngLat(it.lon, it.lat) })))
+        else empty())
     }
 
     /** Replace the speed-camera markers. Fed by the prefetch loop, not [render],
@@ -295,6 +386,18 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
                 LineString.fromLngLats(routePolyline.map { Point.fromLngLat(it.lon, it.lat) })))
         else FeatureCollection.fromFeatures(emptyList()))
 
+        // A different line means progress along the old one is meaningless —
+        // that is a reroute, or a new destination. Compared by identity on
+        // purpose: this runs on every fix on the phone map, and re-measuring an
+        // unchanged route (or worse, clearing the driven part under it) once a
+        // second is the bug this guard exists to prevent.
+        if (routePolyline !== routeLine) {
+            routeLine = routePolyline
+            routeMeters = routePolyline?.let { NavEngine.lengthMeters(it) } ?: 0.0
+            drawnDrivenMeters = Double.NaN
+            setData(SRC_ROUTE_DRIVEN, empty())
+        }
+
         setData(SRC_CANDIDATES, FeatureCollection.fromFeatures(
             candidates.mapIndexed { i, c ->
                 Feature.fromGeometry(Point.fromLngLat(c.at.lon, c.at.lat)).apply {
@@ -308,11 +411,6 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
         else FeatureCollection.fromFeatures(emptyList()))
 
         setPosition(myLocation.takeIf { showPosition }, positionBearingDeg)
-    }
-
-    companion object {
-        const val ROUTE_COLOR_DARK = "#E8B04B"  // amber — the Graphite night accent
-        const val ROUTE_COLOR_LIGHT = "#2F80ED" // blue — the day accent
     }
 }
 

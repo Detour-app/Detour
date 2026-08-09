@@ -13,6 +13,12 @@ struct MapView: UIViewRepresentable {
     var center: CLLocationCoordinate2D?
     var destination: CLLocationCoordinate2D?
     var route: [CLLocationCoordinate2D]
+    /// The head of `route` that is already behind the rider, drawn over it in
+    /// the dimmed shade of the same colour so the road ahead is the bright one.
+    /// Empty everywhere but `NavScreen`: nothing has been driven of a route
+    /// that is only being looked at. Built with `NavEngine.prefix`, the same
+    /// shared function the Android map splits the line with.
+    var driven: [CLLocationCoordinate2D] = []
     /// Extra pins beyond a single `destination` — the route editor's ordered
     /// stops. Empty everywhere else, so every other call site is unaffected.
     var stops: [CLLocationCoordinate2D] = []
@@ -46,6 +52,20 @@ struct MapView: UIViewRepresentable {
 
     func updateUIView(_ view: MLNMapView, context: Context) {
         context.coordinator.onTap = onTap
+        // Resolved here and stashed on the coordinator: MapLibre asks for a
+        // stroke colour per annotation while rendering, long after this call,
+        // and the delegate has no other way to know what the rider picked.
+        // Read rather than observed — every screen holding a MapView redraws
+        // often enough that a change in Settings lands within a frame or two,
+        // and none of them is on screen while Settings is.
+        //
+        // `darkTheme: false` because iOS draws the light "liberty" basemap
+        // whatever the app theme says; that is what the colours have to read
+        // against.
+        let color = SettingsValues.shared.routeColor
+        context.coordinator.routeColor = uiColor(RouteColors.shared.hex(color: color, darkTheme: false))
+        context.coordinator.drivenColor =
+            uiColor(RouteColors.shared.drivenHex(color: color, darkTheme: false))
 
         if let center, !context.coordinator.hasCentered {
             view.setCenter(center, zoomLevel: 13, animated: false)
@@ -106,6 +126,14 @@ struct MapView: UIViewRepresentable {
         if route.count >= 2 {
             var coords = route
             view.addAnnotation(MLNPolyline(coordinates: &coords, count: UInt(coords.count)))
+            // The driven part goes on after the line it dims, so it draws over
+            // it; the delegate tells the two apart by title.
+            if driven.count >= 2 {
+                var drivenCoords = driven
+                let line = MLNPolyline(coordinates: &drivenCoords, count: UInt(drivenCoords.count))
+                line.title = Coordinator.drivenTitle
+                view.addAnnotation(line)
+            }
             // Frame the whole route rather than the user, which is what you want
             // the moment a spin lands.
             view.setVisibleCoordinates(
@@ -118,6 +146,10 @@ struct MapView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     final class Coordinator: NSObject, MLNMapViewDelegate {
+        /// Marks the driven overlay. A polyline annotation carries no identity
+        /// of its own, and the delegate is handed nothing but the annotation.
+        static let drivenTitle = "driven"
+
         /// The first fix should centre the map; later ones must not yank it back
         /// while the user is panning.
         var hasCentered = false
@@ -125,6 +157,10 @@ struct MapView: UIViewRepresentable {
         /// The candidate set the camera was last fitted to, so a redraw that
         /// changes nothing about them leaves the camera alone.
         var lastFramedCandidates: [CLLocationCoordinate2D] = []
+        /// The route line's two colours, refreshed on every update from the
+        /// shared setting.
+        var routeColor: UIColor = .systemBlue
+        var drivenColor: UIColor = .systemGray
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
             guard let onTap, let mapView = gesture.view as? MLNMapView else { return }
@@ -137,9 +173,23 @@ struct MapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MLNMapView, strokeColorForShapeAnnotation annotation: MLNShape) -> UIColor {
-            .systemBlue
+            annotation.title == Coordinator.drivenTitle ? drivenColor : routeColor
         }
     }
+}
+
+/// `#RRGGBB` from the shared `RouteColors` as a `UIColor`. Anything that is not
+/// six hex digits falls back to grey rather than to a crash — the strings come
+/// from Kotlin, where they are constants, so this is a guard and not a path.
+private func uiColor(_ hex: String) -> UIColor {
+    var value: UInt64 = 0
+    let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+    guard digits.count == 6, Scanner(string: digits).scanHexInt64(&value) else { return .systemGray }
+    return UIColor(
+        red: CGFloat((value >> 16) & 0xFF) / 255,
+        green: CGFloat((value >> 8) & 0xFF) / 255,
+        blue: CGFloat(value & 0xFF) / 255,
+        alpha: 1)
 }
 
 /// "just now" / "<n>m ago" with no hour/day rollover — a circle fix is always

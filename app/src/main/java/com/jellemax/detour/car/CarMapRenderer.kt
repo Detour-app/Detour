@@ -123,6 +123,11 @@ class CarMapRenderer(
         scope.launch {
             Settings.mapIcon.collect { icon -> withOverlays { it.setPositionIcon(icon) } }
         }
+        // The route colour, for the same reason: it belongs to the map, and the
+        // driver can change it on the phone while the car screen is up.
+        scope.launch {
+            Settings.routeColor.collect { color -> withOverlays { it.setRouteColor(color) } }
+        }
         // Convoy peers and circle members, for the same reason: they belong to
         // the map, not to whichever screen happens to be on top. Collected in
         // NavScreen before, which meant they existed only while a route was
@@ -168,6 +173,7 @@ class CarMapRenderer(
 
     // What should be on the map. Re-applied to every new style.
     private var routePolyline: List<LatLon>? = null
+    private var drivenFraction: Double? = null
     private var destination: LatLon? = null
     private var position: LatLon? = null
     private var positionBearing: Double? = null
@@ -209,7 +215,18 @@ class CarMapRenderer(
     fun setRoute(polyline: List<LatLon>?, destination: LatLon?) {
         this.routePolyline = polyline
         this.destination = destination
+        // Progress belongs to the line it was measured along: a reroute starts
+        // a new one, and the next fix says how far along *it* we are.
+        this.drivenFraction = null
         withOverlays { pushRoute(it) }
+    }
+
+    /** How much of the route is behind us (0..1), so the map can fade it out.
+     *  A per-fix call, and a cheap one: the overlay skips an update that
+     *  wouldn't visibly move the line. */
+    fun setDrivenFraction(fraction: Double?) {
+        drivenFraction = fraction
+        withOverlays { it.setDrivenFraction(fraction) }
     }
 
     /** The own-position marker. The cheap per-fix update: one point of GeoJSON,
@@ -352,6 +369,10 @@ class CarMapRenderer(
             showPosition = position != null,
             positionBearingDeg = positionBearing,
         )
+        // render() starts the line off undriven, so how far along it we are has
+        // to follow — this is also what restores the faded part on a surface
+        // swap mid-drive, rather than waiting for the next fix.
+        overlays.setDrivenFraction(drivenFraction)
     }
 
     /**

@@ -26,7 +26,8 @@ struct NavScreen: View {
                 },
                 route: route.polyline.map {
                     CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
-                }
+                },
+                driven: drivenPolyline
             )
             .ignoresSafeArea()
 
@@ -42,6 +43,17 @@ struct NavScreen: View {
         .onChange(of: recorder.lastFix) { _, fix in
             guard let fix else { return }
             model.update(with: fix)
+        }
+    }
+
+    /// The part of the route already behind us, cut where the rider actually
+    /// is rather than at the last vertex passed. `NavEngine.prefix` is the same
+    /// shared function the Android map fades its driven part with, so the two
+    /// platforms cut the line in the same place.
+    private var drivenPolyline: [CLLocationCoordinate2D] {
+        guard let fraction = model.progress?.drivenFraction, fraction > 0 else { return [] }
+        return NavEngine.shared.prefix(line: route.polyline, fraction: fraction).map {
+            CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
         }
     }
 

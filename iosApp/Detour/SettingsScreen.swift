@@ -32,7 +32,8 @@ struct SettingsScreen: View {
     }
 
     private var mapSection: some View {
-        Section("Map") {
+        Section {
+            routeColorPicker
             Toggle("Fog of war", isOn: Binding(
                 get: { model.fogEnabled },
                 set: { Settings.shared.setFogEnabled(value: $0) }
@@ -56,6 +57,24 @@ struct SettingsScreen: View {
                     ),
                     in: zoomRange,
                     step: 0.5)
+            }
+        } header: {
+            Text("Map")
+        } footer: {
+            Text("While navigating, the part of the route you have already driven fades to a darker shade of the line colour.")
+        }
+    }
+
+    /// The route line's colour. A menu rather than a segmented control: eight
+    /// entries would be unreadable in a row, and the row label carries the
+    /// current choice the way the rest of this Form does.
+    private var routeColorPicker: some View {
+        Picker("Route line", selection: Binding(
+            get: { model.routeColor },
+            set: { Settings.shared.setRouteColor(value: $0) }
+        )) {
+            ForEach(Enums.shared.routeColors, id: \.name) { color in
+                Text(RouteColors.shared.label(color: color)).tag(color)
             }
         }
     }
@@ -176,6 +195,7 @@ struct SettingsScreen: View {
 final class SettingsModel: ObservableObject {
 
     @Published var fogEnabled = true
+    @Published var routeColor: Settings.RouteColor = Enums.shared.defaultRouteColor
     @Published var fogRadius: Float = 200
     @Published var defaultZoom: Float = 16
     @Published var avoidHighways = false
@@ -186,6 +206,7 @@ final class SettingsModel: ObservableObject {
     @Published var publicGeocoderFallback = true
 
     private let fog = SettingsFlows.shared.fogEnabled()
+    private let lineColor = SettingsFlows.shared.routeColor()
     private let radius = SettingsFlows.shared.fogRadiusMeters()
     private let zoom = SettingsFlows.shared.defaultZoom()
     private let highways = SettingsFlows.shared.avoidHighways()
@@ -197,6 +218,9 @@ final class SettingsModel: ObservableObject {
 
     init() {
         fog.watch { [weak self] in self?.fogEnabled = self?.fog.value ?? true }
+        lineColor.watch { [weak self] in
+            self?.routeColor = self?.lineColor.value ?? Enums.shared.defaultRouteColor
+        }
         radius.watch { [weak self] in self?.fogRadius = self?.radius.value ?? 200 }
         zoom.watch { [weak self] in self?.defaultZoom = self?.zoom.value ?? 16 }
         highways.watch { [weak self] in self?.avoidHighways = self?.highways.value ?? false }
@@ -210,7 +234,7 @@ final class SettingsModel: ObservableObject {
     }
 
     deinit {
-        [fog, radius, zoom, highways, smallRoads, voice, auto, fogSharing, fallback]
+        [fog, lineColor, radius, zoom, highways, smallRoads, voice, auto, fogSharing, fallback]
             .forEach { $0.cancel() }
     }
 }
