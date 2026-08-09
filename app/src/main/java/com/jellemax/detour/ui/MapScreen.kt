@@ -487,6 +487,7 @@ fun MapScreen(
     // frame loop further down eases the map toward these targets every frame,
     // which is what turns a sequence of jumps into a glide.
     val defaultZoom by Settings.defaultZoom.collectAsStateWithLifecycle()
+    val mapIcon by Settings.mapIcon.collectAsStateWithLifecycle()
     var camTarget by remember { mutableStateOf<LatLon?>(null) }
     var camTargetBearing by remember { mutableStateOf<Float?>(null) }
     var camTargetZoom by remember { mutableDoubleStateOf(defaultZoom.toDouble()) }
@@ -773,10 +774,20 @@ fun MapScreen(
             candidates = candidates.mapIndexed { i, c ->
                 CandidatePin(c.destination, CANDIDATE_COLORS[i % CANDIDATE_COLORS.size])
             },
-            // Dot updates per fix (~1 Hz); the eased camera glides the map under
-            // it, so it stays smooth without a per-frame source rewrite.
+            // Marker updates per fix (~1 Hz); the eased camera glides the map
+            // under it, so it stays smooth without a per-frame source rewrite.
             showPosition = true,
+            // Same bearing the camera is easing towards, which is already held
+            // through a stop rather than following the noise below 2 m/s.
+            positionBearingDeg = camTargetBearing?.toDouble(),
         )
+    }
+
+    // Swapping the vehicle icon only replaces one style image, so it can be its
+    // own effect rather than a key on the render above — which would re-push
+    // every overlay source to change one bitmap.
+    LaunchedEffect(mapOverlays, mapIcon) {
+        mapOverlays?.setPositionIcon(mapIcon)
     }
 
     // Fog-of-war, fed in two effects on purpose: stored traces change rarely

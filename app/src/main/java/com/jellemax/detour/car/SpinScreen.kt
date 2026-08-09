@@ -129,7 +129,7 @@ class SpinScreen(
                     fix ?: return@collect
                     val pos = LatLon(fix.lat, fix.lon)
                     myLocation = pos
-                    renderer.setPosition(pos)
+                    renderer.setPosition(pos, fix.bearingDeg?.takeIf { fix.speedMps > 2.0 })
                     renderer.follow(pos, fix.bearingDeg, fix.speedMps,
                         Settings.defaultZoom.value.toDouble())
                     // The limit lookup can go to the network; move the map

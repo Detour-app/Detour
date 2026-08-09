@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Naked bike from above: front tyre, bars with mirrors, tank, engine, seat,
+     rear tyre. Kept narrow — the width is the whole reason a rider can tell
+     this apart from a car at map size. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+
+    <!-- Front tyre, then the fender covering its middle. -->
+    <path
+        android:fillColor="#FF2A2E33"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="2"
+        android:pathData="M44,5h8a2,2 0 0 1 2,2v20a2,2 0 0 1 -2,2h-8a2,2 0 0 1 -2,-2v-20a2,2 0 0 1 2,-2z" />
+    <path
+        android:fillColor="#FFE8792B"
+        android:pathData="M42.5,13h11a1.5,1.5 0 0 1 1.5,1.5v8a1.5,1.5 0 0 1 -1.5,1.5h-11a1.5,1.5 0 0 1 -1.5,-1.5v-8a1.5,1.5 0 0 1 1.5,-1.5z" />
+
+    <!-- Fork legs and headlamp. -->
+    <path
+        android:fillColor="#FF6B7076"
+        android:pathData="M40,26h16v6h-16z" />
+    <path
+        android:fillColor="#FFFDF3D0"
+        android:pathData="M42,25h12v5h-12z" />
+
+    <!-- Bars, with mirrors on the ends. -->
+    <path
+        android:fillColor="#FF3A3F45"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="1.5"
+        android:pathData="M27,30h42a2.5,2.5 0 0 1 2.5,2.5a2.5,2.5 0 0 1 -2.5,2.5h-42a2.5,2.5 0 0 1 -2.5,-2.5a2.5,2.5 0 0 1 2.5,-2.5z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="1.5"
+        android:pathData="M20,27a4,4 0 1,0 8,0a4,4 0 1,0 -8,0z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="1.5"
+        android:pathData="M68,27a4,4 0 1,0 8,0a4,4 0 1,0 -8,0z" />
+
+    <!-- Rear tyre, under the seat that sits on top of it. -->
+    <path
+        android:fillColor="#FF2A2E33"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="2"
+        android:pathData="M43,60h10a2,2 0 0 1 2,2v28a2,2 0 0 1 -2,2h-10a2,2 0 0 1 -2,-2v-28a2,2 0 0 1 2,-2z" />
+
+    <!-- Engine: the widest thing between the wheels, which is what stops the
+         middle of the bike reading as a single blob. -->
+    <path
+        android:fillColor="#FF3A3F45"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="1.5"
+        android:pathData="M37,50h22a3,3 0 0 1 3,3v10a3,3 0 0 1 -3,3h-22a3,3 0 0 1 -3,-3v-10a3,3 0 0 1 3,-3z" />
+
+    <!-- Tank: teardrop, wide at the rider's knees and pinched at the headstock. -->
+    <path
+        android:fillColor="#FFE8792B"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="2.5"
+        android:pathData="M48,34C52,34 55,36 56.5,40L58,50C59,55 55,58 48,58C41,58 37,55 38,50L39.5,40C41,36 44,34 48,34Z" />
+
+    <!-- Seat and tail. -->
+    <path
+        android:fillColor="#FF20262E"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="2.5"
+        android:pathData="M42,57h12a3,3 0 0 1 3,3v14C57,79 54,81 48,81C42,81 39,79 39,74v-14a3,3 0 0 1 3,-3z" />
+    <path
+        android:fillColor="#FFB3261E"
+        android:pathData="M43,74h10v5h-10z" />
+</vector>

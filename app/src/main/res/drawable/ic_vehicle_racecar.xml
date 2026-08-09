@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Open-wheel racer: front splitter, exposed slicks, rear wing. Deliberately
+     narrow in the middle so the wings read as wings at map size. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+
+    <!-- Slicks: wider than any road tyre, which is most of the read. -->
+    <path
+        android:fillColor="#FF17191C"
+        android:pathData="M16,20h9a2,2 0 0 1 2,2v14a2,2 0 0 1 -2,2h-9a2,2 0 0 1 -2,-2v-14a2,2 0 0 1 2,-2z" />
+    <path
+        android:fillColor="#FF17191C"
+        android:pathData="M71,20h9a2,2 0 0 1 2,2v14a2,2 0 0 1 -2,2h-9a2,2 0 0 1 -2,-2v-14a2,2 0 0 1 2,-2z" />
+    <path
+        android:fillColor="#FF17191C"
+        android:pathData="M14,58h11a2,2 0 0 1 2,2v16a2,2 0 0 1 -2,2h-11a2,2 0 0 1 -2,-2v-16a2,2 0 0 1 2,-2z" />
+    <path
+        android:fillColor="#FF17191C"
+        android:pathData="M71,58h11a2,2 0 0 1 2,2v16a2,2 0 0 1 -2,2h-11a2,2 0 0 1 -2,-2v-16a2,2 0 0 1 2,-2z" />
+
+    <!-- Front wing. -->
+    <path
+        android:fillColor="#FFE53935"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="2"
+        android:pathData="M19,7h58a2,2 0 0 1 2,2v6a2,2 0 0 1 -2,2h-58a2,2 0 0 1 -2,-2v-6a2,2 0 0 1 2,-2z" />
+
+    <!-- Rear wing. -->
+    <path
+        android:fillColor="#FFE53935"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="2"
+        android:pathData="M17,80h62a2,2 0 0 1 2,2v7a2,2 0 0 1 -2,2h-62a2,2 0 0 1 -2,-2v-7a2,2 0 0 1 2,-2z" />
+
+    <!-- Monocoque: nose cone, pinched waist, engine cover. -->
+    <path
+        android:fillColor="#FFE53935"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="2.5"
+        android:pathData="M48,10C52,10 54,13 54.5,18L56,30C60,32 62,36 62,42L62,58C62,68 60,76 58,84L38,84C36,76 34,68 34,58L34,42C34,36 36,32 40,30L41.5,18C42,13 44,10 48,10Z" />
+
+    <!-- Centre stripe. -->
+    <path
+        android:fillColor="#FFF3F4F6"
+        android:pathData="M44.5,30h7v52h-7z" />
+
+    <!-- Cockpit and airbox. -->
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M41,45a7,7 0 1,0 14,0a7,7 0 1,0 -14,0z" />
+    <path
+        android:fillColor="#FF17191C"
+        android:pathData="M42,54h12v10h-12z" />
+</vector>

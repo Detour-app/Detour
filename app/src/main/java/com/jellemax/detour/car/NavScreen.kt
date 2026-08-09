@@ -217,7 +217,7 @@ class NavScreen(
                 Settings.defaultZoom.value.toDouble(), speedMps, p.distanceToTurnMeters),
         )
         renderer.updateHud(currentSpeedKmh, p.speedLimitKmh)
-        renderer.setPosition(pos)
+        renderer.setPosition(pos, bearingDeg?.takeIf { speedMps > 2.0 })
 
         announce(p)
         pushTrip(p)

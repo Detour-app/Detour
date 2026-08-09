@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Grey Opel Frontera B, 2-door Sport: short boxy body, roof rails, and the
+     tailgate-mounted spare that is the giveaway from above. Nose points up
+     (0 deg = the icon's heading), same as every other vehicle marker. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+
+    <!-- Tailgate spare wheel, under the body so the rim tucks against it. -->
+    <path
+        android:fillColor="#FF23262A"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="2"
+        android:pathData="M38,84a10,10 0 1,0 20,0a10,10 0 1,0 -20,0z" />
+    <path
+        android:fillColor="#FF8A9096"
+        android:pathData="M43,84a5,5 0 1,0 10,0a5,5 0 1,0 -10,0z" />
+
+    <!-- Tyres. Short wheelbase: the axles sit close together. -->
+    <path
+        android:fillColor="#FF2A2E33"
+        android:pathData="M22,23h6a2,2 0 0 1 2,2v13a2,2 0 0 1 -2,2h-6a2,2 0 0 1 -2,-2v-13a2,2 0 0 1 2,-2z" />
+    <path
+        android:fillColor="#FF2A2E33"
+        android:pathData="M68,23h6a2,2 0 0 1 2,2v13a2,2 0 0 1 -2,2h-6a2,2 0 0 1 -2,-2v-13a2,2 0 0 1 2,-2z" />
+    <path
+        android:fillColor="#FF2A2E33"
+        android:pathData="M22,55h6a2,2 0 0 1 2,2v13a2,2 0 0 1 -2,2h-6a2,2 0 0 1 -2,-2v-13a2,2 0 0 1 2,-2z" />
+    <path
+        android:fillColor="#FF2A2E33"
+        android:pathData="M68,55h6a2,2 0 0 1 2,2v13a2,2 0 0 1 -2,2h-6a2,2 0 0 1 -2,-2v-13a2,2 0 0 1 2,-2z" />
+
+    <!-- Body. The white edge is what keeps the marker readable on a light basemap. -->
+    <path
+        android:fillColor="#FF9AA0A6"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="2.5"
+        android:pathData="M33,12h30a7,7 0 0 1 7,7v54a7,7 0 0 1 -7,7h-30a7,7 0 0 1 -7,-7v-54a7,7 0 0 1 7,-7z" />
+
+    <!-- Roof, a shade lighter than the flanks so the greenhouse reads as raised. -->
+    <path
+        android:fillColor="#FFB2B8BE"
+        android:pathData="M31,33h34v33h-34z" />
+
+    <!-- Headlights and grille. -->
+    <path
+        android:fillColor="#FFFDF3D0"
+        android:pathData="M29,13.5h9a1.5,1.5 0 0 1 1.5,1.5v3a1.5,1.5 0 0 1 -1.5,1.5h-9a1.5,1.5 0 0 1 -1.5,-1.5v-3a1.5,1.5 0 0 1 1.5,-1.5z" />
+    <path
+        android:fillColor="#FFFDF3D0"
+        android:pathData="M58,13.5h9a1.5,1.5 0 0 1 1.5,1.5v3a1.5,1.5 0 0 1 -1.5,1.5h-9a1.5,1.5 0 0 1 -1.5,-1.5v-3a1.5,1.5 0 0 1 1.5,-1.5z" />
+    <path
+        android:fillColor="#FF6B7076"
+        android:pathData="M41,13.5h14v6h-14z" />
+
+    <!-- Windscreen, side glass, tailgate window. -->
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M34,23L62,23L66,33L30,33Z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M27.5,36h4v22h-4z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M64.5,36h4v22h-4z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M31,66L65,66L63,75.5L33,75.5Z" />
+
+    <!-- Roof rails. -->
+    <path
+        android:fillColor="#FF585D63"
+        android:pathData="M34,36h3v27h-3z" />
+    <path
+        android:fillColor="#FF585D63"
+        android:pathData="M59,36h3v27h-3z" />
+</vector>

@@ -13,11 +13,13 @@ import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.os.Build
 import android.view.View
+import androidx.annotation.DrawableRes
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import com.jellemax.detour.R
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MemberFix
+import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.net.FriendPosition
 import org.maplibre.android.camera.CameraPosition
@@ -68,6 +70,13 @@ private const val IMG_CAMERA = "mr-img-camera"
 private const val IMG_FRIEND = "mr-img-friend"
 private const val IMG_CIRCLE_MEMBER = "mr-img-circle-member"
 const val LAYER_CANDIDATES = "mr-candidates-dot"
+// The own-position marker is rasterised at this multiple of its intrinsic size
+// and scaled back down by iconSize. A vector drawn 1:1 into a bitmap is only
+// sharp while the map holds still; the marker is the one icon that spends its
+// life being rotated and zoomed under the camera, and at 1:1 the resampling is
+// exactly what you see. Two is enough — four quadruples the texture for no
+// visible gain.
+private const val POSITION_ICON_SCALE = 2
 // Below city zoom the speed-camera icons pile up into an unreadable blob, and
 // at loop-planning zoom they're just noise — hide them until zoomed past this.
 private const val SPEED_CAMERA_MIN_ZOOM = 11f
@@ -80,6 +89,10 @@ private const val SPEED_CAMERA_MIN_ZOOM = 11f
  */
 class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean) {
 
+    // Application context: the icons are plain vectors with literal colours, and
+    // this outlives the Activity by however long the Style does.
+    private val context = context.applicationContext
+
     // The route line follows the app accent: amber on the dark basemap, blue on
     // the light one, so navigation matches the chrome instead of always amber.
     private val routeColor = if (darkTheme) ROUTE_COLOR_DARK else ROUTE_COLOR_LIGHT
@@ -88,9 +101,7 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
         ContextCompat.getDrawable(context, R.drawable.ic_map_pin)?.let {
             style.addImage(IMG_DEST, it.toBitmap())
         }
-        ContextCompat.getDrawable(context, R.drawable.ic_map_dot)?.let {
-            style.addImage(IMG_POSITION, it.toBitmap())
-        }
+        setPositionIcon(Settings.mapIcon.value)
         ContextCompat.getDrawable(context, R.drawable.ic_map_camera)?.let {
             style.addImage(IMG_CAMERA, it.toBitmap())
         }
@@ -121,8 +132,15 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
             PropertyFactory.lineColor(routeColor), PropertyFactory.lineWidth(7f),
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
+        // Rotated to the last known heading, aligned to the map rather than the
+        // viewport: heading-up already turns the camera, so a vehicle icon
+        // rotated the same amount ends up pointing up the screen — and stays
+        // pointing the right way when the map is north-up instead.
         style.addLayer(SymbolLayer("mr-position", SRC_POSITION).withProperties(
             PropertyFactory.iconImage(IMG_POSITION),
+            PropertyFactory.iconSize(1f / POSITION_ICON_SCALE),
+            PropertyFactory.iconRotate(Expression.get("bearing")),
+            PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
             PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)))
         style.addLayer(SymbolLayer("mr-dest", SRC_DEST).withProperties(
             PropertyFactory.iconImage(IMG_DEST), PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
@@ -210,13 +228,36 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
             }))
     }
 
-    /** Move just the own-position dot. [render] also sets it, but a following
+    /** Swap the artwork under the own-position marker. Cheap enough to call on
+     *  every change of the setting: one bitmap, replacing the image the layer
+     *  already points at, with no layer or source rebuild. */
+    fun setPositionIcon(icon: Settings.MapIcon) {
+        val drawable = ContextCompat.getDrawable(context, mapIconDrawable(icon)) ?: return
+        // Guarded for the same reason the car renderer wraps its overlay calls:
+        // a style call thrown from a flow collector doesn't skip a frame, it
+        // ends the process — and a theme flip leaves this Style behind mid-load.
+        runCatching {
+            style.addImage(IMG_POSITION, drawable.toBitmap(
+                drawable.intrinsicWidth * POSITION_ICON_SCALE,
+                drawable.intrinsicHeight * POSITION_ICON_SCALE))
+        }
+    }
+
+    // A GPS bearing goes null the moment you stop, and a car icon that snaps
+    // north at every red light is worse than one pointing a few degrees stale.
+    private var lastPositionBearing = 0.0
+
+    /** Move just the own-position marker. [render] also sets it, but a following
      *  map only needs *this* once a second — and rewriting the route line's
      *  GeoJSON at that rate to move one point is what makes a car head unit
      *  crawl (see [com.jellemax.detour.car.CarMapRenderer]). */
-    fun setPosition(at: LatLon?) {
+    fun setPosition(at: LatLon?, bearingDeg: Double? = null) {
+        bearingDeg?.let { lastPositionBearing = it }
         setData(SRC_POSITION, if (at != null)
-            FeatureCollection.fromFeature(Feature.fromGeometry(Point.fromLngLat(at.lon, at.lat)))
+            FeatureCollection.fromFeature(
+                Feature.fromGeometry(Point.fromLngLat(at.lon, at.lat)).apply {
+                    addNumberProperty("bearing", lastPositionBearing)
+                })
         else FeatureCollection.fromFeatures(emptyList()))
     }
 
@@ -230,6 +271,7 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
         directionDeg: Int?,
         candidates: List<CandidatePin>,
         showPosition: Boolean,
+        positionBearingDeg: Double? = null,
     ) {
         setData(SRC_REACH, if (myLocation != null && reachMeters != null)
             FeatureCollection.fromFeature(Feature.fromGeometry(circle(myLocation, reachMeters)))
@@ -256,9 +298,7 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
             FeatureCollection.fromFeature(Feature.fromGeometry(Point.fromLngLat(destination.lon, destination.lat)))
         else FeatureCollection.fromFeatures(emptyList()))
 
-        setData(SRC_POSITION, if (myLocation != null && showPosition)
-            FeatureCollection.fromFeature(Feature.fromGeometry(Point.fromLngLat(myLocation.lon, myLocation.lat)))
-        else FeatureCollection.fromFeatures(emptyList()))
+        setPosition(myLocation.takeIf { showPosition }, positionBearingDeg)
     }
 
     companion object {
@@ -269,6 +309,29 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
 
 /** A spin candidate rendered as a colored map dot. */
 data class CandidatePin(val at: LatLon, val colorArgb: Int)
+
+/** Artwork for an own-position marker. Every vehicle is drawn nose-up, so the
+ *  layer's heading rotation works out the same for all of them. */
+@DrawableRes
+fun mapIconDrawable(icon: Settings.MapIcon): Int = when (icon) {
+    Settings.MapIcon.DOT -> R.drawable.ic_map_dot
+    Settings.MapIcon.FRONTERA -> R.drawable.ic_vehicle_frontera
+    Settings.MapIcon.SUV -> R.drawable.ic_vehicle_suv
+    Settings.MapIcon.SEDAN -> R.drawable.ic_vehicle_sedan
+    Settings.MapIcon.RACECAR -> R.drawable.ic_vehicle_racecar
+    Settings.MapIcon.MOTORCYCLE -> R.drawable.ic_vehicle_motorcycle
+    Settings.MapIcon.PICKUP -> R.drawable.ic_vehicle_pickup
+}
+
+fun mapIconLabel(icon: Settings.MapIcon): String = when (icon) {
+    Settings.MapIcon.DOT -> "Blue dot"
+    Settings.MapIcon.FRONTERA -> "Frontera"
+    Settings.MapIcon.SUV -> "SUV"
+    Settings.MapIcon.SEDAN -> "Saloon"
+    Settings.MapIcon.RACECAR -> "Race car"
+    Settings.MapIcon.MOTORCYCLE -> "Motorcycle"
+    Settings.MapIcon.PICKUP -> "Pickup"
+}
 
 private fun circle(center: LatLon, radiusMeters: Double, steps: Int = 64): Polygon {
     val ring = (0..steps).map { i -> offset(center, radiusMeters, i * 360.0 / steps) }

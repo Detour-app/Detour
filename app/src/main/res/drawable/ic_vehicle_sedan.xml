@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Blue saloon: rounded shell, raked screens front and back. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+
+    <path
+        android:fillColor="#FF2A2E33"
+        android:pathData="M22,22h6a2,2 0 0 1 2,2v12a2,2 0 0 1 -2,2h-6a2,2 0 0 1 -2,-2v-12a2,2 0 0 1 2,-2z" />
+    <path
+        android:fillColor="#FF2A2E33"
+        android:pathData="M68,22h6a2,2 0 0 1 2,2v12a2,2 0 0 1 -2,2h-6a2,2 0 0 1 -2,-2v-12a2,2 0 0 1 2,-2z" />
+    <path
+        android:fillColor="#FF2A2E33"
+        android:pathData="M22,60h6a2,2 0 0 1 2,2v12a2,2 0 0 1 -2,2h-6a2,2 0 0 1 -2,-2v-12a2,2 0 0 1 2,-2z" />
+    <path
+        android:fillColor="#FF2A2E33"
+        android:pathData="M68,60h6a2,2 0 0 1 2,2v12a2,2 0 0 1 -2,2h-6a2,2 0 0 1 -2,-2v-12a2,2 0 0 1 2,-2z" />
+
+    <path
+        android:fillColor="#FF2F6FD0"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="2.5"
+        android:pathData="M48,7C58,7 64,11 65,19L67,35C68,45 68,55 67,67L65,81C64,87 58,90 48,90C38,90 32,87 31,81L29,67C28,55 28,45 29,35L31,19C32,11 38,7 48,7Z" />
+
+    <path
+        android:fillColor="#FF3C82E8"
+        android:pathData="M31,32h34v34h-34z" />
+
+    <path
+        android:fillColor="#FFFDF3D0"
+        android:pathData="M32,11h8a1.5,1.5 0 0 1 1.5,1.5v3a1.5,1.5 0 0 1 -1.5,1.5h-8a1.5,1.5 0 0 1 -1.5,-1.5v-3a1.5,1.5 0 0 1 1.5,-1.5z" />
+    <path
+        android:fillColor="#FFFDF3D0"
+        android:pathData="M56,11h8a1.5,1.5 0 0 1 1.5,1.5v3a1.5,1.5 0 0 1 -1.5,1.5h-8a1.5,1.5 0 0 1 -1.5,-1.5v-3a1.5,1.5 0 0 1 1.5,-1.5z" />
+    <path
+        android:fillColor="#FFB3261E"
+        android:pathData="M31.5,81h9v5h-9z" />
+    <path
+        android:fillColor="#FFB3261E"
+        android:pathData="M55.5,81h9v5h-9z" />
+
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M36,20L60,20L65,32L31,32Z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M28.6,35h3.4v13h-3.4z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M28.6,50h3.4v12h-3.4z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M64,35h3.4v13h-3.4z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M64,50h3.4v12h-3.4z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M31,66L65,66L61,79L35,79Z" />
+
+    <!-- Mirrors: the small stubs that stop a saloon reading as a plain lozenge. -->
+    <path
+        android:fillColor="#FF2F6FD0"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="1.5"
+        android:pathData="M25,32h5v5h-5z" />
+    <path
+        android:fillColor="#FF2F6FD0"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="1.5"
+        android:pathData="M66,32h5v5h-5z" />
+</vector>

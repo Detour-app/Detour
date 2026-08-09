@@ -15,6 +15,7 @@ import androidx.car.app.CarContext
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.net.FriendPosition
 import com.jellemax.detour.ui.MapOverlays
@@ -34,6 +35,8 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import kotlin.math.abs
 import kotlin.math.exp
+import kotlin.math.max
+import kotlin.math.min
 
 // Camera easing, ported from the phone map's follow loop (MapScreen.kt): each
 // tick the camera closes the same fraction of its gap to the last fix, covering
@@ -100,6 +103,16 @@ class CarMapRenderer(
     private val hud = HudOverlay(carContext)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    // The marker the phone is set to. Collected here rather than in each car
+    // screen: this is the one object both NavScreen and SpinScreen render
+    // through, and the style's own load path (MapOverlays.init) only covers the
+    // icon as it stood when the surface arrived.
+    init {
+        scope.launch {
+            Settings.mapIcon.collect { icon -> withOverlays { it.setPositionIcon(icon) } }
+        }
+    }
+
     // Built fresh for each surface instead of once per renderer. Tearing the
     // display down has to call MapView.onDestroy(), which releases the native
     // renderer permanently, so the same view cannot be re-attached to the next
@@ -125,6 +138,7 @@ class CarMapRenderer(
     private var routePolyline: List<LatLon>? = null
     private var destination: LatLon? = null
     private var position: LatLon? = null
+    private var positionBearing: Double? = null
     private var cameras: List<SpeedCameras.Camera> = emptyList()
     private var friends: Collection<FriendPosition> = emptyList()
 
@@ -165,11 +179,12 @@ class CarMapRenderer(
         withOverlays { pushRoute(it) }
     }
 
-    /** The own-position dot. The cheap per-fix update: one point of GeoJSON,
+    /** The own-position marker. The cheap per-fix update: one point of GeoJSON,
      *  leaving the route line the map has already tessellated alone. */
-    fun setPosition(pos: LatLon) {
+    fun setPosition(pos: LatLon, bearingDeg: Float? = null) {
         position = pos
-        withOverlays { it.setPosition(pos) }
+        positionBearing = bearingDeg?.toDouble() ?: positionBearing
+        withOverlays { it.setPosition(pos, positionBearing) }
     }
 
     fun setCameras(cameras: List<SpeedCameras.Camera>) {
@@ -199,6 +214,9 @@ class CarMapRenderer(
         tearDownDisplay()
         surfaceWidth = width
         surfaceHeight = height
+        // The HUD draws in surface pixels; this is the only place the surface's
+        // own density is reported.
+        hud.setSurfaceDpi(surfaceContainer.dpi)
 
         val display = carContext.getSystemService(DisplayManager::class.java).createVirtualDisplay(
             "DetourCarMap",
@@ -253,7 +271,7 @@ class CarMapRenderer(
                 // from what we already know instead of waiting for the next
                 // route change to redraw the line.
                 pushRoute(fresh)
-                position?.let { fresh.setPosition(it) }
+                position?.let { fresh.setPosition(it, positionBearing) }
                 if (cameras.isNotEmpty()) fresh.setCameras(cameras)
                 if (friends.isNotEmpty()) fresh.setFriends(friends)
             }
@@ -293,6 +311,7 @@ class CarMapRenderer(
             directionDeg = null,
             candidates = emptyList(),
             showPosition = position != null,
+            positionBearingDeg = positionBearing,
         )
     }
 
@@ -395,29 +414,54 @@ private fun smoothBearing(current: Float, target: Float, alpha: Float): Float {
     return (current + delta * alpha + 360f) % 360f
 }
 
+// Sign diameter as a fraction of the visible height, clamped to a sane band in
+// physical millimetres-worth of dp. A head unit is read at arm's length in a
+// moving car, so the posted limit wants to be roughly a fifth of the screen —
+// what Waze and Google Maps both land on.
+private const val SIGN_HEIGHT_FRACTION = 0.20f
+private const val SIGN_MIN_DP = 56f
+private const val SIGN_MAX_DP = 108f
+
+// Vienna Convention proportions: the red rim is about 12% of the sign's
+// diameter, and the digits stand a little over half of it.
+private const val SIGN_RIM_RATIO = 0.12f
+private const val SIGN_DIGIT_RATIO = 0.54f
+
 /**
  * Speed and posted-limit readouts, drawn over the map inside the Presentation.
  *
- * Sizes are in dp rather than raw pixels — a car screen reports a low density
- * (160dpi on the DHU, so 800x400 logical px for the whole display), and fixed
- * pixel sizes that look fine on a phone cover a quarter of it. Everything is
- * anchored to the bottom **right** of [safeArea], where Waze and Google Maps
- * put the same readouts: the host owns the bottom left (ETA card) and the top
- * right (action strip).
+ * Sized from the **car surface**, not from the phone. The two are unrelated:
+ * [android.util.DisplayMetrics.density] here belongs to the CarContext, which a
+ * head unit routinely reports as 1.0 while handing out a 1920-wide surface —
+ * so a sign laid out in those dp came out a couple of centimetres across on a
+ * screen with pixels to spare, which is what made it look like a low-resolution
+ * asset rather than the vector drawing it is. Everything below is derived from
+ * the surface's own dpi and the visible area, and drawn straight into surface
+ * pixels, so the sign scales up with the display instead of ignoring it.
+ *
+ * Anchored to the bottom **right** of [safeArea], where Waze and Google Maps put
+ * the same readouts: the host owns the bottom left (ETA card) and the top right
+ * (action strip).
  */
 private class HudOverlay(context: android.content.Context) : View(context) {
 
-    private val density = resources.displayMetrics.density
+    // Overwritten by [setSurfaceDpi] as soon as a surface arrives; the phone's
+    // density is only a placeholder for the frames before that.
+    private var density = resources.displayMetrics.density
     private fun dp(value: Float) = value * density
-
-    private val speedRadius = dp(26f)
-    private val limitRadius = dp(24f)
-    private val gap = dp(10f)
-    private val margin = dp(12f)
 
     private var speedKmh: Double? = null
     private var limitKmh: Double? = null
     private val safeArea = Rect()
+
+    /** The car surface's real pixel density. Different surface, different
+     *  scale — a replacement surface can arrive with another dpi. */
+    fun setSurfaceDpi(dpi: Int) {
+        val next = (dpi / 160f).coerceAtLeast(1f)
+        if (next == density) return
+        density = next
+        postInvalidate()
+    }
 
     fun update(speed: Double, limit: Double?) {
         // Once a second, and only when the rounded readout actually changes:
@@ -435,49 +479,90 @@ private class HudOverlay(context: android.content.Context) : View(context) {
         postInvalidate()
     }
 
-    private val speedBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#CC1A1A1A") }
-    private val speedTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        textAlign = Paint.Align.CENTER
-        textSize = dp(20f)
-    }
-    private val limitRingBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
-    private val limitRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.RED
-        style = Paint.Style.STROKE
-        strokeWidth = dp(4f)
-    }
+    private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x40000000 }
+    private val signFacePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    private val signRimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D32F2F") }
+    private val speedBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#E60F1116") }
+    private val speedOverBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#E6B3261E") }
+
+    // sans-serif-black is the closest stock face to the heavy grotesque on a
+    // real sign, and matches the phone HUD's FontWeight.Black.
+    private val heavy = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.BOLD)
     private val limitTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK
         textAlign = Paint.Align.CENTER
-        textSize = dp(18f)
+        typeface = heavy
+    }
+    private val speedTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        typeface = heavy
+    }
+    private val unitTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#B3FFFFFF")
+        textAlign = Paint.Align.CENTER
     }
 
     /** Baseline offset that centers text of [paint] on a circle's center. */
     private fun baselineOffset(paint: Paint) = -(paint.fontMetrics.ascent + paint.fontMetrics.descent) / 2f
 
+    /** Sets [paint]'s size so [text] is [target] tall but never wider than
+     *  [maxWidth] — "130" has to fit the same disc "50" sits comfortably in. */
+    private fun fitText(paint: Paint, text: String, target: Float, maxWidth: Float) {
+        paint.textSize = target
+        val width = paint.measureText(text)
+        if (width > maxWidth) paint.textSize = target * (maxWidth / width)
+    }
+
     override fun onDraw(canvas: Canvas) {
-        val bottom = (if (safeArea.isEmpty) height else safeArea.bottom) - margin
-        var cx = (if (safeArea.isEmpty) width else safeArea.right) - margin
+        // Clamped to the view, not trusted as given: the visible area is kept
+        // across a surface swap because the host doesn't repeat it, so a
+        // smaller replacement surface inherits the old, larger rect. Position
+        // was already at its mercy; size is now too.
+        val areaBottom = if (safeArea.isEmpty) height else min(safeArea.bottom, height)
+        val areaRight = if (safeArea.isEmpty) width else min(safeArea.right, width)
+        val areaHeight = if (safeArea.isEmpty) height else areaBottom - max(0, safeArea.top)
+        if (areaHeight <= 0) return
+
+        val diameter = (areaHeight * SIGN_HEIGHT_FRACTION)
+            .coerceIn(dp(SIGN_MIN_DP), dp(SIGN_MAX_DP))
+        val radius = diameter / 2f
+        val margin = dp(12f)
+        val gap = dp(10f)
+        val bottom = areaBottom - margin
+        var cx = areaRight - margin
 
         // Right to left, so the current speed ends up in the corner itself and
         // the posted limit sits inboard of it.
         val speed = speedKmh
         if (speed != null) {
-            cx -= speedRadius
-            val cy = bottom - speedRadius
-            canvas.drawCircle(cx, cy, speedRadius, speedBgPaint)
-            canvas.drawText("%.0f".format(speed), cx, cy + baselineOffset(speedTextPaint), speedTextPaint)
-            cx -= speedRadius + gap
+            cx -= radius
+            val cy = bottom - radius
+            val limit = limitKmh
+            val speeding = limit != null && speed > limit + 5
+            canvas.drawCircle(cx, cy + radius * 0.05f, radius, shadowPaint)
+            canvas.drawCircle(cx, cy, radius, if (speeding) speedOverBgPaint else speedBgPaint)
+            // The unit label sits under the number, as on the phone HUD, so the
+            // pair reads as one instrument rather than two loose discs.
+            val text = "%.0f".format(speed)
+            fitText(speedTextPaint, text, diameter * 0.42f, diameter * 0.70f)
+            unitTextPaint.textSize = diameter * 0.15f
+            canvas.drawText(text, cx, cy + baselineOffset(speedTextPaint) - diameter * 0.06f, speedTextPaint)
+            canvas.drawText("km/h", cx, cy + radius * 0.62f, unitTextPaint)
+            cx -= radius + gap
         }
 
         val limit = limitKmh
         if (limit != null) {
-            cx -= limitRadius
-            val cy = bottom - limitRadius
-            canvas.drawCircle(cx, cy, limitRadius, limitRingBgPaint)
-            canvas.drawCircle(cx, cy, limitRadius - limitRingPaint.strokeWidth / 2f, limitRingPaint)
-            canvas.drawText("%.0f".format(limit), cx, cy + baselineOffset(limitTextPaint), limitTextPaint)
+            cx -= radius
+            val cy = bottom - radius
+            canvas.drawCircle(cx, cy + radius * 0.05f, radius, shadowPaint)
+            canvas.drawCircle(cx, cy, radius, signRimPaint)
+            canvas.drawCircle(cx, cy, radius * (1f - 2f * SIGN_RIM_RATIO), signFacePaint)
+            val text = "%.0f".format(limit)
+            val face = diameter * (1f - 2f * SIGN_RIM_RATIO)
+            fitText(limitTextPaint, text, diameter * SIGN_DIGIT_RATIO, face * 0.82f)
+            canvas.drawText(text, cx, cy + baselineOffset(limitTextPaint), limitTextPaint)
         }
     }
 }

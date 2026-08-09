@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Modern graphite SUV: long wheelbase, four doors, panoramic roof. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+
+    <path
+        android:fillColor="#FF2A2E33"
+        android:pathData="M21,20h6a2,2 0 0 1 2,2v13a2,2 0 0 1 -2,2h-6a2,2 0 0 1 -2,-2v-13a2,2 0 0 1 2,-2z" />
+    <path
+        android:fillColor="#FF2A2E33"
+        android:pathData="M69,20h6a2,2 0 0 1 2,2v13a2,2 0 0 1 -2,2h-6a2,2 0 0 1 -2,-2v-13a2,2 0 0 1 2,-2z" />
+    <path
+        android:fillColor="#FF2A2E33"
+        android:pathData="M21,62h6a2,2 0 0 1 2,2v13a2,2 0 0 1 -2,2h-6a2,2 0 0 1 -2,-2v-13a2,2 0 0 1 2,-2z" />
+    <path
+        android:fillColor="#FF2A2E33"
+        android:pathData="M69,62h6a2,2 0 0 1 2,2v13a2,2 0 0 1 -2,2h-6a2,2 0 0 1 -2,-2v-13a2,2 0 0 1 2,-2z" />
+
+    <path
+        android:fillColor="#FF3C4149"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="2.5"
+        android:pathData="M35,7h26a9,9 0 0 1 9,9v64a9,9 0 0 1 -9,9h-26a9,9 0 0 1 -9,-9v-64a9,9 0 0 1 9,-9z" />
+
+    <path
+        android:fillColor="#FF4C525B"
+        android:pathData="M30,30h36v38h-36z" />
+
+    <path
+        android:fillColor="#FFFDF3D0"
+        android:pathData="M29.5,9h9a1.5,1.5 0 0 1 1.5,1.5v3.5a1.5,1.5 0 0 1 -1.5,1.5h-9a1.5,1.5 0 0 1 -1.5,-1.5v-3.5a1.5,1.5 0 0 1 1.5,-1.5z" />
+    <path
+        android:fillColor="#FFFDF3D0"
+        android:pathData="M57.5,9h9a1.5,1.5 0 0 1 1.5,1.5v3.5a1.5,1.5 0 0 1 -1.5,1.5h-9a1.5,1.5 0 0 1 -1.5,-1.5v-3.5a1.5,1.5 0 0 1 1.5,-1.5z" />
+    <path
+        android:fillColor="#FFB3261E"
+        android:pathData="M29.5,80h10v5h-10z" />
+    <path
+        android:fillColor="#FFB3261E"
+        android:pathData="M56.5,80h10v5h-10z" />
+
+    <!-- Raked windscreen, two side windows a side, tailgate glass. -->
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M35,18L61,18L66,30L30,30Z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M26.8,33h3.6v14h-3.6z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M26.8,49h3.6v13h-3.6z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M65.6,33h3.6v14h-3.6z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M65.6,49h3.6v13h-3.6z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M31,68L65,68L62,78L34,78Z" />
+
+    <path
+        android:fillColor="#FF6B7076"
+        android:pathData="M33.5,33h3v33h-3z" />
+    <path
+        android:fillColor="#FF6B7076"
+        android:pathData="M59.5,33h3v33h-3z" />
+</vector>

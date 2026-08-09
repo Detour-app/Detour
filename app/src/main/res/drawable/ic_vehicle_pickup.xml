@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pickup: cab up front, open bed behind. The bed floor and its ribs are what
+     separate this from the SUV at a glance. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+
+    <path
+        android:fillColor="#FF2A2E33"
+        android:pathData="M21,19h6a2,2 0 0 1 2,2v13a2,2 0 0 1 -2,2h-6a2,2 0 0 1 -2,-2v-13a2,2 0 0 1 2,-2z" />
+    <path
+        android:fillColor="#FF2A2E33"
+        android:pathData="M69,19h6a2,2 0 0 1 2,2v13a2,2 0 0 1 -2,2h-6a2,2 0 0 1 -2,-2v-13a2,2 0 0 1 2,-2z" />
+    <path
+        android:fillColor="#FF2A2E33"
+        android:pathData="M21,63h6a2,2 0 0 1 2,2v13a2,2 0 0 1 -2,2h-6a2,2 0 0 1 -2,-2v-13a2,2 0 0 1 2,-2z" />
+    <path
+        android:fillColor="#FF2A2E33"
+        android:pathData="M69,63h6a2,2 0 0 1 2,2v13a2,2 0 0 1 -2,2h-6a2,2 0 0 1 -2,-2v-13a2,2 0 0 1 2,-2z" />
+
+    <path
+        android:fillColor="#FF2E6B4F"
+        android:strokeColor="#FFF3F4F6"
+        android:strokeWidth="2.5"
+        android:pathData="M34,6h28a8,8 0 0 1 8,8v68a8,8 0 0 1 -8,8h-28a8,8 0 0 1 -8,-8v-68a8,8 0 0 1 8,-8z" />
+
+    <path
+        android:fillColor="#FFFDF3D0"
+        android:pathData="M29.5,8h9a1.5,1.5 0 0 1 1.5,1.5v3.5a1.5,1.5 0 0 1 -1.5,1.5h-9a1.5,1.5 0 0 1 -1.5,-1.5v-3.5a1.5,1.5 0 0 1 1.5,-1.5z" />
+    <path
+        android:fillColor="#FFFDF3D0"
+        android:pathData="M57.5,8h9a1.5,1.5 0 0 1 1.5,1.5v3.5a1.5,1.5 0 0 1 -1.5,1.5h-9a1.5,1.5 0 0 1 -1.5,-1.5v-3.5a1.5,1.5 0 0 1 1.5,-1.5z" />
+
+    <!-- Cab: roof panel between windscreen and rear glass. -->
+    <path
+        android:fillColor="#FF3A805F"
+        android:pathData="M30,29h36v13h-36z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M35,18L61,18L66,29L30,29Z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M26.8,31h3.6v9h-3.6z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M65.6,31h3.6v9h-3.6z" />
+    <path
+        android:fillColor="#FF20262E"
+        android:pathData="M31,42h34v6h-34z" />
+
+    <!-- Bed. -->
+    <path
+        android:fillColor="#FF1F2A24"
+        android:pathData="M30,52h36v30h-36z" />
+    <path
+        android:fillColor="#FF35473C"
+        android:pathData="M30,58h36v2h-36z" />
+    <path
+        android:fillColor="#FF35473C"
+        android:pathData="M30,66h36v2h-36z" />
+    <path
+        android:fillColor="#FF35473C"
+        android:pathData="M30,74h36v2h-36z" />
+
+    <path
+        android:fillColor="#FFB3261E"
+        android:pathData="M29.5,83h10v5h-10z" />
+    <path
+        android:fillColor="#FFB3261E"
+        android:pathData="M56.5,83h10v5h-10z" />
+</vector>

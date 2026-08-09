@@ -20,6 +20,12 @@ object Settings {
      *  and a tap goes straight to that app; long-press still reopens the menu. */
     enum class NavApp { ASK, IN_APP, GOOGLE_MAPS, WAZE, OTHER }
 
+    /** What gets drawn where you are, on the phone map and the car screen.
+     *  DOT is the plain blue location dot; every other entry is a vehicle seen
+     *  from above and rotated to your heading. Only the identity is stored here
+     *  — the artwork lives in each platform's resources. */
+    enum class MapIcon { DOT, FRONTERA, SUV, SEDAN, RACECAR, MOTORCYCLE, PICKUP }
+
     const val FOG_RADIUS_DEFAULT = 200f
     const val DEFAULT_ZOOM_DEFAULT = 16f
     const val DEFAULT_ZOOM_MIN = 12f
@@ -118,6 +124,11 @@ object Settings {
     private val _voiceGuidance = MutableStateFlow(true)
     val voiceGuidance: StateFlow<Boolean> = _voiceGuidance
 
+    /** The marker drawn at your own position. DOT until the user picks a
+     *  vehicle from Settings. */
+    private val _mapIcon = MutableStateFlow(MapIcon.DOT)
+    val mapIcon: StateFlow<MapIcon> = _mapIcon
+
     fun init() {
         if (store != null) return
         store = prefs("settings")
@@ -138,6 +149,9 @@ object Settings {
         _authUsername.value = prefs.string("auth_username")
         _leanOffsetDeg.value = prefs.float("lean_offset_deg", 0f)
         _voiceGuidance.value = prefs.bool("voice_guidance", true)
+        _mapIcon.value = runCatching {
+            MapIcon.valueOf(prefs.string("map_icon", MapIcon.DOT.name))
+        }.getOrDefault(MapIcon.DOT)
         _preferredNavApp.value = runCatching {
             NavApp.valueOf(prefs.string("preferred_nav_app", NavApp.ASK.name))
         }.getOrDefault(NavApp.ASK)
@@ -256,6 +270,11 @@ object Settings {
     fun setLeanOffsetDeg(value: Float) {
         _leanOffsetDeg.value = value
         prefs.put("lean_offset_deg", value)
+    }
+
+    fun setMapIcon(value: MapIcon) {
+        _mapIcon.value = value
+        prefs.put("map_icon", value.name)
     }
 
     fun setPreferredNavApp(value: NavApp) {
