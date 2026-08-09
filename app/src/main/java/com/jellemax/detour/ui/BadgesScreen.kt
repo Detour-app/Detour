@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -28,6 +29,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -80,7 +82,7 @@ private data class ScreenData(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BadgesScreen(onBack: () -> Unit) {
+fun BadgesScreen(onBack: () -> Unit, onOpenCoverageMap: () -> Unit) {
     val context = LocalContext.current
     // Coverage walks every trace point against every boundary; keep it off the
     // main thread, and off the composition's hot path.
@@ -142,7 +144,30 @@ fun BadgesScreen(onBack: () -> Unit) {
                 }
             }
 
-            item { SectionHeader("Coverage") }
+            item {
+                // Coverage's own header, not SectionHeader: this is the one
+                // section with somewhere else to go — the full conquest map.
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp, bottom = 2.dp, start = 4.dp, end = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Coverage",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    if (loaded.coverage.isNotEmpty()) {
+                        TextButton(onClick = onOpenCoverageMap) {
+                            Icon(Icons.Outlined.Map, contentDescription = null, Modifier.size(18.dp))
+                            Spacer(Modifier.size(4.dp))
+                            Text("Map")
+                        }
+                    }
+                }
+            }
             if (loaded.coverage.isEmpty()) {
                 item {
                     Text(

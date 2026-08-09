@@ -23,6 +23,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -37,6 +38,34 @@ data class FriendPosition(
 )
 
 data class IncomingAudioChunk(val username: String, val pcm: ByteArray)
+
+/** One `spin_offer` candidate, wire shape - see sync_server.py's protocol
+ *  comment near `_valid_spin_offer`. [distanceM]/[durationS] are whatever
+ *  the sharer's own spin already knew; a receiving member has no route of
+ *  its own for these until it commits and [MapScreen]'s startNavigation
+ *  fetches one. */
+data class SpinCandidate(
+    val lat: Double,
+    val lon: Double,
+    val distanceM: Double?,
+    val durationS: Double?,
+    val name: String?,
+)
+
+/**
+ * A convoy's shared spin, either just sent by this device or just received
+ * from a peer's.
+ *
+ * A **one-candidate** offer is not a sheet to vote on, it's the sharer
+ * announcing the winner: every device that sees one commits it. That's the
+ * whole reason [fromMe] exists — only the device that opened the round
+ * decides when it's over and sends that closing offer, so a member whose
+ * view of who's still live differs (a peer gone quiet for 20s is pruned
+ * from [peers] on one phone and not another) can't resolve the same votes
+ * into a different destination. Everyone commits off one frame instead of
+ * each tallying their own answer.
+ */
+data class GroupSpin(val candidates: List<SpinCandidate>, val fromMe: Boolean)
 
 /**
  * Owns the convoy live-location/push-to-talk WebSocket. A singleton (same
@@ -56,6 +85,12 @@ data class IncomingAudioChunk(val username: String, val pcm: ByteArray)
  * over plain HTTP at a much lower cadence (see `CircleFixes.postFix`) - so
  * [send] just stamps every outgoing frame with whichever convoy is currently
  * joined rather than tracking a set of groups.
+ *
+ * Group spin (`spin_offer`/`spin_vote`) rides the same relay and is exactly
+ * as ephemeral as everything else here: [spinOffer]/[spinVotes] are a
+ * client-side tally of relayed votes, not server state, so every joined
+ * device has to reach the same commit independently off the same frames -
+ * see MapScreen's commit rule for how that's kept deterministic.
  */
 object ConvoyLiveClient {
 
@@ -102,6 +137,24 @@ object ConvoyLiveClient {
 
     private val _talking = MutableStateFlow<Set<String>>(emptySet())
     val talking: StateFlow<Set<String>> = _talking
+
+    private val _spinOffer = MutableStateFlow<GroupSpin?>(null)
+    /** The convoy's current group spin, if any candidate set is on the
+     *  table - set locally the moment this device shares one (the relay
+     *  never echoes a sender's own frame back to it, same as ptt_*), or
+     *  when a peer's `spin_offer` arrives. Null once nobody has shared a
+     *  spin yet, once the convoy is left, or across a disconnect - a stale
+     *  vote is worse than no vote. */
+    val spinOffer: StateFlow<GroupSpin?> = _spinOffer
+
+    private val _spinVotes = MutableStateFlow<Map<String, Int>>(emptyMap())
+    /** username -> candidate index. Tallied client-side only, from every
+     *  spin_vote this device has sent or received for the current
+     *  [spinOffer] - the server holds none of this, so every device must
+     *  arrive at the same tally from the same relayed votes to commit the
+     *  same candidate (see MapScreen's commit rule). Reset whenever
+     *  [spinOffer] changes. */
+    val spinVotes: StateFlow<Map<String, Int>> = _spinVotes
 
     private val _audioChunks = MutableSharedFlow<IncomingAudioChunk>(
         extraBufferCapacity = 32,
@@ -157,6 +210,8 @@ object ConvoyLiveClient {
         _connected.value = false
         _peers.value = emptyMap()
         _talking.value = emptySet()
+        _spinOffer.value = null
+        _spinVotes.value = emptyMap()
     }
 
     fun sendPttStart() = send(JSONObject().put("type", "ptt_start"))
@@ -168,6 +223,50 @@ object ConvoyLiveClient {
                 .put("type", "ptt_audio")
                 .put("chunk", Base64.encodeToString(pcm, Base64.NO_WRAP)),
         )
+    }
+
+    /** Shares a spin with the convoy. Sets [spinOffer] on this device
+     *  immediately - the relay excludes the sender from its own broadcast,
+     *  same as every other frame here, so waiting for it to come back would
+     *  just never happen. Silently does nothing outside 1-3 candidates,
+     *  matching the server's own cap - the candidate sheet never produces
+     *  any other count, so this is a guard against a future caller, not a
+     *  path that should ever run today. */
+    fun sendSpinOffer(candidates: List<SpinCandidate>) {
+        if (candidates.isEmpty() || candidates.size > 3) return
+        _spinOffer.value = GroupSpin(candidates, fromMe = true)
+        _spinVotes.value = emptyMap()
+        val arr = JSONArray()
+        candidates.forEach { c ->
+            arr.put(
+                JSONObject().apply {
+                    put("lat", c.lat)
+                    put("lon", c.lon)
+                    c.distanceM?.let { put("distanceM", it) }
+                    c.durationS?.let { put("durationS", it) }
+                    c.name?.let { put("name", it) }
+                },
+            )
+        }
+        send(JSONObject().put("type", "spin_offer").put("candidates", arr))
+    }
+
+    /** Casts this device's vote and records it in the local tally right
+     *  away, for the same reason [sendSpinOffer] updates [spinOffer]
+     *  locally - the relay won't echo it back to us. */
+    fun sendSpinVote(index: Int) {
+        val username = Settings.authUsername.value
+        if (username.isNotBlank()) _spinVotes.value = _spinVotes.value + (username to index)
+        send(JSONObject().put("type", "spin_vote").put("index", index))
+    }
+
+    /** Drops the current spin locally (a commit landed, or the sheet was
+     *  cancelled) without telling anyone - there is nothing to tell, the
+     *  vote was never server state to begin with. Other members' devices
+     *  reach their own commit independently off the same relayed votes. */
+    fun clearSpinOffer() {
+        _spinOffer.value = null
+        _spinVotes.value = emptyMap()
     }
 
     /** Stamps [obj] with the currently joined convoy's id (every non-join
@@ -212,6 +311,12 @@ object ConvoyLiveClient {
             val everJoined = connectAndAwaitClose(context, convoyId)
             if (_activeConvoyId.value != convoyId) return
             _connected.value = false
+            // A vote tallied against a socket that's no longer relaying
+            // anyone's frames is just wrong by the time it reconnects -
+            // drop it rather than let a stale offer sit on screen looking
+            // live through a dead connection.
+            _spinOffer.value = null
+            _spinVotes.value = emptyMap()
             // A session that got in at all was probably fine - reset the
             // backoff rather than let one dropped connection ramp it up.
             backoffMs = if (everJoined) MIN_BACKOFF_MS else (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
@@ -358,6 +463,38 @@ object ConvoyLiveClient {
             "left" -> msg.optString("user").takeIf { it.isNotBlank() }?.let { user ->
                 _peers.value = _peers.value - user
                 _talking.value = _talking.value - user
+            }
+            "spin_offer" -> {
+                val arr = msg.optJSONArray("candidates")
+                val list = arr?.let { a ->
+                    (0 until a.length()).mapNotNull { i ->
+                        val o = a.optJSONObject(i) ?: return@mapNotNull null
+                        val lat = o.optDouble("lat")
+                        val lon = o.optDouble("lon")
+                        if (lat.isNaN() || lon.isNaN()) return@mapNotNull null
+                        SpinCandidate(
+                            lat = lat,
+                            lon = lon,
+                            distanceM = o.optDouble("distanceM").takeIf { !it.isNaN() },
+                            durationS = o.optDouble("durationS").takeIf { !it.isNaN() },
+                            name = o.optString("name").takeIf { it.isNotBlank() },
+                        )
+                    }
+                }
+                // A new offer starts a fresh vote, even mid-round - the
+                // candidates it names are a different sheet than whatever
+                // was being voted on before.
+                if (!list.isNullOrEmpty()) {
+                    _spinOffer.value = GroupSpin(list, fromMe = false)
+                    _spinVotes.value = emptyMap()
+                }
+            }
+            "spin_vote" -> {
+                val user = msg.optString("user")
+                val index = msg.optInt("index", -1)
+                if (user.isNotBlank() && index in 0..2) {
+                    _spinVotes.value = _spinVotes.value + (user to index)
+                }
             }
         }
         return false

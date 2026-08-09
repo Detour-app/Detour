@@ -15,8 +15,10 @@ import kotlin.math.cos
 import kotlin.math.floor
 
 /** Side of one coverage cell. Matches [ExploredArea]'s grid: a road driven once
- *  reveals the cell around it, so "explored" means the same thing everywhere. */
-private const val CELL_METERS = 250.0
+ *  reveals the cell around it, so "explored" means the same thing everywhere.
+ *  Not private: callers that turn a cell count into an area (the coverage map's
+ *  "x% of N km²" card) need it too. */
+const val CELL_METERS = 250.0
 private const val METERS_PER_DEG = 111_320.0
 
 /** Two boundary points this close are the same OSM node, shared between ways. */
@@ -269,6 +271,9 @@ object Coverage {
         val name: String,
         val exploredCells: Int,
         val totalCells: Int,
+        /** Ties this entry back to its [Municipality] so a caller (the coverage
+         *  map) can look up the boundary rings without recomputing coverage. */
+        val municipalityId: Long,
     ) {
         val percent: Double
             get() = if (totalCells == 0) 0.0 else 100.0 * exploredCells / totalCells
@@ -288,7 +293,7 @@ object Coverage {
                 val cell = m.cellOf(p)
                 if (cell in m.insideCells) explored.add(cell)
             }
-            Entry(m.name, explored.size, m.insideCells.size)
+            Entry(m.name, explored.size, m.insideCells.size, m.id)
         }.filter { it.totalCells > 0 }.sortedByDescending { it.percent }
     }
 }

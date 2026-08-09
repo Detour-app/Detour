@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
@@ -67,6 +68,7 @@ class ConvoyLiveService : Service() {
     private var scope: CoroutineScope? = null
     private var audioManager: AudioManager? = null
     private var previousAudioMode: Int = AudioManager.MODE_NORMAL
+    private var previousSpeakerphone: Boolean = false
     private var focusRequest: AudioFocusRequest? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -123,7 +125,9 @@ class ConvoyLiveService : Service() {
                 val manager = getSystemService(AudioManager::class.java)
                 audioManager = manager
                 previousAudioMode = manager.mode
+                previousSpeakerphone = manager.isSpeakerphoneOn
                 manager.mode = AudioManager.MODE_IN_COMMUNICATION
+                routeToSpeaker(manager)
                 requestAudioFocus(manager)
                 PushToTalk.startPlayback(newScope)
             }
@@ -132,6 +136,37 @@ class ConvoyLiveService : Service() {
         // its intent would otherwise sit foreground forever claiming to
         // share location/listen for PTT while actually doing neither.
         return START_NOT_STICKY
+    }
+
+    /**
+     * MODE_IN_COMMUNICATION defaults playback to the earpiece — the same
+     * route a phone call to your head uses, which in a car sounds muted to
+     * the point of useless. PTT is a speakerphone feature, so move it to the
+     * built-in speaker, but only when the earpiece is what we'd otherwise
+     * get: if a headset or car audio (Bluetooth/wired/USB) is the current
+     * communication device, that's where the driver wants convoy voices.
+     */
+    private fun routeToSpeaker(manager: AudioManager) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (manager.communicationDevice?.type != AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) return
+            manager.availableCommunicationDevices
+                .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                ?.let { manager.setCommunicationDevice(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            if (manager.isBluetoothScoOn || manager.isBluetoothA2dpOn || manager.isWiredHeadsetOn) return
+            @Suppress("DEPRECATION")
+            manager.isSpeakerphoneOn = true
+        }
+    }
+
+    private fun clearSpeakerRoute(manager: AudioManager) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            manager.clearCommunicationDevice()
+        } else {
+            @Suppress("DEPRECATION")
+            manager.isSpeakerphoneOn = previousSpeakerphone
+        }
     }
 
     private fun requestAudioFocus(manager: AudioManager) {
@@ -153,7 +188,10 @@ class ConvoyLiveService : Service() {
         PushToTalk.stopTalking()
         PushToTalk.stopPlayback()
         focusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
-        audioManager?.mode = previousAudioMode
+        audioManager?.let {
+            clearSpeakerRoute(it)
+            it.mode = previousAudioMode
+        }
         scope?.cancel()
         scope = null
         super.onDestroy()

@@ -433,6 +433,135 @@ class PttGateTests(AsyncTestCase):
 
 
 # --------------------------------------------------------------------------
+# spin gate - a convoy votes on a spun destination; same kind check as PTT,
+# same reason: a circle is a standing "who's where" map, not a group ride
+# choosing where to go.
+
+
+class SpinGateTests(AsyncTestCase):
+    async def test_spin_offer_and_vote_are_relayed_for_a_convoy(self):
+        alice = self.make_user("alice")
+        bob = self.make_user("bob")
+        convoy_id = self.make_group(alice, kind="convoy")
+        self.add_member(convoy_id, bob["id"])
+        bob_ws = FakeWebSocket("n/a")
+        S._group_join(convoy_id, bob["id"], "bob", bob_ws, "bobhash")
+
+        token = S.issue_token(alice["id"])
+        frames = [
+            json.dumps({"type": "join", "groupId": convoy_id}),
+            json.dumps({
+                "type": "spin_offer", "groupId": convoy_id,
+                "candidates": [
+                    {"lat": 1.0, "lon": 2.0, "distanceM": 500.0, "durationS": 60.0, "name": "Oak St"},
+                    {"lat": 1.1, "lon": 2.1},
+                ],
+            }),
+            json.dumps({"type": "spin_vote", "groupId": convoy_id, "index": 1}),
+        ]
+        alice_ws = FakeWebSocket(token, frames)
+        await S.handle_live_socket(alice_ws)
+
+        self.assertEqual(
+            [t for t in bob_ws.sent_types() if t.startswith("spin_")],
+            ["spin_offer", "spin_vote"],
+            "a convoy is exactly the case a group spin exists for",
+        )
+        offer = json.loads(bob_ws.sent[0])
+        self.assertEqual(offer["user"], "alice")
+        self.assertEqual(len(offer["candidates"]), 2)
+        self.assertEqual(offer["candidates"][0]["name"], "Oak St")
+        vote = json.loads(bob_ws.sent[1])
+        self.assertEqual(
+            vote, {"type": "spin_vote", "groupId": convoy_id, "user": "alice", "index": 1}
+        )
+
+    async def test_spin_is_rejected_for_a_circle(self):
+        alice = self.make_user("alice")
+        bob = self.make_user("bob")
+        circle_id = self.make_group(alice, kind="circle")
+        self.add_member(circle_id, bob["id"])
+        bob_ws = FakeWebSocket("n/a")
+        S._group_join(circle_id, bob["id"], "bob", bob_ws, "bobhash")
+
+        token = S.issue_token(alice["id"])
+        frames = [
+            json.dumps({"type": "join", "groupId": circle_id}),
+            json.dumps({
+                "type": "spin_offer", "groupId": circle_id,
+                "candidates": [{"lat": 1.0, "lon": 2.0}],
+            }),
+            json.dumps({"type": "spin_vote", "groupId": circle_id, "index": 0}),
+        ]
+        alice_ws = FakeWebSocket(token, frames)
+        await S.handle_live_socket(alice_ws)
+
+        self.assertEqual(
+            [t for t in bob_ws.sent_types() if t.startswith("spin_")], [],
+            "a circle is a standing map, not a vote - no spin frame may reach it",
+        )
+
+    async def test_spin_offer_for_a_group_never_joined_is_dropped(self):
+        alice = self.make_user("alice")
+        bob = self.make_user("bob")
+        convoy_id = self.make_group(alice, kind="convoy")
+        other_convoy_id = self.make_group(bob, kind="convoy")
+        self.add_member(convoy_id, bob["id"])
+        bob_ws = FakeWebSocket("n/a")
+        S._group_join(other_convoy_id, bob["id"], "bob", bob_ws, "bobhash")
+
+        token = S.issue_token(alice["id"])
+        frames = [
+            json.dumps({"type": "join", "groupId": convoy_id}),
+            # alice is not a member of other_convoy_id and never joined it -
+            # naming it explicitly must not relay into it anyway.
+            json.dumps({
+                "type": "spin_offer", "groupId": other_convoy_id,
+                "candidates": [{"lat": 1.0, "lon": 2.0}],
+            }),
+        ]
+        alice_ws = FakeWebSocket(token, frames)
+        await S.handle_live_socket(alice_ws)
+
+        self.assertEqual(
+            [t for t in bob_ws.sent_types() if t.startswith("spin_")], [],
+            "a group this socket never joined must not receive a relayed spin frame",
+        )
+
+    async def test_invalid_spin_payloads_are_dropped(self):
+        alice = self.make_user("alice")
+        bob = self.make_user("bob")
+        convoy_id = self.make_group(alice, kind="convoy")
+        self.add_member(convoy_id, bob["id"])
+        bob_ws = FakeWebSocket("n/a")
+        S._group_join(convoy_id, bob["id"], "bob", bob_ws, "bobhash")
+
+        token = S.issue_token(alice["id"])
+        frames = [
+            json.dumps({"type": "join", "groupId": convoy_id}),
+            # Four candidates - one more than the sheet ever offers.
+            json.dumps({
+                "type": "spin_offer", "groupId": convoy_id,
+                "candidates": [{"lat": 1.0, "lon": 2.0}] * 4,
+            }),
+            # Out-of-range latitude.
+            json.dumps({
+                "type": "spin_offer", "groupId": convoy_id,
+                "candidates": [{"lat": 999.0, "lon": 2.0}],
+            }),
+            # Vote index outside the sheet's 0..2 slots.
+            json.dumps({"type": "spin_vote", "groupId": convoy_id, "index": 3}),
+        ]
+        alice_ws = FakeWebSocket(token, frames)
+        await S.handle_live_socket(alice_ws)
+
+        self.assertEqual(
+            [t for t in bob_ws.sent_types() if t.startswith("spin_")], [],
+            "a malformed spin frame must be dropped, not relayed",
+        )
+
+
+# --------------------------------------------------------------------------
 # stale `joined` entries - eviction from one of a multi-group socket's
 # groups must be authoritative for every frame type, not just `location`.
 # `_evict` leaves the socket open when the user is still valid elsewhere,

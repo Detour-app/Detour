@@ -153,6 +153,8 @@ import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.jellemax.detour.audio.PushToTalk
 import com.jellemax.detour.net.ConvoyLiveClient
+import com.jellemax.detour.net.GroupSpin
+import com.jellemax.detour.net.SpinCandidate
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleFixes
 import com.jellemax.detour.data.ExploredArea
@@ -320,6 +322,53 @@ private fun sectionExitGate(
 private val CANDIDATE_COLORS = listOf(0xFF7E57C2, 0xFF00897B, 0xFFF4511E)
     .map { it.toInt() }
 
+/** A [GroupSpin]'s wire candidates, reshaped into the same [RouteCandidate]
+ *  list a local spin produces, so the map pins and CandidatesCard don't need
+ *  a second code path for "I received this" vs "I rolled this". [route] is
+ *  a placeholder carrying only the numbers the sharer already had - a
+ *  receiving member has no polyline for it, and doesn't need one: committing
+ *  just sets `route = null` and lets startNavigation() fetch a real one, the
+ *  same as tapping a long-pressed pin. */
+private fun GroupSpin.asRouteCandidates(): List<RouteCandidate> = candidates.map { sc ->
+    RouteCandidate(
+        destination = LatLon(sc.lat, sc.lon),
+        name = sc.name,
+        route = sc.distanceM?.let {
+            RouteResult(
+                polyline = emptyList(),
+                waypoints = emptyList(),
+                distanceMeters = it,
+                timeMs = sc.durationS?.let { s -> (s * 1000).toLong() },
+            )
+        },
+        straightLineMeters = sc.distanceM ?: 0.0,
+    )
+}
+
+/** Wire shape for sharing a local spin's results with the convoy - see
+ *  ConvoyLiveClient.sendSpinOffer. */
+private fun List<RouteCandidate>.asSpinCandidates(): List<SpinCandidate> = map { c ->
+    SpinCandidate(
+        lat = c.destination.lat,
+        lon = c.destination.lon,
+        distanceM = c.route?.distanceMeters ?: c.straightLineMeters,
+        durationS = c.route?.timeMs?.let { it / 1000.0 },
+        name = c.name,
+    )
+}
+
+/** Tie-break rule for a group spin's leader: ties (including "nobody's voted
+ *  yet", every count 0) go to the lowest index. `>` rather than `>=` is what
+ *  makes that deterministic - every device tallying the same votes lands on
+ *  the same leader without needing to compare who voted when. */
+private fun leadingSpinIndex(votes: Map<String, Int>, candidateCount: Int): Int {
+    val counts = IntArray(candidateCount)
+    votes.values.forEach { if (it in counts.indices) counts[it]++ }
+    var lead = 0
+    for (i in 1 until candidateCount) if (counts[i] > counts[lead]) lead = i
+    return lead
+}
+
 /** The last spin outcome, kept outside `remember` so it survives activity
  *  recreation (rotation, split-screen resize, a backgrounded process losing
  *  just the Activity) — process-scoped, not a substitute for the stores that
@@ -442,6 +491,12 @@ fun MapScreen(
     val convoyConnected by ConvoyLiveClient.connected.collectAsStateWithLifecycle()
     val convoyTalking by ConvoyLiveClient.talking.collectAsStateWithLifecycle()
     val activeConvoyId by ConvoyLiveClient.activeConvoyId.collectAsStateWithLifecycle()
+    // Moved up from the marker-drawing section below: the group-spin commit
+    // rule (see commitSpinCandidate) also needs to know who's currently
+    // live, not just the map overlay.
+    val convoyPeers by ConvoyLiveClient.peers.collectAsStateWithLifecycle()
+    val spinOffer by ConvoyLiveClient.spinOffer.collectAsStateWithLifecycle()
+    val spinVotes by ConvoyLiveClient.spinVotes.collectAsStateWithLifecycle()
     // ConvoyLiveClient only knows the id it's connected to; resolve it to a
     // name for display by asking the same list FriendsScreen uses.
     var convoyName by remember { mutableStateOf<String?>(null) }
@@ -637,11 +692,14 @@ fun MapScreen(
         onDispose { mapView.setOnTouchListener(null) }
     }
 
-    // Driving off takes the camera back. Not while a spin is on screen: the
-    // candidates are the whole reason the map is parked where it is, and a
-    // passenger spinning at speed would otherwise never get to read them.
-    LaunchedEffect(camSuspended, spinning, candidates.isEmpty()) {
-        if (!camSuspended || spinning || candidates.isNotEmpty()) return@LaunchedEffect
+    // Driving off takes the camera back. Not while a spin is on screen (own
+    // or a convoy's, still being voted on): the candidates are the whole
+    // reason the map is parked where it is, and a passenger spinning at
+    // speed would otherwise never get to read them.
+    LaunchedEffect(camSuspended, spinning, candidates.isEmpty(), spinOffer == null) {
+        if (!camSuspended || spinning || candidates.isNotEmpty() || spinOffer != null) {
+            return@LaunchedEffect
+        }
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
             if (fix.speedMps >= CAM_RESUME_SPEED_MPS &&
@@ -751,10 +809,65 @@ fun MapScreen(
         mapLibreMap?.let { cameraForPoints(it, listOf(loc, c.destination), FIT_PADDING_PX, fitBottomPaddingPx) }
     }
 
+    // What's actually shown on the map/card: my own spin's candidates,
+    // unless a convoy spin is on the table, in which case everyone - the
+    // sharer included, see ConvoyLiveClient.sendSpinOffer - shows the same
+    // three from the offer instead. Keeps map pins and votes pointed at
+    // the same coordinates on every device even when they came from a
+    // spin nobody on this phone actually rolled.
+    val displayCandidates = spinOffer?.asRouteCandidates() ?: candidates
+
+    /** Commits a convoy spin's leading (or explicitly chosen) candidate,
+     *  same as [choose] but sourced from [spinOffer] and clearing it after -
+     *  see ConvoyLiveClient's class doc for why that's purely local. */
+    fun commitSpinCandidate(index: Int) {
+        val offer = spinOffer ?: return
+        val c = offer.candidates.getOrNull(index) ?: return
+        destination = LatLon(c.lat, c.lon)
+        destinationName = c.name
+        route = null // startNavigation() fetches a real route once tapped, same as a dropped pin
+        candidates = emptyList()
+        ConvoyLiveClient.clearSpinOffer()
+        val loc = myLocation ?: return
+        camSuspended = true
+        lastGestureMs = System.currentTimeMillis()
+        mapLibreMap?.let { cameraForPoints(it, listOf(loc, LatLon(c.lat, c.lon)), FIT_PADDING_PX, fitBottomPaddingPx) }
+    }
+
+    // How a vote round ends. Two halves, and which one runs depends on
+    // whether this device opened the round (see GroupSpin.fromMe):
+    //
+    //  - Anyone receiving a one-candidate offer commits it. That offer *is*
+    //    the decision, so every member lands on the same destination off the
+    //    same frame instead of each resolving the votes themselves.
+    //  - The sharer, once everyone currently live (convoyPeers plus itself)
+    //    has voted, sends the leader back out as exactly that one-candidate
+    //    offer — which then commits here too, through the branch above.
+    //
+    // Tallying independently on each device would have been simpler and
+    // wrong: convoyPeers prunes a member who's been quiet for 20s, so one
+    // phone can consider the round complete on two votes while another is
+    // still waiting for a third, and the two can resolve to different
+    // candidates. Splitting a convoy across two destinations is the exact
+    // failure this feature exists to prevent.
+    LaunchedEffect(spinOffer, spinVotes, convoyPeers, accountUsername) {
+        val offer = spinOffer ?: return@LaunchedEffect
+        if (offer.candidates.size == 1) {
+            commitSpinCandidate(0)
+            return@LaunchedEffect
+        }
+        if (!offer.fromMe) return@LaunchedEffect
+        val expected = convoyPeers.keys + setOfNotNull(accountUsername.takeIf { it.isNotBlank() })
+        if (expected.isNotEmpty() && spinVotes.keys.containsAll(expected)) {
+            ConvoyLiveClient.sendSpinOffer(
+                listOf(offer.candidates[leadingSpinIndex(spinVotes, offer.candidates.size)]))
+        }
+    }
+
     // Push overlay state to the map whenever anything drawable changes. The
     // layers are created once per style; here we only swap their GeoJSON data.
     LaunchedEffect(mapOverlays, myLocation, destination, route, radiusKm, mode,
-        directionDeg, navigating, candidates) {
+        directionDeg, navigating, displayCandidates) {
         val overlays = mapOverlays ?: return@LaunchedEffect
         // For round trips the slider is trip length; reach ≈ length / 4. Hidden
         // while navigating. Null myLocation hides it too.
@@ -771,7 +884,7 @@ fun MapScreen(
             routePolyline = route?.polyline,
             reachMeters = reachMeters,
             directionDeg = directionDeg?.toInt(),
-            candidates = candidates.mapIndexed { i, c ->
+            candidates = displayCandidates.mapIndexed { i, c ->
                 CandidatePin(c.destination, CANDIDATE_COLORS[i % CANDIDATE_COLORS.size])
             },
             // Marker updates per fix (~1 Hz); the eased camera glides the map
@@ -807,9 +920,11 @@ fun MapScreen(
         fogView.invalidate()
     }
 
-    // Long-press drops a destination pin; a tap on a candidate dot commits to it.
+    // Long-press drops a destination pin; a tap on a candidate dot commits to it
+    // (or, mid convoy-vote, casts a vote instead - see spinOfferRef below).
     // Registered once the map is ready; the listeners read live state via refs.
-    val candidatesRef = rememberUpdatedState(candidates)
+    val candidatesRef = rememberUpdatedState(displayCandidates)
+    val spinOfferRef = rememberUpdatedState(spinOffer)
     val navigatingRef = rememberUpdatedState(navigating)
     LaunchedEffect(mapLibreMap) {
         val map = mapLibreMap ?: return@LaunchedEffect
@@ -831,7 +946,9 @@ fun MapScreen(
             val idx = map.queryRenderedFeatures(tap, LAYER_CANDIDATES)
                 .firstOrNull()?.getNumberProperty("index")?.toInt()
             val cs = candidatesRef.value
-            if (idx != null && idx < cs.size) { choose(cs[idx]); true } else false
+            if (idx == null || idx >= cs.size) return@addOnMapClickListener false
+            if (spinOfferRef.value != null) ConvoyLiveClient.sendSpinVote(idx) else choose(cs[idx])
+            true
         }
     }
 
@@ -953,8 +1070,8 @@ fun MapScreen(
     }
 
     // Convoy friend markers, on ConvoyLiveClient's own relay-driven cadence —
-    // same reasoning as the camera markers above.
-    val convoyPeers by ConvoyLiveClient.peers.collectAsStateWithLifecycle()
+    // same reasoning as the camera markers above. (convoyPeers itself is
+    // collected further up, alongside the other convoy state.)
     LaunchedEffect(mapOverlays, convoyPeers) {
         mapOverlays?.setFriends(convoyPeers.values)
     }
@@ -1381,6 +1498,9 @@ fun MapScreen(
         destinationName = null
         route = null
         candidates = emptyList()
+        // A convoy spin's candidates are mode-specific too - a switch away
+        // must not leave a stale vote round on everyone's screen.
+        if (spinOffer != null) ConvoyLiveClient.clearSpinOffer()
     }
 
     Scaffold(
@@ -1540,14 +1660,14 @@ fun MapScreen(
                 // hard-swapping so the bottom of the screen stops popping.
                 val bottomCard = when {
                     navigating -> BottomCard.NAV
-                    candidates.isNotEmpty() -> BottomCard.CANDIDATES
+                    displayCandidates.isNotEmpty() -> BottomCard.CANDIDATES
                     settingsCollapsed -> BottomCard.COLLAPSED
                     else -> BottomCard.EXPANDED
                 }
                 // Same trick as shownStats: the exiting candidates pane must
                 // not render an empty card after a cancel clears the list.
-                val shownCandidates = remember { mutableStateOf(candidates) }
-                if (candidates.isNotEmpty()) shownCandidates.value = candidates
+                val shownCandidates = remember { mutableStateOf(displayCandidates) }
+                if (displayCandidates.isNotEmpty()) shownCandidates.value = displayCandidates
                 AnimatedContent(
                     targetState = bottomCard,
                     transitionSpec = {
@@ -1564,9 +1684,30 @@ fun MapScreen(
                         )
                         BottomCard.CANDIDATES -> CandidatesCard(
                             candidates = shownCandidates.value,
-                            onPick = ::choose,
+                            onPick = { index, c ->
+                                if (spinOffer != null) ConvoyLiveClient.sendSpinVote(index) else choose(c)
+                            },
                             onReroll = { candidates = emptyList(); spin() },
-                            onCancel = { candidates = emptyList() },
+                            onCancel = {
+                                candidates = emptyList()
+                                if (spinOffer != null) ConvoyLiveClient.clearSpinOffer()
+                            },
+                            // Non-null only once a spin has actually been shared - that's
+                            // also what tells the card to show votes instead of Reroll.
+                            convoyVotes = spinOffer?.let { spinVotes },
+                            onShare = if (activeConvoyId != null && spinOffer == null && candidates.isNotEmpty()) {
+                                { ConvoyLiveClient.sendSpinOffer(candidates.asSpinCandidates()) }
+                            } else null,
+                            // The sharer's button only: closing the round is
+                            // one device's call, same reason the auto-commit
+                            // above is.
+                            onGoWithLead = spinOffer?.takeIf { it.fromMe }?.let { offer ->
+                                {
+                                    ConvoyLiveClient.sendSpinOffer(listOf(
+                                        offer.candidates[
+                                            leadingSpinIndex(spinVotes, offer.candidates.size)]))
+                                }
+                            },
                         )
                         BottomCard.COLLAPSED -> SpinDock(
                             mode = mode,
@@ -2377,13 +2518,21 @@ private fun SpinSheet(
     }
 }
 
-/** Spin results awaiting a pick: distance/ETA per candidate, tap one to commit to it. */
+/** Spin results awaiting a pick: distance/ETA per candidate, tap one to commit
+ *  to it - or, once [convoyVotes] is non-null, tap one to vote on it instead
+ *  (see MapScreen's commit rule for how a vote round actually resolves). */
 @Composable
 private fun CandidatesCard(
     candidates: List<RouteCandidate>,
-    onPick: (RouteCandidate) -> Unit,
+    onPick: (Int, RouteCandidate) -> Unit,
     onReroll: () -> Unit,
     onCancel: () -> Unit,
+    // Null = a solo spin, not shared with anyone. Non-null (even empty) =
+    // a convoy vote is in progress; the map holds username -> chosen index.
+    convoyVotes: Map<String, Int>? = null,
+    // Non-null only pre-share, in a convoy, with a spin actually on screen.
+    onShare: (() -> Unit)? = null,
+    onGoWithLead: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -2393,10 +2542,14 @@ private fun CandidatesCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Pick a destination", style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold)
             Text(
-                "All three are on the map — tap a pin or a row.",
+                if (convoyVotes == null) "Pick a destination" else "Vote on a destination",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                if (convoyVotes == null) "All three are on the map — tap a pin or a row."
+                else "Everyone sees the same three — tap a pin or a row to vote.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -2404,7 +2557,7 @@ private fun CandidatesCard(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clickable { onPick(c) }
+                        .clickable { onPick(index, c) }
                         .padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -2441,6 +2594,16 @@ private fun CandidatesCard(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (convoyVotes != null) {
+                            val voters = convoyVotes.filterValues { it == index }.keys.sorted()
+                            Text(
+                                if (voters.isEmpty()) "No votes yet"
+                                else "${voters.size} vote${if (voters.size == 1) "" else "s"} · " +
+                                    voters.joinToString(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     c.route?.timeMs?.let { timeMs ->
                         Surface(
@@ -2456,14 +2619,33 @@ private fun CandidatesCard(
                     }
                 }
             }
+            if (onShare != null) {
+                FilledTonalButton(onClick = onShare, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Outlined.Groups, contentDescription = null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Share with convoy")
+                }
+            }
+            if (onGoWithLead != null) {
+                // A silent member can't stall the ride - this commits the
+                // current leader immediately, without waiting for a vote
+                // from every currently-connected peer.
+                Button(onClick = onGoWithLead, modifier = Modifier.fillMaxWidth()) {
+                    Text("Go with the lead")
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) {
                     Text("Cancel")
                 }
-                Button(onClick = onReroll, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Outlined.Casino, contentDescription = null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Reroll")
+                // Rerolling would only change this device's own list, not the
+                // sheet everyone else is voting on - hide it once shared.
+                if (convoyVotes == null) {
+                    Button(onClick = onReroll, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Outlined.Casino, contentDescription = null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Reroll")
+                    }
                 }
             }
         }

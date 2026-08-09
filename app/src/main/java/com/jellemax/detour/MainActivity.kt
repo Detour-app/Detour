@@ -31,6 +31,7 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.ui.BadgesScreen
 import com.jellemax.detour.ui.CirclesScreen
+import com.jellemax.detour.ui.CoverageMapScreen
 import com.jellemax.detour.ui.FriendsScreen
 import com.jellemax.detour.ui.HistoryScreen
 import com.jellemax.detour.ui.HubScreen
@@ -94,7 +95,7 @@ class MainActivity : ComponentActivity() {
 
 private enum class Screen {
     MAP, HUB, HISTORY, TRIP_DETAIL, BADGES, FRIENDS, CIRCLES, SETTINGS, SAVED, ROUTES,
-    ROUTE_EDITOR,
+    ROUTE_EDITOR, COVERAGE_MAP,
 }
 
 @Composable
@@ -116,13 +117,15 @@ private fun AppRoot() {
     // through to the default (exit) behaviour. The destinations off Hub step
     // back to Hub, not all the way to the map, so back always undoes one level
     // of the push it followed to get here — except TRIP_DETAIL, which is pushed
-    // from History rather than Hub, so it steps back to History instead, and
-    // ROUTE_EDITOR, which is pushed from ROUTES and steps back there.
+    // from History rather than Hub, so it steps back to History instead,
+    // ROUTE_EDITOR, which is pushed from ROUTES and steps back there, and
+    // COVERAGE_MAP, which is pushed from Badges and steps back there.
     BackHandler(enabled = screen != Screen.MAP) {
         screen = when (screen) {
             Screen.HUB -> Screen.MAP
             Screen.TRIP_DETAIL -> Screen.HISTORY
             Screen.ROUTE_EDITOR -> Screen.ROUTES
+            Screen.COVERAGE_MAP -> Screen.BADGES
             else -> Screen.HUB
         }
     }
@@ -159,7 +162,11 @@ private fun AppRoot() {
             Screen.TRIP_DETAIL -> detailTrip?.let { trip ->
                 TripDetailScreen(trip = trip, onBack = { screen = Screen.HISTORY })
             }
-            Screen.BADGES -> BadgesScreen(onBack = { screen = Screen.HUB })
+            Screen.BADGES -> BadgesScreen(
+                onBack = { screen = Screen.HUB },
+                onOpenCoverageMap = { screen = Screen.COVERAGE_MAP },
+            )
+            Screen.COVERAGE_MAP -> CoverageMapScreen(onBack = { screen = Screen.BADGES })
             Screen.FRIENDS -> FriendsScreen(onBack = { screen = Screen.HUB })
             Screen.CIRCLES -> CirclesScreen(onBack = { screen = Screen.HUB })
             Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.HUB })

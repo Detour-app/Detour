@@ -263,6 +263,21 @@ peers' maps mid-ride.
 > the UI is not the fix — reject the frame on the server when the target group's kind is
 > not `convoy`. This is the single highest-consequence line in the whole merge.
 
+Group spin (`spin_offer` / `spin_vote`, added after the merge shipped — a convoy votes on
+a spun destination together) rides the same relay and is gated exactly the same way: kind
+must be `convoy`, checked server-side, not left to the client to hide a button. Like PTT,
+it is stateless pass-through — the server validates and relays, but the vote tally itself
+lives only in each client's `ConvoyLiveClient` for the life of the round; nothing is
+persisted.
+
+Because the tally is client-side, *who* ends the round matters. Only the member who
+shared the spin closes it, by broadcasting the winner as a `spin_offer` carrying a single
+candidate; every client commits a one-candidate offer on sight. Letting each device decide
+for itself once "everyone has voted" would have been simpler and wrong — a peer that has
+been quiet for 20s is pruned from one phone's live-peer set and not another's, so the two
+can call the round complete on different vote counts and route the convoy to two different
+destinations.
+
 ---
 
 ## 7. Policy split, line by line
@@ -370,6 +385,7 @@ no connectivity.
 | Risk | Severity | Mitigation |
 |---|---|---|
 | PTT leaks into circles | Critical | Server-side kind check on all three PTT frame types; test that asserts rejection |
+| Group spin leaks into circles | Critical | Same server-side kind check, applied to `spin_offer`/`spin_vote` too; mirrored rejection tests |
 | Regression in convoy live location, a shipped feature | High | Tests on the relay's reconnect/eviction semantics *before* the multi-group change |
 | Circle deleted when its last member leaves | High | `drop_when_empty` as data, not an `if` |
 | Old clients drop off peers' maps after the protocol gains `groupId` | Medium | One release of "no groupId = my only group" tolerance |

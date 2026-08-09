@@ -1902,6 +1902,16 @@ def do_circle_events(user, group_id, params):
 #   -> {"type": "ptt_start", "groupId": N}          <- relayed, convoy groups only
 #   -> {"type": "ptt_audio", "groupId": N, "chunk": "<base64 16kHz mono PCM16>"}  <- same
 #   -> {"type": "ptt_end", "groupId": N}             <- relayed, convoy groups only
+#   -> {"type": "spin_offer", "groupId": N,          <- relayed, convoy groups only
+#       "candidates": [{"lat", "lon", "distanceM"?, "durationS"?, "name"?}, 1-3 of them]}
+#   -> {"type": "spin_vote", "groupId": N, "index": 0-2}   <- relayed, convoy groups only
+# A spin_offer carrying a single candidate means something different to the
+# app than one carrying three: three is a sheet to vote on, one is the
+# member who opened the round announcing the winner, which every client
+# commits on sight. The relay doesn't care - it validates and forwards
+# either the same way - but the convention is what keeps a convoy from
+# splitting across two destinations, so it is documented here rather than
+# only in the client.
 #   <- {"type": "left", "groupId": N, "user": "<username>"} (peer disconnected or left)
 #
 # `groupId` is a wire-compatible break from the old single-group protocol,
@@ -1940,6 +1950,12 @@ MAX_AUDIO_CHUNK_B64 = 20_000
 # A send that blocks this long is a peer on a bad connection, not a slow
 # network blip - drop it rather than let it stall everyone else's traffic.
 BROADCAST_SEND_TIMEOUT_SEC = 2.0
+# The candidate sheet only ever shows three; a `spin_offer` claiming more is
+# not a bigger spin, it's a malformed or hostile frame.
+MAX_SPIN_CANDIDATES = 3
+# Long enough for any place name the pickers actually produce; just a cap
+# against a client stuffing a spin candidate's name field with garbage.
+MAX_SPIN_NAME_LEN = 80
 
 
 async def _ws_authenticate(websocket):
@@ -2077,6 +2093,68 @@ def _valid_fix(body):
     except (TypeError, ValueError):
         ts = now_ms()
     return {"lat": lat, "lon": lon, "accuracyM": accuracy, "ts": ts}
+
+
+def _valid_spin_candidate(obj):
+    """Coerces and range-checks one `spin_offer` candidate: the same
+    lat/lon gate as a location fix, plus the trip numbers the candidate
+    sheet shows and an optional place name - a convoy is choosing a real
+    destination together, so this must reject the same garbage a location
+    fix would rather than relay it onto three peers' maps."""
+    if not isinstance(obj, dict):
+        return None
+    coords = _valid_latlon(obj)
+    if coords is None:
+        return None
+    lat, lon = coords
+    out = {"lat": lat, "lon": lon}
+    distance = obj.get("distanceM")
+    try:
+        distance = float(distance) if distance is not None else None
+    except (TypeError, ValueError):
+        distance = None
+    if distance is not None and (distance != distance or not (0 <= distance <= 1_000_000)):
+        distance = None
+    if distance is not None:
+        out["distanceM"] = distance
+    duration = obj.get("durationS")
+    try:
+        duration = float(duration) if duration is not None else None
+    except (TypeError, ValueError):
+        duration = None
+    if duration is not None and (duration != duration or not (0 <= duration <= 100_000)):
+        duration = None
+    if duration is not None:
+        out["durationS"] = duration
+    name = obj.get("name")
+    if isinstance(name, str) and name.strip():
+        out["name"] = name.strip()[:MAX_SPIN_NAME_LEN]
+    return out
+
+
+def _valid_spin_offer(msg):
+    """None unless `candidates` is a list of 1-3 valid candidates - the same
+    range the app's own candidate sheet ever offers. One bad candidate voids
+    the whole frame rather than silently relaying a shorter list than the
+    sender thinks it sent."""
+    raw = msg.get("candidates")
+    if not isinstance(raw, list) or not (1 <= len(raw) <= MAX_SPIN_CANDIDATES):
+        return None
+    out = [_valid_spin_candidate(c) for c in raw]
+    if any(c is None for c in out):
+        return None
+    return out
+
+
+def _valid_spin_vote_index(msg):
+    """0..2, matching the candidate sheet's slots. Anything else - a stale
+    index from a bigger offer, a bad type - is dropped rather than relayed
+    as a vote for a candidate that was never on the sheet."""
+    try:
+        idx = int(msg.get("index"))
+    except (TypeError, ValueError):
+        return None
+    return idx if 0 <= idx < MAX_SPIN_CANDIDATES else None
 
 
 def _join_check(group_id, user_id):
@@ -2240,6 +2318,38 @@ async def handle_live_socket(websocket):
                 else:
                     await _group_broadcast(
                         gid, {"type": mtype, "groupId": gid, "user": user["username"]},
+                        exclude_user_id=user["id"],
+                    )
+
+            elif mtype in ("spin_offer", "spin_vote"):
+                gid = _frame_group_id(msg, joined)
+                if gid is None or gid not in joined:
+                    continue
+                if not _still_registered(gid, user["id"], websocket):
+                    joined.pop(gid, None)
+                    continue
+                # Same gate as PTT and for the same reason: a spin vote is a
+                # convoy deciding where to ride together, not something a
+                # circle - a standing "who's where" map - ever needs.
+                if joined[gid] != "convoy":
+                    continue
+                if mtype == "spin_offer":
+                    candidates = _valid_spin_offer(msg)
+                    if candidates is None:
+                        continue
+                    await _group_broadcast(
+                        gid,
+                        {"type": "spin_offer", "groupId": gid, "user": user["username"],
+                         "candidates": candidates},
+                        exclude_user_id=user["id"],
+                    )
+                else:
+                    idx = _valid_spin_vote_index(msg)
+                    if idx is None:
+                        continue
+                    await _group_broadcast(
+                        gid,
+                        {"type": "spin_vote", "groupId": gid, "user": user["username"], "index": idx},
                         exclude_user_id=user["id"],
                     )
     except websockets.ConnectionClosed:
