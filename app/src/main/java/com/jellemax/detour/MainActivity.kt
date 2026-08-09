@@ -30,6 +30,7 @@ import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.ui.BadgesScreen
+import com.jellemax.detour.ui.CirclesScreen
 import com.jellemax.detour.ui.FriendsScreen
 import com.jellemax.detour.ui.HistoryScreen
 import com.jellemax.detour.ui.HubScreen
@@ -92,7 +93,8 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class Screen {
-    MAP, HUB, HISTORY, TRIP_DETAIL, BADGES, FRIENDS, SETTINGS, SAVED, ROUTES, ROUTE_EDITOR,
+    MAP, HUB, HISTORY, TRIP_DETAIL, BADGES, FRIENDS, CIRCLES, SETTINGS, SAVED, ROUTES,
+    ROUTE_EDITOR,
 }
 
 @Composable
@@ -145,6 +147,7 @@ private fun AppRoot() {
                 onOpenHistory = { screen = Screen.HISTORY },
                 onOpenBadges = { screen = Screen.BADGES },
                 onOpenFriends = { screen = Screen.FRIENDS },
+                onOpenCircles = { screen = Screen.CIRCLES },
                 onOpenSettings = { screen = Screen.SETTINGS },
                 onOpenSavedPlaces = { screen = Screen.SAVED },
                 onOpenRoutes = { screen = Screen.ROUTES },
@@ -158,6 +161,7 @@ private fun AppRoot() {
             }
             Screen.BADGES -> BadgesScreen(onBack = { screen = Screen.HUB })
             Screen.FRIENDS -> FriendsScreen(onBack = { screen = Screen.HUB })
+            Screen.CIRCLES -> CirclesScreen(onBack = { screen = Screen.HUB })
             Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.HUB })
             Screen.SAVED -> SavedPlacesScreen(onBack = { screen = Screen.HUB })
             Screen.ROUTES -> RoutesScreen(

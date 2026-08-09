@@ -25,7 +25,7 @@ struct RoutesScreen: View {
 
     var body: some View {
         NavigationStack {
-            Group {
+            SwiftUI.Group {
                 if model.items.isEmpty {
                     ContentUnavailableView(
                         "No saved routes",

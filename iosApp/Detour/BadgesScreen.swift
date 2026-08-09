@@ -14,7 +14,7 @@ struct BadgesScreen: View {
 
     var body: some View {
         NavigationStack {
-            Group {
+            SwiftUI.Group {
                 if loading {
                     ProgressView()
                 } else {

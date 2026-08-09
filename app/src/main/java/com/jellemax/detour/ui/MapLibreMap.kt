@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import com.jellemax.detour.R
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.MemberFix
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.net.FriendPosition
 import org.maplibre.android.camera.CameraPosition
@@ -60,10 +61,12 @@ private const val SRC_DEST = "mr-dest"
 private const val SRC_POSITION = "mr-position"
 private const val SRC_CAMERAS = "mr-cameras"
 private const val SRC_FRIENDS = "mr-friends"
+private const val SRC_CIRCLE_MEMBERS = "mr-circle-members"
 private const val IMG_DEST = "mr-img-dest"
 private const val IMG_POSITION = "mr-img-position"
 private const val IMG_CAMERA = "mr-img-camera"
 private const val IMG_FRIEND = "mr-img-friend"
+private const val IMG_CIRCLE_MEMBER = "mr-img-circle-member"
 const val LAYER_CANDIDATES = "mr-candidates-dot"
 // Below city zoom the speed-camera icons pile up into an unreadable blob, and
 // at loop-planning zoom they're just noise — hide them until zoomed past this.
@@ -94,7 +97,11 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
         ContextCompat.getDrawable(context, R.drawable.ic_map_friend)?.let {
             style.addImage(IMG_FRIEND, it.toBitmap())
         }
-        listOf(SRC_REACH, SRC_WEDGE, SRC_ROUTE, SRC_CANDIDATES, SRC_DEST, SRC_POSITION, SRC_CAMERAS, SRC_FRIENDS)
+        ContextCompat.getDrawable(context, R.drawable.ic_map_circle_member)?.let {
+            style.addImage(IMG_CIRCLE_MEMBER, it.toBitmap())
+        }
+        listOf(SRC_REACH, SRC_WEDGE, SRC_ROUTE, SRC_CANDIDATES, SRC_DEST, SRC_POSITION, SRC_CAMERAS,
+            SRC_FRIENDS, SRC_CIRCLE_MEMBERS)
             .forEach { style.addSource(GeoJsonSource(it)) }
 
         // Bottom-to-top: fills, then the route (dark casing under the colored
@@ -128,6 +135,18 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
             PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
             PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
             PropertyFactory.textField(Expression.get("name")),
+            PropertyFactory.textSize(11f), PropertyFactory.textOffset(arrayOf(0f, 1.6f)),
+            PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("#000000"),
+            PropertyFactory.textHaloWidth(1.2f),
+            PropertyFactory.textAllowOverlap(true), PropertyFactory.textIgnorePlacement(true)))
+        // Circle members: no heading (a circle fix carries no bearing, and
+        // even if it did, minutes-old speed/direction isn't worth showing as
+        // if it were current) - just a static dot with a "name · age" label,
+        // so this reads as "last seen", not "live", next to the convoy arrow.
+        style.addLayer(SymbolLayer("mr-circle-members", SRC_CIRCLE_MEMBERS).withProperties(
+            PropertyFactory.iconImage(IMG_CIRCLE_MEMBER),
+            PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
+            PropertyFactory.textField(Expression.get("label")),
             PropertyFactory.textSize(11f), PropertyFactory.textOffset(arrayOf(0f, 1.6f)),
             PropertyFactory.textColor("#FFFFFF"), PropertyFactory.textHaloColor("#000000"),
             PropertyFactory.textHaloWidth(1.2f),
@@ -168,6 +187,25 @@ class MapOverlays(private val style: Style, context: Context, darkTheme: Boolean
                 Feature.fromGeometry(Point.fromLngLat(f.lon, f.lat)).apply {
                     addStringProperty("name", f.username)
                     addNumberProperty("bearing", f.headingDeg ?: 0.0)
+                }
+            }))
+    }
+
+    /** Replace the circle-member markers for whichever circle is currently
+     *  being viewed (see [CircleMapState] in CirclesScreen.kt). Fed by
+     *  MapScreen's own polling loop, on [CircleFixes]'s minute cadence -
+     *  same reasoning as [setFriends] and [setCameras], just far slower. Age
+     *  is computed here rather than stored on [MemberFix] so a marker's label
+     *  is honest about "how old is this" even between polls, not just at the
+     *  instant the fix arrived. */
+    fun setCircleMembers(fixes: Collection<MemberFix>) {
+        val now = System.currentTimeMillis()
+        setData(SRC_CIRCLE_MEMBERS, FeatureCollection.fromFeatures(
+            fixes.map { f ->
+                Feature.fromGeometry(Point.fromLngLat(f.lon, f.lat)).apply {
+                    val ageMin = ((now - f.tsMs).coerceAtLeast(0) / 60_000L)
+                    val ageLabel = if (ageMin < 1) "just now" else "${ageMin}m ago"
+                    addStringProperty("label", "${f.username} · $ageLabel")
                 }
             }))
     }

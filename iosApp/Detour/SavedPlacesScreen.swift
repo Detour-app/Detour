@@ -13,7 +13,7 @@ struct SavedPlacesScreen: View {
 
     var body: some View {
         NavigationStack {
-            Group {
+            SwiftUI.Group {
                 if places.items.isEmpty {
                     ContentUnavailableView(
                         "No saved places",

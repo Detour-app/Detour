@@ -64,12 +64,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.convoy.ConvoyLiveService
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.BadgeStore
-import com.jellemax.detour.data.Convoy
-import com.jellemax.detour.data.Convoys
 import com.jellemax.detour.data.Coverage
 import com.jellemax.detour.data.FriendLists
 import com.jellemax.detour.data.FriendStats
 import com.jellemax.detour.data.Friends
+import com.jellemax.detour.data.Group
+import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.PendingReset
 import com.jellemax.detour.data.RiderStats
 import com.jellemax.detour.data.SyncClient
@@ -672,8 +672,9 @@ private fun AddFriendDialog(onDismiss: () -> Unit) {
 }
 
 /**
- * Convoys: the "granted access" gate for live location + push-to-talk (see
- * server/sync/sync_server.py's convoy tables). Inviting requires already
+ * Convoys: the "granted access" gate for live location + push-to-talk — one
+ * of the two kinds [Groups] manages (see docs/CIRCLES_AND_CONVOYS.md; the
+ * other is circles, on their own [CirclesScreen]). Inviting requires already
  * being friends — the server enforces it, this just surfaces the error if
  * you try anyway. `liveConvoyId` is read from [ConvoyLiveClient] itself
  * (not local UI state) so this screen always reflects whether
@@ -685,12 +686,12 @@ private fun AddFriendDialog(onDismiss: () -> Unit) {
 private fun ConvoysSection() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var convoys by remember { mutableStateOf<List<Convoy>>(emptyList()) }
+    var convoys by remember { mutableStateOf<List<Group>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var reloads by remember { mutableIntStateOf(0) }
     var createOpen by remember { mutableStateOf(false) }
-    var inviteFor by remember { mutableStateOf<Convoy?>(null) }
+    var inviteFor by remember { mutableStateOf<Group?>(null) }
     val liveConvoyId by ConvoyLiveClient.activeConvoyId.collectAsStateWithLifecycle()
 
     // Mic permission is asked for before starting the service, not after -
@@ -719,7 +720,7 @@ private fun ConvoysSection() {
 
     LaunchedEffect(reloads) {
         try {
-            convoys = withContext(Dispatchers.IO) { Convoys.list() }
+            convoys = withContext(Dispatchers.IO) { Groups.list("convoy") }
             error = null
         } catch (e: Exception) {
             error = e.message ?: "Could not reach the server"
@@ -770,11 +771,11 @@ private fun ConvoysSection() {
                 convoy = convoy,
                 busy = busy,
                 live = liveConvoyId == convoy.id,
-                onAccept = { act { Convoys.respond(convoy.id, true) } },
-                onDecline = { act { Convoys.respond(convoy.id, false) } },
+                onAccept = { act { Groups.respond("convoy", convoy.id, true) } },
+                onDecline = { act { Groups.respond("convoy", convoy.id, false) } },
                 onLeave = {
                     if (liveConvoyId == convoy.id) ConvoyLiveService.stop(context)
-                    act { Convoys.leave(convoy.id) }
+                    act { Groups.leave("convoy", convoy.id) }
                 },
                 onInvite = { inviteFor = convoy },
                 onToggleLive = {
@@ -791,21 +792,21 @@ private fun ConvoysSection() {
     if (createOpen) {
         CreateConvoyDialog(
             onDismiss = { createOpen = false },
-            onCreate = { name -> act { Convoys.create(name) }; createOpen = false },
+            onCreate = { name -> act { Groups.create("convoy", name) }; createOpen = false },
         )
     }
     inviteFor?.let { convoy ->
         InviteToConvoyDialog(
             convoy = convoy,
             onDismiss = { inviteFor = null },
-            onInvite = { target -> act { Convoys.invite(convoy.id, target) }; inviteFor = null },
+            onInvite = { target -> act { Groups.invite("convoy", convoy.id, target) }; inviteFor = null },
         )
     }
 }
 
 @Composable
 private fun ConvoyRow(
-    convoy: Convoy,
+    convoy: Group,
     busy: Boolean,
     live: Boolean,
     onAccept: () -> Unit,
@@ -893,7 +894,7 @@ private fun CreateConvoyDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit
 /** Invite by username, same shape as [AddFriendDialog] — the server rejects
  *  anyone not already a friend, so there's nothing else to validate here. */
 @Composable
-private fun InviteToConvoyDialog(convoy: Convoy, onDismiss: () -> Unit, onInvite: (String) -> Unit) {
+private fun InviteToConvoyDialog(convoy: Group, onDismiss: () -> Unit, onInvite: (String) -> Unit) {
     var name by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,

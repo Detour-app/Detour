@@ -296,6 +296,17 @@ friends and compare totals, rides and badges on a leaderboard. Friends never see
 your trips or your map — only totals and badges, plus your fog if you have
 opted into sharing it.
 
+**Circles** are the long-lived counterpart to a convoy: family or roommates
+rather than a ride. A circle doesn't end when you stop driving, has no
+push-to-talk, and shows each member's last known position — posted every couple
+of minutes, so it reads as "last seen", not a live trail. Share a saved place
+into one and everyone sees arrivals and departures there; the geofence is
+worked out on your own phone, so the stream of fixes behind it never leaves it.
+Sharing is per person per circle and pausable at any time. Both kinds are
+invite-only and only ever from someone you're already friends with —
+[docs/CIRCLES_AND_CONVOYS.md](docs/CIRCLES_AND_CONVOYS.md) covers how the two
+share one mechanism.
+
 <img src="docs/screenshots/account.png" width="260" align="right" alt="Account screen">
 
 Signing in takes a username, a password and — if your server asks for one — an
@@ -376,7 +387,7 @@ route and how to debug the car screen.
 A SwiftUI app in `iosApp/` runs on the same core as the Android one: map and
 spin, trip recording in the background, history with GPX export, badges, saved
 places, friends and the leaderboard, in-app turn-by-turn with spoken
-directions, and convoy live location with push-to-talk.
+directions, convoy live location with push-to-talk, and circles.
 
 Three things are Android-only and are not coming to iOS: **Android Auto**
 (CarPlay navigation needs an entitlement Apple grants on application, and
@@ -500,6 +511,14 @@ instance if you've set one in Settings, otherwise the public
 instance only when yours is unreachable, and only if you leave "Fall back to
 public search" (Settings → Server) turned on; turn it off to keep search on
 your own hardware even when your instance is down.
+
+**Circles are the one feature where the server keeps a position.** Everything
+else is either never uploaded or uploaded as a record only you can read — a
+convoy's live feed is relayed between open sockets and never written down. A
+circle stores one row per member: your latest fix, overwritten in place, no
+history and no trail. It exists only for circles you joined, only while that
+circle's sharing switch is on, and pausing is enforced by the server rather
+than trusted to the app. Leaving a circle deletes it.
 
 ## Attribution
 

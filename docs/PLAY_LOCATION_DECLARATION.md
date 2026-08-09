@@ -219,25 +219,32 @@ Detour declares two foreground service types
 
 | Service | Type | What it does |
 |---|---|---|
-| `TripTrackingService` | `location` | Records the ride; also feeds `NavEngine` for turn-by-turn |
+| `TripTrackingService` | `location` | Records the ride; also feeds `NavEngine` for turn-by-turn, and posts a low-cadence fix to any circle the user shares with |
 | `ConvoyLiveService` | `location\|microphone` | Streams position to convoy members, captures push-to-talk |
 
 ### FOREGROUND_SERVICE_LOCATION
 
 Under **Background location updates**, tick:
 
-- **User-initiated location sharing** — `ConvoyLiveService`. When the user
-  joins a convoy, their position is streamed to the other riders in it. Its
-  notification reads "Sharing location, listening for push-to-talk". The user
-  starts this deliberately by joining; leaving the convoy stops the service.
+- **User-initiated location sharing** — two features now, both opt-in.
+  `ConvoyLiveService`: when the user joins a convoy, their position is streamed
+  to the other riders in it. Its notification reads "Sharing location,
+  listening for push-to-talk". The user starts this deliberately by joining;
+  leaving the convoy stops the service. **Circles**: `TripTrackingService`
+  additionally posts the latest fix, every couple of minutes, to each circle
+  the user has joined *and* left the per-circle sharing switch on for. Nothing
+  is posted for a user who is in no circle or has paused every one, and the
+  pause is enforced server-side as well as on the device.
 - **Navigation** — `NavEngine` drives in-app turn-by-turn to the spun
   destination, off the fixes `TripTrackingService` publishes. The screen is
   often off or the app behind the driver's music app while this runs.
 - **Other** — see below.
 
-Leave **Geofencing** unticked. Detour registers no geofences; the auto-stop
+Leave **Geofencing** unticked. Detour registers no geofences: the auto-stop
 "back where you started" check is plain distance arithmetic against the trip's
-own origin, not the Geofencing API.
+own origin, and a circle's arrive/depart events are evaluated the same way, on
+device, against fixes that already arrive (`GeofenceEvaluator` in `shared/`).
+Neither goes near the Geofencing API.
 
 "Other" description:
 

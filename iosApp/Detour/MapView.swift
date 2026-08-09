@@ -1,6 +1,7 @@
 import SwiftUI
 import MapLibre
 import CoreLocation
+import DetourShared
 
 /// MapLibre's iOS view, bridged into SwiftUI.
 ///
@@ -19,6 +20,14 @@ struct MapView: UIViewRepresentable {
     /// else: the spin flow and nav screen only ever display a route, they
     /// never build one, so they never pass this.
     var onTap: ((CLLocationCoordinate2D) -> Void)? = nil
+    /// Last-known positions for whichever circle `CirclesScreen` currently has
+    /// open (see `CircleMapState`), fed by MapScreen's own polling loop on
+    /// `CircleFixes`'s own cadence. Empty everywhere else. Deliberately drawn
+    /// as plain point annotations rather than Android's always-visible
+    /// "name · age" style-layer label — this view has no custom style layers
+    /// at all yet, only annotations — so the label surfaces on tap, the same
+    /// way the destination and stop pins already work in this file.
+    var circleMembers: [MemberFix] = []
 
     func makeUIView(context: Context) -> MLNMapView {
         let view = MLNMapView(frame: .zero)
@@ -57,6 +66,13 @@ struct MapView: UIViewRepresentable {
             view.addAnnotation(pin)
         }
 
+        for member in circleMembers {
+            let pin = MLNPointAnnotation()
+            pin.coordinate = CLLocationCoordinate2D(latitude: member.lat, longitude: member.lon)
+            pin.title = "\(member.username) · \(circleFixAge(member.tsMs))"
+            view.addAnnotation(pin)
+        }
+
         if route.count >= 2 {
             var coords = route
             view.addAnnotation(MLNPolyline(coordinates: &coords, count: UInt(coords.count)))
@@ -91,4 +107,14 @@ struct MapView: UIViewRepresentable {
             .systemBlue
         }
     }
+}
+
+/// "just now" / "<n>m ago" with no hour/day rollover — a circle fix is always
+/// on the order of minutes old, so anything past that is already stale enough
+/// that the exact hour count doesn't matter. Matches the inline computation in
+/// Android's `MapLibreMap.setCircleMembers` exactly (floor-divided minutes,
+/// clamped to zero).
+private func circleFixAge(_ tsMs: Int64) -> String {
+    let minutes = max(0, nowMs() - tsMs) / 60_000
+    return minutes < 1 ? "just now" : "\(minutes)m ago"
 }

@@ -11,7 +11,7 @@ struct RootView: View {
     @StateObject private var recorder = TripRecorder()
     @State private var selected = Tab.map
 
-    enum Tab { case map, history, badges, places, routes, friends, settings }
+    enum Tab { case map, history, badges, places, routes, friends, circles, settings }
 
     var body: some View {
         TabView(selection: $selected) {
@@ -40,12 +40,21 @@ struct RootView: View {
                 .tabItem { Label("Friends", systemImage: "person.2") }
                 .tag(Tab.friends)
 
+            CirclesScreen()
+                .tabItem { Label("Circles", systemImage: "location.circle") }
+                .tag(Tab.circles)
+
             SettingsScreen()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(Tab.settings)
         }
         .task {
             recorder.startWatching()
+            // Circles' second sink on that same location stream — started
+            // once here, alongside the recorder it reads from, and left
+            // running for the life of the app regardless of which tab is on
+            // screen (docs/CIRCLES_AND_CONVOYS.md section 10).
+            CircleSync.shared.start()
             // Pull from the sync server on launch: restores everything after a
             // reinstall and picks up trips recorded while the app was closed.
             if SyncClient.shared.configured() && Account.shared.signedIn {

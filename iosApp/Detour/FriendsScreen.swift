@@ -12,7 +12,7 @@ struct FriendsScreen: View {
 
     var body: some View {
         NavigationStack {
-            Group {
+            SwiftUI.Group {
                 if model.signedIn {
                     signedInList
                 } else {
@@ -197,7 +197,9 @@ final class FriendsModel: ObservableObject {
     @Published private(set) var incoming: [String] = []
     @Published private(set) var outgoing: [String] = []
     @Published private(set) var leaderboard: [FriendStats] = []
-    @Published private(set) var convoys: [Convoy] = []
+    // `DetourShared.Group`, qualified: SwiftUI also exports a `Group` type,
+    // and the two would otherwise collide in every file that imports both.
+    @Published private(set) var convoys: [DetourShared.Group] = []
     @Published var shareFog = false
     @Published var busy = false
     @Published var error: String?
@@ -230,7 +232,7 @@ final class FriendsModel: ObservableObject {
             incoming = lists.incoming
             outgoing = lists.outgoing
             leaderboard = try await Friends.shared.stats()
-            convoys = try await Convoys.shared.list()
+            convoys = try await Groups.shared.list(kind: "convoy")
         } catch {
             report(error)
         }
@@ -287,17 +289,17 @@ final class FriendsModel: ObservableObject {
 
     func createConvoy() {
         act { [self] in
-            _ = try await Convoys.shared.create(name: newConvoyName.trimmed())
+            _ = try await Groups.shared.create(kind: "convoy", name: newConvoyName.trimmed())
             newConvoyName = ""
         }
     }
 
-    func respondToConvoy(_ convoy: Convoy, accept: Bool) {
-        act { try await Convoys.shared.respond(convoyId: convoy.id, accept: accept) }
+    func respondToConvoy(_ convoy: DetourShared.Group, accept: Bool) {
+        act { try await Groups.shared.respond(kind: "convoy", groupId: convoy.id, accept: accept) }
     }
 
-    func leave(_ convoy: Convoy) {
-        act { try await Convoys.shared.leave(convoyId: convoy.id) }
+    func leave(_ convoy: DetourShared.Group) {
+        act { try await Groups.shared.leave(kind: "convoy", groupId: convoy.id) }
     }
 
     func setShareFog(_ value: Bool) {

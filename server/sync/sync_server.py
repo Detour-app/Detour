@@ -14,11 +14,19 @@ Privacy rules, each enforced in exactly one place:
     the traces being served from the next request on.
   - Friends otherwise see only the aggregate numbers the owner's app computed
     (total km, top speed, badges, …), via `friend_stats`.
-  - A convoy's live position and push-to-talk audio are **never persisted**
-    anywhere - they exist only as long as the WebSocket relay connection
-    does, relayed only to that convoy's own 'accepted' members, and only for
-    as long as you're actively joined to it. Joining requires already being
-    an accepted friend of whoever invited you.
+  - Convoys and circles are one entity (`groups`, discriminated by `kind`).
+    Live position and push-to-talk audio are relayed only to a group's own
+    'accepted' members, and only for as long as a socket is actively joined
+    to it - joining requires already being an accepted friend of whoever
+    invited you. Push-to-talk is rejected server-side for any group whose
+    `kind` isn't 'convoy', no matter what a client asks for.
+  - **Circles persist one thing convoys never did:** `member_last_fix` keeps
+    the latest position per member, overwritten in place, so a circle's map
+    isn't blank until the other person's app happens to be open too. A
+    member who pauses sharing (`group_members.sharing = 0`) has their
+    `location` frames dropped at the relay - enforced there, not just on
+    their own client, so a stale build can't keep broadcasting after they
+    believe they've stopped.
   - A route can only be shared with an accepted friend, and unfriending
     someone deletes every route shared between you in either direction — a
     route is places you have been, so losing the friendship takes it back.
@@ -41,11 +49,21 @@ Protocol
   POST /shared-routes/share {to, route}         -> {status} (recipient must be an accepted friend)
   GET  /shared-routes/inbox                     -> {routes: [{id, from, createdMs, route}]}
   POST /shared-routes/delete {id}               -> {} (sender or recipient only)
-  POST /convoys {name}                          -> {id, name} (creator auto-joins)
-  GET  /convoys                                 -> [{id, name, status, members: [{username, status}]}]
-  POST /convoys/{id}/invite {username}          -> {status} (must already be friends)
+  POST /circles {name} · POST /convoys {name}   -> {id, name} (creator auto-joins)
+  GET  /circles        · GET  /convoys          -> [{id, name, status, members: [{username, status, sharing?}]}]
+  POST /circles/{id}/invite {username}          -> {status} (must already be friends)
+  POST /convoys/{id}/invite {username}          -> {status} (same handler, must already be friends)
+  POST /circles/{id}/respond {accept}           -> {status}
   POST /convoys/{id}/respond {accept}           -> {status}
-  POST /convoys/{id}/leave                      -> {}
+  POST /circles/{id}/leave · POST /convoys/{id}/leave -> {}
+  POST /circles/{id}/sharing {sharing}          -> {sharing} (pause/resume; 404 on a convoy id)
+  POST /circles/{id}/fix {lat, lon, accuracyM?, ts} -> {status} (low-cadence position upload, no socket needed)
+  GET  /circles/{id}/fixes                      -> {fixes: [{username, lat, lon, accuracyM, ts}]} (accepted + sharing members only)
+  POST /circle-places/share {groupId, place}    -> {status} (place is user-owned, shared into the circle, revoked on leave)
+  GET  /circle-places?groupId=                  -> {places: [{id, owner, name, radiusM, createdMs, place}]}
+  POST /circle-places/delete {id}               -> {} (owner only)
+  POST /circles/{id}/events {placeId, kind, ts?} -> {status} (kind: arrive|depart; geofencing runs on-device, this just records + fans out)
+  GET  /circles/{id}/events?since=              -> {events: [{id, placeId, username, kind, tsMs}]} (includes the caller's own arrivals)
   GET  /ha/stats?key=                           -> {stats, rideCount, badges, badgeCatalogue}
   GET  /ha/rides?key=[&limit=]                  -> {rides: [{startMs, maxLeanDeg, …}]} (limit <= 500)
   GET  /ha/ride.geojson?key=&start=             -> GeoJSON, one Feature per segment
@@ -78,12 +96,15 @@ account password. It can hand out invites, reset passwords and delete accounts,
 but it never reads anyone's trips or traces — the privacy rules above are not
 relaxed for admins, who see only account metadata and row counts.
 
-Convoy live location + push-to-talk run over a *second* listener, a
-WebSocket relay on LIVE_PORT (default 8990) - see the "convoy live relay"
-section below for its message protocol. It requires the `websockets`
-package; without that installed, the REST /convoys endpoints still work
-(create/invite/manage convoys), but the relay itself logs a warning and
-never starts, so live location/PTT silently do nothing.
+Convoy and circle live location + push-to-talk run over a *second* listener,
+a WebSocket relay on LIVE_PORT (default 8990) shared by both - see the
+"group live relay" section below for its message protocol. A socket may be
+joined to several groups at once (a circle running all day plus a convoy for
+one ride); every non-join frame after `join` carries a `groupId` naming
+which one it's for. It requires the `websockets` package; without that
+installed, the REST /circles and /convoys endpoints still work
+(create/invite/manage), but the relay itself logs a warning and never
+starts, so live location/PTT silently do nothing.
 
 Merging is idempotent:
   - trips key on (user, startTimeMs); a re-upload updates the stored copy, so
@@ -112,10 +133,10 @@ old version did. Access is a gate on the hostname; the bearer token is identity.
 Bind to localhost — HOST=0.0.0.0 also serves the LAN, which is how Home
 Assistant reaches /ha/* without the tunnel. Note that TRUST_CF_HEADER then
 believes a LAN client's CF-Connecting-IP too, so the rate limiter can be
-side-stepped from inside the network. HOST also decides where the convoy
-relay binds.
+side-stepped from inside the network. HOST also decides where the group
+live relay binds.
 
-Python 3.8+ stdlib only, except the convoy live relay which needs the
+Python 3.8+ stdlib only, except the group live relay which needs the
 `websockets` package (optional - see above). DATA_DIR env var sets the
 storage directory; LIVE_PORT sets the relay's port (default 8990, same HOST
 as the main server).
@@ -153,7 +174,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote as urlquote, urlparse
 
-# Optional: only the convoy live-location/PTT relay needs this. The rest of
+# Optional: only the group live-location/PTT relay needs this. The rest of
 # the server (trips, friends, fog, HA endpoints) works with stdlib alone, so
 # a homelab that hasn't run `pip install websockets` yet still gets a
 # working sync server - just without the live relay.
@@ -197,6 +218,23 @@ ROUTES_INBOX_LIMIT = 100
 # ever push out their *own* older shares — not crowd a quieter friend's
 # routes out of your inbox.
 MAX_SHARED_ROUTES_PER_PAIR = 50
+
+# A circle place is a name, a point and a radius - far smaller than a route's
+# polyline, so it gets a smaller cap than MAX_ROUTE_JSON_BYTES rather than
+# reusing it.
+MAX_PLACE_JSON_BYTES = 64 * 1024
+# Same shape as MAX_SHARED_ROUTES_PER_PAIR: a write cap enforced per (group,
+# owner), not just a display cap, so one member can't grow a circle's place
+# list without bound.
+MAX_CIRCLE_PLACES_PER_OWNER = 50
+# Newest-N retention for a circle's arrival/departure feed - the same
+# per-relationship-cap idea as MAX_SHARED_ROUTES_PER_PAIR, scoped to the
+# group instead of a pair since an event has no "recipient" to key on.
+MAX_PLACE_EVENTS_PER_GROUP = 500
+# The doc's own open question settles on 10-15 for the family/roommates
+# framing; capped before circle fan-out cost (or device geofence budgets)
+# becomes a problem worth measuring instead of deciding.
+MAX_CIRCLE_MEMBERS = 15
 
 # Only these stat keys are stored, and only as finite numbers. A friend's app
 # cannot push arbitrary blobs into a payload other people will read.
@@ -281,6 +319,24 @@ def db():
 
 def init_db():
     conn = db()
+    # A circle is a convoy that never ends (docs/CIRCLES_AND_CONVOYS.md) - the
+    # merge renames rather than standing up a second table, so a phone
+    # holding a cached convoy id keeps working across the deploy. This has
+    # to run *before* the CREATE TABLE IF NOT EXISTS below: rename first, and
+    # the "IF NOT EXISTS" for `groups`/`group_members` sees them already
+    # there (under the old column set) and leaves the data alone. SQLite
+    # rewrites group_members' own foreign-key text to point at `groups` as
+    # part of the first rename, so the second rename is just a name change.
+    # RENAME TABLE doesn't touch column names, so convoy_members.convoy_id
+    # has to be renamed separately - every query below this point (and every
+    # handler in the file) reads `group_id`, not `convoy_id`.
+    tables = {r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "convoys" in tables and "groups" not in tables:
+        conn.execute("ALTER TABLE convoys RENAME TO groups")
+        conn.execute("ALTER TABLE convoy_members RENAME TO group_members")
+        conn.execute("ALTER TABLE group_members RENAME COLUMN convoy_id TO group_id")
+        conn.execute("DROP INDEX IF EXISTS idx_convoy_members_user")
+        conn.commit()
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS users (
@@ -368,23 +424,71 @@ def init_db():
             created_ms  INTEGER NOT NULL,
             UNIQUE (to_id, from_id, route_id)
         );
-        -- A convoy is the "granted access" gate for live location + PTT: you
-        -- can only be invited by an accepted friend (checked in
-        -- do_convoy_invite), and only members with status='accepted' show up
-        -- to each other. Nothing about a convoy's live position/audio is
-        -- stored anywhere — these two tables are membership only.
-        CREATE TABLE IF NOT EXISTS convoys (
-            id         INTEGER PRIMARY KEY,
-            name       TEXT NOT NULL,
-            owner_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            created_ms INTEGER NOT NULL
+        -- A group is the "granted access" gate for live location + PTT, and
+        -- a convoy and a circle are the same entity discriminated by `kind`
+        -- (see docs/CIRCLES_AND_CONVOYS.md): you can only be invited by an
+        -- accepted friend (checked in do_group_invite), and only members
+        -- with status='accepted' show up to each other. drop_when_empty is
+        -- policy as data rather than an `if kind ==` in the leave path - a
+        -- convoy with nobody left is dead weight, a circle is not.
+        CREATE TABLE IF NOT EXISTS groups (
+            id              INTEGER PRIMARY KEY,
+            kind            TEXT NOT NULL DEFAULT 'convoy' CHECK (kind IN ('convoy', 'circle')),
+            name            TEXT NOT NULL,
+            owner_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_ms      INTEGER NOT NULL,
+            drop_when_empty INTEGER NOT NULL DEFAULT 1
         );
-        CREATE TABLE IF NOT EXISTS convoy_members (
-            convoy_id  INTEGER NOT NULL REFERENCES convoys(id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS group_members (
+            group_id   INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
             user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             status     TEXT NOT NULL CHECK (status IN ('invited', 'accepted')),
             joined_ms  INTEGER NOT NULL,
-            PRIMARY KEY (convoy_id, user_id)
+            -- Circles only: the pause switch. Convoy rows leave it 1 and the
+            -- relay ignores it for them - pausing is per person per circle,
+            -- not per group, which is why it lives on the membership row.
+            sharing    INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (group_id, user_id)
+        );
+        -- Circles only: the latest fix per member, overwritten in place - no
+        -- history, no trail (docs/CIRCLES_AND_CONVOYS.md section 8). A
+        -- convoy never writes a row here; its live position stays relay-only
+        -- and unpersisted, same as it always was.
+        CREATE TABLE IF NOT EXISTS member_last_fix (
+            group_id   INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            lat        REAL NOT NULL,
+            lon        REAL NOT NULL,
+            accuracy_m REAL,
+            ts_ms      INTEGER NOT NULL,
+            PRIMARY KEY (group_id, user_id)
+        );
+        -- A circle place, on the shared_routes precedent exactly: user-owned,
+        -- shared into a group, revoked when the sharing relationship ends
+        -- (the owner leaving that circle). Opaque JSON blob, same as
+        -- saved_places and shared_routes - the server validates only what it
+        -- needs to cap and index it.
+        CREATE TABLE IF NOT EXISTS circle_places (
+            id         INTEGER PRIMARY KEY,
+            group_id   INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            owner_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            place_id   INTEGER NOT NULL,
+            name       TEXT NOT NULL,
+            json       TEXT NOT NULL,
+            radius_m   REAL NOT NULL,
+            created_ms INTEGER NOT NULL,
+            UNIQUE (group_id, owner_id, place_id)
+        );
+        -- Arrival/departure events. Geofence transitions are evaluated
+        -- on-device (docs/CIRCLES_AND_CONVOYS.md section 8) - this table just
+        -- stores and fans out the result in-app, with no push involved.
+        CREATE TABLE IF NOT EXISTS place_events (
+            id       INTEGER PRIMARY KEY,
+            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            place_id INTEGER NOT NULL,
+            user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            kind     TEXT NOT NULL CHECK (kind IN ('arrive', 'depart')),
+            ts_ms    INTEGER NOT NULL
         );
         -- Invites the manager dashboard hands out: one code, one account.
         -- The code is stored in the clear on purpose, unlike every other
@@ -423,8 +527,10 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_tokens_user ON tokens(user_id);
         CREATE INDEX IF NOT EXISTS idx_resets_user ON password_resets(user_id);
         CREATE INDEX IF NOT EXISTS idx_points_user_t ON track_points(user_id, t_ms);
-        CREATE INDEX IF NOT EXISTS idx_convoy_members_user ON convoy_members(user_id);
+        CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id);
         CREATE INDEX IF NOT EXISTS idx_shared_routes_to ON shared_routes(to_id);
+        CREATE INDEX IF NOT EXISTS idx_circle_places_group ON circle_places(group_id);
+        CREATE INDEX IF NOT EXISTS idx_place_events_group ON place_events(group_id, id);
         """
     )
     # Added after the first release; CREATE TABLE IF NOT EXISTS won't add it to
@@ -436,6 +542,17 @@ def init_db():
         conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
     if "is_admin" not in columns:
         conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+    # Same "added after the first release" pattern, for a DB that just went
+    # through the convoys -> groups rename above: the renamed tables keep
+    # their old column set until these are added.
+    group_columns = {r["name"] for r in conn.execute("PRAGMA table_info(groups)")}
+    if "kind" not in group_columns:
+        conn.execute("ALTER TABLE groups ADD COLUMN kind TEXT NOT NULL DEFAULT 'convoy'")
+    if "drop_when_empty" not in group_columns:
+        conn.execute("ALTER TABLE groups ADD COLUMN drop_when_empty INTEGER NOT NULL DEFAULT 1")
+    member_columns = {r["name"] for r in conn.execute("PRAGMA table_info(group_members)")}
+    if "sharing" not in member_columns:
+        conn.execute("ALTER TABLE group_members ADD COLUMN sharing INTEGER NOT NULL DEFAULT 1")
     conn.commit()
 
 
@@ -814,8 +931,8 @@ def do_logout(user, headers):
         conn = db()
         with conn:  # commits on success, rolls back on exception
             conn.execute("DELETE FROM tokens WHERE token_hash = ?", (token_hash(raw),))
-    # A revoked token must not keep relaying through an already-open convoy
-    # socket - see evict_user_everywhere in the convoy live relay section.
+    # A revoked token must not keep relaying through an already-open group
+    # socket - see evict_user_everywhere in the group live relay section.
     evict_user_everywhere(user["id"])
     return {}
 
@@ -1307,186 +1424,513 @@ def do_route_delete(user, body):
 
 
 # --------------------------------------------------------------------------
-# convoys (live location + push-to-talk membership)
+# groups (convoys and circles: live location + push-to-talk membership)
 #
-# Membership here is the only privacy gate for the live WebSocket relay
-# (see the `websockets` listener below): a socket can only join a convoy's
-# broadcast if it authenticates as a user with an 'accepted' row for that
-# convoy_id. Nothing about a convoy's live position or PTT audio is ever
-# written to SQLite — these tables hold membership only.
+# A convoy and a circle are the same entity, discriminated by `kind`
+# (docs/CIRCLES_AND_CONVOYS.md). Membership is the only privacy gate for the
+# live WebSocket relay (see the `websockets` listener below): a socket can
+# only join a group's broadcast if it authenticates as a user with an
+# 'accepted' row for that group_id. Everything below is shared between the
+# two kinds except do_group_sharing (pause is a circle concept) and the size
+# cap on invite (circles only); a convoy's live position/PTT audio still
+# never touches SQLite, and a circle's does only via member_last_fix
+# (phase 4, below).
 
 
-def _convoy_member(convoy_id, user_id):
+def _group_member(group_id, user_id):
     return db().execute(
-        "SELECT * FROM convoy_members WHERE convoy_id = ? AND user_id = ?",
-        (convoy_id, user_id),
+        "SELECT * FROM group_members WHERE group_id = ? AND user_id = ?",
+        (group_id, user_id),
     ).fetchone()
 
 
-def is_convoy_member(convoy_id, user_id):
+def is_group_member(group_id, user_id):
     """Used by the WS join handshake, where a 404 vs 403 distinction isn't
     worth the extra round trip - it just wants a yes/no."""
-    row = _convoy_member(convoy_id, user_id)
+    row = _group_member(group_id, user_id)
     return row is not None and row["status"] == "accepted"
 
 
-def do_convoy_create(user, body):
+def _group_row(group_id):
+    return db().execute("SELECT * FROM groups WHERE id = ?", (group_id,)).fetchone()
+
+
+def do_group_create(user, kind, body):
     name = str(body.get("name", "")).strip()
     if not 1 <= len(name) <= 40:
         raise HttpError(400, "name must be 1-40 characters")
     now = now_ms()
+    # A convoy with nobody left in it is dead weight; a circle persists while
+    # you're alone in it. See the `drop_when_empty` comment on the table.
+    drop_when_empty = 0 if kind == "circle" else 1
     with _write_lock:
         conn = db()
         with conn:  # commits on success, rolls back on exception
             cur = conn.execute(
-                "INSERT INTO convoys (name, owner_id, created_ms) VALUES (?, ?, ?)",
-                (name, user["id"], now),
+                "INSERT INTO groups (kind, name, owner_id, created_ms, drop_when_empty)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (kind, name, user["id"], now, drop_when_empty),
             )
-            convoy_id = cur.lastrowid
+            group_id = cur.lastrowid
             conn.execute(
-                "INSERT INTO convoy_members (convoy_id, user_id, status, joined_ms)"
+                "INSERT INTO group_members (group_id, user_id, status, joined_ms)"
                 " VALUES (?, ?, 'accepted', ?)",
-                (convoy_id, user["id"], now),
+                (group_id, user["id"], now),
             )
-    return {"id": convoy_id, "name": name}
+    return {"id": group_id, "name": name}
 
 
-def do_convoy_invite(user, convoy_id, body):
+def do_group_invite(user, group_id, body):
     # Membership checked before anything else exists to distinguish "no such
-    # convoy" from "not a member" - either way the caller gets the same 403,
-    # so a random convoy id can't be used to probe which ids are real.
-    membership = _convoy_member(convoy_id, user["id"])
+    # group" from "not a member" - either way the caller gets the same 403,
+    # so a random group id can't be used to probe which ids are real.
+    membership = _group_member(group_id, user["id"])
     if membership is None or membership["status"] != "accepted":
-        raise HttpError(403, "not a member of this convoy")
+        raise HttpError(403, "not a member of this group")
     target = other_user(body)
     if target["id"] == user["id"]:
-        raise HttpError(400, "you are already in this convoy")
-    # Convoy membership can only ever come from an existing friendship - this
+        raise HttpError(400, "you are already in this group")
+    # Group membership can only ever come from an existing friendship - this
     # is what makes "granted access" mean something instead of an open room.
     fs = friendship(user["id"], target["id"])
     if fs is None or fs["status"] != "accepted":
         raise HttpError(403, "you can only invite friends")
-    existing = _convoy_member(convoy_id, target["id"])
+    existing = _group_member(group_id, target["id"])
     if existing is not None:
         return {"status": existing["status"]}
+    group = _group_row(group_id)
+    if group is not None and group["kind"] == "circle":
+        count = db().execute(
+            "SELECT COUNT(*) AS n FROM group_members WHERE group_id = ?", (group_id,)
+        ).fetchone()["n"]
+        if count >= MAX_CIRCLE_MEMBERS:
+            raise HttpError(400, "circle is full")
     with _write_lock:
         conn = db()
         with conn:  # commits on success, rolls back on exception
             conn.execute(
-                "INSERT INTO convoy_members (convoy_id, user_id, status, joined_ms)"
+                "INSERT INTO group_members (group_id, user_id, status, joined_ms)"
                 " VALUES (?, ?, 'invited', ?)",
-                (convoy_id, target["id"], now_ms()),
+                (group_id, target["id"], now_ms()),
             )
     return {"status": "invited"}
 
 
-def do_convoy_respond(user, convoy_id, body):
-    membership = _convoy_member(convoy_id, user["id"])
+def do_group_respond(user, group_id, body):
+    membership = _group_member(group_id, user["id"])
     if membership is None or membership["status"] != "invited":
-        raise HttpError(404, "no pending invite to that convoy")
+        raise HttpError(404, "no pending invite to that group")
     accept = bool(body.get("accept"))
     with _write_lock:
         conn = db()
         with conn:  # commits on success, rolls back on exception
             if accept:
                 conn.execute(
-                    "UPDATE convoy_members SET status = 'accepted', joined_ms = ?"
-                    " WHERE convoy_id = ? AND user_id = ?",
-                    (now_ms(), convoy_id, user["id"]),
+                    "UPDATE group_members SET status = 'accepted', joined_ms = ?"
+                    " WHERE group_id = ? AND user_id = ?",
+                    (now_ms(), group_id, user["id"]),
                 )
             else:
                 conn.execute(
-                    "DELETE FROM convoy_members WHERE convoy_id = ? AND user_id = ?",
-                    (convoy_id, user["id"]),
+                    "DELETE FROM group_members WHERE group_id = ? AND user_id = ?",
+                    (group_id, user["id"]),
                 )
     return {"status": "accepted" if accept else "declined"}
 
 
-def do_convoy_leave(user, convoy_id, body):
+def do_group_leave(user, group_id, body):
     with _write_lock:
         conn = db()
         with conn:  # commits on success, rolls back on exception
             conn.execute(
-                "DELETE FROM convoy_members WHERE convoy_id = ? AND user_id = ?",
-                (convoy_id, user["id"]),
+                "DELETE FROM group_members WHERE group_id = ? AND user_id = ?",
+                (group_id, user["id"]),
             )
-            # No one left in it: drop the row rather than let empty convoys
-            # accumulate forever - there's no owner-transfer flow, so an
-            # empty convoy is just dead weight.
-            remaining = conn.execute(
-                "SELECT COUNT(*) AS n FROM convoy_members WHERE convoy_id = ?", (convoy_id,)
-            ).fetchone()["n"]
-            if remaining == 0:
-                conn.execute("DELETE FROM convoys WHERE id = ?", (convoy_id,))
+            # Places this member shared into the group go with them - same
+            # "revoked when the sharing relationship ends" rule shared_routes
+            # applies on unfriending. A convoy never has rows here, so this
+            # is a no-op for one.
+            conn.execute(
+                "DELETE FROM circle_places WHERE group_id = ? AND owner_id = ?",
+                (group_id, user["id"]),
+            )
+            conn.execute(
+                "DELETE FROM member_last_fix WHERE group_id = ? AND user_id = ?",
+                (group_id, user["id"]),
+            )
+            # Read drop_when_empty as data, not `kind` - this is the one
+            # place a merge bug would silently evaporate someone's circle the
+            # moment they're the last one left in it.
+            group = conn.execute(
+                "SELECT drop_when_empty FROM groups WHERE id = ?", (group_id,)
+            ).fetchone()
+            if group is not None and group["drop_when_empty"]:
+                remaining = conn.execute(
+                    "SELECT COUNT(*) AS n FROM group_members WHERE group_id = ?", (group_id,)
+                ).fetchone()["n"]
+                if remaining == 0:
+                    conn.execute("DELETE FROM groups WHERE id = ?", (group_id,))
     # Instantly drops any live socket this user still has open on this
-    # convoy - see evict_convoy_member in the convoy live relay section.
-    # A no-op (harmlessly) if they were never a member or had no live socket.
-    evict_convoy_member(convoy_id, user["id"])
+    # group - see evict_group_member in the group live relay section. A
+    # no-op (harmlessly) if they were never a member or had no live socket.
+    evict_group_member(group_id, user["id"])
     return {}
 
 
-def do_convoys(user):
+def do_groups(user, kind):
     rows = db().execute(
-        "SELECT c.id, c.name, m.status"
-        " FROM convoy_members m JOIN convoys c ON c.id = m.convoy_id"
-        " WHERE m.user_id = ?",
-        (user["id"],),
+        "SELECT g.id, g.name, m.status"
+        " FROM group_members m JOIN groups g ON g.id = m.group_id"
+        " WHERE m.user_id = ? AND g.kind = ?",
+        (user["id"], kind),
     ).fetchall()
     out = []
     for row in rows:
         members = db().execute(
-            "SELECT u.username, m.status FROM convoy_members m"
-            " JOIN users u ON u.id = m.user_id WHERE m.convoy_id = ?",
+            "SELECT u.username, m.status, m.sharing FROM group_members m"
+            " JOIN users u ON u.id = m.user_id WHERE m.group_id = ?",
             (row["id"],),
         ).fetchall()
+        member_out = []
+        for m in members:
+            entry = {"username": m["username"], "status": m["status"]}
+            # Sharing is a circle-only concept; a convoy connection *is*
+            # sharing, so there's nothing meaningful to show on that screen.
+            if kind == "circle":
+                entry["sharing"] = bool(m["sharing"])
+            member_out.append(entry)
         out.append({
             "id": row["id"],
             "name": row["name"],
             "status": row["status"],
-            "members": [{"username": m["username"], "status": m["status"]} for m in members],
+            "members": member_out,
         })
     return out
 
 
-CONVOY_ACTION_RE = re.compile(r"^/convoys/(\d+)/(invite|respond|leave)$")
+def do_group_sharing(user, group_id, body):
+    """The pause switch - circles only. 404s on a convoy id: a convoy
+    connection *is* sharing, so there's nothing to pause, and treating a
+    convoy id as "not found" here rather than "not applicable" keeps this
+    endpoint from becoming a second way to ask "is this a convoy?"."""
+    group = _group_row(group_id)
+    if group is None or group["kind"] != "circle":
+        raise HttpError(404, "not found")
+    membership = _group_member(group_id, user["id"])
+    if membership is None or membership["status"] != "accepted":
+        raise HttpError(403, "not a member of this circle")
+    sharing = 1 if body.get("sharing") else 0
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "UPDATE group_members SET sharing = ? WHERE group_id = ? AND user_id = ?",
+                (sharing, group_id, user["id"]),
+            )
+    return {"sharing": bool(sharing)}
+
+
+GROUP_ACTION_RE = re.compile(r"^/(?:circles|convoys)/(\d+)/(invite|respond|leave)$")
+CIRCLE_POST_RE = re.compile(r"^/circles/(\d+)/(sharing|fix|events)$")
+CIRCLE_GET_RE = re.compile(r"^/circles/(\d+)/(fixes|events)$")
+
+
+def _require_group_membership(group_id, user_id):
+    """Gate shared by every circle-only extension below (fix, fixes, places,
+    events): same 403 whether the group doesn't exist, is a convoy, or the
+    caller just isn't an accepted member of it (docs/CIRCLES_AND_CONVOYS.md
+    section 9.4 - "no such group" and "not a member" get the same status so
+    ids can't be enumerated). The merged id space is exactly what makes that
+    worth preserving here too - do_group_sharing is the one endpoint allowed
+    to 404 on a convoy id instead, per the doc's own API table, and it's
+    reachable only with an id the caller already holds."""
+    group = _group_row(group_id)
+    if group is None or group["kind"] != "circle":
+        raise HttpError(403, "not a member of this circle")
+    membership = _group_member(group_id, user_id)
+    if membership is None or membership["status"] != "accepted":
+        raise HttpError(403, "not a member of this circle")
+
+
+def _store_member_fix(group_id, user_id, lat, lon, accuracy_m, ts_ms):
+    """One row per member, overwritten in place - no history, no trail (see
+    the member_last_fix comment in init_db). Shared by the HTTP /fix upload
+    and the relay's own `location` frames, which write here too when the
+    target group is a circle."""
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "INSERT INTO member_last_fix"
+                " (group_id, user_id, lat, lon, accuracy_m, ts_ms)"
+                " VALUES (?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(group_id, user_id) DO UPDATE SET"
+                " lat = excluded.lat, lon = excluded.lon,"
+                " accuracy_m = excluded.accuracy_m, ts_ms = excluded.ts_ms",
+                (group_id, user_id, lat, lon, accuracy_m, ts_ms),
+            )
+
+
+def do_circle_fix(user, group_id, body):
+    """The low-cadence transport the design doc argues for: circles update on
+    the order of minutes, which doesn't justify holding a socket open all
+    day the way a convoy's second-by-second feed does."""
+    _require_group_membership(group_id, user["id"])
+    fix = _valid_fix(body)
+    if fix is None:
+        raise HttpError(400, "bad location")
+    _store_member_fix(
+        group_id, user["id"], fix["lat"], fix["lon"], fix["accuracyM"], fix["ts"]
+    )
+    return {"status": "ok"}
+
+
+def do_circle_fixes(user, group_id):
+    """Latest fix per accepted, currently-sharing member. A paused member's
+    last position is excluded here even though the row may still exist -
+    the same server-side enforcement of pause as the relay's location drop,
+    just for the read path instead of the write path."""
+    _require_group_membership(group_id, user["id"])
+    rows = db().execute(
+        "SELECT u.username, f.lat, f.lon, f.accuracy_m, f.ts_ms"
+        " FROM member_last_fix f"
+        " JOIN group_members m ON m.group_id = f.group_id AND m.user_id = f.user_id"
+        " JOIN users u ON u.id = f.user_id"
+        " WHERE f.group_id = ? AND m.status = 'accepted' AND m.sharing = 1",
+        (group_id,),
+    ).fetchall()
+    return {
+        "fixes": [
+            {
+                "username": r["username"],
+                "lat": r["lat"],
+                "lon": r["lon"],
+                "accuracyM": r["accuracy_m"],
+                "ts": r["ts_ms"],
+            }
+            for r in rows
+        ]
+    }
 
 
 # --------------------------------------------------------------------------
-# convoy live relay (WebSocket, separate port)
+# circle places
+#
+# Follows the shared_routes precedent exactly: user-owned, shared into a
+# group, revoked when the sharing relationship ends - here, the owner
+# leaving that circle (see do_group_leave). Same opaque-JSON-blob shape and
+# the same per-relationship write cap idea as shared_routes.
+
+
+def do_circle_place_share(user, body):
+    group_id = _require_int_body(body, "groupId")
+    _require_group_membership(group_id, user["id"])
+
+    place = body.get("place")
+    if not isinstance(place, dict):
+        raise HttpError(400, "place missing or not an object")
+    # Same finite-number checks as do_route_share's route id, for the same
+    # reason: json.loads accepts Infinity/NaN, and int() on those raises
+    # OverflowError/ValueError rather than failing cleanly.
+    place_id_raw = place.get("id")
+    if (
+        not isinstance(place_id_raw, (int, float))
+        or isinstance(place_id_raw, bool)
+        or not math.isfinite(place_id_raw)
+    ):
+        raise HttpError(400, "place id must be a number")
+    place_id = int(place_id_raw)
+    try:
+        radius_m = float(place.get("radiusM"))
+    except (TypeError, ValueError):
+        raise HttpError(400, "place needs a numeric radiusM")
+    if not (radius_m == radius_m and 0 < radius_m <= 50_000):
+        raise HttpError(400, "radiusM out of range")
+    raw = json.dumps(place)
+    if len(raw.encode("utf-8")) > MAX_PLACE_JSON_BYTES:
+        raise HttpError(413, "place too large")
+    name = str(place.get("name") or "").strip()[:200] or "Place"
+
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "INSERT INTO circle_places"
+                " (group_id, owner_id, place_id, name, json, radius_m, created_ms)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(group_id, owner_id, place_id) DO UPDATE SET"
+                " name = excluded.name, json = excluded.json,"
+                " radius_m = excluded.radius_m, created_ms = excluded.created_ms",
+                (group_id, user["id"], place_id, name, raw, radius_m, now_ms()),
+            )
+            # Write cap, not just a display cap - keep the newest
+            # MAX_CIRCLE_PLACES_PER_OWNER rows for this (group, owner) pair.
+            conn.execute(
+                "DELETE FROM circle_places WHERE id IN ("
+                " SELECT id FROM circle_places WHERE group_id = ? AND owner_id = ?"
+                " ORDER BY created_ms DESC, id DESC LIMIT -1 OFFSET ?)",
+                (group_id, user["id"], MAX_CIRCLE_PLACES_PER_OWNER),
+            )
+    return {"status": "shared"}
+
+
+def do_circle_places(user, params):
+    group_id = _required_int_param(params, "groupId")
+    membership = _group_member(group_id, user["id"])
+    if membership is None or membership["status"] != "accepted":
+        raise HttpError(403, "not a member of this circle")
+    rows = db().execute(
+        "SELECT p.id, p.json, p.name, p.radius_m, p.created_ms, u.username AS owner"
+        " FROM circle_places p JOIN users u ON u.id = p.owner_id"
+        " WHERE p.group_id = ? ORDER BY p.created_ms DESC",
+        (group_id,),
+    ).fetchall()
+    out = []
+    for row in rows:
+        place = json.loads(row["json"])
+        place["sharedBy"] = row["owner"]
+        out.append(
+            {
+                "id": row["id"],
+                "owner": row["owner"],
+                "name": row["name"],
+                "radiusM": row["radius_m"],
+                "createdMs": row["created_ms"],
+                "place": place,
+            }
+        )
+    return {"places": out}
+
+
+def do_circle_place_delete(user, body):
+    """Deletes a circle_places row the caller owns - same
+    ownership-is-the-access-check shape as do_route_delete, except a circle
+    place has exactly one owner rather than two sides."""
+    row_id = _require_int_body(body, "id")
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "DELETE FROM circle_places WHERE id = ? AND owner_id = ?",
+                (row_id, user["id"]),
+            )
+    return {}
+
+
+# --------------------------------------------------------------------------
+# circle arrival/departure events
+#
+# Geofence transitions are evaluated on-device (docs/CIRCLES_AND_CONVOYS.md
+# section 8) - this just records the result and fans it out to the rest of
+# the circle. No push: phase 7 (FCM/APNs/device tokens) is explicitly
+# blocked on an Apple Developer account this project doesn't have.
+
+
+def do_circle_event_create(user, group_id, body):
+    _require_group_membership(group_id, user["id"])
+    place_id = _require_int_body(body, "placeId")
+    kind = body.get("kind")
+    if kind not in ("arrive", "depart"):
+        raise HttpError(400, "kind must be arrive or depart")
+    try:
+        ts = int(body.get("ts", now_ms()))
+    except (TypeError, ValueError, OverflowError):
+        ts = now_ms()
+    with _write_lock:
+        conn = db()
+        with conn:  # commits on success, rolls back on exception
+            conn.execute(
+                "INSERT INTO place_events (group_id, place_id, user_id, kind, ts_ms)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (group_id, place_id, user["id"], kind, ts),
+            )
+            # Newest-N retention per circle, same write-cap idea as
+            # MAX_SHARED_ROUTES_PER_PAIR - keep the recent window, drop the
+            # rest, so one chatty member can't grow this table without bound.
+            conn.execute(
+                "DELETE FROM place_events WHERE id IN ("
+                " SELECT id FROM place_events WHERE group_id = ?"
+                " ORDER BY ts_ms DESC, id DESC LIMIT -1 OFFSET ?)",
+                (group_id, MAX_PLACE_EVENTS_PER_GROUP),
+            )
+    return {"status": "recorded"}
+
+
+def do_circle_events(user, group_id, params):
+    """Membership-gated read of a circle's recent arrive/depart events,
+    including the caller's own - the design doc makes that a requirement
+    rather than a nice-to-have, so there is no `user_id != ?` filter here."""
+    _require_group_membership(group_id, user["id"])
+    since = _int_param(params, "since", 0, 0, 2**53)
+    rows = db().execute(
+        "SELECT e.id, e.place_id, e.kind, e.ts_ms, u.username"
+        " FROM place_events e JOIN users u ON u.id = e.user_id"
+        " WHERE e.group_id = ? AND e.ts_ms > ? ORDER BY e.ts_ms ASC",
+        (group_id, since),
+    ).fetchall()
+    return {
+        "events": [
+            {
+                "id": r["id"],
+                "placeId": r["place_id"],
+                "username": r["username"],
+                "kind": r["kind"],
+                "tsMs": r["ts_ms"],
+            }
+            for r in rows
+        ]
+    }
+
+
+# --------------------------------------------------------------------------
+# group live relay (WebSocket, separate port)
 #
 # A second listener next to the HTTP server, since a live position feed and
 # push-to-talk audio need push, not request/response. Runs its own asyncio
 # loop in a background thread; the HTTP server's threads never touch this
 # module-level state, so no lock is needed around it.
 #
-# Protocol, one JSON text message per line, after connecting with the same
-# `Authorization: Bearer <token>` header the REST API uses:
-#   -> {"type": "join", "convoyId": N}
-#   <- {"type": "joined", "convoyId": N}  or  {"type": "error", "message": ...}
-#   -> {"type": "location", "lat", "lon", "headingDeg"?, "speedKmh"?, "ts"}
-#   <- {"type": "location", "user": "<username>", ...same fields}  (per peer)
-#   -> {"type": "ptt_start"}                    <- relayed with "user" added
-#   -> {"type": "ptt_audio", "chunk": "<base64 16kHz mono PCM16>"}  <- same
-#   -> {"type": "ptt_end"}                      <- relayed with "user" added
-#   <- {"type": "left", "user": "<username>"}   (peer disconnected or left)
+# One socket, many groups (docs/CIRCLES_AND_CONVOYS.md section 6): a user in
+# a circle all day who also starts a convoy for a ride needs both live at
+# once, so `join` adds a membership rather than replacing the one the socket
+# already had. Protocol, one JSON text message per line, after connecting
+# with the same `Authorization: Bearer <token>` header the REST API uses:
+#   -> {"type": "join", "groupId": N}
+#   <- {"type": "joined", "groupId": N, "convoyId": N}  or  {"type": "error", ...}
+#   -> {"type": "location", "groupId": N, "lat", "lon", "headingDeg"?, "speedKmh"?, "ts"}
+#   <- {"type": "location", "groupId": N, "user": "<username>", ...same fields}
+#   -> {"type": "ptt_start", "groupId": N}          <- relayed, convoy groups only
+#   -> {"type": "ptt_audio", "groupId": N, "chunk": "<base64 16kHz mono PCM16>"}  <- same
+#   -> {"type": "ptt_end", "groupId": N}             <- relayed, convoy groups only
+#   <- {"type": "left", "groupId": N, "user": "<username>"} (peer disconnected or left)
 #
-# Nothing here is written to SQLite - a convoy's live position and audio
-# exist only as long as the socket does, same spirit as fog: it's a live
-# view between consenting members, not a record.
+# `groupId` is a wire-compatible break from the old single-group protocol,
+# tolerated for one release: a frame with no `groupId` (and a `join` using
+# the old `convoyId` key) is treated as "my only joined group" - see
+# _frame_group_id. The `joined` reply carries both keys with the same value
+# so an old client's parser still finds what it expects.
 #
-# convoy_id -> {user_id: (username, websocket, token_hash)}. A socket may
-# only be in one convoy's dict at a time; joining a new one parts it from
-# the old one. token_hash is kept per-entry so the staleness sweep below can
-# tell a revoked session from a healthy one without re-touching the socket.
-_convoy_sockets = {}
+# Nothing here is written to SQLite for a convoy - its live position and
+# audio exist only as long as the socket does, same spirit as fog: a live
+# view between consenting members, not a record. A circle's `location`
+# frames are the one exception (see _store_member_fix below): its group_id
+# has kind='circle', so every `location` frame also overwrites that
+# member's row in member_last_fix.
+#
+# group_id -> {user_id: (username, websocket, token_hash)}. A socket may now
+# appear in several groups' dicts at once - the registry's shape doesn't
+# change, only how many buckets a single socket can occupy. token_hash is
+# kept per-entry so the staleness sweep below can tell a revoked session
+# from a healthy one without re-touching the socket.
+_group_sockets = {}
 
 # Set once run_live_server's event loop is running, so HTTP-thread code
-# (do_convoy_leave, do_logout) can reach into this asyncio-only state via
+# (do_group_leave, do_logout) can reach into this asyncio-only state via
 # run_coroutine_threadsafe instead of racing it from another thread.
 _live_loop = None
 
 # How often the sweep below re-validates every open socket against the DB -
-# the backstop for revocations that don't go through a convoy endpoint (e.g.
+# the backstop for revocations that don't go through a group endpoint (e.g.
 # `--revoke-tokens`, run from a separate process with nothing to signal this
 # one directly).
 STALE_SWEEP_INTERVAL_SEC = 15
@@ -1522,8 +1966,8 @@ async def _safe_close(websocket):
         pass
 
 
-async def _convoy_broadcast(convoy_id, obj, exclude_user_id):
-    peers = _convoy_sockets.get(convoy_id)
+async def _group_broadcast(group_id, obj, exclude_user_id):
+    peers = _group_sockets.get(group_id)
     if not peers:
         return
     payload = json.dumps(obj)
@@ -1539,22 +1983,22 @@ async def _convoy_broadcast(convoy_id, obj, exclude_user_id):
         peers.pop(uid, None)
 
 
-def _convoy_join(convoy_id, user_id, username, websocket, thash):
+def _group_join(group_id, user_id, username, websocket, thash):
     """Registers the socket, returning the websocket it replaced (if any) so
     the caller can close it - a reconnect must not leave the old connection
     both evicted-from-the-registry and still open, receiving forever."""
-    peers = _convoy_sockets.setdefault(convoy_id, {})
+    peers = _group_sockets.setdefault(group_id, {})
     old = peers.get(user_id)
     peers[user_id] = (username, websocket, thash)
     return old[1] if old is not None else None
 
 
-def _convoy_part(convoy_id, user_id, websocket):
+def _group_part(group_id, user_id, websocket):
     """Only removes the registry entry if it still points at *this* socket -
     a stale connection's own cleanup must not evict a newer one that already
     replaced it. Without this check, a slow-to-close old socket races a fast
     reconnect and evicts the live one, leaving it open but invisible."""
-    peers = _convoy_sockets.get(convoy_id)
+    peers = _group_sockets.get(group_id)
     if peers is None:
         return False
     entry = peers.get(user_id)
@@ -1562,15 +2006,16 @@ def _convoy_part(convoy_id, user_id, websocket):
         return False
     peers.pop(user_id, None)
     if not peers:
-        _convoy_sockets.pop(convoy_id, None)
+        _group_sockets.pop(group_id, None)
     return True
 
 
-def _valid_location(msg):
-    """Coerces and range-checks an incoming location message; None if it
-    isn't usable. Relaying NaN/garbage through crashes every peer's map
-    (their GeoJSON layer rejects NaN coordinates) - one broken or malicious
-    client must not be able to take down everyone else's."""
+def _valid_latlon(msg):
+    """Coerces and range-checks lat/lon; None if either isn't a finite,
+    in-range number. Shared by the relay's `location` frames and the
+    /circles/{id}/fix upload - relaying or storing NaN/garbage breaks any
+    GeoJSON layer that reads it back out, whether that's a peer's live map
+    or a circle's stored last-fix."""
     try:
         lat = float(msg.get("lat"))
         lon = float(msg.get("lon"))
@@ -1578,6 +2023,18 @@ def _valid_location(msg):
         return None
     if not (lat == lat and lon == lon and -90 <= lat <= 90 and -180 <= lon <= 180):
         return None
+    return lat, lon
+
+
+def _valid_location(msg):
+    """Coerces and range-checks an incoming `location` frame; None if it
+    isn't usable. Relaying NaN/garbage through crashes every peer's map
+    (their GeoJSON layer rejects NaN coordinates) - one broken or malicious
+    client must not be able to take down everyone else's."""
+    coords = _valid_latlon(msg)
+    if coords is None:
+        return None
+    lat, lon = coords
     heading = msg.get("headingDeg")
     try:
         heading = float(heading) if heading is not None else None
@@ -1599,6 +2056,93 @@ def _valid_location(msg):
     return {"lat": lat, "lon": lon, "headingDeg": heading, "speedKmh": speed, "ts": ts}
 
 
+def _valid_fix(body):
+    """Same coercion as _valid_location, for the /circles/{id}/fix body: a
+    lat/lon plus an accuracy radius instead of heading/speed - the fields
+    the low-cadence HTTP transport carries that the socket protocol doesn't
+    bother with."""
+    coords = _valid_latlon(body)
+    if coords is None:
+        return None
+    lat, lon = coords
+    accuracy = body.get("accuracyM")
+    try:
+        accuracy = float(accuracy) if accuracy is not None else None
+    except (TypeError, ValueError):
+        accuracy = None
+    if accuracy is not None and not (accuracy == accuracy and 0 <= accuracy <= 100_000):
+        accuracy = None
+    try:
+        ts = int(body.get("ts"))
+    except (TypeError, ValueError):
+        ts = now_ms()
+    return {"lat": lat, "lon": lon, "accuracyM": accuracy, "ts": ts}
+
+
+def _join_check(group_id, user_id):
+    """One query for the WS join handshake: whether this user is an accepted
+    member, and if so, the group's kind. The kind is cached by the caller
+    for the life of the connection (it cannot change for an existing group),
+    so gating push-to-talk on kind costs no per-frame DB hit."""
+    row = db().execute(
+        "SELECT g.kind AS kind, m.status AS status FROM groups g"
+        " JOIN group_members m ON m.group_id = g.id"
+        " WHERE g.id = ? AND m.user_id = ?",
+        (group_id, user_id),
+    ).fetchone()
+    if row is None or row["status"] != "accepted":
+        return None
+    return row["kind"]
+
+
+def _member_sharing(group_id, user_id):
+    """Re-read fresh on every `location` frame - a stale build that keeps
+    broadcasting after the user believes they paused must not be trusted.
+    This is the server-side half of the pause promise; the client-side half
+    is just not sending the frame in the first place."""
+    row = db().execute(
+        "SELECT sharing FROM group_members WHERE group_id = ? AND user_id = ?",
+        (group_id, user_id),
+    ).fetchone()
+    return row is not None and bool(row["sharing"])
+
+
+def _frame_group_id(msg, joined):
+    """Resolves the target group for a non-join frame. `groupId` is the
+    normal case. A frame carrying neither key is an old, pre-merge client -
+    tolerated for one release by treating it as "my only joined group", and
+    dropped if the socket has joined more than one (an old build cannot
+    possibly mean a specific one, and guessing wrong would leak a frame into
+    the wrong group)."""
+    raw = msg.get("groupId", msg.get("convoyId"))
+    if raw is not None:
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+    if len(joined) == 1:
+        return next(iter(joined))
+    return None
+
+
+def _still_registered(group_id, user_id, websocket):
+    """True if the registry still holds *this* websocket for (group_id,
+    user_id) - the same identity comparison _group_part makes.
+
+    `_evict` deliberately leaves a socket open when the user is still valid
+    in another group, but that only updates `_group_sockets`; the socket's
+    own local `joined` cache doesn't hear about it. Without this check, a
+    frame naming the just-evicted group would keep being relayed off the
+    stale cache instead of the registry eviction that already happened -
+    for `ptt_*` frames that means someone who was just removed from a
+    convoy keeps broadcasting into it as long as the socket stays open for
+    an unrelated circle. Checked before every non-join frame, not just
+    location - it's an in-memory dict lookup, no DB hit."""
+    peers = _group_sockets.get(group_id)
+    entry = peers.get(user_id) if peers else None
+    return entry is not None and entry[1] is websocket
+
+
 async def handle_live_socket(websocket):
     try:
         user, thash = await _ws_authenticate(websocket)
@@ -1606,7 +2150,7 @@ async def handle_live_socket(websocket):
         await websocket.close(code=4401, reason=e.message)
         return
 
-    convoy_id = None
+    joined = {}  # group_id -> kind, every group this socket has joined
     try:
         async for raw in websocket:
             if not isinstance(raw, str):
@@ -1618,128 +2162,170 @@ async def handle_live_socket(websocket):
             mtype = msg.get("type")
 
             if mtype == "join":
+                raw_id = msg.get("groupId", msg.get("convoyId"))
                 try:
-                    target_convoy = int(msg.get("convoyId"))
+                    target_group = int(raw_id)
                 except (TypeError, ValueError):
-                    await _ws_send(websocket, {"type": "error", "message": "bad convoyId"})
+                    await _ws_send(websocket, {"type": "error", "message": "bad groupId"})
                     continue
-                is_member = await asyncio.to_thread(
-                    is_convoy_member, target_convoy, user["id"]
-                )
-                if not is_member:
+                kind = await asyncio.to_thread(_join_check, target_group, user["id"])
+                if kind is None:
                     await _ws_send(
-                        websocket, {"type": "error", "message": "not a member of that convoy"}
+                        websocket, {"type": "error", "message": "not a member of that group"}
                     )
                     continue
-                if convoy_id is not None and convoy_id != target_convoy:
-                    if _convoy_part(convoy_id, user["id"], websocket):
-                        await _convoy_broadcast(
-                            convoy_id, {"type": "left", "user": user["username"]},
-                            exclude_user_id=user["id"],
-                        )
-                convoy_id = target_convoy
-                old_ws = _convoy_join(convoy_id, user["id"], user["username"], websocket, thash)
+                # Adds to the joined set rather than replacing it - a socket
+                # can be in a circle and a convoy at once.
+                old_ws = _group_join(target_group, user["id"], user["username"], websocket, thash)
+                joined[target_group] = kind
                 if old_ws is not None and old_ws is not websocket:
                     # A previous connection for this user was still open (a
                     # reconnect that outran the old socket's close) - kill it
                     # rather than leave a ghost that keeps receiving forever.
                     await _safe_close(old_ws)
-                await _ws_send(websocket, {"type": "joined", "convoyId": convoy_id})
+                await _ws_send(
+                    websocket,
+                    {"type": "joined", "groupId": target_group, "convoyId": target_group},
+                )
 
-            elif convoy_id is None:
-                continue  # everything else requires having joined first
+            elif not joined:
+                continue  # everything else requires having joined at least one group
 
             elif mtype == "location":
+                gid = _frame_group_id(msg, joined)
+                if gid is None or gid not in joined:
+                    continue
+                if not _still_registered(gid, user["id"], websocket):
+                    joined.pop(gid, None)
+                    continue
                 loc = _valid_location(msg)
-                if loc is not None:
-                    await _convoy_broadcast(
-                        convoy_id, dict(loc, type="location", user=user["username"]),
-                        exclude_user_id=user["id"],
-                    )
-            elif mtype == "ptt_start":
-                await _convoy_broadcast(
-                    convoy_id, {"type": "ptt_start", "user": user["username"]},
+                if loc is None:
+                    continue
+                # Server-side pause: re-read the flag fresh rather than trust
+                # whatever the client last told itself.
+                if not await asyncio.to_thread(_member_sharing, gid, user["id"]):
+                    continue
+                await _group_broadcast(
+                    gid, dict(loc, type="location", groupId=gid, user=user["username"]),
                     exclude_user_id=user["id"],
                 )
-            elif mtype == "ptt_audio":
-                chunk = msg.get("chunk")
-                if isinstance(chunk, str) and 0 < len(chunk) <= MAX_AUDIO_CHUNK_B64:
-                    await _convoy_broadcast(
-                        convoy_id,
-                        {"type": "ptt_audio", "user": user["username"], "chunk": chunk},
+                if joined[gid] == "circle":
+                    await asyncio.to_thread(
+                        _store_member_fix,
+                        gid, user["id"], loc["lat"], loc["lon"], None, loc["ts"],
+                    )
+
+            elif mtype in ("ptt_start", "ptt_audio", "ptt_end"):
+                gid = _frame_group_id(msg, joined)
+                if gid is None or gid not in joined:
+                    continue
+                if not _still_registered(gid, user["id"], websocket):
+                    joined.pop(gid, None)
+                    continue
+                # The single highest-consequence line in this merge: a
+                # circle must never gain always-on voice broadcast between
+                # people who signed up for a dot on a map. Hiding the button
+                # client-side is not the fix - reject it here.
+                if joined[gid] != "convoy":
+                    continue
+                if mtype == "ptt_audio":
+                    chunk = msg.get("chunk")
+                    if not (isinstance(chunk, str) and 0 < len(chunk) <= MAX_AUDIO_CHUNK_B64):
+                        continue
+                    await _group_broadcast(
+                        gid,
+                        {"type": "ptt_audio", "groupId": gid, "user": user["username"], "chunk": chunk},
                         exclude_user_id=user["id"],
                     )
-            elif mtype == "ptt_end":
-                await _convoy_broadcast(
-                    convoy_id, {"type": "ptt_end", "user": user["username"]},
-                    exclude_user_id=user["id"],
-                )
+                else:
+                    await _group_broadcast(
+                        gid, {"type": mtype, "groupId": gid, "user": user["username"]},
+                        exclude_user_id=user["id"],
+                    )
     except websockets.ConnectionClosed:
         pass
     finally:
-        if convoy_id is not None and _convoy_part(convoy_id, user["id"], websocket):
-            await _convoy_broadcast(
-                convoy_id, {"type": "left", "user": user["username"]}, exclude_user_id=user["id"]
-            )
+        # Part every group this connection joined, not just one, and tell
+        # each of their peers it left.
+        for group_id in list(joined.keys()):
+            if _group_part(group_id, user["id"], websocket):
+                await _group_broadcast(
+                    group_id, {"type": "left", "groupId": group_id, "user": user["username"]},
+                    exclude_user_id=user["id"],
+                )
 
 
-async def _evict(convoy_id, user_id):
-    peers = _convoy_sockets.get(convoy_id)
+async def _evict(group_id, user_id):
+    peers = _group_sockets.get(group_id)
     entry = peers.get(user_id) if peers else None
     if entry is None:
         return
     username, ws, _thash = entry
-    if _convoy_part(convoy_id, user_id, ws):
+    if not _group_part(group_id, user_id, ws):
+        return
+    await _group_broadcast(
+        group_id, {"type": "left", "groupId": group_id, "user": username}, exclude_user_id=user_id
+    )
+    # Only close the socket once it holds no membership anywhere else - a
+    # circle eviction must not kill a connection still legitimately relaying
+    # a convoy for the same user. _group_part already dropped group_id's own
+    # entry above, so any remaining bucket with this user pointing at the
+    # same websocket means it's still valid there.
+    still_elsewhere = any(
+        (other_peers.get(user_id) or (None, None, None))[1] is ws
+        for other_peers in _group_sockets.values()
+    )
+    if not still_elsewhere:
         await _safe_close(ws)
-        await _convoy_broadcast(convoy_id, {"type": "left", "user": username}, exclude_user_id=user_id)
 
 
 async def _evict_everywhere(user_id):
-    for convoy_id in list(_convoy_sockets.keys()):
-        await _evict(convoy_id, user_id)
+    for group_id in list(_group_sockets.keys()):
+        await _evict(group_id, user_id)
 
 
-def evict_convoy_member(convoy_id, user_id):
-    """Called from an HTTP handler thread (do_convoy_leave) to instantly
-    drop a live socket the moment membership is revoked, instead of waiting
-    for the periodic sweep below to notice."""
+def evict_group_member(group_id, user_id):
+    """Called from an HTTP handler thread (do_group_leave) to instantly drop
+    a live socket the moment membership is revoked, instead of waiting for
+    the periodic sweep below to notice."""
     if _live_loop is not None:
-        asyncio.run_coroutine_threadsafe(_evict(convoy_id, user_id), _live_loop)
+        asyncio.run_coroutine_threadsafe(_evict(group_id, user_id), _live_loop)
 
 
 def evict_user_everywhere(user_id):
     """Called from do_logout so revoking your own session takes every live
-    convoy socket down with it immediately, rather than up to
+    group socket down with it immediately, rather than up to
     STALE_SWEEP_INTERVAL_SEC seconds later."""
     if _live_loop is not None:
         asyncio.run_coroutine_threadsafe(_evict_everywhere(user_id), _live_loop)
 
 
-def _socket_still_valid(convoy_id, user_id, thash):
+def _socket_still_valid(group_id, user_id, thash):
     row = db().execute("SELECT 1 FROM tokens WHERE token_hash = ?", (thash,)).fetchone()
     if row is None:
         return False
-    return is_convoy_member(convoy_id, user_id)
+    return is_group_member(group_id, user_id)
 
 
 async def _sweep_stale_sockets():
     """Catches what the instant eviction hooks above can't: a token revoked
     from a separate process (`--revoke-tokens`, the lost-phone remedy has no
     way to signal a running server) or membership changing underneath a
-    socket some other way. Runs only in this loop, so no lock is needed for
-    the dict scan."""
+    socket some other way. Re-validates every (group, user) membership
+    independently - a multi-group socket can be stale in one and fine in the
+    other. Runs only in this loop, so no lock is needed for the dict scan."""
     while True:
         await asyncio.sleep(STALE_SWEEP_INTERVAL_SEC)
-        for convoy_id, peers in list(_convoy_sockets.items()):
+        for group_id, peers in list(_group_sockets.items()):
             for user_id, (_username, _ws, thash) in list(peers.items()):
-                ok = await asyncio.to_thread(_socket_still_valid, convoy_id, user_id, thash)
+                ok = await asyncio.to_thread(_socket_still_valid, group_id, user_id, thash)
                 if not ok:
-                    await _evict(convoy_id, user_id)
+                    await _evict(group_id, user_id)
 
 
 def run_live_server(host, port):
     if websockets is None:
-        print("live convoy relay disabled: run `pip install websockets` to enable it")
+        print("live group relay disabled: run `pip install websockets` to enable it")
         return
 
     async def main():
@@ -1749,7 +2335,7 @@ def run_live_server(host, port):
         # 1 MB cap: a PTT chunk is a couple hundred ms of 16kHz mono PCM16,
         # a few KB even base64'd - this just bounds worst-case abuse.
         async with websockets.serve(handle_live_socket, host, port, max_size=1024 * 1024):
-            print("detour-live (convoy relay) on %s:%s" % (host, port))
+            print("detour-live (group relay) on %s:%s" % (host, port))
             await asyncio.Future()  # run forever
 
     asyncio.run(main())
@@ -2037,6 +2623,29 @@ def _int_param(params, name, default, low, high):
     except ValueError:
         raise HttpError(400, "%s must be a number" % name)
     return max(low, min(value, high))
+
+
+def _required_int_param(params, name):
+    """Like _int_param but for an id with no sensible default or range -
+    missing or unparseable is just a 400, not a clamp."""
+    raw = (params.get(name) or [None])[0]
+    if raw is None:
+        raise HttpError(400, "%s is required" % name)
+    try:
+        return int(raw)
+    except ValueError:
+        raise HttpError(400, "%s must be a number" % name)
+
+
+def _require_int_body(body, key):
+    # int(float('inf')) raises OverflowError, not ValueError - a bare
+    # (TypeError, ValueError) here would let an Infinity/NaN value through
+    # to become a 500, same bug do_route_share and do_route_delete guard
+    # against for route ids.
+    try:
+        return int(body.get(key))
+    except (TypeError, ValueError, OverflowError):
+        raise HttpError(400, "bad %s" % key)
 
 
 # --------------------------------------------------------------------------
@@ -4310,7 +4919,8 @@ def do_admin_user_action(session, uid, action, body):
                 # Every table that holds this user's rows references users(id)
                 # ON DELETE CASCADE, and foreign_keys is on for the connection,
                 # so this one statement takes the trips, traces, points, places,
-                # friendships, convoy membership, keys and sessions with it.
+                # friendships, group membership, circle places/fixes, keys
+                # and sessions with it.
                 conn.execute("DELETE FROM users WHERE id = ?", (user["id"],))
         evict_user_everywhere(user["id"])
         return {}
@@ -5526,10 +6136,12 @@ AUTHED_GET = {
     "/friends": do_friends,
     "/friends/stats": friend_stats,
     "/friends/fog": friend_fog,
-    "/convoys": do_convoys,
+    "/convoys": lambda user: do_groups(user, "convoy"),
+    "/circles": lambda user: do_groups(user, "circle"),
     # /shared-routes/, not /routes/: a tunnel that fronts both this server and
     # a GraphHopper on one hostname matches its /route rule as a prefix, and
-    # swallows every /routes/* request before it reaches here.
+    # swallows every /routes/* request before it reaches here. Same reasoning
+    # keeps every new circle path under /circles or /circle-places.
     "/shared-routes/inbox": do_routes_inbox,
 }
 
@@ -5586,9 +6198,21 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, admin_overview(admin_session(self.headers)))
                 return
             handler = AUTHED_GET.get(path)
-            if handler is None:
+            if handler is not None:
+                self._json(200, handler(authenticate(self.headers)))
+                return
+            if path == "/circle-places":
+                self._json(200, do_circle_places(authenticate(self.headers), params))
+                return
+            match = CIRCLE_GET_RE.match(path)
+            if match is None:
                 raise HttpError(404, "not found")
-            self._json(200, handler(authenticate(self.headers)))
+            group_id, action = int(match.group(1)), match.group(2)
+            user = authenticate(self.headers)
+            if action == "fixes":
+                self._json(200, do_circle_fixes(user, group_id))
+            else:
+                self._json(200, do_circle_events(user, group_id, params))
         except HttpError as e:
             self._json(e.code, {"error": e.message})
         except Exception as e:  # noqa: BLE001 - never leak a stack trace
@@ -5623,19 +6247,36 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/shared-routes/delete":
                 self._json(200, do_route_delete(authenticate(self.headers), body))
             elif self.path == "/convoys":
-                self._json(200, do_convoy_create(authenticate(self.headers), body))
+                self._json(200, do_group_create(authenticate(self.headers), "convoy", body))
+            elif self.path == "/circles":
+                self._json(200, do_group_create(authenticate(self.headers), "circle", body))
+            elif self.path == "/circle-places/share":
+                self._json(200, do_circle_place_share(authenticate(self.headers), body))
+            elif self.path == "/circle-places/delete":
+                self._json(200, do_circle_place_delete(authenticate(self.headers), body))
             else:
-                match = CONVOY_ACTION_RE.match(self.path)
-                if match is None:
-                    raise HttpError(404, "not found")
-                convoy_id, action = int(match.group(1)), match.group(2)
-                user = authenticate(self.headers)
-                if action == "invite":
-                    self._json(200, do_convoy_invite(user, convoy_id, body))
-                elif action == "respond":
-                    self._json(200, do_convoy_respond(user, convoy_id, body))
+                match = GROUP_ACTION_RE.match(self.path)
+                if match is not None:
+                    group_id, action = int(match.group(1)), match.group(2)
+                    user = authenticate(self.headers)
+                    if action == "invite":
+                        self._json(200, do_group_invite(user, group_id, body))
+                    elif action == "respond":
+                        self._json(200, do_group_respond(user, group_id, body))
+                    else:
+                        self._json(200, do_group_leave(user, group_id, body))
                 else:
-                    self._json(200, do_convoy_leave(user, convoy_id, body))
+                    match = CIRCLE_POST_RE.match(self.path)
+                    if match is None:
+                        raise HttpError(404, "not found")
+                    group_id, action = int(match.group(1)), match.group(2)
+                    user = authenticate(self.headers)
+                    if action == "sharing":
+                        self._json(200, do_group_sharing(user, group_id, body))
+                    elif action == "fix":
+                        self._json(200, do_circle_fix(user, group_id, body))
+                    else:
+                        self._json(200, do_circle_event_create(user, group_id, body))
         except HttpError as e:
             self._json(e.code, {"error": e.message})
         except (ValueError, KeyError, TypeError) as e:

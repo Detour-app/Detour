@@ -154,12 +154,14 @@ import com.google.android.gms.location.Priority
 import com.jellemax.detour.audio.PushToTalk
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.data.Account
-import com.jellemax.detour.data.Convoys
+import com.jellemax.detour.data.CircleFixes
 import com.jellemax.detour.data.ExploredArea
 import com.jellemax.detour.data.FriendFog
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.Geocoder
+import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.MemberFix
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.PoiKind
 import com.jellemax.detour.data.PoiRoulette
@@ -271,6 +273,11 @@ private const val CURVY_CANDIDATES = 3
 // 80 km/h from being yanked out from under you mid-gesture.
 private const val CAM_RESUME_SPEED_MPS = 3.0
 private const val CAM_RESUME_QUIET_MS = 8_000L
+
+// Circle members post a fix every CIRCLE_SYNC_INTERVAL_MS (TripTrackingService)
+// at most, so polling faster than that would just re-fetch the same row —
+// this matches that cadence rather than guessing a separate one.
+private const val CIRCLE_FIX_POLL_MS = 120_000L
 
 // How close to a section's device node counts as passing it, for entering and
 // leaving a trajectcontrole average-speed measurement.
@@ -442,7 +449,7 @@ fun MapScreen(
         val id = activeConvoyId
         convoyName = if (id == null) null else withContext(Dispatchers.IO) {
             try {
-                Convoys.list().find { it.id == id }?.name
+                Groups.list("convoy").find { it.id == id }?.name
             } catch (e: Exception) {
                 null
             }
@@ -939,6 +946,32 @@ fun MapScreen(
     LaunchedEffect(mapOverlays) {
         val overlays = mapOverlays ?: return@LaunchedEffect
         ConvoyLiveClient.peers.collect { peers -> overlays.setFriends(peers.values) }
+    }
+
+    // Circle member markers: whichever circle CirclesScreen last opened (see
+    // CircleMapState there), polled on CircleFixes' own cadence rather than a
+    // socket - a circle fix only changes once a minute or so server-side, so
+    // polling faster would just repeat the same row. Cleared the moment no
+    // circle is being viewed, so leaving CirclesScreen also clears the map.
+    val viewedCircleId by CircleMapState.viewedCircleId.collectAsStateWithLifecycle()
+    var circleFixes by remember { mutableStateOf<List<MemberFix>>(emptyList()) }
+    LaunchedEffect(viewedCircleId) {
+        val id = viewedCircleId
+        if (id == null) {
+            circleFixes = emptyList()
+            return@LaunchedEffect
+        }
+        while (true) {
+            circleFixes = try {
+                withContext(Dispatchers.IO) { CircleFixes.fixes(id) }
+            } catch (e: Exception) {
+                circleFixes // offline or server down; keep the last known positions
+            }
+            delay(CIRCLE_FIX_POLL_MS)
+        }
+    }
+    LaunchedEffect(mapOverlays, circleFixes) {
+        mapOverlays?.setCircleMembers(circleFixes)
     }
 
     // Chime when a camera lies ahead, close, and we're over the posted limit —

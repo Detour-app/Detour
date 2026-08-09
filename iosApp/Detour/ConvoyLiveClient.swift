@@ -22,6 +22,14 @@ struct FriendPosition: Equatable {
 /// has a `pingInterval` that keeps NAT and the Cloudflare tunnel from idling a
 /// quiet connection closed; URLSession has no such setting, so the ping is
 /// scheduled here instead.
+///
+/// The relay is multi-group on the wire (docs/CIRCLES_AND_CONVOYS.md section 6):
+/// every frame carries a `groupId`, and one socket could in principle hold
+/// several memberships at once. This client deliberately stays single-convoy —
+/// circles never touch this socket at all, they post fixes over plain HTTP at a
+/// much lower cadence (see `CircleFixes.postFix`) — so `send` just stamps every
+/// outgoing frame with whichever convoy is currently joined, mirroring
+/// `ConvoyLiveClient.kt`'s `send()`.
 @MainActor
 final class ConvoyLiveClient: NSObject, ObservableObject {
 
@@ -110,7 +118,7 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
         socket = task
         task.resume()
 
-        send(["type": "join", "convoyId": Int(convoyId)])
+        send(["type": "join"])
         let pinger = Task { await self.keepAlive(task) }
         let forwarder = Task { await self.forwardLocation() }
         defer {
@@ -148,9 +156,15 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
         send(["type": "ptt_audio", "chunk": pcm.base64EncodedString()])
     }
 
+    /// Stamps `payload` with the currently joined convoy's id — every frame
+    /// needs one now, see the class doc — and sends it, if a convoy is
+    /// actually joined.
     private func send(_ payload: [String: Any]) {
+        guard let groupId = activeConvoyId else { return }
+        var stamped = payload
+        stamped["groupId"] = Int(groupId)
         guard let socket,
-              let data = try? JSONSerialization.data(withJSONObject: payload),
+              let data = try? JSONSerialization.data(withJSONObject: stamped),
               let text = String(data: data, encoding: .utf8) else { return }
         socket.send(.string(text)) { _ in }
     }

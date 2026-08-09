@@ -8,16 +8,28 @@ struct MapScreen: View {
     @EnvironmentObject private var recorder: TripRecorder
     @StateObject private var spin = SpinModel()
     @StateObject private var modes = TripModeModel()
+    @ObservedObject private var circleMapState = CircleMapState.shared
 
     @State private var showSearch = false
     @State private var navigating = false
+    /// Last-known positions for whichever circle is currently being viewed
+    /// (see `CircleMapState`). Kept across polls even when a fetch fails, so a
+    /// blip doesn't blank the map — see the `.task(id:)` below.
+    @State private var circleFixes: [MemberFix] = []
+
+    /// Circle members post a fix every `CircleSync.syncIntervalSeconds` at
+    /// most, so polling faster would just re-fetch the same row — matches
+    /// that cadence exactly, same reasoning as Android's `CIRCLE_FIX_POLL_MS`
+    /// in MapScreen.kt.
+    private static let circleFixPollSeconds = 120
 
     var body: some View {
         ZStack(alignment: .bottom) {
             MapView(
                 center: recorder.lastFix?.coordinate,
                 destination: destinationCoordinate,
-                route: spin.route
+                route: spin.route,
+                circleMembers: circleFixes
             )
             .ignoresSafeArea()
 
@@ -30,6 +42,28 @@ struct MapScreen: View {
                 }
             }
             .padding()
+        }
+        // Circle member markers: whichever circle CirclesScreen last opened,
+        // polled on CircleFixes' own cadence rather than a socket — a circle
+        // fix only changes once a minute or so server-side, so polling faster
+        // would just repeat the same row. Restarts (with an immediate fetch)
+        // whenever the viewed circle changes, and stops entirely — clearing
+        // the markers — the moment none is being viewed. Mirrors the
+        // LaunchedEffect(viewedCircleId) loop in Android's MapScreen.kt.
+        .task(id: circleMapState.viewedCircleId) {
+            guard let groupId = circleMapState.viewedCircleId else {
+                circleFixes = []
+                return
+            }
+            while !Task.isCancelled {
+                do {
+                    circleFixes = try await CircleFixes.shared.fixes(groupId: groupId)
+                } catch {
+                    // Offline or server down; keep the last known positions
+                    // and retry on the next tick.
+                }
+                try? await Task.sleep(for: .seconds(Self.circleFixPollSeconds))
+            }
         }
         .safeAreaInset(edge: .top) { modePicker }
         .fullScreenCover(isPresented: $navigating) {

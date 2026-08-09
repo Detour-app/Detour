@@ -48,6 +48,14 @@ data class IncomingAudioChunk(val username: String, val pcm: ByteArray)
  * a second GPS listener - see the convoy-active mode escalation there. Only
  * the currently joined convoy's peers ever appear in [peers]; nothing here
  * is persisted, matching the server's in-memory-only relay.
+ *
+ * The relay is multi-group on the wire (docs/CIRCLES_AND_CONVOYS.md section 6):
+ * every frame after `join` carries a `groupId`, and one socket could in
+ * principle hold several memberships at once. This client deliberately stays
+ * single-convoy - circles never touch this socket at all, they post fixes
+ * over plain HTTP at a much lower cadence (see `CircleFixes.postFix`) - so
+ * [send] just stamps every outgoing frame with whichever convoy is currently
+ * joined rather than tracking a set of groups.
  */
 object ConvoyLiveClient {
 
@@ -158,8 +166,12 @@ object ConvoyLiveClient {
         )
     }
 
+    /** Stamps [obj] with the currently joined convoy's id (every non-join
+     *  frame needs one now, see the class doc) and sends it, if a convoy is
+     *  actually joined. */
     private fun send(obj: JSONObject) {
-        socket?.send(obj.toString())
+        val groupId = _activeConvoyId.value ?: return
+        socket?.send(obj.put("groupId", groupId).toString())
     }
 
     private suspend fun forwardLocation() {
@@ -228,7 +240,7 @@ object ConvoyLiveClient {
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 webSocket.send(
-                    JSONObject().put("type", "join").put("convoyId", convoyId).toString()
+                    JSONObject().put("type", "join").put("groupId", convoyId).toString()
                 )
             }
 

@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.EmojiEvents
+import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Place
@@ -73,6 +74,7 @@ fun HubScreen(
     onOpenHistory: () -> Unit,
     onOpenBadges: () -> Unit,
     onOpenFriends: () -> Unit,
+    onOpenCircles: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSavedPlaces: () -> Unit,
     onOpenRoutes: () -> Unit,
@@ -150,6 +152,13 @@ fun HubScreen(
                 title = "Friends",
                 subtitle = if (signedIn) "Compare rides and totals" else "Sign in to add friends",
                 onClick = onOpenFriends,
+            )
+            HubRow(
+                icon = Icons.Outlined.Group,
+                title = "Circles",
+                subtitle = if (signedIn) "Share where you are with people you trust"
+                    else "Sign in to start a circle",
+                onClick = onOpenCircles,
             )
             HubRow(
                 icon = Icons.Outlined.Settings,
