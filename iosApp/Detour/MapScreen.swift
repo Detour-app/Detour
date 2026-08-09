@@ -14,6 +14,9 @@ struct MapScreen: View {
     /// Kept across polls even when a fetch fails, so a blip doesn't blank the
     /// map — see the `.task(id:)` below.
     @State private var circleFixes: [MemberFix] = []
+    /// Convoy state, for the group spin below. Same shared singleton ConvoyBar
+    /// observes — the vote round and the peer strip are two views of it.
+    @ObservedObject private var live = ConvoyLiveClient.shared
 
     /// Circle members post a fix every `CircleSync.syncIntervalSeconds` at
     /// most, so polling faster would just re-fetch the same row — matches
@@ -27,7 +30,10 @@ struct MapScreen: View {
                 center: recorder.lastFix?.coordinate,
                 destination: destinationCoordinate,
                 route: spin.route,
-                circleMembers: circleFixes
+                circleMembers: circleFixes,
+                candidates: candidateRows.map {
+                    CLLocationCoordinate2D(latitude: $0.location.lat, longitude: $0.location.lon)
+                }
             )
             .ignoresSafeArea()
 
@@ -35,12 +41,21 @@ struct MapScreen: View {
                 ConvoyBar()
                 if let stats = recorder.stats {
                     TripCard(stats: stats) { recorder.endTrip() }
+                } else if !candidateRows.isEmpty {
+                    candidatesCard
                 } else {
                     spinControls
                 }
             }
             .padding()
         }
+        // The three places a vote round can resolve from: a new offer landing
+        // (which may itself be the closing one-candidate offer), a vote
+        // arriving, or the live-peer set changing so that everyone left has
+        // now voted. All three funnel into one rule — see resolveGroupSpin.
+        .onChange(of: live.spinOffer) { _, _ in resolveGroupSpin() }
+        .onChange(of: live.spinVotes) { _, _ in resolveGroupSpin() }
+        .onChange(of: live.peers) { _, _ in resolveGroupSpin() }
         // Circle member markers: every circle you're in, always — not just
         // whichever one CirclesScreen last had open. A circle is the always-on
         // relationship (docs/CIRCLES_AND_CONVOYS.md section 2); making the map
@@ -135,7 +150,7 @@ struct MapScreen: View {
 
                 Button {
                     guard let here = recorder.lastFix?.coordinate else { return }
-                    Task { await spin.spin(from: here) }
+                    Task { await spin.spin(from: here, mode: modes.mode) }
                 } label: {
                     Text(spin.state == .spinning ? "Spinning…" : "Spin")
                         .font(.headline)
@@ -166,6 +181,184 @@ struct MapScreen: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
     }
 
+    // MARK: Candidates and the group spin
+
+    /// What the map and the card actually show: this device's own three rolls,
+    /// unless a convoy spin is on the table, in which case everyone — the
+    /// sharer included — shows the three from the offer. Keeps every device
+    /// pointed at the same coordinates even when the roll happened on another
+    /// phone. Mirrors `displayCandidates` in Android's MapScreen.kt.
+    private var candidateRows: [CandidateRow] {
+        if let offer = live.spinOffer {
+            return offer.candidates.enumerated().map { index, c in
+                CandidateRow(
+                    id: index,
+                    location: LatLon(lat: c.lat, lon: c.lon),
+                    name: c.name,
+                    distanceM: c.distanceM,
+                    durationS: c.durationS)
+            }
+        }
+        return spin.candidates.enumerated().map { index, c in
+            CandidateRow(
+                id: index,
+                location: c.destination,
+                name: c.name,
+                distanceM: c.route?.distanceMeters?.doubleValue ?? c.straightLineMeters,
+                durationS: durationSeconds(c.route))
+        }
+    }
+
+    private var candidatesCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(live.spinOffer == nil ? "Pick a destination" : "Vote on a destination")
+                .font(.headline)
+            Text(live.spinOffer == nil
+                 ? "All three are on the map — tap a row."
+                 : "Everyone sees the same three — tap a row to vote.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ForEach(candidateRows) { row in
+                Button { pick(row) } label: {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(String(UnicodeScalar(UInt8(65 + row.id))))
+                            .font(.headline.monospaced())
+                            .frame(width: 20)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row.name ?? "A road")
+                            Text(rowDetail(row))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            if live.spinOffer != nil {
+                                Text(voteLine(for: row))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Only pre-share, in a convoy, with rolls of our own to offer.
+            if live.activeConvoyId != nil && live.spinOffer == nil && !spin.candidates.isEmpty {
+                Button("Share with convoy") { shareWithConvoy() }
+                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity)
+            }
+            // Closing the round is the sharer's call alone — see
+            // resolveGroupSpin for why it cannot be everyone's.
+            if let offer = live.spinOffer, offer.fromMe {
+                Button("Go with the lead") {
+                    live.sendSpinOffer([offer.candidates[leadingSpinIndex(of: offer.candidates.count)]])
+                }
+                .buttonStyle(.borderedProminent)
+                .frame(maxWidth: .infinity)
+            }
+
+            HStack {
+                Button("Cancel") {
+                    spin.clearCandidates()
+                    live.clearSpinOffer()
+                }
+                .buttonStyle(.bordered)
+                .frame(maxWidth: .infinity)
+                // Rerolling would only change this device's own three, not the
+                // sheet everyone else is voting on — hidden once shared.
+                if live.spinOffer == nil {
+                    Button("Reroll") {
+                        guard let here = recorder.lastFix?.coordinate else { return }
+                        Task { await spin.spin(from: here, mode: modes.mode) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .padding()
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    /// A tap is a vote while a convoy spin is on the table, and a commit
+    /// otherwise. Voting deliberately does not commit: the round ends when the
+    /// sharer says it does.
+    private func pick(_ row: CandidateRow) {
+        if live.spinOffer != nil {
+            live.sendSpinVote(row.id)
+        } else if row.id < spin.candidates.count {
+            spin.choose(spin.candidates[row.id])
+        }
+    }
+
+    private func shareWithConvoy() {
+        live.sendSpinOffer(spin.candidates.map { c in
+            SpinCandidate(
+                lat: c.destination.lat,
+                lon: c.destination.lon,
+                distanceM: c.route?.distanceMeters?.doubleValue ?? c.straightLineMeters,
+                durationS: durationSeconds(c.route),
+                name: c.name)
+        })
+    }
+
+    /// How a vote round ends, identical to Android's rule and deliberately so —
+    /// the two clients must agree or a convoy splits across two destinations.
+    ///
+    /// A one-candidate offer is the sharer announcing the winner, and every
+    /// device commits it on sight. Only the sharer decides when that moment is,
+    /// once everyone still live has voted. Tallying independently on each phone
+    /// would be simpler and wrong: a peer quiet for 20 s is pruned from one
+    /// device's `peers` and not another's, so two members can call the round
+    /// complete on different vote counts.
+    private func resolveGroupSpin() {
+        guard let offer = live.spinOffer else { return }
+        if offer.candidates.count == 1 {
+            let winner = offer.candidates[0]
+            let target = LatLon(lat: winner.lat, lon: winner.lon)
+            live.clearSpinOffer()
+            guard let here = recorder.lastFix?.coordinate else {
+                spin.setDestination(target)
+                return
+            }
+            Task { await spin.setDestinationRouting(to: target, from: here, mode: modes.mode) }
+            return
+        }
+        guard offer.fromMe else { return }
+        let me = SettingsValues.shared.authUsername
+        var expected = Set(live.peers.keys)
+        if !me.isEmpty { expected.insert(me) }
+        guard !expected.isEmpty, expected.isSubset(of: Set(live.spinVotes.keys)) else { return }
+        live.sendSpinOffer([offer.candidates[leadingSpinIndex(of: offer.candidates.count)]])
+    }
+
+    /// Ties — including "nobody has voted", every count zero — go to the lowest
+    /// index. `>` rather than `>=` is what makes that deterministic.
+    private func leadingSpinIndex(of count: Int) -> Int {
+        var counts = Array(repeating: 0, count: count)
+        for index in live.spinVotes.values where counts.indices.contains(index) {
+            counts[index] += 1
+        }
+        var lead = 0
+        for i in 1..<max(count, 1) where counts[i] > counts[lead] { lead = i }
+        return lead
+    }
+
+    private func rowDetail(_ row: CandidateRow) -> String {
+        var parts: [String] = []
+        if let distance = row.distanceM { parts.append(formatDistanceKm(distance)) }
+        if let seconds = row.durationS { parts.append(formatDuration(Int64(seconds * 1000))) }
+        return parts.isEmpty ? "Distance unknown" : parts.joined(separator: " · ")
+    }
+
+    private func voteLine(for row: CandidateRow) -> String {
+        let voters = live.spinVotes.filter { $0.value == row.id }.keys.sorted()
+        guard !voters.isEmpty else { return "No votes yet" }
+        return "\(voters.count) vote\(voters.count == 1 ? "" : "s") · \(voters.joined(separator: ", "))"
+    }
+
     private var destinationCoordinate: CLLocationCoordinate2D? {
         spin.destination.map {
             CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
@@ -180,6 +373,8 @@ struct MapScreen: View {
                 : "Pick a radius and spin."
         case .spinning:
             return "Finding a road…"
+        case .choosing:
+            return "Three roads found — pick one."
         case let .found(_, _, distance):
             guard let distance else { return "Found a road." }
             return String(format: "%.1f km by road", distance / 1000)
@@ -187,6 +382,24 @@ struct MapScreen: View {
             return message
         }
     }
+}
+
+/// One row of the candidate card, flattened from either source — this device's
+/// own `RouteCandidate` rolls or a convoy `SpinCandidate` off the wire — so the
+/// card and the map pins need no second code path for "I received this" versus
+/// "I rolled this".
+private struct CandidateRow: Identifiable {
+    let id: Int
+    let location: LatLon
+    let name: String?
+    let distanceM: Double?
+    let durationS: Double?
+}
+
+/// `RouteResult.timeMs` arrives as a boxed Kotlin Long; the card wants seconds.
+private func durationSeconds(_ route: RouteResult?) -> Double? {
+    guard let ms = route?.timeMs?.doubleValue else { return nil }
+    return ms / 1000
 }
 
 private struct TripCard: View {

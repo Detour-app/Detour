@@ -387,7 +387,9 @@ route and how to debug the car screen.
 A SwiftUI app in `iosApp/` runs on the same core as the Android one: map and
 spin, trip recording in the background, history with GPX export, badges, saved
 places, friends and the leaderboard, in-app turn-by-turn with spoken
-directions, convoy live location with push-to-talk, and circles.
+directions, convoy live location with push-to-talk, circles, and the group
+spin — an iPhone rolls the same three candidates, can share them with a
+convoy, and votes on a shared spin like any other member.
 
 Three things are Android-only and are not coming to iOS: **Android Auto**
 (CarPlay navigation needs an entitlement Apple grants on application, and

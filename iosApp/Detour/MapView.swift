@@ -28,6 +28,10 @@ struct MapView: UIViewRepresentable {
     /// at all yet, only annotations — so the label surfaces on tap, the same
     /// way the destination and stop pins already work in this file.
     var circleMembers: [MemberFix] = []
+    /// The three rolls of a spin awaiting a pick, lettered A/B/C to match the
+    /// rows of the card below the map. Empty once one is committed — it
+    /// becomes `destination` then.
+    var candidates: [CLLocationCoordinate2D] = []
 
     func makeUIView(context: Context) -> MLNMapView {
         let view = MLNMapView(frame: .zero)
@@ -73,6 +77,32 @@ struct MapView: UIViewRepresentable {
             view.addAnnotation(pin)
         }
 
+        for (index, candidate) in candidates.enumerated() {
+            let pin = MLNPointAnnotation()
+            pin.coordinate = candidate
+            pin.title = String(UnicodeScalar(UInt8(65 + min(index, 25))))
+            view.addAnnotation(pin)
+        }
+
+        // Frame all three the moment a spin lands, the same way a route gets
+        // framed below — otherwise two of them can be off screen and the pick
+        // reads as a choice of one.
+        //
+        // Once only, per set of candidates: during a convoy vote this view is
+        // rebuilt every time a vote arrives, and re-framing on each of those
+        // would drag the map back from wherever the rider had just panned it
+        // to look at one of the three.
+        if !candidates.isEmpty,
+           !sameCoordinates(candidates, context.coordinator.lastFramedCandidates) {
+            context.coordinator.lastFramedCandidates = candidates
+            var coords = candidates + [center].compactMap { $0 }
+            view.setVisibleCoordinates(
+                &coords, count: UInt(coords.count),
+                edgePadding: UIEdgeInsets(top: 80, left: 40, bottom: 260, right: 40),
+                animated: true)
+        }
+        if candidates.isEmpty { context.coordinator.lastFramedCandidates = [] }
+
         if route.count >= 2 {
             var coords = route
             view.addAnnotation(MLNPolyline(coordinates: &coords, count: UInt(coords.count)))
@@ -92,6 +122,9 @@ struct MapView: UIViewRepresentable {
         /// while the user is panning.
         var hasCentered = false
         var onTap: ((CLLocationCoordinate2D) -> Void)?
+        /// The candidate set the camera was last fitted to, so a redraw that
+        /// changes nothing about them leaves the camera alone.
+        var lastFramedCandidates: [CLLocationCoordinate2D] = []
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
             guard let onTap, let mapView = gesture.view as? MLNMapView else { return }
@@ -114,6 +147,16 @@ struct MapView: UIViewRepresentable {
 /// that the exact hour count doesn't matter. Matches the inline computation in
 /// Android's `MapLibreMap.setCircleMembers` exactly (floor-divided minutes,
 /// clamped to zero).
+/// `CLLocationCoordinate2D` is not Equatable, and these come straight from the
+/// same values each redraw, so an exact field comparison is all this needs.
+private func sameCoordinates(
+    _ a: [CLLocationCoordinate2D], _ b: [CLLocationCoordinate2D]
+) -> Bool {
+    a.count == b.count && zip(a, b).allSatisfy {
+        $0.latitude == $1.latitude && $0.longitude == $1.longitude
+    }
+}
+
 private func circleFixAge(_ tsMs: Int64) -> String {
     let minutes = max(0, nowMs() - tsMs) / 60_000
     return minutes < 1 ? "just now" : "\(minutes)m ago"

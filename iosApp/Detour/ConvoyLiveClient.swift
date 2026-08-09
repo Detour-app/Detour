@@ -11,6 +11,34 @@ struct FriendPosition: Equatable {
     let tsMs: Int64
 }
 
+/// One `spin_offer` candidate, wire shape — see sync_server.py's protocol
+/// comment near `_valid_spin_offer`. `distanceM` / `durationS` are whatever
+/// the sharer's own spin already knew; a member receiving them has no route
+/// of its own until it commits and asks for one.
+struct SpinCandidate: Equatable {
+    let lat: Double
+    let lon: Double
+    let distanceM: Double?
+    let durationS: Double?
+    let name: String?
+}
+
+/// A convoy's shared spin, either just sent by this device or just received
+/// from a peer's.
+///
+/// A **one-candidate** offer is not a sheet to vote on, it's the sharer
+/// announcing the winner: every device that sees one commits it. That is why
+/// `fromMe` exists — only the device that opened the round decides when it is
+/// over and sends that closing offer, so a member whose view of who is still
+/// live differs (a peer gone quiet for 20 s is pruned from `peers` on one
+/// phone and not another) cannot resolve the same votes into a different
+/// destination. Identical rule to the Android client's, deliberately: the two
+/// have to agree or a convoy splits across two destinations.
+struct GroupSpin: Equatable {
+    let candidates: [SpinCandidate]
+    let fromMe: Bool
+}
+
 /// The convoy live-location / push-to-talk WebSocket.
 ///
 /// Speaks the same protocol as the Android client verbatim — join, location,
@@ -49,6 +77,17 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     @Published private(set) var connected = false
     @Published private(set) var peers: [String: FriendPosition] = [:]
     @Published private(set) var talking: Set<String> = []
+    /// The convoy's current group spin, if any candidate set is on the table —
+    /// set locally the moment this device shares one (the relay never echoes a
+    /// sender's own frame back), or when a peer's `spin_offer` arrives. Nil
+    /// once nobody has shared a spin, once the convoy is left, or across a
+    /// disconnect: a stale vote is worse than no vote.
+    @Published private(set) var spinOffer: GroupSpin?
+    /// username → candidate index, tallied client-side only from every
+    /// `spin_vote` this device has sent or received for the current
+    /// `spinOffer`. The server holds none of it. Reset whenever `spinOffer`
+    /// changes.
+    @Published private(set) var spinVotes: [String: Int] = [:]
     /// Set when the relay can't be reached at all (misconfigured server, not
     /// signed in) or rejects a join. Cleared on a successful join, so a
     /// permanently-failing connection surfaces something instead of retrying
@@ -78,6 +117,8 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
         connected = false
         peers = [:]
         talking = []
+        spinOffer = nil
+        spinVotes = [:]
     }
 
     // MARK: Connection
@@ -91,6 +132,11 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
             let everJoined = await connectAndAwaitClose(convoyId: convoyId)
             if Task.isCancelled { return }
             connected = false
+            // A tally against a socket that is no longer relaying anyone's
+            // frames is already wrong by the time it reconnects — drop it
+            // rather than leave a stale offer on screen looking live.
+            spinOffer = nil
+            spinVotes = [:]
             backoff = everJoined ? Self.minBackoff : min(backoff * 2, Self.maxBackoff)
             try? await Task.sleep(for: backoff)
         }
@@ -154,6 +200,41 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
 
     func sendAudioChunk(_ pcm: Data) {
         send(["type": "ptt_audio", "chunk": pcm.base64EncodedString()])
+    }
+
+    /// Shares a spin with the convoy — or, with a single candidate, closes the
+    /// round on the winner (see `GroupSpin`). Sets `spinOffer` locally right
+    /// away: the relay excludes the sender from its own broadcast, so waiting
+    /// for the frame to come back would mean waiting forever. Outside 1–3
+    /// candidates it does nothing, matching the server's own cap.
+    func sendSpinOffer(_ candidates: [SpinCandidate]) {
+        guard (1...3).contains(candidates.count) else { return }
+        spinOffer = GroupSpin(candidates: candidates, fromMe: true)
+        spinVotes = [:]
+        let wire: [[String: Any]] = candidates.map { c in
+            var o: [String: Any] = ["lat": c.lat, "lon": c.lon]
+            if let d = c.distanceM { o["distanceM"] = d }
+            if let s = c.durationS { o["durationS"] = s }
+            if let n = c.name { o["name"] = n }
+            return o
+        }
+        send(["type": "spin_offer", "candidates": wire])
+    }
+
+    /// Casts this device's vote and records it locally at once, for the same
+    /// reason `sendSpinOffer` does: the relay will not echo it back to us.
+    func sendSpinVote(_ index: Int) {
+        let me = SettingsValues.shared.authUsername
+        if !me.isEmpty { spinVotes[me] = index }
+        send(["type": "spin_vote", "index": index])
+    }
+
+    /// Drops the current spin locally (a commit landed, or it was dismissed)
+    /// without telling anyone — there is nothing to tell, the vote was never
+    /// server state.
+    func clearSpinOffer() {
+        spinOffer = nil
+        spinVotes = [:]
     }
 
     /// Stamps `payload` with the currently joined convoy's id — every frame
@@ -237,6 +318,32 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
                   // is base64; a malformed frame must not take the socket down.
                   let pcm = Data(base64Encoded: chunk) else { break }
             PttAudio.shared.play(pcm, from: user)
+
+        case "spin_offer":
+            guard let raw = msg["candidates"] as? [[String: Any]] else { break }
+            let candidates: [SpinCandidate] = raw.compactMap { o in
+                guard let lat = o["lat"] as? Double, let lon = o["lon"] as? Double else {
+                    return nil
+                }
+                let name = o["name"] as? String
+                return SpinCandidate(
+                    lat: lat,
+                    lon: lon,
+                    distanceM: o["distanceM"] as? Double,
+                    durationS: o["durationS"] as? Double,
+                    name: (name?.isEmpty ?? true) ? nil : name
+                )
+            }
+            // A new offer starts a fresh vote even mid-round: the candidates it
+            // names are a different sheet than whatever was being voted on.
+            guard !candidates.isEmpty else { break }
+            spinOffer = GroupSpin(candidates: candidates, fromMe: false)
+            spinVotes = [:]
+
+        case "spin_vote":
+            guard let user = msg["user"] as? String, !user.isEmpty,
+                  let index = msg["index"] as? Int, (0...2).contains(index) else { break }
+            spinVotes[user] = index
 
         default:
             break
