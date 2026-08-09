@@ -693,6 +693,13 @@ private fun ConvoysSection() {
     var createOpen by remember { mutableStateOf(false) }
     var inviteFor by remember { mutableStateOf<Group?>(null) }
     val liveConvoyId by ConvoyLiveClient.activeConvoyId.collectAsStateWithLifecycle()
+    // "Live" above only means this device is *trying* to stay connected. A
+    // relay it can't reach, a join the server rejects, and a peer who simply
+    // isn't sending fixes yet all look the same without these - which is
+    // exactly how a convoy where nobody saw anybody stayed silent.
+    val liveConnected by ConvoyLiveClient.connected.collectAsStateWithLifecycle()
+    val livePeers by ConvoyLiveClient.peers.collectAsStateWithLifecycle()
+    val liveError by ConvoyLiveClient.lastError.collectAsStateWithLifecycle()
 
     // Mic permission is asked for before starting the service, not after -
     // ConvoyLiveService can only declare the foreground microphone type when
@@ -771,6 +778,13 @@ private fun ConvoysSection() {
                 convoy = convoy,
                 busy = busy,
                 live = liveConvoyId == convoy.id,
+                liveStatus = when {
+                    liveConvoyId != convoy.id -> null
+                    !liveConnected -> liveError ?: "Connecting…"
+                    livePeers.isEmpty() -> "Connected — nobody else live yet"
+                    else -> "Connected — " + livePeers.keys.sorted().joinToString(", ")
+                },
+                liveStatusIsError = liveConvoyId == convoy.id && !liveConnected && liveError != null,
                 onAccept = { act { Groups.respond("convoy", convoy.id, true) } },
                 onDecline = { act { Groups.respond("convoy", convoy.id, false) } },
                 onLeave = {
@@ -809,6 +823,8 @@ private fun ConvoyRow(
     convoy: Group,
     busy: Boolean,
     live: Boolean,
+    liveStatus: String?,
+    liveStatusIsError: Boolean,
     onAccept: () -> Unit,
     onDecline: () -> Unit,
     onLeave: () -> Unit,
@@ -864,6 +880,14 @@ private fun ConvoyRow(
                     }
                     OutlinedButton(enabled = !busy, onClick = onInvite) { Text("Invite") }
                     TextButton(enabled = !busy, onClick = onLeave) { Text("Leave") }
+                }
+                liveStatus?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (liveStatusIsError) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }

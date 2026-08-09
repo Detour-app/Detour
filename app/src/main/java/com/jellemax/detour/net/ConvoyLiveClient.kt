@@ -137,6 +137,10 @@ object ConvoyLiveClient {
             return
         }
         _activeConvoyId.value = convoyId
+        // A previous attempt's failure must not be shown as this one's state
+        // while it is still connecting - the UI reads this the moment a join
+        // starts, before any reply has come back.
+        _lastError.value = null
         val newScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         scope = newScope
         newScope.launch { runConnection(context, convoyId) }
@@ -271,7 +275,21 @@ object ConvoyLiveClient {
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                if (!closed.isCompleted) closed.complete(everJoined)
+                // The case the status line exists for. A relay that can't be
+                // reached, or an Access/auth rejection that never gets as far
+                // as a join reply, otherwise leaves the UI on "Connecting..."
+                // for as long as the backoff loop keeps trying — which is
+                // indistinguishable from a convoy nobody else has joined yet.
+                // Only the first failure of an attempt speaks: anything after
+                // the socket is already closing is noise about a teardown.
+                if (closed.isCompleted) return
+                _lastError.value = when {
+                    response != null -> "Live server refused the connection (${response.code})"
+                    else -> t.message?.takeIf { it.isNotBlank() }
+                        ?.let { "Can't reach the live server: $it" }
+                        ?: "Can't reach the live server"
+                }
+                closed.complete(everJoined)
             }
         }
 
