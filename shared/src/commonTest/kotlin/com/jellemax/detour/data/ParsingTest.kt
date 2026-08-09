@@ -127,6 +127,18 @@ class MaxSpeedParsingTest {
 
 class NavEngineTest {
 
+    /**
+     * A straight line north: 0.01° of latitude per step, four steps. Along a
+     * meridian the engine's flat-earth approximation is exact by construction
+     * — one degree of latitude *is* the 111_320 m it uses — so the lengths
+     * below are arithmetic rather than transcribed from a run. They are still
+     * compared with a tolerance: the engine sums segments in order, and asking
+     * float arithmetic for an exact total is how a correct test goes red on
+     * another platform.
+     */
+    private val straightLine = (0..4).map { LatLon(50.0 + it * 0.01, 3.0) }
+    private val straightLineMeters = 4 * 0.01 * 111_320.0
+
     /// A straight 1 km line east, with one turn instruction at its midpoint.
     private fun route(): RouteResult {
         val polyline = (0..10).map { LatLon(50.0, 3.0 + it * 0.001) }
@@ -178,6 +190,78 @@ class NavEngineTest {
         assertTrue(motorway < stopped)
         assertTrue(
             NavEngine.cameraZoom(base, 35.0, distanceToTurnMeters = 50.0) > motorway)
+    }
+
+    // The geometry the maps fade the driven part of a route with.
+
+    @Test
+    fun lengthAddsUpTheSegments() {
+        assertEquals(straightLineMeters, NavEngine.lengthMeters(straightLine), absoluteTolerance = 0.5)
+        assertEquals(0.0, NavEngine.lengthMeters(emptyList()), absoluteTolerance = 0.0)
+        assertEquals(
+            0.0, NavEngine.lengthMeters(listOf(LatLon(50.0, 3.0))), absoluteTolerance = 0.0)
+    }
+
+    @Test
+    fun prefixCutsMidSegment() {
+        // An eighth of a four-segment line lands halfway along the first
+        // segment, which no vertex sits on — the end point is interpolated.
+        val eighth = NavEngine.prefix(straightLine, 0.125)
+        assertEquals(2, eighth.size)
+        assertEquals(50.005, eighth.last().lat, absoluteTolerance = 1e-9)
+        assertEquals(
+            straightLineMeters / 8, NavEngine.lengthMeters(eighth), absoluteTolerance = 0.5)
+    }
+
+    @Test
+    fun prefixKeepsTheVerticesItHasPassed() {
+        val half = NavEngine.prefix(straightLine, 0.5)
+        assertEquals(50.02, half.last().lat, absoluteTolerance = 1e-9)
+        assertEquals(
+            straightLineMeters / 2, NavEngine.lengthMeters(half), absoluteTolerance = 0.5)
+        // The vertices behind the cut are still in it, in order, so the drawn
+        // line follows the road rather than shortcutting across its bends.
+        // Only the two the cut is safely past: whether the vertex it lands on
+        // is kept or re-emitted as an interpolated copy of itself is down to
+        // the last bit of a float, and invisible either way.
+        assertEquals(straightLine.take(2), half.take(2))
+    }
+
+    @Test
+    fun prefixHasNothingToDrawAtTheStart() {
+        assertTrue(NavEngine.prefix(straightLine, 0.0).isEmpty())
+        assertTrue(NavEngine.prefix(straightLine, -1.0).isEmpty())
+        assertTrue(NavEngine.prefix(listOf(LatLon(50.0, 3.0)), 0.5).isEmpty())
+        assertTrue(NavEngine.prefix(emptyList(), 0.5).isEmpty())
+    }
+
+    @Test
+    fun prefixIsTheWholeLineAtTheEnd() {
+        for (fraction in listOf(1.0, 2.0)) {
+            val whole = NavEngine.prefix(straightLine, fraction)
+            assertEquals(straightLine.size, whole.size)
+            assertEquals(straightLine.last().lat, whole.last().lat, absoluteTolerance = 1e-9)
+            assertEquals(
+                straightLineMeters, NavEngine.lengthMeters(whole), absoluteTolerance = 0.5)
+        }
+    }
+
+    @Test
+    fun drivenFractionIsRemainingTheOtherWayRound() {
+        fun progress(remaining: Double, routeMeters: Double) = NavEngine.Progress(
+            offRouteMeters = 0.0,
+            nextInstruction = null,
+            distanceToTurnMeters = remaining,
+            remainingMeters = remaining,
+            routeMeters = routeMeters,
+            remainingTimeMs = null,
+            speedLimitKmh = null,
+        )
+        assertEquals(0.0, progress(1000.0, 1000.0).drivenFraction, absoluteTolerance = 1e-9)
+        assertEquals(0.75, progress(250.0, 1000.0).drivenFraction, absoluteTolerance = 1e-9)
+        assertEquals(1.0, progress(0.0, 1000.0).drivenFraction, absoluteTolerance = 1e-9)
+        // A route with no measurable length can't have been driven along.
+        assertEquals(0.0, progress(0.0, 0.0).drivenFraction, absoluteTolerance = 1e-9)
     }
 }
 
