@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -43,12 +44,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.jellemax.detour.data.GeocodeResult
+import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RouteStop
 import com.jellemax.detour.data.RouteStore
@@ -57,6 +61,7 @@ import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.maplibre.android.maps.MapLibreMap
@@ -94,6 +99,34 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
     var timeMs by remember { mutableStateOf(editing?.timeMs) }
     var routing by remember { mutableStateOf(false) }
     var routingError by remember { mutableStateOf<String?>(null) }
+
+    var searchQuery by remember { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
+    var searched by remember { mutableStateOf(false) }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    // Debounced live search, same shape as SavedPlacesScreen's add-place dialog.
+    // `near` biases results toward the route so far, once it has a stop to bias from.
+    LaunchedEffect(searchQuery) {
+        // Clearing the box while a request is still in flight cancels this
+        // effect mid-call, so the early return has to drop the spinner too.
+        if (searchQuery.length < 3) {
+            searchResults = emptyList()
+            searching = false
+            searched = false
+            return@LaunchedEffect
+        }
+        delay(400)
+        searching = true
+        searchResults = try {
+            withContext(Dispatchers.IO) { Geocoder.search(searchQuery, stops.lastOrNull()?.at) }
+        } catch (e: Exception) {
+            emptyList()
+        }
+        searching = false
+        searched = true
+    }
 
     val serverConfig = remember { RoutingServer.load() }
     val avoidHighways by Settings.avoidHighways.collectAsStateWithLifecycle()
@@ -254,11 +287,47 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                 AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
                 if (stops.isEmpty()) {
                     Text(
-                        "Tap the map to add your first stop",
+                        "Tap the map or search to add your first stop",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     )
+                }
+            }
+            Column(Modifier.fillMaxWidth().padding(start = 16.dp, top = 8.dp, end = 16.dp)) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    label = { Text("Search for a place") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (searching) {
+                    CircularProgressIndicator(Modifier.padding(top = 8.dp).size(20.dp), strokeWidth = 2.dp)
+                } else if (searched && searchResults.isEmpty()) {
+                    Text(
+                        "No results",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                } else {
+                    searchResults.take(5).forEach { result ->
+                        Text(
+                            result.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    stops = stops + RouteStop(result.location, result.name)
+                                    searchQuery = ""
+                                    searchResults = emptyList()
+                                    searched = false
+                                    keyboardController?.hide()
+                                }
+                                .padding(vertical = 10.dp),
+                        )
+                    }
                 }
             }
             LazyColumn(
