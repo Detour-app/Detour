@@ -69,7 +69,7 @@ import java.util.Locale
 private data class HistoryEntry(val trip: Trip, val thumbnail: List<LatLon>?)
 
 /** One decoded trace line: its points plus the timestamp window they span. */
-private data class TraceSegment(
+internal data class TraceSegment(
     val points: List<TraceStore.TracePoint>,
     val startMs: Long,
     val endMs: Long,
@@ -92,27 +92,60 @@ private fun readTraceSegments(context: android.content.Context): List<TraceSegme
         if (start == Long.MAX_VALUE) null else TraceSegment(points, start, end)
     }
 
-/** The one segment recorded during [trip], if its trace is still on disk. A
- *  trace starts inside the trip's window (with a little slack for the
- *  tracker's own startup lag); nearest match wins when more than one
- *  candidate qualifies. Shared by [matchThumbnails] and [loadTripTrace] so
- *  the two never disagree on which trace belongs to which trip. */
-private fun matchSegment(segments: List<TraceSegment>, trip: Trip): TraceSegment? =
-    segments
-        .filter { it.startMs in (trip.startTimeMs - 10_000)..(trip.endTimeMs + 10_000) }
-        .minByOrNull { Math.abs(it.startMs - trip.startTimeMs) }
+/** Slack added on both ends of a trip's window when matching it to trace
+ *  lines, to cover the tracker's own startup lag between the trip actually
+ *  starting and the first point landing in the buffer. */
+private const val TRIP_MATCH_SLACK_MS = 10_000L
+
+/** Every point recorded during [trip], stitched back together from however
+ *  many trace lines it was split across. The tracker doesn't write one line
+ *  per trip — it flushes its point buffer to [TraceStore] every 200 points,
+ *  on a >500 m GPS gap, and on a STILL activity transition, so a single ride
+ *  routinely spans several lines (200 points at the ~25 m decimation
+ *  interval is only ~5 km, which is where every longer ride used to stop
+ *  being drawn). A trip is therefore matched by
+ *  *overlap* rather than by a single line's start falling inside its window:
+ *  any segment whose [startMs, endMs] range overlaps the trip's window (with
+ *  [TRIP_MATCH_SLACK_MS] slack on both ends) can hold some of the trip's
+ *  points. Because the buffer isn't flushed when a trip begins either, the
+ *  line that opens a trip can also carry idle points recorded before it — so
+ *  once the overlapping segments are pooled and sorted, every point is
+ *  re-checked against the trip's own window to trim those leading (and any
+ *  trailing) points out. Finally, flushTrace(keepLast = true) repeats the
+ *  boundary point as the first point of the next line, so an exact duplicate
+ *  of the immediately preceding point (same time and coordinates) is dropped
+ *  to avoid a seam in the reassembled trace. Shared by [matchThumbnails] and
+ *  [loadTripPoints] so the two never disagree on which points belong to
+ *  which trip. */
+internal fun matchTripPoints(segments: List<TraceSegment>, trip: Trip): List<TraceStore.TracePoint> {
+    val from = trip.startTimeMs - TRIP_MATCH_SLACK_MS
+    val to = trip.endTimeMs + TRIP_MATCH_SLACK_MS
+    val pooled = segments
+        .filter { it.startMs <= to && it.endMs >= from }
+        .sortedBy { it.startMs }
+        .flatMap { it.points }
+        .filter { it.timeMs in from..to }
+    val result = ArrayList<TraceStore.TracePoint>(pooled.size)
+    for (p in pooled) {
+        val prev = result.lastOrNull()
+        if (prev != null && prev.timeMs == p.timeMs && prev.at == p.at) continue
+        result.add(p)
+    }
+    return result
+}
 
 private fun matchThumbnails(context: android.content.Context, trips: List<Trip>): Map<Long, List<LatLon>> {
     val segments = readTraceSegments(context)
     val result = HashMap<Long, List<LatLon>>()
     for (trip in trips) {
-        val match = matchSegment(segments, trip) ?: continue
+        val points = matchTripPoints(segments, trip)
+        if (points.isEmpty()) continue
         // Cap the point count a thumbnail actually needs — a multi-hour ride
         // can carry thousands of points, all wasted on a 52dp canvas.
-        val pts = if (match.points.size > 200) {
-            val step = match.points.size / 200
-            match.points.filterIndexed { i, _ -> i % step == 0 }
-        } else match.points
+        val pts = if (points.size > 200) {
+            val step = points.size / 200
+            points.filterIndexed { i, _ -> i % step == 0 }
+        } else points
         result[trip.startTimeMs] = pts.map { it.at }
     }
     return result
@@ -130,7 +163,7 @@ fun loadTripTrace(context: android.content.Context, trip: Trip): List<LatLon> =
  *  without times is just a shape, and every tool that would receive one wants
  *  to know when it was ridden. */
 fun loadTripPoints(context: android.content.Context, trip: Trip): List<TraceStore.TracePoint> =
-    matchSegment(readTraceSegments(context), trip)?.points ?: emptyList()
+    matchTripPoints(readTraceSegments(context), trip)
 
 private val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
 private fun monthKey(timeMs: Long) = SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(timeMs)
