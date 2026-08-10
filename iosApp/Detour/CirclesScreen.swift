@@ -281,6 +281,10 @@ private struct CircleDetailView: View {
     @State private var placesError: String?
     @State private var shareOpen = false
     @State private var dataReloads = 0
+    /// Local mirror of `CircleNotifications.notifyEnabled` — that store is
+    /// plain `UserDefaults`, not a `StateFlow` the view can bind to
+    /// directly, so this is what the Toggle below actually reads/writes.
+    @State private var notifyOn = true
 
     private var mine: GroupMember? {
         circle.members.first { $0.username == username }
@@ -302,6 +306,37 @@ private struct CircleDetailView: View {
                             Text(mine.sharing
                                  ? "Posting your position to this circle every couple of minutes"
                                  : "Paused — nothing is being shared")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .disabled(busy)
+                    Toggle(isOn: Binding(
+                        get: { notifyOn },
+                        set: { on in
+                            notifyOn = on // optimistic; reset below if denied
+                            Task {
+                                if on {
+                                    let granted = await CircleNotifications.shared.requestAuthorizationIfNeeded()
+                                    CircleNotifications.shared.setNotifyEnabled(circleId: circle.id, granted)
+                                    if granted {
+                                        ConvoyLiveClient.shared.addNotifyingCircle(circle.id)
+                                    } else {
+                                        // The toggle has to reflect reality,
+                                        // not the tap that caused it.
+                                        notifyOn = false
+                                        placesError = "Notifications are turned off for Detour in iOS Settings."
+                                    }
+                                } else {
+                                    CircleNotifications.shared.setNotifyEnabled(circleId: circle.id, false)
+                                    ConvoyLiveClient.shared.removeNotifyingCircle(circle.id)
+                                }
+                            }
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Notify me about arrivals").font(.body.weight(.medium))
+                            Text("A notification when someone else in this circle arrives at or leaves a shared place. Only while Detour is open, or briefly after you reopen it — this app has no push service.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -376,6 +411,7 @@ private struct CircleDetailView: View {
         // events are only ever as fresh as the last time this screen loaded
         // them — on open, after a mutation, or the refresh button above.
         .task(id: dataReloads) { await loadPlacesAndEvents() }
+        .onAppear { notifyOn = CircleNotifications.shared.notifyEnabled(circleId: circle.id) }
         .sheet(isPresented: $shareOpen) {
             SharePlaceSheet { place, radiusM in
                 shareOpen = false

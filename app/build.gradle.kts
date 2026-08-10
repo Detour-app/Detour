@@ -150,6 +150,17 @@ dependencies {
     // WebSocket client for the convoy live-location/PTT relay - Android has
     // no built-in WS client and hand-rolling RFC 6455 framing isn't worth it.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // :shared's CircleEvents.placeEventFromRelayFrame takes a kotlinx
+    // JsonObject, but shared/build.gradle.kts declares kotlinx-serialization
+    // as `implementation`, not `api` - Gradle doesn't leak that onto a
+    // consumer's compile classpath, so it has to be declared here too,
+    // pinned to the same version shared uses to resolve to one identical
+    // class rather than risk two.
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
+    // Plain JUnit4, the default AGP test runner wires up for testDebugUnitTest
+    // with no extra plugin - app/ had no unit tests before PlaceNotifications'
+    // catch-up planning logic, which is pure Kotlin and worth covering.
+    testImplementation("junit:junit:4.13.2")
     // No wearApp(project(":wear")) here on purpose. Embedding the watch APK
     // inside the phone one only ever auto-installed on Wear OS 1.x, and this
     // watch app is minSdk 30 (Wear OS 3) — so the embedded copy was 40 MB of

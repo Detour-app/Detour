@@ -301,4 +301,31 @@ object Settings {
         _preferredNavApp.value = value
         prefs.put("preferred_nav_app", value.name)
     }
+
+    /** High-water mark for arrive/depart events [CircleEvents] has already
+     *  surfaced as a notification for circle [circleId] — lets a client
+     *  catch up after being offline (`CircleEvents.events(circleId, since)`)
+     *  without re-notifying for anything it already showed. Dynamically
+     *  keyed rather than a StateFlow like everything else here: there's no
+     *  fixed, small set of circles the way there is a fixed set of
+     *  settings, so a flow per circle would never stop growing. */
+    fun lastSeenEventTsMs(circleId: Int): Long = prefs.long("place_event_last_seen_$circleId", 0L)
+
+    fun setLastSeenEventTsMs(circleId: Int, tsMs: Long) {
+        prefs.put("place_event_last_seen_$circleId", tsMs)
+    }
+
+    /** Whether arrive/depart notifications are raised for circle [circleId].
+     *  Device-local, unlike the circle's `sharing` flag (real server state,
+     *  see `Groups.setSharing`) — muting a circle on the phone says nothing
+     *  about the tablet. It lives here anyway, rather than in each platform's
+     *  own bag, so that one key and one default ("on", matching the sharing
+     *  switch next to it) define the setting for both apps instead of two
+     *  spellings that only look the same. Dynamically keyed for the same
+     *  reason as [lastSeenEventTsMs] above. */
+    fun notifyArrivals(circleId: Int): Boolean = prefs.bool("notify_arrivals_$circleId", true)
+
+    fun setNotifyArrivals(circleId: Int, on: Boolean) {
+        prefs.put("notify_arrivals_$circleId", on)
+    }
 }

@@ -734,5 +734,103 @@ class PauseTests(AsyncTestCase):
         self.assertIsNone(row, "a convoy's position must never be persisted")
 
 
+# --------------------------------------------------------------------------
+# circle place_event fan-out - the live relay frame + the HTTP catch-up path
+# must word a notification identically (docs' requirement, see
+# broadcast_place_event and do_circle_events)
+
+
+class PlaceEventHttpTests(SyncTestCase):
+    def test_events_include_place_name_from_circle_places(self):
+        alice = self.make_user("alice")
+        bob = self.make_user("bob")
+        circle_id = self.make_group(alice, kind="circle")
+        self.add_member(circle_id, bob["id"])
+        S.do_circle_place_share(
+            alice,
+            {"groupId": circle_id, "place": {"id": 3, "name": "Home", "lat": 1.0, "lon": 2.0, "radiusM": 50}},
+        )
+        S.do_circle_event_create(bob, circle_id, {"placeId": 3, "kind": "depart", "ts": 999})
+
+        out = S.do_circle_events(alice, circle_id, {})
+        self.assertEqual(len(out["events"]), 1)
+        ev = out["events"][0]
+        self.assertEqual(ev["placeName"], "Home")
+        self.assertEqual(ev["username"], "bob")
+        self.assertEqual(ev["kind"], "depart")
+        self.assertEqual(ev["placeId"], 3)
+
+    def test_events_place_name_is_empty_once_the_place_row_is_gone(self):
+        """A place shared, then unshared, then a stale transition for it
+        still arrives - do_circle_event_create doesn't validate placeId
+        against circle_places at all, so this is a real path, not a
+        hypothetical."""
+        alice = self.make_user("alice")
+        circle_id = self.make_group(alice, kind="circle")
+        S.do_circle_event_create(alice, circle_id, {"placeId": 999, "kind": "arrive", "ts": 1})
+
+        out = S.do_circle_events(alice, circle_id, {})
+        self.assertEqual(out["events"][0]["placeName"], "")
+
+    def test_event_create_succeeds_with_no_live_relay(self):
+        """`_live_loop` is None by default (DBFixtureMixin.setUp) - the
+        common case for a process that never started run_live_server, or
+        where `websockets` isn't installed. Must not turn into a 500."""
+        alice = self.make_user("alice")
+        circle_id = self.make_group(alice, kind="circle")
+        result = S.do_circle_event_create(alice, circle_id, {"placeId": 1, "kind": "arrive", "ts": 1})
+        self.assertEqual(result, {"status": "recorded"})
+
+    def test_event_create_survives_a_dead_relay_loop(self):
+        """A closed loop makes run_coroutine_threadsafe raise RuntimeError
+        synchronously (unlike a merely-empty registry, which _group_broadcast
+        already no-ops on) - broadcast_place_event's try/except is the thing
+        actually under test here."""
+        alice = self.make_user("alice")
+        circle_id = self.make_group(alice, kind="circle")
+        dead_loop = asyncio.new_event_loop()
+        dead_loop.close()
+        S._live_loop = dead_loop
+        result = S.do_circle_event_create(alice, circle_id, {"placeId": 1, "kind": "arrive", "ts": 1})
+        self.assertEqual(result, {"status": "recorded"})
+
+
+class PlaceEventBroadcastTests(AsyncTestCase):
+    async def test_event_create_broadcasts_to_peers_excluding_the_sender(self):
+        S._live_loop = asyncio.get_running_loop()
+        alice = self.make_user("alice")
+        bob = self.make_user("bob")
+        circle_id = self.make_group(alice, kind="circle")
+        self.add_member(circle_id, bob["id"])
+        alice_ws = FakeWebSocket("n/a")
+        bob_ws = FakeWebSocket("n/a")
+        S._group_join(circle_id, alice["id"], "alice", alice_ws, "ahash")
+        S._group_join(circle_id, bob["id"], "bob", bob_ws, "bhash")
+        S.do_circle_place_share(
+            alice,
+            {"groupId": circle_id, "place": {"id": 7, "name": "School", "lat": 1.0, "lon": 2.0, "radiusM": 100}},
+        )
+
+        S.do_circle_event_create(alice, circle_id, {"placeId": 7, "kind": "arrive", "ts": 555})
+        await _wait_for_sent_count(bob_ws, 1)
+
+        self.assertEqual(
+            alice_ws.sent, [], "the mover's own socket must not get its own event back"
+        )
+        frame = json.loads(bob_ws.sent[0])
+        self.assertEqual(
+            frame,
+            {
+                "type": "place_event",
+                "groupId": circle_id,
+                "placeId": 7,
+                "placeName": "School",
+                "user": "alice",
+                "kind": "arrive",
+                "tsMs": 555,
+            },
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

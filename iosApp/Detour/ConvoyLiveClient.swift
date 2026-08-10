@@ -52,12 +52,16 @@ struct GroupSpin: Equatable {
 /// scheduled here instead.
 ///
 /// The relay is multi-group on the wire (docs/CIRCLES_AND_CONVOYS.md section 6):
-/// every frame carries a `groupId`, and one socket could in principle hold
-/// several memberships at once. This client deliberately stays single-convoy —
-/// circles never touch this socket at all, they post fixes over plain HTTP at a
-/// much lower cadence (see `CircleFixes.postFix`) — so `send` just stamps every
-/// outgoing frame with whichever convoy is currently joined, mirroring
-/// `ConvoyLiveClient.kt`'s `send()`.
+/// every frame carries a `groupId`, and one socket can hold several
+/// memberships at once — `join` adds one rather than replacing what the
+/// socket already had. Circles use exactly that: they still post fixes over
+/// plain HTTP at a much lower cadence (see `CircleFixes.postFix`) and never
+/// send `location`/`ptt_*`/`spin_*` frames here — the relay only ever
+/// relays those for a convoy group (server-side kind check) — but a circle
+/// with arrival notifications on joins this same socket purely to *receive*
+/// `place_event` pushes (see `wantedCircleIds` / `setNotifyingCircles`
+/// below). That's also why the socket now has to exist even with no convoy
+/// active: a circle-only user still needs it for the live path.
 @MainActor
 final class ConvoyLiveClient: NSObject, ObservableObject {
 
@@ -99,21 +103,78 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     private var lastLocationSentMs: Int64 = 0
     private let session = URLSession(configuration: .default)
 
+    /// Circles currently wanted joined for live arrival/departure pushes —
+    /// disjoint from `activeConvoyId`, and the reason this class is no
+    /// longer purely "the convoy socket" (see the class doc). Populated by
+    /// `CircleNotifications`/`CircleSync`, never read by anything UI-facing.
+    private var wantedCircleIds: Set<Int32> = []
+
     // MARK: Membership
 
     func join(convoyId: Int32) {
         guard activeConvoyId != convoyId else { return }
-        leave()
+        // A convoy switch has to fully reconnect, not just add a second
+        // join: the relay has no client "leave one group" frame (only a
+        // whole-socket close), so simply joining the new id on top of the
+        // old one would leave this device receiving both convoys' traffic.
+        disconnect()
         activeConvoyId = convoyId
-        connectionTask = Task { await self.connectionLoop(convoyId: convoyId) }
+        startConnectionIfNeeded()
     }
 
+    /// Leaves the convoy only. A circle notification join on this same
+    /// socket (see `setNotifyingCircles`) has nothing to do with a convoy
+    /// ending, so the socket stays up for it rather than being torn down
+    /// here — only `disconnect()` when nothing wants it any more.
     func leave() {
+        guard activeConvoyId != nil else { return }
+        disconnect()
+        activeConvoyId = nil
+        startConnectionIfNeeded()
+    }
+
+    /// Adds one circle to the live push set — joined on the socket at once
+    /// if it's already open, or the socket is started purely to carry it if
+    /// nothing else has one open (the common case for a circle-only user:
+    /// no convoy, so nothing else would ever connect this socket at all).
+    func addNotifyingCircle(_ id: Int32) {
+        guard !wantedCircleIds.contains(id) else { return }
+        wantedCircleIds.insert(id)
+        if connected {
+            send(groupId: id, ["type": "join"])
+        } else {
+            startConnectionIfNeeded()
+        }
+    }
+
+    /// Drops one circle from the live push set. Not an active "un-join" —
+    /// the wire protocol has none (see the class doc) — so `place_event`
+    /// frames for it may still arrive until the next reconnect;
+    /// `CircleNotifications` filters those client-side in the meantime.
+    /// Tears the socket down if that was the only reason it was open.
+    func removeNotifyingCircle(_ id: Int32) {
+        guard wantedCircleIds.remove(id) != nil else { return }
+        if activeConvoyId == nil && wantedCircleIds.isEmpty { disconnect() }
+    }
+
+    /// Reconciles the whole wanted set at once — what `CircleSync`'s
+    /// periodic loop and `CircleNotifications.runCatchUpSweep` use, since
+    /// they recompute "which circles want live pushes" from scratch each
+    /// time rather than tracking a diff themselves.
+    func setNotifyingCircles(_ ids: Set<Int32>) {
+        for id in ids.subtracting(wantedCircleIds) { addNotifyingCircle(id) }
+        for id in wantedCircleIds.subtracting(ids) { removeNotifyingCircle(id) }
+    }
+
+    // MARK: Connection
+
+    /// Tears down the socket and every convoy-scoped published value, but
+    /// never touches `wantedCircleIds` — see `leave()`.
+    private func disconnect() {
         connectionTask?.cancel()
         connectionTask = nil
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
-        activeConvoyId = nil
         connected = false
         peers = [:]
         talking = []
@@ -121,15 +182,26 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
         spinVotes = [:]
     }
 
-    // MARK: Connection
+    /// Starts the connection loop if something actually wants a socket open
+    /// and one isn't running already — a convoy, at least one notifying
+    /// circle, or both at once (the relay's "one socket, many groups"
+    /// design; see the class doc).
+    private func startConnectionIfNeeded() {
+        guard connectionTask == nil, activeConvoyId != nil || !wantedCircleIds.isEmpty else { return }
+        connectionTask = Task { await self.connectionLoop() }
+    }
 
     /// Reconnects with exponential backoff, reset whenever an attempt actually
     /// got as far as being joined — a connection that worked and then dropped
     /// should come back promptly, unlike one that never authenticated.
-    private func connectionLoop(convoyId: Int32) async {
+    private func connectionLoop() async {
         var backoff = Self.minBackoff
         while !Task.isCancelled {
-            let everJoined = await connectAndAwaitClose(convoyId: convoyId)
+            let everJoined = await connectAndAwaitClose()
+            // Cancellation only ever comes from `disconnect()`, which has
+            // already cleared `connectionTask` itself — touching it again
+            // here could stomp a newer task `startConnectionIfNeeded()`
+            // assigned in the same synchronous call that cancelled this one.
             if Task.isCancelled { return }
             connected = false
             // A tally against a socket that is no longer relaying anyone's
@@ -137,12 +209,19 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
             // rather than leave a stale offer on screen looking live.
             spinOffer = nil
             spinVotes = [:]
+            // Nothing wants a socket any more (convoy left, no circle asking
+            // for pushes either) — stop instead of reconnecting forever, and
+            // self-clear since nobody else initiated this shutdown.
+            guard activeConvoyId != nil || !wantedCircleIds.isEmpty else {
+                connectionTask = nil
+                return
+            }
             backoff = everJoined ? Self.minBackoff : min(backoff * 2, Self.maxBackoff)
             try? await Task.sleep(for: backoff)
         }
     }
 
-    private func connectAndAwaitClose(convoyId: Int32) async -> Bool {
+    private func connectAndAwaitClose() async -> Bool {
         guard let url = URL(string: BuildDefaults.shared.liveUrl),
               !BuildDefaults.shared.liveUrl.isEmpty else {
             lastError = "No convoy relay configured"
@@ -164,7 +243,11 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
         socket = task
         task.resume()
 
-        send(["type": "join"])
+        // Join everything currently wanted — the active convoy, if any, and
+        // every notifying circle — since a fresh connection starts with no
+        // memberships at all and the relay only adds, never assumes.
+        if let convoyId = activeConvoyId { send(groupId: convoyId, ["type": "join"]) }
+        for circleId in wantedCircleIds { send(groupId: circleId, ["type": "join"]) }
         let pinger = Task { await self.keepAlive(task) }
         let forwarder = Task { await self.forwardLocation() }
         defer {
@@ -237,11 +320,14 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
         spinVotes = [:]
     }
 
-    /// Stamps `payload` with the currently joined convoy's id — every frame
-    /// needs one now, see the class doc — and sends it, if a convoy is
-    /// actually joined.
-    private func send(_ payload: [String: Any]) {
-        guard let groupId = activeConvoyId else { return }
+    /// Stamps `payload` with `groupId` and sends it — every frame needs one
+    /// now, see the class doc. `groupId` defaults to the active convoy: every
+    /// convoy-scoped call site (location, ptt, spin) already only makes sense
+    /// there, so they call `send` unchanged; only the per-group `join` frames
+    /// pass one explicitly. A payload with no resolvable group (no convoy,
+    /// none passed) is silently dropped rather than mis-sent.
+    private func send(groupId: Int32? = nil, _ payload: [String: Any]) {
+        guard let groupId = groupId ?? activeConvoyId else { return }
         var stamped = payload
         stamped["groupId"] = Int(groupId)
         guard let socket,
@@ -344,6 +430,35 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
             guard let user = msg["user"] as? String, !user.isEmpty,
                   let index = msg["index"] as? Int, (0...2).contains(index) else { break }
             spinVotes[user] = index
+
+        case "place_event":
+            // Deliberately hand-parsed here rather than routed through
+            // `:shared`'s `placeEventFromRelayFrame(o: JsonObject)` — that
+            // function wants a genuine kotlinx.serialization `JsonObject`,
+            // which nothing in this file (or anywhere else in iosApp) ever
+            // constructs from a Foundation `[String: Any]`, and the framework
+            // doesn't `export()` kotlinx-serialization-json, so there is no
+            // precedent anywhere in this codebase for building one from
+            // Swift to check a guessed spelling against. Every other case in
+            // this same switch already hand-parses its frame the same way
+            // (see "location" above) — this mirrors that, and mirrors
+            // `placeEventFromRelayFrame`'s own field/validity rules exactly
+            // (required fields, `kind` must be arrive/depart) so the two
+            // don't drift. See the phase-3 report for the full reasoning.
+            guard let groupId = msg["groupId"] as? Int,
+                  let placeId = msg["placeId"] as? Int,
+                  let kind = msg["kind"] as? String, kind == "arrive" || kind == "depart",
+                  let user = msg["user"] as? String, !user.isEmpty,
+                  let tsMs = msg["tsMs"] as? Int else { break }
+            let event = PlaceEvent(
+                id: 0,
+                placeId: Int64(placeId),
+                placeName: msg["placeName"] as? String ?? "",
+                username: user,
+                kind: kind,
+                tsMs: Int64(tsMs)
+            )
+            CircleNotifications.shared.handleLiveEvent(groupId: Int32(groupId), event: event)
 
         default:
             break

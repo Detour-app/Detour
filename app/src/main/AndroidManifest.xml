@@ -19,6 +19,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- CircleNotifyService holds the relay socket open for circle arrival
+         notifications - remoteMessaging, not location: it never reads or
+         shares this device's own position, only listens. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Push-to-talk capture while a convoy is joined. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -85,6 +89,15 @@
         <service
             android:name=".convoy.ConvoyLiveService"
             android:foregroundServiceType="location|microphone"
+            android:exported="false" />
+
+        <!-- Keeps the relay socket connected for circle arrival/departure
+             notifications, independent of trip tracking and of any convoy -
+             see CircleNotifyService's doc for why it isn't just folded into
+             TripTrackingService. -->
+        <service
+            android:name=".notif.CircleNotifyService"
+            android:foregroundServiceType="remoteMessaging"
             android:exported="false" />
 
         <!-- Android Auto: "Spin" from the car screen, hand off to the phone's

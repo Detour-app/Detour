@@ -73,6 +73,17 @@ final class CircleSync {
             let circleIds = Set(circles.map { $0.id })
             evaluators = evaluators.filter { circleIds.contains($0.key) }
 
+            // Reconciles `ConvoyLiveClient`'s live-push join set against
+            // circle membership as it changes over a long session (left a
+            // circle, joined a new one) — on top of the immediate
+            // add/remove `CirclesScreen`'s toggle already does and the sweep
+            // `CircleNotifications.runCatchUpSweep` runs on every
+            // foreground. This tick is the backstop for whatever those two
+            // miss, not the primary path — up to `idleIntervalSeconds` stale
+            // is fine for a feature that already tolerates minutes of lag.
+            let notifyIds = Set(circles.filter { CircleNotifications.shared.notifyEnabled(circleId: $0.id) }.map { $0.id })
+            ConvoyLiveClient.shared.setNotifyingCircles(notifyIds)
+
             let sharing = circles.filter { circle in
                 circle.members.first { $0.username == username }?.sharing == true
             }

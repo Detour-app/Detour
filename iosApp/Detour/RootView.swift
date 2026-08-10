@@ -10,6 +10,8 @@ struct RootView: View {
 
     @StateObject private var recorder = TripRecorder()
     @State private var selected = Tab.map
+    @ObservedObject private var pendingCircleOpen = PendingCircleOpen.shared
+    @Environment(\.scenePhase) private var scenePhase
 
     enum Tab { case map, history, badges, places, routes, friends, circles, settings }
 
@@ -60,6 +62,11 @@ struct RootView: View {
             if SyncClient.shared.configured() && Account.shared.signedIn {
                 _ = try? await SyncClient.shared.sync()
             }
+            // Cold launch counts as "foreground" too, but `.onChange(of:
+            // scenePhase)` below never fires for a view's starting value —
+            // only later transitions — so the very first sweep has to be
+            // kicked off here instead.
+            await CircleNotifications.shared.runCatchUpSweep()
         }
         // Re-fetch when sharing is switched on, and drop what we hold the
         // moment it is switched off — a stale union would keep revealing a
@@ -72,6 +79,21 @@ struct RootView: View {
             } else {
                 FriendFog.shared.clear()
             }
+        }
+        // Every later foreground/activation — the app was never killed (iOS
+        // can't wake this app up, see the phase-3 design decision), just
+        // backgrounded and resumed — runs the same sweep again.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task { await CircleNotifications.shared.runCatchUpSweep() }
+            }
+        }
+        // A notification tap opens the circle it was about.
+        .onChange(of: pendingCircleOpen.circleId) { _, id in
+            guard let id else { return }
+            selected = .circles
+            CircleMapState.shared.setViewed(id)
+            pendingCircleOpen.consume()
         }
     }
 }

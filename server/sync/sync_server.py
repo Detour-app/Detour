@@ -481,7 +481,9 @@ def init_db():
         );
         -- Arrival/departure events. Geofence transitions are evaluated
         -- on-device (docs/CIRCLES_AND_CONVOYS.md section 8) - this table just
-        -- stores and fans out the result in-app, with no push involved.
+        -- stores the result. Fan-out is the live relay's `place_event` frame
+        -- (see broadcast_place_event), with this table as the catch-up path
+        -- for whoever wasn't connected. Still no FCM/APNs involved.
         CREATE TABLE IF NOT EXISTS place_events (
             id       INTEGER PRIMARY KEY,
             group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
@@ -1826,6 +1828,22 @@ def do_circle_place_delete(user, body):
 # blocked on an Apple Developer account this project doesn't have.
 
 
+def _circle_place_name(group_id, place_id):
+    """Best-effort name for a place_event's placeId. That id is the
+    caller-assigned circle_places.place_id (see CirclePlaces.kt / GeofenceEvaluator),
+    not the circle_places row id, so it's only unique per (group, owner) -
+    two members could in theory pick the same integer for their own place.
+    Picking the newest match keeps this cheap; it's only ever used to word a
+    notification, not to identify a row. Empty string if the place was
+    deleted out from under a transition already in flight."""
+    row = db().execute(
+        "SELECT name FROM circle_places WHERE group_id = ? AND place_id = ?"
+        " ORDER BY created_ms DESC LIMIT 1",
+        (group_id, place_id),
+    ).fetchone()
+    return row["name"] if row else ""
+
+
 def do_circle_event_create(user, group_id, body):
     _require_group_membership(group_id, user["id"])
     place_id = _require_int_body(body, "placeId")
@@ -1853,6 +1871,13 @@ def do_circle_event_create(user, group_id, body):
                 " ORDER BY ts_ms DESC, id DESC LIMIT -1 OFFSET ?)",
                 (group_id, MAX_PLACE_EVENTS_PER_GROUP),
             )
+    # Fire the live frame after the commit, not before - a peer must never be
+    # able to poll GET /circles/{id}/events and find nothing there yet for a
+    # frame it just received. Best effort: see broadcast_place_event.
+    broadcast_place_event(
+        group_id, place_id, _circle_place_name(group_id, place_id),
+        user["username"], kind, ts, exclude_user_id=user["id"],
+    )
     return {"status": "recorded"}
 
 
@@ -1862,8 +1887,15 @@ def do_circle_events(user, group_id, params):
     rather than a nice-to-have, so there is no `user_id != ?` filter here."""
     _require_group_membership(group_id, user["id"])
     since = _int_param(params, "since", 0, 0, 2**53)
+    # placeName comes from a correlated subquery, not a JOIN, because
+    # circle_places.place_id is only unique per (group, owner) - see
+    # _circle_place_name - and a plain JOIN on (group_id, place_id) could
+    # multiply a single event into several rows if two members ever share
+    # the same locally-assigned place id.
     rows = db().execute(
-        "SELECT e.id, e.place_id, e.kind, e.ts_ms, u.username"
+        "SELECT e.id, e.place_id, e.kind, e.ts_ms, u.username,"
+        " (SELECT name FROM circle_places p WHERE p.group_id = e.group_id"
+        "  AND p.place_id = e.place_id ORDER BY p.created_ms DESC LIMIT 1) AS place_name"
         " FROM place_events e JOIN users u ON u.id = e.user_id"
         " WHERE e.group_id = ? AND e.ts_ms > ? ORDER BY e.ts_ms ASC",
         (group_id, since),
@@ -1873,6 +1905,7 @@ def do_circle_events(user, group_id, params):
             {
                 "id": r["id"],
                 "placeId": r["place_id"],
+                "placeName": r["place_name"] or "",
                 "username": r["username"],
                 "kind": r["kind"],
                 "tsMs": r["ts_ms"],
@@ -1913,6 +1946,16 @@ def do_circle_events(user, group_id, params):
 # splitting across two destinations, so it is documented here rather than
 # only in the client.
 #   <- {"type": "left", "groupId": N, "user": "<username>"} (peer disconnected or left)
+#   <- {"type": "place_event", "groupId": N, "placeId": N, "placeName": "School",
+#       "user": "<username>", "kind": "arrive"|"depart", "tsMs": N}
+# place_event is server -> client only: geofence transitions are decided
+# on-device and recorded over HTTP (do_circle_event_create), same as before
+# this frame existed - a client cannot cause one just by sending it, since
+# the dispatch in handle_live_socket below has no branch for that type. It
+# exists purely so the rest of the circle hears about a transition without
+# waiting for the next poll of GET /circles/{id}/events, so a client can
+# raise a local notification the moment it arrives. See
+# broadcast_place_event for the best-effort send.
 #
 # `groupId` is a wire-compatible break from the old single-group protocol,
 # tolerated for one release: a frame with no `groupId` (and a `join` using
@@ -1997,6 +2040,42 @@ async def _group_broadcast(group_id, obj, exclude_user_id):
             dead.append(uid)
     for uid in dead:
         peers.pop(uid, None)
+
+
+def broadcast_place_event(group_id, place_id, place_name, username, kind, ts_ms, exclude_user_id):
+    """Called from an HTTP handler thread (do_circle_event_create) right
+    after its INSERT commits - same hop as evict_group_member below, into
+    the relay's asyncio loop via run_coroutine_threadsafe, because
+    `_group_sockets` and friends are only ever touched from that loop.
+
+    Best effort, like send_mail: `_live_loop` is None whenever the relay
+    isn't live (websockets not installed, or this process never got around
+    to starting run_live_server), and run_coroutine_threadsafe itself can
+    raise if the loop is mid-shutdown. Either way, a peer who doesn't get
+    the live frame still sees the event on their next GET
+    /circles/{id}/events poll - this must never turn that INSERT's 200 into
+    a 500."""
+    if _live_loop is None:
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(
+            _group_broadcast(
+                group_id,
+                {
+                    "type": "place_event",
+                    "groupId": group_id,
+                    "placeId": place_id,
+                    "placeName": place_name,
+                    "user": username,
+                    "kind": kind,
+                    "tsMs": ts_ms,
+                },
+                exclude_user_id=exclude_user_id,
+            ),
+            _live_loop,
+        )
+    except RuntimeError as e:  # noqa: BLE001 - see send_mail: a dead relay must not become a 500
+        print("place_event broadcast failed: %r" % (e,))
 
 
 def _group_join(group_id, user_id, username, websocket, thash):

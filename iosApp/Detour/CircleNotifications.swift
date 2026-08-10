@@ -1,0 +1,248 @@
+import Foundation
+import UserNotifications
+import DetourShared
+
+/// Local-notification half of arrival/departure sharing (phase 3 of the
+/// self-hosted notification feature; see docs/CIRCLES_AND_CONVOYS.md). There
+/// is no push service behind this app — no Firebase, no APNs, no paid Apple
+/// Developer account — so "notified" only ever means "the app noticed while
+/// it was alive," either live over `ConvoyLiveClient`'s relay socket or by
+/// catching up on foreground. `UNUserNotificationCenter` only ever raises
+/// what this class decides to raise; nothing here talks to Apple's push
+/// service, and nothing here reaches for location or the network on its own
+/// — events are handed to it, same rule as `:shared` (docs/IOS_PORT.md).
+@MainActor
+final class CircleNotifications: NSObject {
+
+    static let shared = CircleNotifications()
+    private override init() { super.init() }
+
+    /// A sweep after a long gap notifies for at most this many events — an
+    /// offline week must not detonate into a wall of notifications the
+    /// moment the app reopens. Picked, not measured, same as the geofence
+    /// constants in `:shared`'s `GeofenceEvaluator`; easy to retune.
+    private static let catchUpCap = 5
+    /// Events older than this, measured from *now* rather than from the
+    /// last sweep, are caught up on silently — they say where someone was,
+    /// not where they are, and a transition from hours ago is not worth a
+    /// push. `lastSeenEventTsMs` still advances past them either way (see
+    /// `runCatchUpSweep`), so they are never re-fetched, just never shown.
+    private static let catchUpMaxAgeMs: Int64 = 3 * 60 * 60_000
+
+    /// Mirrors the OS's actual authorization state, refreshed on every
+    /// foreground sweep (`syncAuthorizationStatus`) rather than trusted from
+    /// whenever it was last asked — the user can revoke it from iOS Settings
+    /// without ever touching this app again.
+    private var authorized = false
+
+    // MARK: Per-circle toggle
+
+    /// Backed by shared's `Settings`, which owns the key and the "on"
+    /// default for both platforms — Android's `CircleNotifySettings` reads
+    /// the same pair. Storing it here in `UserDefaults` instead would work
+    /// (it is device-local either way), but the two apps would then define
+    /// the same user-facing switch twice and drift the first time either is
+    /// touched.
+    func notifyEnabled(circleId: Int32) -> Bool {
+        Settings.shared.notifyArrivals(circleId: circleId)
+    }
+
+    func setNotifyEnabled(circleId: Int32, _ on: Bool) {
+        Settings.shared.setNotifyArrivals(circleId: circleId, on: on)
+    }
+
+    // MARK: Authorization
+
+    /// Refreshes `authorized` from the OS without prompting — safe to call
+    /// on every foreground sweep, unlike `requestAuthorizationIfNeeded`.
+    private func syncAuthorizationStatus() async {
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        switch await center.notificationSettings().authorizationStatus {
+        case .authorized, .provisional, .ephemeral: authorized = true
+        default: authorized = false
+        }
+    }
+
+    /// Requested the first time the user actually turns a circle's toggle
+    /// on, not at launch — asking before there is anything to notify about
+    /// wastes the one-shot system prompt on a feature nobody has touched
+    /// yet, the same reasoning `LocationProvider.requestWhenInUse` documents
+    /// for location. Returns whether notifications actually ended up
+    /// authorized, so the caller can make the toggle reflect that rather
+    /// than the tap that caused it.
+    func requestAuthorizationIfNeeded() async -> Bool {
+        await syncAuthorizationStatus()
+        if authorized { return true }
+        let center = UNUserNotificationCenter.current()
+        let granted = (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+        authorized = granted
+        return granted
+    }
+
+    // MARK: Live path
+
+    /// Called from `ConvoyLiveClient.handle` for a `place_event` frame. The
+    /// server already excludes the mover from its own broadcast (see
+    /// docs/CIRCLES_AND_CONVOYS.md and sync_server.py's `broadcast_place_event`),
+    /// so — unlike `runCatchUpSweep` — there is no self-transition to filter
+    /// here.
+    func handleLiveEvent(groupId: Int32, event: PlaceEvent) {
+        guard notifyEnabled(circleId: groupId) else { return }
+        raise(event: event, circleId: groupId)
+        CircleEvents.shared.setLastSeenEventTsMs(circleId: groupId, tsMs: event.tsMs)
+    }
+
+    // MARK: Catch-up path
+
+    /// Runs on app foreground/activation (`RootView`'s `.task` for cold
+    /// launch, its `scenePhase` handler for every resume after). No
+    /// background wakeup exists to hang this on instead: the app registers
+    /// neither significant-location-change nor `CLCircularRegion` monitoring
+    /// anywhere — `LocationProvider` only ever calls `startUpdatingLocation`
+    /// / `requestAlwaysAuthorization`, and `CircleSync`'s own doc is explicit
+    /// that geofencing deliberately runs over fixes already arriving rather
+    /// than region monitoring. Foreground/activation is therefore the whole
+    /// story, exactly as the phase-3 prompt's item 7 says to fall back to
+    /// when that's the case.
+    ///
+    /// Also reconciles `ConvoyLiveClient`'s live-join set on every call, on
+    /// top of `CircleSync`'s own periodic reconciliation — so a fresh launch
+    /// or a resume after a long background stretch doesn't wait for
+    /// `CircleSync`'s next tick (up to 30 minutes) before the live path
+    /// starts working again.
+    func runCatchUpSweep() async {
+        await syncAuthorizationStatus()
+        guard SyncClient.shared.configured(), Account.shared.signedIn else { return }
+        let username = SettingsValues.shared.authUsername
+        guard let circles = try? await Groups.shared.list(kind: "circle") else { return }
+        let notifying = circles.filter { $0.status == "accepted" && notifyEnabled(circleId: $0.id) }
+        ConvoyLiveClient.shared.setNotifyingCircles(Set(notifying.map { $0.id }))
+
+        guard authorized else { return }
+        let cutoffMs = nowMs() - Self.catchUpMaxAgeMs
+        for circle in notifying {
+            let since = CircleEvents.shared.lastSeenEventTsMs(circleId: circle.id)
+            guard let events = try? await CircleEvents.shared.events(groupId: circle.id, sinceMs: since),
+                  !events.isEmpty else { continue }
+            // Advance past everything fetched regardless of what gets
+            // notified below, so a long-stale backlog is never re-fetched —
+            // it is shown once (capped, filtered), and then it's gone.
+            let maxTs = events.map { $0.tsMs }.max() ?? since
+            // Newest first, so the handful that fit under the cap are the
+            // arrivals still worth knowing about right now.
+            let notifiable = events
+                .filter { $0.username != username && $0.tsMs >= cutoffMs }
+                .sorted { $0.tsMs > $1.tsMs }
+            // Counted per circle, not per sweep, matching Android's
+            // `PlaceNotifications.planCatchUp` — a noisy circle must not
+            // silently eat a quiet one's only arrival.
+            for event in notifiable.prefix(Self.catchUpCap) {
+                raise(event: event, circleId: circle.id)
+            }
+            if notifiable.count > Self.catchUpCap {
+                raiseSummary(circleId: circle.id, collapsed: notifiable.count - Self.catchUpCap)
+            }
+            CircleEvents.shared.setLastSeenEventTsMs(circleId: circle.id, tsMs: maxTs)
+        }
+    }
+
+    // MARK: Raising
+
+    private func raise(event: PlaceEvent, circleId: Int32) {
+        guard authorized else { return }
+        let content = UNMutableNotificationContent()
+        // `notificationText()` is a Kotlin extension fun on `PlaceEvent`
+        // (CircleEvents.kt) — deliberately called rather than reworded here,
+        // so the two platforms can never say this differently. Called as a
+        // native Swift extension member on the exported `PlaceEvent` class,
+        // which is how Kotlin/Native's Objective-C export represents an
+        // extension whose receiver is one of the module's own classes (as
+        // opposed to a plain top-level function, which lands on a `...Kt`
+        // facade instead — see `CircleEventsKt.placeEventFromRelayFrame` for
+        // that shape). Unverified against a real compile (no Swift
+        // toolchain here); if this specific line fails to build, the
+        // fallback spelling is `CircleEventsKt.notificationText(event)`.
+        content.body = event.notificationText()
+        content.sound = .default
+        content.userInfo = ["circleId": Int(circleId)]
+        // Deterministic per event rather than a random UUID: the same
+        // transition arriving twice (a live frame followed by a catch-up
+        // sweep that hadn't advanced `lastSeenEventTsMs` yet) replaces the
+        // pending request instead of showing up twice.
+        let request = UNNotificationRequest(
+            identifier: "circle-\(circleId)-\(event.placeId)-\(event.kind)-\(event.tsMs)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    /// The stand-in for everything one sweep capped away. Its wording comes
+    /// from `:shared` like `notificationText()` does, but as a plain
+    /// top-level function it lands on the `CircleEventsKt` facade rather
+    /// than on a type. One identifier per circle, not per sweep: a second
+    /// sweep's summary should replace the first, not stack under it.
+    private func raiseSummary(circleId: Int32, collapsed: Int) {
+        guard authorized else { return }
+        let content = UNMutableNotificationContent()
+        content.body = CircleEventsKt.catchUpSummaryText(collapsed: Int32(collapsed))
+        content.sound = .default
+        content.userInfo = ["circleId": Int(circleId)]
+        let request = UNNotificationRequest(
+            identifier: "circle-\(circleId)-summary",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
+    }
+}
+
+extension CircleNotifications: UNUserNotificationCenterDelegate {
+
+    /// Without this, a notification raised while the app is in the
+    /// foreground shows nothing at all — the one iOS default this feature
+    /// cannot live with, since "while the app is running" is the whole
+    /// coverage story (see the phase-3 prompt's design decision).
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .sound, .list]
+    }
+
+    /// A tap opens the circle it was about — handed off to `PendingCircleOpen`
+    /// since a delegate callback has no view in scope to navigate with itself.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        guard let raw = response.notification.request.content.userInfo["circleId"] as? Int else { return }
+        await MainActor.run {
+            PendingCircleOpen.shared.offer(Int32(raw))
+        }
+    }
+}
+
+/// Set when a notification tap should open a specific circle. Consumed by
+/// `RootView`, which switches to the Circles tab and hands the id to
+/// `CircleMapState`. Deliberately Swift-only rather than the shared Kotlin
+/// `PendingReset`'s `StateFlow` pattern (see `Social.kt` / `FlowWatcher.kt`)
+/// — this never needs to reach Android, it exists purely to get a tap on a
+/// local notification from `CircleNotifications` (a delegate callback, no
+/// view in scope) to the one screen that can act on it.
+@MainActor
+final class PendingCircleOpen: ObservableObject {
+    static let shared = PendingCircleOpen()
+    private init() {}
+
+    @Published private(set) var circleId: Int32?
+
+    func offer(_ id: Int32) { circleId = id }
+
+    /// Consumed once by `RootView` after acting on it, so backgrounding and
+    /// foregrounding again without a fresh tap doesn't reopen the same circle.
+    func consume() {
+        circleId = nil
+    }
+}

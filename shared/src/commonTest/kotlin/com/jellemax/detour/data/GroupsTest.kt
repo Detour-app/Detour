@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -96,6 +97,7 @@ class GroupsTest {
         val json = buildJsonObject {
             put("id", 99L)
             put("placeId", 42L)
+            put("placeName", "School")
             put("username", "carol")
             put("kind", "arrive")
             put("tsMs", 1_700_000_001_000L)
@@ -103,9 +105,139 @@ class GroupsTest {
         val event = placeEventFromJson(json)
         assertEquals(99L, event.id)
         assertEquals(42L, event.placeId)
+        assertEquals("School", event.placeName)
         assertEquals("carol", event.username)
         assertEquals("arrive", event.kind)
         assertEquals(1_700_000_001_000L, event.tsMs)
+    }
+
+    @Test
+    fun placeEventDefaultsPlaceNameToEmptyWhenTheServerOmitsIt() {
+        // A pre-phase-1 style response, or a placeId whose circle_places row
+        // has since been deleted - do_circle_events sends "" in that case,
+        // but a client parsing an older cached payload might not have the
+        // key at all.
+        val json = buildJsonObject {
+            put("id", 1L)
+            put("placeId", 1L)
+            put("username", "carol")
+            put("kind", "depart")
+            put("tsMs", 1L)
+        }
+        assertEquals("", placeEventFromJson(json).placeName)
+    }
+
+    // --- live relay frame parsing -----------------------------------------
+
+    private fun validRelayFrame() = buildJsonObject {
+        put("type", "place_event")
+        put("groupId", 7)
+        put("placeId", 42L)
+        put("placeName", "School")
+        put("user", "alice")
+        put("kind", "arrive")
+        put("tsMs", 1_700_000_002_000L)
+    }
+
+    @Test
+    fun relayFrameParsesEveryField() {
+        val parsed = placeEventFromRelayFrame(validRelayFrame())
+        assertEquals(7, parsed?.groupId)
+        val event = parsed!!.event
+        assertEquals(0L, event.id, "a live frame carries no row id")
+        assertEquals(42L, event.placeId)
+        assertEquals("School", event.placeName)
+        assertEquals("alice", event.username)
+        assertEquals("arrive", event.kind)
+        assertEquals(1_700_000_002_000L, event.tsMs)
+    }
+
+    @Test
+    fun relayFrameDefaultsPlaceNameToEmptyWhenAbsent() {
+        val json = buildJsonObject {
+            put("type", "place_event")
+            put("groupId", 7)
+            put("placeId", 42L)
+            put("user", "alice")
+            put("kind", "arrive")
+            put("tsMs", 1L)
+        }
+        assertEquals("", placeEventFromRelayFrame(json)?.event?.placeName)
+    }
+
+    @Test
+    fun relayFrameOfTheWrongTypeIsNull() {
+        val json = buildJsonObject {
+            put("type", "location")
+            put("groupId", 7)
+            put("lat", 50.8)
+            put("lon", 3.2)
+        }
+        assertEquals(null, placeEventFromRelayFrame(json))
+    }
+
+    @Test
+    fun relayFrameMissingARequiredFieldIsNull() {
+        // Drop one required field at a time from an otherwise-valid frame.
+        for (missing in listOf("groupId", "placeId", "user", "kind", "tsMs")) {
+            val json = JsonObject(validRelayFrame().filterKeys { it != missing })
+            assertEquals(null, placeEventFromRelayFrame(json), "expected null with '$missing' missing")
+        }
+    }
+
+    @Test
+    fun relayFrameWithAWrongTypeFieldIsNull() {
+        // groupId sent as a string, not a number - a malformed frame, not
+        // one worth coercing.
+        val json = buildJsonObject {
+            put("type", "place_event")
+            put("groupId", "seven")
+            put("placeId", 42L)
+            put("user", "alice")
+            put("kind", "arrive")
+            put("tsMs", 1L)
+        }
+        assertEquals(null, placeEventFromRelayFrame(json))
+    }
+
+    @Test
+    fun relayFrameWithAnUnknownKindIsNull() {
+        val json = buildJsonObject {
+            put("type", "place_event")
+            put("groupId", 7)
+            put("placeId", 42L)
+            put("user", "alice")
+            put("kind", "loiter")
+            put("tsMs", 1L)
+        }
+        assertEquals(null, placeEventFromRelayFrame(json))
+    }
+
+    // --- shared notification wording ---------------------------------------
+
+    private fun event(kind: String, placeName: String) = PlaceEvent(
+        id = 1L, placeId = 1L, placeName = placeName, username = "alice", kind = kind, tsMs = 0L,
+    )
+
+    @Test
+    fun notificationTextForAnArrival() {
+        assertEquals("alice arrived at School", event("arrive", "School").notificationText())
+    }
+
+    @Test
+    fun notificationTextForADeparture() {
+        assertEquals("alice left School", event("depart", "School").notificationText())
+    }
+
+    @Test
+    fun notificationTextDropsAtPlaceWhenTheNameIsBlank() {
+        assertEquals("alice arrived", event("arrive", "").notificationText())
+    }
+
+    @Test
+    fun catchUpSummarySingularAndPlural() {
+        assertEquals("+1 more update", catchUpSummaryText(1))
+        assertEquals("+4 more updates", catchUpSummaryText(4))
     }
 
     // --- geofence transitions -------------------------------------------------

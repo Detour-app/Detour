@@ -744,8 +744,12 @@ fun MapScreen(
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
-    LaunchedEffect(convoyConnected) {
-        if (convoyConnected &&
+    LaunchedEffect(convoyConnected, activeConvoyId) {
+        // activeConvoyId != null, not just convoyConnected: the same socket
+        // now also stays connected for a circle's arrival notifications with
+        // no convoy joined at all (see ConvoyLiveClient.setNotifyCircles),
+        // which needs no microphone.
+        if (convoyConnected && activeConvoyId != null &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
             PackageManager.PERMISSION_GRANTED
         ) {
@@ -1588,8 +1592,11 @@ fun MapScreen(
 
             // Hold-to-talk: only shown while a convoy's live relay is actually
             // connected (see ConvoyLiveService, started from FriendsScreen).
+            // activeConvoyId != null is also required now that the same
+            // socket can be connected for a circle's notify-only join with
+            // no convoy at all - see the mic permission effect above.
             AnimatedVisibility(
-                visible = convoyConnected,
+                visible = convoyConnected && activeConvoyId != null,
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp),

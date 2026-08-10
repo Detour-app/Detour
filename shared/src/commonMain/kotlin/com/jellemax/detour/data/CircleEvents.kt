@@ -1,25 +1,39 @@
 package com.jellemax.detour.data
 
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** One arrive/depart record, as `GET /circles/{id}/events` returns it —
  *  includes the caller's own arrivals, not just other members' (the design
- *  doc makes that a requirement, see `do_circle_events`). */
+ *  doc makes that a requirement, see `do_circle_events`). [placeName] is
+ *  looked up server-side from `circle_places` at read time, not stored with
+ *  the event itself — it can be "" if the place was since unshared. */
 data class PlaceEvent(
     val id: Long,
     val placeId: Long,
+    val placeName: String,
     val username: String,
     val kind: String,
     val tsMs: Long,
 )
 
+/** [PlaceEvent] plus the groupId a live relay frame carries. A PlaceEvent
+ *  alone doesn't know which circle it came from — the HTTP list already
+ *  lives under a groupId the caller supplied, but a `place_event` frame can
+ *  arrive for any circle the socket has joined, so the parser needs
+ *  somewhere to put it. */
+data class RelayPlaceEvent(val groupId: Int, val event: PlaceEvent)
+
 /**
  * Records and reads circle arrival/departure events. Geofencing itself runs
  * on-device (see [GeofenceEvaluator] below) — this is only the fan-out: the
  * server stores what a transition already decided and relays it to the rest
- * of the circle. No push; phase 7 of the design doc (FCM/APNs) is blocked on
+ * of the circle, over the live relay when it can and over HTTP catch-up
+ * otherwise. No push; phase 7 of the design doc (FCM/APNs) is blocked on
  * an Apple Developer account this project doesn't have.
  */
 object CircleEvents {
@@ -41,6 +55,16 @@ object CircleEvents {
         val o = Api.requestJson("GET", "/circles/$groupId/events?since=$sinceMs")
         return o.optArray("events")?.objects().orEmpty().map { placeEventFromJson(it) }
     }
+
+    /** The last event a client has already turned into a notification for
+     *  [circleId] — call [events] with this as `sinceMs` after a cold start
+     *  or reconnect so nothing already shown gets shown twice, and advance
+     *  it with [setLastSeenEventTsMs] once the catch-up is handled. Backed
+     *  by [Settings], not a new store — see there for why it's keyed
+     *  dynamically instead of a StateFlow. */
+    fun lastSeenEventTsMs(circleId: Int): Long = Settings.lastSeenEventTsMs(circleId)
+
+    fun setLastSeenEventTsMs(circleId: Int, tsMs: Long) = Settings.setLastSeenEventTsMs(circleId, tsMs)
 }
 
 /** Extracted from [CircleEvents.events] so JSON parsing is testable without
@@ -48,10 +72,59 @@ object CircleEvents {
 internal fun placeEventFromJson(e: JsonObject): PlaceEvent = PlaceEvent(
     id = e.optLong("id"),
     placeId = e.optLong("placeId"),
+    placeName = e.optString("placeName"),
     username = e.optString("username"),
     kind = e.optString("kind"),
     tsMs = e.optLong("tsMs"),
 )
+
+/** Parses a `{"type": "place_event", ...}` live relay frame (see the "group
+ *  live relay" protocol comment in sync_server.py) into a [RelayPlaceEvent],
+ *  or null when it isn't one — wrong `type`, or a required field missing or
+ *  not the type it claims to be. The relay frame carries no `id` (nothing
+ *  server-side needs to address one live frame individually the way a
+ *  stored row does), so [PlaceEvent.id] is always 0 here. */
+fun placeEventFromRelayFrame(o: JsonObject): RelayPlaceEvent? {
+    if (o.optString("type") != "place_event") return null
+    val groupId = (o["groupId"] as? JsonPrimitive)?.intOrNull ?: return null
+    val placeId = (o["placeId"] as? JsonPrimitive)?.longOrNull ?: return null
+    val tsMs = (o["tsMs"] as? JsonPrimitive)?.longOrNull ?: return null
+    val username = o.optString("user").takeIf { it.isNotEmpty() } ?: return null
+    val kind = o.optString("kind")
+    if (kind != "arrive" && kind != "depart") return null
+    return RelayPlaceEvent(
+        groupId = groupId,
+        event = PlaceEvent(
+            id = 0,
+            placeId = placeId,
+            placeName = o.optString("placeName"),
+            username = username,
+            kind = kind,
+            tsMs = tsMs,
+        ),
+    )
+}
+
+/** The one wording both Android and iOS use for a place_event notification,
+ *  whether it arrived live over the relay or was caught up over HTTP after
+ *  being offline — putting it here is the point, so the two apps can never
+ *  read the same event differently. Drops "at <place>" rather than
+ *  fabricating a name when [PlaceEvent.placeName] is blank (the place was
+ *  unshared since the transition happened). */
+fun PlaceEvent.notificationText(): String {
+    val arrived = kind == "arrive"
+    if (placeName.isBlank()) return "$username " + (if (arrived) "arrived" else "left")
+    // "arrived at School" reads naturally; "left at School" doesn't - "left"
+    // takes its object directly, unlike "arrived".
+    return if (arrived) "$username arrived at $placeName" else "$username left $placeName"
+}
+
+/** Wording for the one notification that stands in for everything a
+ *  catch-up sweep capped away. Here rather than in either app for the same
+ *  reason as [notificationText]: it is text a user reads, and the two
+ *  platforms raising it must not word it differently. */
+fun catchUpSummaryText(collapsed: Int): String =
+    "+$collapsed more update" + (if (collapsed == 1) "" else "s")
 
 enum class GeofenceKind { ARRIVE, DEPART }
 

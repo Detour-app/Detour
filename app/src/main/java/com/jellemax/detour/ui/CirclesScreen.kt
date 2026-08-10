@@ -1,5 +1,12 @@
 package com.jellemax.detour.ui
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.PowerManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -43,8 +50,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleEvents
@@ -57,6 +66,9 @@ import com.jellemax.detour.data.PlaceEvent
 import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.SyncClient
+import com.jellemax.detour.notif.CircleNotifySettings
+import com.jellemax.detour.notif.CircleNotifyService
+import com.jellemax.detour.notif.PendingCircleOpen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -79,8 +91,9 @@ private const val DEFAULT_CIRCLE_PLACE_RADIUS_M = 150.0
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CirclesScreen(onBack: () -> Unit) {
+fun CirclesScreen(onBack: () -> Unit, openCircleId: Int? = null) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val username by Account.username.collectAsStateWithLifecycle()
     var circles by remember { mutableStateOf<List<Group>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
@@ -102,6 +115,17 @@ fun CirclesScreen(onBack: () -> Unit) {
         }
     }
 
+    // A tapped arrival/departure notification opens straight to its circle -
+    // waits for the list to actually contain it (a cold start races this
+    // screen's own load) rather than opening a detail section for an id
+    // nothing yet confirms is real.
+    LaunchedEffect(circles, openCircleId) {
+        if (openCircleId != null && circles.any { it.id == openCircleId }) {
+            selectedId = openCircleId
+            PendingCircleOpen.clear()
+        }
+    }
+
     fun act(block: suspend () -> Unit) {
         busy = true
         error = null
@@ -109,6 +133,11 @@ fun CirclesScreen(onBack: () -> Unit) {
             try {
                 withContext(Dispatchers.IO) { block() }
                 reloads++
+                // Accepting an invite is the one action here that can change
+                // which circles want notifications - cheap enough (see the
+                // function's own doc) to just call unconditionally rather
+                // than singling that action out.
+                CircleNotifyService.refresh(context)
             } catch (e: Exception) {
                 error = e.message ?: "Failed"
             }
@@ -288,6 +317,7 @@ private fun CircleDetailSection(
     onToggleSharing: (Boolean) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val savedPlaces by SavedPlaces.places.collectAsStateWithLifecycle()
     var places by remember(circle.id) { mutableStateOf<List<CirclePlace>>(emptyList()) }
     var events by remember(circle.id) { mutableStateOf<List<PlaceEvent>>(emptyList()) }
@@ -296,10 +326,67 @@ private fun CircleDetailSection(
     var dataReloads by remember(circle.id) { mutableIntStateOf(0) }
     var shareOpen by remember { mutableStateOf(false) }
 
-    // No push (docs/CIRCLES_AND_CONVOYS.md section 6 — phase 7 is blocked on
-    // an Apple Developer account this project doesn't have), so places and
-    // events are only ever as fresh as the last time this screen loaded them
-    // — on open, after a mutation, or the refresh button below.
+    // Local-only preference (see CircleNotifySettings) - not part of `circle`
+    // itself, unlike `sharing`, which really is server state.
+    var notifyEnabled by remember(circle.id) {
+        mutableStateOf(CircleNotifySettings.notifyEnabled(circle.id))
+    }
+    var showBatteryPrompt by remember { mutableStateOf(false) }
+
+    // Offers the exemption at most once, ever, and only when it would
+    // actually help (a phone already ignoring battery optimizations for
+    // this app has nothing to gain from being asked) - see
+    // CircleNotifySettings.batteryPromptShown's doc for why the flag is set
+    // here rather than on the dialog's own buttons.
+    fun maybeOfferBatteryPrompt() {
+        if (CircleNotifySettings.batteryPromptShown()) return
+        val ignoring = context.getSystemService(PowerManager::class.java)
+            ?.isIgnoringBatteryOptimizations(context.packageName) ?: true
+        if (ignoring) return
+        CircleNotifySettings.setBatteryPromptShown()
+        showBatteryPrompt = true
+    }
+
+    // POST_NOTIFICATIONS is requested here, when notifications are actually
+    // turned on for the first time - not bundled into the app-start
+    // permission sweep MapScreen already runs for the trip/badge
+    // notifications that feature predates. A denial settles the switch back
+    // off rather than leaving it showing "on" for something that can't
+    // actually arrive.
+    val notifPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        notifyEnabled = granted
+        CircleNotifySettings.setNotifyEnabled(circle.id, granted)
+        if (granted) maybeOfferBatteryPrompt()
+        CircleNotifyService.refresh(context)
+    }
+
+    fun onToggleNotify(enabled: Boolean) {
+        notifyEnabled = enabled
+        CircleNotifySettings.setNotifyEnabled(circle.id, enabled)
+        if (enabled &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            // The launcher's own callback finishes the job (settles
+            // notifyEnabled to what was actually granted, offers the
+            // battery prompt, refreshes the service) once the user answers.
+            notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        if (enabled) maybeOfferBatteryPrompt()
+        CircleNotifyService.refresh(context)
+    }
+
+    // This *list* still only ever reflects the last time this screen loaded
+    // it - on open, after a mutation, or the refresh button below - even
+    // though a local notification for a new arrival/departure can now
+    // arrive live (see CircleNotifyService): re-fetching the whole list on
+    // every relay frame just to keep a screen that might not even be open
+    // in sync isn't worth it, and tapping that notification lands back here
+    // anyway, which reloads it.
     LaunchedEffect(circle.id, dataReloads) {
         try {
             places = withContext(Dispatchers.IO) { CirclePlaces.places(circle.id) }
@@ -348,6 +435,23 @@ private fun CircleDetailSection(
                 )
             }
             Switch(checked = mine.sharing, enabled = !busy, onCheckedChange = onToggleSharing)
+        }
+
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column {
+                Text("Notify me about arrivals", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    if (notifyEnabled) "A notification when someone arrives at or leaves a shared place"
+                    else "Off",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = notifyEnabled, enabled = !busy, onCheckedChange = ::onToggleNotify)
         }
     }
 
@@ -444,6 +548,40 @@ private fun CircleDetailSection(
             },
         )
     }
+
+    if (showBatteryPrompt) {
+        BatteryOptimizationDialog(onDismiss = { showBatteryPrompt = false })
+    }
+}
+
+/** One-time nudge (see CircleNotifySettings.batteryPromptShown) towards the
+ *  battery-optimization exemption list - some OEMs (Xiaomi, Samsung, Huawei)
+ *  kill a long-lived background socket well before Android itself would,
+ *  which would otherwise show up as arrivals arriving late or not at all. No
+ *  direct-grant intent here (that needs its own REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+ *  permission, a heavier ask than this feature needs) - just opens the list
+ *  the user finds Detour in and exempts it themselves. */
+@Composable
+private fun BatteryOptimizationDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Keep arrivals reliable") },
+        text = {
+            Text(
+                "Some phones pause background connections to save battery, which can " +
+                    "delay or drop these notifications. Exempting Detour from battery " +
+                    "optimization keeps them arriving on time.",
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onDismiss()
+                context.startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }) { Text("Open settings") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Not now") } },
+    )
 }
 
 @Composable

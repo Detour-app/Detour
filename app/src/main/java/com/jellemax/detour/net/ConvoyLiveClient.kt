@@ -3,8 +3,10 @@ package com.jellemax.detour.net
 import android.content.Context
 import android.util.Base64
 import com.jellemax.detour.BuildConfig
+import com.jellemax.detour.data.RelayPlaceEvent
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.data.placeEventFromRelayFrame
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -18,6 +20,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -79,18 +83,30 @@ data class GroupSpin(val candidates: List<SpinCandidate>, val fromMe: Boolean)
  * is persisted, matching the server's in-memory-only relay.
  *
  * The relay is multi-group on the wire (docs/CIRCLES_AND_CONVOYS.md section 6):
- * every frame after `join` carries a `groupId`, and one socket could in
- * principle hold several memberships at once. This client deliberately stays
- * single-convoy - circles never touch this socket at all, they post fixes
- * over plain HTTP at a much lower cadence (see `CircleFixes.postFix`) - so
- * [send] just stamps every outgoing frame with whichever convoy is currently
- * joined rather than tracking a set of groups.
+ * every frame after `join` carries a `groupId`, and one socket can hold
+ * several memberships at once. This client still stays single-*convoy* -
+ * [send] stamps every outgoing frame with whichever convoy is currently
+ * joined, not a set of groups, and a circle's `location`/`ptt_*`/`spin_*`
+ * never rides this socket either (a circle posts fixes over plain HTTP at a
+ * much lower cadence - see `CircleFixes.postFix`). What a circle *does* now
+ * join this socket for is read-only: `place_event` notifications - see
+ * [setNotifyCircles] below.
  *
  * Group spin (`spin_offer`/`spin_vote`) rides the same relay and is exactly
  * as ephemeral as everything else here: [spinOffer]/[spinVotes] are a
  * client-side tally of relayed votes, not server state, so every joined
  * device has to reach the same commit independently off the same frames -
  * see MapScreen's commit rule for how that's kept deterministic.
+ *
+ * Phase 2 (docs/CIRCLES_AND_CONVOYS.md section 6) breaks the single-convoy
+ * rule above just enough for circles' arrival notifications: [setNotifyCircles]
+ * joins this same socket to a set of circle groups, independent of whichever
+ * convoy (if any) is active, so [CircleNotifyService][com.jellemax.detour.notif.CircleNotifyService]
+ * can hold one socket open for both instead of running a second connection.
+ * A circle's `location`/`ptt_*`/`spin_*` frames still never touch this
+ * client either way - the server itself only relays those for a `convoy`
+ * kind group (see handle_live_socket in sync_server.py) - so the only new
+ * traffic a notify-circle join brings in is `place_event`.
  */
 object ConvoyLiveClient {
 
@@ -162,6 +178,36 @@ object ConvoyLiveClient {
     )
     val audioChunks: SharedFlow<IncomingAudioChunk> = _audioChunks
 
+    /** Circles [CircleNotifyService][com.jellemax.detour.notif.CircleNotifyService]
+     *  wants `place_event` notifications for, joined onto this socket
+     *  alongside whatever convoy is active - see [setNotifyCircles]. There is
+     *  no wire message to leave a single group (only closing the whole
+     *  socket parts every membership at once), so turning a circle's
+     *  notifications off just drops it from this set; the socket may stay
+     *  joined to it server-side until the next reconnect, but nothing here
+     *  acts on its frames once it's gone. */
+    private val _notifyCircleIds = MutableStateFlow<Set<Int>>(emptySet())
+
+    private val _placeEvents = MutableSharedFlow<RelayPlaceEvent>(
+        extraBufferCapacity = 16,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    /** Every `place_event` frame the socket receives for a joined group -
+     *  in practice always one of [_notifyCircleIds], since a convoy never
+     *  produces this frame. [CircleNotifyService][com.jellemax.detour.notif.CircleNotifyService]
+     *  turns these into local notifications; this object only relays what
+     *  the wire said. */
+    val placeEvents: SharedFlow<RelayPlaceEvent> = _placeEvents
+
+    /** Context passed to whichever of [join]/[setNotifyCircles] runs first.
+     *  Nothing this class actually does with a Context needs a fresh one per
+     *  call - [liveUrl] only reads Settings/BuildConfig - so the first real
+     *  one is kept application-scoped rather than threading one through
+     *  every internal reconnect ([leave] tearing down a convoy while a
+     *  notify-circle join is still wanted, or vice versa, has to be able to
+     *  restart the connection with nothing but what it already has). */
+    @Volatile private var appContext: Context? = null
+
     /** Effective live-relay URL: baked default (its own hostname) → derived
      *  from the shared server URL (Settings) — same host, ws(s):// scheme,
      *  /live path, matching the ingress rule from server/INSTALL.md. */
@@ -177,10 +223,12 @@ object ConvoyLiveClient {
 
     /** Join [convoyId]'s live relay; forwards [TripTrackingService.lastFix]
      *  as throttled location updates until [leave] is called. Safe to call
-     *  again with a different id to switch convoys. */
+     *  again with a different id to switch convoys - a full teardown/reopen
+     *  either way, so a peer of the old convoy sees a proper "left" rather
+     *  than a member who just goes quiet. */
     fun join(context: Context, convoyId: Int) {
         if (_activeConvoyId.value == convoyId && scope != null) return
-        leave()
+        appContext = context.applicationContext
         if (liveUrl(context).isBlank()) {
             // Refuse to start the retry loop at all rather than spin it
             // forever against a server that was never configured - see
@@ -189,29 +237,82 @@ object ConvoyLiveClient {
             _lastError.value = "No live server configured"
             return
         }
+        // A different convoy's peers/talking/vote state must not bleed into
+        // this one - cleared here rather than left for prunePeers' staleness
+        // sweep, which would take up to STALE_PEER_MS to catch up.
+        _peers.value = emptyMap()
+        _talking.value = emptySet()
+        _spinOffer.value = null
+        _spinVotes.value = emptyMap()
+        teardown()
         _activeConvoyId.value = convoyId
         // A previous attempt's failure must not be shown as this one's state
         // while it is still connecting - the UI reads this the moment a join
         // starts, before any reply has come back.
         _lastError.value = null
-        val newScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-        scope = newScope
-        newScope.launch { runConnection(context, convoyId) }
-        newScope.launch { forwardLocation() }
-        newScope.launch { prunePeers() }
+        startConnection()
     }
 
+    /** Leaves the convoy - not necessarily the connection itself, which a
+     *  notify-circle join (see [setNotifyCircles]) may still need alive. */
     fun leave() {
         _activeConvoyId.value = null
+        _peers.value = emptyMap()
+        _talking.value = emptySet()
+        _spinOffer.value = null
+        _spinVotes.value = emptyMap()
+        teardown()
+        if (_notifyCircleIds.value.isNotEmpty()) startConnection()
+    }
+
+    /** Circles to receive live `place_event` notifications for, joined onto
+     *  this same socket - "one socket, many groups" per
+     *  docs/CIRCLES_AND_CONVOYS.md section 6. Independent of [join]/[leave]:
+     *  [CircleNotifyService][com.jellemax.detour.notif.CircleNotifyService]
+     *  calls this whether or not a convoy is running, and the connection
+     *  stays open for it even after a convoy is left, or starts for this
+     *  alone when no convoy is active. */
+    fun setNotifyCircles(context: Context, circleIds: Set<Int>) {
+        if (_notifyCircleIds.value == circleIds) return
+        appContext = context.applicationContext
+        _notifyCircleIds.value = circleIds
+        teardown()
+        if (circleIds.isNotEmpty() || _activeConvoyId.value != null) startConnection()
+    }
+
+    /** True while either a convoy or at least one notify-circle wants this
+     *  socket open - what [runConnection]'s retry loop keeps running for. */
+    private fun shouldStayConnected(): Boolean =
+        _activeConvoyId.value != null || _notifyCircleIds.value.isNotEmpty()
+
+    /** Tears down whatever connection is currently running, if any. Callers
+     *  are responsible for deciding whether to [startConnection] again right
+     *  after - this alone leaves nothing joined to anything. */
+    private fun teardown() {
         scope?.cancel()
         scope = null
         socket?.close(1000, "leaving")
         socket = null
         _connected.value = false
-        _peers.value = emptyMap()
-        _talking.value = emptySet()
-        _spinOffer.value = null
-        _spinVotes.value = emptyMap()
+    }
+
+    /** Opens the connection [runConnection] then keeps alive/reconnects,
+     *  using whichever [Context] was last handed to [join] or
+     *  [setNotifyCircles] - see [appContext]'s doc for why a fresh one
+     *  isn't needed here. No-ops (leaving nothing running) if neither has
+     *  ever supplied one, or the live server isn't configured. */
+    private fun startConnection() {
+        val context = appContext ?: return
+        if (liveUrl(context).isBlank()) {
+            _lastError.value = "No live server configured"
+            return
+        }
+        _lastError.value = null
+        val newScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        scope = newScope
+        newScope.launch { runConnection() }
+        newScope.launch { forwardLocation() }
+        newScope.launch { prunePeers() }
     }
 
     fun sendPttStart() = send(JSONObject().put("type", "ptt_start"))
@@ -303,13 +404,14 @@ object ConvoyLiveClient {
         }
     }
 
-    /** Connect, and reconnect with backoff, until [leave] resets
-     *  [activeConvoyId] away from [convoyId]. */
-    private suspend fun runConnection(context: Context, convoyId: Int) {
+    /** Connect, and reconnect with backoff, for as long as [shouldStayConnected]
+     *  holds - a convoy, a notify-circle join, or (the common case while a
+     *  session runs) both. */
+    private suspend fun runConnection() {
         var backoffMs = MIN_BACKOFF_MS
-        while (_activeConvoyId.value == convoyId) {
-            val everJoined = connectAndAwaitClose(context, convoyId)
-            if (_activeConvoyId.value != convoyId) return
+        while (shouldStayConnected()) {
+            val everJoined = connectAndAwaitClose()
+            if (!shouldStayConnected()) return
             _connected.value = false
             // A vote tallied against a socket that's no longer relaying
             // anyone's frames is just wrong by the time it reconnects -
@@ -324,9 +426,14 @@ object ConvoyLiveClient {
         }
     }
 
+    private fun sendJoin(webSocket: WebSocket, groupId: Int) {
+        webSocket.send(JSONObject().put("type", "join").put("groupId", groupId).toString())
+    }
+
     /** Suspends until the socket closes; returns whether it ever received a
      *  "joined" reply, which decides the next retry's backoff. */
-    private suspend fun connectAndAwaitClose(context: Context, convoyId: Int): Boolean {
+    private suspend fun connectAndAwaitClose(): Boolean {
+        val context = appContext ?: return false
         val liveUrl = liveUrl(context)
         val token = Settings.authToken.value
         if (liveUrl.isBlank() || token.isBlank()) {
@@ -348,9 +455,12 @@ object ConvoyLiveClient {
 
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                webSocket.send(
-                    JSONObject().put("type", "join").put("groupId", convoyId).toString()
-                )
+                // Every group this device currently wants live - the convoy
+                // (if any) plus every notify-circle - joins fresh on each
+                // (re)connect, since a `join` sent before the socket existed
+                // obviously never reached the server.
+                _activeConvoyId.value?.let { sendJoin(webSocket, it) }
+                _notifyCircleIds.value.forEach { sendJoin(webSocket, it) }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -463,6 +573,19 @@ object ConvoyLiveClient {
             "left" -> msg.optString("user").takeIf { it.isNotBlank() }?.let { user ->
                 _peers.value = _peers.value - user
                 _talking.value = _talking.value - user
+            }
+            "place_event" -> {
+                // Re-parsed with kotlinx rather than threaded through as a
+                // second param: placeEventFromRelayFrame is shared with iOS
+                // (docs/CIRCLES_AND_CONVOYS.md section 6 - one wording, one
+                // parser, on both platforms) and takes a kotlinx JsonObject,
+                // not the org.json one the rest of this class uses.
+                val relay = try {
+                    placeEventFromRelayFrame(Json.parseToJsonElement(text).jsonObject)
+                } catch (e: Exception) {
+                    null
+                }
+                if (relay != null) _placeEvents.tryEmit(relay)
             }
             "spin_offer" -> {
                 val arr = msg.optJSONArray("candidates")

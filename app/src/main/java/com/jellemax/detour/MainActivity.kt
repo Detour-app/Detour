@@ -29,6 +29,9 @@ import com.jellemax.detour.data.PendingReset
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
+import com.jellemax.detour.notif.CircleNotifyService
+import com.jellemax.detour.notif.PendingCircleOpen
+import com.jellemax.detour.notif.PlaceNotifications
 import com.jellemax.detour.ui.BadgesScreen
 import com.jellemax.detour.ui.CirclesScreen
 import com.jellemax.detour.ui.CoverageMapScreen
@@ -50,11 +53,17 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         takeResetLink(intent)
+        PlaceNotifications.takeOpenCircleId(intent)
         enableEdgeToEdge()
         // A map app is glanced at while driving: keep the screen awake while visible.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         Settings.init()
         if (Settings.externalDisplayEnabled.value) BleNavServer.start(this)
+        // Cheap, synchronous no-op unless signed in with a server configured
+        // (see the function's own doc) - safe to call unconditionally on
+        // every app start, same as TripTrackingService.startMonitoring's own
+        // call site would be if MapScreen didn't already own that one.
+        CircleNotifyService.refresh(this)
         // MapLibre must be initialised before any MapView is created. No API key:
         // OpenFreeMap tiles are keyless, so no token provider is needed.
         MapLibre.getInstance(this)
@@ -81,6 +90,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         takeResetLink(intent)
+        PlaceNotifications.takeOpenCircleId(intent)
     }
 
     /** Parks the code from a `detour://reset?token=…` link for the
@@ -111,6 +121,12 @@ private fun AppRoot() {
     val resetToken by PendingReset.token.collectAsStateWithLifecycle()
     LaunchedEffect(resetToken) {
         if (resetToken.isNotBlank()) screen = Screen.FRIENDS
+    }
+    // A tapped arrival/departure notification opens straight to that circle,
+    // wherever the app was - same shape as the reset link above.
+    val openCircleId by PendingCircleOpen.circleId.collectAsStateWithLifecycle()
+    LaunchedEffect(openCircleId) {
+        if (openCircleId != null) screen = Screen.CIRCLES
     }
     // System back from any sub-screen returns to the map instead of exiting the
     // app — only enabled off the map, so back on the map itself still falls
@@ -168,7 +184,7 @@ private fun AppRoot() {
             )
             Screen.COVERAGE_MAP -> CoverageMapScreen(onBack = { screen = Screen.BADGES })
             Screen.FRIENDS -> FriendsScreen(onBack = { screen = Screen.HUB })
-            Screen.CIRCLES -> CirclesScreen(onBack = { screen = Screen.HUB })
+            Screen.CIRCLES -> CirclesScreen(onBack = { screen = Screen.HUB }, openCircleId = openCircleId)
             Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.HUB })
             Screen.SAVED -> SavedPlacesScreen(onBack = { screen = Screen.HUB })
             Screen.ROUTES -> RoutesScreen(
