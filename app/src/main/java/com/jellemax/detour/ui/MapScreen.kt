@@ -101,6 +101,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -458,6 +460,14 @@ fun MapScreen(
     var spinning by remember { mutableStateOf(false) }
     var spinJob by remember { mutableStateOf<Job?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    // `error` has a dozen writers and, until now, one reader — inside SpinSheet,
+    // which is collapsed by default. A denied location permission therefore
+    // reported itself to nobody. The snackbar shows it whatever the bottom card
+    // is doing; the sheet keeps its own copy for when it is open.
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(error) {
+        error?.let { snackbarHostState.showSnackbar(it) }
+    }
     val serverConfig = remember { RoutingServer.load() }
     var poiKind by rememberSaveable { mutableStateOf(PoiKind.ROAD) }
     var directionDeg by rememberSaveable { mutableStateOf<Float?>(null) }
@@ -1537,6 +1547,7 @@ fun MapScreen(
                 exit = slideOutVertically { it } + fadeOut(),
             ) { ModeBar(mode, ::selectMode) }
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { scaffoldPadding ->
         Box(
