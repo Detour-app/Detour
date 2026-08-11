@@ -4,6 +4,10 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
+  <Folder Name="/Detour/">
+    <Project Path="Detour/Detour.Domain/Detour.Domain.csproj" />
+    <Project Path="Detour/Detour.Domain.Tests/Detour.Domain.Tests.csproj" />
+  </Folder>
   <Folder Name="/Shared/">
     <Project Path="Shared/Api.HealthChecks/Shared.Api.HealthChecks.csproj" />
     <Project Path="Shared/Api.RateLimiting/Shared.Api.RateLimiting.csproj" />
