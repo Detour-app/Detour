@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Detour.Api\Detour.Api.csproj" />
     <ProjectReference Include="..\Detour.Database\Detour.Database.csproj" />
   </ItemGroup>
 
