@@ -32,7 +32,13 @@ data class SpeedLimitSegment(val fromIndex: Int, val toIndex: Int, val kmh: Doub
 data class NavInstruction(
     val text: String,
     val distanceMeters: Double,
-    /** GraphHopper sign code: -3..3 turns, 0 straight, 4 finish, 6 roundabout… */
+    /**
+     * GraphHopper sign code. The full set, because a comment saying "-3..3" is
+     * what the iOS arrow table was once written against:
+     * -98/-8 U-turn (left), 8 U-turn right, -7/7 keep left/right,
+     * -3..3 sharp-left through sharp-right with 0 straight on,
+     * 4 finish, 5 via reached, 6 roundabout.
+     */
     val sign: Int,
     val startIndex: Int,
     val endIndex: Int,

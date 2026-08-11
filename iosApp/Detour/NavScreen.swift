@@ -217,18 +217,25 @@ private func displayDistance(_ meters: Double) -> String {
     return "\(Int((safe / 10).rounded()) * 10) m"
 }
 
-/// GraphHopper sign codes: -3…3 are the turns, 0 straight, 4 finish,
-/// 6 roundabout. Anything unrecognised falls back to "carry on", which is the
-/// safe thing to draw when we do not know.
+/// GraphHopper sign codes. The full set, not the -3…3 the doc comment on
+/// RouteInstruction used to imply: ±7 are the motorway keep-left/keep-right
+/// forks and -98/±8 are U-turns, and every one of them used to fall through to
+/// "carry on" here — while a sharp turn drew as a U-turn. SF Symbols has no
+/// distinct sharp-turn glyph, so sharp and normal share an arrow; that is a
+/// cosmetic loss, drawing a sharp left as a U-turn was not.
 private func maneuverIcon(_ instruction: NavInstruction?) -> String {
     guard let instruction else { return "arrow.up" }
     switch instruction.sign {
-    case -3: return "arrow.uturn.left"
+    case -98, -8: return "arrow.uturn.left"
+    case 8: return "arrow.uturn.right"
+    case -7: return "arrow.triangle.branch"
+    case 7: return "arrow.triangle.branch"
+    case -3: return "arrow.turn.up.left"
     case -2: return "arrow.turn.up.left"
     case -1: return "arrow.up.left"
     case 1: return "arrow.up.right"
     case 2: return "arrow.turn.up.right"
-    case 3: return "arrow.uturn.right"
+    case 3: return "arrow.turn.up.right"
     case 4, 5: return "flag.checkered"
     case 6: return "arrow.triangle.turn.up.right.circle"
     default: return "arrow.up"
