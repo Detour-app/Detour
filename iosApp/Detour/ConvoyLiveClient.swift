@@ -453,7 +453,8 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
                   let user = msg["user"] as? String, !user.isEmpty,
                   let tsMs = msg["tsMs"] as? Int else { break }
             let event = PlaceEvent(
-                id: 0,
+                // A live frame addresses nothing, so it carries no stored id.
+                id: "",
                 placeId: Int64(placeId),
                 placeName: msg["placeName"] as? String ?? "",
                 username: user,
