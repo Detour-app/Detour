@@ -244,7 +244,7 @@ public class LiveRelayTests
 
         private void Setup(GroupKind kind, Group[] groups) =>
             Groups.Setup(r => r.GetForUserAsync(It.IsAny<Guid>(), kind, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(groups.ToList());
+                .ReturnsAsync([.. groups]);
 
         public Task Ingest(User rider, LivePositionSource source) =>
             new LiveLocationService(Groups.Object, MemberFixes.Object, Relay)

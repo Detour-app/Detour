@@ -45,7 +45,7 @@ public sealed class LiveRelay(ILogger<LiveRelay> logger) : ILiveRelay
     /// </summary>
     private readonly ConcurrentDictionary<Guid, LiveConnection> _connections = new();
 
-    public IReadOnlyCollection<Guid> ConnectedUserIds => _connections.Keys.ToArray();
+    public IReadOnlyCollection<Guid> ConnectedUserIds => [.. _connections.Keys];
 
     /// <summary>Groups one rider's socket currently holds, or nothing if they are not connected.</summary>
     public IReadOnlyCollection<Guid> GroupsFor(Guid userId) =>

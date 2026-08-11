@@ -57,7 +57,7 @@ public sealed class LiveConnection(Guid userId, string username, WebSocket socke
     public string Username { get; } = username;
 
     /// <summary>Groups this socket has successfully joined. Joining adds; it never replaces.</summary>
-    public IReadOnlyCollection<Guid> Groups => _groups.Keys.ToArray();
+    public IReadOnlyCollection<Guid> Groups => [.. _groups.Keys];
 
     public bool IsJoinedTo(Guid groupId) => _groups.ContainsKey(groupId);
 
@@ -154,7 +154,7 @@ public sealed class LiveConnection(Guid userId, string username, WebSocket socke
         if (pending.Count == 0)
             return;
 
-        var frame = new PositionsFrame(pending.ToArray());
+        var frame = new PositionsFrame([.. pending]);
         pending.Clear();
         await SendAsync(frame, jsonOptions, cancellationToken).ConfigureAwait(false);
     }

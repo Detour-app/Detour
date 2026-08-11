@@ -368,7 +368,7 @@ public class LiveController(
     {
         var groups = services.GetRequiredService<IGroupRepository>();
         var ids = await groups.GetAcceptedMemberIdsAsync(groupId, cancellationToken);
-        return ids.Where(id => id != excludeUserId).ToArray();
+        return [.. ids.Where(id => id != excludeUserId)];
     }
 
     private static DestinationCandidateFrame? ReadCandidate(JsonElement element)
