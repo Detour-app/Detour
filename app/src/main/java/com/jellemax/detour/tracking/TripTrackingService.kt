@@ -60,7 +60,7 @@ import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
-import com.jellemax.detour.notif.PendingTripOpen
+import com.jellemax.detour.notif.TripEndedNotification
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -131,7 +131,9 @@ class TripTrackingService : Service() {
         private const val ACTION_END_TRIP = "com.jellemax.detour.END_TRIP"
         private const val ACTION_TRANSITION = "com.jellemax.detour.ACTIVITY_TRANSITION"
         private const val ACTION_REFRESH = "com.jellemax.detour.REFRESH"
-        private const val CHANNEL_ID = "trip_tracking"
+        // One definition, shared with the trip-ended notification that posts to
+        // the same channel from notif/.
+        private const val CHANNEL_ID = TripEndedNotification.CHANNEL_ID
         private const val NOTIFICATION_ID = 1
 
         // Auto start/stop tuning.
@@ -808,7 +810,7 @@ class TripTrackingService : Service() {
             SyncClient.syncQuietly()
             checkBadges()
             // Only tell the user about trips they didn't end themselves.
-            if (wasAuto) notifyTripEnded(stats.startTimeMs)
+            if (wasAuto) TripEndedNotification.show(this, stats.startTimeMs)
         }
         _stats.value = null
         destLat = null
@@ -1271,32 +1273,6 @@ class TripTrackingService : Service() {
             CHANNEL_ID, "Trip tracking", NotificationManager.IMPORTANCE_LOW,
         )
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-    }
-
-    private fun notifyTripEnded(startTimeMs: Long) {
-        val openIntent = Intent(this, MainActivity::class.java)
-            .putExtra(PendingTripOpen.EXTRA_OPEN_TRIP_START_MS, startTimeMs)
-            .setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Detour")
-            .setContentText("Trip ended — saved to history.")
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            // Request code 3: 0 is taken by the ongoing and badge intents, which
-            // carry no extras and so are interchangeable with each other. This
-            // one carries a trip id, so it needs its own — and UPDATE_CURRENT,
-            // or the second auto-detected trip would reuse the first's extras
-            // and open the wrong trip.
-            .setContentIntent(
-                PendingIntent.getActivity(
-                    this, 3, openIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                )
-            )
-            // Only works because there is a content intent to fire: the system
-            // applies autoCancel when it delivers one.
-            .setAutoCancel(true)
-            .build()
-        getSystemService(NotificationManager::class.java).notify(2, notification)
     }
 
     private fun notifyBadgesEarned(badges: List<BadgeDef>) {
