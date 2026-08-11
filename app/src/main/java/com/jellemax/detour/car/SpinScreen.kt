@@ -215,7 +215,7 @@ class SpinScreen(
         }
 
         val content = PaneTemplate.Builder(pane.build())
-            .setTitle("Detour")
+            .setTitle(carContext.getString(R.string.app_name))
             .setHeaderAction(Action.APP_ICON)
 
         // The map-backed variant only exists from car API 7. On an older head

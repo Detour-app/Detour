@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import com.jellemax.detour.MainActivity
+import com.jellemax.detour.R
 
 /**
  * The "Trip ended - saved to history." notification, raised by
@@ -50,7 +51,7 @@ object TripEndedNotification {
             .putExtra(PendingTripOpen.EXTRA_OPEN_TRIP_START_MS, startTimeMs)
             .setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setContentTitle("Detour")
+            .setContentTitle(context.getString(R.string.app_name))
             .setContentText("Trip ended — saved to history.")
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             // UPDATE_CURRENT is not cosmetic: the extra differs per trip, and a

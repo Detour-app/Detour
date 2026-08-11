@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The launcher entry, Settings > Apps, permission dialogs and every
+         notification title. A resource rather than a literal so the debug
+         source set can override it — see app/src/debug/res/values/strings.xml. -->
+    <string name="app_name">Detour</string>
+</resources>

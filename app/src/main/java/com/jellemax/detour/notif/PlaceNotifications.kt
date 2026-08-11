@@ -8,6 +8,7 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.jellemax.detour.MainActivity
+import com.jellemax.detour.R
 import com.jellemax.detour.data.PlaceEvent
 import com.jellemax.detour.data.catchUpSummaryText
 import com.jellemax.detour.data.notificationText
@@ -119,7 +120,7 @@ object PlaceNotifications {
             context, id, openIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setContentTitle("Detour")
+            .setContentTitle(context.getString(R.string.app_name))
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setContentIntent(pending)
