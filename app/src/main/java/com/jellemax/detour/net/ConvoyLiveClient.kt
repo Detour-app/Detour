@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Base64
 import com.jellemax.detour.BuildConfig
 import com.jellemax.detour.data.Auth
+import com.jellemax.detour.data.Features
 import com.jellemax.detour.data.RelayPlaceEvent
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
@@ -44,7 +45,7 @@ data class FriendPosition(
 
 data class IncomingAudioChunk(val username: String, val pcm: ByteArray)
 
-/** One `spin_offer` candidate, wire shape - see sync_server.py's protocol
+/** One `spin_offer` candidate, wire shape - see the relay protocol
  *  comment near `_valid_spin_offer`. [distanceM]/[durationS] are whatever
  *  the sharer's own spin already knew; a receiving member has no route of
  *  its own for these until it commits and [MapScreen]'s startNavigation
@@ -106,7 +107,7 @@ data class GroupSpin(val candidates: List<SpinCandidate>, val fromMe: Boolean)
  * can hold one socket open for both instead of running a second connection.
  * A circle's `location`/`ptt_*`/`spin_*` frames still never touch this
  * client either way - the server itself only relays those for a `convoy`
- * kind group (see handle_live_socket in sync_server.py) - so the only new
+ * kind group, enforced by the relay - so the only new
  * traffic a notify-circle join brings in is `place_event`.
  */
 object ConvoyLiveClient {
@@ -211,7 +212,7 @@ object ConvoyLiveClient {
 
     /** Effective live-relay URL: baked default (its own hostname) → derived
      *  from the shared server URL (Settings) — same host, ws(s):// scheme,
-     *  /live path, matching the ingress rule from server/INSTALL.md. */
+     *  /live path, matching the ingress rule the deployment routes on. */
     fun liveUrl(context: Context): String {
         BuildConfig.LIVE_URL.takeIf { it.isNotBlank() }?.let { return it }
         val base = RoutingServer.loadCustom()?.url?.trimEnd('/') ?: return ""
@@ -228,6 +229,10 @@ object ConvoyLiveClient {
      *  either way, so a peer of the old convoy sees a proper "left" rather
      *  than a member who just goes quiet. */
     fun join(context: Context, convoyId: String) {
+        // Nothing serves the relay at the moment (Features.liveRelay). Both
+        // entry points into the socket check here rather than at each caller,
+        // so no path can quietly start a retry loop against nothing.
+        if (!Features.liveRelay) return
         if (_activeConvoyId.value == convoyId && scope != null) return
         appContext = context.applicationContext
         if (liveUrl(context).isBlank()) {
@@ -274,6 +279,7 @@ object ConvoyLiveClient {
      *  stays open for it even after a convoy is left, or starts for this
      *  alone when no convoy is active. */
     fun setNotifyCircles(context: Context, circleIds: Set<String>) {
+        if (!Features.liveRelay) return
         if (_notifyCircleIds.value == circleIds) return
         appContext = context.applicationContext
         _notifyCircleIds.value = circleIds

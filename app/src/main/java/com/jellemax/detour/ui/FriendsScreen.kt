@@ -66,6 +66,7 @@ import com.jellemax.detour.convoy.ConvoyLiveService
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.BadgeStore
 import com.jellemax.detour.data.Coverage
+import com.jellemax.detour.data.Features
 import com.jellemax.detour.data.FriendLists
 import com.jellemax.detour.data.FriendStats
 import com.jellemax.detour.data.Friends
@@ -564,6 +565,10 @@ private fun ConvoysSection() {
         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
 
+    if (!Features.liveRelay) {
+        DisabledFeatureNotice(Features.liveRelayReason)
+    }
+
     if (convoys.isEmpty()) {
         Text(
             "No convoys yet. Start one to share live location and push-to-talk " +
@@ -577,13 +582,16 @@ private fun ConvoysSection() {
                 convoy = convoy,
                 busy = busy,
                 live = liveConvoyId == convoy.id,
+                liveEnabled = Features.liveRelay,
                 liveStatus = when {
+                    !Features.liveRelay -> Features.liveRelayNotice
                     liveConvoyId != convoy.id -> null
                     !liveConnected -> liveError ?: "Connecting…"
                     livePeers.isEmpty() -> "Connected — nobody else live yet"
                     else -> "Connected — " + livePeers.keys.sorted().joinToString(", ")
                 },
-                liveStatusIsError = liveConvoyId == convoy.id && !liveConnected && liveError != null,
+                liveStatusIsError = Features.liveRelay &&
+                    liveConvoyId == convoy.id && !liveConnected && liveError != null,
                 onAccept = { act { Groups.respond(convoy.id, true) } },
                 onDecline = { act { Groups.respond(convoy.id, false) } },
                 onLeave = {
@@ -622,6 +630,9 @@ private fun ConvoyRow(
     convoy: Group,
     busy: Boolean,
     live: Boolean,
+    /** False while the relay has no server: the button stays visible, so the
+     *  feature is discoverable, but it cannot be pressed into failing. */
+    liveEnabled: Boolean,
     liveStatus: String?,
     liveStatusIsError: Boolean,
     onAccept: () -> Unit,
@@ -669,7 +680,7 @@ private fun ConvoyRow(
             )
             if (convoy.status == "accepted") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(enabled = !busy, onClick = onToggleLive) {
+                    Button(enabled = !busy && liveEnabled, onClick = onToggleLive) {
                         Icon(
                             if (live) Icons.Outlined.Stop else Icons.Outlined.PlayArrow,
                             contentDescription = null, Modifier.size(18.dp),

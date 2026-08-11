@@ -20,6 +20,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.MainActivity
 import com.jellemax.detour.audio.PushToTalk
+import com.jellemax.detour.data.Features
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CoroutineScope
@@ -53,6 +54,7 @@ class ConvoyLiveService : Service() {
             ) == PackageManager.PERMISSION_GRANTED
 
         fun start(context: Context, convoyId: String) {
+            if (!Features.liveRelay) return
             if (!canStart(context)) return
             ContextCompat.startForegroundService(
                 context,

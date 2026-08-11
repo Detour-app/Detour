@@ -26,7 +26,6 @@ class DetourApplication : Application() {
             routingCfSecret = BuildConfig.ROUTING_CF_SECRET,
             apiUrl = BuildConfig.API_URL,
             idpIssuer = BuildConfig.IDP_ISSUER,
-            syncUrl = BuildConfig.SYNC_URL,
             geocoderUrl = BuildConfig.GEOCODER_URL,
             liveUrl = BuildConfig.LIVE_URL,
             versionName = BuildConfig.VERSION_NAME,

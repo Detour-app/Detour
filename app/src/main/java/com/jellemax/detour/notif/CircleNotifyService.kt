@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import com.jellemax.detour.MainActivity
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleEvents
+import com.jellemax.detour.data.Features
 import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
@@ -70,6 +71,10 @@ class CircleNotifyService : Service() {
          *  case. Call after any change that could affect the answer: app
          *  start, boot, a per-circle toggle, accepting/leaving a circle. */
         fun refresh(context: Context) {
+            // Arrivals arrive over the relay, or over the catch-up its reconnect
+            // triggers. With no relay there is nothing for this service to do,
+            // and a foreground notification for it would be a lie.
+            if (!Features.liveRelay) return
             if (!Account.signedIn || !SyncClient.configured()) return
             ContextCompat.startForegroundService(context, Intent(context, CircleNotifyService::class.java))
         }
@@ -153,7 +158,7 @@ class CircleNotifyService : Service() {
         ConvoyLiveClient.placeEvents.collect { relay ->
             if (!CircleNotifySettings.notifyEnabled(relay.groupId)) return@collect
             // Defensive only - the server already excludes the mover from
-            // its own broadcast (see broadcast_place_event); this just
+            // its own broadcast; this just
             // means a bug on that side can never surface as self-spam here.
             if (relay.event.username == Account.username.value) return@collect
             PlaceNotifications.notify(this, relay.groupId, relay.event)

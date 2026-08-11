@@ -80,13 +80,11 @@ android {
             "\"${routingCfg("routing.cfSecret", "ROUTING_CF_SECRET")}\"")
         buildConfigField("String", "API_URL", "\"$apiUrl\"")
         buildConfigField("String", "IDP_ISSUER", "\"$idpIssuer\"")
-        buildConfigField("String", "SYNC_URL",
-            "\"${serviceUrl("sync.url", "SYNC_SERVER_URL")}\"")
         buildConfigField("String", "GEOCODER_URL",
             "\"${serviceUrl("geocoder.url", "GEOCODER_URL")}\"")
-        // Convoy live-location/PTT relay: a separate WebSocket listener next
-        // to the sync server (see server/sync/sync_server.py's LIVE_PORT), so
-        // it needs its own scheme and path rather than the plain base URL.
+        // Convoy live-location/PTT relay: a WebSocket surface of its own, so it
+        // needs its own scheme and path rather than the plain base URL. Nothing
+        // serves it at the moment — see Features.liveRelay in shared/.
         buildConfigField("String", "LIVE_URL", "\"${liveUrl()}\"")
     }
 

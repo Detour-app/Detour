@@ -24,10 +24,9 @@ object BuildDefaults {
     /**
      * Base of the sync + social API, which serves everything under `/api`.
      *
-     * Its own field rather than a reuse of [syncUrl]: on a single-hostname
-     * deployment the tunnel already routes `/api` to the geocoder, so this
-     * service needs either a hostname of its own or an ingress rule ahead of
-     * that one. See the path-routing note in app/build.gradle.kts.
+     * On a single-hostname deployment the tunnel already routes `/api` to the
+     * geocoder, so this service needs either a hostname of its own or an ingress
+     * rule ahead of that one. See the path-routing note in app/build.gradle.kts.
      */
     var apiUrl: String = ""
         private set
@@ -38,8 +37,6 @@ object BuildDefaults {
      * impossible, and every social feature behaves as it does when signed out.
      */
     var idpIssuer: String = ""
-        private set
-    var syncUrl: String = ""
         private set
     var geocoderUrl: String = ""
         private set
@@ -54,7 +51,6 @@ object BuildDefaults {
         routingCfSecret: String = "",
         apiUrl: String = "",
         idpIssuer: String = "",
-        syncUrl: String = "",
         geocoderUrl: String = "",
         liveUrl: String = "",
         versionName: String = "0",
@@ -64,7 +60,6 @@ object BuildDefaults {
         this.routingCfSecret = routingCfSecret
         this.apiUrl = apiUrl
         this.idpIssuer = idpIssuer
-        this.syncUrl = syncUrl
         this.geocoderUrl = geocoderUrl
         this.liveUrl = liveUrl
         this.versionName = versionName

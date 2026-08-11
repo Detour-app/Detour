@@ -57,6 +57,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleEvents
+import com.jellemax.detour.data.Features
 import com.jellemax.detour.data.CirclePlace
 import com.jellemax.detour.data.CirclePlaces
 import com.jellemax.detour.data.Group
@@ -445,13 +446,20 @@ private fun CircleDetailSection(
             Column {
                 Text("Notify me about arrivals", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                 Text(
-                    if (notifyEnabled) "A notification when someone arrives at or leaves a shared place"
-                    else "Off",
+                    when {
+                        !Features.liveRelay -> Features.liveRelayNotice
+                        notifyEnabled -> "A notification when someone arrives at or leaves a shared place"
+                        else -> "Off"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Switch(checked = notifyEnabled, enabled = !busy, onCheckedChange = ::onToggleNotify)
+            Switch(
+                checked = notifyEnabled && Features.liveRelay,
+                enabled = !busy && Features.liveRelay,
+                onCheckedChange = ::onToggleNotify,
+            )
         }
     }
 
