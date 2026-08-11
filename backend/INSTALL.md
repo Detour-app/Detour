@@ -26,6 +26,16 @@ server — it is not going anywhere in this change.
 
 ## The container
 
+You do not have to build it. Every push to `main` publishes one:
+
+```bash
+docker pull ghcr.io/jonohas/detour-api:latest
+```
+
+Tagged `latest` for `main`, and by commit sha — pin to a sha for a deployment you
+can roll back to a known build. Built for `linux/amd64` and `linux/arm64`, so a
+Raspberry Pi is still a target. To build it yourself:
+
 ```bash
 docker build -t detour-api backend
 ```
@@ -34,10 +44,19 @@ The build context is `backend/`, not the repository root. It listens on 7500, th
 same port it uses everywhere else in this repo, and runs as the runtime image's
 non-root user.
 
-There is **no production compose file here yet.** `docker/dev/` is a development
-stack — it ships default passwords in `.env.example` on purpose and Keycloak runs
-in dev mode — so copy its shape, not its values. What it does show correctly is
-how the pieces wire together and which ports each expects.
+## The whole stack
+
+```bash
+cp docker/prod/.env.example docker/prod/.env
+docker compose -f docker/prod/docker-compose.yml up -d
+```
+
+See [`docker/prod/README.md`](../docker/prod/README.md). Nothing in it has a
+default password: compose refuses to start until every secret is set, which is the
+one thing `docker/dev/` deliberately gets wrong. That stack ships working
+defaults in `.env.example` and runs Keycloak in dev mode — copy its shape, never
+its values, and note that the production stack imports no realm at all, because
+the dev one contains a user whose password is in this repository.
 
 ## Configuration
 
@@ -111,4 +130,5 @@ than letting whatever runs it do the probing.
 - **Passwords cannot be migrated.** Keycloak will not accept the old hashes, so
   every existing rider goes through a password reset at cutover. That is a
   user-visible event and needs announcing, not just scheduling.
-- **No production compose file**, per above.
+- **No reverse proxy in the compose file.** Traefik, Caddy and nginx all work;
+  shipping one would mean choosing your TLS story for you.

@@ -38,3 +38,9 @@ iosApp/*.xcodeproj/
 iosApp/Config.xcconfig
 xcuserdata/
 DerivedData/
+
+# Compose secrets. docker/prod/.env holds real database and realm passwords; the
+# .env.example beside it is the versioned documentation instead.
+.env
+docker/*/.env
+!*.env.example
