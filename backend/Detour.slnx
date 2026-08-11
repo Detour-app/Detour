@@ -7,6 +7,8 @@
   <Folder Name="/Detour/">
     <Project Path="Detour/Detour.Domain/Detour.Domain.csproj" />
     <Project Path="Detour/Detour.Domain.Tests/Detour.Domain.Tests.csproj" />
+    <Project Path="Detour/Detour.Database/Detour.Database.csproj" />
+    <Project Path="Detour/Detour.InfraTests/Detour.InfraTests.csproj" />
   </Folder>
   <Folder Name="/Shared/">
     <Project Path="Shared/Api.HealthChecks/Shared.Api.HealthChecks.csproj" />

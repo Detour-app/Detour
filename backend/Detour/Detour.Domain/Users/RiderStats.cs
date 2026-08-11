@@ -19,7 +19,13 @@ public sealed record RiderStats(
     double BestCoveragePercent,
     int TripCount)
 {
-    public static RiderStats Empty { get; } = new(0, 0, 0, null, 0, 0, 0);
+    /// <summary>
+    /// A fresh instance every call, deliberately — not a cached singleton. This is an owned
+    /// entity, so EF tracks the instance itself as belonging to one rider; handing the same
+    /// object to two of them makes the second one throw on Add ("part of a key and so cannot be
+    /// modified"). Allocating a record here costs nothing next to that class of bug.
+    /// </summary>
+    public static RiderStats Empty => new(0, 0, 0, null, 0, 0, 0);
 
     /// <summary>
     /// Drops any value that is not finite. Infinity and NaN survive JSON parsing and would
