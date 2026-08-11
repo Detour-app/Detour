@@ -42,13 +42,16 @@ val apiUrl = routingCfg("api.url", "API_URL").trimEnd('/')
 val idpIssuer = routingCfg("idp.issuer", "IDP_ISSUER").trimEnd('/')
 
 // The relay is the one service that can't just take the base as-is: it's a
-// WebSocket, and it lives on the path the ingress rule matches.
+// WebSocket. It is an ordinary endpoint of the API now rather than a listener on
+// its own port, so it derives from `api.url` and sits under the same /api prefix
+// and the same bearer auth as every other call — not from `server.url`, which
+// path-routes /api to the geocoder.
 fun liveUrl(): String {
     val explicit = routingCfg("live.url", "LIVE_SERVER_URL")
     if (explicit.isNotBlank()) return explicit
     return when {
-        serverUrl.startsWith("https://") -> "wss://" + serverUrl.removePrefix("https://") + "/live"
-        serverUrl.startsWith("http://") -> "ws://" + serverUrl.removePrefix("http://") + "/live"
+        apiUrl.startsWith("https://") -> "wss://" + apiUrl.removePrefix("https://") + "/api/live"
+        apiUrl.startsWith("http://") -> "ws://" + apiUrl.removePrefix("http://") + "/api/live"
         else -> ""
     }
 }
