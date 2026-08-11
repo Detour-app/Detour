@@ -6,6 +6,17 @@ is the synthesis of a nine-agent investigation into how to split it. It is the d
 record; the underlying reports are kept alongside it so the reasoning stays checkable
 against whatever we actually build.
 
+## How this roadmap is executed
+
+The phases below are implemented as a chain of staged specs in
+[`specs/`](specs/), one per phase, each ending by pointing at its successor. Start at
+[`specs/00-chain-design.md`](specs/00-chain-design.md), which explains how the chain works,
+then [`specs/stage-0-verification-baseline.md`](specs/stage-0-verification-baseline.md).
+
+Each spec opens with executable preconditions. If they fail, the spec is stale and gets
+rewritten rather than adapted — the stages change the ground the later ones stand on, and
+that is expected, not a failure.
+
 ## Index of reports
 
 | File | What it is |
@@ -50,8 +61,8 @@ proposals.
   `:374–375` claiming otherwise is stale.
 - **`:shared` is a real KMP module**: 43 Kotlin files, 36 in commonMain, **60 `@Test` in
   commonTest**, consumed by `app/` and `iosApp/` (not `wear/` — the brief was wrong there).
-  commonMain has no `Dispatchers.*` and no `System.currentTimeMillis()`, so code moved
-  there must be adapted, not copy-pasted.
+  commonMain has no `Dispatchers.*`; it does have a wall clock via `nowMs()`
+  (`Angles.kt:15`). Code moved there must be adapted, not copy-pasted.
 - **`car/` duplicates ~199 phone-side lines / ~186 car-side lines** across 11 verified
   items, and the copies have drifted.
 
@@ -226,9 +237,12 @@ path anyway. That is convergence driven by value, not by it being cheap.
 1. **Where do the hazard machines live?** Four answers were given for the same ~190 lines.
    **Resolution: `:shared` commonMain.** It is the only destination reachable by `car/`
    *and* `iosApp/`, and commonTest is the only test source set CI can realistically gate.
-   Cost, stated openly: `System.currentTimeMillis()` and `Dispatchers.IO` have no commonMain
-   equivalent, so this is a rewrite with a time source parameter, not a move — which is also
-   what makes the results deterministically testable.
+   Cost, stated openly: `Dispatchers.IO` has no commonMain equivalent, so I/O must be handed
+   in by the caller. Time does have one — `nowMs()` at `Angles.kt:15`, backed by
+   `kotlinx.datetime.Clock` — but these machines should still take a timestamp parameter rather
+   than read it, because they are path-dependent over time and otherwise cannot be tested
+   deterministically. Either way this is a rewrite, not a move, which is also what makes the
+   results testable.
 2. **Package layout.** **Resolution: flat `com.jellemax.detour.ui` for everything that
    stays in the app module.** It makes every phase-1 move a pure cut-and-paste with zero
    import edits. Decide this now; changing it later re-touches every moved file.
