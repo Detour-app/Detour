@@ -31,6 +31,17 @@ from the platform instead. See
 New logic goes in `shared/` unless it genuinely cannot — a change that lands
 only in `app/` silently makes iOS diverge.
 
+For code that already exists, two tests decide where it belongs:
+
+> A policy earns the core when it is written more than once.
+> A port earns an interface when it has more than one implementation.
+
+The first is why the arrival/reroute rule and the convoy vote rule belong in
+`shared/` — each is written twice or three times today, and the copies have
+already drifted. The second is why `Platform.kt` still expects only the three
+things named above: an interface with one implementation is indirection, not a
+boundary.
+
 ## Building
 
 All Gradle modules build from the repo root:
