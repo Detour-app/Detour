@@ -120,7 +120,8 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     // MARK: Membership
 
     func join(convoyId: String) {
-        // No server answers the relay at the moment — see Features.liveRelay.
+        // The relay is back, so this normally passes; the flag stays as the one
+        // switch that turns every live feature off on both platforms at once.
         guard Features.shared.liveRelay else { return }
         guard activeConvoyId != convoyId else { return }
         // A convoy switch has to fully reconnect, not just add a second
