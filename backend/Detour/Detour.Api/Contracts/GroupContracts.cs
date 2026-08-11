@@ -101,11 +101,11 @@ public static class GroupResponseMapper
             .Where(m => usernames.ContainsKey(m.UserId))
             .Select(m => new GroupMemberResponse(
                 usernames[m.UserId],
-                m.Status.Name,
+                m.Status.Wire(),
                 group.Kind.SupportsPause ? m.IsSharing : null))
             .ToList();
 
-        var callerStatus = group.FindMember(callerId)?.Status.Name ?? GroupMemberStatus.Invited.Name;
-        return new GroupResponse(group.Id, group.Kind.Name, group.Name, callerStatus, members);
+        var callerStatus = group.FindMember(callerId)?.Status.Wire() ?? GroupMemberStatus.Invited.Wire();
+        return new GroupResponse(group.Id, group.Kind.Wire(), group.Name, callerStatus, members);
     }
 }

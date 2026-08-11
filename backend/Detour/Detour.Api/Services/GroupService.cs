@@ -102,7 +102,7 @@ public class GroupService(
             return Result.Error(ValidationKeys.Group.InviteeNotAFriend);
 
         var (result, member) = group.Invite(invitee.Id);
-        return result.IsFailure ? result : Result.Ok(member.Status.Name);
+        return result.IsFailure ? result : Result.Ok(member.Status.Wire());
     }
 
     public async Task<Result<string>> RespondAsync(
@@ -123,7 +123,7 @@ public class GroupService(
         }
 
         var result = membership.Accept();
-        return result.IsFailure ? result : Result.Ok(GroupMemberStatus.Accepted.Name);
+        return result.IsFailure ? result : Result.Ok(GroupMemberStatus.Accepted.Wire());
     }
 
     public async Task<Result> LeaveAsync(Guid callerId, Guid groupId, CancellationToken cancellationToken)

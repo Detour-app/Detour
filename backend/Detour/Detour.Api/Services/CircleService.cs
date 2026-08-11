@@ -223,7 +223,7 @@ public class CircleService(
             placeEvent.ClientPlaceId,
             placeName ?? string.Empty,
             caller.Username,
-            placeEvent.Kind.Name,
+            placeEvent.Kind.Wire(),
             placeEvent.TimestampMs);
     }
 
@@ -244,7 +244,7 @@ public class CircleService(
         return new PlaceEventsResponse(
         [
             .. rows.Select(e => new PlaceEventResponse(
-                e.Id, e.ClientPlaceId, e.PlaceName, e.Username, e.Kind, e.TimestampMs))
+                e.Id, e.ClientPlaceId, e.PlaceName, e.Username, e.Kind.Wire(), e.TimestampMs))
         ]);
     }
 }

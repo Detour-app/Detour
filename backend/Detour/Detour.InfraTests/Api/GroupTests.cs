@@ -31,8 +31,8 @@ public class GroupTests(PostgresFixture postgres) : IAsyncLifetime
 
         var circle = await CreateCircle(alex, "Household");
 
-        circle.GetProperty("kind").GetString().Should().Be("Circle");
-        circle.GetProperty("status").GetString().Should().Be("Accepted");
+        circle.GetProperty("kind").GetString().Should().Be("circle");
+        circle.GetProperty("status").GetString().Should().Be("accepted");
         var members = circle.GetProperty("members");
         members.GetArrayLength().Should().Be(1);
         members[0].GetProperty("username").GetString().Should().Be(alexName);
@@ -91,12 +91,12 @@ public class GroupTests(PostgresFixture postgres) : IAsyncLifetime
         (await Invite(alex, circle, blakeName)).EnsureSuccessStatusCode();
 
         var pending = await Circles(blake);
-        pending[0].GetProperty("status").GetString().Should().Be("Invited");
+        pending[0].GetProperty("status").GetString().Should().Be("invited");
 
         (await Respond(blake, circle, accept: true)).EnsureSuccessStatusCode();
 
         var joined = await Circles(blake);
-        joined[0].GetProperty("status").GetString().Should().Be("Accepted");
+        joined[0].GetProperty("status").GetString().Should().Be("accepted");
     }
 
     [Fact]
@@ -279,7 +279,7 @@ public class GroupTests(PostgresFixture postgres) : IAsyncLifetime
 
         recorded.GetProperty("placeName").GetString().Should().Be("School");
         recorded.GetProperty("username").GetString().Should().Be(alexName);
-        recorded.GetProperty("kind").GetString().Should().Be("Arrive");
+        recorded.GetProperty("kind").GetString().Should().Be("arrive");
     }
 
     [Fact]
@@ -297,7 +297,7 @@ public class GroupTests(PostgresFixture postgres) : IAsyncLifetime
 
         var recent = await Events(alex, circle, since: 1_000);
         recent.GetArrayLength().Should().Be(1);
-        recent[0].GetProperty("kind").GetString().Should().Be("Depart");
+        recent[0].GetProperty("kind").GetString().Should().Be("depart");
     }
 
     [Fact]
