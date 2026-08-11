@@ -29,8 +29,10 @@ import com.jellemax.detour.data.PendingReset
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
+import com.jellemax.detour.data.TripStore
 import com.jellemax.detour.notif.CircleNotifyService
 import com.jellemax.detour.notif.PendingCircleOpen
+import com.jellemax.detour.notif.PendingTripOpen
 import com.jellemax.detour.notif.PlaceNotifications
 import com.jellemax.detour.ui.BadgesScreen
 import com.jellemax.detour.ui.CirclesScreen
@@ -47,6 +49,8 @@ import com.jellemax.detour.ui.SavedPlacesScreen
 import com.jellemax.detour.ui.SettingsScreen
 import com.jellemax.detour.ui.TripDetailScreen
 import com.jellemax.detour.ui.isAppDarkTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.maplibre.android.MapLibre
 
 class MainActivity : ComponentActivity() {
@@ -54,6 +58,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         takeResetLink(intent)
         PlaceNotifications.takeOpenCircleId(intent)
+        PendingTripOpen.take(intent)
         enableEdgeToEdge()
         // A map app is glanced at while driving: keep the screen awake while visible.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -91,6 +96,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         takeResetLink(intent)
         PlaceNotifications.takeOpenCircleId(intent)
+        PendingTripOpen.take(intent)
     }
 
     /** Parks the code from a `detour://reset?token=…` link for the
@@ -127,6 +133,22 @@ private fun AppRoot() {
     val openCircleId by PendingCircleOpen.circleId.collectAsStateWithLifecycle()
     LaunchedEffect(openCircleId) {
         if (openCircleId != null) screen = Screen.CIRCLES
+    }
+    // A tapped trip-ended notification opens that trip, not just the app.
+    val openTripStartMs by PendingTripOpen.startTimeMs.collectAsStateWithLifecycle()
+    LaunchedEffect(openTripStartMs) {
+        val start = openTripStartMs ?: return@LaunchedEffect
+        // load() reads and parses a file, so it stays off the main thread —
+        // same reasoning as HistoryScreen's own load.
+        val trip = withContext(Dispatchers.IO) { TripStore.load().find { it.startTimeMs == start } }
+        // Assigned before the screen switch: TRIP_DETAIL renders nothing at all
+        // when detailTrip is null.
+        detailTrip = trip
+        // Deleted, or dropped by a /sync merge before the tap — the history list
+        // is the honest fallback, rather than a blank detail screen.
+        screen = if (trip != null) Screen.TRIP_DETAIL else Screen.HISTORY
+        // Clearing is what lets a second tap navigate again.
+        PendingTripOpen.clear()
     }
     // System back from any sub-screen returns to the map instead of exiting the
     // app — only enabled off the map, so back on the map itself still falls
