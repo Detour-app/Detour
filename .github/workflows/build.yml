@@ -109,6 +109,14 @@ jobs:
           echo "VERSION_CODE=$base" >> "$GITHUB_ENV"
           echo "WEAR_VERSION_CODE=$(( base + 1 ))" >> "$GITHUB_ENV"
 
+      # app/src/test and shared/ both hold unit tests that had never run in CI:
+      # this job only ever assembled, and ios.yml — which does run the shared
+      # tests — is path-gated on shared/** and iosApp/**, so a change under app/
+      # was tested by nothing at all. Before the assemble step, so a red test
+      # fails the build in seconds rather than after a full release build.
+      - name: Run unit tests
+        run: ./gradlew :app:testDebugUnitTest :shared:testDebugUnitTest
+
       # One invocation, so the version codes stamped above are read once and
       # every artifact in this release agrees on them. The watch app is built
       # both ways: .aab for Play, .apk for sideloading off the GitHub release
