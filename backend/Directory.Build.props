@@ -1,0 +1,27 @@
+<Project>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!--
+    xunit parallelises across test collections with maxParallelThreads defaulting to
+    Environment.ProcessorCount. The Postgres-backed suites start a Testcontainers container
+    per collection simultaneously and starve the CPU: container startup waits time out. The
+    shared xunit.runner.json next to this file caps that per assembly.
+
+    Test projects are matched by name rather than by $(IsTestProject) because that property
+    comes from Microsoft.NET.Test.Sdk, which is imported after this file.
+  -->
+  <ItemGroup Condition="$(MSBuildProjectName.EndsWith('Tests'))">
+    <Content Include="$(MSBuildThisFileDirectory)xunit.runner.json"
+             Link="xunit.runner.json"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
