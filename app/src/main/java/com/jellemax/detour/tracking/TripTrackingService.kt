@@ -39,6 +39,7 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.jellemax.detour.MainActivity
+import com.jellemax.detour.R
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.ble.BoardTelemetry
 import com.jellemax.detour.data.syncQuietly
@@ -1310,7 +1311,7 @@ class TripTrackingService : Service() {
             else -> "Watching for trips"
         }
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Detour")
+            .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setContentIntent(contentIntent)

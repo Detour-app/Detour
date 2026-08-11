@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches the debug icon's amber gradient, so the flat fallback and the
+         gradient never disagree about which build this is. -->
+    <color name="launcher_bg">#3A2708</color>
+</resources>

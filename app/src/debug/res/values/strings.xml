@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only overrides of app/src/main/res/values/. A debug source set wins
+     over main for the same resource name, so release output is untouched. -->
+<resources>
+    <!-- applicationIdSuffix = ".debug" lets both builds be installed at once;
+         without this they were both called "Detour" and the only way to tell
+         them apart was to open one. Suffixed rather than prefixed so the two
+         sort next to each other in a launcher instead of filing themselves
+         under different letters. -->
+    <string name="app_name">Detour (debug)</string>
+</resources>
