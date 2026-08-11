@@ -136,14 +136,11 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -473,6 +470,9 @@ fun MapScreen(
     val fogEnabled by Settings.fogEnabled.collectAsStateWithLifecycle()
     val accountUsername by Account.username.collectAsStateWithLifecycle()
     var searchOpen by remember { mutableStateOf(false) }
+    // The map layers panel. Lives here rather than in MapTopChrome so the map's
+    // own click listeners can close it — see where they clear it below.
+    var layersOpen by remember { mutableStateOf(false) }
     // Stored traces reload on every store write; the live trace and fix come
     // straight from the tracking service, so fog and position update in real
     // time instead of only when a trip is saved.
@@ -944,7 +944,10 @@ fun MapScreen(
         // while the follow loop is running.
         map.addOnCameraMoveListener { fogView.invalidate() }
         map.addOnCameraIdleListener { fogView.invalidate() }
+        // Touching the map dismisses the layers panel, which is what the Popup's
+        // dismissOnClickOutside used to do before the panel moved inline.
         map.addOnMapLongClickListener { ll ->
+            layersOpen = false
             if (navigatingRef.value) return@addOnMapLongClickListener false
             destination = LatLon(ll.latitude, ll.longitude)
             destinationName = "Dropped pin"
@@ -952,6 +955,7 @@ fun MapScreen(
             true
         }
         map.addOnMapClickListener { ll ->
+            layersOpen = false
             val p = map.projection.toScreenLocation(ll)
             val tap = RectF(p.x - 22f, p.y - 22f, p.x + 22f, p.y + 22f)
             val idx = map.queryRenderedFeatures(tap, LAYER_CANDIDATES)
@@ -1577,6 +1581,8 @@ fun MapScreen(
                     fogEnabled = fogEnabled,
                     username = accountUsername,
                     convoyName = if (convoyConnected) convoyName else null,
+                    layersOpen = layersOpen,
+                    onLayersOpenChange = { layersOpen = it },
                     onToggleFollow = {
                         if (following) followMe = false
                         else { followMe = true; camSuspended = false }
@@ -2699,20 +2705,29 @@ private fun MapTopChrome(
     fogEnabled: Boolean,
     username: String,
     convoyName: String?,
+    // Hoisted to MapScreen so a tap on the map can close the panel — the job
+    // the Popup's dismissOnClickOutside used to do.
+    layersOpen: Boolean,
+    onLayersOpenChange: (Boolean) -> Unit,
     onToggleFollow: () -> Unit,
     onSearch: () -> Unit,
     onToggleFog: () -> Unit,
     onOpenHub: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var layersOpen by remember { mutableStateOf(false) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SearchPill(username = username, onSearch = onSearch, onAvatarClick = onOpenHub)
         AnimatedVisibility(visible = convoyName != null, enter = fadeIn(), exit = fadeOut()) {
             ConvoyPill(name = convoyName ?: "")
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // End-aligned because the layers panel below is wider than the 40.dp
+            // buttons: without this the column widens to the card and centres
+            // the buttons in it, shifting them off the rail.
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.End,
+            ) {
                 GlassRailButton(
                     icon = if (followMe) Icons.Outlined.MyLocation else Icons.Outlined.LocationSearching,
                     contentDescription = if (followMe) "Stop following my location"
@@ -2720,40 +2735,37 @@ private fun MapTopChrome(
                     tinted = followMe,
                     onClick = onToggleFollow,
                 )
-                Box {
-                    GlassRailButton(
-                        icon = Icons.Outlined.Layers,
-                        contentDescription = "Map layers",
-                        onClick = { layersOpen = !layersOpen },
-                    )
-                    if (layersOpen) {
-                        val density = LocalDensity.current
-                        Popup(
-                            alignment = Alignment.TopEnd,
-                            offset = with(density) { IntOffset(0, 48.dp.roundToPx()) },
-                            onDismissRequest = { layersOpen = false },
-                            properties = PopupProperties(dismissOnClickOutside = true),
+                GlassRailButton(
+                    icon = Icons.Outlined.Layers,
+                    contentDescription = "Map layers",
+                    tinted = layersOpen,
+                    onClick = { onLayersOpenChange(!layersOpen) },
+                )
+                // Inline rather than a Popup on purpose. A Popup is its own
+                // window, so the button sitting outside it counted as an
+                // outside-click *and* still ran its own onClick: the panel
+                // closed and reopened on the same tap, and the button could
+                // never close it. One window, one handler, and the toggle is
+                // correct by construction.
+                AnimatedVisibility(visible = layersOpen, enter = fadeIn(), exit = fadeOut()) {
+                    Card(
+                        modifier = Modifier.glassBorder(MaterialTheme.shapes.large),
+                        shape = MaterialTheme.shapes.large,
+                        colors = glassCardColors(),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Card(
-                                modifier = Modifier.glassBorder(MaterialTheme.shapes.large),
-                                shape = MaterialTheme.shapes.large,
-                                colors = glassCardColors(),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                            ) {
-                                Row(
-                                    Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Icon(
-                                        if (fogEnabled) Icons.Outlined.Visibility
-                                            else Icons.Outlined.VisibilityOff,
-                                        contentDescription = null,
-                                    )
-                                    Text("Fog of war", modifier = Modifier.weight(1f))
-                                    Switch(checked = fogEnabled, onCheckedChange = { onToggleFog() })
-                                }
-                            }
+                            Icon(
+                                if (fogEnabled) Icons.Outlined.Visibility
+                                    else Icons.Outlined.VisibilityOff,
+                                contentDescription = null,
+                            )
+                            Text("Fog of war", modifier = Modifier.weight(1f))
+                            Switch(checked = fogEnabled, onCheckedChange = { onToggleFog() })
                         }
                     }
                 }
