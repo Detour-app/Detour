@@ -517,6 +517,22 @@ itself. Administration that outlived Keycloak — account metadata, row counts,
 deleting an account and revoking its dashboard keys — is API-only, and shows no
 one's rides.
 
+### The replacement server
+
+A .NET rewrite of the sync server lives in [`backend/`](backend/README.md). It is
+not what the app talks to yet and it does not replace anything above — the script
+and the Python server stay exactly as they are.
+
+It is worth knowing about before you build a new install, because the operator
+side is a different shape: Postgres instead of SQLite, and Keycloak instead of
+invite codes and the `/admin` dashboard, which means accounts, passwords and
+resets stop being this project's job. That is five processes where the script
+installs one. [`backend/INSTALL.md`](backend/INSTALL.md) is blunt about the trade
+and about what is still missing, including that there is no importer for an
+existing `detour.db` and no way to carry passwords across.
+
+If the current server does what you need, keep it.
+
 Sync is optional; with no server configured everything stays on the phone. With
 one, your trips and traces live on hardware you own.
 

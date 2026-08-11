@@ -7,6 +7,8 @@ one identity provider.
   — behaviour only, no code, deliberately language-agnostic.
 - **Poking at it by hand:** [bruno/README.md](../bruno/README.md) — a generated
   Bruno collection covering every endpoint.
+- **Standing it up somewhere real:** [INSTALL.md](INSTALL.md) — the container, the
+  configuration that matters, and what is still missing.
 
 ## Running it
 
@@ -25,6 +27,16 @@ dotnet run
 It comes up on <http://localhost:7500>, applies its own migrations, and answers
 `/api/health` with a per-dependency breakdown. OpenAPI is at `/openapi/v1.json`
 in development only.
+
+There is a container too, for anywhere that is not a development machine:
+
+```bash
+docker build -t detour-api backend
+```
+
+The context is `backend/` rather than the repository root, because the API
+references projects across `Shared/` and nothing outside `backend/` is needed to
+build it. [INSTALL.md](INSTALL.md) covers what it needs around it.
 
 ## Building and testing
 
