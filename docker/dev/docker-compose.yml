@@ -1,0 +1,19 @@
+# Detour local development infrastructure.
+#
+# Everything the backend talks to, and nothing that is the backend itself — run
+# Detour.Api from your IDE or `dotnet run`, pointed at these. See README.md.
+#
+#   docker compose -f docker/dev/docker-compose.yml up -d
+#
+# Ports are canonical. If one is taken, kill whatever is holding it rather than
+# moving the service: Keycloak bakes its issuer and redirect URIs into the realm,
+# and renumbering it means a volume wipe and a re-import.
+
+include:
+  - path: services/postgres.yml
+  - path: services/redis.yml
+  - path: services/keycloak.yml
+  - path: services/traefik.yml
+  - path: services/lgtm.yml
+
+name: ${PROJECT_NAME:-detour-dev}

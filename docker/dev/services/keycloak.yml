@@ -1,0 +1,94 @@
+name: ${PROJECT_NAME:-detour-dev}
+
+services:
+  # ---------------------------------------------------------------------------
+  # Keycloak's own database. Separate from the application's on purpose — see
+  # the comment in services/postgres.yml.
+  # ---------------------------------------------------------------------------
+  keycloak-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    networks:
+      - keycloak-int
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${KC_DB_USER:-keycloak}
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD:-keycloak}
+      POSTGRES_DB: ${KC_DB_NAME:-keycloak}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${KC_DB_USER:-keycloak} -d ${KC_DB_NAME:-keycloak}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Keycloak — every credential the backend used to hold itself.
+  #
+  # The realm is imported from config/keycloak/detour-realm.json on first start.
+  # Import is a no-op once the realm exists, so editing that file means either
+  # `docker compose down -v keycloak-db` or applying the change in the admin
+  # console. Terraform is the production answer; a JSON import keeps the local
+  # stack to one container and no extra tooling.
+  # ---------------------------------------------------------------------------
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.5
+    hostname: idp
+    restart: unless-stopped
+    networks:
+      - edge
+      - keycloak-int
+    ports:
+      - 127.0.0.1:7580:8080
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+      - ../config/keycloak:/opt/keycloak/data/import:ro
+    environment:
+      KC_LOG_LEVEL: ${KC_LOG_LEVEL:-info}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:-admin}
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_URL_DATABASE: ${KC_DB_NAME:-keycloak}
+      KC_DB_USERNAME: ${KC_DB_USER:-keycloak}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:-keycloak}
+      KC_CACHE: local
+      # Must match the issuer the API validates and the app redirects to. Changing
+      # it invalidates every token and every stored redirect URI.
+      KC_HOSTNAME: ${KC_HOSTNAME:-http://localhost:7580}
+      KC_HOSTNAME_STRICT: "false"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    command: start-dev --import-realm
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.keycloak.rule=Host(`idp.localhost`)
+      - traefik.http.routers.keycloak.service=keycloak
+      - traefik.http.services.keycloak.loadbalancer.server.port=8080
+
+networks:
+  edge:
+  keycloak-int:
+    internal: true
+
+volumes:
+  keycloak-data:
+  keycloak-db-data:

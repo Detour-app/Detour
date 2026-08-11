@@ -1,0 +1,36 @@
+name: ${PROJECT_NAME:-detour-dev}
+
+services:
+  # ---------------------------------------------------------------------------
+  # Redis — L2 cache behind FusionCache, and its backplane.
+  #
+  # With one API instance the backplane is inert; it is wired anyway so a second
+  # instance is a scale decision rather than a correctness one.
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    user: "999:999"
+    networks:
+      - detour-int
+    ports:
+      - 127.0.0.1:7579:6379
+    volumes:
+      - redis-data:/data
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:-detour-dev-redis}
+      TZ: ${TZ:-Europe/Brussels}
+    command: >
+      redis-server --save 30 1 --loglevel warning
+      --requirepass ${REDIS_PASSWORD:-detour-dev-redis}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  detour-int:
+
+volumes:
+  redis-data:
