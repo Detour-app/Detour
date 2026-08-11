@@ -5,9 +5,9 @@
 | | |
 |---|---|
 | **Detail level** | Full — symbol and line-range level |
-| **Prerequisite** | [Stage 0](stage-0-verification-baseline.md) complete |
-| **State** | not started |
-| **Preconditions captured** | 2026-08-11, against `MapScreen.kt` at 3193 lines |
+| **Prerequisite** | [Stage 0](stage-0-verification-baseline.md) — tasks 1, 5, 6, 7 done; tasks 2–4 deferred (need a device and route recordings) |
+| **State** | **done** 2026-08-12 — `MapScreen.kt` 3204 → 1549 lines across 12 commits (`b5b4367`…`7c134d8`), zero added lines, tests and assemble green. Plan: [`../plans/2026-08-12-stage-1-mechanical-split.md`](../plans/2026-08-12-stage-1-mechanical-split.md) |
+| **Preconditions captured** | 2026-08-11, against `MapScreen.kt` at 3193 lines; re-verified at 3204 lines on 2026-08-12 after stage-0 Task 5 and the merge of `main` |
 | **Chain** | [design](00-chain-design.md) · [roadmap](../DECISION.md) · prev: [stage 0](stage-0-verification-baseline.md) · next: [stage 2](stage-2-pure-extractions.md) |
 
 ## Preconditions
@@ -68,7 +68,7 @@ the spin-result holder into eleven new files in the same package. Nothing else.
   also reaches `app/src/test`, which stage 2 relies on. In-repo precedent:
   `HistoryScreen.kt:72,120`.
 - **Pure cut-and-paste.** No reformatting, no renaming, no comment rewording, no "while I'm
-  here" improvements. `git show -M -C --stat` must show renames, because the rationale
+  here" improvements. The rationale
   comments are this codebase's design record and `git log -C` is how they stay traceable.
 - One work item, one commit.
 
@@ -128,7 +128,9 @@ relocation with a deletion.
 
 - [ ] Eleven new files, all in `package com.jellemax.detour.ui`.
 - [ ] `wc -l < MapScreen.kt` between 1500 and 1700.
-- [ ] `git show -M -C --stat` on each move commit shows a rename, not an add+delete.
+- [ ] `git diff <base>..HEAD -- .../MapScreen.kt | grep -c '^+[^+]'` prints `0` until the
+      import-cleanup commit. (Supersedes an earlier `git show -M -C` rename criterion, which
+      cannot fire when the source file is modified rather than deleted — corrected in `49084c3`.)
 - [ ] `git diff` against the pre-stage SHA shows **no** change to any line inside a moved
       symbol's body.
 - [ ] `RoutesScreen.kt`, `HistoryScreen.kt`, `RouteEditorScreen.kt` and everything under
@@ -158,7 +160,7 @@ real problem is buried.
   `Icons.Outlined.Place` (`:76`). Splitting across files must not let a file inherit the wrong
   one. Check each moved composable's icons against the original.
 - **Reformatting on save.** An IDE that reformats a pasted block silently destroys the rename
-  detection and buries the comments. Verify with `git show -M -C` per commit, not at the end.
+  the comments. Verify zero added lines per commit, not at the end.
 - **Drift while parallel.** Eleven agents editing one source file will conflict on the
   deletion side. Serialise the deletions from `MapScreen.kt` even where the additions are
   parallel, or have one agent perform all eleven deletions in order.

@@ -6,6 +6,28 @@ is the synthesis of a nine-agent investigation into how to split it. It is the d
 record; the underlying reports are kept alongside it so the reasoning stays checkable
 against whatever we actually build.
 
+## Status — stop-point A reached, 2026-08-12
+
+**Stage 1 is complete.** `MapScreen.kt` went from 3204 to **1549 lines** across twelve commits
+(`b5b4367`…`7c134d8`), into eleven new same-package files. Zero lines were added to
+`MapScreen.kt` by any of the eleven moves; `RoutesScreen.kt`, `HistoryScreen.kt`,
+`RouteEditorScreen.kt` and everything under `car/` have zero-line diffs. Unit tests and
+`assembleDebug` pass.
+
+**The state layer is untouched.** All 59 `remember` declarations, 36 effects and eight closures
+over mutable state remain in one composable. The file is smaller; the coupling described in the
+concern table below is entirely unaddressed. This is stop-point A exactly as the spec defined
+it, and it must not be recorded as "MapScreen refactored".
+
+Stage 0 is partially done: Task 1 (CI test gate), Task 5 (error snackbar), Task 6 (iOS maneuver
+arrows) and Task 7 (the shared-core rule) have landed. Tasks 2–4 — the replay routes, the
+behavioural baseline and the Overpass-off-collector fix — are blocked on device recordings. Two
+of the four canonical routes exist; route (i) needs one unbroken trajectcontrole run and route
+(iii) is dropped for want of a routing server.
+
+Stages 2–4 remain open and are now cheaper: the state diffs they produce will be reviewed
+against 1549 lines rather than 3204.
+
 ## How this roadmap is executed
 
 The phases below are implemented as a chain of staged specs in

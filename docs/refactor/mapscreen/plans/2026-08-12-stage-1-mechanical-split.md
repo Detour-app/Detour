@@ -19,7 +19,7 @@
   Never a bare `./gradlew`. Never install anything on the host.
 - **Commit messages:** Conventional Commits. **No `Co-Authored-By` trailer. No `Claude-Session` trailer. No trailers of any kind.**
 - **One work item, one commit.**
-- **Pure cut-and-paste.** No reformatting, no renaming, no comment rewording, no "while I'm here" improvements. `git show -M -C --stat` must report a rename for each move. The rationale comments in this file are the codebase's design record and `git log -C` is how they stay traceable — an IDE that reformats on save destroys that.
+- **Pure cut-and-paste.** No reformatting, no renaming, no comment rewording, no "while I'm here" improvements. The rationale comments in this file are the codebase's design record — an IDE that reformats on save destroys them. Prove each move changed nothing with `git diff <base>..HEAD -- .../MapScreen.kt | grep -c '^+[^+]'` → `0`. (Do not use `git show -M -C`: rename detection cannot fire when the source file is modified rather than deleted.)
 - **Every new file is `package com.jellemax.detour.ui`.** No new packages. This is what makes the moves free.
 - **Move each symbol together with its KDoc and any annotations** (`@Composable`, `@OptIn`). The line numbers below locate the declaration; the block to move starts at its doc comment.
 - **Do not touch `MapScreen`'s body** (lines 421–1850). Not one line.

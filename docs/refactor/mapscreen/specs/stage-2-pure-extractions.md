@@ -5,9 +5,9 @@
 | | |
 |---|---|
 | **Detail level** | Function level — named extractions, no line ranges (stage 1 invalidates them) |
-| **Prerequisite** | [Stage 1](stage-1-mechanical-split.md) complete |
+| **Prerequisite** | [Stage 1](stage-1-mechanical-split.md) — **complete** 2026-08-12, `MapScreen.kt` at 1549 lines |
 | **State** | not started |
-| **Preconditions captured** | 2026-08-11, describing the state stage 1 is expected to leave |
+| **Preconditions captured** | 2026-08-11, describing the state stage 1 was expected to leave. Re-checked 2026-08-12 against the real post-stage-1 file: the size range holds (1549 is inside 1500–1700), and the `leadingSpinIndex` count was corrected from 1 to 2 — it has always had two call sites, so the original figure would have tripped a false staleness alarm on its first run. |
 | **Chain** | [design](00-chain-design.md) · [roadmap](../DECISION.md) · prev: [stage 1](stage-1-mechanical-split.md) · next: [stage 3](stage-3-hazard-machines-to-shared.md) |
 
 ## Preconditions
@@ -27,7 +27,7 @@ grep -c 'progress.remainingMeters < 40' $M                    # expect 1  (arriv
 grep -c 'progress.offRouteMeters > 60' $M                     # expect 1  (reroute test)
 grep -c 'now - lastRerouteMs > 15_000' $M                     # expect 1  (reroute cooldown)
 grep -c 'CAM_RESUME_SPEED_MPS' $M                             # expect 1  (resume rule)
-grep -c 'leadingSpinIndex' $M                                 # expect 1  (call site only)
+grep -c 'leadingSpinIndex' $M                                 # expect 2  (two call sites)
 
 # The car's copy of the arrival/reroute policy is still there to be deduplicated.
 grep -c 'Same arrival/reroute policy' app/src/main/java/com/jellemax/detour/car/NavScreen.kt  # expect 1
