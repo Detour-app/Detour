@@ -154,7 +154,7 @@ public class FriendshipService(
                 RiderStatsResponse.Map(friend.Stats),
                 awards.TryGetValue(friend.Id, out var earned)
                     ? earned.ToDictionary(b => b.BadgeId, b => b.EarnedAtMs)
-                    : new Dictionary<string, long>()))
+                    : []))
             .OrderByDescending(f => f.Stats.TotalDistanceMeters)
             .ToList();
 

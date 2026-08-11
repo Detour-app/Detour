@@ -211,10 +211,9 @@ public class DashboardService(
             simplified = [.. simplified.Select(line =>
                 line.Count <= 2
                     ? line
-                    : TrackSimplifier
+                    : [.. TrackSimplifier
                         .ThinTo([.. Enumerable.Range(0, line.Count)], Math.Max((int)(line.Count * scale), 2))
-                        .Select(i => line[i])
-                        .ToList())];
+                        .Select(i => line[i])])];
         }
 
         return new CoverageResponse(

@@ -1,0 +1,71 @@
+name: Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore backend/Detour.slnx
+
+      - name: Every project is in the solution
+        # A project missing from Detour.slnx builds locally in the IDE and is never
+        # compiled by CI — which is how a broken project ships green.
+        run: |
+          missing=0
+          while IFS= read -r project; do
+            name=$(basename "$project")
+            grep -q "$name" backend/Detour.slnx || { echo "::error::$project is not in Detour.slnx"; missing=1; }
+          done < <(find backend -name '*.csproj' -not -path '*/bin/*' -not -path '*/obj/*')
+          exit $missing
+
+      - name: Build
+        run: dotnet build backend/Detour.slnx --configuration Release --no-restore
+
+      - name: Style
+        # Migrations are generated; their formatting is the generator's business.
+        run: dotnet format style backend/Detour.slnx --severity info --verify-no-changes --exclude '**/Migrations/**'
+
+      - name: Domain tests
+        run: dotnet test backend/Detour/Detour.Domain.Tests --configuration Release --no-build --logger 'console;verbosity=minimal'
+
+      - name: Integration tests
+        # Testcontainers starts a real Postgres. The InMemory provider cannot reproduce
+        # citext comparison, jsonb, snake_case naming or a unique-index violation, which
+        # is most of what these cover.
+        run: dotnet test backend/Detour/Detour.InfraTests --configuration Release --no-build --logger 'console;verbosity=minimal'
+
+      - name: The checked-in migration matches the model
+        # A model change without a migration passes every test that does not touch the
+        # schema, then fails on the first deploy.
+        #
+        # Run from backend/, which is where dotnet-tools.json lives: a local tool is
+        # only on the path for commands invoked inside the directory that declares it,
+        # so from the repository root this failed with "dotnet-dotnet-ef does not exist"
+        # whatever the model looked like — which is how the step stayed red.
+        working-directory: backend
+        run: |
+          dotnet tool restore
+          dotnet dotnet-ef migrations has-pending-model-changes \
+            --project Detour/Detour.Database \
+            --startup-project Detour/Detour.Database

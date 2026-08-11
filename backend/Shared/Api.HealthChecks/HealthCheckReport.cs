@@ -27,7 +27,7 @@ public record HealthCheckReport(
             if (entry.Data.TryGetValue(ChildServiceHealthCheck.ChildReportKey, out var obj)
                 && obj is HealthCheckReport childReport)
             {
-                children ??= new();
+                children ??= [];
                 children[key] = childReport;
             }
         }
