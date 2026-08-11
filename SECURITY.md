@@ -17,7 +17,7 @@ allows — this isn't a company with an SLA, but reports are taken seriously.
 
 In scope:
 
-- **The sync server** (`server/sync/sync_server.py`) — authentication, token
+- **The sync and social service** (`backend/`) — token validation, authorisation,
   handling, per-user data isolation, the friends privacy boundary (friends
   may see totals/badges, never trips or traces), rate limiting, SQL
   injection, anything that could leak or corrupt another user's data.

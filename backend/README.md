@@ -1,6 +1,6 @@
 # Detour backend
 
-The .NET replacement for `server/sync/sync_server.py`. One service, one database,
+The sync and social service. One service, one database,
 one identity provider.
 
 - **What it must do:** [docs/rewrite/BACKEND_FUNCTIONAL_SPEC.md](../docs/rewrite/BACKEND_FUNCTIONAL_SPEC.md)

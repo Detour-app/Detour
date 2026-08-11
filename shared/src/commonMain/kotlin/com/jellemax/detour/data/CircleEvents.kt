@@ -9,7 +9,7 @@ import kotlinx.serialization.json.put
 
 /** One arrive/depart record, as `GET /circles/{id}/events` returns it —
  *  includes the caller's own arrivals, not just other members' (the design
- *  doc makes that a requirement, see `do_circle_events`). [placeName] is
+ *  doc makes that a requirement). [placeName] is
  *  looked up server-side from `circle_places` at read time, not stored with
  *  the event itself — it can be "" if the place was since unshared. */
 data class PlaceEvent(
@@ -81,7 +81,7 @@ internal fun placeEventFromJson(e: JsonObject): PlaceEvent = PlaceEvent(
 )
 
 /** Parses a `{"type": "place_event", ...}` live relay frame (see the "group
- *  live relay" protocol comment in sync_server.py) into a [RelayPlaceEvent],
+ *  live relay" protocol in docs/CIRCLES_AND_CONVOYS.md) into a [RelayPlaceEvent],
  *  or null when it isn't one — wrong `type`, or a required field missing or
  *  not the type it claims to be. The relay frame carries no `id` (nothing
  *  server-side needs to address one live frame individually the way a

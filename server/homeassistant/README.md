@@ -1,28 +1,31 @@
 # Detour in Home Assistant
 
 Lifetime totals, badges and your recent rides as Home Assistant entities, read
-from the sync server's `/ha/*` endpoints. Those are read-only and authenticate
-with a dashboard API key, so no login token ever lands in your HA config.
+from the service's `/api/dashboard/*` endpoints. Those are read-only and
+authenticate with a dashboard API key, so no rider session ever lands in your HA
+config — a key can only ever read its own owner's data.
 
 ## 1. Mint a key
 
-On the sync server:
+Signed in as yourself, ask the API for one:
 
 ```
-cd /opt/detour-sync
-DATA_DIR=/var/lib/detour-sync python3 sync_server.py --api-key <username> home-assistant
+curl -X POST https://your-server.example/api/me/api-keys \
+  -H "Authorization: Bearer <your access token>" \
+  -H 'Content-Type: application/json' \
+  -d '{"label": "home-assistant"}'
 ```
 
-It prints the key once — only its hash is stored. `--revoke-keys <username>`
-drops every dashboard key for that user if one leaks.
+It comes back once — only its hash is stored. `GET /api/me/api-keys` lists what
+you have issued, and `DELETE /api/me/api-keys/{id}` revokes one that leaks.
 
 ## 2. Add secrets
 
 In `config/secrets.yaml`:
 
 ```yaml
-detour_stats_url: https://your-sync-server.example/ha/stats
-detour_rides_url: https://your-sync-server.example/ha/rides
+detour_stats_url: https://your-server.example/api/dashboard/stats
+detour_rides_url: https://your-server.example/api/dashboard/rides
 detour_key: <the key from step 1>
 # Only if the server sits behind Cloudflare Access — the same service token
 # the app uses for the routing server works here:
@@ -61,7 +64,7 @@ appear under `sensor.map_roulette_*`.
 | `sensor.map_roulette_last_ride_duration` / `_average_speed` | Derived from the attributes above |
 | `sensor.map_roulette_recent_rides` | Count of the fetched page; the ride list is an attribute |
 
-Both endpoints are polled every 5 minutes; `/ha/rides` fetches the newest 25
+Both endpoints are polled every 5 minutes; `/api/dashboard/rides` fetches the newest 25
 (raise `params: limit:` up to 200).
 
 ## 4. The dashboard
@@ -107,65 +110,27 @@ content: >-
   {% endfor %}
 ```
 
-The last ride's track, coloured by lean angle:
-
-```yaml
-type: iframe
-url: https://your-sync-server.example/ha/ride.html?key=YOUR_KEY
-aspect_ratio: 75%
-```
-
-An iframe cannot send a header, so the map URL carries the key as a query
-parameter — which means it sits in your dashboard config. It is read-only and
-scoped to your rides, but treat that dashboard as sensitive, and revoke the key
-if you share screenshots of the raw config. Append `&start=<startMs>` to pin the
-card to one specific ride instead of the newest.
-
-**Behind Cloudflare Access, the iframe card will not load**: the browser can't
-send the service-token headers, so Access answers with its login page instead of
-the map. The REST sensors are unaffected (they do send the headers). Two ways
-round it, both on your side:
-
-- add a Cloudflare Access *bypass* policy for the `/ha/ride.html` path on that
-  hostname — the API key still gates the data; or
-- reach the sync server directly on your LAN instead of through the tunnel (see
-  below), which also gets Home Assistant off the tunnel for the sensors.
+The last ride's track: **temporarily unavailable.** The card was an iframe onto a
+map page the old server rendered itself; the service that replaced it serves ride
+geometry as JSON (`/api/dashboard/rides/track`) and renders nothing, so there is
+no URL to point an iframe at. Rebuilding the card on top of that endpoint — with
+a template or a custom card that draws the coordinates — is the open piece of
+work here. The rest of the dashboard is unaffected.
 
 ## 6. Optional: skip the tunnel on your LAN
 
-The server listens on `127.0.0.1:8790` by default. To let Home Assistant talk to
-it directly, drop a systemd override in:
-
-```
-# /etc/systemd/system/detour-sync.service.d/lan.conf
-[Service]
-Environment=HOST=0.0.0.0
-```
-
-then `systemctl daemon-reload && systemctl restart detour-sync`. A drop-in
-survives a re-run of `install.sh` (which rewrites the unit file itself, so
-editing `HOST=` there would not) — except with `--open-registration`, which
-deletes the whole `.service.d` directory. `SYNC_BIND=0.0.0.0 bash install.sh`
-does the same thing from the installer and always sticks.
-
-Point the
-secrets at the LAN address and drop the two `CF-Access-*` header lines from both
-`rest:` blocks in `detour.yaml`:
+Point the secrets at wherever the service listens on your network and drop the
+two `CF-Access-*` header lines from both `rest:` blocks in `detour.yaml`:
 
 ```yaml
-detour_stats_url: http://192.168.0.8:8790/ha/stats
-detour_rides_url: http://192.168.0.8:8790/ha/rides
+detour_stats_url: http://192.168.0.8:7500/api/dashboard/stats
+detour_rides_url: http://192.168.0.8:7500/api/dashboard/rides
 ```
 
-The iframe card then works too, at `http://192.168.0.8:8790/ha/ride.html?key=…`.
-
-Two things this changes. Every host on the LAN can now reach the API — still
-key-gated for `/ha/*`, and login/register still need credentials, but they are
-reachable where before only the tunnel was. And if the unit sets
-`TRUST_CF_HEADER=1` (correct while the only way in was Cloudflare), a LAN client
-can now send its own `CF-Connecting-IP` and get a fresh rate-limit bucket per
-guess on `/login`. Keep the port off any WAN port-forward, and use a real
-password.
+What that changes: every host on the LAN can reach the API. Reads still need a
+dashboard key and still only ever return that key's owner's data, and everything
+else needs a token from the realm — but it is reachable where before only the
+tunnel was. Keep the port off any WAN port-forward.
 
 ## Notes
 
@@ -175,3 +140,11 @@ password.
 - `rideCount` counts what the server actually stores, which is what the ride
   list can drill into; `stats.tripCount` is the phone's own count. They agree
   once a sync has completed.
+
+## Where the older notes went
+
+`docs/HOME_ASSISTANT_RIDES.md` and `docs/HOME_ASSISTANT_HEATMAP.md` documented
+the `/ha/*` endpoints of the server this one replaced, and a proposal to add a
+heatmap endpoint to it. Both are gone: this file is the install guide, and the
+service's own read-only surface — stats, rides, ride geometry, traces and
+coverage — is documented with the API in [`backend/`](../../backend/README.md).

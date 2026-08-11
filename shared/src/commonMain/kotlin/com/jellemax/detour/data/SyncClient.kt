@@ -6,7 +6,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * Bidirectional sync with the rider's own server (see server/INSTALL.md). One
+ * Bidirectional sync with the rider's own server (see backend/README.md). One
  * POST uploads local trips, fog-of-war traces, badges and the aggregate stats
  * friends are allowed to see; the server merges them with its copy and returns
  * the union, which replaces the local stores. Deleting and reinstalling the app

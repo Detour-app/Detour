@@ -2,7 +2,7 @@
 
 ## Done: real routing engine for Moto round trips
 
-Shipped. Self-hosted GraphHopper (`server/install.sh`, `server/INSTALL.md`) with a
+Shipped. Self-hosted GraphHopper with a
 `moto` profile weighted on the built-in `curvature` encoded value, `round_trip`
 loops from `RoutingServer.roundTrip`, and in-app turn-by-turn (`NavEngine.kt`,
 `car/NavScreen.kt`) — the Google Maps handoff this file once planned around is

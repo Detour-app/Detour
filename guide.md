@@ -16,7 +16,7 @@ It is written for an AI coding assistant to execute one task at a time.
    fails, fix your change or revert it — never commit red.
    - App changes: `./gradlew :app:assembleDebug` must succeed.
    - Wear changes: `./gradlew :wear:assembleDebug` must succeed.
-   - Server changes: `python3 -m py_compile server/sync/sync_server.py` must succeed.
+   - Backend changes: `dotnet build backend/Detour.slnx` and both test suites must pass.
 5. **Do not upgrade any dependency version** unless a task says to. In particular
    MapLibre stays pinned at 11.8.0 (Kotlin 2.0 compatibility).
 6. **Tasks marked [HUMAN] need something only the repo owner can do** (create a
@@ -32,150 +32,11 @@ Commit messages: conventional commits, subject ≤ 50 chars, end body with nothi
 
 ## Phase 1 — sync server hardening
 
-Small Python diffs, each independently testable. File for all of Phase 1:
-`server/sync/sync_server.py`.
-
-### Task 1.1 — roll back failed write transactions
-
-**Problem** (audit 1.3): handlers raise `HttpError` between `conn.execute` and
-`conn.commit()` (e.g. `do_sync`'s "trip missing startTimeMs"). Connections are
-per-thread and long-lived; the open transaction's partial writes are committed by
-the *next* request on that thread.
-
-**Change**: in every function that writes inside `with _write_lock:` —
-`issue_token`, `do_register`, `do_logout`, `do_sync`, `do_friend_request`,
-`do_friend_respond`, `do_friend_remove`, `mint_api_key`, `backfill_points` —
-wrap the connection use so failure rolls back. Use sqlite3's context manager,
-which commits on success and rolls back on exception:
-
-```python
-with _write_lock:
-    conn = db()
-    with conn:                    # commits on success, rolls back on exception
-        conn.execute(...)
-        ...
-```
-
-Remove the now-redundant explicit `conn.commit()` inside those blocks. Do NOT
-change `init_db` or read-only functions.
-
-Additionally, in `do_sync`, validate **all** trips and saved places **before**
-inserting any: first loop over `trips_in` and `places_in` raising `HttpError` on
-bad entries, then loop again to insert. This makes `/sync` all-or-nothing.
-
-**Verify**: `python3 -m py_compile server/sync/sync_server.py`. Then run the server
-locally (`DATA_DIR=/tmp/mrtest python3 server/sync/sync_server.py` in background),
-register a user with curl, POST a `/sync` body where the *second* trip is missing
-`startTimeMs`, confirm the response is 400 AND a follow-up `/sync` with `{}` body
-returns zero trips (nothing was half-committed). Kill the server.
-
-**Commit**: `fix(server): roll back failed write transactions`
-
-### Task 1.2 — only trust CF-Connecting-IP behind a proxy
-
-**Problem** (audit 1.4): `Handler.client_ip()` prefers the spoofable
-`CF-Connecting-IP` header, so rate limiting is bypassable when the server is not
-actually behind Cloudflare.
-
-**Change**: add near the other env config:
-
-```python
-# Only trust the Cloudflare header when explicitly deployed behind the tunnel;
-# otherwise any client could spoof it and reset the rate limiter per request.
-TRUST_CF_HEADER = os.environ.get("TRUST_CF_HEADER", "0") == "1"
-```
-
-In `client_ip()`: return the header only `if TRUST_CF_HEADER`, else
-`self.address_string()`. Then update `server/INSTALL.md`: find where the sync
-service/env is documented and note that `TRUST_CF_HEADER=1` must be set when the
-server sits behind the Cloudflare tunnel. Also add `Environment=TRUST_CF_HEADER=1`
-to the systemd unit written by `server/install.sh` (search it for the existing
-`Environment=` lines for the sync service and add alongside — the installer's
-documented topology is behind the tunnel, so 1 is correct there).
-
-**Verify**: py_compile; grep INSTALL.md and install.sh to confirm both mention
-`TRUST_CF_HEADER`.
-
-**Commit**: `fix(server): gate CF-Connecting-IP trust behind env flag`
-
-### Task 1.3 — token expiry, last-used tracking, revocation CLI
-
-**Problem** (audit 1.5): bearer tokens live forever; `last_used_ms` is never
-updated; API keys can't be revoked.
-
-**Change**:
-1. Add `TOKEN_MAX_IDLE_MS = int(os.environ.get("TOKEN_MAX_IDLE_DAYS", "90")) * 86400 * 1000`.
-2. In `authenticate()`: after a successful lookup, reject the token with
-   `HttpError(401, "token expired")` if `now_ms() - row_last_used > TOKEN_MAX_IDLE_MS`
-   — you will need to select `t.last_used_ms` in the JOIN query. On success,
-   update `tokens.last_used_ms` to now. Throttle the write: only update when the
-   stored value is more than an hour old, so every request doesn't cost a write.
-   (Use the Task 1.1 `with conn:` pattern under `_write_lock` for the update.)
-3. On startup (in `__main__` after `init_db()`), delete tokens idle beyond the
-   limit: one `DELETE FROM tokens WHERE last_used_ms < ?`.
-4. Add CLI commands, following the existing `--api-key` pattern exactly:
-   - `--revoke-keys USER` → delete all rows in `api_keys` for that user, print count.
-   - `--revoke-tokens USER` → delete all rows in `tokens` for that user, print count.
-   Update the module docstring's CLI section to list them.
-
-**Verify**: py_compile; run server against a temp DATA_DIR, register, confirm
-`/me` works, run `--revoke-tokens` for the user, confirm `/me` now returns 401.
-
-**Commit**: `feat(server): token expiry and revocation CLI`
-
-### Task 1.4 — registration closed by default
-
-**Problem** (audit 1.8): server default is open registration; installer default is
-closed. Fail closed everywhere.
-
-**Change**: flip the default: `REGISTRATION_OPEN = os.environ.get("REGISTRATION_OPEN", "0") != "0"`,
-BUT keep one escape hatch: if there are zero rows in `users` at startup, print a
-prominent hint that registration is closed and how to open it
-(`REGISTRATION_OPEN=1` or `INVITE_CODE=...`). Update the module docstring and
-`server/INSTALL.md` accordingly. Check `server/install.sh`: it must now *set*
-`REGISTRATION_OPEN=1` in the unit when `--open-registration` was passed (it likely
-already does — verify) and needs no change otherwise.
-
-**Verify**: py_compile; start server with no env → POST `/auth/register` returns
-403; with `REGISTRATION_OPEN=1` → succeeds.
-
-**Commit**: `fix(server): close registration by default`
-
-### Task 1.5 — escape `</script>` in ride.html + gzip sync responses
-
-**Change A** (audit 1.7): in `ha_ride_html`, replace
-`json.dumps(geo)` with `json.dumps(geo).replace("</", "<\\/")`.
-
-**Change B** (audit 3.2, first step): compress JSON replies when the client asks.
-In `_json`/`_reply`: if the request's `Accept-Encoding` header contains `gzip`
-and the body is over ~1 KB, gzip it (`gzip.compress(body)`), and send
-`Content-Encoding: gzip`. The Android client already sends `Accept-Encoding: gzip`
-and already decodes gzip responses (`Api.decode`), so no app change is needed.
-Also accept gzip **request** bodies: in `_body()`, if `Content-Type` header
-`Content-Encoding` is `gzip`, decompress before `json.loads`. (The app upload
-side is Task 2.6.)
-
-**Verify**: py_compile; curl `/health` normally; curl an authed `/sync` with
-`-H "Accept-Encoding: gzip"` and confirm the response is gzipped
-(`curl --compressed` succeeds).
-
-**Commit**: `feat(server): gzip bodies, escape ride.html JSON`
-
-### Task 1.6 — cap ride window at the next trip
-
-**Problem** (audit 3.3): a trip without `endTimeMs` gets a 24 h window and swallows
-the next ride's points.
-
-**Change**: in `ride_window()` (and the same fallback inside `ha_rides()`), when
-`end` falls back to `start + 24h`, first query
-`SELECT MIN(start_ms) AS n FROM trips WHERE user_id = ? AND start_ms > ?`; if a
-next trip exists, use `min(next_start - 1, start + 24h)` as the end.
-
-**Verify**: py_compile.
-
-**Commit**: `fix(server): cap open ride window at next trip`
-
----
+Dropped. Every finding here was against a backend that no longer exists: the
+service was rebuilt in .NET (`backend/`) with identity moved to Keycloak, which
+answers the whole phase — rate limiting, registration defaulting closed, the
+proxy-header trust question and the mid-merge error handling are all properties
+of the new service, covered by its own tests.
 
 ## Phase 2 — Android app: security & correctness
 
@@ -472,7 +333,7 @@ build (nothing referenced the directory).
 
 ### Task 4.2 — consolidate server docs
 
-**Change** (audit 6.3): keep `server/INSTALL.md` as the single entry point.
+**Change** (audit 6.3): keep `backend/README.md` as the single entry point.
 - Read all five `server/*_GUIDE.md` files. Fold any still-true, non-duplicated
   content into `INSTALL.md` (short sections; link, don't paste, where INSTALL.md
   already covers it).
@@ -540,7 +401,7 @@ any reference to a deleted file.
 ## Task completion checklist (repeat every task)
 
 - [ ] Only listed files touched
-- [ ] Build/py_compile green
+- [ ] Build green
 - [ ] Task's own Verify steps done
 - [ ] Existing comments preserved
 - [ ] One commit, given message

@@ -114,7 +114,7 @@ class GroupsTest {
     @Test
     fun placeEventDefaultsPlaceNameToEmptyWhenTheServerOmitsIt() {
         // A pre-phase-1 style response, or a placeId whose circle_places row
-        // has since been deleted - do_circle_events sends "" in that case,
+        // has since been deleted - the service sends "" in that case,
         // but a client parsing an older cached payload might not have the
         // key at all.
         val json = buildJsonObject {
