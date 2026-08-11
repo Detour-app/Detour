@@ -52,7 +52,7 @@ class ConvoyLiveService : Service() {
                 context, Manifest.permission.RECORD_AUDIO,
             ) == PackageManager.PERMISSION_GRANTED
 
-        fun start(context: Context, convoyId: Int) {
+        fun start(context: Context, convoyId: String) {
             if (!canStart(context)) return
             ContextCompat.startForegroundService(
                 context,
@@ -111,7 +111,7 @@ class ConvoyLiveService : Service() {
             return START_NOT_STICKY
         }
 
-        val convoyId = intent?.getIntExtra(EXTRA_CONVOY_ID, -1)?.takeIf { it >= 0 }
+        val convoyId = intent?.getStringExtra(EXTRA_CONVOY_ID)?.takeIf { it.isNotBlank() }
         if (convoyId != null) {
             // Idempotent: join() no-ops if already on this convoy, and
             // switches cleanly if a different one was passed - so a second

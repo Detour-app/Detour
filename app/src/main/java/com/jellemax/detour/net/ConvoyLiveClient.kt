@@ -3,6 +3,7 @@ package com.jellemax.detour.net
 import android.content.Context
 import android.util.Base64
 import com.jellemax.detour.BuildConfig
+import com.jellemax.detour.data.Auth
 import com.jellemax.detour.data.RelayPlaceEvent
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
@@ -130,13 +131,13 @@ object ConvoyLiveClient {
     @Volatile private var socket: WebSocket? = null
     @Volatile private var lastLocationSentMs = 0L
 
-    private val _activeConvoyId = MutableStateFlow<Int?>(null)
+    private val _activeConvoyId = MutableStateFlow<String?>(null)
     /** The convoy this device is currently trying to stay connected to, or
      *  null when not joined. UI (FriendsScreen) should derive its "am I
      *  live" state from this, not from its own local toggle state - a
      *  screen that's been left and come back must show what's actually
      *  running, not what a `remember{}` last thought it set. */
-    val activeConvoyId: StateFlow<Int?> = _activeConvoyId
+    val activeConvoyId: StateFlow<String?> = _activeConvoyId
 
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected
@@ -186,7 +187,7 @@ object ConvoyLiveClient {
      *  notifications off just drops it from this set; the socket may stay
      *  joined to it server-side until the next reconnect, but nothing here
      *  acts on its frames once it's gone. */
-    private val _notifyCircleIds = MutableStateFlow<Set<Int>>(emptySet())
+    private val _notifyCircleIds = MutableStateFlow<Set<String>>(emptySet())
 
     private val _placeEvents = MutableSharedFlow<RelayPlaceEvent>(
         extraBufferCapacity = 16,
@@ -226,7 +227,7 @@ object ConvoyLiveClient {
      *  again with a different id to switch convoys - a full teardown/reopen
      *  either way, so a peer of the old convoy sees a proper "left" rather
      *  than a member who just goes quiet. */
-    fun join(context: Context, convoyId: Int) {
+    fun join(context: Context, convoyId: String) {
         if (_activeConvoyId.value == convoyId && scope != null) return
         appContext = context.applicationContext
         if (liveUrl(context).isBlank()) {
@@ -272,7 +273,7 @@ object ConvoyLiveClient {
      *  calls this whether or not a convoy is running, and the connection
      *  stays open for it even after a convoy is left, or starts for this
      *  alone when no convoy is active. */
-    fun setNotifyCircles(context: Context, circleIds: Set<Int>) {
+    fun setNotifyCircles(context: Context, circleIds: Set<String>) {
         if (_notifyCircleIds.value == circleIds) return
         appContext = context.applicationContext
         _notifyCircleIds.value = circleIds
@@ -426,7 +427,7 @@ object ConvoyLiveClient {
         }
     }
 
-    private fun sendJoin(webSocket: WebSocket, groupId: Int) {
+    private fun sendJoin(webSocket: WebSocket, groupId: String) {
         webSocket.send(JSONObject().put("type", "join").put("groupId", groupId).toString())
     }
 
@@ -435,7 +436,15 @@ object ConvoyLiveClient {
     private suspend fun connectAndAwaitClose(): Boolean {
         val context = appContext ?: return false
         val liveUrl = liveUrl(context)
-        val token = Settings.authToken.value
+        // The same access token every API request carries — one credential for the
+        // rider, wherever it is presented. The relay is the one surface the
+        // rewrite has not reached yet, so it is still the legacy server that has
+        // to start accepting these.
+        val token = try {
+            Auth.bearer()
+        } catch (e: Exception) {
+            ""
+        }
         if (liveUrl.isBlank() || token.isBlank()) {
             _lastError.value = if (liveUrl.isBlank()) "No live server configured" else "Not signed in"
             return false

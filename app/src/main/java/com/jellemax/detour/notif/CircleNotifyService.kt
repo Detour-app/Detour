@@ -179,7 +179,7 @@ class CircleNotifyService : Service() {
         }
     }
 
-    private suspend fun catchUp(circleId: Int) {
+    private suspend fun catchUp(circleId: String) {
         try {
             val since = CircleEvents.lastSeenEventTsMs(circleId)
             val events = CircleEvents.events(circleId, since)

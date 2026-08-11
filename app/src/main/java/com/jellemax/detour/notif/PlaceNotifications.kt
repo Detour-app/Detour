@@ -16,16 +16,15 @@ import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Circle id a tapped arrival/departure notification wants the app to open,
- * consumed once by AppRoot. The app-local equivalent of
- * [com.jellemax.detour.data.PendingReset]'s deep-link pattern - that one
- * lives in shared/ because iOS needs it too for its own reset link; this one
- * is Android notification plumbing only, so it stays here.
+ * consumed once by AppRoot. The same one-shot deep-link shape the sign-in
+ * redirect uses (see [com.jellemax.detour.auth.PendingSignIn]), but this is
+ * Android notification plumbing only, so it stays here.
  */
 object PendingCircleOpen {
-    private val _circleId = MutableStateFlow<Int?>(null)
-    val circleId: StateFlow<Int?> = _circleId
+    private val _circleId = MutableStateFlow<String?>(null)
+    val circleId: StateFlow<String?> = _circleId
 
-    fun offer(id: Int) {
+    fun offer(id: String) {
         _circleId.value = id
     }
 
@@ -94,24 +93,24 @@ object PlaceNotifications {
 
     /** Reads a tapped notification's target circle, if any, into
      *  [PendingCircleOpen] - call from MainActivity's onCreate (its intent)
-     *  and onNewIntent, same as it already does for a password-reset link. */
+     *  and onNewIntent, same as it already does for the sign-in redirect. */
     fun takeOpenCircleId(intent: Intent?) {
-        val id = intent?.getIntExtra(EXTRA_OPEN_CIRCLE_ID, -1)?.takeIf { it >= 0 } ?: return
+        val id = intent?.getStringExtra(EXTRA_OPEN_CIRCLE_ID)?.takeIf { it.isNotBlank() } ?: return
         PendingCircleOpen.offer(id)
     }
 
-    fun notify(context: Context, groupId: Int, event: PlaceEvent) {
+    fun notify(context: Context, groupId: String, event: PlaceEvent) {
         show(context, groupId, notificationIdFor(groupId, event.tsMs, event.username), event.notificationText())
     }
 
-    fun notifySummary(context: Context, groupId: Int, collapsedCount: Int) {
+    fun notifySummary(context: Context, groupId: String, collapsedCount: Int) {
         show(
             context, groupId, notificationIdFor(groupId, 0L, "__summary__"),
             catchUpSummaryText(collapsedCount),
         )
     }
 
-    private fun show(context: Context, groupId: Int, id: Int, text: String) {
+    private fun show(context: Context, groupId: String, id: Int, text: String) {
         val openIntent = Intent(context, MainActivity::class.java)
             .putExtra(EXTRA_OPEN_CIRCLE_ID, groupId)
             .setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -131,7 +130,7 @@ object PlaceNotifications {
     /** Stable per-event id, so a repeat delivery (a reconnect re-fetching a
      *  catch-up window it already handled) updates the same notification
      *  instead of stacking a duplicate. Can't use [PlaceEvent.id] - the live
-     *  relay path's is always 0 (see RelayPlaceEvent's doc in shared/). */
-    private fun notificationIdFor(groupId: Int, tsMs: Long, salt: String): Int =
-        (groupId.toString() + tsMs.toString() + salt).hashCode()
+     *  relay path's is always blank (see RelayPlaceEvent's doc in shared/). */
+    private fun notificationIdFor(groupId: String, tsMs: Long, salt: String): Int =
+        (groupId + tsMs.toString() + salt).hashCode()
 }

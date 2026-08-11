@@ -106,6 +106,11 @@ internal fun JsonArray.arrays(): List<JsonArray> = filterIsInstance<JsonArray>()
 internal fun buildJsonArrayOfStrings(values: List<String>): JsonArray =
     JsonArray(values.map { JsonPrimitive(it) })
 
+/** A JSON array of numbers, for the deleted-trip start instants the sync
+ *  payload carries. */
+internal fun buildJsonArrayOfLongs(values: Collection<Long>): JsonArray =
+    JsonArray(values.map { JsonPrimitive(it) })
+
 /** Stand-in for a missing array, so callers can keep reading positionally
  *  instead of branching on null at every access. */
 internal val JsonArrayEmpty = JsonArray(emptyList())

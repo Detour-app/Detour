@@ -28,6 +28,19 @@ val serverUrl = routingCfg("server.url", "SERVER_URL").trimEnd('/')
 fun serviceUrl(propKey: String, envKey: String): String =
     routingCfg(propKey, envKey).ifBlank { serverUrl }
 
+// The sync + social API serves everything under /api. Deliberately *not*
+// defaulted to `serverUrl`: the path routing above already hands /api to
+// Photon, so this service needs a hostname of its own (or an ingress rule ahead
+// of that one), and quietly pointing it at the geocoder would surface as
+// unparseable JSON rather than as "not configured".
+val apiUrl = routingCfg("api.url", "API_URL").trimEnd('/')
+
+// The realm that issues rider tokens, e.g.
+// https://idp.example.com/realms/detour. Blank means signing in is impossible
+// and every social feature behaves as it does when signed out — which is what a
+// CI build with no secrets wants.
+val idpIssuer = routingCfg("idp.issuer", "IDP_ISSUER").trimEnd('/')
+
 // The relay is the one service that can't just take the base as-is: it's a
 // WebSocket, and it lives on the path the ingress rule matches.
 fun liveUrl(): String {
@@ -65,6 +78,8 @@ android {
             "\"${routingCfg("routing.cfId", "ROUTING_CF_ID")}\"")
         buildConfigField("String", "ROUTING_CF_SECRET",
             "\"${routingCfg("routing.cfSecret", "ROUTING_CF_SECRET")}\"")
+        buildConfigField("String", "API_URL", "\"$apiUrl\"")
+        buildConfigField("String", "IDP_ISSUER", "\"$idpIssuer\"")
         buildConfigField("String", "SYNC_URL",
             "\"${serviceUrl("sync.url", "SYNC_SERVER_URL")}\"")
         buildConfigField("String", "GEOCODER_URL",
@@ -139,6 +154,11 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.core:core-ktx:1.13.1")
+    // Custom Tabs, for the sign-in leg. A native app must not put the identity
+    // provider's login form in a WebView (RFC 8252): a tab keeps the address bar
+    // and the browser's own session, so the user can see who they are typing a
+    // password into and does not type it again on the next device.
+    implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("org.maplibre.gl:android-sdk:11.8.0")

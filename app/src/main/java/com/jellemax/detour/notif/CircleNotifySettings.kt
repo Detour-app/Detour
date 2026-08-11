@@ -21,9 +21,9 @@ object CircleNotifySettings {
 
     /** Default on, matching both this phase's spec and the circle's own
      *  "Share my location" switch. */
-    fun notifyEnabled(circleId: Int): Boolean = Settings.notifyArrivals(circleId)
+    fun notifyEnabled(circleId: String): Boolean = Settings.notifyArrivals(circleId)
 
-    fun setNotifyEnabled(circleId: Int, enabled: Boolean) {
+    fun setNotifyEnabled(circleId: String, enabled: Boolean) {
         Settings.setNotifyArrivals(circleId, enabled)
     }
 

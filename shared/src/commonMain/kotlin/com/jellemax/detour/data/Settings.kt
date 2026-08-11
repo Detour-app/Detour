@@ -108,9 +108,20 @@ object Settings {
     private val _geocoderPublicFallback = MutableStateFlow(true)
     val geocoderPublicFallback: StateFlow<Boolean> = _geocoderPublicFallback
 
-    /** Bearer token for the sync server; blank = signed out. App-private prefs. */
-    private val _authToken = MutableStateFlow("")
-    val authToken: StateFlow<String> = _authToken
+    /** The identity provider's access token — short-lived (15 minutes), sent on
+     *  every API request. Also blank between refreshes, so it is [refreshToken]
+     *  that answers "is there a session at all". */
+    private val _accessToken = MutableStateFlow("")
+    val accessToken: StateFlow<String> = _accessToken
+
+    /** The session itself: good for as long as it keeps being used inside the
+     *  realm's 90-day idle horizon. Blank = signed out. App-private prefs. */
+    private val _refreshToken = MutableStateFlow("")
+    val refreshToken: StateFlow<String> = _refreshToken
+
+    /** When [accessToken] stops being accepted, as an epoch millisecond. */
+    private val _accessTokenExpiresAtMs = MutableStateFlow(0L)
+    val accessTokenExpiresAtMs: StateFlow<Long> = _accessTokenExpiresAtMs
 
     private val _authUsername = MutableStateFlow("")
     val authUsername: StateFlow<String> = _authUsername
@@ -157,7 +168,9 @@ object Settings {
         _fogRadiusMeters.value = prefs.float("fog_radius_m", FOG_RADIUS_DEFAULT)
         _defaultZoom.value = prefs.float("default_zoom", DEFAULT_ZOOM_DEFAULT)
         _geocoderPublicFallback.value = prefs.bool("geocoder_public_fallback", true)
-        _authToken.value = prefs.string("auth_token")
+        _accessToken.value = prefs.string("access_token")
+        _refreshToken.value = prefs.string("refresh_token")
+        _accessTokenExpiresAtMs.value = prefs.long("access_token_expires_at", 0L)
         _authUsername.value = prefs.string("auth_username")
         _leanOffsetDeg.value = prefs.float("lean_offset_deg", 0f)
         _voiceGuidance.value = prefs.bool("voice_guidance", true)
@@ -215,10 +228,22 @@ object Settings {
         prefs.put("vehicle_devices", json.string())
     }
 
-    fun setAuth(token: String, username: String) {
-        _authToken.value = token
+    /** Writes the whole session at once — the three token fields are only ever
+     *  meaningful together, and a half-written pair is a session that either
+     *  cannot be used or cannot be refreshed. See [Auth]. */
+    fun setSession(
+        accessToken: String,
+        refreshToken: String,
+        expiresAtMs: Long,
+        username: String,
+    ) {
+        _accessToken.value = accessToken
+        _refreshToken.value = refreshToken
+        _accessTokenExpiresAtMs.value = expiresAtMs
         _authUsername.value = username
-        prefs.put("auth_token", token)
+        prefs.put("access_token", accessToken)
+        prefs.put("refresh_token", refreshToken)
+        prefs.put("access_token_expires_at", expiresAtMs)
         prefs.put("auth_username", username)
     }
 
@@ -309,9 +334,9 @@ object Settings {
      *  keyed rather than a StateFlow like everything else here: there's no
      *  fixed, small set of circles the way there is a fixed set of
      *  settings, so a flow per circle would never stop growing. */
-    fun lastSeenEventTsMs(circleId: Int): Long = prefs.long("place_event_last_seen_$circleId", 0L)
+    fun lastSeenEventTsMs(circleId: String): Long = prefs.long("place_event_last_seen_$circleId", 0L)
 
-    fun setLastSeenEventTsMs(circleId: Int, tsMs: Long) {
+    fun setLastSeenEventTsMs(circleId: String, tsMs: Long) {
         prefs.put("place_event_last_seen_$circleId", tsMs)
     }
 
@@ -323,9 +348,9 @@ object Settings {
      *  switch next to it) define the setting for both apps instead of two
      *  spellings that only look the same. Dynamically keyed for the same
      *  reason as [lastSeenEventTsMs] above. */
-    fun notifyArrivals(circleId: Int): Boolean = prefs.bool("notify_arrivals_$circleId", true)
+    fun notifyArrivals(circleId: String): Boolean = prefs.bool("notify_arrivals_$circleId", true)
 
-    fun setNotifyArrivals(circleId: Int, on: Boolean) {
+    fun setNotifyArrivals(circleId: String, on: Boolean) {
         prefs.put("notify_arrivals_$circleId", on)
     }
 }
