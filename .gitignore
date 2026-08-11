@@ -5,9 +5,15 @@ local.properties
 *.iml
 .kotlin/
 
-# Python bytecode from the sync server
+# Python bytecode from the legacy sync server
 __pycache__/
 *.pyc
+
+# .NET build output. `build/` above already catches Gradle's, not MSBuild's.
+[Bb]in/
+[Oo]bj/
+*.user
+.vs/
 
 # Phone data pulled off the device before reinstalling (adb run-as tar)
 .backup-*/

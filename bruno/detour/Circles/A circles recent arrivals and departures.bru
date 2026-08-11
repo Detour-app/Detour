@@ -1,0 +1,31 @@
+meta {
+  name: A circle's recent arrivals and departures
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{BASE_URL}}/api/circles/:id/events?since={{since}}
+  body: none
+  auth: inherit
+}
+
+params:query {
+  since: {{since}}
+}
+
+params:path {
+  id: {{id}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Oldest first, after the given instant. Includes the caller's own — a rider's timeline is part of what a circle shows.
+
+  Responses:
+  - 200: OK
+  - 400: Bad Request
+}

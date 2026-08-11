@@ -1,0 +1,29 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Detour/">
+    <Project Path="Detour/Detour.Domain/Detour.Domain.csproj" />
+    <Project Path="Detour/Detour.Domain.Tests/Detour.Domain.Tests.csproj" />
+    <Project Path="Detour/Detour.Api/Detour.Api.csproj" />
+    <Project Path="Detour/Detour.Database/Detour.Database.csproj" />
+    <Project Path="Detour/Detour.InfraTests/Detour.InfraTests.csproj" />
+  </Folder>
+  <Folder Name="/Shared/">
+    <Project Path="Shared/Api.HealthChecks/Shared.Api.HealthChecks.csproj" />
+    <Project Path="Shared/Api.RateLimiting/Shared.Api.RateLimiting.csproj" />
+    <Project Path="Shared/Api.ResultTypeUtils/Shared.Api.ResultTypeUtils.csproj" />
+    <Project Path="Shared/Api/Shared.Api.csproj" />
+    <Project Path="Shared/Caching/Shared.Caching.csproj" />
+    <Project Path="Shared/Configuration/Shared.Configuration.csproj" />
+    <Project Path="Shared/Database/Shared.Database.csproj" />
+    <Project Path="Shared/Domain/Shared.Domain.csproj" />
+    <Project Path="Shared/Extensions/Shared.Extensions.csproj" />
+    <Project Path="Shared/Logging/Shared.Logging.csproj" />
+    <Project Path="Shared/OpenTelemetry/Shared.OpenTelemetry.csproj" />
+    <Project Path="Shared/Sse/Shared.Sse.csproj" />
+    <Project Path="Shared/Translations/Shared.Translations.csproj" />
+  </Folder>
+</Solution>

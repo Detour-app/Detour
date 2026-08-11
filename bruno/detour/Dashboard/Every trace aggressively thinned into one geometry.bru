@@ -1,0 +1,31 @@
+meta {
+  name: Every trace, aggressively thinned into one geometry
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{BASE_URL}}/api/dashboard/coverage?tolerance={{tolerance}}&max={{max}}
+  body: none
+  auth: none
+}
+
+params:query {
+  tolerance: {{tolerance}}
+  max: {{max}}
+}
+
+headers {
+  X-Api-Key: {{API_KEY}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  The entity-attribute counterpart to the traces endpoint, which is far too large for something a dashboard has to hold in state. Simplification runs per line so one long trace cannot eat the whole budget; the point budget is then a total across all lines.
+
+  Responses:
+  - 200: OK
+}

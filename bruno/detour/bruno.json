@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "Detour",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

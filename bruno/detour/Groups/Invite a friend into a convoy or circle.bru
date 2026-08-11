@@ -1,0 +1,33 @@
+meta {
+  name: Invite a friend into a convoy or circle
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{BASE_URL}}/api/groups/:id/invitations
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{id}}
+}
+
+body:json {
+  {
+    "username": ""
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Requires the caller to be an accepted member and an accepted friend of the invitee — that chain is what makes group membership granted access rather than an open room. A group the caller does not belong to answers the same way whether or not it exists.
+
+  Responses:
+  - 200: OK
+  - 400: Bad Request
+}

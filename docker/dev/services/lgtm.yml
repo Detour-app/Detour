@@ -1,0 +1,37 @@
+name: ${PROJECT_NAME:-detour-dev}
+
+services:
+  # ---------------------------------------------------------------------------
+  # Grafana LGTM — OTel collector, Loki, Grafana, Tempo and Prometheus in one
+  # container. The backend exports to :4317 over gRPC.
+  #
+  # Anonymous admin access is deliberate and local-only: this container holds no
+  # secrets and a login form on a dev observability stack is friction with no
+  # security value.
+  # ---------------------------------------------------------------------------
+  lgtm:
+    image: grafana/otel-lgtm:0.22.1
+    restart: unless-stopped
+    networks:
+      - edge
+      - detour-int
+    ports:
+      - 127.0.0.1:7440:3000 # Grafana
+      - 127.0.0.1:7441:4317 # OTLP gRPC
+      - 127.0.0.1:7442:4318 # OTLP HTTP
+    volumes:
+      - ../config/grafana/provisioning/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/detour.yaml:ro
+      - ../config/grafana/dashboards/:/var/lib/grafana/dashboards/detour/:ro
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.grafana.rule=Host(`grafana.localhost`)
+      - traefik.http.routers.grafana.service=grafana
+      - traefik.http.services.grafana.loadbalancer.server.port=3000
+
+networks:
+  edge:
+  detour-int:

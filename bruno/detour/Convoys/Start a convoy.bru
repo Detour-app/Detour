@@ -1,0 +1,29 @@
+meta {
+  name: Start a convoy
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{BASE_URL}}/api/convoys
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": ""
+  }
+}
+
+assert {
+  res.status: eq 201
+}
+
+docs {
+  A ride together. The creator joins automatically, already accepted.
+
+  Responses:
+  - 201: Created
+  - 400: Bad Request
+}

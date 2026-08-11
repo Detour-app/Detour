@@ -1,0 +1,35 @@
+meta {
+  name: Record an arrival or departure
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{BASE_URL}}/api/circles/:id/events
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{id}}
+}
+
+body:json {
+  {
+    "placeId": 0,
+    "kind": "",
+    "timestampMs": 0
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Geofences are evaluated on the device; this records the result and fans it out to the rest of the circle. The event is always attributed to the caller, so nobody can claim a transition happened to someone else.
+
+  Responses:
+  - 200: OK
+  - 400: Bad Request
+}

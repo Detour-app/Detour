@@ -1,0 +1,29 @@
+meta {
+  name: Issue a read-only dashboard key
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{BASE_URL}}/api/me/api-keys
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "label": ""
+  }
+}
+
+assert {
+  res.status: eq 201
+}
+
+docs {
+  The plaintext is returned once and never stored — only its hash is, so a database leak hands over nothing replayable. A lost key is replaced, not recovered.
+
+  Responses:
+  - 201: Created
+  - 400: Bad Request
+}

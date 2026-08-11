@@ -1,0 +1,115 @@
+{
+  "realm": "detour",
+  "enabled": true,
+  "displayName": "Detour",
+
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "verifyEmail": false,
+  "editUsernameAllowed": false,
+
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "waitIncrementSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "maxDeltaTimeSeconds": 43200,
+  "failureFactor": 10,
+
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 7776000,
+  "ssoSessionMaxLifespan": 7776000,
+  "offlineSessionIdleTimeout": 7776000,
+  "refreshTokenMaxReuse": 0,
+  "revokeRefreshToken": true,
+  "actionTokenGeneratedByUserLifespan": 3600,
+
+  "passwordPolicy": "length(8) and notUsername and passwordHistory(3)",
+
+  "roles": {
+    "realm": [
+      {
+        "name": "detour-user",
+        "description": "An ordinary rider. Everything the app does maps to this.",
+        "composite": false
+      },
+      {
+        "name": "detour-admin",
+        "description": "May manage accounts. Cannot read anyone's rides — enforced by the API having no such endpoint.",
+        "composite": false
+      }
+    ]
+  },
+
+  "defaultRole": {
+    "name": "default-roles-detour",
+    "description": "Roles every new account gets",
+    "composite": true,
+    "clientRole": false,
+    "composites": {
+      "realm": ["offline_access", "uma_authorization", "detour-user"]
+    }
+  },
+
+  "clients": [
+    {
+      "clientId": "detour-app",
+      "name": "Detour mobile app",
+      "description": "The native client. Public with PKCE.",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["detour://auth/callback", "http://localhost:*/callback"],
+      "webOrigins": ["+"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "detour://auth/signout##http://localhost:*"
+      },
+      "protocolMappers": [
+        {
+          "name": "detour-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "detour-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "detour-api",
+      "name": "Detour backend",
+      "description": "The audience the API validates. Never logged into.",
+      "enabled": true,
+      "bearerOnly": true,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
+    }
+  ],
+
+  "users": [
+    {
+      "username": "rider",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "rider@detour.local",
+      "firstName": "Dev",
+      "lastName": "Rider",
+      "credentials": [{ "type": "password", "value": "detour-dev", "temporary": false }],
+      "realmRoles": ["detour-user", "detour-admin"]
+    }
+  ]
+}

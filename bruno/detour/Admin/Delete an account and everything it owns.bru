@@ -1,0 +1,28 @@
+meta {
+  name: Delete an account and everything it owns
+  type: http
+  seq: 2
+}
+
+delete {
+  url: {{BASE_URL}}/api/admin/accounts/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{id}}
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  Trips, traces, points, shortcuts, badges, friendships, group memberships, shared routes, circle places and dashboard keys all go with it — every table referencing the account cascades. Removing the rider from Keycloak is a separate act; doing only that leaves their data here, and doing only this leaves them able to sign in and start again.
+
+  Responses:
+  - 204: No Content
+  - 400: An administrator cannot delete their own account.
+  - 404: Not Found
+}

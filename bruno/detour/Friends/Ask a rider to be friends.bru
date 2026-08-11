@@ -1,0 +1,29 @@
+meta {
+  name: Ask a rider to be friends
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{BASE_URL}}/api/friends/requests
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "username": ""
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Asking someone who already asked you accepts their request instead — otherwise two riders who each reached out would stay strangers. Asking an existing friend does nothing.
+
+  Responses:
+  - 200: OK
+  - 400: No such rider, or the caller asked themselves.
+}

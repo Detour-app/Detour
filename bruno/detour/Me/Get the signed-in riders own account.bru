@@ -1,0 +1,22 @@
+meta {
+  name: Get the signed-in rider's own account
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{BASE_URL}}/api/me
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Returns the caller's handle, address, fog-sharing preference and the aggregate numbers their device last synced. The account is created on the first request made with a token for a subject this backend has not seen before.
+
+  Responses:
+  - 200: OK
+}

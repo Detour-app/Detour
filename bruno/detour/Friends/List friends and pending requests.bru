@@ -1,0 +1,22 @@
+meta {
+  name: List friends and pending requests
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{BASE_URL}}/api/friends
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Three sets: accepted friends, requests waiting on the caller, and requests the caller sent.
+
+  Responses:
+  - 200: OK
+}

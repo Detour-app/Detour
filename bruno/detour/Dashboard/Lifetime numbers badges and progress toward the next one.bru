@@ -1,0 +1,26 @@
+meta {
+  name: Lifetime numbers, badges, and progress toward the next one
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{BASE_URL}}/api/dashboard/stats
+  body: none
+  auth: none
+}
+
+headers {
+  X-Api-Key: {{API_KEY}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  The rider's own synced figures with two corrections this backend is better placed to make: the ride count comes from the trips actually held, and the deepest lean is whichever of the recorded and reported figures is deeper — reported as null, not zero, when nothing has ever measured one.
+
+  Responses:
+  - 200: OK
+}

@@ -1,0 +1,44 @@
+name: ${PROJECT_NAME:-detour-dev}
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — the backend's own database.
+  #
+  # Keycloak deliberately gets its own instance (services/keycloak.yml) rather
+  # than a second database here: it is a separate product with its own upgrade
+  # cadence, and a restore of one must never involve the other.
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    networks:
+      - detour-int
+    ports:
+      - 127.0.0.1:7532:5432
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ../config/postgres/init:/docker-entrypoint-initdb.d:ro
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-detour}
+      # Read by the init script that creates the least-privileged application role.
+      DETOUR_DB_USER: ${DETOUR_DB_USER:-detour}
+      DETOUR_DB_PASSWORD: ${DETOUR_DB_PASSWORD:-detour}
+      TZ: ${TZ:-Europe/Brussels}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-detour}",
+        ]
+      interval: 10s
+      timeout: 30s
+      retries: 5
+      start_period: 20s
+
+networks:
+  detour-int:
+
+volumes:
+  postgres-data:

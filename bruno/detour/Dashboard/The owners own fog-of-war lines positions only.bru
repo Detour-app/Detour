@@ -1,0 +1,30 @@
+meta {
+  name: The owner's own fog-of-war lines, positions only
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{BASE_URL}}/api/dashboard/traces?every={{every}}
+  body: none
+  auth: none
+}
+
+params:query {
+  every: {{every}}
+}
+
+headers {
+  X-Api-Key: {{API_KEY}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  For a heatmap that fetches once and thins in the browser. Never another rider's lines: shared fog is a separate capability and this is not it.
+
+  Responses:
+  - 200: OK
+}

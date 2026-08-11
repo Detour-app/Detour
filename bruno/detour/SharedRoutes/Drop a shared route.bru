@@ -1,0 +1,27 @@
+meta {
+  name: Drop a shared route
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{BASE_URL}}/api/shared-routes/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{id}}
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  Either side may: the recipient clearing their inbox, or the sender un-sharing. A caller who is neither gets the same answer as one asking about a route that does not exist.
+
+  Responses:
+  - 204: No Content
+  - 404: Not Found
+}

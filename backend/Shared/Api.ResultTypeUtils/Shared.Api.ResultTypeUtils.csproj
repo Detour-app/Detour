@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="JV.ResultUtilities" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Translations\Shared.Translations.csproj" />
+  </ItemGroup>
+
+</Project>

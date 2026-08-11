@@ -1,0 +1,35 @@
+name: ${PROJECT_NAME:-detour-dev}
+
+services:
+  # ---------------------------------------------------------------------------
+  # Traefik — one origin for everything, so OIDC redirect URIs and cookie scopes
+  # behave the way they will in production instead of being localhost:port
+  # special cases.
+  # ---------------------------------------------------------------------------
+  traefik:
+    image: traefik:v3.6
+    restart: unless-stopped
+    networks:
+      - edge
+    ports:
+      - 127.0.0.1:7000:80
+      - 127.0.0.1:7090:8080
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command:
+      # Dashboard on 7090, bound to loopback only. Never do this in production.
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --ping=true
+      - --log.level=INFO
+      - --accesslog=true
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  edge:

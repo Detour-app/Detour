@@ -1,0 +1,36 @@
+meta {
+  name: Send a planned route to a friend
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{BASE_URL}}/api/shared-routes
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "to": "",
+    "route": {
+      "id": 0,
+      "name": "",
+      "stops": [
+        null
+      ]
+    }
+  }
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  The friendship is re-checked on every share, so a route cannot be pushed to someone unfriended a moment ago. Re-sharing the same route replaces the recipient's earlier copy rather than appearing twice.
+
+  Responses:
+  - 204: No Content
+  - 400: Not a friend, too few stops, or too large.
+}

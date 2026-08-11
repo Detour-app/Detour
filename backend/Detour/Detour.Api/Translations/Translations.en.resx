@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="User.NotFound" xml:space="preserve">
+    <value>No such rider.</value>
+  </data>
+  <data name="User.NotFoundByUsername" xml:space="preserve">
+    <value>No rider goes by {0}.</value>
+  </data>
+  <data name="User.UsernameRequired" xml:space="preserve">
+    <value>A handle is required.</value>
+  </data>
+  <data name="User.UsernameInvalid" xml:space="preserve">
+    <value>A handle is 3-24 characters: letters, digits, dot, underscore or hyphen.</value>
+  </data>
+  <data name="User.AlreadyExistsWithName" xml:space="preserve">
+    <value>The handle {0} is already taken.</value>
+  </data>
+  <data name="User.SubjectRequired" xml:space="preserve">
+    <value>The sign-in token carried no subject.</value>
+  </data>
+  <data name="User.EmailInvalid" xml:space="preserve">
+    <value>That does not look like an email address.</value>
+  </data>
+  <data name="Badge.IdInvalid" xml:space="preserve">
+    <value>{0} is not a badge identifier.</value>
+  </data>
+  <data name="Badge.EarnedAtInvalid" xml:space="preserve">
+    <value>A badge needs the instant it was earned.</value>
+  </data>
+  <data name="Trip.StartTimeRequired" xml:space="preserve">
+    <value>A trip needs a start time.</value>
+  </data>
+  <data name="Trip.PayloadRequired" xml:space="preserve">
+    <value>A trip needs its recorded data.</value>
+  </data>
+  <data name="Trip.NotFound" xml:space="preserve">
+    <value>No such ride.</value>
+  </data>
+  <data name="Trace.LineRequired" xml:space="preserve">
+    <value>A trace line cannot be empty.</value>
+  </data>
+  <data name="Trace.LineInvalid" xml:space="preserve">
+    <value>That trace line could not be read.</value>
+  </data>
+  <data name="SavedPlace.IdRequired" xml:space="preserve">
+    <value>A saved place needs an identifier.</value>
+  </data>
+  <data name="SavedPlace.PayloadRequired" xml:space="preserve">
+    <value>A saved place needs its details.</value>
+  </data>
+  <data name="Friendship.CannotFriendYourself" xml:space="preserve">
+    <value>You are already your own friend.</value>
+  </data>
+  <data name="Friendship.NoPendingRequest" xml:space="preserve">
+    <value>There is no pending request from that rider.</value>
+  </data>
+  <data name="Friendship.CannotAcceptOwnRequest" xml:space="preserve">
+    <value>You sent this request; they have to accept it.</value>
+  </data>
+  <data name="Friendship.NotFriends" xml:space="preserve">
+    <value>You are not friends with that rider.</value>
+  </data>
+  <data name="SharedRoute.CannotShareWithYourself" xml:space="preserve">
+    <value>You cannot share a route with yourself.</value>
+  </data>
+  <data name="SharedRoute.RecipientNotAFriend" xml:space="preserve">
+    <value>You can only share routes with friends.</value>
+  </data>
+  <data name="SharedRoute.RouteIdRequired" xml:space="preserve">
+    <value>A route needs an identifier.</value>
+  </data>
+  <data name="SharedRoute.NotEnoughStops" xml:space="preserve">
+    <value>A route needs at least {0} stops.</value>
+  </data>
+  <data name="SharedRoute.PayloadTooLarge" xml:space="preserve">
+    <value>That route is larger than {0} bytes.</value>
+  </data>
+  <data name="SharedRoute.NotFound" xml:space="preserve">
+    <value>No such shared route.</value>
+  </data>
+  <data name="Group.NameRequired" xml:space="preserve">
+    <value>A name is required.</value>
+  </data>
+  <data name="Group.NameTooLong" xml:space="preserve">
+    <value>A name is at most {0} characters.</value>
+  </data>
+  <data name="Group.NotFound" xml:space="preserve">
+    <value>No such group.</value>
+  </data>
+  <data name="Group.NotAMember" xml:space="preserve">
+    <value>You are not a member of this group.</value>
+  </data>
+  <data name="Group.AlreadyAMember" xml:space="preserve">
+    <value>That rider is already in this group.</value>
+  </data>
+  <data name="Group.InviteeNotAFriend" xml:space="preserve">
+    <value>You can only invite friends.</value>
+  </data>
+  <data name="Group.NoPendingInvite" xml:space="preserve">
+    <value>There is no pending invite to that group.</value>
+  </data>
+  <data name="Group.CircleFull" xml:space="preserve">
+    <value>A circle holds at most {0} people.</value>
+  </data>
+  <data name="Group.NotACircle" xml:space="preserve">
+    <value>That is not a circle.</value>
+  </data>
+  <data name="Group.NotAConvoy" xml:space="preserve">
+    <value>That is not a convoy.</value>
+  </data>
+  <data name="CirclePlace.PlaceIdRequired" xml:space="preserve">
+    <value>A place needs an identifier.</value>
+  </data>
+  <data name="CirclePlace.RadiusOutOfRange" xml:space="preserve">
+    <value>A radius is between 1 and {0} metres.</value>
+  </data>
+  <data name="CirclePlace.PayloadTooLarge" xml:space="preserve">
+    <value>That place is larger than {0} bytes.</value>
+  </data>
+  <data name="CirclePlace.NotFound" xml:space="preserve">
+    <value>No such place.</value>
+  </data>
+  <data name="PlaceEvent.KindInvalid" xml:space="preserve">
+    <value>An event is either an arrival or a departure.</value>
+  </data>
+  <data name="Location.CoordinatesOutOfRange" xml:space="preserve">
+    <value>That is not a position on Earth.</value>
+  </data>
+  <data name="Location.AccuracyOutOfRange" xml:space="preserve">
+    <value>That accuracy radius is not usable.</value>
+  </data>
+  <data name="ApiKey.NotFound" xml:space="preserve">
+    <value>No such key.</value>
+  </data>
+  <data name="ApiKey.LabelTooLong" xml:space="preserve">
+    <value>A label is at most {0} characters.</value>
+  </data>
+</root>

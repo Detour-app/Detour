@@ -1,0 +1,62 @@
+meta {
+  name: Merge a device's rides, traces, shortcuts and badges
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{BASE_URL}}/api/sync
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "trips": [
+      {
+        "startTimeMs": 0,
+        "endTimeMs": 0,
+        "distanceMeters": 0.0,
+        "topSpeedKmh": 0.0,
+        "maxGForce": 0.0,
+        "mode": ""
+      }
+    ],
+    "deletedTripStartTimes": [
+      0
+    ],
+    "traces": [
+      ""
+    ],
+    "savedPlaces": [
+      {
+        "id": 0
+      }
+    ],
+    "badges": {
+      "key": 0
+    },
+    "stats": {
+      "totalDistanceMeters": 0.0,
+      "topSpeedKmh": 0.0,
+      "longestTripMeters": 0.0,
+      "maxLeanDegrees": 0.0,
+      "municipalitiesVisited": 0,
+      "bestCoveragePercent": 0.0,
+      "tripCount": 0
+    },
+    "shareFog": false
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Bidirectional and idempotent. Every field is optional and absent never means 'clear'. Trips key on their start instant, so a re-upload replaces an edited ride rather than being ignored; deletions are applied after the upserts so they propagate to every other device. Traces deduplicate on content. Badges keep the earliest instant seen. Returns the merged union, which is what restores a device after a reinstall.
+
+  Responses:
+  - 200: OK
+  - 400: A trip, place or trace line could not be read.
+}

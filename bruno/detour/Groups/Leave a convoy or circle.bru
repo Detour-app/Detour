@@ -1,0 +1,27 @@
+meta {
+  name: Leave a convoy or circle
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{BASE_URL}}/api/groups/:id/membership
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{id}}
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  Takes the leaver's shared places and last known position with them. A convoy with nobody left is deleted; a circle persists, including while one member is alone in it.
+
+  Responses:
+  - 204: No Content
+  - 404: Not Found
+}

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Detour.Domain.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Ardalis.SmartEnum" />
+    <PackageReference Include="JV.ResultUtilities" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Shared\Domain\Shared.Domain.csproj" />
+    <ProjectReference Include="..\..\Shared\Database\Shared.Database.csproj" />
+  </ItemGroup>
+
+</Project>

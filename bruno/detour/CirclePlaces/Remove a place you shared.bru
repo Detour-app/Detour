@@ -1,0 +1,27 @@
+meta {
+  name: Remove a place you shared
+  type: http
+  seq: 1
+}
+
+delete {
+  url: {{BASE_URL}}/api/circle-places/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{id}}
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  Owner only. A caller who is not the owner gets the same answer as one asking about a place that does not exist.
+
+  Responses:
+  - 204: No Content
+  - 404: Not Found
+}

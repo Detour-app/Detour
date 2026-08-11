@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: detour
+    orgId: 1
+    folder: Detour
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/detour
+      foldersFromFilesStructure: false
