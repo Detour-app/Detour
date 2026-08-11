@@ -11,7 +11,7 @@ struct FriendPosition: Equatable {
     let tsMs: Int64
 }
 
-/// One `spin_offer` candidate, wire shape — see sync_server.py's protocol
+/// One `spin_offer` candidate, wire shape — see the relay protocol
 /// comment near `_valid_spin_offer`. `distanceM` / `durationS` are whatever
 /// the sharer's own spin already knew; a member receiving them has no route
 /// of its own until it commits and asks for one.
@@ -77,7 +77,7 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     /// map forever.
     private static let stalePeerMs: Int64 = 20_000
 
-    @Published private(set) var activeConvoyId: Int32?
+    @Published private(set) var activeConvoyId: String?
     @Published private(set) var connected = false
     @Published private(set) var peers: [String: FriendPosition] = [:]
     @Published private(set) var talking: Set<String> = []
@@ -107,11 +107,13 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     /// disjoint from `activeConvoyId`, and the reason this class is no
     /// longer purely "the convoy socket" (see the class doc). Populated by
     /// `CircleNotifications`/`CircleSync`, never read by anything UI-facing.
-    private var wantedCircleIds: Set<Int32> = []
+    private var wantedCircleIds: Set<String> = []
 
     // MARK: Membership
 
-    func join(convoyId: Int32) {
+    func join(convoyId: String) {
+        // No server answers the relay at the moment — see Features.liveRelay.
+        guard Features.shared.liveRelay else { return }
         guard activeConvoyId != convoyId else { return }
         // A convoy switch has to fully reconnect, not just add a second
         // join: the relay has no client "leave one group" frame (only a
@@ -137,7 +139,7 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     /// if it's already open, or the socket is started purely to carry it if
     /// nothing else has one open (the common case for a circle-only user:
     /// no convoy, so nothing else would ever connect this socket at all).
-    func addNotifyingCircle(_ id: Int32) {
+    func addNotifyingCircle(_ id: String) {
         guard !wantedCircleIds.contains(id) else { return }
         wantedCircleIds.insert(id)
         if connected {
@@ -152,7 +154,7 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     /// frames for it may still arrive until the next reconnect;
     /// `CircleNotifications` filters those client-side in the meantime.
     /// Tears the socket down if that was the only reason it was open.
-    func removeNotifyingCircle(_ id: Int32) {
+    func removeNotifyingCircle(_ id: String) {
         guard wantedCircleIds.remove(id) != nil else { return }
         if activeConvoyId == nil && wantedCircleIds.isEmpty { disconnect() }
     }
@@ -161,7 +163,7 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     /// periodic loop and `CircleNotifications.runCatchUpSweep` use, since
     /// they recompute "which circles want live pushes" from scratch each
     /// time rather than tracking a diff themselves.
-    func setNotifyingCircles(_ ids: Set<Int32>) {
+    func setNotifyingCircles(_ ids: Set<String>) {
         for id in ids.subtracting(wantedCircleIds) { addNotifyingCircle(id) }
         for id in wantedCircleIds.subtracting(ids) { removeNotifyingCircle(id) }
     }
@@ -326,10 +328,10 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     /// there, so they call `send` unchanged; only the per-group `join` frames
     /// pass one explicitly. A payload with no resolvable group (no convoy,
     /// none passed) is silently dropped rather than mis-sent.
-    private func send(groupId: Int32? = nil, _ payload: [String: Any]) {
+    private func send(groupId: String? = nil, _ payload: [String: Any]) {
         guard let groupId = groupId ?? activeConvoyId else { return }
         var stamped = payload
-        stamped["groupId"] = Int(groupId)
+        stamped["groupId"] = groupId
         guard let socket,
               let data = try? JSONSerialization.data(withJSONObject: stamped),
               let text = String(data: data, encoding: .utf8) else { return }
@@ -445,7 +447,7 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
             // `placeEventFromRelayFrame`'s own field/validity rules exactly
             // (required fields, `kind` must be arrive/depart) so the two
             // don't drift. See the phase-3 report for the full reasoning.
-            guard let groupId = msg["groupId"] as? Int,
+            guard let groupId = msg["groupId"] as? String,
                   let placeId = msg["placeId"] as? Int,
                   let kind = msg["kind"] as? String, kind == "arrive" || kind == "depart",
                   let user = msg["user"] as? String, !user.isEmpty,
@@ -458,7 +460,7 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
                 kind: kind,
                 tsMs: Int64(tsMs)
             )
-            CircleNotifications.shared.handleLiveEvent(groupId: Int32(groupId), event: event)
+            CircleNotifications.shared.handleLiveEvent(groupId: groupId, event: event)
 
         default:
             break
