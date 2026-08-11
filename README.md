@@ -453,6 +453,11 @@ Phone APK lands in `app/build/outputs/apk/debug/app-debug.apk`, watch APK in
 `wear/build/outputs/apk/debug/wear-debug.apk`. Install with
 `adb install app/build/outputs/apk/debug/app-debug.apk`.
 
+A debug build carries a few `adb` hooks for behaviour that is otherwise slow to
+reach — raising the trip-ended notification without driving for one, opening a
+trip straight from an intent, seeding trip history. None of them exist in a
+release APK; see [docs/DEBUG_INTENTS.md](docs/DEBUG_INTENTS.md).
+
 **The shared core, without a Mac:**
 
 ```
