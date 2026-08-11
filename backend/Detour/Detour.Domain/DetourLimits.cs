@@ -70,6 +70,17 @@ public static class DetourLimits
     public const int DisplayNameMaxLength = 200;
     public const int LabelMaxLength = 60;
 
+    // --- transport ----------------------------------------------------------------------
+    /// <summary>
+    /// One sync upload carries a device's whole trip and trace history — megabytes after a year
+    /// of riding, and it compresses roughly ten to one, so the app always gzips it.
+    ///
+    /// The same number bounds the body both ways: what may arrive on the wire, and what a
+    /// gzipped body is allowed to expand to. A compression bomb is small enough to pass the
+    /// first check, which is why the second one exists.
+    /// </summary>
+    public const long MaxRequestBodyBytes = 64L * 1024 * 1024;
+
     // --- live relay ---------------------------------------------------------------------
     /// <summary>
     /// A 40 ms 16 kHz mono PCM16 chunk is roughly 1.7 KB base64'd; this bounds worst-case abuse

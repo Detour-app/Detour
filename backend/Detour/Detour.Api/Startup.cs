@@ -4,6 +4,8 @@ using Detour.Api.Configuration;
 using Detour.Api.Services;
 using Detour.Api.Translations;
 using Detour.Database;
+using Detour.Domain;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Shared.Api;
@@ -53,6 +55,16 @@ public class Startup(IConfiguration configuration)
         // without it: positions and presence events are ordinary REST reads and writes.
         services.AddSse();
 
+        // The app gzips the bodies it sends — a sync upload is the whole trip and trace history
+        // each time, and it compresses about ten to one. Nothing decompresses a *request* body
+        // by default, so without this every sync arrives as unreadable bytes and fails as a 400.
+        //
+        // The middleware bounds the decompressed stream by the same max request body size that
+        // bounds the compressed one, which is what stops a compression bomb being cheap.
+        services.AddRequestDecompression();
+        services.Configure<KestrelServerOptions>(options =>
+            options.Limits.MaxRequestBodySize = DetourLimits.MaxRequestBodyBytes);
+
         services.AddRouting(options => options.LowercaseUrls = true);
         services.AddEndpointsApiExplorer();
         services.AddProblemDetails();
@@ -96,6 +108,11 @@ public class Startup(IConfiguration configuration)
     {
         app.UseCors();
         app.UseRequestLocalization();
+
+        // Before anything reads a body, and before authentication: an unauthenticated request
+        // is exactly the one whose decompressed size has to be bounded, and the bound is what
+        // this installs.
+        app.UseRequestDecompression();
 
         app.UseMiddleware<TraceIdMiddleware>();
 
