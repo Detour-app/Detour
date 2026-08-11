@@ -1,10 +1,12 @@
 using Detour.Api.Contracts;
+using Detour.Api.Live;
 using Detour.Domain;
 using Detour.Domain.Circles;
 using Detour.Domain.Friendships;
 using Detour.Domain.Groups;
 using Detour.Domain.Users;
 using JV.ResultUtilities;
+using Shared.Domain;
 
 namespace Detour.Api.Services;
 
@@ -41,7 +43,9 @@ public class GroupService(
     IFriendshipRepository friendships,
     IUserRepository users,
     ICirclePlaceRepository circlePlaces,
-    IMemberFixRepository memberFixes) : IGroupService
+    IMemberFixRepository memberFixes,
+    ILiveRelay liveRelay,
+    IPostCommitActionScheduler postCommit) : IGroupService
 {
     public async Task<Result<GroupResponse>> CreateAsync(
         User caller,
@@ -145,6 +149,12 @@ public class GroupService(
         // evaporates someone's circle the moment they are the last one left in it.
         if (group.ShouldBeDeletedWhenEmpty)
             groups.Delete(group);
+
+        // Spec §11 wants this instant, not eventual. The periodic sweep would catch it within
+        // seconds anyway, but a rider who has just left must stop receiving the group's traffic
+        // before the request that removed them returns. Post-commit, so a leave that rolls back
+        // does not tear down a connection that is still entitled to be open.
+        postCommit.Schedule(() => liveRelay.EvictAsync(callerId, groupId, CancellationToken.None));
 
         return Result.Ok();
     }

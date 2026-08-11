@@ -1,6 +1,7 @@
 using Detour.Api.Authentication;
 using Detour.Api.Authorization;
 using Detour.Api.Configuration;
+using Detour.Api.Live;
 using Detour.Api.Services;
 using Detour.Api.Translations;
 using Detour.Database;
@@ -51,8 +52,6 @@ public class Startup(IConfiguration configuration)
             FailSafeMaxDuration = TimeSpan.FromSeconds(MappedConfiguration.Cache.FailSafeMaxDurationSeconds),
         });
 
-        // Registered ahead of the live surface, which is deliberately not built yet. Circles work
-        // without it: positions and presence events are ordinary REST reads and writes.
         services.AddSse();
 
         // The app gzips the bodies it sends — a sync upload is the whole trip and trace history
@@ -64,6 +63,11 @@ public class Startup(IConfiguration configuration)
         services.AddRequestDecompression();
         services.Configure<KestrelServerOptions>(options =>
             options.Limits.MaxRequestBodySize = DetourLimits.MaxRequestBodyBytes);
+
+        // Live position, destination votes and circle presence events. Everything else keeps
+        // working when this cannot start — group management and the low-cadence REST position
+        // path do not depend on it.
+        services.AddLiveRelay();
 
         services.AddRouting(options => options.LowercaseUrls = true);
         services.AddEndpointsApiExplorer();
@@ -122,6 +126,17 @@ public class Startup(IConfiguration configuration)
         app.UseStatusCodePages();
 
         app.UseRouting();
+
+        // Before authentication so the upgrade handshake is recognised, but the live endpoint
+        // itself still sits behind the rider policy — an unauthenticated upgrade is refused by
+        // authorization like any other request.
+        app.UseWebSockets(new WebSocketOptions
+        {
+            // Matches the client's own ping cadence. The framework default of two minutes would
+            // leave a rider who lost signal counted as present for long enough to sit frozen on
+            // their peers' maps.
+            KeepAliveInterval = TimeSpan.FromSeconds(20),
+        });
 
         app.UseAuthentication();
         app.UseAuthorization();
