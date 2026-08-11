@@ -1,6 +1,7 @@
 using Detour.Api.Authentication;
 using Detour.Api.Authorization;
 using Detour.Api.Configuration;
+using Detour.Api.Services;
 using Detour.Api.Translations;
 using Detour.Database;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -39,6 +40,7 @@ public class Startup(IConfiguration configuration)
         services.AddPostCommitActionScheduler();
 
         services.AddScoped<ICurrentUser, CurrentUser>();
+        services.AddDetourServices();
 
         services.AddCaching(new CacheConfiguration
         {
