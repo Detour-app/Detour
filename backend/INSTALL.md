@@ -1,14 +1,14 @@
 # Running the .NET backend yourself
 
-This covers the service under `backend/`. It is **not** what the app talks to
-today — [`server/INSTALL.md`](../server/INSTALL.md) still is, and
-`bash server/install.sh` still works. Read this when you are standing the new
-service up alongside it, not instead of it.
+This covers the service under `backend/`, which is what the app talks to. The
+Python sync server it replaced is gone, along with `install.sh` — there is no
+longer a second option to fall back to, so read this before you upgrade an
+existing install rather than after.
 
 ## Be honest about the jump first
 
-The Python server is one file and a SQLite database. `install.sh` puts it on a
-Raspberry Pi and walks away. This one needs:
+The Python server was one file and a SQLite database, and `install.sh` put it on
+a Raspberry Pi and walked away. This one needs:
 
 | Piece | Why | Optional? |
 | --- | --- | --- |
@@ -21,8 +21,8 @@ Raspberry Pi and walks away. This one needs:
 
 That is five processes where there was one, and the README's promise that "your
 trips and traces live on hardware you own" now costs meaningfully more of that
-hardware. If that trade is not worth it for your install, stay on the Python
-server — it is not going anywhere in this change.
+hardware. That trade has already been made — the Python server was removed rather
+than kept alongside — so this is what self-hosting Detour costs now.
 
 ## The container
 

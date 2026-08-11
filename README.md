@@ -517,21 +517,29 @@ itself. Administration that outlived Keycloak — account metadata, row counts,
 deleting an account and revoking its dashboard keys — is API-only, and shows no
 one's rides.
 
-### The replacement server
+### Running it somewhere real
 
-A .NET rewrite of the sync server lives in [`backend/`](backend/README.md). It is
-not what the app talks to yet and it does not replace anything above — the script
-and the Python server stay exactly as they are.
+The development stack above is for a development machine: it ships working
+passwords on purpose and Keycloak runs in dev mode. For anything else there is a
+published image and a stack that refuses to start until you have set every
+secret:
 
-It is worth knowing about before you build a new install, because the operator
-side is a different shape: Postgres instead of SQLite, and Keycloak instead of
-invite codes and the `/admin` dashboard, which means accounts, passwords and
-resets stop being this project's job. That is five processes where the script
-installs one. [`backend/INSTALL.md`](backend/INSTALL.md) is blunt about the trade
-and about what is still missing, including that there is no importer for an
-existing `detour.db` and no way to carry passwords across.
+```
+cp docker/prod/.env.example docker/prod/.env
+docker compose -f docker/prod/docker-compose.yml up -d
+```
 
-If the current server does what you need, keep it.
+See [`docker/prod/README.md`](docker/prod/README.md), and
+[`backend/INSTALL.md`](backend/INSTALL.md) for what each configuration key means.
+
+Be aware of the shape before you commit to it. This is five processes where the
+old Python server was one: the API, its Postgres, Keycloak, Keycloak's own
+Postgres, and a reverse proxy holding the TLS certificate the realm issues tokens
+against. Accounts, passwords and resets stop being this project's job, which is
+the point, but it is not a smaller thing to run.
+
+There is no importer for an existing `detour.db`, and passwords cannot be carried
+across at all — Keycloak never saw the old hashes, so every rider signs up again.
 
 Sync is optional; with no server configured everything stays on the phone. With
 one, your trips and traces live on hardware you own.

@@ -19,8 +19,9 @@ that actually came back, with junctions identified from GraphHopper's own turn
 instructions.
 
 Tuning knobs, in the order worth touching: bend radius window (now 25–300 m),
-`CURVY_CANDIDATES` (now 3), the moto profile's curvature ladder in `install.sh`,
-avoid-repeat-roads.
+`CURVY_CANDIDATES` (now 3), the moto profile's curvature ladder in whatever
+provisions GraphHopper — it used to live in `install.sh`, which went with the
+Python server — avoid-repeat-roads.
 
 ## Other ideas (unprioritized)
 - Avoid destinations too close to start (min distance slider or % of radius)
