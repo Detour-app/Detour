@@ -204,8 +204,16 @@ git commit -m "refactor(map): drop imports left behind by the file split"
 
 - [ ] Eleven new files, all `package com.jellemax.detour.ui`.
 - [ ] `wc -l < app/src/main/java/com/jellemax/detour/ui/MapScreen.kt` between 1500 and 1750.
-- [ ] `git show -M -C --stat` on each move commit reports a rename, not add+delete.
-- [ ] `git diff 0cb93f0..HEAD -- app/src/main/java/com/jellemax/detour/ui/MapScreen.kt` shows **only deletions and import removals** — no modified lines inside any surviving block.
+- [ ] `git diff <base>..HEAD -- app/src/main/java/com/jellemax/detour/ui/MapScreen.kt` shows **zero added lines** until Task 1l, and only deletions. Verify with:
+      `git diff <base>..HEAD -- .../MapScreen.kt | grep -c '^+[^+]'` → must be `0`.
+
+      This replaces an earlier criterion that asked for `git show -M -C` to report a
+      rename. That was wrong: `MapScreen.kt` is *modified*, never deleted, so git's
+      rename detection structurally cannot fire, and the "leave imports until 1l"
+      rule dilutes new-file similarity below the `-C` threshold anyway. The
+      zero-added-lines check is both achievable and a stronger guarantee — a move
+      that altered so much as one character of a moved block would show up as an
+      addition somewhere.
 - [ ] `RoutesScreen.kt`, `HistoryScreen.kt`, `RouteEditorScreen.kt` and everything under `car/` have zero-line diffs across the whole stage.
 - [ ] `./gradlew :app:testDebugUnitTest :shared:testDebugUnitTest` passes (the CI gate from stage 0 Task 1).
 - [ ] `./gradlew :app:assembleDebug` succeeds.
