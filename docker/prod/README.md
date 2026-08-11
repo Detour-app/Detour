@@ -76,5 +76,7 @@ Two volumes matter and losing either is unrecoverable:
 - **No importer for an existing `detour.db`.** Moving off the Python server means
   starting fresh, and there is no way to carry passwords across regardless —
   Keycloak owns them now and never saw the old hashes.
-- **No reverse proxy here.** Traefik, Caddy and nginx all work; picking one for
-  you would mean picking your TLS story too.
+- **No reverse proxy in the base file.** Traefik, Caddy and nginx all work;
+  picking one for you would mean picking your TLS story too. One is provided as
+  an overlay rather than a default — see [CLOUDFLARE.md](CLOUDFLARE.md) if you
+  want a tunnel, which needs no open port and terminates TLS for you.
