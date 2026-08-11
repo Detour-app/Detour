@@ -60,6 +60,7 @@ import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
+import com.jellemax.detour.notif.TripEndedNotification
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -130,7 +131,9 @@ class TripTrackingService : Service() {
         private const val ACTION_END_TRIP = "com.jellemax.detour.END_TRIP"
         private const val ACTION_TRANSITION = "com.jellemax.detour.ACTIVITY_TRANSITION"
         private const val ACTION_REFRESH = "com.jellemax.detour.REFRESH"
-        private const val CHANNEL_ID = "trip_tracking"
+        // One definition, shared with the trip-ended notification that posts to
+        // the same channel from notif/.
+        private const val CHANNEL_ID = TripEndedNotification.CHANNEL_ID
         private const val NOTIFICATION_ID = 1
 
         // Auto start/stop tuning.
@@ -807,7 +810,7 @@ class TripTrackingService : Service() {
             SyncClient.syncQuietly()
             checkBadges()
             // Only tell the user about trips they didn't end themselves.
-            if (wasAuto) notifyTripEnded()
+            if (wasAuto) TripEndedNotification.show(this, stats.startTimeMs)
         }
         _stats.value = null
         destLat = null
@@ -1270,16 +1273,6 @@ class TripTrackingService : Service() {
             CHANNEL_ID, "Trip tracking", NotificationManager.IMPORTANCE_LOW,
         )
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-    }
-
-    private fun notifyTripEnded() {
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Detour")
-            .setContentText("Trip ended — saved to history.")
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .setAutoCancel(true)
-            .build()
-        getSystemService(NotificationManager::class.java).notify(2, notification)
     }
 
     private fun notifyBadgesEarned(badges: List<BadgeDef>) {

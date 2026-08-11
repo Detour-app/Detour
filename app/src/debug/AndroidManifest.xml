@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only additions. AGP merges this source set into debug builds only,
+     so nothing declared here exists in a release APK. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Fires the real trip-ended notification so its tap behaviour can be
+             tested without driving. exported="true" is what lets `adb shell am
+             broadcast` reach it, which also means any app on the device could:
+             acceptable here only because this entry never reaches a release
+             build. See the receiver's own doc for the commands. -->
+        <receiver
+            android:name="com.jellemax.detour.debug.DebugTripEndedReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.jellemax.detour.DEBUG_TRIP_ENDED" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>
