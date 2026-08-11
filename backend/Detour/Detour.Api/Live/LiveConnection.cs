@@ -35,6 +35,23 @@ public sealed class LiveConnection(Guid userId, string username, WebSocket socke
 
     private readonly ConcurrentDictionary<Guid, byte> _groups = new();
 
+    /// <summary>
+    /// Inbound budget, in frames.
+    ///
+    /// Every position frame costs database work — the sender's memberships have to be read to
+    /// know who may see it — so an unthrottled socket turns one client into thousands of queries
+    /// a second, whether it is hostile or merely looping on a bug. A rider sends one position
+    /// every two seconds and a handful of votes per ride, so the honest ceiling is far below this;
+    /// the headroom is for a reconnect burst replaying joins, not for a steady stream.
+    /// </summary>
+    private const int InboundBurst = 40;
+
+    private const double InboundPerSecond = 20;
+
+    private readonly Lock _budgetLock = new();
+    private double _budget = InboundBurst;
+    private long _budgetStampMs = Environment.TickCount64;
+
     public Guid UserId { get; } = userId;
 
     public string Username { get; } = username;
@@ -56,6 +73,31 @@ public sealed class LiveConnection(Guid userId, string username, WebSocket socke
     {
         _groups.TryRemove(groupId, out _);
         return !_groups.IsEmpty;
+    }
+
+    /// <summary>
+    /// Takes one frame from the inbound budget, refilling it for the time since the last call.
+    /// False means this frame is dropped — not that the connection is closed. Dropping is the
+    /// right answer here: a position is worthless a moment later anyway, and closing on a burst
+    /// would punish a rider whose phone woke up and replayed its joins.
+    /// </summary>
+    public bool TryTakeInboundBudget()
+    {
+        lock (_budgetLock)
+        {
+            var now = Environment.TickCount64;
+            // Monotonic and immune to a clock change mid-ride, which a wall clock is not.
+            var elapsedMs = Math.Max(0, now - _budgetStampMs);
+            _budgetStampMs = now;
+
+            _budget = Math.Min(InboundBurst, _budget + elapsedMs * InboundPerSecond / 1000d);
+
+            if (_budget < 1)
+                return false;
+
+            _budget -= 1;
+            return true;
+        }
     }
 
     public void Enqueue(LiveOutbound frame) => _outbound.Writer.TryWrite(frame);

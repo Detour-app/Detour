@@ -249,7 +249,7 @@ public class LiveRelayTests
         public Task Ingest(User rider, LivePositionSource source) =>
             new LiveLocationService(Groups.Object, MemberFixes.Object, Relay)
                 .IngestAsync(
-                    rider,
+                    new LiveRider(rider.Id, rider.Username),
                     new LivePosition(51.05431, 3.71742, 12.0, 142.5, 48.3, 1_754_923_456_789),
                     source,
                     CancellationToken.None);

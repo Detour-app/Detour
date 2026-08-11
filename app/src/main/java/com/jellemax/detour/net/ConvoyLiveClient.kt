@@ -41,6 +41,15 @@ data class FriendPosition(
     val headingDeg: Double?,
     val speedKmh: Double?,
     val tsMs: Long,
+    /** When this fix stops being worth drawing, as local elapsed time.
+     *
+     *  Carried per peer rather than derived from one constant here because a
+     *  convoy rider and a circle member now arrive on the same socket at wildly
+     *  different cadences - seconds against minutes. A single client-side
+     *  staleness window either flickers circle members off the map between
+     *  their updates or leaves a dropped convoy rider frozen on it. The server
+     *  knows which tier a sender is on, so it says. */
+    val expiresAtMs: Long,
 )
 
 data class IncomingAudioChunk(val username: String, val pcm: ByteArray)
@@ -84,15 +93,21 @@ data class GroupSpin(val candidates: List<SpinCandidate>, val fromMe: Boolean)
  * the currently joined convoy's peers ever appear in [peers]; nothing here
  * is persisted, matching the server's in-memory-only relay.
  *
- * The relay is multi-group on the wire (docs/CIRCLES_AND_CONVOYS.md section 6):
- * every frame after `join` carries a `groupId`, and one socket can hold
- * several memberships at once. This client still stays single-*convoy* -
- * [send] stamps every outgoing frame with whichever convoy is currently
- * joined, not a set of groups, and a circle's `location`/`ptt_*`/`spin_*`
- * never rides this socket either (a circle posts fixes over plain HTTP at a
- * much lower cadence - see `CircleFixes.postFix`). What a circle *does* now
- * join this socket for is read-only: `place_event` notifications - see
- * [setNotifyCircles] below.
+ * The relay is keyed on the *rider*, not on the group. One socket holds
+ * several memberships at once, and a position deliberately carries no
+ * `groupId` at all: a fix belongs to whoever sent it, and the relay resolves
+ * who may see it from that rider's memberships - deduping someone shared
+ * through both a convoy and a circle down to one copy. Only the frames that
+ * genuinely are convoy-scoped (`spin_offer`, `spin_vote`, and `join` itself)
+ * still name a group, which is why [send] stamps one and [sendUnscoped] does
+ * not.
+ *
+ * Peers arrive batched: one `positions` frame carries every peer the relay had
+ * queued for this socket, each with its own `ttl`, because a convoy rider at
+ * seconds and a circle member at minutes now share this stream and one
+ * staleness window cannot serve both. A circle's low-cadence fixes still also
+ * go up over plain HTTP when no socket is open - see `CircleFixes.postFix`,
+ * which is the same server-side ingest at a different tier.
  *
  * Group spin (`spin_offer`/`spin_vote`) rides the same relay and is exactly
  * as ephemeral as everything else here: [spinOffer]/[spinVotes] are a
@@ -116,11 +131,13 @@ object ConvoyLiveClient {
     private const val MIN_BACKOFF_MS = 1_000L
     private const val MAX_BACKOFF_MS = 30_000L
     private const val PEER_PRUNE_INTERVAL_MS = 5_000L
-    /** ~10 missed 2s location updates - generous enough that a normal gap in
-     *  GPS fixes doesn't flicker a peer's marker, but a peer who actually
-     *  dropped off (backgrounded, lost signal, crashed) stops being shown as
-     *  live rather than sitting frozen on the map forever. */
-    private const val STALE_PEER_MS = 20_000L
+
+    /** Used only for a peer whose frame carried no usable `ttl` - an older or
+     *  broken relay. Matches what this client used to hardcode for everyone:
+     *  ~10 missed 2s updates, generous enough that a normal gap in GPS fixes
+     *  doesn't flicker a marker, short enough that someone who actually dropped
+     *  off stops being shown as live. */
+    private const val FALLBACK_PEER_TTL_MS = 20_000L
 
     private val client = OkHttpClient.Builder()
         // Keeps NAT / the Cloudflare tunnel from idling the connection closed
@@ -212,13 +229,15 @@ object ConvoyLiveClient {
 
     /** Effective live-relay URL: baked default (its own hostname) → derived
      *  from the shared server URL (Settings) — same host, ws(s):// scheme,
-     *  /live path, matching the ingress rule the deployment routes on. */
+     *  /api/live path. The relay is an ordinary endpoint of the API now rather
+     *  than a second listener on its own port, so it sits under the same /api
+     *  prefix and behind the same bearer auth as every other call. */
     fun liveUrl(context: Context): String {
         BuildConfig.LIVE_URL.takeIf { it.isNotBlank() }?.let { return it }
         val base = RoutingServer.loadCustom()?.url?.trimEnd('/') ?: return ""
         return when {
-            base.startsWith("https://") -> "wss://" + base.removePrefix("https://") + "/live"
-            base.startsWith("http://") -> "ws://" + base.removePrefix("http://") + "/live"
+            base.startsWith("https://") -> "wss://" + base.removePrefix("https://") + "/api/live"
+            base.startsWith("http://") -> "ws://" + base.removePrefix("http://") + "/api/live"
             else -> ""
         }
     }
@@ -245,7 +264,7 @@ object ConvoyLiveClient {
         }
         // A different convoy's peers/talking/vote state must not bleed into
         // this one - cleared here rather than left for prunePeers' staleness
-        // sweep, which would take up to STALE_PEER_MS to catch up.
+        // sweep, which would take until each peer's own ttl to catch up.
         _peers.value = emptyMap()
         _talking.value = emptySet()
         _spinOffer.value = null
@@ -385,13 +404,24 @@ object ConvoyLiveClient {
         socket?.send(obj.put("groupId", groupId).toString())
     }
 
+    /** Sends a frame that names no group.
+     *
+     *  Only a position uses this, and that is the point: a fix belongs to the
+     *  rider, not to whichever group they happen to have joined. The relay
+     *  resolves who may see it from the sender's memberships, which is also why
+     *  this does not require a convoy - someone sharing a circle and no convoy
+     *  at all still has a position worth sending. */
+    private fun sendUnscoped(obj: JSONObject) {
+        socket?.send(obj.toString())
+    }
+
     private suspend fun forwardLocation() {
         TripTrackingService.lastFix.collect { fix ->
             if (fix == null) return@collect
             val now = System.currentTimeMillis()
             if (now - lastLocationSentMs < LOCATION_SEND_INTERVAL_MS) return@collect
             lastLocationSentMs = now
-            send(
+            sendUnscoped(
                 JSONObject()
                     .put("type", "location")
                     .put("lat", fix.lat)
@@ -406,8 +436,12 @@ object ConvoyLiveClient {
     private suspend fun prunePeers() {
         while (true) {
             delay(PEER_PRUNE_INTERVAL_MS)
-            val cutoff = System.currentTimeMillis() - STALE_PEER_MS
-            _peers.value = _peers.value.filterValues { it.tsMs >= cutoff }
+            val now = System.currentTimeMillis()
+            // Each peer expires on its own clock. A circle member updating every
+            // couple of minutes and a convoy rider updating every two seconds
+            // share this map, and one cutoff for both would drop the first
+            // between every pair of their updates.
+            _peers.value = _peers.value.filterValues { it.expiresAtMs > now }
         }
     }
 
@@ -549,20 +583,39 @@ object ConvoyLiveClient {
                 _lastError.value = null
                 return true
             }
-            "location" -> {
-                val username = msg.optString("user")
-                if (username.isNotBlank()) {
-                    _peers.value = _peers.value + (
-                        username to FriendPosition(
-                            username = username,
-                            lat = msg.optDouble("lat"),
-                            lon = msg.optDouble("lon"),
-                            headingDeg = msg.optDouble("headingDeg").takeIf { !it.isNaN() },
-                            speedKmh = msg.optDouble("speedKmh").takeIf { !it.isNaN() },
-                            tsMs = msg.optLong("ts"),
-                        )
-                        )
+            "positions" -> {
+                // One frame carries every peer the relay had queued for this
+                // socket, not one frame per peer: at eight riders that is one
+                // packet a round instead of seven, and the packet count is what
+                // a phone's radio actually pays for.
+                val arr = msg.optJSONArray("peers") ?: return false
+                val now = System.currentTimeMillis()
+                val updates = (0 until arr.length()).mapNotNull { i ->
+                    val o = arr.optJSONObject(i) ?: return@mapNotNull null
+                    val user = o.optString("u")
+                    val lat = o.optDouble("lat")
+                    val lon = o.optDouble("lon")
+                    if (user.isBlank() || lat.isNaN() || lon.isNaN()) return@mapNotNull null
+                    val ttlSeconds = o.optInt("ttl", 0)
+                    user to FriendPosition(
+                        username = user,
+                        lat = lat,
+                        lon = lon,
+                        headingDeg = o.optDouble("h").takeIf { !it.isNaN() },
+                        speedKmh = o.optDouble("s").takeIf { !it.isNaN() },
+                        tsMs = o.optLong("ts"),
+                        // Anchored to arrival rather than to the fix's own
+                        // timestamp: that one comes off the sender's clock, and
+                        // a phone whose clock is minutes out would otherwise
+                        // vanish immediately or linger forever.
+                        expiresAtMs = now + if (ttlSeconds > 0) {
+                            ttlSeconds * 1_000L
+                        } else {
+                            FALLBACK_PEER_TTL_MS
+                        },
+                    )
                 }
+                if (updates.isNotEmpty()) _peers.value = _peers.value + updates
             }
             "ptt_start" -> msg.optString("user").takeIf { it.isNotBlank() }?.let { user ->
                 _talking.value = _talking.value + user

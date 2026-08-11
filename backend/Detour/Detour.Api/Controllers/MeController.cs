@@ -67,7 +67,7 @@ public class MeController(
         var user = await currentUser.GetAsync(cancellationToken);
 
         var result = await locations.IngestAsync(
-            user,
+            new LiveRider(user.Id, user.Username),
             new LivePosition(
                 body.Latitude,
                 body.Longitude,

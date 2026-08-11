@@ -129,22 +129,28 @@ public class LiveController(
 
         while (true)
         {
+            // Once the message is known to be too long, keep reading it into the front of the
+            // buffer and throw the bytes away. Reading has to continue either way — a message left
+            // half-consumed desynchronises the stream — but appending must not, and the offset is
+            // what makes the difference: continuing to append would eventually ask for a
+            // zero-length segment, which can never make progress and wedges this rider's read loop
+            // for the rest of the ride while the relay still counts them as connected.
+            var offset = oversized ? 0 : length;
+
             var result = await socket.ReceiveAsync(
-                new ArraySegment<byte>(buffer, length, buffer.Length - length), cancellationToken);
+                new ArraySegment<byte>(buffer, offset, buffer.Length - offset), cancellationToken);
 
             if (result.MessageType == WebSocketMessageType.Close)
                 return null;
 
-            if (length + result.Count > buffer.Length)
-                oversized = true;
-            else
+            if (!oversized)
                 length += result.Count;
 
             if (result.EndOfMessage)
                 break;
 
-            // A continuation that would not fit: keep draining to stay in frame, but stop growing.
-            if (length >= buffer.Length)
+            // A continuation with no room left: stop growing, keep draining.
+            if (!oversized && length >= buffer.Length)
                 oversized = true;
         }
 
@@ -182,6 +188,12 @@ public class LiveController(
         if (root.ValueKind != JsonValueKind.Object
             || !root.TryGetProperty("type", out var typeElement)
             || typeElement.ValueKind != JsonValueKind.String)
+            return;
+
+        // Checked after parsing but before any handler runs, so the budget guards the expensive
+        // half — the database work a frame causes — rather than the cheap parse. A dropped frame
+        // is silent: telling a flooding client which frames it lost is a second channel to flood.
+        if (!connection.TryTakeInboundBudget())
             return;
 
         await using var scope = scopeFactory.CreateAsyncScope();
@@ -243,11 +255,6 @@ public class LiveController(
         if (!TryReadDouble(frame, "lat", out var latitude) || !TryReadDouble(frame, "lon", out var longitude))
             return;
 
-        var users = services.GetRequiredService<Domain.Users.IUserRepository>();
-        var caller = await users.GetAsync(connection.UserId, cancellationToken);
-        if (caller is null)
-            return;
-
         var position = new LivePosition(
             latitude,
             longitude,
@@ -256,8 +263,16 @@ public class LiveController(
             TryReadDouble(frame, "speedKmh", out var speed) ? speed : null,
             TryReadInt64(frame, "ts", out var timestamp) ? timestamp : 0);
 
+        // Identity comes off the connection rather than out of the database: it was established
+        // by the token at upgrade time and cannot change while the socket is open, so re-reading
+        // the row per position would be a third query on the hottest path in the relay for an
+        // answer that is already known.
         var locations = services.GetRequiredService<ILiveLocationService>();
-        await locations.IngestAsync(caller, position, LivePositionSource.Socket, cancellationToken);
+        await locations.IngestAsync(
+            new LiveRider(connection.UserId, connection.Username),
+            position,
+            LivePositionSource.Socket,
+            cancellationToken);
     }
 
     private async Task HandleOfferAsync(

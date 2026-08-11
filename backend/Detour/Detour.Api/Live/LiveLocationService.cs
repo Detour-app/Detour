@@ -1,9 +1,15 @@
 using Detour.Domain;
 using Detour.Domain.Groups;
-using Detour.Domain.Users;
 using JV.ResultUtilities;
 
 namespace Detour.Api.Live;
+
+/// <summary>
+/// Who a fix belongs to. Just the two facts the relay needs — established by the token, so a
+/// caller that already holds them (a live connection) does not have to re-read the account row
+/// on every position.
+/// </summary>
+public sealed record LiveRider(Guid Id, string Username);
 
 /// <summary>One fix, as reported by a device, before the relay decides who may see it.</summary>
 public sealed record LivePosition(
@@ -38,7 +44,7 @@ public interface ILiveLocationService
     /// here rather than duplicated per caller.
     /// </summary>
     Task<Result> IngestAsync(
-        User caller,
+        LiveRider caller,
         LivePosition position,
         LivePositionSource source,
         CancellationToken cancellationToken);
@@ -64,7 +70,7 @@ internal sealed class LiveLocationService(
     private const int HttpTtlSeconds = 300;
 
     public async Task<Result> IngestAsync(
-        User caller,
+        LiveRider caller,
         LivePosition position,
         LivePositionSource source,
         CancellationToken cancellationToken)

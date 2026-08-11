@@ -9,6 +9,14 @@ struct FriendPosition: Equatable {
     let headingDeg: Double?
     let speedKmh: Double?
     let tsMs: Int64
+    /// When this fix stops being worth drawing, as local elapsed time.
+    ///
+    /// Per peer rather than one constant, because a convoy rider and a circle
+    /// member now arrive on the same socket at wildly different cadences —
+    /// seconds against minutes. One staleness window for both either flickers
+    /// circle members off the map between their updates or leaves a dropped
+    /// convoy rider frozen on it. The relay knows which tier a sender is on.
+    let expiresAtMs: Int64
 }
 
 /// One `spin_offer` candidate, wire shape — see the relay protocol
@@ -71,11 +79,11 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     private static let minBackoff: Duration = .seconds(1)
     private static let maxBackoff: Duration = .seconds(30)
     private static let pingInterval: Duration = .seconds(20)
-    /// ~10 missed 2 s location updates: generous enough that a normal gap in
-    /// GPS fixes doesn't flicker a peer's marker, but a peer who actually
-    /// dropped off stops being shown as live rather than sitting frozen on the
-    /// map forever.
-    private static let stalePeerMs: Int64 = 20_000
+    /// Used only for a peer whose frame carried no usable `ttl` — an older or
+    /// broken relay. What this client used to apply to everyone: ~10 missed 2 s
+    /// updates, generous enough that a normal gap in GPS fixes doesn't flicker a
+    /// marker, short enough that someone who dropped off stops being shown live.
+    private static let fallbackPeerTtlMs: Int64 = 20_000
 
     @Published private(set) var activeConvoyId: String?
     @Published private(set) var connected = false
@@ -332,8 +340,19 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
         guard let groupId = groupId ?? activeConvoyId else { return }
         var stamped = payload
         stamped["groupId"] = groupId
+        sendUnscoped(stamped)
+    }
+
+    /// Sends a frame that names no group.
+    ///
+    /// Only a position uses this, and that is the point: a fix belongs to the
+    /// rider, not to whichever group they happen to have joined. The relay
+    /// resolves who may see it from the sender's memberships, which is also why
+    /// this needs no convoy — someone sharing a circle and no convoy at all
+    /// still has a position worth sending.
+    private func sendUnscoped(_ payload: [String: Any]) {
         guard let socket,
-              let data = try? JSONSerialization.data(withJSONObject: stamped),
+              let data = try? JSONSerialization.data(withJSONObject: payload),
               let text = String(data: data, encoding: .utf8) else { return }
         socket.send(.string(text)) { _ in }
     }
@@ -353,7 +372,7 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
                 "ts": Int(fix.timestamp.timeIntervalSince1970 * 1000),
             ]
             if fix.course >= 0 { payload["headingDeg"] = fix.course }
-            send(payload)
+            sendUnscoped(payload)
         }
     }
 
@@ -381,16 +400,33 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
             lastError = msg["message"] as? String
             socket?.cancel(with: .normalClosure, reason: nil)
 
-        case "location":
-            guard let user = msg["user"] as? String, !user.isEmpty else { break }
-            peers[user] = FriendPosition(
-                username: user,
-                lat: msg["lat"] as? Double ?? 0,
-                lon: msg["lon"] as? Double ?? 0,
-                headingDeg: msg["headingDeg"] as? Double,
-                speedKmh: msg["speedKmh"] as? Double,
-                tsMs: Int64(msg["ts"] as? Int ?? 0)
-            )
+        // One frame carries every peer the relay had queued for this socket,
+        // not one frame per peer: at eight riders that is one packet a round
+        // instead of seven, and the packet count is what a phone's radio pays
+        // for. Keys are short for the same reason.
+        case "positions":
+            guard let rows = msg["peers"] as? [[String: Any]] else { break }
+            let now = nowMs()
+            for row in rows {
+                guard let user = row["u"] as? String, !user.isEmpty,
+                      let lat = row["lat"] as? Double,
+                      let lon = row["lon"] as? Double else { continue }
+                let ttlSeconds = row["ttl"] as? Int ?? 0
+                peers[user] = FriendPosition(
+                    username: user,
+                    lat: lat,
+                    lon: lon,
+                    headingDeg: row["h"] as? Double,
+                    speedKmh: row["s"] as? Double,
+                    tsMs: Int64(row["ts"] as? Int ?? 0),
+                    // Anchored to arrival, not to the fix's own timestamp: that
+                    // comes off the sender's clock, and a phone whose clock is
+                    // minutes out would otherwise vanish at once or never.
+                    expiresAtMs: now + (ttlSeconds > 0
+                        ? Int64(ttlSeconds) * 1_000
+                        : Self.fallbackPeerTtlMs)
+                )
+            }
             pruneStalePeers()
 
         case "ptt_start":
@@ -470,7 +506,11 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     }
 
     private func pruneStalePeers() {
-        let cutoff = nowMs() - Self.stalePeerMs
-        peers = peers.filter { $0.value.tsMs >= cutoff }
+        let now = nowMs()
+        // Each peer expires on its own clock: a circle member updating every
+        // couple of minutes and a convoy rider updating every two seconds share
+        // this map, and one cutoff for both drops the first between every pair
+        // of their updates.
+        peers = peers.filter { $0.value.expiresAtMs > now }
     }
 }
