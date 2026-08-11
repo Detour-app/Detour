@@ -7,6 +7,8 @@ public static class ServiceInstaller
         services.AddScoped<ISyncService, SyncService>();
         services.AddScoped<IFriendshipService, FriendshipService>();
         services.AddScoped<IRouteSharingService, RouteSharingService>();
+        services.AddScoped<IGroupService, GroupService>();
+        services.AddScoped<ICircleService, CircleService>();
 
         return services;
     }
