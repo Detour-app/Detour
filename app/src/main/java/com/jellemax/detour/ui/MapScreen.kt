@@ -212,14 +212,6 @@ import kotlin.random.Random
 private val DIRECTION_NAMES = listOf("North", "North-east", "East", "South-east",
     "South", "South-west", "West", "North-west")
 
-val TravelMode.icon: ImageVector
-    get() = when (this) {
-        TravelMode.WALK -> Icons.AutoMirrored.Outlined.DirectionsWalk
-        TravelMode.BIKE -> Icons.AutoMirrored.Outlined.DirectionsBike
-        TravelMode.MOTO -> Icons.Outlined.TwoWheeler
-        TravelMode.CAR -> Icons.Outlined.DirectionsCar
-    }
-
 /** Exponentially smooths a compass bearing toward [target], taking the
  *  shortest way round the 0/360 wrap, so heading-up rotation eases instead
  *  of snapping to each noisy raw GPS fix. */
