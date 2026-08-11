@@ -92,10 +92,11 @@ Core.
 
 ## What is deliberately absent
 
-- **The convoy live surface.** Live position relay, push-to-talk and destination
-  voting are not implemented — see §11 of the inventory doc for why the transport
-  is still undecided. Circles are unaffected: their positions and presence events
-  are ordinary REST reads and writes.
+- **Voice.** Push-to-talk frames are accepted off the live socket and dropped,
+  the same as any unknown type, so a client that still sends them stays connected
+  and everything else keeps working. What comes back will be Opus over binary
+  frames: raw PCM base64'd into JSON cost about 40 KB/s per talker per listener,
+  which is what made it worth deferring rather than porting.
 - **Background jobs.** Every retention cap is enforced at write time, where the
   row that would exceed it is created, so there is nothing for a sweep to do yet.
 - **An audit trail.** `Shared.Audit` was left out of the port; it is the obvious
