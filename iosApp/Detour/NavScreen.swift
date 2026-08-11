@@ -220,16 +220,22 @@ private func displayDistance(_ meters: Double) -> String {
 /// GraphHopper sign codes. The full set, not the -3…3 the doc comment on
 /// RouteInstruction used to imply: ±7 are the motorway keep-left/keep-right
 /// forks and -98/±8 are U-turns, and every one of them used to fall through to
-/// "carry on" here — while a sharp turn drew as a U-turn. SF Symbols has no
-/// distinct sharp-turn glyph, so sharp and normal share an arrow; that is a
-/// cosmetic loss, drawing a sharp left as a U-turn was not.
+/// "carry on" here — while a sharp turn drew as a U-turn. Two glyph
+/// collapses remain, and both are direction-preserving so are merely
+/// cosmetic, unlike drawing a sharp left as a U-turn: SF Symbols has no
+/// distinct sharp-turn glyph, so a sharp turn (±3) draws the same arrow as a
+/// normal turn (±2); and no direction-distinct fork glyph pair could be
+/// confirmed available at this deployment target (iOS 17 / SF Symbols 4), so
+/// keep-left/keep-right (±7) fall back to the slight-left/slight-right
+/// arrows (±1) — a keep-left fork renders like a gentle left rather than a
+/// fork, but it still points left, not right.
 private func maneuverIcon(_ instruction: NavInstruction?) -> String {
     guard let instruction else { return "arrow.up" }
     switch instruction.sign {
     case -98, -8: return "arrow.uturn.left"
     case 8: return "arrow.uturn.right"
-    case -7: return "arrow.triangle.branch"
-    case 7: return "arrow.triangle.branch"
+    case -7: return "arrow.up.left"
+    case 7: return "arrow.up.right"
     case -3: return "arrow.turn.up.left"
     case -2: return "arrow.turn.up.left"
     case -1: return "arrow.up.left"
