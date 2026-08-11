@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.MainActivity
+import com.jellemax.detour.R
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleEvents
 import com.jellemax.detour.data.Groups
@@ -215,7 +216,7 @@ class CircleNotifyService : Service() {
             PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Detour")
+            .setContentTitle(getString(R.string.app_name))
             // Deliberately not location-flavoured wording (docs/PLAY_LOCATION_DECLARATION.md):
             // this service never reads or shares this device's own position,
             // only listens for transitions other members' devices already
