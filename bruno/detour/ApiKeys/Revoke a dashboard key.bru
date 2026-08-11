@@ -1,0 +1,27 @@
+meta {
+  name: Revoke a dashboard key
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{BASE_URL}}/api/me/api-keys/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{id}}
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  Takes effect immediately, and does not sign the rider's phone out.
+
+  Responses:
+  - 204: No Content
+  - 404: Not Found
+}

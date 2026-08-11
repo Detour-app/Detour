@@ -1,0 +1,36 @@
+meta {
+  name: Report your position to a circle
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{BASE_URL}}/api/circles/:id/positions
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{id}}
+}
+
+body:json {
+  {
+    "latitude": 0.0,
+    "longitude": 0.0,
+    "accuracyMeters": 0.0,
+    "timestampMs": 0
+  }
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  Low cadence, over plain REST — circles update on the order of minutes, which does not justify holding a stream open all day. Overwrites in place: no history, no trail. A paused member's report is accepted and discarded rather than refused, so pausing needs no special handling on the device.
+
+  Responses:
+  - 204: No Content
+  - 400: Not a member, or an unusable position.
+}

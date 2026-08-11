@@ -1,0 +1,27 @@
+meta {
+  name: Where everyone in the circle is now
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{BASE_URL}}/api/circles/:id/positions
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{id}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Accepted and currently-sharing members only.
+
+  Responses:
+  - 200: OK
+  - 400: Bad Request
+}

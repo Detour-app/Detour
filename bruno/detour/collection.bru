@@ -1,0 +1,40 @@
+auth {
+  mode: oauth2
+}
+
+auth:oauth2 {
+  grant_type: authorization_code
+  callback_url: {{IDP_REDIRECT_URI}}
+  authorization_url: {{IDP_AUTHZ_EP}}
+  access_token_url: {{IDP_TOKEN_EP}}
+  refresh_token_url: {{IDP_TOKEN_EP}}
+  client_id: {{IDP_CLIENT_ID}}
+  client_secret: 
+  scope: {{IDP_SCOPE}}
+  state: {{STATE}}
+  pkce: true
+  credentials_placement: body
+  credentials_id: credentials
+  token_placement: header
+  token_header_prefix: Bearer
+  auto_fetch_token: true
+  auto_refresh_token: true
+}
+
+docs {
+  The rider-facing requests inherit this OAuth flow.
+
+  PKCE is on and there is no client secret, because detour-app is a public
+  client — a native app cannot keep one. The password grant is deliberately
+  disabled on the realm, so this is the only way in; Bruno will open a browser
+  the first time a request needs a token.
+
+  Two credentials do not use it:
+
+  - Dashboard requests carry a read-only API key in X-Api-Key. Issue one with
+    ApiKeys > Issue a read-only dashboard key and paste it into API_KEY.
+  - Health needs nothing at all.
+
+  Admin requests inherit the same rider flow; the realm role decides whether
+  they are answered. Sign in as a rider holding detour-admin.
+}

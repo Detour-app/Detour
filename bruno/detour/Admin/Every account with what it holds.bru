@@ -1,0 +1,23 @@
+meta {
+  name: Every account, with what it holds
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{BASE_URL}}/api/admin/accounts
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Metadata and row counts only. No trip, trace, route or place content is readable here, and no endpoint exists that would make it readable.
+
+  Responses:
+  - 200: OK
+  - 403: Forbidden
+}

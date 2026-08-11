@@ -1,0 +1,22 @@
+meta {
+  name: Friends' lifetime numbers and badges
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{BASE_URL}}/api/friends/stats
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Aggregates only — the numbers each friend's own device computed. Sorted by total distance. No endpoint anywhere returns another rider's trips.
+
+  Responses:
+  - 200: OK
+}

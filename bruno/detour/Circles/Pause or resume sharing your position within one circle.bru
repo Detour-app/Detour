@@ -1,0 +1,33 @@
+meta {
+  name: Pause or resume sharing your position within one circle
+  type: http
+  seq: 9
+}
+
+put {
+  url: {{BASE_URL}}/api/circles/:id/sharing
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{id}}
+}
+
+body:json {
+  {
+    "sharing": false
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Per person per circle, not per rider. Enforced on both paths: paused positions are dropped on the way in and excluded on the way out, so a stale client build cannot keep broadcasting after the rider believes they stopped. A convoy id answers not-found rather than not-applicable.
+
+  Responses:
+  - 200: OK
+  - 404: Not Found
+}

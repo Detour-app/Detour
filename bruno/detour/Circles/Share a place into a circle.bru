@@ -1,0 +1,37 @@
+meta {
+  name: Share a place into a circle
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{BASE_URL}}/api/circles/:id/places
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{id}}
+}
+
+body:json {
+  {
+    "place": {
+      "id": 0,
+      "name": "",
+      "radiusMeters": 0.0
+    }
+  }
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  User-owned and revoked when the owner leaves the circle — the same rule unfriending applies to routes. Re-sharing the same place replaces the earlier copy.
+
+  Responses:
+  - 204: No Content
+  - 400: Bad Request
+}

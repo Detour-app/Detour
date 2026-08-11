@@ -1,0 +1,33 @@
+meta {
+  name: Accept or decline a pending request
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{BASE_URL}}/api/friends/requests/:username/respond
+  body: json
+  auth: inherit
+}
+
+params:path {
+  username: {{username}}
+}
+
+body:json {
+  {
+    "accept": false
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Only the side that did not send the request may answer it.
+
+  Responses:
+  - 200: OK
+  - 400: No pending request from that rider.
+}

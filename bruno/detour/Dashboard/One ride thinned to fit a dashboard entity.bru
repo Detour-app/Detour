@@ -1,0 +1,33 @@
+meta {
+  name: One ride, thinned to fit a dashboard entity
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{BASE_URL}}/api/dashboard/rides/track?start={{start}}&tolerance={{tolerance}}&max={{max}}
+  body: none
+  auth: none
+}
+
+params:query {
+  start: {{start}}
+  tolerance: {{tolerance}}
+  max: {{max}}
+}
+
+headers {
+  X-Api-Key: {{API_KEY}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  No start instant means the newest ride, so a polling sensor needs no second request to discover what 'latest' is. The speed and lean peaks are read off the raw track rather than off what survived thinning — dropping a sample must not drop the corner it was carrying.
+
+  Responses:
+  - 200: OK
+  - 404: Not Found
+}

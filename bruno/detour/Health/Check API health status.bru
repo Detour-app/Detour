@@ -1,0 +1,23 @@
+meta {
+  name: Check API health status
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{BASE_URL}}/api/health
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Returns the current health status of the API with per-dependency breakdown.
+
+  Responses:
+  - 200: API is healthy or degraded.
+  - 503: API is unhealthy — a critical dependency is down.
+}

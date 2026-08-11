@@ -1,0 +1,22 @@
+meta {
+  name: Routes friends have shared with the caller
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{BASE_URL}}/api/shared-routes
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Newest first. The sender's name comes from their account, not from the stored document.
+
+  Responses:
+  - 200: OK
+}

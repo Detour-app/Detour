@@ -1,0 +1,27 @@
+meta {
+  name: Revoke every dashboard key an account holds
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{BASE_URL}}/api/admin/accounts/:id/api-keys
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{id}}
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  The lost-device remedy for the one credential Keycloak does not issue. Does not affect the rider's own session, which is Keycloak's to end.
+
+  Responses:
+  - 204: No Content
+  - 404: Not Found
+}

@@ -1,0 +1,22 @@
+meta {
+  name: The union of friends' explored roads
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{BASE_URL}}/api/friends/fog
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Requires the caller to be sharing too: a rider who turns sharing off both stops contributing and stops receiving. Lines come back unattributed — this is a map, not a per-friend history — and a friend who has just revoked sharing drops out on this request, not the next cache cycle.
+
+  Responses:
+  - 200: OK
+}

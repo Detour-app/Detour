@@ -1,0 +1,22 @@
+meta {
+  name: List the caller's dashboard keys
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{BASE_URL}}/api/me/api-keys
+  body: none
+  auth: inherit
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Metadata only. The keys themselves are unrecoverable by design.
+
+  Responses:
+  - 200: OK
+}

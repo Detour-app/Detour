@@ -1,0 +1,25 @@
+meta {
+  name: Places shared into a circle, by anyone in it
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{BASE_URL}}/api/circles/:id/places
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: {{id}}
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Responses:
+  - 200: OK
+  - 400: Bad Request
+}

@@ -1,0 +1,29 @@
+meta {
+  name: Start a circle
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{BASE_URL}}/api/circles
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": ""
+  }
+}
+
+assert {
+  res.status: eq 201
+}
+
+docs {
+  A standing map of who is where. Unlike a convoy it persists when everyone leaves, caps its membership, and never carries voice.
+
+  Responses:
+  - 201: Created
+  - 400: Bad Request
+}

@@ -1,0 +1,26 @@
+meta {
+  name: End a friendship
+  type: http
+  seq: 6
+}
+
+delete {
+  url: {{BASE_URL}}/api/friends/:username
+  body: none
+  auth: inherit
+}
+
+params:path {
+  username: {{username}}
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  Also deletes every route shared between the two riders, in both directions. A route is places you have been, so losing the friendship takes it back.
+
+  Responses:
+  - 204: No Content
+}

@@ -1,0 +1,31 @@
+meta {
+  name: Accept or decline an invitation
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{BASE_URL}}/api/groups/:id/invitations/respond
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: {{id}}
+}
+
+body:json {
+  {
+    "accept": false
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Responses:
+  - 200: OK
+  - 400: Bad Request
+}

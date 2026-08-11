@@ -1,0 +1,28 @@
+meta {
+  name: Turn shared fog of war on or off
+  type: http
+  seq: 2
+}
+
+put {
+  url: {{BASE_URL}}/api/me/fog-sharing
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "shareFog": false
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+docs {
+  Sharing is off by default and reciprocal: a rider who is not sharing both stops contributing their own traces and stops receiving anyone else's. Turning it off takes effect on the next request either side makes.
+
+  Responses:
+  - 200: OK
+}
