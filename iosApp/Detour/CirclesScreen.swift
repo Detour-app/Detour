@@ -17,9 +17,9 @@ final class CircleMapState: ObservableObject {
     static let shared = CircleMapState()
     private init() {}
 
-    @Published private(set) var viewedCircleId: Int32?
+    @Published private(set) var viewedCircleId: String?
 
-    func setViewed(_ id: Int32?) {
+    func setViewed(_ id: String?) {
         viewedCircleId = id
     }
 }

@@ -165,7 +165,7 @@ final class CircleNotifications: NSObject {
         // fallback spelling is `CircleEventsKt.notificationText(event)`.
         content.body = event.notificationText()
         content.sound = .default
-        content.userInfo = ["circleId": Int(circleId)]
+        content.userInfo = ["circleId": circleId]
         // Deterministic per event rather than a random UUID: the same
         // transition arriving twice (a live frame followed by a catch-up
         // sweep that hadn't advanced `lastSeenEventTsMs` yet) replaces the
@@ -188,7 +188,7 @@ final class CircleNotifications: NSObject {
         let content = UNMutableNotificationContent()
         content.body = CircleEventsKt.catchUpSummaryText(collapsed: Int32(collapsed))
         content.sound = .default
-        content.userInfo = ["circleId": Int(circleId)]
+        content.userInfo = ["circleId": circleId]
         let request = UNNotificationRequest(
             identifier: "circle-\(circleId)-summary",
             content: content,
