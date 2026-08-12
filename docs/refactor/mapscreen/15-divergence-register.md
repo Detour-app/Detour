@@ -125,6 +125,20 @@ extraction.** The stale-limit half is a bug (§B1) and is not a product decision
 car's omission has no written rationale, and its `git blame` shows it was never a decision at
 all (see below).
 
+**RESOLVED (staleness half) — `d452d5b`, in favour of the car's reset.** Of the two shapes offered
+at `:108-110` — keep the tracker running while navigating, or clear the value — the fix takes the
+second, because it is the one the car already ships with a written rationale and because keeping
+the producer running would put a second Overpass fetch on the fix collector during navigation,
+which is entry 2's stall (§B4, stage 0d) rather than this one. `ambientSpeedLimitKmh` and its miss
+counter are now cleared on every `navigating` transition, so the chime no longer judges against a
+pre-route sign and the HUD no longer shows one after arrival. **Consequence to hold on to for
+stage 3:** while navigating the fallback is now always null, so `CameraWarner` still takes two
+limits — the ambient one is the free-drive source, where the chime has no other — but the
+untagged-road coverage the phone appeared to have *during* navigation was never real, it was the
+stale value. **Still open:** the *product* half, the car gaining the fallback at all, which is
+what stage 3's machine 2 lands, along with `README.md:383-385`. **Unobserved:** Overpass is
+rate-limited, so no replay confirmed the reset against a live sign.
+
 **Deliberate, or drift?** Drift. `git blame -L 869,869 MapScreen.kt` → `b512351` (2026-07-16,
 *"feat: speed cameras, Bluetooth vehicle auto-detect, walk mode"*) — the original feature
 commit, fallback included. `git blame -L 413,414 car/NavScreen.kt` → `f5e29b9` (2026-08-04,
@@ -581,8 +595,13 @@ garage. Both are defensible and this register is not entitled to pick.
 
 **RESOLVED (5d threshold) — `7c96bee`, §C decision 3, in favour of Android's `2.0 m/s`.**
 The rationale is now written beside the constant in `iosApp/Detour/TripRecorder.swift`, which is
-what neither surface had. **Still open:** 5d's `autoStarted` gate (§B2), and all of 5a, 5b, 5c, 5e
-and 5f.
+what neither surface had.
+
+**RESOLVED (5d gate) — `f8b0f5f`, in favour of Android's `autoStarted` gate.** The stationary end
+is now reached only for trips the iOS recorder started itself; a hand-started recording is the
+user's to end. The "moving" stamp still updates either way, as Android's does. **Unobserved:**
+nothing in this repo runs the iOS app, so this was verified by reading the two recorders against
+each other. **Still open:** 5a, 5b, 5c, 5e and 5f.
 
 **Blocks stage 3: no.** Trip auto-detection is explicitly **out of scope** at
 `specs/stage-3-hazard-machines-to-shared.md:122-124` — *"they are a separate programme, not this
@@ -744,6 +763,17 @@ including 6f's dropping.
 And: **fix 6a and 6b in iOS Swift now, do not wait for the extraction.** They are a `case "left"`
 branch and a timer, they are user-visible today, and the extraction they are waiting for is a
 programme that has not been scheduled.
+
+**RESOLVED (6a and 6b) — `73f9311`, in favour of Android's rules, in Swift, without waiting for a
+`shared/` protocol.** `case "left"` removes the user from `peers` and `talking` exactly as the
+Kotlin branch does, and a 5 s sweep matching `PEER_PRUNE_INTERVAL_MS` now runs for the life of the
+connection loop — alongside it as on Android rather than per connection attempt, since peers held
+while a dropped socket backs off go stale just the same. The `location` branch's own prune stays;
+it costs nothing and keeps a busy convoy tidy between sweeps. **Unobserved:** a two-device convoy
+cannot be run here, so this was read against the Kotlin client and the relay's frame
+documentation (`server/sync/sync_server.py:1948`), not watched. **Still open:** 6c (relay URL from a
+custom server), 6d (`?? 0` vs `NaN`), 6e (no pong deadline), 6f (unbounded fan-out, needs-a-human),
+and the two smaller ones recorded above.
 
 **Blocks stage 3: no.** The convoy protocol is explicitly **out of scope** at
 `specs/stage-3-hazard-machines-to-shared.md:122-124`, and its risk section warns at `:174-176` that
@@ -993,6 +1023,12 @@ specifically has no way to express that today anyway.
 **Blast radius.** Android Auto search only.
 
 **Recommendation: bug — fix on its own** (§B3). Two arguments added to one call.
+
+**RESOLVED — `716f393`.** `SearchScreen.navigateTo` passes `Settings.avoidHighways.value` and
+`Settings.avoidSmallRoads.value`, so all five request sites now agree and a trip started from car
+search no longer changes its routing policy on its first reroute. **Still open:** the same line's
+hardcoded `TravelMode.CAR.ghProfile` (this entry's second half, also at `SpinScreen.kt:333`),
+deliberately left alone — a travel-mode fix is a different change from a settings fix.
 
 **Blocks stage 3: no.**
 
@@ -1757,6 +1793,9 @@ entry in the register where iOS is the better copy.
 
 - **6 are plain bugs** — one side is wrong, not different. §B. Four were found by this register and
   are not filed anywhere; one is `maxke24/Detour#21`; one is already scheduled as stage 0d.
+  **Four of the six are now fixed** — B1 `d452d5b`, B2 `f8b0f5f`, B3 `716f393`, B6 `73f9311`, one
+  commit each. **Two remain:** B4 (entry 2, the Overpass stall, waiting on stage 0d and a replay
+  route) and the open two thirds of B5 (entry 16's `sendPttStart()` ordering and visibility gate).
 - **12 have a defensible better copy on the evidence** and need no decision: 2, 4, 6a–6e, 7, 8, 9,
   13, 17, 20, 22. Note that **entry 22 is the one place iOS is the better copy** — a register that
   always picks the phone is not measuring anything.
@@ -1771,9 +1810,9 @@ items plus one open question plus a bug — so the buckets add to more than 22 b
 | # | Divergence | Kind | Surfaces affected | Blocks stage 3 | Verdict |
 |---|---|---|---|:-:|---|
 | 16 | **iOS PTT has no microphone permission at all** | **bug** | iOS | no | **permission RESOLVED `1f4514a`**; ordering + socket gate open (§B5) |
-| 1 | Camera chime falls back to the ambient limit | product decision + bug | phone, car, wear, `README.md` | **yes** | survive: phone's fallback, staleness fixed |
-| 5 | Trip auto-detection: six rules | product decision + bug | iOS | no (out of scope) | survive: Android on 5a/b/c/e/f; **5d threshold RESOLVED `7c96bee`**, 5d gate + rest open |
-| 6 | Convoy relay: `left`, pruning, dead sockets | 5 bugs + 1 trade-off | iOS | no (out of scope) | survive: Android on 6a–6e |
+| 1 | Camera chime falls back to the ambient limit | product decision + bug | phone, car, wear, `README.md` | **yes** | survive: phone's fallback; **staleness RESOLVED `d452d5b`** (the car's reset), fallback for the car is stage 3's |
+| 5 | Trip auto-detection: six rules | product decision + bug | iOS | no (out of scope) | survive: Android on 5a/b/c/e/f; **5d RESOLVED — threshold `7c96bee`, gate `f8b0f5f`**; rest open |
+| 6 | Convoy relay: `left`, pruning, dead sockets | 5 bugs + 1 trade-off | iOS | no (out of scope) | survive: Android on 6a–6e; **6a + 6b RESOLVED `73f9311`**; 6c–6e open |
 | 15 | Camera warning: chime vs chime+speak+toast | **product decision** | phone | partly | **RESOLVED `7f22061`** — full parity: chime + speak, no toast; audibility still unheard |
 | 2 | Overpass prefetch on the fix collector | plain bug | phone | **yes (ordering)** | survive: car's structure (stage 0d) |
 | 11 | Trajectcontrole adoption on car / iOS | **product decision** | car, iOS | it *is* stage 3 | **needs-a-human** (§C2) |
@@ -1782,7 +1821,7 @@ items plus one open question plus a bug — so the buckets add to more than 22 b
 | 9 | Three-candidate roll: phone's copy vs `shared/` | product decision | phone, iOS | no | survive: `shared/` + phone's timeout |
 | 4 | Maneuver sign table, four copies, `-6` | drift | phone, wear, iOS | no | survive: car's code set, split glyph layer |
 | 17 | Car free-drive map ignores speed-adaptive zoom | drift | car | no | survive: the shared rule |
-| 10 | Car search drops the avoid-* settings | plain bug | car | no | fix on its own (§B3) |
+| 10 | Car search drops the avoid-* settings | plain bug | car | no | **RESOLVED `716f393`**; the same line's hardcoded car profile is still open |
 | 19 | Distance-to-turn: metres vs 100 m steps | product decision | phone, wear, iOS | no | **needs-a-human**, low stakes |
 | 7 | `fetchLocation`, five one-shot lookups | drift | phone, car | no | survive: high-accuracy shape, parameterised |
 | 18 | Speed HUD fades at standstill on the phone only | product decision | phone or car | constrains it | **needs-a-human**, "leave both" is fine |
@@ -1819,7 +1858,13 @@ left behind) and **9** (the inline three-candidate roll). Both belong in a stage
 One side is wrong, not different. Each gets its own commit, and none of them is a decision.
 `DECISION.md:394-400` — *"Never in one commit: … an extraction **and** the bug it reveals"*.
 
-**B1 — `ambientSpeedLimitKmh` is never reset, so it is stale twice over.**
+**Status: four of six fixed** — B1 `d452d5b`, B3 `716f393`, B2 `f8b0f5f`, B6 `73f9311`, in that
+order, one commit each, each verified against the tree before it was fixed. B4 and B5's remaining
+two thirds are open. Every one of the four line-number citations below was re-derived and held; the
+line numbers themselves had drifted (stage 2 and the voice work moved `MapScreen.kt`), so each
+resolution marker names the code rather than the line.
+
+**B1 — `ambientSpeedLimitKmh` is never reset, so it is stale twice over.** **RESOLVED — `d452d5b`.**
 `app/…/ui/MapScreen.kt:733-734` gates the producer off while `navigating`, and nothing clears the
 value (`grep -n 'ambientSpeedLimitKmh'` → `241, 757, 762, 848, 1361`; the only writers are a
 successful snap and three consecutive misses). Two symptoms:
@@ -1847,14 +1892,36 @@ map's"; every constant matches (margin 500 m, throttle 10 s, min 2.0 m/s, 3 miss
 does not. Not filed upstream. Found by this register. A reviewer diffing the two copies without
 reading this could reasonably conclude the car is right outright.
 
-**B2 — iOS auto-ends manually started trips.** `iosApp/Detour/TripRecorder.swift:291-296` runs the
+`d452d5b` clears both the sign and the miss counter at the top of the producer's
+`LaunchedEffect(navigating)`, so every transition in either direction resets them — the car's rule,
+in the phone's idiom. Reproduced before fixing: the only writers really were the snap and the
+three-miss clear, both inside the gated collector, and both consumers really did read the frozen
+value. **Not observable here** (Overpass rate-limited, no replay of a live sign), and it changes
+behaviour: during navigation a route segment with no `maxspeed` now chimes on nothing rather than on
+a stale sign. **No test** — the rule lives in a Compose effect, and reaching it from a JVM test
+means extracting the ambient tracker, which is stage 3's machine 3 and may not share this commit.
+
+**B2 — iOS auto-ends manually started trips.** **RESOLVED — `f8b0f5f`.**
+`iosApp/Detour/TripRecorder.swift:291-296` runs the
 5-minute stationary end-of-trip check unconditionally; Android gates it on `autoStarted`
 (`app/…/tracking/TripTrackingService.kt:1082`). A user who starts a recording by hand and then
 stops for five minutes — a coffee, a photo, a long queue — loses the rest of it. Not filed
 upstream. Found by this register.
 
-**B3 — The car's search screen drops the routing preferences.** Entry 10.
+`f8b0f5f` gates the end — not the "moving" stamp, which Android also keeps updating — on the
+`startedAutomatically` flag iOS already tracked for `endTrip`'s false-positive rule and simply never
+consulted here. **Not observable here:** nothing in this repo runs the iOS app. On a device: start a
+recording by hand, stand still for six minutes, confirm it is still recording. **No test** —
+`iosApp/` has no test target, and CI's JVM/Native tests cover `:shared` only.
+
+**B3 — The car's search screen drops the routing preferences.** **RESOLVED — `716f393`.** Entry 10.
 `app/…/car/SearchScreen.kt:138`. Not filed upstream. Found by this register. Two arguments.
+
+`716f393` adds exactly those two arguments, so all five request sites agree. Verified before and
+after against all five sites, and it compiles (`:app:compileDebugKotlin`). The one behaviour change
+that *is* checkable at a desk — nothing else on that call moved — is that the head unit's search now
+honours settings it was ignoring; the travel-mode half of entry 10 is untouched. **No test:** one
+call site's arguments inside an Android Auto `Screen`, with nothing Android-free to assert.
 
 **B4 — The phone stalls its own fix stream on Overpass.** Entry 2. Filed upstream as
 **maxke24/Detour#21** ("choppy map rendering") and already scheduled as stage 0 work item 0d,
@@ -1871,12 +1938,21 @@ upstream. Found by this register. **The severity — process termination versus 
 UNVERIFIED and must be confirmed on a device.** The missing key and the missing request were
 verified.
 
-**B6 — iOS drops convoy peers that left and never prunes ones that go quiet.** Entry 6a and 6b. A
+**B6 — iOS drops convoy peers that left and never prunes ones that go quiet.** **RESOLVED —
+`73f9311`.** Entry 6a and 6b. A
 `case "left"` branch (`ConvoyLiveClient.swift`, absent) and a periodic sweep to match
 `PEER_PRUNE_INTERVAL_MS` (`app/…/net/ConvoyLiveClient.kt:401`). Not filed upstream. Found by this
 register. Fix in Swift now — do not wait for a `shared/` extraction of the protocol, which is a
 programme nobody has scheduled. Related and in the same area: iOS's mute does not stop the
 utterance in flight (entry 12, one `voice.stop()` call).
+
+`73f9311` adds both: the `left` branch, and a `prunePeersPeriodically()` task owned by the
+connection loop rather than by one connection attempt, so peers do not sit frozen through a backoff
+either. Reproduced before fixing — the Swift switch really had nine cases and no `left`, and
+`pruneStalePeers()` really had exactly one caller, in the inbound `location` branch. **Not
+observable here:** no iOS app and no second device. **No test:** `iosApp/` has no test target; the
+protocol is still two hand-written clients, and the register is explicit that these two fixes should
+not wait for the extraction that would make them testable in one place.
 
 **Already fixed, listed so nobody re-files it:** the iOS maneuver table
 (**maxke24/Detour#20**) was corrected on this branch by `c7ef627` and `075b991`. Audit 13's
@@ -2022,6 +2098,12 @@ entry 8's two are measured against `1c7f827` and `e6a6bf2`; and the three conver
 at the end of the fence were first measured against `7f22061` and did not exist before it. When
 you add an assertion, say which commit produced its number.
 
+The §B bug fixes moved six more. Measured against `73f9311`: entry 1's new reset assertion (`2`),
+entry 5d's gate (`1`), entry 10's two (`0` and `1`, the second new), and entry 6a's — inverted from
+`0` to `1` — plus 6b's sweep (`2`), which is new and was never measured at `57260e4` either. Four of
+those five are absences that became presences, so four assertions flipped direction in one pass:
+that is the register working as designed, and it is also why the fence is a script and not a table.
+
 ```sh
 M=app/src/main/java/com/jellemax/detour/ui/MapScreen.kt
 CAR=app/src/main/java/com/jellemax/detour/car
@@ -2042,11 +2124,30 @@ check 'car dt clamp is still 0.25'                 1 "$(grep -c 'coerceIn(0.0, 0
 check 'the -6 roundabout-exit branch is still car-only' 1 \
     "$(grep -c -- '-6 -> Maneuver' $CAR/NavScreen.kt)"
 
-# Entries 6a and 16 — inverted assertions, the kind worth running rather than eyeballing.
-check 'iOS still ignores the relay left frame' 0 \
-    "$(grep -c 'case "left"' iosApp/Detour/ConvoyLiveClient.swift)"
+# Entry 16 — inverted assertion, the kind worth running rather than eyeballing.
 check 'iOS declares a microphone usage description' 1 \
     "$(grep -c 'NSMicrophoneUsageDescription' iosApp/Detour/Info.plist)"
+
+# Entries 6a and 6b — RESOLVED by 73f9311. Both were absences, so both are now
+# inverted: 0 means the left branch or the sweep was lost again. The pruner
+# counts 2 — the definition and the one place the connection loop starts it.
+check 'iOS handles the relay left frame' 1 \
+    "$(grep -c 'case "left"' iosApp/Detour/ConvoyLiveClient.swift)"
+check 'iOS prunes quiet peers on a timer' 2 \
+    "$(grep -c 'prunePeersPeriodically' iosApp/Detour/ConvoyLiveClient.swift)"
+
+# Entry 5d's gate — RESOLVED by f8b0f5f. Inverted: 0 means a hand-started iOS
+# trip can auto-end again.
+check 'iOS only auto-ends trips it auto-started' 1 \
+    "$(grep -c 'else if startedAutomatically,' iosApp/Detour/TripRecorder.swift)"
+
+# Entry 1's staleness half (§B1) — RESOLVED by d452d5b. NOTE the count is 2, not
+# 1: the three-miss clear inside the collector and the reset above the navigating
+# gate both null the same field. A count of 1 means the reset went away — which
+# is the whole bug — and this is the assertion stage 3 must keep green when
+# CameraWarner takes the fallback over.
+check 'the ambient limit is still reset on the navigating transition' 2 \
+    "$(grep -c 'ambientSpeedLimitKmh = null' "$M")"
 
 # Entry 8 — RESOLVED by 1c7f827. Inverted on purpose: 1 means the literal came back.
 check 'the 60 literal is gone' 0 \
@@ -2056,9 +2157,12 @@ check 'the 60 literal is gone' 0 \
 check 'the head unit has an off-route indicator' 1 \
     "$(grep -c '"Off route"' $CAR/NavScreen.kt)"
 
-# Entry 10 — the car search call that drops both routing flags.
-check 'car search still routes without the avoid-* settings' 1 \
+# Entry 10 — RESOLVED by 716f393. Both halves of the old assertion are kept: the
+# flag-less call must stay gone, and the flags must stay passed.
+check 'car search no longer routes without the avoid-* settings' 0 \
     "$(grep -c 'RoutingServer.route(config, from, result.location, TravelMode.CAR.ghProfile)$' $CAR/SearchScreen.kt)"
+check 'car search passes both routing settings' 1 \
+    "$(grep -c 'Settings.avoidHighways.value, Settings.avoidSmallRoads.value' $CAR/SearchScreen.kt)"
 
 # Entry 12 — RESOLVED. The policy exists once and all three surfaces call it.
 check 'the announce ladder lives only in :shared' 1 \
@@ -2070,7 +2174,8 @@ check 'the phone speaks the camera warning' 1 \
     "$(grep -c 'announceAloud("Speed camera ahead")' "$M")"
 ```
 
-Note the two **inverted** assertions. `check-preconditions.sh`'s header comment explains why they
+Note the **inverted** assertions — after the §B fixes most of the fence is inverted, since a fix for
+an absence is a presence to defend. `check-preconditions.sh`'s header comment explains why they
 earn a script rather than a glance: *"an inverted assertion is exactly the kind a reader 'checks'
 by glancing at a grep that printed nothing, which is also what a mistyped path prints."* Half this
 register's findings are absences — a missing `case`, a missing key, a missing reset — so most of its
