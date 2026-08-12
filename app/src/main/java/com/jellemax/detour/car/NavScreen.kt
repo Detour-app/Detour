@@ -37,6 +37,7 @@ import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -50,9 +51,6 @@ import kotlin.math.roundToLong
 
 private const val TAG = "DetourNav"
 
-private const val ARRIVE_METERS = 40.0
-private const val OFF_ROUTE_METERS = 60.0
-private const val REROUTE_COOLDOWN_MS = 15_000L
 private const val CAMERA_FETCH_MARGIN_M = 1000.0
 private const val CAMERA_FETCH_THROTTLE_MS = 15_000L
 
@@ -239,41 +237,51 @@ class NavScreen(
         refreshTemplate(p)
         checkCameras(pos, bearingDeg?.toDouble())
 
-        // Same arrival/reroute policy as MapScreen.kt's navigating LaunchedEffect.
-        if (!arrived && p.remainingMeters < ARRIVE_METERS && p.offRouteMeters < OFF_ROUTE_METERS) {
-            arrived = true
-            screenManager.pop()
-            return
-        }
+        // Arrival and reroute are NavPolicy's call, shared with MapScreen.kt's
+        // navigating LaunchedEffect. `arrived` stays here: it is this screen's
+        // own once-only latch on popping itself, not part of the policy.
         val now = System.currentTimeMillis()
-        if (p.offRouteMeters > OFF_ROUTE_METERS && !rerouting && now - lastRerouteMs > REROUTE_COOLDOWN_MS) {
-            rerouting = true
-            lastRerouteMs = now
-            speak("Rerouting")
-            lifecycleScope.launch {
-                try {
-                    val fresh = withContext(Dispatchers.IO) {
-                        RoutingServer.route(serverConfig, pos, destination, TravelMode.CAR.ghProfile,
-                            Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
+        when (NavPolicy.decide(
+            progress = p,
+            hasDestination = true, // a constructor parameter on this screen
+            rerouting = rerouting,
+            lastRerouteMs = lastRerouteMs,
+            nowMs = now,
+        )) {
+            NavPolicy.Decision.Arrived -> if (!arrived) {
+                arrived = true
+                screenManager.pop()
+            }
+            NavPolicy.Decision.Reroute -> {
+                rerouting = true
+                lastRerouteMs = now
+                speak("Rerouting")
+                lifecycleScope.launch {
+                    try {
+                        val fresh = withContext(Dispatchers.IO) {
+                            RoutingServer.route(serverConfig, pos, destination, TravelMode.CAR.ghProfile,
+                                Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
+                        }
+                        route = fresh
+                        // The line on the map is only pushed when it changes, so a
+                        // reroute is the one moment it has to be pushed again.
+                        renderer.setRoute(fresh.polyline, destination)
+                        // Instruction indices belong to the old polyline; start the
+                        // prompts for the new one from scratch, "Rerouting" followed
+                        // by what the new line asks for next.
+                        voiceStepKey = Int.MIN_VALUE
+                        voicePhase = 0
+                        startAnnounced = false
+                        templateKey = null
+                    } catch (e: Exception) {
+                        // stay on the old line; retried after the cooldown
+                        Log.w(TAG, "reroute failed", e)
+                    } finally {
+                        rerouting = false
                     }
-                    route = fresh
-                    // The line on the map is only pushed when it changes, so a
-                    // reroute is the one moment it has to be pushed again.
-                    renderer.setRoute(fresh.polyline, destination)
-                    // Instruction indices belong to the old polyline; start the
-                    // prompts for the new one from scratch, "Rerouting" followed
-                    // by what the new line asks for next.
-                    voiceStepKey = Int.MIN_VALUE
-                    voicePhase = 0
-                    startAnnounced = false
-                    templateKey = null
-                } catch (e: Exception) {
-                    // stay on the old line; retried after the cooldown
-                    Log.w(TAG, "reroute failed", e)
-                } finally {
-                    rerouting = false
                 }
             }
+            NavPolicy.Decision.Continue -> {}
         }
     }
 
