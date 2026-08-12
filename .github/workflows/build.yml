@@ -241,7 +241,7 @@ jobs:
             This build ships with no server configured. Point it at your own
             under Settings → Routing server and Settings → Backup sync, or
             import a saved config under Settings → Server config file. See
-            `server/INSTALL.md` to host one.
+            `backend/README.md` to host one.
 
       # `wear:internal` — the internal track of the Wear OS form factor, a
       # different track from the `internal` above and the only one that accepts

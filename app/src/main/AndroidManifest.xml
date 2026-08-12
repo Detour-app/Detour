@@ -64,17 +64,21 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Password reset links from the server's mails. A custom scheme
-                 rather than https on purpose: the sync server sits behind
-                 Cloudflare Access, so a browser following an https link would
-                 meet the Access wall, while the app already holds the service
-                 token. singleTop above keeps a tapped link from stacking a
-                 second copy of the app on top of the running one. -->
+            <!-- Where the realm sends the browser back after a sign-in, carrying
+                 the authorization code (see auth/Oidc.kt). A private-use scheme
+                 because that is what a native app can claim without hosting
+                 anything, and it is what the realm has registered for this
+                 client. singleTop above keeps the redirect from stacking a
+                 second copy of the app on top of the running one.
+
+                 Password reset had a filter here too. The realm owns that now:
+                 its mail links into a browser, the rider signs in afterwards
+                 like any other time, and the app never handles a reset code. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="detour" android:host="reset" />
+                <data android:scheme="detour" android:host="auth" android:path="/callback" />
             </intent-filter>
         </activity>
 

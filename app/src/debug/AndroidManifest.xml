@@ -1,9 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Debug-only additions. AGP merges this source set into debug builds only,
-     so nothing declared here exists in a release APK. -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+     so nothing declared here exists in a release APK.
 
-    <application>
+     The cleartext exemption is for the local development stack (docker/dev),
+     which speaks plain HTTP: from API 28 onwards a release build is right to
+     refuse that, and only the debug APK gets the exception, so nothing shipped
+     can silently fall back to cleartext.
+
+     Reaching the stack from an emulator wants `adb reverse tcp:7501 tcp:7501`
+     and `adb reverse tcp:7580 tcp:7580` rather than 10.0.2.2: Keycloak bakes
+     http://localhost:7580 into the realm and hands out absolute URLs, so the
+     device has to know the identity provider by the same name the API does. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:usesCleartextTraffic="true"
+        tools:ignore="UnusedAttribute">
         <!-- Fires the real trip-ended notification so its tap behaviour can be
              tested without driving. exported="true" is what lets `adb shell am
              broadcast` reach it, which also means any app on the device could:

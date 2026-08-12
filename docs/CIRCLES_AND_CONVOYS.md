@@ -2,7 +2,7 @@
 
 Design note for [issue #6](https://github.com/maxke24/Detour/issues/6) (Life360-style
 circles). Written against `main` @ `4301232`. Line references are to
-`server/sync/sync_server.py` at that commit and will drift; the function names will not.
+the backend of that day and will drift; the behaviour they describe will not.
 
 A convoy already *is* a circle. It has a group, a membership table gated on friendship,
 and a live position feed — everything a circle needs, running in production today. What
@@ -22,7 +22,8 @@ thinness is what makes it reusable.
 The schema is membership only. Nothing about a convoy's live state touches SQLite:
 
 ```sql
--- sync_server.py:376
+-- The shape it had when this was designed, kept for the reasoning below; the
+-- service that serves it now maps the same membership onto Postgres.
 CREATE TABLE IF NOT EXISTS convoys (
     id         INTEGER PRIMARY KEY,
     name       TEXT NOT NULL,
@@ -48,9 +49,8 @@ additionally gated on an accepted friendship.
 Live state runs beside the HTTP server on its own port (8990 vs 8790), as an asyncio
 WebSocket listener in a background thread. Its registry is a single module-level dict:
 
-```python
-# sync_server.py:1481 — convoy_id -> {user_id: (username, websocket, token_hash)}
-_convoy_sockets = {}
+```
+convoy_id -> {user_id: (username, websocket, token_hash)}
 ```
 
 The protocol is one JSON object per text frame, after a normal `Authorization: Bearer`

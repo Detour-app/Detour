@@ -343,7 +343,7 @@ class TripTrackingService : Service() {
     /** One evaluator per circle, kept across ticks - [GeofenceEvaluator] holds
      *  per-place dwell/inside state between calls, so a fresh instance every
      *  tick would never accumulate enough dwell time to fire "arrive". */
-    private val circleEvaluators = mutableMapOf<Int, GeofenceEvaluator>()
+    private val circleEvaluators = mutableMapOf<String, GeofenceEvaluator>()
 
     /** Activity recognition says the phone is STILL, and no trip is running. */
     private var stationary = false

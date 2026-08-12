@@ -1,0 +1,9 @@
+# The Dockerfile copies the whole context, so anything not needed to build has to
+# be excluded here or it lands in the build cache and, worse, lets a host bin/obj
+# built against another SDK confuse the restore inside the image.
+**/bin/
+**/obj/
+**/.vs/
+**/*.user
+Dockerfile
+.dockerignore

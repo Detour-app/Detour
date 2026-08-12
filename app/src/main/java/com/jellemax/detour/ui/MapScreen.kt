@@ -149,6 +149,7 @@ import com.jellemax.detour.R
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.jellemax.detour.audio.PushToTalk
+import com.jellemax.detour.data.Features
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.net.GroupSpin
 import com.jellemax.detour.net.SpinCandidate
@@ -1601,8 +1602,11 @@ fun MapScreen(
             // activeConvoyId != null is also required now that the same
             // socket can be connected for a circle's notify-only join with
             // no convoy at all - see the mic permission effect above.
+            // Gated on its own flag rather than on the relay's: the rebuilt relay
+            // carries positions and votes but drops voice frames, so a button
+            // shown here would transmit into nothing and read as a bug.
             AnimatedVisibility(
-                visible = convoyConnected && activeConvoyId != null,
+                visible = Features.pushToTalk && convoyConnected && activeConvoyId != null,
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp),

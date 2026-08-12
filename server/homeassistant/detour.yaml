@@ -1,13 +1,13 @@
 # Detour → Home Assistant
 #
-# Lifetime totals, badges and the recent rides list, from the sync server's
-# read-only /ha/* endpoints. See README.md in this folder for install steps.
+# Lifetime totals, badges and the recent rides list, from the service's
+# read-only dashboard API. See README.md in this folder for install steps.
 #
 # Needs three entries in secrets.yaml (the REST platform takes a URL, not a
 # base + path, so the two endpoints are spelled out):
-#   detour_stats_url: https://your-sync-server.example/ha/stats
-#   detour_rides_url: https://your-sync-server.example/ha/rides
-#   detour_key: <the key printed by sync_server.py --api-key>
+#   detour_stats_url: https://your-server.example/api/dashboard/stats
+#   detour_rides_url: https://your-server.example/api/dashboard/rides
+#   detour_key: <the key POST /api/me/api-keys printed once>
 # Plus, if the server is behind Cloudflare Access:
 #   detour_cf_id: <service token client id>
 #   detour_cf_secret: <service token client secret>
@@ -17,7 +17,7 @@ rest:
   - resource: !secret detour_stats_url
     headers:
       X-API-Key: !secret detour_key
-      # Only needed when the sync server sits behind Cloudflare Access.
+      # Only needed when the server sits behind Cloudflare Access.
       # Drop these two lines if it doesn't.
       CF-Access-Client-Id: !secret detour_cf_id
       CF-Access-Client-Secret: !secret detour_cf_secret
@@ -64,8 +64,8 @@ rest:
         unique_id: maproulette_max_lean
         # Null on a profile that has never recorded lean. Go unavailable
         # rather than report a 0° that reads as "never leaned".
-        availability: "{{ value_json.stats.maxLeanDeg is not none }}"
-        value_template: "{{ value_json.stats.maxLeanDeg | float(0) | round(1) }}"
+        availability: "{{ value_json.stats.maxLeanDegrees is not none }}"
+        value_template: "{{ value_json.stats.maxLeanDegrees | float(0) | round(1) }}"
         unit_of_measurement: °
         icon: mdi:motorbike
 
@@ -85,7 +85,7 @@ rest:
   - resource: !secret detour_rides_url
     headers:
       X-API-Key: !secret detour_key
-      # Only needed when the sync server sits behind Cloudflare Access.
+      # Only needed when the server sits behind Cloudflare Access.
       # Drop these two lines if it doesn't.
       CF-Access-Client-Id: !secret detour_cf_id
       CF-Access-Client-Secret: !secret detour_cf_secret

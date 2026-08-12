@@ -2,7 +2,7 @@
 
 ## Done: real routing engine for Moto round trips
 
-Shipped. Self-hosted GraphHopper (`server/install.sh`, `server/INSTALL.md`) with a
+Shipped. Self-hosted GraphHopper with a
 `moto` profile weighted on the built-in `curvature` encoded value, `round_trip`
 loops from `RoutingServer.roundTrip`, and in-app turn-by-turn (`NavEngine.kt`,
 `car/NavScreen.kt`) — the Google Maps handoff this file once planned around is
@@ -19,8 +19,9 @@ that actually came back, with junctions identified from GraphHopper's own turn
 instructions.
 
 Tuning knobs, in the order worth touching: bend radius window (now 25–300 m),
-`CURVY_CANDIDATES` (now 3), the moto profile's curvature ladder in `install.sh`,
-avoid-repeat-roads.
+`CURVY_CANDIDATES` (now 3), the moto profile's curvature ladder in whatever
+provisions GraphHopper — it used to live in `install.sh`, which went with the
+Python server — avoid-repeat-roads.
 
 ## Other ideas (unprioritized)
 - Avoid destinations too close to start (min distance slider or % of radius)

@@ -495,25 +495,59 @@ apksigner verify --print-certs detour-<version>.apk
 
 ## Self-hosting the server
 
-The app can sync to your own server (accounts, trips, fog of war, friends) and
-route against your own GraphHopper instance. One script installs either or both
-— on a Proxmox host it builds an LXC for you, anywhere else it installs in place.
+The app can sync to your own server (trips, fog of war, friends, circles) and
+route against your own GraphHopper instance.
+
+The server is a .NET service in [`backend/`](backend/README.md) backed by
+Postgres, with **identity in Keycloak** rather than in the service itself: you
+sign in on the realm's own page in a browser, and the service only ever sees the
+token it issued. Accounts, passwords, resets and who may register are all
+managed in the realm's admin console — which is also why there is no invite-code
+system or password form in the app any more.
+
+Everything it depends on comes up with the development stack:
 
 ```
-bash server/install.sh
+docker compose -f docker/dev/docker-compose.yml up -d
 ```
 
-Accounts are managed from a web dashboard at `/admin` on the sync hostname:
-hand out single-use invite codes, mail password resets, revoke sessions, remove
-people. It shows account metadata and row counts only — no admin can read
-anyone's rides.
+See [`docker/dev/README.md`](docker/dev/README.md) for the ports, the realm and
+the credentials, and [`backend/README.md`](backend/README.md) for the service
+itself. Administration that outlived Keycloak — account metadata, row counts,
+deleting an account and revoking its dashboard keys — is API-only, and shows no
+one's rides.
 
-See [`server/INSTALL.md`](server/INSTALL.md) for exposing it safely, choosing an
-OSM region, backups, and the API. Verify a running install with
-`bash server/verify.sh`.
+### Running it somewhere real
+
+The development stack above is for a development machine: it ships working
+passwords on purpose and Keycloak runs in dev mode. For anything else there is a
+published image and a stack that refuses to start until you have set every
+secret:
+
+```
+cp docker/prod/.env.example docker/prod/.env
+docker compose -f docker/prod/docker-compose.yml up -d
+```
+
+See [`docker/prod/README.md`](docker/prod/README.md), and
+[`backend/INSTALL.md`](backend/INSTALL.md) for what each configuration key means.
+
+Be aware of the shape before you commit to it. This is five processes where the
+old Python server was one: the API, its Postgres, Keycloak, Keycloak's own
+Postgres, and a reverse proxy holding the TLS certificate the realm issues tokens
+against. Accounts, passwords and resets stop being this project's job, which is
+the point, but it is not a smaller thing to run.
+
+There is no importer for an existing `detour.db`, and passwords cannot be carried
+across at all — Keycloak never saw the old hashes, so every rider signs up again.
 
 Sync is optional; with no server configured everything stays on the phone. With
 one, your trips and traces live on hardware you own.
+
+**Convoy live location and push-to-talk are temporarily unavailable.** They ride
+on a WebSocket relay that has not been rebuilt yet, and the app says so where the
+controls were. Circles — shared places, positions and arrival history — do not
+use it and work normally.
 
 ### What leaves your device
 

@@ -4,8 +4,9 @@
 
 - JDK 17
 - Android SDK 35 (compile/target), min SDK 26
-- Python 3.8+ if you're touching the sync server (stdlib only, no dependencies
-  to install)
+- .NET 10 SDK and Docker if you're touching the backend — Docker for the
+  development stack (Postgres, Redis, Keycloak) and for the integration tests,
+  which start a real Postgres
 - A Mac with Xcode 16 **only** if you want to build or run the iOS app locally.
   Everything else, including type-checking and testing the shared core, works
   on Linux and Windows.
@@ -17,7 +18,9 @@ shared/     Kotlin Multiplatform core. Roulette, routing, trips, badges, sync.
 app/        Android app — UI and platform services only.
 iosApp/     SwiftUI app — UI and platform services only.
 wear/       Wear OS companion.
-server/     Python sync server, GraphHopper/Photon install scripts.
+backend/    .NET sync + social service, its database and tests.
+docker/     Local development stack: Postgres, Redis, Keycloak, Traefik, LGTM.
+server/     Home Assistant package for the read-only dashboard API.
 ```
 
 The split follows one rule: **the core is handed things, it never reaches for
@@ -82,41 +85,44 @@ No server URLs, API keys, or Cloudflare Access secrets are required to build.
 The app takes all of that at runtime (Settings), or from `local.properties`
 for a personal local build — see the `routingCfg()` helper in
 `app/build.gradle.kts` for the property/env-var names it reads. If your
-services sit behind one path-routed hostname (see `server/INSTALL.md`), a
-single `server.url` covers sync, routing, the geocoder and the convoy relay;
-the per-service keys override it where they're set.
+services sit behind one path-routed hostname, a single `server.url` covers
+routing and the geocoder; the per-service keys override it where they're set.
+The API needs `api.url` of its own — `/api` is already the geocoder's path in
+that layout — and `idp.issuer` for the realm that issues rider tokens.
 
-## Running the sync server locally
+## Running the backend locally
 
-```bash
-DATA_DIR=/tmp/mrtest python3 server/sync/sync_server.py
-```
-
-Stdlib only — no virtualenv, no pip install. Point `SYNC_URL` in the app's
-Settings (or `local.properties`/CI env) at `http://<your-machine>:8790` to
-test against it. See `server/INSTALL.md` for the full self-hosting picture
-(GraphHopper routing, the Photon geocoder, exposing any of it safely).
-
-`python3 -m py_compile server/sync/sync_server.py` is the fast sanity check
-for any change to the server — no imports fail, syntax is valid.
-
-### `verify.sh`
-
-`server/verify.sh` is the server's test suite: it creates a few throwaway
-accounts against a *running* server, exercises the things that must never
-regress — per-user isolation, the friends privacy boundary (totals/badges
-only, never trips or traces), idempotent sync merging, and the brute-force
-login lockout — then deletes the accounts it made. Run it against your local
-instance:
+Everything the service talks to comes up in Docker; the service itself runs
+from your IDE or the command line:
 
 ```bash
-bash server/verify.sh                     # sync only
-INVITE=<code> bash server/verify.sh --routing   # also check GraphHopper
+docker compose -f docker/dev/docker-compose.yml up -d
+cd backend/Detour/Detour.Api && dotnet run
 ```
 
-`ALL PASS` is the only acceptable result. If you change anything in
-`sync_server.py` that touches auth, sync merging, or friends, run this before
-opening a PR.
+That gives you Postgres, Redis and a Keycloak with the `detour` realm already
+imported, plus the API on `http://localhost:7500`. Ports are fixed and
+documented in [docker/dev/README.md](docker/dev/README.md), which also has the
+dev rider's credentials and how to get a token by hand.
+
+Point `api.url` and `idp.issuer` (in `local.properties`, or the app's own
+Settings for the server address) at it. From an emulator, `adb reverse` both
+ports rather than using `10.0.2.2`: the realm hands out absolute URLs built
+from the hostname it was started with, so the device has to know it by the same
+name the API does.
+
+### Tests
+
+```bash
+dotnet test backend/Detour/Detour.Domain.Tests    # pure domain rules
+dotnet test backend/Detour/Detour.InfraTests      # the API against a real Postgres
+```
+
+The integration tests start Postgres in a container, so they cover what an
+in-memory provider cannot: citext comparison, jsonb, snake_case naming and
+unique-index violations. Both suites plus `dotnet format style` are what CI
+runs; a change to a persisted entity also needs its migration, and CI checks
+that too.
 
 ## Branches
 
@@ -145,8 +151,8 @@ are fine — delete them once they're merged rather than leaving them on origin.
   type-checks `commonMain`, runs the shared tests on both the JVM and
   Kotlin/Native, and builds and boots the app in a simulator. It has to be
   green too.
-- If you touched the sync server, run `verify.sh` against a local instance
-  and mention the result in the PR description.
+- If you touched the backend, both test suites have to pass, and a schema
+  change needs the migration committed alongside it.
 - If you touched security- or privacy-relevant code (BLE, backup rules,
   credential storage, the keychain), say so explicitly — those get a closer
   look.

@@ -3,17 +3,29 @@
 // local.properties on the Android side — same values, same "all optional"
 // rule, and it never goes near the repo.
 //
-// CI writes this file from GitHub secrets; see .github/workflows/ios.yml.
+// CI writes this file from GitHub secrets; see .github/workflows/ios.yml, which
+// is the authoritative list of names if this one ever drifts again.
 
-// One hostname, path-routed by the tunnel, reaches all four services. Setting
-// only DETOUR_SYNC_URL and pointing the others at the same host works, exactly
-// as `server.url` does for the Android build.
+// One hostname, path-routed by the tunnel, reaches routing and geocoding.
 DETOUR_ROUTING_URL =
 DETOUR_ROUTING_CF_ID =
 DETOUR_ROUTING_CF_SECRET =
-DETOUR_SYNC_URL =
 DETOUR_GEOCODER_URL =
 
-// WebSocket, so it needs its own scheme and the /live path:
-//   wss://your.host/live
+// The sync and social API. Deliberately its own hostname rather than a path off
+// DETOUR_ROUTING_URL: that host already routes /api to the geocoder, so pointing
+// this there surfaces as unparseable JSON rather than as "not configured".
+//   https://api.your.host
+DETOUR_API_URL =
+
+// The realm that issues rider tokens. Blank means signing in is impossible and
+// every social feature behaves as it does when signed out — which is what a CI
+// build with no secrets wants, and what the app says on the friends screen.
+//   https://idp.your.host/realms/detour
+DETOUR_IDP_ISSUER =
+
+// The live relay. A WebSocket, so it needs its own scheme, and it is an ordinary
+// endpoint of the API now rather than a listener on its own port — same host as
+// DETOUR_API_URL, under the same /api prefix:
+//   wss://api.your.host/api/live
 DETOUR_LIVE_URL =

@@ -14,7 +14,10 @@ import org.junit.Test
 class PlaceNotificationsTest {
 
     private fun event(id: Long, username: String, tsMs: Long, kind: String = "arrive") =
-        PlaceEvent(id = id, placeId = 1L, placeName = "Home", username = username, kind = kind, tsMs = tsMs)
+        PlaceEvent(
+            id = "event-$id", placeId = 1L, placeName = "Home",
+            username = username, kind = kind, tsMs = tsMs,
+        )
 
     @Test
     fun dropsTheCallersOwnEvents() {

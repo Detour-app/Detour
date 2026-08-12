@@ -14,7 +14,8 @@ struct DetourApp: App {
             routingUrl: info("DetourRoutingURL"),
             routingCfId: info("DetourRoutingCFId"),
             routingCfSecret: info("DetourRoutingCFSecret"),
-            syncUrl: info("DetourSyncURL"),
+            apiUrl: info("DetourApiURL"),
+            idpIssuer: info("DetourIdpIssuer"),
             geocoderUrl: info("DetourGeocoderURL"),
             liveUrl: info("DetourLiveURL"),
             versionName: info("CFBundleShortVersionString", default: "0")

@@ -24,8 +24,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import com.jellemax.detour.auth.Oidc
+import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.ble.BleNavServer
-import com.jellemax.detour.data.PendingReset
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
@@ -50,13 +52,14 @@ import com.jellemax.detour.ui.SettingsScreen
 import com.jellemax.detour.ui.TripDetailScreen
 import com.jellemax.detour.ui.isAppDarkTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.maplibre.android.MapLibre
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        takeResetLink(intent)
+        takeSignInRedirect(intent)
         PlaceNotifications.takeOpenCircleId(intent)
         PendingTripOpen.take(intent)
         enableEdgeToEdge()
@@ -90,21 +93,34 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // singleTop means a reset link tapped while the app is already open is
-    // delivered here instead of through onCreate.
+    // singleTop means the sign-in redirect, which arrives while the app is
+    // already open behind the browser, is delivered here rather than to onCreate.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        takeResetLink(intent)
+        takeSignInRedirect(intent)
         PlaceNotifications.takeOpenCircleId(intent)
         PendingTripOpen.take(intent)
     }
 
-    /** Parks the code from a `detour://reset?token=…` link for the
-     *  Friends screen, which AppRoot then brings to the front. */
-    private fun takeResetLink(intent: Intent?) {
+    /**
+     * Spends the authorization code from a `detour://auth/callback` redirect.
+     *
+     * On the activity's own scope rather than a screen's: the redirect can land
+     * while the Friends screen is not composed (the browser was in front), and
+     * the exchange has to happen once, not once per recomposition. The outcome
+     * goes to [PendingSignIn], which is what the screen reads.
+     */
+    private fun takeSignInRedirect(intent: Intent?) {
         val data = intent?.data ?: return
-        if (data.scheme == "detour" && data.host == "reset") {
-            PendingReset.offer(data.getQueryParameter("token").orEmpty())
+        if (!Oidc.isCallback(data)) return
+        PendingSignIn.begin()
+        lifecycleScope.launch {
+            try {
+                Oidc.complete(data)
+                PendingSignIn.succeed()
+            } catch (e: Exception) {
+                PendingSignIn.fail(e.message ?: "Sign-in failed")
+            }
         }
     }
 }
@@ -123,13 +139,8 @@ private fun AppRoot() {
     // The route a ROUTE_EDITOR screen is showing — null means "new route",
     // same left-stale-once-navigated-away convention as detailTrip.
     var editingRoute by remember { mutableStateOf<SavedRoute?>(null) }
-    // A reset link opens the screen that can spend it, wherever the app was.
-    val resetToken by PendingReset.token.collectAsStateWithLifecycle()
-    LaunchedEffect(resetToken) {
-        if (resetToken.isNotBlank()) screen = Screen.FRIENDS
-    }
     // A tapped arrival/departure notification opens straight to that circle,
-    // wherever the app was - same shape as the reset link above.
+    // wherever the app was.
     val openCircleId by PendingCircleOpen.circleId.collectAsStateWithLifecycle()
     LaunchedEffect(openCircleId) {
         if (openCircleId != null) screen = Screen.CIRCLES

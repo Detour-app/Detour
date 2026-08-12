@@ -9,11 +9,13 @@ import kotlinx.serialization.json.put
 
 /** One arrive/depart record, as `GET /circles/{id}/events` returns it —
  *  includes the caller's own arrivals, not just other members' (the design
- *  doc makes that a requirement, see `do_circle_events`). [placeName] is
+ *  doc makes that a requirement). [placeName] is
  *  looked up server-side from `circle_places` at read time, not stored with
  *  the event itself — it can be "" if the place was since unshared. */
 data class PlaceEvent(
-    val id: Long,
+    /** The server's identifier for the stored event, blank for one that arrived
+     *  over the live relay — a live frame addresses nothing. */
+    val id: String,
     val placeId: Long,
     val placeName: String,
     val username: String,
@@ -26,7 +28,7 @@ data class PlaceEvent(
  *  lives under a groupId the caller supplied, but a `place_event` frame can
  *  arrive for any circle the socket has joined, so the parser needs
  *  somewhere to put it. */
-data class RelayPlaceEvent(val groupId: Int, val event: PlaceEvent)
+data class RelayPlaceEvent(val groupId: String, val event: PlaceEvent)
 
 /**
  * Records and reads circle arrival/departure events. Geofencing itself runs
@@ -38,20 +40,20 @@ data class RelayPlaceEvent(val groupId: Int, val event: PlaceEvent)
  */
 object CircleEvents {
 
-    suspend fun record(groupId: Int, placeId: Long, kind: GeofenceKind, tsMs: Long) {
+    suspend fun record(groupId: String, placeId: Long, kind: GeofenceKind, tsMs: Long) {
         Api.request(
             "POST", "/circles/$groupId/events",
             buildJsonObject {
                 put("placeId", placeId)
                 put("kind", if (kind == GeofenceKind.ARRIVE) "arrive" else "depart")
-                put("ts", tsMs)
+                put("timestampMs", tsMs)
             },
         )
     }
 
     /** Events newer than [sinceMs] — pass the last-seen event's [PlaceEvent.tsMs]
      *  to poll incrementally. */
-    suspend fun events(groupId: Int, sinceMs: Long): List<PlaceEvent> {
+    suspend fun events(groupId: String, sinceMs: Long): List<PlaceEvent> {
         val o = Api.requestJson("GET", "/circles/$groupId/events?since=$sinceMs")
         return o.optArray("events")?.objects().orEmpty().map { placeEventFromJson(it) }
     }
@@ -62,31 +64,35 @@ object CircleEvents {
      *  it with [setLastSeenEventTsMs] once the catch-up is handled. Backed
      *  by [Settings], not a new store — see there for why it's keyed
      *  dynamically instead of a StateFlow. */
-    fun lastSeenEventTsMs(circleId: Int): Long = Settings.lastSeenEventTsMs(circleId)
+    fun lastSeenEventTsMs(circleId: String): Long = Settings.lastSeenEventTsMs(circleId)
 
-    fun setLastSeenEventTsMs(circleId: Int, tsMs: Long) = Settings.setLastSeenEventTsMs(circleId, tsMs)
+    fun setLastSeenEventTsMs(circleId: String, tsMs: Long) = Settings.setLastSeenEventTsMs(circleId, tsMs)
 }
 
 /** Extracted from [CircleEvents.events] so JSON parsing is testable without
  *  a network round trip. */
 internal fun placeEventFromJson(e: JsonObject): PlaceEvent = PlaceEvent(
-    id = e.optLong("id"),
+    id = e.optString("id"),
     placeId = e.optLong("placeId"),
     placeName = e.optString("placeName"),
     username = e.optString("username"),
     kind = e.optString("kind"),
-    tsMs = e.optLong("tsMs"),
+    tsMs = e.optLong("timestampMs"),
 )
 
 /** Parses a `{"type": "place_event", ...}` live relay frame (see the "group
- *  live relay" protocol comment in sync_server.py) into a [RelayPlaceEvent],
+ *  live relay" protocol in docs/CIRCLES_AND_CONVOYS.md) into a [RelayPlaceEvent],
  *  or null when it isn't one — wrong `type`, or a required field missing or
  *  not the type it claims to be. The relay frame carries no `id` (nothing
  *  server-side needs to address one live frame individually the way a
- *  stored row does), so [PlaceEvent.id] is always 0 here. */
+ *  stored row does), so [PlaceEvent.id] is always blank here.
+ *
+ *  `groupId` is read as text, which accepts both the identifier the API uses
+ *  and the integer the legacy relay sends — the live surface is the one part of
+ *  the backend not rebuilt yet (see the note in the API's Startup). */
 fun placeEventFromRelayFrame(o: JsonObject): RelayPlaceEvent? {
     if (o.optString("type") != "place_event") return null
-    val groupId = (o["groupId"] as? JsonPrimitive)?.intOrNull ?: return null
+    val groupId = o.optString("groupId").takeIf { it.isNotEmpty() } ?: return null
     val placeId = (o["placeId"] as? JsonPrimitive)?.longOrNull ?: return null
     val tsMs = (o["tsMs"] as? JsonPrimitive)?.longOrNull ?: return null
     val username = o.optString("user").takeIf { it.isNotEmpty() } ?: return null
@@ -95,7 +101,7 @@ fun placeEventFromRelayFrame(o: JsonObject): RelayPlaceEvent? {
     return RelayPlaceEvent(
         groupId = groupId,
         event = PlaceEvent(
-            id = 0,
+            id = "",
             placeId = placeId,
             placeName = o.optString("placeName"),
             username = username,

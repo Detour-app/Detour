@@ -35,6 +35,9 @@ class HttpStatusException(val code: Int, val body: String) : IOException("HTTP $
 
 internal object Http {
 
+    /** What an OAuth token endpoint takes. Everything else here posts JSON. */
+    const val FORM_URLENCODED = "application/x-www-form-urlencoded"
+
     private val client = HttpClient {
         // Ktor throws on non-2xx only when asked to; we want the body first.
         expectSuccess = false
@@ -57,13 +60,14 @@ internal object Http {
         headers: Map<String, String> = emptyMap(),
         readTimeoutMs: Long = 30_000,
         gzipBody: Boolean = false,
+        contentType: String = ContentType.Application.Json.toString(),
     ): String {
         val response = client.request(url) {
             this.method = HttpMethod.parse(method)
             headers.forEach { (k, v) -> header(k, v) }
             timeout { requestTimeoutMillis = readTimeoutMs }
             if (body != null) {
-                contentType(ContentType.Application.Json)
+                contentType(ContentType.parse(contentType))
                 if (gzipBody) {
                     header("Content-Encoding", "gzip")
                     setBody(gzip(body))
