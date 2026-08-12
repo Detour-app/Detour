@@ -6,6 +6,33 @@ is the synthesis of a nine-agent investigation into how to split it. It is the d
 record; the underlying reports are kept alongside it so the reasoning stays checkable
 against whatever we actually build.
 
+## Status — stop-point B reached, 2026-08-12
+
+**Stage 2 is complete.** Five commits (`09ee448`…`b1ec1b6`) extracted four decisions into
+`com.jellemax.detour.map`, each with plain-JUnit4 tests: `NavPolicy` (arrival and reroute),
+`GroupSpinRules` (the convoy vote round), `FollowCamera` (camera resume) and `CameraAuthority`
+(a reducer for the follow/park/resume machine, **deliberately unwired** — zero callers,
+verified). The unit suite went from 18 tests to **50, all passing**. `car/NavScreen.kt` no
+longer carries its own copy of the arrival/reroute policy or its three constants.
+
+Two things did *not* happen, and neither should be reported as done:
+
+- **`GroupSpinRules` is extracted and tested but its call site is unchanged.** Verifying a
+  convoy vote needs two devices transmitting to each other. `MapScreen.kt` still runs its own
+  inline logic; adopting the extracted rule is a later, two-device job.
+- **No GPS replay was run for stage 2.** `FollowCamera` earns a replay by the risk tiers, but
+  stage 0's tasks 0b and 0c were deferred, so `tools/mocklocation/routes/` and
+  `tools/mocklocation/baseline/` do not exist and there is no recorded "before" to compare
+  against. `FollowCamera` and `NavPolicy` therefore ship on unit tests plus the compile gate.
+  This is a real gap, caused by the deferral, not by an oversight in stage 2.
+
+**Stage 3 is blocked, and this is where the chain stops for now.** Its first machine is
+`SectionAverageTracker`, whose characterisation tests and A/B replay both need a drive that
+enters one trajectcontrole gantry and exits the other. No such recording exists: of the four
+canonical routes, (ii) and (iv) have been built from real drives, (iii) is dropped for want of
+a routing server, and (i) needs one unbroken E40 run from before 50.86929, 4.49257 to past
+50.86183, 4.60503.
+
 ## Status — stop-point A reached, 2026-08-12
 
 **Stage 1 is complete.** `MapScreen.kt` went from 3204 to **1549 lines** across twelve commits
