@@ -104,7 +104,9 @@ object SpeedCameras {
      * mid-section node as an end used to stop the measurement short of the
      * real one.
      */
-    private fun parseSection(relation: JsonObject): Section? {
+    // internal, not private, so commonTest can feed it a relation literal:
+    // [near] is the only caller and it cannot be tested without Overpass.
+    internal fun parseSection(relation: JsonObject): Section? {
         val members = relation.optArray("members") ?: return null
         val nodes = ArrayList<LatLon>()
         for (m in members.objects()) {
