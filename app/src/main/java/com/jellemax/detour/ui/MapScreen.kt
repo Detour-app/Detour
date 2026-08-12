@@ -92,6 +92,7 @@ import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.wear.NavRelay
@@ -1067,36 +1068,42 @@ fun MapScreen(
         NavRelay.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
         BleNavServer.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
 
-        // Arrived (point-to-point; loops end back at the start on their own).
-        if (destination != null && progress.remainingMeters < 40 &&
-            progress.offRouteMeters < 60
-        ) {
-            stopNavigation()
-            return@LaunchedEffect
-        }
-
-        // Off route → fresh route to the destination. Launched on the screen
-        // scope so the next GPS fix doesn't cancel the request; loops keep
-        // their drawn line (rerouting a loop would change the whole trip).
+        // Arrival and reroute are NavPolicy's call, shared with car/NavScreen.kt.
         val dest = destination
         val now = System.currentTimeMillis()
-        if (dest != null && progress.offRouteMeters > 60 &&
-            !rerouting && now - lastRerouteMs > 15_000
-        ) {
-            rerouting = true
-            lastRerouteMs = now
-            scope.launch {
-                try {
-                    route = withContext(Dispatchers.IO) {
-                        RoutingServer.route(serverConfig, pos, dest, mode.ghProfile,
-                            Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
+        when (NavPolicy.decide(
+            progress = progress,
+            hasDestination = dest != null,
+            rerouting = rerouting,
+            lastRerouteMs = lastRerouteMs,
+            nowMs = now,
+        )) {
+            // Point-to-point only; loops end back at the start on their own.
+            NavPolicy.Decision.Arrived -> {
+                stopNavigation()
+                return@LaunchedEffect
+            }
+            // Off route → fresh route to the destination. Launched on the screen
+            // scope so the next GPS fix doesn't cancel the request; loops keep
+            // their drawn line (rerouting a loop would change the whole trip).
+            NavPolicy.Decision.Reroute -> {
+                val target = dest ?: return@LaunchedEffect // Reroute implies a destination
+                rerouting = true
+                lastRerouteMs = now
+                scope.launch {
+                    try {
+                        route = withContext(Dispatchers.IO) {
+                            RoutingServer.route(serverConfig, pos, target, mode.ghProfile,
+                                Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
+                        }
+                    } catch (e: Exception) {
+                        // stay on the old line; retried after the cooldown
+                    } finally {
+                        rerouting = false
                     }
-                } catch (e: Exception) {
-                    // stay on the old line; retried after the cooldown
-                } finally {
-                    rerouting = false
                 }
             }
+            NavPolicy.Decision.Continue -> {}
         }
     }
 
