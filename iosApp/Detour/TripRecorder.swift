@@ -277,7 +277,18 @@ final class TripRecorder: NSObject, ObservableObject {
         addTracePoint(location, speedMps: speed)
 
         // Stopped for long enough that the ride is over, not a traffic light.
-        if speed > 1.0 {
+        //
+        // 2.0 m/s (~7 km/h), matching Android's
+        // `tracking/TripTrackingService.kt:1069`, and deliberately not the 1.0
+        // this used to be. The two failure modes are not symmetric: ending a
+        // trip late adds harmless idle time to a recording, while ending it
+        // early truncates a ride and loses data that cannot be recovered. When
+        // in doubt, keep recording. So walking pace counts as moving —
+        // pushing the bike into the garage, or crawling in queue traffic,
+        // keeps the trip alive.
+        //
+        // Decided in docs/refactor/mapscreen/15-divergence-register.md §C.3.
+        if speed > 2.0 {
             movingSinceMs = nowMs()
         } else if let since = movingSinceMs, nowMs() - since > Self.stationaryEndMs {
             endTrip()
