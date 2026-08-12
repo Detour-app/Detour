@@ -4,10 +4,10 @@
 
 | | |
 |---|---|
-| **Detail level** | **Intent + constraints.** The Work items section **requires a rewrite before use**. This is the largest single item the register produced and the least specifiable today — the policy's shape is knowable, the phone's audio behaviour is not, and pretending otherwise would produce a plan that fails on first contact with audio focus |
-| **Prerequisite** | [Convergence 1](convergence-1-cheap-fixes.md) work item 1 — the iOS microphone permission. **Not** stage 3, and not convergence 2 |
+| **Detail level** | **Executable.** The Work items section was rewritten 2026-08-12 against `92823ed`, replacing the scheduled-rewrite marker; the plan is [`../plans/2026-08-12-convergence-3-voice-policy.md`](../plans/2026-08-12-convergence-3-voice-policy.md). Everything above the old marker — Scope, Out of scope, Why this stage — is unchanged and binding. This is still the largest single item the register produced, and it now carries an explicit **stop-point after item 5**: items 1–5 are desk-verifiable, items 6–9 are not |
+| **Prerequisite** | [Convergence 1](convergence-1-cheap-fixes.md) work item 1 — the iOS microphone permission. **Not** stage 3, and not convergence 2. **Met:** landed in `1f4514a` |
 | **State** | not started |
-| **Preconditions captured** | 2026-08-12 against `20aa813`. Every assertion was executed. The first one **fails today on purpose**: it asserts convergence 1 has landed |
+| **Preconditions captured** | Written 2026-08-12 against `20aa813`; **re-run 2026-08-12 against `92823ed`, all 10 pass.** The first assertion was written to fail on purpose and now passes, which is convergence 1 having landed — the ordering gate is open |
 | **Chain** | [design](00-chain-design.md) · [register](../15-divergence-register.md) · prev: [convergence 2](convergence-2-section-readouts.md) · next: none — this is the end of the convergence axis as the register defined it |
 
 ## Preconditions
@@ -110,28 +110,237 @@ about `README.md:383-385` in entry 1.
 
 ## Work items
 
-> **Rewrite this section before use.** Run `superpowers:brainstorming` against this spec once
-> convergence 1's permission item has landed. Step 1's shape is nearly specifiable already; step
-> 2's is not, and the reason is worth stating rather than papering over: what the phone should do
-> when another app holds audio focus, when the rider is on a call, and when music is playing
-> through a helmet intercom are product answers nobody has given, and they decide the API before
-> they decide the code.
+Rewritten 2026-08-12 against `92823ed`, replacing the scheduled-rewrite marker. **Ten items, ten
+commits, in the order below.** Every line number in this section was re-derived with `grep -n`
+against that tree; the sections above it were written against `20aa813` and several of their
+citations have drifted (see *Citations that drifted* at the end).
 
-What the rewrite must produce:
+### The design decisions this rewrite takes
 
-1. **Step 1's signature**, with time injected rather than read — the phase latch is
-   path-dependent over a distance sequence and a machine that reads its own clock cannot be
-   tested deterministically. Same constraint as stage 3's machines, same reason.
-2. **The `commonTest` cases** for the ladder, including the boundary the two surfaces currently
-   disagree on. Write them before either surface is repointed.
-3. **The delivery interface per surface**, and the proof that no platform type leaked into
-   commonMain.
-4. **Step 2's audio-focus behaviour**, stated as decisions: does the phone duck or pause, does it
-   speak at all when the screen is off, what happens on a phone call. `car/NavVoice.kt:41-43` and
-   `:138-149` are the reference implementation and the only written precedent in the repo.
-5. **Commit boundaries**: the shared policy, each surface repointed, the two entry-12 fixes, and
-   the phone feature — none of them sharing a commit, and the car's repoint trailing the
-   extraction by exactly one commit (`detour-staged-refactor` §4).
+They decide the API before they decide the code, which is what the marker said was missing.
+
+**D1 — the policy is a small stateful class, not a pure function per fix.** The evidence is the
+car's own latch: `announce()` reads and writes three fields — `voiceStepKey`, `voicePhase`,
+`startAnnounced` (`car/NavScreen.kt:128-130`) — and every rule in the ladder is a rule *about*
+those three. A pure function would have to take all three in and hand a new triple back, which
+means each of three surfaces holds and threads them correctly, and "correctly" is exactly the
+thing being deduplicated. `GeofenceEvaluator` (`CircleEvents.kt:159-210`) is the in-repo
+precedent and its KDoc states the same reason: a class *"because it holds per-place dwell/inside
+state between calls"*, with calls required in order. Same shape here, ordered by distance rather
+than by time.
+
+Concretely, `class NavAnnouncer` in commonMain with **three methods and no constructor
+parameters**:
+
+- `fun onProgress(instruction: NavInstruction?, distanceMeters: Double): String?` — the ladder and
+  the latch. Returns the words to speak, or null for "nothing is due".
+- `fun rerouting(): String` — the wording of the reroute cue. Does *not* re-arm; the car speaks it
+  before the fetch and re-arms only on success (`car/NavScreen.kt:261` versus `:275-277`).
+- `fun routeChanged()` — re-arms the latch. The car calls it after a successful reroute, iOS and
+  the phone at the start of a session.
+
+No constructor parameters is deliberate: Kotlin/Native drops default argument values on the way to
+Objective-C, which is why `GeofenceEvaluator` needs a `withDefaults()` factory
+(`CircleEvents.kt:163-169`). `NavAnnouncer()` needs no such wart, so the thresholds are
+`companion object` constants rather than defaulted parameters.
+
+**D2 — a `String?` crosses the boundary, one function per occasion, and no enum.** This is the
+`CircleEvents.kt` shape: `notificationText()` (`:114-120`) and `catchUpSummaryText()` (`:126-127`)
+put the *wording* in the core precisely *"so the two apps can never read the same event
+differently"*, and every platform then decides delivery. The alternative — a typed
+`Announcement(kind, …)` the platform renders — was rejected on three counts. No consumer would
+branch on the kind: each call site already knows the occasion because it is the site that called,
+and the phone's hazard cue comes off a different collector from its turn cue. A kind enum crossing
+to Swift costs exactly the name-mangling trust `FlowWatcher.kt:189-191` documents avoiding
+(*"Spelling an enum entry in Swift means trusting Kotlin/Native's name mangling for it"*). And an
+unused discriminator is the one-implementation-behind-an-interface shape `detour-shared-core` §2
+test 2 forbids.
+
+Entry 4's caution is honoured by a narrower rule than "do not ship text": **nothing in the
+returned string is derived from `NavInstruction.sign`.** The cue is GraphHopper's own
+`instruction.text`, already words; the sign→glyph tables stay four per-platform copies and entry 4
+stays open and out of scope. If the core ever renders a maneuver *from* the sign it has become a
+fifth copy of that table, in prose, and that is the line not to cross.
+
+**D3 — the policy reads no clock and takes no `nowMs`, and the marker was wrong to ask for one.**
+`announce()` on both surfaces reads `instruction.startIndex`, `p.distanceToTurnMeters` and
+`instruction.text`. There is no timestamp anywhere in either copy. The latch is path-dependent
+over the **distance sequence**, not over time — which the marker's own wording said and then
+contradicted. The constraint's *purpose* (no self-read clock, deterministic tests) holds for free;
+a `nowMs` parameter nothing reads would be dead weight and a false signal that timing matters
+here. The one time-dependent nav rule, the reroute cooldown, already lives in `NavPolicy` with
+`nowMs` injected (`app/…/map/NavPolicy.kt:51-57`) and is not touched.
+
+**D4 — the phone gets the car's `NavVoice` moved, not a second implementation.**
+`car/NavVoice.kt` imports `android.content.Context`, `android.media.*`, `android.os.*`,
+`android.speech.tts.*` and `java.util.Locale` and **zero `androidx.car` types** — verified. It is
+in `car/` by history, not by dependency. `app/` and `car/` are the same Gradle module and package
+root, so this is a plain move under `app/`, not a `shared/` move and not an interface
+(`detour-shared-core` §1). Destination is `app/…/audio/`, which already holds the app's other
+audio client, `PushToTalk.kt`.
+
+**D5 — the phone requests `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK`, and stays silent in three
+cases.** Duck rather than pause, matching both surfaces that already speak: the car
+(`car/NavVoice.kt:40-43`) and iOS's `.duckOthers` (`iosApp/Detour/NavVoice.swift:27-28`). A third
+answer on a third surface would be a new divergence on its first day. The three silences:
+
+1. **`Settings.voiceGuidance` off** — the gate both existing surfaces already have, and turning it
+   off must cut the utterance in flight as the car does (`car/NavScreen.kt:479-480`).
+2. **The focus request was refused.** `NavVoice` already records the result in `holdingFocus`
+   (`:140-142`) and then speaks anyway (`:116-121`). Refusal means another client holds exclusive
+   focus — a call, an assistant, another turn-by-turn app — and talking over any of those three is
+   wrong on the head unit too, so the rule goes into `NavVoice` and changes both surfaces.
+3. **A convoy is live.** This is the finding the register does not have, and it displaces the
+   register's stated objection. The phone's second audio client is not the user's music: it is
+   Detour's own push-to-talk. `convoy/ConvoyLiveService.kt:172-183` takes
+   `AUDIOFOCUS_GAIN_TRANSIENT` — not `MAY_DUCK` — and holds it for the whole life of the convoy,
+   registering no `OnAudioFocusChangeListener`, and `:129` puts the entire device into
+   `AudioManager.MODE_IN_COMMUNICATION` and routes playback to the speaker (`:149-161`). A guidance
+   utterance into that state would talk over a live voice channel with routing nobody here can
+   predict. So the phone does not speak while `ConvoyLiveClient.activeConvoyId.value != null`.
+   Read off the `StateFlow` rather than the composed state, because the hazard collector runs while
+   the app is backgrounded and the composed copy does not update there.
+
+**D6 — the phone announces only while the map is on screen; the hazard cue is the exception, and
+that asymmetry is deliberate and recorded.** `liveFix` is `collectAsStateWithLifecycle()`
+(`MapScreen.kt:201`), so the nav loop at `:1054` stops re-running once the app is below `STARTED`
+— turn prompts go quiet with the screen off. The camera collector at `:856` is a raw
+`LaunchedEffect(Unit) { … lastFix.collect { … } }` and is not lifecycle-aware, so it already
+chimes with the screen off and will speak there too. Making turn prompts survive a dark screen
+means the announcer lives in `TripTrackingService`, not in a composable — a state-ownership change,
+stage 4's subject, and **not** this spec's. Record it as a known limitation; do not add a seventh
+`lastFix` collector to paper over it (`detour-compose-state-hazards` §4).
+
+**D7 — this spec declares none of entry 13's constants, in either landing order.** Entry 13 is
+`+5` (three copies: `MapHud.kt:184`, `car/CarMapRenderer.kt:635`, `wear/…/MainActivity.kt:140`),
+`+3.0` (two: `MapScreen.kt:870`, `car/NavScreen.kt:421`) and the `45.0` wedge (two:
+`MapScreen.kt:863`, `car/NavScreen.kt:414`) — all verified at `92823ed`. Every one of them is
+stage 3's `CameraWarner` or stays in `app/`. This spec's constants are the **voice ladder**
+(`800/300/80`) and `spokenDistance`, which entry 13 does not list. The phone's spoken hazard cue
+is added *inside* the existing `if (tooFast && ahead.at != warnedAt)` block
+(`MapScreen.kt:871-874`), touching neither `:863` nor `:870`, and item 9 carries the greps that
+prove it. The **wording** `"Speed camera ahead"` is the one string both stages could reach for:
+the rule is that whichever lands first declares it and the second consumes it — if `CameraWarner`
+already exists when item 9 runs, item 9 takes the text from there and declares nothing; if it does
+not, item 9 leaves the literal at the delivery site with a comment naming `CameraWarner` as its
+home. Neither stage writes a copy the other could have read.
+
+### The items
+
+**Step 1 — the policy into `shared/`.** Five commits, all verifiable from a desk.
+
+1. **iOS's phase boundaries become inclusive.** `case ..<Self.voiceNowM` → `case ...` on all three
+   arms (`iosApp/Detour/NavScreen.swift:176-178`). Entry 12's second sub-bug, its own commit as
+   Scope requires, and **before** item 3 so the surfaces already agree when the shared test is
+   written. It is deleted again by item 5; that is not churn, it is the entry-12 fix standing on
+   its own in case the extraction stalls.
+2. **iOS's mute stops the utterance in flight.** `NavModel` holds
+   `SettingsFlows.shared.voiceGuidance()` — a `BoolWatcher` that already exists
+   (`FlowWatcher.kt:140`, so no new watcher subclass) — `watch`es it in `init` and calls
+   `voice.stop()` when it reads false, cancelling in `deinit`. Copy `SettingsScreen.swift:214,228,
+   237-240` exactly; that is the shipped pattern. Entry 12's first sub-bug, its own commit.
+3. **`NavAnnouncer` into commonMain, with `commonTest`.** New
+   `shared/src/commonMain/kotlin/com/jellemax/detour/data/NavAnnouncer.kt` and
+   `shared/src/commonTest/kotlin/com/jellemax/detour/data/NavAnnouncerTest.kt`. Nothing consumes
+   it yet. `data/` and not a new `drive/` package: all 36 commonMain files live in `data/`, and
+   creating stage 3's package from the convergence axis would add a second edge between the two
+   axes where `00-chain-design.md` § *The two axes* allows exactly one. If stage 3 later creates
+   `drive/`, moving this file there is a free same-module move.
+
+   The test cases, which the marker asked for by name:
+
+   - the first prompt of a session ignores the ladder (an instruction 3 km out announces at once,
+     with distance wording);
+   - each phase fires at most once and only upward: 900 → nothing, 800 → far, 700 → nothing,
+     300 → near, 100 → nothing, 80 → the bare cue;
+   - **the boundary, at exactly 800.0, 300.0 and 80.0** — the case iOS gets wrong today and item 1
+     fixes;
+   - a new `startIndex` re-arms the latch; `routeChanged()` re-arms it including `startAnnounced`;
+   - blank instruction text becomes `"Continue"`;
+   - `spokenDistance`'s four buckets at their edges, characterising current behaviour including
+     that 1500 m reads *"2 kilometers"* — entry 19's quantisation is out of scope, so this locks
+     the existing rounding rather than improving it;
+   - `rerouting()` returns `"Rerouting"`.
+
+   The proof that no platform type leaked: `:shared:compileCommonMainKotlinMetadata` type-checks
+   commonMain against the common intersection (`ios.yml:58-59`), so a stray `android.*` or
+   `java.*` import fails there, and `grep -c 'TextToSpeech\|AVSpeech\|ToneGenerator\|CarToast'`
+   over the new file is 0.
+4. **The car repointed.** Trails item 3 by exactly one commit (`detour-staged-refactor` §4).
+   Deletes `VOICE_FAR_M/NEAR_M/NOW_M` and their comment (`car/NavScreen.kt:60-67`), the three
+   latch fields and theirs (`:126-130`), `announce()`'s body (`:297-324`) and the file-level
+   `spokenDistance` (`:577-583`) — and with it the now-unused `import kotlin.math.roundToInt`
+   (`:52`), whose only remaining uses are inside that function. Behaviour-preserving by
+   construction: the extracted code is the car's own.
+5. **iOS repointed.** Deletes `voiceFarM/NearM/NowM` (`NavScreen.swift:142-144`), the three latch
+   fields (`:138-140`), `announce()`'s body (`:167-195`) and the file-level `spokenDistance`
+   (`:203-210`). `displayDistance` (`:213-218`) stays — it is the banner's, not the voice's. The
+   commit message must say that iOS behaviour changes at exactly three distances, which is item 1
+   arriving through the core.
+
+> **Stop-point after item 5.** Items 1–5 are fully verifiable without hardware: Kotlin compiles
+> and `:shared` tests run here, and `ios.yml` type-checks the Swift on the open PR. Items 6–9 add
+> an audio client to the most-used surface and **cannot** be called verified without a person, a
+> phone and something playing. Land 1–5, record the stop-point, and start step 2 only when a device
+> session is actually available. This is the largest item the register produced; splitting its
+> verification is the honest way to stop it stalling the whole axis.
+
+**Step 2 — the phone's voice.** Four commits, none of them verifiable here beyond compiling.
+
+6. **`NavVoice` moves to `app/…/audio/`.** Package line and one KDoc paragraph change (the current
+   doc says *"for the car screen"*, which item 8 makes false); the class body is byte-identical,
+   and the commit carries the diff that proves it. One import added to `car/NavScreen.kt`.
+7. **`NavVoice` does not speak when focus is refused.** D5's second silence. A behaviour change on
+   the car as well as a precondition for the phone, so it is its own commit with the rationale in a
+   comment beside the check (`CONTRIBUTING.md:177-189`), plus one `Log.w` so a device session can
+   tell "refused" from "engine missing".
+8. **The phone announces turns.** A `NavVoice` in `MapScreen.kt` with a `DisposableEffect`
+   `onDispose { shutdown() }` — the car does this in `onDestroy` (`car/NavScreen.kt:199-202`) and
+   without it the TTS connection and a held focus request outlive the screen; a `NavAnnouncer`
+   driven from the existing nav loop (`:1054-1105`, which reads `liveFix` and adds no collector);
+   a local `announceAloud()` carrying D5's first and third gates — the second lives in `NavVoice`
+   from item 7, because it is a property of the audio API rather than of this surface; a
+   `Settings.voiceGuidance` collector that calls `stop()` on false so the Settings toggle works
+   mid-drive without new nav-bar UI; and
+   `routeChanged()` in `startNavigation()` (`:691`) and on a successful reroute (`:1090-1101`).
+   `SettingsScreen.kt:307`'s *"on the car screen"* is corrected **in this commit**, per Scope.
+9. **The phone speaks the camera warning.** Entry 15's other half, inside the existing latch block
+   (`MapScreen.kt:871-874`). Its own commit and not item 8's, because it is the second of two
+   different `lastFix` consumers and `detour-compose-state-hazards` §4 forbids changing two in one
+   commit. Chime **and** speak; no toast — the phone's map already draws the camera marker
+   (`:796-798`), which is what the car's toast substitutes for, and the snackbar host that *is*
+   available (`:171`, `:1255`) is the error channel, not a hazard channel.
+
+**Step 3 — the bookkeeping.** One commit, last, because a commit cannot cite its own SHA.
+
+10. **Entries 12 and 15 marked resolved** with their commits and which way each went, the §A rows
+    at `15-divergence-register.md:1737` (entry 15) and `:1740` (entry 12), the §D assertions this
+    stage inverts, this spec's Status block, and the note in `00-chain-design.md` that the
+    convergence axis is complete with §A's four small entries (14, 18, 19, 21) left as one-line
+    answers rather than a fourth spec.
+
+### What this rewrite found wrong
+
+- **The marker asked for time to be injected into a machine that has no time in it** (D3). The
+  rewrite does not add a `nowMs` parameter, and says why rather than quietly complying.
+- **The register's objection to decision 1 names the wrong second audio client.** The stated cost
+  is *"it ducks the user's music"*; the measured cost is Detour's own convoy service holding
+  `AUDIOFOCUS_GAIN_TRANSIENT` and forcing `MODE_IN_COMMUNICATION` for the life of a convoy (D5).
+  Music ducking is the designed-for case; the convoy is the unhandled one.
+- **Full parity is not achievable inside this spec** (D6). The phone will announce turns only with
+  the app foregrounded, because of a lifecycle decision made elsewhere. Anything that claims
+  otherwise is claiming a state-ownership change this spec does not make.
+
+### Citations that drifted
+
+The sections above were written against `20aa813`, before `e6a6bf2` added lines to
+`car/NavScreen.kt`. Re-derived at `92823ed`: the reroute re-arm is `:275-277` (Scope says
+`:272-274`), the mute toggle is `:479-480` (Scope says `:470-473`), and the register's entry-12
+citations `:62-64`, `:291`, `:302-307`, `:258` and `:420` are now `:65-67`, `:293`, `:305-310`,
+`:261` and `:427`. `NavVoice.kt:41-43`/`:138-149`, `MapScreen.kt:871-874`, `Settings.kt:132` and
+`SettingsScreen.kt:307` are all correct as cited. The drifted numbers are not corrected in the
+sections above, which are binding as written; they are recorded here so a plan re-derives rather
+than trusts them.
 
 ## Done criteria and verification
 
