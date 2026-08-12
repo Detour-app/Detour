@@ -41,3 +41,11 @@ iosApp/*.xcodeproj/
 iosApp/Config.xcconfig
 xcuserdata/
 DerivedData/
+
+# Raw GPX exports. tools/mocklocation/routes/ holds routes derived from real
+# drives, trimmed 1 km at each end so no endpoint is a home or a workplace
+# (tools/mocklocation/routes/README.md). A raw export carries the untrimmed
+# endpoints and per-point timestamps, which is exactly what the trim removes —
+# and the app writes them straight into the working tree on export. Ignored so
+# a stray `git add -A` cannot publish one.
+*.gpx
