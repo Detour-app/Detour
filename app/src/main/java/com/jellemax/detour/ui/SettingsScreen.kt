@@ -304,8 +304,8 @@ private fun NavigationSection() {
             Column(Modifier.weight(1f)) {
                 Text("Spoken guidance", style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "Turn instructions read aloud on the car screen. " +
-                        "Also mutable mid-drive from the speaker button there.",
+                    "Turn instructions read aloud while navigating, here and on " +
+                        "the car screen. Mutable mid-drive from the speaker button there.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

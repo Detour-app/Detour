@@ -68,6 +68,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.jellemax.detour.audio.NavVoice
 import com.jellemax.detour.audio.PushToTalk
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.data.Account
@@ -77,6 +78,7 @@ import com.jellemax.detour.data.FriendFog
 import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MemberFix
+import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.PoiKind
 import com.jellemax.detour.data.RoadRoulette
@@ -676,9 +678,59 @@ fun MapScreen(
         }
     }
 
+    // ---- spoken guidance ---------------------------------------------------
+    //
+    // The phone was the only navigating surface with no voice: the head unit and
+    // iOS have spoken turns since they shipped, while Settings.voiceGuidance had
+    // three consumers and two voices. Register decision 1, full parity.
+    //
+    // Declared up here rather than beside the nav loop because four call sites
+    // below need it — stopNavigation, startNavigation, the camera collector and
+    // the nav loop — and Kotlin resolves local declarations in order.
+    val navVoice = remember { NavVoice(context) }
+    DisposableEffect(Unit) {
+        onDispose {
+            // Not stop(): the engine connection and any held focus request
+            // outlive the composition otherwise. The car does the same in its
+            // onDestroy (car/NavScreen.kt:199-202).
+            navVoice.shutdown()
+        }
+    }
+    val announcer = remember { NavAnnouncer() }
+
+    // Muting has to cut the sentence already in flight, which is what the car's
+    // speaker button does (car/NavScreen.kt:479-480). A raw collect and not
+    // collectAsStateWithLifecycle: a mute has to land while the app is in the
+    // background, which is exactly where the lifecycle-aware copy stops
+    // updating.
+    LaunchedEffect(Unit) {
+        Settings.voiceGuidance.collect { on -> if (!on) navVoice.stop() }
+    }
+
+    fun announceAloud(text: String) {
+        // Read off the StateFlows rather than the composed state: the camera
+        // warning's collector runs while the app is backgrounded, and the
+        // composed copies do not update there.
+        if (!Settings.voiceGuidance.value) return
+        // A live convoy owns the output. ConvoyLiveService takes
+        // AUDIOFOCUS_GAIN_TRANSIENT for the whole convoy and registers no
+        // focus-change listener (convoy/ConvoyLiveService.kt:172-183), and puts
+        // the device into MODE_IN_COMMUNICATION routed to the speaker (:129,
+        // :149-161) — so a guidance prompt would not duck anything, it would
+        // talk over the riders you are talking to, through a route nobody has
+        // measured. activeConvoyId is the closest observable to "the service is
+        // running"; FriendsScreen.kt:681 records that the two are not exactly
+        // the same thing.
+        if (ConvoyLiveClient.activeConvoyId.value != null) return
+        navVoice.speak(text)
+    }
+
     fun stopNavigation() {
         navigating = false
         navProgress = null
+        // Arrival, or the Exit button. Either way stop mid-sentence rather than
+        // finishing a prompt for a turn that no longer matters.
+        navVoice.stop()
         camTargetBearing = null
         // The line stays on the map after arrival (and after a stop); without
         // this it would keep the driven part greyed out with nothing following
@@ -698,6 +750,11 @@ fun MapScreen(
             TripTrackingService.start(context, destination?.lat, destination?.lon)
         }
         error = null
+        // A fresh session hears its first turn immediately, whatever the
+        // distance — the same rule the car has, and the reason it exists is
+        // that silence after pressing Start is indistinguishable from a broken
+        // voice.
+        announcer.routeChanged()
         val dest = destination
         if (dest == null) {
             // Round trip: the spin already fetched the loop with instructions.
@@ -1065,6 +1122,11 @@ fun MapScreen(
         NavRelay.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
         BleNavServer.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
 
+        // Same policy the head unit and iOS read, so the three surfaces cannot
+        // word one maneuver three ways.
+        announcer.onProgress(progress.nextInstruction, progress.distanceToTurnMeters)
+            ?.let { announceAloud(it) }
+
         // Arrival and reroute are NavPolicy's call, shared with car/NavScreen.kt.
         val dest = destination
         val now = System.currentTimeMillis()
@@ -1087,12 +1149,16 @@ fun MapScreen(
                 val target = dest ?: return@LaunchedEffect // Reroute implies a destination
                 rerouting = true
                 lastRerouteMs = now
+                announceAloud(announcer.rerouting())
                 scope.launch {
                     try {
                         route = withContext(Dispatchers.IO) {
                             RoutingServer.route(serverConfig, pos, target, mode.ghProfile,
                                 Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
                         }
+                        // Instruction indices belong to the old polyline; start
+                        // the new line's prompts from scratch.
+                        announcer.routeChanged()
                     } catch (e: Exception) {
                         // stay on the old line; retried after the cooldown
                     } finally {
