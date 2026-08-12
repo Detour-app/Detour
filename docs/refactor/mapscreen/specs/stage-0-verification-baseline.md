@@ -6,7 +6,7 @@
 |---|---|
 | **Detail level** | Full — file-level work items |
 | **Prerequisite** | None. This is the first stage. |
-| **State** | not started |
+| **State** | **partially done** — tasks 1, 5, 6, 7 landed (CI test gate, error snackbar, iOS maneuver arrows, the CONTRIBUTING shared-core rule). Tasks 2–4 deferred: blocked on device route recordings — two of the four canonical routes exist, route (i) needs an unbroken trajectcontrole run end to end, and route (iii) is dropped for want of a routing server to reroute against. |
 | **Preconditions captured** | 2026-08-11 |
 | **Chain** | [design](00-chain-design.md) · [roadmap](../DECISION.md) · next: [stage 1](stage-1-mechanical-split.md) |
 
@@ -14,6 +14,23 @@
 
 Run before writing this stage's plan. Any mismatch means the spec is stale — re-brainstorm,
 do not adapt.
+
+**Five of the eight assertions below are inverted on purpose.** Every other stage's
+preconditions assert that the code a stage is *about* to touch is still shaped the way the
+stage expects, so a FAIL means the code moved out from under the spec. This stage is
+different: two of its own work items (0a, 0d, 0f) are to close gaps and fix live defects, so
+their preconditions assert the *pre-fix* state — no CI test step yet, three defects still
+present and unfixed — because that was the only way, before any work existed, to confirm there
+was work to do. That is what the "The three defects are still present and unfixed" comment and
+the `gradlew`/`testDebugUnitTest` pair above it are checking.
+
+Once a work item lands, its assertion **fails**, and that failure is the stage succeeding, not
+drifting. 0a and 0f have both landed (see Status above), so the `testDebugUnitTest` line and
+the iOS `arrow.uturn.left` line now correctly FAIL; 0d is deferred, so the two Overpass
+`withContext` lines still correctly PASS. Do not read a FAIL on any of those five lines as
+staleness — read the Status row instead to see which work item caused it. The final assertion
+(`wc -l` on `MapScreen.kt`) is an ordinary one and is not part of this inversion: it now fails
+for an unrelated reason, because stage 1 has since landed and mechanically split that file.
 
 ```sh
 # CI runs no Kotlin test: only assemble/bundle appear on the gradlew line.

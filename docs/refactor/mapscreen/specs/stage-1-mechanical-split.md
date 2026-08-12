@@ -7,7 +7,7 @@
 | **Detail level** | Full — symbol and line-range level |
 | **Prerequisite** | [Stage 0](stage-0-verification-baseline.md) — tasks 1, 5, 6, 7 done; tasks 2–4 deferred (need a device and route recordings) |
 | **State** | **done** 2026-08-12 — `MapScreen.kt` 3204 → 1549 lines across 12 commits (`b5b4367`…`7c134d8`), zero added lines, tests and assemble green. Plan: [`../plans/2026-08-12-stage-1-mechanical-split.md`](../plans/2026-08-12-stage-1-mechanical-split.md) |
-| **Preconditions captured** | 2026-08-11, against `MapScreen.kt` at 3193 lines; re-verified at 3204 lines on 2026-08-12 after stage-0 Task 5 and the merge of `main` |
+| **Preconditions captured** | 2026-08-11, against `MapScreen.kt` at 3193 lines; re-verified at 3204 lines on 2026-08-12 after stage-0 Task 5 and the merge of `main`. The `seedRouteNavigation` count in `RoutesScreen.kt` was corrected from 1 to 2 the same day — the file has always had both the call site (`:202`) and a KDoc cross-reference (`:92`), so the original figure would have tripped a false staleness alarm on its first honest run. |
 | **Chain** | [design](00-chain-design.md) · [roadmap](../DECISION.md) · prev: [stage 0](stage-0-verification-baseline.md) · next: [stage 2](stage-2-pure-extractions.md) |
 
 ## Preconditions
@@ -33,7 +33,10 @@ grep -n 'private fun SearchDialog' $M               # expect line 1843
 grep -n 'private fun NavButton' $M                  # expect line 3051
 
 # The three external consumers still exist and still compile against the old names.
-grep -c 'seedRouteNavigation' app/src/main/java/com/jellemax/detour/ui/RoutesScreen.kt   # expect 1
+# RoutesScreen.kt has two occurrences, not one: the call at :202 and a KDoc cross-reference
+# at :92. The original "expect 1" was wrong the day it was written — corrected here, not
+# discovered by drift.
+grep -c 'seedRouteNavigation' app/src/main/java/com/jellemax/detour/ui/RoutesScreen.kt   # expect 2
 grep -rc 'mode.icon\|route.mode.icon\|trip.mode.icon' \
   app/src/main/java/com/jellemax/detour/ui/RoutesScreen.kt \
   app/src/main/java/com/jellemax/detour/ui/HistoryScreen.kt \

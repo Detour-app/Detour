@@ -108,7 +108,7 @@ changed.
 
 ### A precondition failure is a hypothesis, not a verdict
 
-This is the part that most needs saying, because this repo's own specs have been wrong three
+This is the part that most needs saying, because this repo's own specs have been wrong four
 separate times:
 
 - **A wrong line number.** Stage 1's spec cited declaration lines from a commit that later
@@ -122,6 +122,18 @@ separate times:
   sites — so the very first honest run of that block would have declared a perfectly current
   spec stale and triggered a needless rewrite. It was corrected to 2, and the correction is
   recorded in that spec's Status line.
+- **Another precondition that would have raised a false alarm.** Stage 1 asserted
+  `grep -c 'seedRouteNavigation' RoutesScreen.kt # expect 1`. The true value has always been 2
+  — the call site plus a KDoc cross-reference — for the same reason as the one above: nobody
+  ran it before committing it. Corrected to 2, recorded in that spec's Status line.
+
+All four were catchable the same way: **run the assertion against the tree before you commit
+it to a spec.** Every one of these was wrong on the day it was written, not on some later day
+when the code drifted — a single execution at authoring time would have caught each of them
+for the cost of one command. Copying a count from prose, from memory, or from a similar
+assertion elsewhere in the chain is how all four got in. If you cannot run a command right now
+(no device, no built app), do not guess its output — mark the assertion as unverified in the
+Status block instead, so the next person knows not to trust it until someone can.
 
 So when an assertion fails, form two hypotheses and test them:
 
@@ -246,10 +258,15 @@ someone re-derives from scratch.
 `main` — eleven new files on disk, `MapScreen.kt` at 1549 lines — while its spec still read
 `**State** | not started`. Anyone arriving at the chain was told the completed work had not
 begun. It now reads `**State** | **done** 2026-08-12 …` with the commit range and the plan
-link, which is the shape to copy. Note that
-`specs/stage-0-verification-baseline.md:9` **still** says `not started` even though four of
-its tasks have landed — the same mistake, still uncorrected, and a live demonstration of how
-quickly it happens.
+link, which is the shape to copy.
+
+The same mistake happened again, in the other direction: `specs/stage-0-verification-baseline.md:9`
+said `not started` for weeks after four of its seven work items had landed, because "partially
+done" has no obvious slot in a Status block that only ever says "not started" or "done". It now
+reads `**partially done**` with the four landed items named and the three deferred ones named
+with why (`stage-0-verification-baseline.md:9`). Do not default to "not started" just because
+"done" would be a lie — a stage that is neither needs its own row, spelled out, not a
+placeholder.
 
 **If you stop at a stop-point, write the stop-point sentence into `DECISION.md`.** Each spec
 carries its own text; stage 1's is at `specs/stage-1-mechanical-split.md:149-152`. Without it,
