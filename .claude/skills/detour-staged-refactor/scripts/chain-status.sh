@@ -141,9 +141,21 @@ judge() { # judge <expect-spec> <first-output-line> -> prints PASS/FAIL/INFO ver
 # expected to hold, and this script cannot tell which is which without reading the Status row,
 # so it does not pretend to.
 stage_category() {
-    case "$1" in
-        *'partially done'*) echo partial ;;
-        *'**done**'*) echo done ;;
+    # Match on how the State field STARTS, not on a substring anywhere in it. These
+    # rows are prose and their explanations contain both "done" and "not started",
+    # so a substring glob decides by accident.
+    #
+    # And tolerate a *qualified* done. `**done in code, UNVERIFIED on hardware**` is
+    # a Status this chain genuinely uses — work that landed but cannot be checked
+    # without a human — and a glob for exactly `**done**` classified it as pending,
+    # reporting ten landed commits as "not started". A stage is done or not; how
+    # thoroughly it was verified belongs in the row's prose, not in whether the
+    # fence gates it.
+    local s="${1#"${1%%[![:space:]]*}"}"   # left-trim
+    s="${s#\*\*}"                          # drop a leading bold marker
+    case "$s" in
+        'partially done'*) echo partial ;;
+        done*) echo done ;;
         *) echo pending ;;
     esac
 }
