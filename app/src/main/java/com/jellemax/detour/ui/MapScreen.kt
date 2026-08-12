@@ -93,6 +93,7 @@ import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.map.NavPolicy
+import com.jellemax.detour.map.leadingSpinIndex
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.wear.NavRelay
@@ -551,22 +552,9 @@ fun MapScreen(
         mapLibreMap?.let { cameraForPoints(it, listOf(loc, LatLon(c.lat, c.lon)), FIT_PADDING_PX, fitBottomPaddingPx) }
     }
 
-    // How a vote round ends. Two halves, and which one runs depends on
-    // whether this device opened the round (see GroupSpin.fromMe):
-    //
-    //  - Anyone receiving a one-candidate offer commits it. That offer *is*
-    //    the decision, so every member lands on the same destination off the
-    //    same frame instead of each resolving the votes themselves.
-    //  - The sharer, once everyone currently live (convoyPeers plus itself)
-    //    has voted, sends the leader back out as exactly that one-candidate
-    //    offer — which then commits here too, through the branch above.
-    //
-    // Tallying independently on each device would have been simpler and
-    // wrong: convoyPeers prunes a member who's been quiet for 20s, so one
-    // phone can consider the round complete on two votes while another is
-    // still waiting for a third, and the two can resolve to different
-    // candidates. Splitting a convoy across two destinations is the exact
-    // failure this feature exists to prevent.
+    // How a vote round ends: the rule and its correctness argument are
+    // resolveSpinRound in map/GroupSpinRules.kt. Not wired to it yet -
+    // verifying the convoy path needs two devices transmitting to each other.
     LaunchedEffect(spinOffer, spinVotes, convoyPeers, accountUsername) {
         val offer = spinOffer ?: return@LaunchedEffect
         if (offer.candidates.size == 1) {

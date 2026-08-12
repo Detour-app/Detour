@@ -46,15 +46,3 @@ internal fun List<RouteCandidate>.asSpinCandidates(): List<SpinCandidate> = map 
         name = c.name,
     )
 }
-
-/** Tie-break rule for a group spin's leader: ties (including "nobody's voted
- *  yet", every count 0) go to the lowest index. `>` rather than `>=` is what
- *  makes that deterministic - every device tallying the same votes lands on
- *  the same leader without needing to compare who voted when. */
-internal fun leadingSpinIndex(votes: Map<String, Int>, candidateCount: Int): Int {
-    val counts = IntArray(candidateCount)
-    votes.values.forEach { if (it in counts.indices) counts[it]++ }
-    var lead = 0
-    for (i in 1 until candidateCount) if (counts[i] > counts[lead]) lead = i
-    return lead
-}
