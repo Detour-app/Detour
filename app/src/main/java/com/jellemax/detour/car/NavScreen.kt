@@ -29,6 +29,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.jellemax.detour.R
+import com.jellemax.detour.audio.NavVoice
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine

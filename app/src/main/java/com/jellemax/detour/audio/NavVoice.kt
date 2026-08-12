@@ -1,4 +1,4 @@
-package com.jellemax.detour.car
+package com.jellemax.detour.audio
 
 import android.content.Context
 import android.media.AudioAttributes
@@ -13,7 +13,12 @@ import java.util.Locale
 private const val UTTERANCE_ID = "detour-nav"
 
 /**
- * Spoken turn instructions for the car screen.
+ * Spoken turn instructions, for any surface that navigates.
+ *
+ * Lived in `car/` until convergence 3, which is where the only voice in the app
+ * used to be. It never depended on a single `androidx.car` type, and the phone
+ * needs exactly the same audio bargain, so it moved here beside [PushToTalk] —
+ * the app's other audio client — rather than being written a second time.
  *
  * Android Auto has no voice API of its own: a projected app speaks through the
  * phone's audio stack, and the head unit routes it by *usage*. Hence
