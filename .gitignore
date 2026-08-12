@@ -54,3 +54,10 @@ DerivedData/
 .env
 docker/*/.env
 !*.env.example
+
+# Replay baselines: keep the .tsv extracts, never the raw capture. A screenshot
+# or a 400k-line logcat cannot be diffed, goes stale the moment the route file
+# it was captured against changes, and cost 9.6 MB of this repo before being
+# purged from history. Record the observation in the baseline README instead.
+tools/mocklocation/baseline/*.png
+tools/mocklocation/baseline/*.log

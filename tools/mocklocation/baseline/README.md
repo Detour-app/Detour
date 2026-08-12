@@ -128,8 +128,11 @@ the app was installed with `install -r` over itself, which keeps its data.
 ## Artifacts
 
 `<sha>` below is the commit the run was captured from — `09fddde` for the original three routes,
-`b29d014` for the `trajectcontrole` re-run. The formats are identical between the two, on purpose:
-the whole point of the re-run was a file that can be compared against the first.
+`b29d014` for the `trajectcontrole` re-run, `2cbc5aa` for the `stop-start` run on the OnePlus 11.
+The formats are identical between them, on purpose: the whole point of a re-run is a file that can be
+compared against the first. The one exception is named where it occurs — `2cbc5aa` was captured on a
+device rendering the app in **dark** theme, so its `dial_ink` counts *white* ink and its
+`map_mean`/`map_sd` are not numerically comparable with `09fddde`'s. The on/off semantics are.
 
 | File | What it is |
 |---|---|
@@ -647,7 +650,7 @@ quantity, the value observed, and the file the value is read out of.
 | Q7 | Does a section average appear, where, at what value? | **Yes — at fix 73, 34 m past the entry gantry, reading `Ø 121`, settling to `Ø 120` and holding it for eight frames** while the route was doing 121–124 km/h | `trajectcontrole-b29d014-events.tsv`, `…-chip-values.png` | **No — recorded against the superseded route.** See below |
 | Q8 | Does it clear at the far gantry? | **No. It cleared at fix 81, 306 m into a 3852 m section, 3529 m short of the exit gate** — and none of the three exit conditions (`reachedEnd`, `overshot`, `timedOut`) can fire there. Five alternative explanations were checked and ruled out | `trajectcontrole-b29d014-events.tsv` | **No** — same reason |
 | Q9 | Does it re-arm at the shared gantry? | **No. Exactly two AVG events in 1029 frames**, one on and one cleared | `trajectcontrole-b29d014-events.tsv` | **No** — the new route only enters the second relation, so this is now testable as a *positive* |
-| — | Trip `distanceMeters` / `topSpeedMps` / trace segment counts | **Unusable as A/B quantities on this harness.** Distance inflates ×90–×315 non-deterministically (same route, same device: ×273 once, ×315 the next); segments split on desk-induced activity-recognition `STILL` events | — | — |
+| — | Trip `distanceMeters` / `topSpeedMps` / trace segment counts | **Unusable as A/B quantities on this harness.** Distance inflates ×90–×315 non-deterministically (same route, same device: ×273 once, ×315 the next); segments split on desk-induced activity-recognition `STILL` events. **`topSpeedMps` is not safe either** — it stayed faithful on the Z Fold but came out at 1359.93 m/s (4 896 km/h) on the OnePlus 11; see the `2cbc5aa` section below for where in the run that value was acquired | — | — |
 
 ## Q7–Q9 are the ones `923e16c` was meant to fix, and they are not yet re-measured
 
@@ -710,6 +713,67 @@ nothing is just churn with a failure mode. The probe route file written into the
 was deleted, and the harness's foreground service was stopped with `am stopservice` (which is what
 calls `removeTestProvider`) rather than force-stopped — though it had registered no providers to
 leave stale.
+
+## `stop-start` on the OnePlus 11 at `2cbc5aa`, 2026-08-12 — the attempt above, unblocked
+
+The harness was designated by hand in Developer options between the two sessions, so
+`start-replay.sh` ran unmodified and the whole route replayed. **This is a later observation, not a
+"before" for anything**: it post-dates every stage-2 commit and it is a different device. Full write-up
+in [`../../../.superpowers/sdd/replay-stop-start.md`](../../../.superpowers/sdd/replay-stop-start.md);
+what follows is the part a later run is measured against.
+
+| | |
+|---|---|
+| Commit | `2cbc5aa`; `git diff --stat 923e16c..2cbc5aa` touches only the harness manifest and this file, so the installed debug v1.74 *is* the app code at `2cbc5aa` and nothing was rebuilt. **The branch was then merged forward to `fc3a3c6` (upstream main) while this run was being analysed, changing 38 files under `app/`+`shared/` — so this run is a reference for `2cbc5aa`, not for `fc3a3c6`.** The merge left `tools/mocklocation/` untouched and `routes/stop-start.txt` byte-identical |
+| Device | OnePlus 11 (`CPH2449`), serial `50043ff9`, Android 16 SDK 36, 1080×2412 at density 480, **dark theme** |
+| Release variant | **installed on this device**, unlike the Z Fold. Force-stopped by the script, never restarted during the run, `lastUpdateTime` unchanged |
+| Route | `../routes/stop-start.txt` at `2cbc5aa`, `intervalMs=1000`: 762 fixes, 9.704 km. Holds over fixes 359–370, 395–436, 672–686, 696–706 |
+| Cadence | **1.0156 s/fix** (Z Fold: 1.0224). Completed 762/762; 247 frames at 3.3 s |
+| Overpass | **reachable from the phone** (unreachable from the host at the same time), so this run *does* carry ambient-limit evidence: sign on at fix 93, values 30 / 50 / 120 |
+
+- **One trip, mode `CAR`**, `distanceMeters` 537 025.5 (×55.3), `topSpeedMps` 1359.93, duration 943.2 s
+  of which 772.9 s is the replay. Auto-stop did not fire at any of the four standstills, which is
+  correct. **Auto-end cannot be exercised by a replay** — the 5-minute check runs in
+  `onTripLocation`, so it needs fixes; the trip was closed with the End trip button, as at `09fddde`.
+- **Where the inflation comes from, measured this time.** Distance is *correct* for the first ~100
+  fixes (371 m at fix 34, 1,3 km at fix 101), grew **8,6 km during 20 s of the 41 s standstill** while
+  every replayed fix carried the same coordinate, and gained its last **7,6 km** *after* the providers
+  were removed at t+773.9 s — the route's last point is 6 760 m from its first. `topSpeedMps` landed in
+  the same 14 s window (`…-distance-jump.png`: frame 231 at t+778 still reads 529,4 km / 132 km/h,
+  frame 235 at t+792 reads 537,0 km / 4 896 km/h and never changes again). So a live non-mock
+  provider was interleaved into the app's stream, and one loose fix is enough:
+  `lastLocation = location` is assigned for every fix regardless of accuracy
+  (`TripTrackingService.kt:983`) while the distance accumulator gates only on the *new* fix
+  (`:1043-1048`) and `speedOf`'s fast path not at all (`:1110`). It leaves no trace evidence because a
+  >500 m point is flushed into a buffer of its own (`:1138`) and `TraceStore.append` drops segments
+  under 2 points (`TraceStore.kt:44`).
+- **Trace: 48 segments, 319 points** for 9.704 km (hops median 31.8 m, summed 9 670 m, stored
+  `speedKmh` 0–132.4, zero points more than 200 m off route, zero hops over 500 m). Stops found by
+  `profile-trace.py`: **0 per segment**; **1 of 4** when the segments are concatenated (Δt 39.6 s over
+  26 m). The three short holds (10–14 s) are under `--min-seconds 12`, and the long one straddles a
+  segment seam, so a stop under ~15 s is not recoverable from this trace.
+- **HUD: eases down, then leaves the screen — it does not hold a zero.** 28 → 26 → 25 → 22 → 16 → 16
+  km/h and then no dial (`…-dial-easing.png`); `SpeedHud` is only composed above 1.4 m/s, and
+  `SpeedLimitSign` lives inside it, so the sign clears with the dial every time. Faded/returned at
+  **4/4** stops: fixes 361→371, 398→437, 677→690, 700→710 (±3 fixes at this cadence).
+- **Camera parked and kept its bearing.** Pixel-identical map region at frames 123→124 (RMSE
+  0.000000) and 129→130 (0.000212); across the whole stop (121→132, 36.8 s) the best alignment is
+  dx = dy = 0 with the residual only on feature outlines — no pan, no rotation, **no north-up snap
+  even though the harness reports bearing 0° on every held fix**. Following resumed unaided after all
+  four stops. **0 stalls in 246 frame pairs.**
+- **Frames 125 and 128 have a blank map surface and no puck** — the same `screencap` mid-swap artifact
+  as `urban-limits` fixes 453/579, and the only source of the 0.04–0.05 RMSE in that window
+  (`…-blank-surface.png`).
+- **No crash.** 400 019 raw lines, no `FATAL EXCEPTION`, no `E AndroidRuntime`, no `F DEBUG`, no ANR.
+
+**Route-file defect found by this run.** Every one of `stop-start`'s four holds ends with a single fix
+implying **92–99 km/h** (fixes 370, 436, 686, 706) followed by a duplicate point implying 0, before the
+route settles at 25–30 km/h. `urban-limits` has the same defect on its one 18 s hold (exit fix 1093 =
+92 km/h, then 0, then 47); `trajectcontrole`'s single 7 s hold is clean (exit 4 km/h, then 20). `detour-gps-replay` warns about exactly this
+("25 m covered in one 1000 ms line reports 90 km/h on that fix"). It is why the trip card's Top reads
+97 then 99 km/h at the first two stops, and why the dial one fix after the 41 s stop shows **71 km/h in
+red** against an ambient 30. Those readings are faithful to the file; the file is wrong.
+`gpx2route.py` should spread the first hop after a hold over at least the `--pull-away-kmh` interval.
 
 ## This baseline post-dates stage 2 and cannot verify it
 
