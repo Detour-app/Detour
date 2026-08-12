@@ -927,6 +927,23 @@ fun MapScreen(
             val tooFast = limit != null && fix.speedMps * 3.6 > limit + 3.0
             if (tooFast && ahead.at != warnedAt) {
                 toneGen?.startTone(ToneGenerator.TONE_PROP_BEEP2, 400)
+                // A TONE_PROP_BEEP2 on the notification stream is inaudible on
+                // a bar mount with earplugs in and wind noise — which is this
+                // app's primary configuration. The head unit has spoken this
+                // since it shipped and its comment says why
+                // (car/NavScreen.kt:392-394). Register entry 15.
+                //
+                // No toast: the car's stands in for a visual the head unit has
+                // no room for, and the phone's map already draws the camera
+                // marker. The snackbarHostState this screen already owns is the
+                // error channel; routing a routine hazard through it would
+                // teach the rider to ignore errors.
+                //
+                // The wording is a literal here and not in :shared because
+                // stage 3's CameraWarner is where the warning decision and its
+                // text belong; whichever of the two lands first declares it,
+                // and neither writes a second copy.
+                announceAloud("Speed camera ahead")
                 warnedAt = ahead.at
             }
         }
