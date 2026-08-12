@@ -6,7 +6,7 @@
 |---|---|
 | **Detail level** | Intent + constraints. **The Work items section requires a rewrite before use** — see below. |
 | **Prerequisite** | [Stage 2](stage-2-pure-extractions.md) complete |
-| **State** | not started — **blocked on evidence, no longer on a decision.** The blocking product call (register decision 2: do the car and iOS get the trajectcontrole average?) was **made on 2026-08-12 — yes, all three surfaces** (`20aa813`), which settles the destination and the output shape; see [Consumed decisions](#consumed-decisions). What remains blocked is the **route (i) recording** and the stage-0 baseline: `DECISION.md:29-35`, and the last precondition below (`tools/mocklocation/baseline`) still fails. 11 pass, 1 fail on 2026-08-12 (the missing baseline directory) |
+| **State** | not started — **blocked on evidence.** The blocking product call (register decision 2) was made 2026-08-12, yes to all three surfaces (`20aa813`); see [Consumed decisions](#consumed-decisions). Route (i) now exists (`09fddde`) and the stage-0 baseline landed (`306a70f`), but **the baseline captured no section events**: both Overpass mirrors refused connections throughout that run, so the average-speed chip machine 1 is measured against was never observed. Needs a 17-minute re-run of `trajectcontrole.txt` once Overpass answers. 12 pass, 1 fail on 2026-08-12 |
 | **Preconditions captured** | 2026-08-11; re-run 2026-08-12 against `20aa813` — 11 pass, 1 fail (the missing baseline directory). An earlier run read 9 pass with 2 informational: `chain-status.sh` could not judge `# expect 1  (camera-warn latch)`, because it treated the explanatory parenthetical as part of the expected value and silently ungated the assertion. Fixed in the script rather than by rewording the specs, since seven assertions across stages 2 and 3 were affected |
 | **Chain** | [design](00-chain-design.md) · [roadmap](../DECISION.md) · [register](../15-divergence-register.md) · prev: [stage 2](stage-2-pure-extractions.md) · next: [stage 4](stage-4-state-ownership.md) · consumed by: [convergence 2](convergence-2-section-readouts.md) |
 
@@ -41,8 +41,17 @@ grep -rc 'Dispatchers\.' shared/src/commonMain/kotlin/ | grep -v ':0' | wc -l   
 grep -c 'fun nowMs' shared/src/commonMain/kotlin/com/jellemax/detour/data/Angles.kt  # expect 1
 grep -c '^expect ' shared/src/commonMain/kotlin/com/jellemax/detour/data/Platform.kt      # expect 4
 
-# The baseline recordings from stage 0 exist.
+# The baseline recordings from stage 0 exist AND captured section events.
+#
+# `test -d` was the original assertion and it was too weak: the directory landed
+# in 306a70f with two of three routes recorded cleanly, so the fence went green
+# while the one thing machine 1 is measured against — the average-speed chip
+# appearing, settling and clearing — had never been observed. Both Overpass
+# mirrors were refusing connections during that run, so no section data reached
+# the app at all. Count the frames where the chip was present instead.
 test -d tools/mocklocation/baseline && echo baseline-present
+cat tools/mocklocation/baseline/trajectcontrole-*-events.tsv 2>/dev/null \
+  | awk -F'\t' 'NR>1 && $5!="0" && $5!="" && $5!="-" {n++} END{print n+0}'   # expect >= 1
 ```
 
 ## Why this stage
