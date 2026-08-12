@@ -12,6 +12,12 @@ struct ConvoyBar: View {
     @ObservedObject private var live = ConvoyLiveClient.shared
     @State private var transmitting = false
 
+    /// Set when the microphone has been refused, so the button can say so
+    /// rather than doing nothing. State and not a computed property: the press
+    /// is the only moment the answer is read, and `recordPermission` publishes
+    /// nothing to observe.
+    @State private var micDenied = false
+
     var body: some View {
         if live.activeConvoyId != nil {
             HStack(spacing: 12) {
@@ -47,7 +53,7 @@ struct ConvoyBar: View {
                 // Press and hold, exactly like the hardware button it stands in
                 // for: releasing must end the transmission even if the finger
                 // slides off the button first.
-                Image(systemName: transmitting ? "mic.fill" : "mic")
+                Image(systemName: micGlyph)
                     .font(.title3)
                     .frame(width: 44, height: 44)
                     .background(Circle().fill(transmitting
@@ -66,8 +72,27 @@ struct ConvoyBar: View {
         }
     }
 
+    private var micGlyph: String {
+        if micDenied { return "mic.slash" }
+        return transmitting ? "mic.fill" : "mic"
+    }
+
     private func startTalking() {
         guard !transmitting else { return }
+        // The microphone is asked for here, on the press — see
+        // PttAudio.capturePermission(). A press spent on the alert, or refused
+        // outright, must not open a transmission: every peer would light a
+        // "talking" badge for audio that is never coming.
+        switch PttAudio.shared.capturePermission() {
+        case .granted:
+            micDenied = false
+        case .asking:
+            micDenied = false
+            return
+        case .denied:
+            micDenied = true
+            return
+        }
         transmitting = true
         ConvoyLiveClient.shared.sendPttStart()
         PttAudio.shared.startCapture { chunk in

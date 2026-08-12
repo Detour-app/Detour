@@ -36,6 +36,14 @@
     <string>Detour records your ride in the background so a trip keeps logging with the screen off and your fog of war fills in as you go.</string>
     <key>NSMotionUsageDescription</key>
     <string>Detour uses motion data to tell a drive from a walk and to measure lean angle on a bike.</string>
+    <!-- Convoy push-to-talk. The microphone is only ever opened while the mic
+         button is held, but PttAudio activates a .playAndRecord session to do
+         it, and iOS refuses that session — and terminates the app for
+         attempting it — with no usage description declared. The `audio`
+         background mode below has named this feature since it shipped; this
+         key is the half that was missing. -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Detour uses the microphone for convoy push-to-talk, so you can talk to the riders you are with without taking your gloves off.</string>
 
     <key>UIBackgroundModes</key>
     <array>
