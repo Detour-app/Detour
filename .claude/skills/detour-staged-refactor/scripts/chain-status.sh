@@ -73,9 +73,12 @@ if [ ! -d "$SPECS" ]; then
     exit 1
 fi
 
-mapfile -t files < <(ls "$SPECS"/stage-*.md 2>/dev/null | sort)
+# Both axes: the structure chain (stage-*) and the convergence chain
+# (convergence-*). Globbing only stage-* left the convergence fences invisible to
+# this script, which is the one place anyone looks to ask "what is ready".
+mapfile -t files < <(ls "$SPECS"/stage-*.md "$SPECS"/convergence-*.md 2>/dev/null | sort)
 if [ "${#files[@]}" -eq 0 ]; then
-    echo "error: $SPECS contains no stage-*.md" >&2
+    echo "error: $SPECS contains no stage-*.md or convergence-*.md" >&2
     exit 1
 fi
 
@@ -96,6 +99,13 @@ extract_block() {
 
 judge() { # judge <expect-spec> <first-output-line> -> prints PASS/FAIL/INFO verdict word
     local want="$1" got="$2" op num
+    # Strip a trailing parenthetical before judging anything. An assertion is
+    # routinely written `# expect 1  (camera-warn latch)` — a value and then an
+    # explanation of it. Treating the whole tail as the expectation made those
+    # unjudgeable, and this script reported INFO instead of PASS/FAIL: seven
+    # assertions across stages 2 and 3 were silently ungated that way, which
+    # defeats the entire point of a precondition fence.
+    want="$(printf '%s' "$want" | sed 's/[[:space:]]*(.*$//; s/[[:space:]]*$//')"
     case "$want" in
         '>='* | '<='* | '>'* | '<'*)
             op="$(printf '%s' "$want" | sed 's/[^<>=].*//')"
@@ -105,9 +115,14 @@ judge() { # judge <expect-spec> <first-output-line> -> prints PASS/FAIL/INFO ver
             if awk "BEGIN { exit !($got $op $num) }"; then echo PASS; else echo FAIL; fi
             ;;
         *[!0-9]* | '')
-            # A word expectation such as "present"; a phrase such as "line 213" is INFO.
-            want="$(printf '%s' "$want" | awk '{print $1}')"
-            if [ -n "$want" ] && printf '%s' "$want" | grep -qE '^[a-z][a-z0-9-]*$'; then
+            # A single lowercase word such as "present" is a real expectation and
+            # is compared. Anything with more than one field left after the
+            # parenthetical strip is prose, not an expectation — `# expect line
+            # 213` is a locator, and line numbers drift by a constant whenever an
+            # earlier stage lands, so judging it would raise a false alarm every
+            # time. Those stay INFO by design.
+            if [ "$(printf '%s' "$want" | wc -w)" -eq 1 ] &&
+               printf '%s' "$want" | grep -qE '^[a-z][a-z0-9-]*$'; then
                 [ "$got" = "$want" ] && echo PASS || echo FAIL
             else
                 echo INFO

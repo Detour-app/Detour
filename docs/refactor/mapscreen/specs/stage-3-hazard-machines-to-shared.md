@@ -6,9 +6,9 @@
 |---|---|
 | **Detail level** | Intent + constraints. **The Work items section requires a rewrite before use** — see below. |
 | **Prerequisite** | [Stage 2](stage-2-pure-extractions.md) complete |
-| **State** | not started |
-| **Preconditions captured** | 2026-08-11 |
-| **Chain** | [design](00-chain-design.md) · [roadmap](../DECISION.md) · prev: [stage 2](stage-2-pure-extractions.md) · next: [stage 4](stage-4-state-ownership.md) |
+| **State** | not started — **blocked on evidence, no longer on a decision.** The blocking product call (register decision 2: do the car and iOS get the trajectcontrole average?) was **made on 2026-08-12 — yes, all three surfaces** (`20aa813`), which settles the destination and the output shape; see [Consumed decisions](#consumed-decisions). What remains blocked is the **route (i) recording** and the stage-0 baseline: `DECISION.md:29-35`, and the last precondition below (`tools/mocklocation/baseline`) still fails. 11 pass, 1 fail on 2026-08-12 (the missing baseline directory) |
+| **Preconditions captured** | 2026-08-11; re-run 2026-08-12 against `20aa813` — 11 pass, 1 fail (the missing baseline directory). An earlier run read 9 pass with 2 informational: `chain-status.sh` could not judge `# expect 1  (camera-warn latch)`, because it treated the explanatory parenthetical as part of the expected value and silently ungated the assertion. Fixed in the script rather than by rewording the specs, since seven assertions across stages 2 and 3 were affected |
+| **Chain** | [design](00-chain-design.md) · [roadmap](../DECISION.md) · [register](../15-divergence-register.md) · prev: [stage 2](stage-2-pure-extractions.md) · next: [stage 4](stage-4-state-ownership.md) · consumed by: [convergence 2](convergence-2-section-readouts.md) |
 
 > **Scheduled rewrite.** This spec fixes the goal, the destination and the constraints, which
 > are settled. It deliberately does **not** fix the internals, because how these machines
@@ -73,6 +73,112 @@ Three stateful machines move into `shared/src/commonMain/.../drive/`, with tests
    hysteresis.
 
 Then the car's copies are deleted and pointed at the core, one commit behind each extraction.
+
+## Consumed decisions
+
+[`../15-divergence-register.md`](../15-divergence-register.md) enumerates 22 cross-surface
+divergences. **Five of them are inputs to this stage, one more is a constraint on it, and the
+other sixteen are not this stage's business** — that split is the register's own, in its
+§ *What stage 3 actually consumes*, and the sixteen are described there as *"adjacent work that
+must not be folded in"*. They now live on the convergence axis
+([`00-chain-design.md`](00-chain-design.md) § *The two axes*); this section is the only edge
+between the two, and it points inward. Nothing here schedules work outside this stage.
+
+Read the entries in the register rather than here. This section records what each one *does to
+this stage's scope*, which is the part a plan needs.
+
+### Entry 11 — the trajectcontrole average: **DECIDED, all three surfaces**
+
+The decision (register §C, decision 2, taken 2026-08-12) settles two things this spec previously
+left open.
+
+- **The destination is beyond argument.** `SectionAverageTracker` goes to `shared/` commonMain
+  because iOS cannot consume anything in `app/`. The Constraints section below already said
+  commonMain; this removes the last reason anyone might reopen it.
+- **The output is a public contract from day one**, for three consumers rather than one phone
+  readout. Two consequences for machine 1's design: choose the `StateFlow` element type against
+  the iOS `FlowWatcher` cost — **one subclass per element type**, nine of them today
+  (`shared/src/iosMain/.../FlowWatcher.kt`, whose doc comment argues the trade) — and **expose
+  the average and its posted limit as one value, not two flows.** The phone currently holds them
+  as two `mutableStateOf`s and passes them as two arguments (`MapScreen.kt:252-253` →
+  `ui/MapHud.kt:180-181`); exporting that shape would cost two watcher subclasses and let the two
+  values disagree across a recomposition.
+
+**What this stage does not do:** the car and iOS *readouts*. The register is explicit that they
+are feature work after the tracker lands —
+[`convergence-2-section-readouts.md`](convergence-2-section-readouts.md) owns them, and §C.1's
+last line forbids them sharing a commit with the extraction they depend on.
+
+### Entry 1 — the camera chime's ambient fallback: keep it, **but fix §B1 first**
+
+Machine 2 cannot be written without knowing whether it takes one limit or two. The answer is
+two: keep the phone's fallback to the ambient sign, because a camera warning that goes silent on
+an untagged road is a warning you cannot trust, and the car's omission has no written rationale
+(`git blame` in entry 1 shows it was never decided).
+
+**The ordering inverts what a naive reading of "extract the phone's version" would produce.**
+`ambientSpeedLimitKmh` is never reset: its producer is gated off while `navigating`
+(`MapScreen.kt:733-734`) and the only writers are inside that collector, so the value the chime
+reads is frozen at whatever the sign said when navigation began — and it is still stale *after*
+navigation ends, because the HUD switches back to it. So the copy being kept is a copy with a
+defect, and §B1's fix comes first, in its own commit. `DECISION.md:394-400`: never an extraction
+and the bug it reveals. The car already has the reset and says why
+(`car/SpinScreen.kt:117-121`), which is why entry 1's answer is *the phone's fallback plus the
+car's reset* rather than either copy wholesale.
+
+`README.md:383-385` claims the head unit has *"the same … camera warnings as the phone"*, which
+is false today and becomes true when machine 2 lands. That one-line edit belongs to the commit
+that makes it true.
+
+### Entry 13 — the `+3.0`, `45.0` and `+5` literals: **both values survive, hoisted**
+
+Nothing to decide: the three `+5`s and both `+3.0`s agree today, re-verified against this tree
+(`MapHud.kt:184`, `car/CarMapRenderer.kt:635`, `wear/…/MainActivity.kt:140`; `MapScreen.kt:870`,
+`car/NavScreen.kt:414`). `CameraWarner` should own the chime threshold
+(`+3.0`) and the camera-ahead wedge (`45.0`) — one copy each in `MapScreen.kt` and
+`car/NavScreen.kt` today, verified. **Hoisted, not re-declared:** a third copy inside the machine
+while two literals remain at the call sites is the state entry 13 exists to prevent. The HUD's
+`+5` is *not* machine 2's — it cannot usefully go to `shared/` while `wear/` is excluded from it,
+so it stays in `app/` with the watch's copy commented.
+
+### Entry 15 — chime, or chime + speech + toast: **resolved by the `CircleEvents.kt` shape**
+
+Already answered by the constraint this spec carries: decision and wording in the core, delivery
+per platform. `CameraWarner` emits a **warning decision** — that a camera warrants a warning, and
+its text — and each surface decides how to deliver it. **`CameraWarner` must not know about
+tones, speech or toasts.** That is what turns "should the phone speak?" from a blocker into a
+later one-line delivery choice, and it is why decision 1's phone `NavVoice` is
+[`convergence-3-voice-policy.md`](convergence-3-voice-policy.md)'s problem, not this stage's.
+
+### Entry 2 — the Overpass fetch comes off the fix collector **before** machine 3
+
+Ordering, not a choice. The car's structure wins with no trade-off — a conflating `StateFlow`
+plus a suspending collector is a stall with no upside, and both surfaces already agree on every
+threshold. That work is stage 0 item **0d**
+([`stage-0-verification-baseline.md`](stage-0-verification-baseline.md)), deferred because the
+retune check needs replay route (ii).
+
+`SpeedLimitTracker` touches the same stream a second time, so **if 0d has not landed when machine
+3 starts, this stage inherits the hysteresis trap along with the machine**: the 3-miss clear
+rule was only ever tuned against a fix stream that *had* those drops. Compare fixes-to-clear
+against the baseline; do not assume.
+
+### Entry 18 — a constraint, not a decision
+
+`SpeedLimitTracker` decides *whether a limit value exists*. It must **not** decide whether a sign
+is *shown* — the phone fades its HUD at a standstill, the head unit does not, and both are
+defensible. If the tracker starts emitting "no limit" in order to make a sign disappear, entry 18
+has been decided by accident, in a refactor, which is exactly the failure mode the register was
+written to prevent.
+
+### What is *not* consumed here
+
+The remaining sixteen entries, four of which are out of scope by name below: the convoy protocol
+(6), trip auto-detection (5), the nav vocabulary (4, 19) and the voice policy (12, 15's delivery
+half). Two more are stage-2 leftovers rather than stage-3 inputs — entry 8 (the off-route
+literal, whose constant half has **already landed** in `1c7f827`) and entry 9 (the inline
+three-candidate roll). This stage's risk section warns that all of it *"will look easy"* once
+three machines are in the core, and that they are *"each larger than all of stage 3."*
 
 ## Constraints — these are settled and not up for rediscovery
 

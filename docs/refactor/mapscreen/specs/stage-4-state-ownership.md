@@ -78,6 +78,40 @@ Gather these before the brainstorm; they did not exist when this spec was writte
    whether it is in scope here or gets its own ticket — DECISION.md's position is that
    `rememberSaveableStateHolder()` in `AppRoot` fixes one of its five symptoms in about four
    lines and the rest is a separate decision.
+6. **`maxke24/Detour#21` — and whether it goes before or after this stage.** The issue is
+   *"Map is choppy while driving"*, and its three causes are all in the state this stage would
+   take ownership of:
+   - **The position marker updates at the GPS rate, not per frame.** The overlay is re-pushed
+     from a `LaunchedEffect` keyed on `myLocation` among eight other keys
+     (`MapScreen.kt:583-584`), so the dot is re-placed ~1 Hz at the raw fix while the camera
+     eases toward that same point. The comment at `:604-605` states the intent — *"the eased
+     camera glides the map under it"* — and the issue's argument is that this only holds if the
+     camera is *at* the fix, which a first-order lag never is.
+   - **The epsilon gate suppresses camera pushes at city speeds.** `:1030-1034` skips
+     `setCamera` unless this frame moved more than `CAM_POS_EPS_DEG = 2e-6`
+     (`MapCameraTuning.kt:39`) — ~0.22 m of latitude, ~0.14 m of longitude at 51°N. Per-frame
+     displacement at 60 fps is `v·dt`, so the issue puts the stall threshold at roughly
+     35–50 km/h: the same optimisation that correctly keeps a *stationary* map idle makes a
+     *slowly moving* one step. Its suggested fix is to make the test rate-based — skip when the
+     target is not moving, rather than when this frame's step was small.
+   - **No prediction.** The ease target is the fix as received (`:947-948`), so the camera sits a
+     steady-state `v·τ` behind it with `CAM_POS_TAU = 0.35`, and the issue's proposed remedy is
+     dead reckoning off `Fix`'s existing `speedMps`, `bearingDeg` and `timeMs`.
+
+   **This collides with stage 4 head-on.** Both touch `camTarget`, `camTargetBearing`, the
+   `applied*` quartet, the `withFrameNanos` loop and `myLocation` — the exact variables an owner
+   change would move. Whoever goes second rebases their work onto a rewritten version of the same
+   nine write sites, and if both are in flight the A/B replay cannot attribute a difference to
+   either. **One of them waits, and this stage's brainstorm decides which** (its `## Notes` also
+   flags that `car/CarMapRenderer.kt` carries the same loop, so either order has a car-side
+   follow-up). The register's entry 2 is the same issue seen from the fetch side — it is
+   `#21`'s filed cause, scheduled as stage 0d — and entry 3 is the warning not to fold the two
+   `dt` clamps together while you are in there.
+
+   Evidence to bring to the brainstorm: whether `#21` has been fixed, started, or is still only
+   filed. If it is untouched, "fix `#21` first and let it decide the camera's shape" is a
+   legitimate answer — and it may be a better one, because `#21` is a defect a user reported and
+   stage 4 is a structural preference.
 
 ## Forbidden, whichever way it goes
 
@@ -100,6 +134,8 @@ Gather these before the brainstorm; they did not exist when this spec was writte
 ## What the brainstorm must produce
 
 - A decision, in writing, with its reasoning: holders, targeted reducer, or neither.
+- **An order between this stage and `maxke24/Detour#21`**, with the loser's dependency recorded
+  where its owner will see it. Not "we should coordinate" — which of the two lands first.
 - If "neither": the sentence recorded in DECISION.md explaining what remains unaddressed, so
   the chain closes honestly rather than trailing off.
 - If either of the other two: work items sized to one subagent and one commit, with the
