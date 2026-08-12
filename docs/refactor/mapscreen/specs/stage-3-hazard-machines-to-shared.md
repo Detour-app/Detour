@@ -83,6 +83,28 @@ Three stateful machines move into `shared/src/commonMain/.../drive/`, with tests
 
 Then the car's copies are deleted and pointed at the core, one commit behind each extraction.
 
+## Blocker: fix maxke24/Detour#22 before extracting machine 1
+
+The section baseline (`306a70f`, re-run `17d9da5`) found that the average-speed readout clears
+a few hundred metres into a section rather than at the exit gantry, and traced it to
+`SpeedCameras.parseSection` treating a clipped Overpass node set as complete: a section longer
+than `PREFETCH_RADIUS_M` yields a bogus short section whose far end sits just past the entry.
+`sectionExitGate` is **not** implicated — entry is correct — so this is a parser defect, not a
+tracker one.
+
+**This changes what machine 1's characterisation tests are for.** Written against current
+behaviour they would encode the early clear as intended, which is exactly the trap
+characterisation testing sets: it preserves whatever is there, bug included. So:
+
+1. Fix #22 first, in its own commit, on the parser.
+2. Re-run `trajectcontrole.txt` and confirm the readout now survives to the exit gantry and
+   re-arms across the shared node at 6.36 km — the transition the route was built for and which
+   has still never been observed working.
+3. Only then write machine 1's characterisation tests, against corrected behaviour.
+
+Confirming #22's mechanism needs one Overpass query replicating `near()`'s exact request, and
+Overpass has been refusing this IP since the run. That is the current block.
+
 ## Consumed decisions
 
 [`../15-divergence-register.md`](../15-divergence-register.md) enumerates 22 cross-surface
