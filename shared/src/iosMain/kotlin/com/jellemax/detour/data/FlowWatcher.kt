@@ -140,7 +140,11 @@ object SettingsFlows {
     fun voiceGuidance() = BoolWatcher(Settings.voiceGuidance)
     fun routeColor() = RouteColorWatcher(Settings.routeColor)
     fun authUsername() = StringWatcher(Settings.authUsername)
-    fun authToken() = StringWatcher(Settings.authToken)
+
+    /** The session, for the one thing iOS asks of it: whether there is one.
+     *  Follows the refresh token rather than the access token, because that is
+     *  what survives between requests — see [Auth]. */
+    fun authToken() = StringWatcher(Settings.refreshToken)
 }
 
 /** Stores whose changes a screen needs to react to. */
@@ -168,7 +172,7 @@ object SettingsValues {
     val fogRadiusMeters: Float get() = Settings.fogRadiusMeters.value
     val defaultZoom: Float get() = Settings.defaultZoom.value
     val leanOffsetDeg: Float get() = Settings.leanOffsetDeg.value
-    val authToken: String get() = Settings.authToken.value
+    val authToken: String get() = Settings.refreshToken.value
     val authUsername: String get() = Settings.authUsername.value
 }
 

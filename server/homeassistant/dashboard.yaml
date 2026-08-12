@@ -1,6 +1,6 @@
 # Detour dashboard — YAML mode, registered from configuration.yaml.
 # Entities come from packages/detour.yaml (REST sensors on the sync
-# server's /ha/* endpoints). Edit this file and reload from the dashboard's
+# service's /api/dashboard/* endpoints). Edit this file and reload from the dashboard's
 # three-dot menu; the UI editor is disabled for YAML dashboards.
 
 title: Detour
@@ -156,7 +156,10 @@ views:
           # The key rides in the URL because an iframe cannot send a header —
           # it is read-only, but treat this dashboard's raw config as secret.
           - type: iframe
-            url: http://your-sync-server.local:8790/ha/ride.html?key=YOUR_KEY
+            # Temporarily unavailable: the old server rendered this map page
+            # itself, and the service that replaced it serves ride geometry as
+            # JSON only (/api/dashboard/rides/track). See README.md.
+            url: about:blank
             aspect_ratio: 70%
 
       # -------------------------------------------------------------- history --

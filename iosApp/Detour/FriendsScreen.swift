@@ -111,6 +111,7 @@ struct FriendsScreen: View {
                                     ConvoyLiveClient.shared.join(convoyId: convoy.id)
                                 }
                                 .buttonStyle(.borderless)
+                                .disabled(!Features.shared.liveRelay)
                                 Button("Leave", role: .destructive) { model.leave(convoy) }
                                     .buttonStyle(.borderless)
                             }
@@ -118,6 +119,11 @@ struct FriendsScreen: View {
                         Text(convoy.members.map(\.username).joined(separator: ", "))
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        if !Features.shared.liveRelay {
+                            Text(Features.shared.liveRelayNotice)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 HStack {
@@ -140,43 +146,28 @@ struct FriendsScreen: View {
     }
 }
 
+/// Signing in moved to the identity provider, which means a browser trip
+/// (authorization code with PKCE). Android does that in a Custom Tab; the iOS
+/// side needs an `ASWebAuthenticationSession` and has not been written yet, so
+/// this states it rather than offering a password form the server would refuse.
 private struct SignInForm: View {
     @ObservedObject var model: FriendsModel
-    @State private var creating = false
 
     var body: some View {
         Form {
             Section {
-                TextField("Username", text: $model.username)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                SecureField("Password", text: $model.password)
-                if creating {
-                    TextField("Invite code", text: $model.invite)
-                        .textInputAutocapitalization(.never)
-                    TextField("Email (for password resets)", text: $model.email)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.emailAddress)
-                }
-            } footer: {
-                Text("Your rides sync to your own server. Nothing here reaches anyone else's.")
-            }
-
-            Section {
-                Button(creating ? "Create account" : "Sign in") {
-                    if creating { model.register() } else { model.signIn() }
-                }
-                .disabled(model.username.isEmpty || model.password.isEmpty || model.busy)
-
-                Button(creating ? "I already have an account" : "Create an account") {
-                    creating.toggle()
-                }
-                .font(.footnote)
-
-                if !creating {
-                    Button("Forgot password") { model.forgotPassword() }
-                        .font(.footnote)
-                }
+                Text(Features.shared.liveRelayNotice)
+                    .font(.headline)
+                Text("""
+                    Signing in now happens on your server's own sign-in page, in a \
+                    browser. The iOS app has not been ported to that yet — the Android \
+                    app has. Everything on this device that does not need an account \
+                    keeps working: recording rides, the map, roulette and routes.
+                    """)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("Account")
             }
         }
     }
@@ -187,9 +178,6 @@ final class FriendsModel: ObservableObject {
 
     @Published var signedIn = false
     @Published var username = ""
-    @Published var password = ""
-    @Published var invite = ""
-    @Published var email = ""
     @Published var addName = ""
     @Published var newConvoyName = ""
 
@@ -254,24 +242,6 @@ final class FriendsModel: ObservableObject {
         }
     }
 
-    func signIn() {
-        act { [self] in try await Account.shared.login(user: username.trimmed(), password: password) }
-    }
-
-    func register() {
-        act { [self] in
-            try await Account.shared.register(
-                user: username.trimmed(),
-                password: password,
-                invite: invite.trimmed(),
-                email: email.trimmed())
-        }
-    }
-
-    func forgotPassword() {
-        act { [self] in try await Account.shared.forgotPassword(who: username.trimmed()) }
-    }
-
     func signOut() {
         act { try await Account.shared.signOut() }
     }
@@ -295,11 +265,11 @@ final class FriendsModel: ObservableObject {
     }
 
     func respondToConvoy(_ convoy: DetourShared.Group, accept: Bool) {
-        act { try await Groups.shared.respond(kind: "convoy", groupId: convoy.id, accept: accept) }
+        act { try await Groups.shared.respond(groupId: convoy.id, accept: accept) }
     }
 
     func leave(_ convoy: DetourShared.Group) {
-        act { try await Groups.shared.leave(kind: "convoy", groupId: convoy.id) }
+        act { try await Groups.shared.leave(groupId: convoy.id) }
     }
 
     func setShareFog(_ value: Bool) {

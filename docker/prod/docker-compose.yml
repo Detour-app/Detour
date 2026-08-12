@@ -1,0 +1,219 @@
+# Detour, for somewhere that is not a development machine.
+#
+#   docker compose -f docker/prod/docker-compose.yml up -d
+#
+# One file rather than the `include:` split docker/dev uses. A production stack is
+# something you audit before you run it, and reading top to bottom beats chasing
+# five files to find out what holds your database password.
+#
+# Three things are deliberately different from docker/dev:
+#
+#   1. Nothing has a default password. Every secret uses ${VAR:?...}, so compose
+#      refuses to start rather than quietly running with a credential that is
+#      published in this repository.
+#   2. Keycloak runs `start`, not `start-dev`, and imports no realm. The dev realm
+#      ships a known user with a known password and a client that accepts any
+#      localhost redirect — importing it here would be a back door, not a
+#      convenience. See README.md for the realm you do have to create.
+#   3. Ports bind to 127.0.0.1. Put a reverse proxy with TLS in front; the realm
+#      issues tokens against one fixed issuer URL and that URL should be https.
+#
+# See ../../backend/INSTALL.md for what each configuration key means.
+
+name: ${PROJECT_NAME:-detour}
+
+services:
+  # ---------------------------------------------------------------------------
+  # The API. Image published by .github/workflows/backend.yml on every push to
+  # main; pin DETOUR_IMAGE_TAG to a commit sha for a deployment you can roll back.
+  # ---------------------------------------------------------------------------
+  api:
+    image: ${DETOUR_IMAGE:-ghcr.io/jonohas/detour-api}:${DETOUR_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    networks:
+      - detour-int
+      - edge
+    ports:
+      - 127.0.0.1:${API_PORT:-7500}:7500
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # The API applies its own migrations at startup, so this role must be able to
+      # create tables. Narrow it only if you run migrations separately.
+      ConnectionStrings__DefaultConnection: >-
+        Host=db;Port=5432;Database=${POSTGRES_DB:-detour};Username=${POSTGRES_USER:-detour};Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in docker/prod/.env}
+      # The exact `iss` claim to require — not a prefix, and it has to match what
+      # Keycloak actually issues, which is KC_HOSTNAME plus /realms/<realm>.
+      Idp__Authority: ${IDP_ISSUER:?Set IDP_ISSUER, e.g. https://idp.example.com/realms/detour}
+      Idp__Audience: ${IDP_AUDIENCE:-detour-api}
+      Idp__RequireHttpsMetadata: ${IDP_REQUIRE_HTTPS:-true}
+      Idp__AdministratorRole: ${IDP_ADMIN_ROLE:-detour-admin}
+      # Empty is a correct single-instance deployment: Redis is an L2 cache and a
+      # miss is a slower request, not a broken one. Set it when you run more than
+      # one API container. Enable the service with `--profile cache`.
+      Cache__RedisConnectionString: ${REDIS_CONNECTION:-}
+      # Without one of these the API ignores X-Forwarded-* entirely, which is the
+      # safe default and the wrong one behind a proxy — every client then looks
+      # like it came from the proxy, including to the rate limiter.
+      ForwardedHeaders__KnownNetworks: ${FORWARDED_KNOWN_NETWORKS:-}
+      ForwardedHeaders__KnownProxies: ${FORWARDED_KNOWN_PROXIES:-}
+      TZ: ${TZ:-Europe/Brussels}
+    depends_on:
+      db:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      # The runtime image carries no curl, so this opens the socket by hand rather
+      # than adding a package purely so the container can probe itself.
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/localhost/7500 && echo -e 'GET /api/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q 'Healthy'",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # The backend's own database. Keycloak gets a separate instance below, for the
+  # same reason it does in dev: separate product, separate upgrade cadence, and a
+  # restore of one must never involve the other.
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    networks:
+      - detour-int
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-detour}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in docker/prod/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-detour}
+      TZ: ${TZ:-Europe/Brussels}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-detour} -d ${POSTGRES_DB:-detour}",
+        ]
+      interval: 10s
+      timeout: 30s
+      retries: 5
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # Keycloak. It owns accounts and passwords now; there is no local registration,
+  # so losing this database means losing every login.
+  #
+  # No --import-realm here. Create the realm once, by hand or with Terraform, and
+  # back up keycloak-db.
+  # ---------------------------------------------------------------------------
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.5
+    restart: unless-stopped
+    networks:
+      - keycloak-int
+      - edge
+    ports:
+      - 127.0.0.1:${KC_PORT:-7580}:8080
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+    environment:
+      KC_LOG_LEVEL: ${KC_LOG_LEVEL:-info}
+      # Bootstrap only: Keycloak ignores these once an admin exists. Create a real
+      # administrator on first login and remove them from your .env afterwards.
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USERNAME:?Set KC_ADMIN_USERNAME in docker/prod/.env}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:?Set KC_ADMIN_PASSWORD in docker/prod/.env}
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_URL_DATABASE: ${KC_DB_NAME:-keycloak}
+      KC_DB_USERNAME: ${KC_DB_USER:-keycloak}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:?Set KC_DB_PASSWORD in docker/prod/.env}
+      KC_CACHE: local
+      # The public URL, and it must agree with IDP_ISSUER above. Changing it
+      # invalidates every issued token and every stored redirect URI.
+      KC_HOSTNAME: ${KC_HOSTNAME:?Set KC_HOSTNAME, e.g. https://idp.example.com}
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      TZ: ${TZ:-Europe/Brussels}
+    command: start --optimized
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  keycloak-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    networks:
+      - keycloak-int
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${KC_DB_USER:-keycloak}
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD:?Set KC_DB_PASSWORD in docker/prod/.env}
+      POSTGRES_DB: ${KC_DB_NAME:-keycloak}
+      TZ: ${TZ:-Europe/Brussels}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${KC_DB_USER:-keycloak} -d ${KC_DB_NAME:-keycloak}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Optional. Only worth running with more than one API container — otherwise the
+  # in-process L1 cache already does this job without a network hop.
+  #
+  #   docker compose --profile cache up -d
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:8-alpine
+    profiles: [cache]
+    restart: unless-stopped
+    networks:
+      - detour-int
+    # Checked by the container's own shell rather than with ${VAR:?...}, because
+    # compose interpolates the whole file whatever profiles are active — requiring
+    # it here would stop the stack starting for everyone who does not use Redis.
+    command:
+      - sh
+      - -c
+      - exec redis-server --requirepass "$${REDIS_PASSWORD:?set REDIS_PASSWORD to use the cache profile}"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+
+networks:
+  # Nothing on these is published; only the loopback port bindings above are, and
+  # a reverse proxy is expected to sit in front of those.
+  detour-int:
+  keycloak-int:
+  edge:
+
+volumes:
+  postgres-data:
+  keycloak-db-data:
+  keycloak-data:
+  redis-data:

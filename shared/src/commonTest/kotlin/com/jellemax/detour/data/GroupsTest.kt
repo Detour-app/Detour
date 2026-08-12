@@ -22,7 +22,7 @@ class GroupsTest {
     @Test
     fun groupParsesMembersWithSharingForACircle() {
         val json = buildJsonObject {
-            put("id", 7)
+            put("id", "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c11")
             put("name", "Family")
             put("status", "accepted")
             putJsonArray("members") {
@@ -34,7 +34,7 @@ class GroupsTest {
             }
         }
         val group = groupFromJson(json, "circle")
-        assertEquals(7, group.id)
+        assertEquals("0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c11", group.id)
         assertEquals("circle", group.kind)
         assertEquals(1, group.members.size)
         assertEquals("alice", group.members[0].username)
@@ -44,7 +44,7 @@ class GroupsTest {
     @Test
     fun groupDefaultsSharingToTrueForAConvoyWhereTheServerOmitsIt() {
         val json = buildJsonObject {
-            put("id", 3)
+            put("id", "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c12")
             put("name", "Ride")
             put("status", "accepted")
             putJsonArray("members") {
@@ -59,10 +59,10 @@ class GroupsTest {
     fun memberFixParsesEveryField() {
         val json = buildJsonObject {
             put("username", "alice")
-            put("lat", 50.8)
-            put("lon", 3.2)
-            put("accuracyM", 12.5)
-            put("ts", 1_700_000_000_000L)
+            put("latitude", 50.8)
+            put("longitude", 3.2)
+            put("accuracyMeters", 12.5)
+            put("timestampMs", 1_700_000_000_000L)
         }
         val fix = memberFixFromJson(json)
         assertEquals("alice", fix.username)
@@ -95,15 +95,15 @@ class GroupsTest {
     @Test
     fun placeEventParsesEveryField() {
         val json = buildJsonObject {
-            put("id", 99L)
+            put("id", "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c20")
             put("placeId", 42L)
             put("placeName", "School")
             put("username", "carol")
             put("kind", "arrive")
-            put("tsMs", 1_700_000_001_000L)
+            put("timestampMs", 1_700_000_001_000L)
         }
         val event = placeEventFromJson(json)
-        assertEquals(99L, event.id)
+        assertEquals("0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c20", event.id)
         assertEquals(42L, event.placeId)
         assertEquals("School", event.placeName)
         assertEquals("carol", event.username)
@@ -114,15 +114,15 @@ class GroupsTest {
     @Test
     fun placeEventDefaultsPlaceNameToEmptyWhenTheServerOmitsIt() {
         // A pre-phase-1 style response, or a placeId whose circle_places row
-        // has since been deleted - do_circle_events sends "" in that case,
+        // has since been deleted - the service sends "" in that case,
         // but a client parsing an older cached payload might not have the
         // key at all.
         val json = buildJsonObject {
-            put("id", 1L)
+            put("id", "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c20")
             put("placeId", 1L)
             put("username", "carol")
             put("kind", "depart")
-            put("tsMs", 1L)
+            put("timestampMs", 1L)
         }
         assertEquals("", placeEventFromJson(json).placeName)
     }
@@ -131,7 +131,7 @@ class GroupsTest {
 
     private fun validRelayFrame() = buildJsonObject {
         put("type", "place_event")
-        put("groupId", 7)
+        put("groupId", "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c11")
         put("placeId", 42L)
         put("placeName", "School")
         put("user", "alice")
@@ -142,9 +142,9 @@ class GroupsTest {
     @Test
     fun relayFrameParsesEveryField() {
         val parsed = placeEventFromRelayFrame(validRelayFrame())
-        assertEquals(7, parsed?.groupId)
+        assertEquals("0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c11", parsed?.groupId)
         val event = parsed!!.event
-        assertEquals(0L, event.id, "a live frame carries no row id")
+        assertEquals("", event.id, "a live frame carries no stored id")
         assertEquals(42L, event.placeId)
         assertEquals("School", event.placeName)
         assertEquals("alice", event.username)
@@ -156,7 +156,7 @@ class GroupsTest {
     fun relayFrameDefaultsPlaceNameToEmptyWhenAbsent() {
         val json = buildJsonObject {
             put("type", "place_event")
-            put("groupId", 7)
+            put("groupId", "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c11")
             put("placeId", 42L)
             put("user", "alice")
             put("kind", "arrive")
@@ -169,7 +169,7 @@ class GroupsTest {
     fun relayFrameOfTheWrongTypeIsNull() {
         val json = buildJsonObject {
             put("type", "location")
-            put("groupId", 7)
+            put("groupId", "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c11")
             put("lat", 50.8)
             put("lon", 3.2)
         }
@@ -187,12 +187,13 @@ class GroupsTest {
 
     @Test
     fun relayFrameWithAWrongTypeFieldIsNull() {
-        // groupId sent as a string, not a number - a malformed frame, not
-        // one worth coercing.
+        // placeId sent as a word, not a number - a malformed frame, not one
+        // worth coercing. groupId is deliberately not the example any more: a
+        // group identifier is text, so a string there is the normal case.
         val json = buildJsonObject {
             put("type", "place_event")
-            put("groupId", "seven")
-            put("placeId", 42L)
+            put("groupId", "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c11")
+            put("placeId", "forty-two")
             put("user", "alice")
             put("kind", "arrive")
             put("tsMs", 1L)
@@ -204,7 +205,7 @@ class GroupsTest {
     fun relayFrameWithAnUnknownKindIsNull() {
         val json = buildJsonObject {
             put("type", "place_event")
-            put("groupId", 7)
+            put("groupId", "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c11")
             put("placeId", 42L)
             put("user", "alice")
             put("kind", "loiter")
@@ -216,7 +217,7 @@ class GroupsTest {
     // --- shared notification wording ---------------------------------------
 
     private fun event(kind: String, placeName: String) = PlaceEvent(
-        id = 1L, placeId = 1L, placeName = placeName, username = "alice", kind = kind, tsMs = 0L,
+        id = "e1", placeId = 1L, placeName = placeName, username = "alice", kind = kind, tsMs = 0L,
     )
 
     @Test
@@ -243,8 +244,8 @@ class GroupsTest {
     // --- geofence transitions -------------------------------------------------
 
     private fun place(id: Long, at: LatLon, radiusM: Double) = CirclePlace(
-        serverId = id,
-        groupId = 1,
+        serverId = "place-$id",
+        groupId = "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c11",
         owner = "alice",
         radiusM = radiusM,
         createdMs = 0L,

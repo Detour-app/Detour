@@ -29,7 +29,7 @@ public class SocialTests(PostgresFixture postgres) : IAsyncLifetime
         var (blake, blakeName) = await NewRider();
 
         var status = await Request(alex, blakeName);
-        status.Should().Be("Pending");
+        status.Should().Be("pending");
 
         (await Friends(alex)).Outgoing.Should().ContainSingle().Which.Should().Be(blakeName);
         (await Friends(blake)).Incoming.Should().ContainSingle().Which.Should().Be(alexName);
@@ -59,7 +59,7 @@ public class SocialTests(PostgresFixture postgres) : IAsyncLifetime
         await Request(alex, blakeName);
         var status = await Request(blake, alexName);
 
-        status.Should().Be("Accepted");
+        status.Should().Be("accepted");
         (await Friends(alex)).Friends.Should().ContainSingle().Which.Should().Be(blakeName);
     }
 

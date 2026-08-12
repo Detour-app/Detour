@@ -13,7 +13,11 @@ import org.json.JSONObject
  * (absent from a release APK built by CI). A config file the user keeps
  * outside the app survives a reinstall without any of it going near the repo.
  *
- * The file contains the sync bearer token: it is a credential, not a backup.
+ * The session is deliberately *not* in it. Refresh tokens are single-use — the
+ * realm invalidates the whole session when one is presented twice — so a file
+ * that carried one and was imported onto a second device would break both. The
+ * new device signs in through the browser instead, which is the one thing that
+ * is not tedious about doing it that way.
  */
 object ConfigFile {
 
@@ -28,8 +32,6 @@ object ConfigFile {
             .put("routingUrl", server.url)
             .put("routingClientId", server.clientId)
             .put("routingClientSecret", server.clientSecret)
-            .put("authToken", Settings.authToken.value)
-            .put("authUsername", Settings.authUsername.value)
         context.contentResolver.openOutputStream(uri, "wt")?.use {
             it.write(json.toString(2).toByteArray())
         } ?: throw java.io.IOException("Could not open $uri for writing")
@@ -53,10 +55,6 @@ object ConfigFile {
                 clientSecret = json.optString("routingClientSecret"),
                 enabled = true,
             ))
-        }
-        val token = json.optString("authToken").trim()
-        if (token.isNotBlank()) {
-            Settings.setAuth(token, json.optString("authUsername").trim())
         }
     }
 }

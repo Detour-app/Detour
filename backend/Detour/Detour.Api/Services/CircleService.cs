@@ -1,10 +1,12 @@
 using System.Text.Json;
 using Detour.Api.Contracts;
+using Detour.Api.Live;
 using Detour.Domain;
 using Detour.Domain.Circles;
 using Detour.Domain.Groups;
 using Detour.Domain.Users;
 using JV.ResultUtilities;
+using Shared.Domain;
 
 namespace Detour.Api.Services;
 
@@ -36,7 +38,9 @@ public class CircleService(
     IMemberFixRepository memberFixes,
     ICirclePlaceRepository circlePlaces,
     IPlaceEventRepository placeEvents,
-    IUserRepository users) : ICircleService
+    IUserRepository users,
+    ILiveRelay liveRelay,
+    IPostCommitActionScheduler postCommit) : ICircleService
 {
     private static readonly JsonSerializerOptions PayloadOptions = new(JsonSerializerDefaults.Web);
 
@@ -218,12 +222,34 @@ public class CircleService(
 
         var placeName = await circlePlaces.ResolveNameAsync(groupId, body.PlaceId, cancellationToken);
 
+        // Fanned out only once the row is durable, so a peer that reacts to the frame by
+        // re-reading the feed can never find nothing there. Scheduling it post-commit also means
+        // a transaction that later rolls back never announces an arrival that did not happen.
+        var recipients = access.Value.Members
+            .Where(member => member.IsAccepted && member.UserId != caller.Id)
+            .Select(member => member.UserId)
+            .ToArray();
+
+        postCommit.Schedule(() =>
+        {
+            liveRelay.PublishPlaceEvent(
+                recipients,
+                groupId,
+                caller.Username,
+                placeEvent.ClientPlaceId,
+                placeName ?? string.Empty,
+                placeEvent.Kind.Name,
+                placeEvent.TimestampMs);
+
+            return Task.CompletedTask;
+        });
+
         return new PlaceEventResponse(
             placeEvent.Id,
             placeEvent.ClientPlaceId,
             placeName ?? string.Empty,
             caller.Username,
-            placeEvent.Kind.Name,
+            placeEvent.Kind.Wire(),
             placeEvent.TimestampMs);
     }
 
@@ -244,7 +270,7 @@ public class CircleService(
         return new PlaceEventsResponse(
         [
             .. rows.Select(e => new PlaceEventResponse(
-                e.Id, e.ClientPlaceId, e.PlaceName, e.Username, e.Kind, e.TimestampMs))
+                e.Id, e.ClientPlaceId, e.PlaceName, e.Username, e.Kind.Wire(), e.TimestampMs))
         ]);
     }
 }

@@ -46,7 +46,7 @@ final class CircleSync {
     /// One evaluator per circle, kept across ticks — `GeofenceEvaluator` holds
     /// per-place dwell/inside state between calls, so a fresh instance every
     /// tick would never accumulate enough dwell time to fire "arrive".
-    private var evaluators: [Int32: GeofenceEvaluator] = [:]
+    private var evaluators: [String: GeofenceEvaluator] = [:]
 
     func start() {
         guard !started else { return }

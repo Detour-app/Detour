@@ -1,0 +1,31 @@
+# Cloudflare Tunnel, as an overlay on the production stack.
+#
+#   docker compose -f docker/prod/docker-compose.yml \
+#                  -f docker/prod/docker-compose.cloudflare.yml up -d
+#
+# Separate from the base file so that stack stays tunnel-agnostic — Traefik, Caddy
+# and nginx are all equally valid in front of it, and none of them belong in the
+# file everyone reads.
+#
+# See CLOUDFLARE.md, especially the part about never putting Keycloak behind
+# Access: the token exchange has no way to answer it and sign-in fails in a way
+# that looks like a client bug.
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    # `edge` alone is enough: both the API and Keycloak join it precisely so that
+    # one reverse proxy can reach them without also being able to reach either
+    # database.
+    networks:
+      - edge
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in docker/prod/.env}
+      TZ: ${TZ:-Europe/Brussels}
+    depends_on:
+      api:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy

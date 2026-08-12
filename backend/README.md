@@ -1,12 +1,14 @@
 # Detour backend
 
-The .NET replacement for `server/sync/sync_server.py`. One service, one database,
+The sync and social service. One service, one database,
 one identity provider.
 
 - **What it must do:** [docs/rewrite/BACKEND_FUNCTIONAL_SPEC.md](../docs/rewrite/BACKEND_FUNCTIONAL_SPEC.md)
   — behaviour only, no code, deliberately language-agnostic.
 - **Poking at it by hand:** [bruno/README.md](../bruno/README.md) — a generated
   Bruno collection covering every endpoint.
+- **Standing it up somewhere real:** [INSTALL.md](INSTALL.md) — the container, the
+  configuration that matters, and what is still missing.
 
 ## Running it
 
@@ -25,6 +27,16 @@ dotnet run
 It comes up on <http://localhost:7500>, applies its own migrations, and answers
 `/api/health` with a per-dependency breakdown. OpenAPI is at `/openapi/v1.json`
 in development only.
+
+There is a container too, for anywhere that is not a development machine:
+
+```bash
+docker build -t detour-api backend
+```
+
+The context is `backend/` rather than the repository root, because the API
+references projects across `Shared/` and nothing outside `backend/` is needed to
+build it. [INSTALL.md](INSTALL.md) covers what it needs around it.
 
 ## Building and testing
 
@@ -92,10 +104,11 @@ Core.
 
 ## What is deliberately absent
 
-- **The convoy live surface.** Live position relay, push-to-talk and destination
-  voting are not implemented — see §11 of the inventory doc for why the transport
-  is still undecided. Circles are unaffected: their positions and presence events
-  are ordinary REST reads and writes.
+- **Voice.** Push-to-talk frames are accepted off the live socket and dropped,
+  the same as any unknown type, so a client that still sends them stays connected
+  and everything else keeps working. What comes back will be Opus over binary
+  frames: raw PCM base64'd into JSON cost about 40 KB/s per talker per listener,
+  which is what made it worth deferring rather than porting.
 - **Background jobs.** Every retention cap is enforced at write time, where the
   row that would exceed it is created, so there is nothing for a sweep to do yet.
 - **An audit trail.** `Shared.Audit` was left out of the port; it is the obvious

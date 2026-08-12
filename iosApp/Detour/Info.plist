@@ -88,8 +88,10 @@
     <string>$(DETOUR_ROUTING_CF_ID)</string>
     <key>DetourRoutingCFSecret</key>
     <string>$(DETOUR_ROUTING_CF_SECRET)</string>
-    <key>DetourSyncURL</key>
-    <string>$(DETOUR_SYNC_URL)</string>
+    <key>DetourApiURL</key>
+    <string>$(DETOUR_API_URL)</string>
+    <key>DetourIdpIssuer</key>
+    <string>$(DETOUR_IDP_ISSUER)</string>
     <key>DetourGeocoderURL</key>
     <string>$(DETOUR_GEOCODER_URL)</string>
     <key>DetourLiveURL</key>

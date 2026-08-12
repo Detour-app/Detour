@@ -1,7 +1,9 @@
 using Detour.Api.Authentication;
 using Detour.Api.Authorization;
 using Detour.Api.Contracts;
+using Detour.Api.Live;
 using Detour.Domain.Users;
+using JV.ResultUtilities.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -45,6 +47,41 @@ public class MeController(
 
         var awards = await badges.GetForUserAsync(user.Id, cancellationToken);
         return Ok(MeResponse.Map(user, awards));
+    }
+
+    [HttpPost("fix")]
+    [EndpointSummary("Report the rider's own position once.")]
+    [EndpointDescription(
+        "The background tier of the same ingest the live socket uses: one fix, relayed to every "
+        + "circle and convoy the caller shares with someone, and stored as the caller's latest "
+        + "position in each circle they are currently sharing with. A convoy never stores one. "
+        + "Riders holding a live socket send positions over that instead; this exists so a phone "
+        + "with no socket open still shows up on a circle map.")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult> ReportPosition(
+        [FromBody] PositionBody body,
+        ILiveLocationService locations,
+        CancellationToken cancellationToken)
+    {
+        var user = await currentUser.GetAsync(cancellationToken);
+
+        var result = await locations.IngestAsync(
+            new LiveRider(user.Id, user.Username),
+            new LivePosition(
+                body.Latitude,
+                body.Longitude,
+                body.AccuracyMeters,
+                // Heading and speed are meaningless at this cadence — a bearing from minutes ago
+                // would only draw a confidently wrong arrow on a peer's map.
+                HeadingDegrees: null,
+                SpeedKmh: null,
+                body.TimestampMs ?? 0),
+            LivePositionSource.Http,
+            cancellationToken);
+
+        result.ThrowIfFailure();
+        return NoContent();
     }
 }
 

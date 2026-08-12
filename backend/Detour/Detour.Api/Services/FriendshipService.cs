@@ -71,17 +71,17 @@ public class FriendshipService(
         if (existing is not null)
         {
             if (existing.IsAccepted)
-                return Result.Ok(FriendshipStatus.Accepted.Name);
+                return Result.Ok(FriendshipStatus.Accepted.Wire());
 
             // They asked first; asking back is the same as accepting. Anything else would leave
             // two people who have each asked the other still not friends.
             if (existing.RequestedByUserId != caller.Id)
             {
                 var accept = existing.Accept(caller.Id);
-                return accept.IsFailure ? accept : Result.Ok(FriendshipStatus.Accepted.Name);
+                return accept.IsFailure ? accept : Result.Ok(FriendshipStatus.Accepted.Wire());
             }
 
-            return Result.Ok(FriendshipStatus.Pending.Name);
+            return Result.Ok(FriendshipStatus.Pending.Wire());
         }
 
         var (result, friendship) = Friendship.Request(caller.Id, target.Id);
@@ -89,7 +89,7 @@ public class FriendshipService(
             return result;
 
         await friendships.SaveAsync(friendship, cancellationToken);
-        return Result.Ok(FriendshipStatus.Pending.Name);
+        return Result.Ok(FriendshipStatus.Pending.Wire());
     }
 
     public async Task<Result<string>> RespondAsync(
@@ -113,7 +113,7 @@ public class FriendshipService(
         }
 
         var result = friendship.Accept(caller.Id);
-        return result.IsFailure ? result : Result.Ok(FriendshipStatus.Accepted.Name);
+        return result.IsFailure ? result : Result.Ok(FriendshipStatus.Accepted.Wire());
     }
 
     public async Task<Result> RemoveAsync(User caller, string username, CancellationToken cancellationToken)

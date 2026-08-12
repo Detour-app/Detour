@@ -116,6 +116,11 @@ object TripStore {
         return if (f.exists()) f.readText() else "[]"
     }
 
+    /** Start instants deleted on this device, uploaded with the sync payload so
+     *  the deletion reaches every other device instead of only being filtered
+     *  out of the merge here. See [delete]. */
+    fun deletedStartTimes(): Set<Long> = tombstones()
+
     /**
      * Overwrite the store with a merged JSON array from the sync server, after
      * dropping deleted trips (tombstones) and re-applying local vehicle-mode

@@ -4,14 +4,14 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * A route a friend sent us, as the inbox lists it. [serverId] is the sync
- * server's own row id for the share — not [SavedRoute.id], which the sender
+ * A route a friend sent us, as the inbox lists it. [serverId] is the server's
+ * own identifier for the share — not [SavedRoute.id], which the sender
  * assigned locally and may collide with an id we already have on this device.
  * [serverId] only matters for [RouteShare.delete]; once [route] is saved into
  * [RouteStore] it lives under its own id like any other route.
  */
 data class SharedRoute(
-    val serverId: Long,
+    val serverId: String,
     val from: String,
     val createdMs: Long,
     val route: SavedRoute,
@@ -37,7 +37,7 @@ object RouteShare {
      */
     suspend fun share(username: String, route: SavedRoute) {
         Api.request(
-            "POST", "/shared-routes/share",
+            "POST", "/shared-routes",
             buildJsonObject {
                 put("to", username)
                 put("route", route.toJson())
@@ -53,22 +53,22 @@ object RouteShare {
      * [pullInbox] is built from).
      */
     suspend fun inbox(): List<SharedRoute> {
-        val o = Api.requestJson("GET", "/shared-routes/inbox")
+        val o = Api.requestJson("GET", "/shared-routes")
         return o.optArray("routes")?.objects().orEmpty().mapNotNull { entry ->
             val routeObj = entry.optObject("route") ?: return@mapNotNull null
             val route = routeFromJson(routeObj) ?: return@mapNotNull null
             SharedRoute(
-                serverId = entry.optLong("id"),
+                serverId = entry.optString("id"),
                 from = entry.optString("from"),
-                createdMs = entry.optLong("createdMs"),
+                createdMs = entry.optLong("createdAtMs"),
                 route = route,
             )
         }
     }
 
-    /** Removes one inbox entry by its server row id — see [SharedRoute.serverId]. */
-    suspend fun delete(serverId: Long) {
-        Api.request("POST", "/shared-routes/delete", buildJsonObject { put("id", serverId) })
+    /** Removes one inbox entry by its server identifier — see [SharedRoute.serverId]. */
+    suspend fun delete(serverId: String) {
+        Api.request("DELETE", "/shared-routes/$serverId")
     }
 
     /**

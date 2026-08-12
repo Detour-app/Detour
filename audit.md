@@ -1,7 +1,7 @@
 # Detour — codebase audit
 
 Audit date: 2026-07-29, at commit `4fafdfe` (plus uncommitted BLE board-telemetry work).
-Scope: Android app (`app/`, `wear/`), sync server (`server/`), installer, CI, docs, repo
+Scope: Android app (`app/`, `wear/`), the backend of the day, installer, CI, docs, repo
 hygiene — with open-sourcing in mind.
 
 Verified on the connected device (Samsung, versionCode 38 / 1.31): the installed build is

@@ -17,9 +17,9 @@ final class CircleMapState: ObservableObject {
     static let shared = CircleMapState()
     private init() {}
 
-    @Published private(set) var viewedCircleId: Int32?
+    @Published private(set) var viewedCircleId: String?
 
-    func setViewed(_ id: Int32?) {
+    func setViewed(_ id: String?) {
         viewedCircleId = id
     }
 }
@@ -56,7 +56,7 @@ struct CirclesScreen: View {
                         onInvite: { invitingTo = selected },
                         onLeave: {
                             mapState.setViewed(nil)
-                            model.act { try await Groups.shared.leave(kind: "circle", groupId: selected.id) }
+                            model.act { try await Groups.shared.leave(groupId: selected.id) }
                         },
                         onToggleSharing: { sharing in
                             model.act {
@@ -100,7 +100,7 @@ struct CirclesScreen: View {
                     InviteToCircleSheet(circleName: circle.name) { username in
                         invitingTo = nil
                         model.act {
-                            _ = try await Groups.shared.invite(kind: "circle", groupId: circle.id, username: username)
+                            _ = try await Groups.shared.invite(groupId: circle.id, username: username)
                         }
                     }
                 }
@@ -134,10 +134,10 @@ struct CirclesScreen: View {
                             busy: model.busy,
                             onOpen: { mapState.setViewed(circle.id) },
                             onAccept: {
-                                model.act { try await Groups.shared.respond(kind: "circle", groupId: circle.id, accept: true) }
+                                model.act { try await Groups.shared.respond(groupId: circle.id, accept: true) }
                             },
                             onDecline: {
-                                model.act { try await Groups.shared.respond(kind: "circle", groupId: circle.id, accept: false) }
+                                model.act { try await Groups.shared.respond(groupId: circle.id, accept: false) }
                             }
                         )
                     }

@@ -623,7 +623,7 @@ private fun FogSection(context: Context) {
     }
 }
 
-/** Backup sync with the owner's server (see server/INSTALL.md). */
+/** Backup sync with the owner's server (see backend/README.md). */
 @Composable
 private fun SyncSection() {
     val context = LocalContext.current
@@ -1133,7 +1133,7 @@ private fun ServerSection() {
         )
         Text(
             "Optional: one self-hosted address for routing, search, sync " +
-                "and the convoy live relay (see server/INSTALL.md's " +
+                "and the convoy live relay (see the one-hostname layout in " +
                 "one-hostname layout). Leave empty to use the built-in " +
                 "routing/search servers, with sync and live off.",
             style = MaterialTheme.typography.bodySmall,

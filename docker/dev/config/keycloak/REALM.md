@@ -4,8 +4,8 @@
 does not recognise, including `_comment` keys, and fails the whole boot. The
 reasoning lives here instead.
 
-Each setting below replaces something the Python sync server implemented by
-hand. The mechanism changes; the rule must not.
+Each setting below replaces something the service this one grew out of
+implemented by hand. The mechanism changes; the rule must not.
 
 ## Registration fails closed
 

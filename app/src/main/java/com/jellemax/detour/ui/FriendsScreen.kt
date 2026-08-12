@@ -57,20 +57,21 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.auth.Oidc
+import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.convoy.ConvoyLiveService
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.BadgeStore
 import com.jellemax.detour.data.Coverage
+import com.jellemax.detour.data.Features
 import com.jellemax.detour.data.FriendLists
 import com.jellemax.detour.data.FriendStats
 import com.jellemax.detour.data.Friends
 import com.jellemax.detour.data.Group
 import com.jellemax.detour.data.Groups
-import com.jellemax.detour.data.PendingReset
 import com.jellemax.detour.data.RiderStats
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.net.ConvoyLiveClient
@@ -126,37 +127,19 @@ fun FriendsScreen(onBack: () -> Unit) {
     }
 }
 
+/**
+ * Signing in is a browser trip now, so there is no form here: the realm owns the
+ * password, and this screen owns one button and whatever the trip came back
+ * with. Creating an account, changing a password and recovering one all happen
+ * on the realm's own pages, which is why they are no longer offered here.
+ */
 @Composable
 private fun SignInSection() {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var user by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var invite by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var note by remember { mutableStateOf<String?>(null) }
-    var forgotOpen by remember { mutableStateOf(false) }
-    var resetOpen by remember { mutableStateOf(false) }
-    // A tapped link from a reset mail lands here; opening the form with the
-    // code already in it is the whole point of the deep link.
-    val linkToken by PendingReset.token.collectAsStateWithLifecycle()
-    LaunchedEffect(linkToken) { if (linkToken.isNotBlank()) resetOpen = true }
-
-    fun run(block: suspend () -> Unit) {
-        busy = true
-        error = null
-        note = null
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { block() }
-            } catch (e: Exception) {
-                error = e.message ?: "Failed"
-            }
-            busy = false
-        }
-    }
+    // Set by MainActivity when a redirect fails to become a session; consumed
+    // here because this is the screen the rider is looking at.
+    val error by PendingSignIn.error.collectAsStateWithLifecycle()
+    val busy by PendingSignIn.busy.collectAsStateWithLifecycle()
 
     Text(
         "Sign in to sync your rides and compare stats with friends. " +
@@ -164,219 +147,36 @@ private fun SignInSection() {
             "totals and badges.",
         style = MaterialTheme.typography.bodyMedium,
     )
-    OutlinedTextField(
-        value = user, onValueChange = { user = it },
-        label = { Text("Username") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    OutlinedTextField(
-        value = password, onValueChange = { password = it },
-        label = { Text("Password") },
-        singleLine = true,
-        visualTransformation = PasswordVisualTransformation(),
-        modifier = Modifier.fillMaxWidth(),
-    )
-    OutlinedTextField(
-        value = invite, onValueChange = { invite = it },
-        label = { Text("Invite code (only if your server asks)") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    OutlinedTextField(
-        value = email, onValueChange = { email = it },
-        label = { Text("Email (new accounts, optional)") },
-        supportingText = { Text("Only used to mail you a link if you forget your password.") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-    )
+    if (!Oidc.configured) {
+        Text(
+            "This build has no identity provider configured, so there is nobody " +
+                "to sign in to. Set one on your server first.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
     error?.let {
         Text(it, color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall)
     }
-    note?.let {
-        Text(it, style = MaterialTheme.typography.bodySmall)
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(
-            onClick = { run { Account.login(user.trim(), password) } },
-            enabled = !busy && user.isNotBlank() && password.isNotBlank(),
-            modifier = Modifier.weight(1f),
-        ) {
-            if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-            else Text("Sign in")
-        }
-        OutlinedButton(
-            onClick = {
-                run { Account.register(user.trim(), password, invite.trim(), email.trim()) }
-            },
-            enabled = !busy && user.isNotBlank() && password.isNotBlank(),
-            modifier = Modifier.weight(1f),
-        ) { Text("Create account") }
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton(onClick = { forgotOpen = true }, enabled = !busy) {
-            Text("Forgot password")
-        }
-        TextButton(onClick = { resetOpen = true }, enabled = !busy) {
-            Text("I have a reset code")
-        }
+    Button(
+        onClick = {
+            PendingSignIn.clear()
+            if (!Oidc.start(context)) {
+                PendingSignIn.fail("No browser available to sign in with.")
+            }
+        },
+        enabled = !busy,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+        else Text("Sign in")
     }
     Text(
-        "Passwords must be at least 8 characters.",
+        "Opens your browser. New accounts and password changes happen there too.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-
-    if (forgotOpen) {
-        ForgotPasswordDialog(
-            initial = user.trim(),
-            onDismiss = { forgotOpen = false },
-            onSent = {
-                forgotOpen = false
-                note = "If that account has an email on file, a reset link is on its way. " +
-                    "Open it on this phone, or paste the code under \"I have a reset code\"."
-            },
-        )
-    }
-    if (resetOpen) {
-        ResetPasswordDialog(
-            initialToken = linkToken,
-            onDismiss = {
-                resetOpen = false
-                PendingReset.clear()
-            },
-            onDone = {
-                resetOpen = false
-                PendingReset.clear()
-                password = ""
-                note = "Password changed. Sign in with the new one — every other device " +
-                    "was signed out."
-            },
-        )
-    }
-}
-
-/** Asks the server to mail a reset link. The server answers the same either
- *  way, so this can only ever report "sent, if there was anywhere to send". */
-@Composable
-private fun ForgotPasswordDialog(
-    initial: String,
-    onDismiss: () -> Unit,
-    onSent: () -> Unit,
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var who by remember { mutableStateOf(initial) }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Forgot password") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "Your server mails the link, so this only works if your account " +
-                        "has an email address on it.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                OutlinedTextField(
-                    value = who, onValueChange = { who = it },
-                    label = { Text("Username or email") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                error?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = !busy && who.isNotBlank(),
-                onClick = {
-                    busy = true
-                    error = null
-                    scope.launch {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                Account.forgotPassword(who.trim())
-                            }
-                            onSent()
-                        } catch (e: Exception) {
-                            error = e.message ?: "Could not reach the server"
-                        }
-                        busy = false
-                    }
-                },
-            ) { Text("Send link") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-/** Spends a reset code — either the one a deep link arrived with, or one
- *  pasted out of the mail by hand when the link wasn't tappable. */
-@Composable
-private fun ResetPasswordDialog(
-    initialToken: String,
-    onDismiss: () -> Unit,
-    onDone: () -> Unit,
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var token by remember { mutableStateOf(initialToken) }
-    var password by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Set a new password") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = token, onValueChange = { token = it },
-                    label = { Text("Reset code") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = password, onValueChange = { password = it },
-                    label = { Text("New password") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                error?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = !busy && token.isNotBlank() && password.length >= 8,
-                onClick = {
-                    busy = true
-                    error = null
-                    scope.launch {
-                        try {
-                            withContext(Dispatchers.IO) {
-                                Account.resetPassword(token.trim(), password)
-                            }
-                            onDone()
-                        } catch (e: Exception) {
-                            error = e.message ?: "Could not reach the server"
-                        }
-                        busy = false
-                    }
-                },
-            ) { Text("Change password") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 
@@ -707,14 +507,14 @@ private fun ConvoysSection() {
     // ever working until the next relaunch. Starting regardless of the
     // result (granted or denied) still gets you live location; PTT just
     // won't work if denied.
-    var pendingLiveConvoyId by remember { mutableStateOf<Int?>(null) }
+    var pendingLiveConvoyId by remember { mutableStateOf<String?>(null) }
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) {
         pendingLiveConvoyId?.let { ConvoyLiveService.start(context, it) }
         pendingLiveConvoyId = null
     }
-    fun goLive(convoyId: Int) {
+    fun goLive(convoyId: String) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
         ) {
@@ -765,6 +565,10 @@ private fun ConvoysSection() {
         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
 
+    if (!Features.liveRelay) {
+        DisabledFeatureNotice(Features.liveRelayReason)
+    }
+
     if (convoys.isEmpty()) {
         Text(
             "No convoys yet. Start one to share live location and push-to-talk " +
@@ -778,18 +582,21 @@ private fun ConvoysSection() {
                 convoy = convoy,
                 busy = busy,
                 live = liveConvoyId == convoy.id,
+                liveEnabled = Features.liveRelay,
                 liveStatus = when {
+                    !Features.liveRelay -> Features.liveRelayNotice
                     liveConvoyId != convoy.id -> null
                     !liveConnected -> liveError ?: "Connecting…"
                     livePeers.isEmpty() -> "Connected — nobody else live yet"
                     else -> "Connected — " + livePeers.keys.sorted().joinToString(", ")
                 },
-                liveStatusIsError = liveConvoyId == convoy.id && !liveConnected && liveError != null,
-                onAccept = { act { Groups.respond("convoy", convoy.id, true) } },
-                onDecline = { act { Groups.respond("convoy", convoy.id, false) } },
+                liveStatusIsError = Features.liveRelay &&
+                    liveConvoyId == convoy.id && !liveConnected && liveError != null,
+                onAccept = { act { Groups.respond(convoy.id, true) } },
+                onDecline = { act { Groups.respond(convoy.id, false) } },
                 onLeave = {
                     if (liveConvoyId == convoy.id) ConvoyLiveService.stop(context)
-                    act { Groups.leave("convoy", convoy.id) }
+                    act { Groups.leave(convoy.id) }
                 },
                 onInvite = { inviteFor = convoy },
                 onToggleLive = {
@@ -813,7 +620,7 @@ private fun ConvoysSection() {
         InviteToConvoyDialog(
             convoy = convoy,
             onDismiss = { inviteFor = null },
-            onInvite = { target -> act { Groups.invite("convoy", convoy.id, target) }; inviteFor = null },
+            onInvite = { target -> act { Groups.invite(convoy.id, target) }; inviteFor = null },
         )
     }
 }
@@ -823,6 +630,9 @@ private fun ConvoyRow(
     convoy: Group,
     busy: Boolean,
     live: Boolean,
+    /** False while the relay has no server: the button stays visible, so the
+     *  feature is discoverable, but it cannot be pressed into failing. */
+    liveEnabled: Boolean,
     liveStatus: String?,
     liveStatusIsError: Boolean,
     onAccept: () -> Unit,
@@ -870,7 +680,7 @@ private fun ConvoyRow(
             )
             if (convoy.status == "accepted") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(enabled = !busy, onClick = onToggleLive) {
+                    Button(enabled = !busy && liveEnabled, onClick = onToggleLive) {
                         Icon(
                             if (live) Icons.Outlined.Stop else Icons.Outlined.PlayArrow,
                             contentDescription = null, Modifier.size(18.dp),

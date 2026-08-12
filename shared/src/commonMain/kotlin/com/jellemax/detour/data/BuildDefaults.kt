@@ -20,7 +20,23 @@ object BuildDefaults {
         private set
     var routingCfSecret: String = ""
         private set
-    var syncUrl: String = ""
+
+    /**
+     * Base of the sync + social API, which serves everything under `/api`.
+     *
+     * On a single-hostname deployment the tunnel already routes `/api` to the
+     * geocoder, so this service needs either a hostname of its own or an ingress
+     * rule ahead of that one. See the path-routing note in app/build.gradle.kts.
+     */
+    var apiUrl: String = ""
+        private set
+
+    /**
+     * The realm that issues rider tokens, e.g.
+     * `http://localhost:7580/realms/detour`. Blank means signing in is
+     * impossible, and every social feature behaves as it does when signed out.
+     */
+    var idpIssuer: String = ""
         private set
     var geocoderUrl: String = ""
         private set
@@ -33,7 +49,8 @@ object BuildDefaults {
         routingUrl: String = "",
         routingCfId: String = "",
         routingCfSecret: String = "",
-        syncUrl: String = "",
+        apiUrl: String = "",
+        idpIssuer: String = "",
         geocoderUrl: String = "",
         liveUrl: String = "",
         versionName: String = "0",
@@ -41,7 +58,8 @@ object BuildDefaults {
         this.routingUrl = routingUrl
         this.routingCfId = routingCfId
         this.routingCfSecret = routingCfSecret
-        this.syncUrl = syncUrl
+        this.apiUrl = apiUrl
+        this.idpIssuer = idpIssuer
         this.geocoderUrl = geocoderUrl
         this.liveUrl = liveUrl
         this.versionName = versionName

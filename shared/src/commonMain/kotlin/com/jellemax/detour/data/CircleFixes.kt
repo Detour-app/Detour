@@ -4,7 +4,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** A circle member's last known position, as `GET /circles/{id}/fixes` returns it. */
+/** A circle member's last known position, as `GET /api/circles/{id}/positions`
+ *  returns it. */
 data class MemberFix(
     val username: String,
     val lat: Double,
@@ -22,14 +23,14 @@ data class MemberFix(
  */
 object CircleFixes {
 
-    suspend fun postFix(groupId: Int, lat: Double, lon: Double, accuracyM: Double, tsMs: Long) {
+    suspend fun postFix(groupId: String, lat: Double, lon: Double, accuracyM: Double, tsMs: Long) {
         Api.request(
-            "POST", "/circles/$groupId/fix",
+            "POST", "/circles/$groupId/positions",
             buildJsonObject {
-                put("lat", lat)
-                put("lon", lon)
-                put("accuracyM", accuracyM)
-                put("ts", tsMs)
+                put("latitude", lat)
+                put("longitude", lon)
+                put("accuracyMeters", accuracyM)
+                put("timestampMs", tsMs)
             },
         )
     }
@@ -51,11 +52,10 @@ object CircleFixes {
             selfUsername,
         )
 
-    /** Latest fix per accepted, currently-sharing member — the server drops
-     *  a paused member's fix here even though the row may still exist, see
-     *  `do_circle_fixes`. */
-    suspend fun fixes(groupId: Int): List<MemberFix> {
-        val o = Api.requestJson("GET", "/circles/$groupId/fixes")
+    /** Latest fix per accepted, currently-sharing member — the server drops a
+     *  paused member's fix at the read, even though the row may still exist. */
+    suspend fun fixes(groupId: String): List<MemberFix> {
+        val o = Api.requestJson("GET", "/circles/$groupId/positions")
         return o.optArray("fixes")?.objects().orEmpty().map { memberFixFromJson(it) }
     }
 }
@@ -76,8 +76,10 @@ internal fun newestPerOtherMember(
  *  network round trip. */
 internal fun memberFixFromJson(f: JsonObject): MemberFix = MemberFix(
     username = f.optString("username"),
-    lat = f.optDouble("lat"),
-    lon = f.optDouble("lon"),
-    accuracyM = f.optDouble("accuracyM"),
-    tsMs = f.optLong("ts"),
+    lat = f.optDouble("latitude"),
+    lon = f.optDouble("longitude"),
+    // Null when the platform reported no accuracy; the map treats a
+    // non-positive radius as "no circle to draw" already.
+    accuracyM = f.optDouble("accuracyMeters", 0.0),
+    tsMs = f.optLong("timestampMs"),
 )

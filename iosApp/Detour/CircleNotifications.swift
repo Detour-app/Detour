@@ -43,11 +43,11 @@ final class CircleNotifications: NSObject {
     /// (it is device-local either way), but the two apps would then define
     /// the same user-facing switch twice and drift the first time either is
     /// touched.
-    func notifyEnabled(circleId: Int32) -> Bool {
+    func notifyEnabled(circleId: String) -> Bool {
         Settings.shared.notifyArrivals(circleId: circleId)
     }
 
-    func setNotifyEnabled(circleId: Int32, _ on: Bool) {
+    func setNotifyEnabled(circleId: String, _ on: Bool) {
         Settings.shared.setNotifyArrivals(circleId: circleId, on: on)
     }
 
@@ -84,10 +84,10 @@ final class CircleNotifications: NSObject {
 
     /// Called from `ConvoyLiveClient.handle` for a `place_event` frame. The
     /// server already excludes the mover from its own broadcast (see
-    /// docs/CIRCLES_AND_CONVOYS.md and sync_server.py's `broadcast_place_event`),
+    /// docs/CIRCLES_AND_CONVOYS.md),
     /// so — unlike `runCatchUpSweep` — there is no self-transition to filter
     /// here.
-    func handleLiveEvent(groupId: Int32, event: PlaceEvent) {
+    func handleLiveEvent(groupId: String, event: PlaceEvent) {
         guard notifyEnabled(circleId: groupId) else { return }
         raise(event: event, circleId: groupId)
         CircleEvents.shared.setLastSeenEventTsMs(circleId: groupId, tsMs: event.tsMs)
@@ -149,7 +149,7 @@ final class CircleNotifications: NSObject {
 
     // MARK: Raising
 
-    private func raise(event: PlaceEvent, circleId: Int32) {
+    private func raise(event: PlaceEvent, circleId: String) {
         guard authorized else { return }
         let content = UNMutableNotificationContent()
         // `notificationText()` is a Kotlin extension fun on `PlaceEvent`
@@ -165,7 +165,7 @@ final class CircleNotifications: NSObject {
         // fallback spelling is `CircleEventsKt.notificationText(event)`.
         content.body = event.notificationText()
         content.sound = .default
-        content.userInfo = ["circleId": Int(circleId)]
+        content.userInfo = ["circleId": circleId]
         // Deterministic per event rather than a random UUID: the same
         // transition arriving twice (a live frame followed by a catch-up
         // sweep that hadn't advanced `lastSeenEventTsMs` yet) replaces the
@@ -183,12 +183,12 @@ final class CircleNotifications: NSObject {
     /// top-level function it lands on the `CircleEventsKt` facade rather
     /// than on a type. One identifier per circle, not per sweep: a second
     /// sweep's summary should replace the first, not stack under it.
-    private func raiseSummary(circleId: Int32, collapsed: Int) {
+    private func raiseSummary(circleId: String, collapsed: Int) {
         guard authorized else { return }
         let content = UNMutableNotificationContent()
         content.body = CircleEventsKt.catchUpSummaryText(collapsed: Int32(collapsed))
         content.sound = .default
-        content.userInfo = ["circleId": Int(circleId)]
+        content.userInfo = ["circleId": circleId]
         let request = UNNotificationRequest(
             identifier: "circle-\(circleId)-summary",
             content: content,
@@ -217,9 +217,9 @@ extension CircleNotifications: UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        guard let raw = response.notification.request.content.userInfo["circleId"] as? Int else { return }
+        guard let raw = response.notification.request.content.userInfo["circleId"] as? String else { return }
         await MainActor.run {
-            PendingCircleOpen.shared.offer(Int32(raw))
+            PendingCircleOpen.shared.offer(raw)
         }
     }
 }
@@ -236,9 +236,9 @@ final class PendingCircleOpen: ObservableObject {
     static let shared = PendingCircleOpen()
     private init() {}
 
-    @Published private(set) var circleId: Int32?
+    @Published private(set) var circleId: String?
 
-    func offer(_ id: Int32) { circleId = id }
+    func offer(_ id: String) { circleId = id }
 
     /// Consumed once by `RootView` after acting on it, so backgrounding and
     /// foregrounding again without a fresh tap doesn't reopen the same circle.

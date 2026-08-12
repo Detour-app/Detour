@@ -7,7 +7,9 @@ import kotlinx.serialization.json.put
 data class GroupMember(val username: String, val status: String, val sharing: Boolean)
 
 data class Group(
-    val id: Int,
+    /** The server's identifier. Opaque: a UUID today, and nothing here reads it
+     *  as anything but a string to put back in a path. */
+    val id: String,
     val name: String,
     val kind: String,
     /** This device's own membership status in the group: "invited" or "accepted". */
@@ -30,9 +32,9 @@ object Groups {
 
     private fun ns(kind: String) = if (kind == "circle") "circles" else "convoys"
 
-    suspend fun create(kind: String, name: String): Int =
+    suspend fun create(kind: String, name: String): String =
         Api.requestJson("POST", "/${ns(kind)}", buildJsonObject { put("name", name) })
-            .optInt("id")
+            .optString("id")
 
     suspend fun list(kind: String): List<Group> =
         jsonArrayOf(Api.request("GET", "/${ns(kind)}")).objects().map { groupFromJson(it, kind) }
@@ -40,32 +42,32 @@ object Groups {
     /** Returns the resulting status, e.g. "invited". Only accepted friends
      *  can be invited — the server enforces this, this just surfaces it.
      *
-     *  These three take a [kind] only to pick the namespace. The server
-     *  resolves [groupId] against the one shared `groups` table and never
-     *  looks at which prefix it arrived under, so either path behaves
-     *  identically today — but calling a convoy's endpoint `/circles/…`
-     *  would read as a bug at every call site, and would become one the day
-     *  a per-kind rule grows on one of them. */
-    suspend fun invite(kind: String, groupId: Int, username: String): String =
+     *  Membership is the one part of a group that is *not* per-kind: one set of
+     *  routes under `/groups/{id}` serves both, because the rule being applied
+     *  ("are you a member of this thing") is the same either way. Which kind it
+     *  is stays a property of the group the server resolves [groupId] to. */
+    suspend fun invite(groupId: String, username: String): String =
         Api.requestJson(
-            "POST", "/${ns(kind)}/$groupId/invite", buildJsonObject { put("username", username) }
+            "POST", "/groups/$groupId/invitations", buildJsonObject { put("username", username) }
         ).optString("status")
 
-    suspend fun respond(kind: String, groupId: Int, accept: Boolean) {
+    suspend fun respond(groupId: String, accept: Boolean) {
         Api.request(
-            "POST", "/${ns(kind)}/$groupId/respond", buildJsonObject { put("accept", accept) })
+            "POST", "/groups/$groupId/invitations/respond",
+            buildJsonObject { put("accept", accept) },
+        )
     }
 
-    suspend fun leave(kind: String, groupId: Int) {
-        Api.request("POST", "/${ns(kind)}/$groupId/leave")
+    suspend fun leave(groupId: String) {
+        Api.request("DELETE", "/groups/$groupId/membership")
     }
 
     /** Circles only — pause/resume sharing your position with the group.
      *  The server 404s if [groupId] is actually a convoy: a convoy
      *  connection *is* sharing, so there is nothing to pause. */
-    suspend fun setSharing(groupId: Int, sharing: Boolean): Boolean =
+    suspend fun setSharing(groupId: String, sharing: Boolean): Boolean =
         Api.requestJson(
-            "POST", "/circles/$groupId/sharing", buildJsonObject { put("sharing", sharing) }
+            "PUT", "/circles/$groupId/sharing", buildJsonObject { put("sharing", sharing) }
         ).optBoolean("sharing")
 
 }
@@ -83,7 +85,7 @@ internal fun groupFromJson(o: JsonObject, kind: String): Group {
         )
     }
     return Group(
-        id = o.optInt("id"),
+        id = o.optString("id"),
         name = o.optString("name"),
         kind = kind,
         status = o.optString("status"),

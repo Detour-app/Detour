@@ -8,11 +8,12 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * A reset code that arrived by deep link (`detour://reset?token=…`),
- * parked until the Friends screen can show the form that spends it.
+ * A reset code that arrived by deep link (`detour://reset?token=…`).
  *
- * Deliberately in memory only: a code left on disk outlives the mail it came
- * from, and the whole point of it is being short lived.
+ * Legacy: password reset belongs to the realm now, which mails a link into a
+ * browser and never into the app, so nothing on Android offers this any more.
+ * It stays for the iOS app, which still signs in the old way until it gets its
+ * own authorization-code flow (docs/IOS_PORT.md).
  */
 object PendingReset {
     private val _token = MutableStateFlow("")
@@ -27,80 +28,20 @@ object PendingReset {
     }
 }
 
-/** Account state and the sign-in/out calls. */
+/**
+ * Account state, as the rest of the app asks about it.
+ *
+ * Registration, sign-in and password reset are gone from here: the realm owns
+ * them, and the browser leg that drives them lives in the platform layer
+ * (`app/auth/Oidc.kt`). What is left is the two questions every screen asks —
+ * who are we, and are we signed in — plus signing out. See [Auth].
+ */
 object Account {
 
-    val username: StateFlow<String> = Settings.authUsername
-    val signedIn: Boolean get() = Settings.authToken.value.isNotBlank()
+    val username: StateFlow<String> = Auth.username
+    val signedIn: Boolean get() = Auth.signedIn
 
-    suspend fun register(
-        user: String,
-        password: String,
-        invite: String = "",
-        email: String = "",
-    ) {
-        val body = buildJsonObject {
-            put("username", user)
-            put("password", password)
-            if (invite.isNotBlank()) put("invite", invite)
-            if (email.isNotBlank()) put("email", email)
-        }
-        store(Api.requestJson("POST", "/auth/register", body, auth = false))
-    }
-
-    suspend fun login(user: String, password: String) {
-        val body = buildJsonObject {
-            put("username", user)
-            put("password", password)
-        }
-        store(Api.requestJson("POST", "/auth/login", body, auth = false))
-    }
-
-    /**
-     * Asks the server to mail a reset link to whoever owns [who] — a username
-     * or an email address. The server answers the same way whether or not that
-     * account exists, so there is nothing here to report back beyond "sent, if
-     * there was anywhere to send it".
-     */
-    suspend fun forgotPassword(who: String) {
-        Api.request(
-            "POST", "/auth/forgot", buildJsonObject { put("username", who) }, auth = false,
-        )
-    }
-
-    /**
-     * Redeems the code from a reset mail. The server signs every device out as
-     * part of this, so the caller lands back on the sign-in form with a
-     * password that works.
-     */
-    suspend fun resetPassword(token: String, password: String) {
-        Api.request(
-            "POST", "/auth/reset",
-            buildJsonObject {
-                put("token", token)
-                put("password", password)
-            },
-            auth = false,
-        )
-    }
-
-    /**
-     * Clears the local session, and tells the server to revoke the token so a
-     * copy of it can't be replayed. A failing revoke must not strand the user
-     * signed in on a device they're trying to sign out of.
-     */
-    suspend fun signOut() {
-        try {
-            Api.request("POST", "/auth/logout")
-        } catch (e: Exception) {
-            // Offline, or the token was already dead. Local clear is what matters.
-        }
-        Settings.setAuth("", "")
-    }
-
-    private fun store(response: JsonObject) {
-        Settings.setAuth(response.optString("token"), response.optString("username"))
-    }
+    suspend fun signOut() = Auth.signOut()
 }
 
 /** A friend's aggregate numbers. Never their trips or traces — the server
@@ -133,22 +74,20 @@ object Friends {
      *  already asked us, and this request answered theirs). */
     suspend fun request(username: String): String =
         Api.requestJson(
-            "POST", "/friends/request", buildJsonObject { put("username", username) }
+            "POST", "/friends/requests", buildJsonObject { put("username", username) }
         ).optString("status")
 
     suspend fun respond(username: String, accept: Boolean) {
+        // Handles are letters, digits, dot, underscore and hyphen — all safe in a
+        // path segment, so there is nothing to encode here.
         Api.request(
-            "POST", "/friends/respond",
-            buildJsonObject {
-                put("username", username)
-                put("accept", accept)
-            },
+            "POST", "/friends/requests/$username/respond",
+            buildJsonObject { put("accept", accept) },
         )
     }
 
     suspend fun remove(username: String) {
-        Api.request(
-            "POST", "/friends/remove", buildJsonObject { put("username", username) })
+        Api.request("DELETE", "/friends/$username")
     }
 
     suspend fun stats(): List<FriendStats> =
@@ -171,7 +110,8 @@ fun RiderStats.toJson(): JsonObject = buildJsonObject {
     put("totalDistanceMeters", totalDistanceMeters)
     put("topSpeedKmh", topSpeedKmh)
     put("longestTripMeters", longestTripMeters)
-    put("maxLeanDeg", maxLeanDeg)
+    // The wire spells it out; the model keeps the short name it has always had.
+    put("maxLeanDegrees", maxLeanDeg)
     put("municipalitiesVisited", municipalitiesVisited)
     put("bestCoveragePercent", bestCoveragePercent)
     put("tripCount", tripCount)
@@ -181,7 +121,7 @@ fun riderStatsFromJson(o: JsonObject): RiderStats = RiderStats(
     totalDistanceMeters = o.optDouble("totalDistanceMeters", 0.0),
     topSpeedKmh = o.optDouble("topSpeedKmh", 0.0),
     longestTripMeters = o.optDouble("longestTripMeters", 0.0),
-    maxLeanDeg = o.optDouble("maxLeanDeg", 0.0),
+    maxLeanDeg = o.optDouble("maxLeanDegrees", 0.0),
     municipalitiesVisited = o.optInt("municipalitiesVisited", 0),
     bestCoveragePercent = o.optDouble("bestCoveragePercent", 0.0),
     tripCount = o.optInt("tripCount", 0),

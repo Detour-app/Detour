@@ -57,6 +57,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleEvents
+import com.jellemax.detour.data.Features
 import com.jellemax.detour.data.CirclePlace
 import com.jellemax.detour.data.CirclePlaces
 import com.jellemax.detour.data.Group
@@ -91,7 +92,7 @@ private const val DEFAULT_CIRCLE_PLACE_RADIUS_M = 150.0
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CirclesScreen(onBack: () -> Unit, openCircleId: Int? = null) {
+fun CirclesScreen(onBack: () -> Unit, openCircleId: String? = null) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val username by Account.username.collectAsStateWithLifecycle()
@@ -104,7 +105,7 @@ fun CirclesScreen(onBack: () -> Unit, openCircleId: Int? = null) {
     // Which circle this screen has open, for its places and events. The map no
     // longer reads it: it draws every circle you're in, all the time, so there
     // is nothing here for leaving the screen to disagree with.
-    var selectedId by remember { mutableStateOf<Int?>(null) }
+    var selectedId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(reloads) {
         try {
@@ -190,8 +191,8 @@ fun CirclesScreen(onBack: () -> Unit, openCircleId: Int? = null) {
                     busy = busy,
                     onOpen = { selectedId = it.id },
                     onCreate = { createOpen = true },
-                    onAccept = { c -> act { Groups.respond("circle", c.id, true) } },
-                    onDecline = { c -> act { Groups.respond("circle", c.id, false) } },
+                    onAccept = { c -> act { Groups.respond(c.id, true) } },
+                    onDecline = { c -> act { Groups.respond(c.id, false) } },
                 )
             } else {
                 CircleDetailSection(
@@ -201,7 +202,7 @@ fun CirclesScreen(onBack: () -> Unit, openCircleId: Int? = null) {
                     onInvite = { inviteFor = selected },
                     onLeave = {
                         selectedId = null
-                        act { Groups.leave("circle", selected.id) }
+                        act { Groups.leave(selected.id) }
                     },
                     onToggleSharing = { sharing -> act { Groups.setSharing(selected.id, sharing) } },
                 )
@@ -219,7 +220,7 @@ fun CirclesScreen(onBack: () -> Unit, openCircleId: Int? = null) {
         InviteToCircleDialog(
             circle = circle,
             onDismiss = { inviteFor = null },
-            onInvite = { target -> act { Groups.invite("circle", circle.id, target) }; inviteFor = null },
+            onInvite = { target -> act { Groups.invite(circle.id, target) }; inviteFor = null },
         )
     }
 }
@@ -445,13 +446,20 @@ private fun CircleDetailSection(
             Column {
                 Text("Notify me about arrivals", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                 Text(
-                    if (notifyEnabled) "A notification when someone arrives at or leaves a shared place"
-                    else "Off",
+                    when {
+                        !Features.liveRelay -> Features.liveRelayNotice
+                        notifyEnabled -> "A notification when someone arrives at or leaves a shared place"
+                        else -> "Off"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Switch(checked = notifyEnabled, enabled = !busy, onCheckedChange = ::onToggleNotify)
+            Switch(
+                checked = notifyEnabled && Features.liveRelay,
+                enabled = !busy && Features.liveRelay,
+                onCheckedChange = ::onToggleNotify,
+            )
         }
     }
 
