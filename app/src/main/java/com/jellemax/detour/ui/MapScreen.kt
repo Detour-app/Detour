@@ -1423,7 +1423,8 @@ fun MapScreen(
                     when (card) {
                         BottomCard.NAV -> NavigationBottomBar(
                             progress = navProgress,
-                            offRoute = (navProgress?.offRouteMeters ?: 0.0) > 60,
+                            offRoute = (navProgress?.offRouteMeters ?: 0.0) >
+                                NavPolicy.OFF_ROUTE_METERS,
                             onExit = { stopNavigation() },
                         )
                         BottomCard.CANDIDATES -> CandidatesCard(
