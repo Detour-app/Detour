@@ -9,6 +9,15 @@ re-recording produces files that look the same and mean nothing. Work item 0c of
 If a later run disagrees with a number here, the number here is the baseline. Add a second file;
 do not overwrite one of these.
 
+**`trajectcontrole` has a second capture, at `b29d014`, and it is not a replacement.** The
+`09fddde` run of that route recorded no section behaviour at all because both Overpass mirrors
+were refusing (below), so for the section quantities there was no "before" to lose — which is
+the only reason re-recording was legitimate under the rule above. Everything `09fddde` *did*
+measure on that route (the HUD fade/return cycles, the stall count) is still the baseline; the
+`b29d014` files add the section quantities and nothing else supersedes them. Both sets of files
+are kept side by side, named by their commit. Do not use the `b29d014` run as the "before" side
+of any A/B: it was captured after `d452d5b`, `b29d014` and the rest of stage 2 had landed.
+
 ## What was captured
 
 | | |
@@ -20,6 +29,12 @@ do not overwrite one of these.
 | Harness | `com.jellemax.mocklocation` v1.0, designated (`appops get` → `MOCK_LOCATION: allow`) |
 | Date | 2026-08-12, 12:23–14:10 local (CEST) |
 | Routes | `../routes/{stop-start,trajectcontrole,urban-limits}.txt`, unmodified, `intervalMs=1000` |
+
+The `trajectcontrole` re-run differs from that table in three places and nowhere else: commit
+`b29d014` (tree clean apart from untracked `.devcontainer/` and an untracked GPX), date 2026-08-12
+**18:02–18:19** CEST, and a 1000 ms screencap cadence. Same device, same display id, same app
+version, same harness — which was verified still designated with `appops get` rather than
+reinstalled — and the same unmodified route file at `intervalMs=1000`.
 
 The device is a foldable, so **every screenshot names its display explicitly** — without `-d`,
 `screencap` warns and picks non-deterministically:
@@ -50,7 +65,8 @@ adb -s RFCT42HS9WY shell am start -n io.github.maxke24.detour.debug/com.jellemax
 adb -s RFCT42HS9WY logcat -c
 adb -s RFCT42HS9WY logcat -v threadtime > logcat.log &
 .claude/skills/detour-gps-replay/scripts/start-replay.sh tools/mocklocation/routes/<route>.txt RFCT42HS9WY 1000
-#   screencap every 2000 ms (1500 ms for urban-limits) for the route's duration + 4%
+#   screencap every 2000 ms (1500 ms for urban-limits; 1000 ms for the b29d014
+#   trajectcontrole re-run, which needed one frame per fix) for the duration + 4%
 .claude/skills/detour-gps-replay/scripts/stop-replay.sh RFCT42HS9WY
 adb -s RFCT42HS9WY shell input tap 232 1474     # End trip; bounds from a uiautomator dump
 ```
@@ -74,28 +90,37 @@ been executed end to end. All three are committed alongside this baseline:
 Nothing was uninstalled, no data was cleared, no permission was changed and no device setting
 was changed. See "Deviation from the skill" below for the one instruction not followed, and why.
 
-**State this left on the device:** five synthetic trips in the `.debug` variant's history
-(`files/trips.json` did not exist before; the release variant is not installed, so no real
-history was ever at risk), and the harness installed and still designated. The test providers
-were removed cleanly — `dumpsys location` afterwards shows real fixes again (gps hAcc 10.6 m,
-29 satellites), not a device pinned to the last replayed coordinate. Delete the synthetic trips
-from the app if you want the debug history empty; do **not** `pm clear` to do it.
+**State this left on the device:** **six** synthetic trips in the `.debug` variant's history —
+five from `09fddde`, one more from the `b29d014` re-run (`files/trips.json` did not exist before;
+the release variant is not installed, so no real history was ever at risk) — and the harness
+installed and still designated. The test providers were removed cleanly after both sessions:
+`dumpsys location` afterwards shows real fixes again (gps hAcc 10.6 m / 29 satellites after
+`09fddde`, hAcc 4.53 m / 21 satellites after `b29d014`), not a device pinned to the last replayed
+coordinate. Delete the synthetic trips from the app if you want the debug history empty; do **not**
+`pm clear` to do it. Nothing was uninstalled, cleared, revoked or reconfigured in either session;
+the app was installed with `install -r` over itself, which keeps its data.
 
 ## Artifacts
 
+`<sha>` below is the commit the run was captured from — `09fddde` for the original three routes,
+`b29d014` for the `trajectcontrole` re-run. The formats are identical between the two, on purpose:
+the whole point of the re-run was a file that can be compared against the first.
+
 | File | What it is |
 |---|---|
-| `<route>-09fddde.log` | logcat for the run, filtered (see below) |
-| `<route>-09fddde.tsv` | **the machine-comparable record** — one row per captured frame |
-| `<route>-09fddde-events.tsv` | derived: every HUD state change, dated to a fix index and a route position |
-| `<route>-09fddde-stall.tsv` | derived: per-frame-pair map-region RMSE next to the speed the route was doing |
-| `<route>-09fddde-t<sec>-<what>.png` | single frames at named moments, 50% scale |
-| `<route>-09fddde-<topic>.png` | montages — several frames of one behaviour in one image |
+| `<route>-<sha>.log` | logcat for the run, filtered (see below) |
+| `<route>-<sha>.tsv` | **the machine-comparable record** — one row per captured frame |
+| `<route>-<sha>-events.tsv` | derived: every HUD state change, dated to a fix index and a route position |
+| `<route>-<sha>-stall.tsv` | derived: per-frame-pair map-region RMSE next to the speed the route was doing |
+| `<route>-<sha>-t<sec>-<what>.png` | single frames at named moments, 50% scale |
+| `<route>-<sha>-<topic>.png` | montages — several frames of one behaviour in one image |
 
 `urban-limits-noverpass-*` is a **second, earlier run of the same route** kept on purpose: it is
 the same drive with Overpass unavailable throughout, which is what isolates the Overpass-fed
-behaviour from everything else. Same for `trajectcontrole`, whose only run had no Overpass at
-all. Total directory size ~6.6 MB; trim it if that is too much for the repo, but keep the
+behaviour from everything else. `trajectcontrole-09fddde-*` is the same thing by accident rather
+than design — that run had no Overpass at all — and `trajectcontrole-b29d014-*` is the same route
+with Overpass healthy for its first ~2.5 minutes, which is what finally recorded the section
+quantities. Total directory size ~9.6 MB; trim it if that is too much for the repo, but keep the
 `.tsv` files — they are the small part and the whole point.
 
 ### Why a TSV rather than a folder of screenshots
@@ -114,7 +139,22 @@ frame is reduced to signals keyed on colours the app picks deliberately and the 
 | `dial_ink` | near-black fraction in the 80dp dial → **is the HUD on screen at all**. `SpeedHud` is only composed above 1.4 m/s (or while the eased number is still above 2 km/h), so this dropping to 0 *is* the HUD fading out at a standstill |
 
 Measured values for reference: sign present → `sign_red` 0.0244; `sign_ink` 0.1348 = `30` or
-`50`, 0.1233 = `70`, 0.1772 = `120`; HUD present → `dial_ink` ≈ 0.045–0.063.
+`50`, 0.1233 = `70`, 0.1772 = `120`; HUD present → `dial_ink` ≈ 0.045–0.063. **Chip present →
+`avg_blue` 0.0206 = `Ø 121`, 0.0226 = `Ø 120`** (from `trajectcontrole-b29d014`; at `09fddde` this
+column was 0 on every frame of every route, so the marker itself had never been confirmed to
+work). The chip's own threshold in `events.py` is `avg_blue > 0.0004`, two orders of magnitude
+below the measured value, so it is not a marginal detection.
+
+One calibration hazard found while re-running: `avg_blue` keys on `onTertiaryContainer`, which is
+the chip's text colour **only while the average is at or under the section's posted limit**.
+`SectionAverageChip` switches to `errorContainer`/`onErrorContainer` once `averageKmh > limitKmh`
+(`MapHud.kt:235,240-251`), and a red chip is invisible to this column. It did not bite here, and
+the reason is worth knowing: `Section.maxspeedKmh` is read from the **relation's** `maxspeed` tag
+(`SpeedCameras.kt:126-128`), neither E40 relation carries one, so `sectionLimitKmh` was null,
+`over` was false and the chip stayed blue for the whole measurement. The posted 120 does exist in
+OSM — but on the `highway=speed_camera` device nodes, which the parser never looks at. A section
+that does tag `maxspeed` on the relation can therefore produce a red chip that this TSV reads as
+"no chip", and a future run through one needs a second marker colour.
 
 The HUD strip is `688x260+1080+1300`, the row while a trip is active. It deliberately stops
 above y=1560: the `ActiveTripCard` below it is filled with a light blue close enough to
@@ -140,7 +180,8 @@ per-fix timeline**. That is what the cadence below was measured from.
 
 `MockService` sleeps `intervalMs` *after* pushing to four providers, so a nominal 1000 ms replay
 advances one fix every **1.018–1.022 s** (per run: `stop-start` 1.0224, `trajectcontrole` 1.018,
-`urban-limits` 1.0189, from the first and last `MockLocation` line and the number of pushes).
+`urban-limits` 1.0189, `trajectcontrole` at `b29d014` 1.02030, from the first and last
+`MockLocation` line and the number of pushes).
 Over a 13-minute route that is 17 s of drift. Every fix index in `*-events.tsv` and
 `*-stall.tsv` is corrected by the per-run factor — uncorrected, it once made a reconstructed
 standstill look like a 4.5 s camera freeze at 67 km/h.
@@ -250,7 +291,10 @@ normal on both neighbours). The fix stream is continuous across them and the pre
 none, so this is most likely `screencap` catching the composited SurfaceView mid-swap rather than
 an app stall. Worth knowing so a later run's identical blip is not read as a regression.
 
-### trajectcontrole — 984 fixes, 17.0 km · Overpass unavailable · **does not test what it exists to test**
+### trajectcontrole at `09fddde` — 984 fixes, 17.0 km · Overpass unavailable · **did not test what it exists to test**
+
+Superseded for the section quantities by the `b29d014` re-run in the next subsection; still the
+baseline for this route's HUD and stall behaviour.
 
 **No average-speed chip and no speed-limit sign ever appeared** (`avg_blue` and `sign_red` are 0
 across all 494 frames), and no speed-camera markers were drawn on the map
@@ -259,12 +303,14 @@ across all 494 frames), and no speed-camera markers were drawn on the map
 That is one cause, not three: `SpeedCameras.near()` feeds both the sections and the camera
 markers, `RoadRoulette.speedLimitWays()` feeds the sign, and both are Overpass. So:
 
-- **Section entry gating, the running average, its settled value, when it clears, and the
-  back-to-back transition over the shared gantry are all unrecorded.** The question "does the
-  average-speed readout appear twice?" has no baseline answer.
+- Section entry gating, the running average, its settled value, when it clears, and the
+  back-to-back transition over the shared gantry are all unrecorded **in this run**. They were
+  recorded in the `b29d014` re-run below.
 - The route's two sections start at 2.47 km, share a gantry at 6.36 km and exit at 14.35 km
-  (`../routes/README.md`), which is **fixes 73, 219 and 464** of this route file — all of it
+  (`../routes/README.md`), which is **fixes 72, 218 and 463** of this route file — all of it
   inside the first eight minutes, so a re-run needs only a few minutes of a healthy mirror.
+  (`09fddde`'s note said 73/219/464; recomputed against the route file with the gantry
+  coordinates fetched from the OSM API, the closest fixes are 72, 218 and 463.)
 
 What it does establish:
 
@@ -275,6 +321,116 @@ What it does establish:
   failing Overpass calls for most of the run. That is the useful half of the accident.
 - The nine standstills are all at fixes ≥536, i.e. **after** both sections end (the second exits
   at 464). `../routes/README.md` says they are "inside the sections"; they are not.
+
+### trajectcontrole re-run at `b29d014` — 1029 frames · Overpass healthy for the first ~2.5 min
+
+Captured 2026-08-12 18:02:05–18:19:20 CEST from `b29d014` (app v1.74), same device, same display
+id, same route file, same `intervalMs=1000`. The replay ran to the end — `replay finished at point
+984/984`. Measured cadence for this run: **1.02030 s per fix** (984 pushes, first 18:02:05.654,
+last 18:18:48.606), so every fix index below is that-corrected.
+
+**Captured at a 1000 ms cadence, not `09fddde`'s 2000 ms** — one frame per fix. That was a
+deliberate departure and it is the reason the run answers question 4 at all: the chip is expected
+to be absent for only about two fixes across the shared gantry (the exit fix clears it, the
+re-entry fix sets it null again until `accMeters > 20`), and at a 2 s cadence that transition can
+fall entirely between frames and read as "never cleared" — the confidently wrong answer. The TSV
+columns are unchanged, so the file is still directly comparable to the other four.
+
+The five quantities stage 3 needs, all from `trajectcontrole-b29d014-events.tsv`:
+
+| # | Question | Answer |
+|---|---|---|
+| 1 | Does the chip appear, and at which fix? | **Yes — `AVG-ON` at fix 73** (t=74.0 s, cum 2502 m), 34 m past the entry gantry at 2468 m. The measurement starts at fix 72, the first fix inside the 60 m gate; the chip needs `accMeters > 20` first, which is one fix at 122 km/h |
+| 2 | What value, and does it track sensibly? | **Appears at `Ø 121`, settles to `Ø 120` and holds it for eight consecutive frames** (t=75–82) while the route's own speed is 121–124 km/h. It tracks the running average correctly — `…-chip-values.png` is the frame-by-frame readout |
+| 3 | When does it clear, and at the far gantry? | **`AVG-CLEARED` at fix 81** (t=83.0 s, cum 2774 m) — **306 m into a 3852 m section. No, it does not coincide with the far gantry**, which is fix 218 at 6360 m; the vehicle was still 3529 m short of it |
+| 4 | Does it appear twice? | **No. Exactly two AVG events in 1029 frames** — one `AVG-ON`, one `AVG-CLEARED`. Nothing re-armed at the shared gantry at fix 218 (`…-t0224-shared-gantry-no-chip.png`, `…-shared-gantry.png`) or anywhere after |
+| 5 | Speed-camera markers on the map? | **Yes** — `…-t0074-chip-on.png` shows the camera icon drawn on the E40 at the entry gantry. The two gantry nodes are themselves tagged `highway=speed_camera`, so one fetch feeds both the marker and the section |
+
+#### The early clear is not explained by any of the three exit conditions
+
+This is the finding worth carrying into stage 3, and it is arithmetic rather than impression. The
+gantry coordinates below were fetched from the **OSM API** (`/api/0.6/relation/<id>/full.json`),
+which is a different service from Overpass and was reachable throughout, so this check does not
+depend on the mirror that was refusing.
+
+At fix 81, with `active` = relation `15685856` (span 3852 m) and `accMeters` ≈ 306 m:
+
+- `reachedEnd` needs `accMeters > 150` **and** a node of `exitGate` within `SECTION_GATE_METERS`
+  (60 m). The exit gate is the single far device node at 50.8618251,4.6050292; the vehicle was
+  **3529 m** from it.
+- `overshot` needs `accMeters > spanMeters * 1.4 + 400` = **5793 m**. It was 306 m. Note this
+  condition cannot fire below 400 m for *any* span, so no mis-parsed span explains it either.
+- `timedOut` needs 30 minutes. Nine seconds had passed.
+
+None of them can fire, yet `sectionAvgKmh` went null, and the only two writers of null are the
+entry branch and the exit branch (`MapScreen.kt:1004,1025`). Five alternative explanations were
+checked and each is ruled out by evidence in this run's own files:
+
+- **Not an inflated `accMeters`.** The displayed value is the proof: `Ø 120` at a true 122 km/h is
+  a correct accumulator. An `accMeters` large enough to trip `overshot` would have put a nonsense
+  average on screen first.
+- **Not the HUD dropping out of composition.** `dial_ink` is 0.072 on the frames after the clear
+  and the speed dial is legible in them.
+- **Not a `MapScreen` recomposition resetting `remember`ed state.** The 120 sign stayed up until
+  fix 129, so `speedLimitWays` survived; a fresh composition would have cleared it too.
+- **Not real-provider contamination.** Every fix the platform handled inside the replay window
+  carried accuracy **4.00**, the harness's constant. The first non-4.00 accuracy in the log is at
+  18:18:53, *after* the last mock push at 18:18:48.606.
+- **Not a different, shorter section.** An OSM API `map` call over the box containing both the
+  entry gantry and the clear position returns **exactly one** enforcement relation, `15685856`, so
+  there is no short mis-mapped section for `minByOrNull` to have preferred.
+
+**What is still unmeasured is the one input that would settle it: what `speedSections` actually
+held.** That needs `SpeedCameras.near()`'s own query replayed against Overpass, and Overpass
+refused for the entire post-run window (still refusing 25 minutes after the run). Until that is
+done, treat this as a reproducible discrepancy to investigate, not as a diagnosed bug — and note
+that `sectionExitGate` is *not* yet implicated: the entry it made was correct, and it is the
+termination that is wrong.
+
+#### Geometry, re-verified
+
+`../routes/README.md` asks for this to be re-checked in case OSM moved a gantry. It has not:
+
+| Relation | Description | Device nodes | Span | `maxspeed` |
+|---|---|---|---|---|
+| `15685856` | Bertem-Leuven | two 22 m apart at the entry gantry, one at the shared gantry | 3852 m | none |
+| `15682532` | Zaventem - Bertem | one at the shared gantry, one at 14.35 km, plus a `from` node 14 m from it | 7936 m | none |
+
+The route passes **14 m and 30 m** from the entry pair (fix 72), **15 m** from the shared node
+(fix 218) and **24 m and 27 m** from the far pair (fix 463) — all inside the 60 m gate, and the
+shared node really is one node in both relations. The route still tests what it claims to.
+
+#### Everything else this run measured
+
+- **0 stalls in 1028 frame pairs** — no identical map region while the route was above 20 km/h,
+  matching `09fddde`. The single HUD-absent window, fixes 5–8, is the auto-start gate not yet
+  satisfied (`HUD-ON` at fix 9), not a freeze.
+- **Sign**: `SIGN-ON` at fix 11 showing 120, then `SIGN-CLEARED` at fix 129 (cum 4300 m) and never
+  again — the held set running dry once Overpass began refusing, the same shape as `urban-limits`
+  run 2. The section chip and the sign therefore cleared for unrelated reasons, 48 fixes apart.
+- **Nine standstills, HUD fade/return throughout the second half**, consistent with `09fddde`.
+- **Recorded trip**: one trip, mode `CAR` (not retagged `WALK`), `topSpeedMps` 35.93 (129 km/h,
+  faithful to the route), `distanceMeters` 5 363 588 — ×315 inflated, the same non-deterministic
+  bug as the first four runs. Still not usable as an A/B quantity. Trace: 369 segments, 2779
+  points.
+
+#### What this run cost Overpass
+
+The app logs no network activity, so this is **derived from the two prefetch loops' own throttles**
+rather than measured: replaying both against the route at 1.0203 s/fix, with the healthy window
+ending where the poll saw it end, gives **~143 requests** — camera/section prefetch 2 successful
+and 53 failed, ambient speed-limit prefetch 5 successful and 83 failed.
+
+Two successful camera/section fetches is all it took: the second, at fix 88, was centred 3011 m
+along the route, and its 4 km circle reaches the shared gantry at 6360 m — so `15682532` was
+within range to have been held when the vehicle got there.
+
+The interesting half of that number is the 136 failures. `center` only advances on a **successful**
+fetch (`MapScreen.kt:854-858`), so the first refusal leaves the radius trigger permanently true and
+each loop simply re-fires at its throttle — 15 s and 10 s — for the remaining fourteen minutes.
+An expectation of "roughly five queries for this route" is right about the *successful* path and
+wrong by a factor of thirty about what a refusing mirror actually receives, which is precisely the
+no-backoff mechanism flagged below.
 
 ## Overpass was the limiting factor, and the app's own request rate is why
 
@@ -287,6 +443,21 @@ devcontainer on the same WAN as the phone's Wi-Fi, plus `curl` from the device i
 | 12:43–13:38 | refusing: `000` in 0.2–7 s; from the device, `curl (7) couldn't connect` after 7.2 s | `/api/status` 200 but in 15.4 s; `/api/interpreter` gave **no response at all in 90 s** |
 | 13:39–13:47 | healthy: status 200 in 0.1–0.2 s, a real way query 200 in **0.47 s** | still unusable |
 | 13:48:42 → 14:10+ | refusing again — **3.5 minutes after the second `urban-limits` replay began** | still unusable |
+| 17:55–18:02 | recovered, but flaky: the same small query answered `200, 200, 504` and then `200, 504, 200, 200` — 3/4 immediately before the `b29d014` replay was started | — |
+| 18:02–18:03:36 | healthy through the start of the run: status 200 in 0.17 s. Both Overpass-fed features worked — sign at fix 11, chip at fix 73 | — |
+| 18:04:31 → 18:37+ | refusing again — **~2.5 minutes after the `trajectcontrole` replay began**, and still refusing 25 minutes after it ended | `overpass.private.coffee` also `000`; `overpass.osm.ch` answers but is a Switzerland-only extract, so it returns 0 elements for this bbox |
+
+The `b29d014` row repeats the `09fddde` pattern almost exactly: a healthy window, a replay started
+inside it, and a re-block two to three minutes later. Note the shape of the recovery, because it
+matters for judging when to start a run — `overpass-api.de` returned `504` (a gateway timeout from
+an overloaded server) rather than `000` (a refused connection) while it was coming back, and
+reported `2 slots available now`, i.e. the rate limiter was *not* the thing saying no at that point.
+
+Two Overpass-free workarounds were used for the geometry checks in this baseline, and both are
+worth reusing rather than waiting on a mirror: `api.openstreetmap.org/api/0.6/relation/<id>/full.json`
+for a known relation, and `/api/0.6/map?bbox=` over a small box to enumerate what is near a point.
+Neither touches Overpass's quota, and the second is what established that only one enforcement
+relation exists at the entry gantry.
 
 Plain HTTP from the device worked throughout (`http://example.com` → 200), so this is not the
 phone's network. `Http.kt` sets `connectTimeoutMillis = 5_000`, so a mirror that takes 7 s to
@@ -299,11 +470,15 @@ motorway speed is every ~45 s, and the camera prefetch does the same on 15 s. Ro
 of that traffic (the whole of `stop-start`) was followed by an hour of refusals; once penalised,
 resumed traffic re-blocked the IP within 3.5 minutes.
 
-**Do not read this as measured field behaviour, and do not file it as one.** Replay compresses
-geography in a way real driving does not: three routes run back to back over one bounding box,
-repeatedly, from a single IP that had also served a 335 kB Overpass query for the gantry lookups
-earlier the same day. A real user drives through an area once, from a residential or mobile
-address. The honest claim is about the *mechanism*, not the frequency — and the mechanism is
+**Do not read this as measured field behaviour, and do not file it as one.** This applies to the
+`b29d014` re-run exactly as much as to the original three, and re-reading it as field behaviour
+gets easier, not harder, now that the pattern has repeated. Replay compresses geography in a way
+real driving does not: three routes run back to back over one bounding box, a fourth replay of one
+of them the same evening, repeatedly, from a single IP that had also served a 335 kB Overpass query
+for the gantry lookups earlier the same day. A real user drives through an area once, from a
+residential or mobile address. The honest claim is about the *mechanism*, not the frequency — and
+the `b29d014` run puts a number on the mechanism (~143 requests for one 17 km route, 136 of them
+retries into a refusal) without making the frequency any more representative. The mechanism is
 worth its own investigation independent of this refactor:
 
 - there is exactly **one** fallback mirror (`RoadRoulette.kt:33-34`), and it was unusable all day,
@@ -324,9 +499,17 @@ trips are badly wrong and one is right:
 | Run | Route length | Recorded `distanceMeters` |
 |---|---|---|
 | stop-start | 9.7 km | 881 088 m (×90) |
-| trajectcontrole | 17.0 km | 4 633 883 m (×273) |
+| trajectcontrole (`09fddde`) | 17.0 km | 4 633 883 m (×273) |
 | urban-limits run 1 | 23.5 km | **24 431 m (correct)** |
 | urban-limits run 2 | 23.5 km | 3 319 833 m (×141) |
+| trajectcontrole (`b29d014`) | 17.0 km | 5 363 588 m (×315) |
+
+The last row is the useful one for pinning this down: **the same route file, replayed at the same
+interval on the same device, inflated by ×273 once and ×315 the other time.** So the multiplier is
+not a function of the route, and a fix for this has to explain a per-run difference, not a
+per-geometry one. `topSpeedMps` stayed faithful in both (36.78 and 35.93 against a route whose own
+spacing implies ~130 km/h), which keeps the fault inside the distance accumulator rather than in
+the fix stream.
 
 Read off the trip card during `stop-start` it was correct at 29 s (340 m), already 28.7 km at
 1 min 59 s, and **kept climbing by ~73 km during the 40 s standstill** while every fix carried
@@ -360,12 +543,13 @@ cannot.** The camera and the HUD read `liveFix`, a separate
 has five independent `lastFix` collectors (`:423`, `:735`, `:774`, `:856`, `:889`). Suspending
 one frees the main thread instead of blocking it, so the others keep receiving.
 
-The measurements agree: **0 stalls in 2 881 frame pairs across four runs** (382 + 493 + 1 003 +
-1 003), including two whole routes where the fetches were hanging until the 5 s connect timeout.
-A stall here means a pixel-identical map region while the route says the vehicle was above
-20 km/h; at a 1.5–2 s cadence, that catches any freeze of that length or longer. The single
-identical pair in the set is `urban-limits` run 2 at fix 1091, the 1.5 s just after a standstill
-at 20 km/h, before the camera easing moved a pixel.
+The measurements agree: **0 stalls in 3 909 frame pairs across five runs** (382 + 493 + 1 003 +
+1 003 + 1 028), including three whole routes where the fetches were hanging until the 5 s connect
+timeout — the `b29d014` re-run adds fourteen minutes of a *refusing* mirror at a 1 s cadence, which
+is the tightest look at this yet. A stall here means a pixel-identical map region while the route
+says the vehicle was above 20 km/h; at a 1–2 s cadence, that catches any freeze of that length or
+longer. The single identical pair in the whole set is `urban-limits` run 2 at fix 1091, the 1.5 s
+just after a standstill at 20 km/h, before the camera easing moved a pixel.
 
 What 0d does change is the *ambient-limit collector's own* fix stream: while it awaits Overpass,
 `StateFlow` conflation drops every fix that lands, so three misses take longer than three fixes
@@ -381,20 +565,31 @@ this task was allowed to do. The risk that warning exists for was then checked i
 assumed, per run, from the platform's own fix log (`SLocation`'s `PositionManager` prints the
 accuracy of every fix it handles):
 
-**Inside all four replay windows, 100% of the fixes the platform handled carried accuracy 4.00 —
+**Inside all five replay windows, 100% of the fixes the platform handled carried accuracy 4.00 —
 the harness's constant.** Every fix with any other accuracy is timestamped either a fraction of a
-second *before* the first replayed fix or *after* the last one; e.g. on `trajectcontrole` the
-non-mock fixes are at 12:43:24.039 (first mock: 12:43:24.327) and 12:59:55.701 (last mock:
-12:59:51.818). Every recorded trace also stays on its route. No real provider contaminated any
-run, and the teleporting the skill warns about did not occur.
+second *before* the first replayed fix or *after* the last one; e.g. on `trajectcontrole` at
+`09fddde` the non-mock fixes are at 12:43:24.039 (first mock: 12:43:24.327) and 12:59:55.701 (last
+mock: 12:59:51.818), and on the `b29d014` re-run the 2953 handled fixes are *all* 4.00 with the
+first other value at 18:18:53.722, after the last mock push at 18:18:48.606. Every recorded trace
+also stays on its route. No real provider contaminated any run, and the teleporting the skill warns
+about did not occur.
+
+That check earns its keep on the re-run specifically: contamination would have been the tidiest
+explanation for the early clear (one desk fix ~10 km off-route would add enough to `accMeters` to
+trip `overshot` instantly), and the log rules it out.
 
 ## What could not be captured
 
-- **Average-speed sections: nothing at all.** Entry gating, the running average and its settled
-  value, exit detection, and whether the readout appears twice across the shared gantry. Both
-  Overpass mirrors were unavailable for the whole `trajectcontrole` window. **Re-run
-  `trajectcontrole` when a real way query answers inside 5 s** — the section events are all
-  within its first eight minutes.
+- **Average-speed sections: captured at `b29d014`, and the answers are above.** Entry gating, the
+  running average and its settled value, and whether the readout appears twice across the shared
+  gantry are all recorded. What that run leaves open is narrower but sharper: **why the measurement
+  terminated 306 m into a 3852 m section**, which none of the three exit conditions can account
+  for. Settling it needs `SpeedCameras.near()`'s own query replayed so the contents of
+  `speedSections` can be seen, and Overpass refused for the whole post-run window. That is one
+  query against a healthy mirror, not another replay — **do not re-drive the route for it.**
+- **Exit detection at a real gantry**, therefore, is still unmeasured: the measurement never
+  survived far enough to reach one. So is the shared-gantry re-arm as a *positive* observation —
+  what is recorded is that it did not happen, which is only half of what stage 3 wants.
 - **The urban half of `urban-limits`:** posted-limit changes, cross streets and the frontage
   road, for the same reason. The sign baseline that does exist covers 120 on the motorway and the
   30/50/70/120 sequence on `stop-start`.
