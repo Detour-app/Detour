@@ -9,6 +9,31 @@ re-recording produces files that look the same and mean nothing. Work item 0c of
 If a later run disagrees with a number here, the number here is the baseline. Add a second file;
 do not overwrite one of these.
 
+> ## ⚠ The route files changed at `923e16c`. Read this before comparing anything.
+>
+> Every fix index in this file was recorded against the route files as they stood at `09fddde`.
+> `923e16c` replaced all three (`../routes/README.md` says why), so **an index here does not
+> index the current route files.** Specifically:
+>
+> | Route | Then | Now | Effect on the indices below |
+> |---|---|---|---|
+> | `trajectcontrole.txt` | 984 fixes, 17.0 km, both E40 sections driven **east → west** | 1466 fixes, 27.3 km, relation `15682532` driven **west → east** | **Totally invalid.** Different geometry, different direction, different length. Nothing below transfers. |
+> | `urban-limits.txt` | standstill held 16 fixes at 1075 | held 19 fixes at 1075, then a 2-fix hold at 1094 | Indices **≤ 1074 still valid**; past 1075 they are shifted by up to 3 fixes. Length is unchanged at 1442, so the ends still line up. |
+> | `stop-start.txt` | stops held 9 / 39 / 12 / 8 fixes | 12 / 42 / 15 / 11 | Indices **≤ 358 still valid**; each later stop absorbs 3 fixes from the segment after it, so positions drift by up to 12 fixes by the end. Length unchanged at 762. |
+>
+> Recover a superseded route file to re-interpret an index against what was actually replayed:
+>
+> ```sh
+> git show 09fddde:tools/mocklocation/routes/trajectcontrole.txt
+> ```
+>
+> **This is a limitation of this baseline, not a licence to re-record it.** The qualitative
+> findings — the HUD easing to zero and returning at every standstill, the camera holding bearing
+> while parked, following resuming unaided, the sign clearing 3 fixes after the last snap, 0 stalls
+> in 3 909 frame pairs — are all properties of the *code*, and none of them depends on which
+> kilometre of the E40 the route covered. Those still stand. It is the fix-index arithmetic that
+> does not.
+
 **`trajectcontrole` has a second capture, at `b29d014`, and it is not a replacement.** The
 `09fddde` run of that route recorded no section behaviour at all because both Overpass mirrors
 were refusing (below), so for the section quantities there was no "before" to lose — which is
@@ -28,7 +53,7 @@ of any A/B: it was captured after `d452d5b`, `b29d014` and the rest of stage 2 h
 | App | `io.github.maxke24.detour.debug` v1.74, built from `09fddde` |
 | Harness | `com.jellemax.mocklocation` v1.0, designated (`appops get` → `MOCK_LOCATION: allow`) |
 | Date | 2026-08-12, 12:23–14:10 local (CEST) |
-| Routes | `../routes/{stop-start,trajectcontrole,urban-limits}.txt`, unmodified, `intervalMs=1000` |
+| Routes | `../routes/{stop-start,trajectcontrole,urban-limits}.txt` at `intervalMs=1000`, **as those files stood at `09fddde`** — unmodified then, but all three were replaced at `923e16c`; see the warning above |
 
 The `trajectcontrole` re-run differs from that table in three places and nowhere else: commit
 `b29d014` (tree clean apart from untracked `.devcontainer/` and an untracked GPX), date 2026-08-12
@@ -602,3 +627,106 @@ trip `overshot` instantly), and the log rules it out.
   The montages cover the moments a clip would have.
 - **Anything needing a second radio:** convoy with a real peer, BLE board telemetry, a paired
   watch's sensors, real accuracy degradation. The harness reports a constant 4 m.
+
+---
+
+# The named quantities
+
+Work item 0c's actual deliverable. Everything above is evidence; this is the short list a later
+run is measured against, so that "it looks the same" is never the comparison. Each row names the
+quantity, the value observed, and the file the value is read out of.
+
+| # | Quantity | Baseline value | Read from | Still valid after `923e16c`? |
+|---|---|---|---|---|
+| Q1 | Fixes from the last successful speed-limit snap to the sign clearing | **3 fixes ≈ 3.1 s** — seen twice independently: `stop-start` fix 470→473, `urban-limits` run 2 fix 609→612 | `stop-start-09fddde-events.tsv`, `urban-limits-09fddde-events.tsv` | **Yes.** A latency in fixes, not a position. This is the 0d acceptance criterion; if it shrinks, the `StateFlow` drops were load-bearing and the 3-miss hysteresis needs retuning in that same commit |
+| Q2 | Does the sign ever show a cross-street or frontage-road value? | **No.** No wrong-road value on any of five runs. The one near-miss is a change to 120 three fixes before the route reaches motorway pace — the sign picking up the motorway from the acceleration lane, which is correct | `…-sign-values.png` | **Yes**, as a yes/no |
+| Q3 | Speed-limit values actually exercised | **30, 50, 70, 120** (all on `stop-start`); `urban-limits` and `trajectcontrole` only ever displayed **120** before their held set ran dry | `stop-start-09fddde-events.tsv` | **Yes** |
+| Q4 | Camera or HUD frozen > 1 s | **0 stalls in 3 909 frame pairs** across five runs, including fourteen minutes against a *refusing* Overpass mirror at a 1 s cadence | `…-stall.tsv` (all five) | **Yes** |
+| Q5 | Does the speed HUD ease to zero and hold at a standstill, and return? | **Yes, at 4/4 stops on `stop-start`**, and across all nine on `trajectcontrole`. Fade lands 1–2 fixes into the stop, return 2 fixes after moving off. The easing is gradual (28 → 8 → 19 → 16 km/h, then gone), not snatched away | `stop-start-09fddde-events.tsv`, `…-stop2-window.png` | **Latency yes; the fix indices no** — the stops now start at the same fix but run 3 fixes longer |
+| Q6 | Does the map camera park and resume? | **Yes.** Frame-to-frame map RMSE is *exactly* 0 for five consecutive pairs inside the 38 s stop — no pan, no rotation, and no north-up snap. Following resumed unaided after all four stops; no re-centre tap was needed | `stop-start-09fddde-stall.tsv`, `…-bearing-hold.png`, `…-camera-park.png` | **Yes** as a yes/no; the RMSE-zero run is now 3 fixes longer |
+| Q7 | Does a section average appear, where, at what value? | **Yes — at fix 73, 34 m past the entry gantry, reading `Ø 121`, settling to `Ø 120` and holding it for eight frames** while the route was doing 121–124 km/h | `trajectcontrole-b29d014-events.tsv`, `…-chip-values.png` | **No — recorded against the superseded route.** See below |
+| Q8 | Does it clear at the far gantry? | **No. It cleared at fix 81, 306 m into a 3852 m section, 3529 m short of the exit gate** — and none of the three exit conditions (`reachedEnd`, `overshot`, `timedOut`) can fire there. Five alternative explanations were checked and ruled out | `trajectcontrole-b29d014-events.tsv` | **No** — same reason |
+| Q9 | Does it re-arm at the shared gantry? | **No. Exactly two AVG events in 1029 frames**, one on and one cleared | `trajectcontrole-b29d014-events.tsv` | **No** — the new route only enters the second relation, so this is now testable as a *positive* |
+| — | Trip `distanceMeters` / `topSpeedMps` / trace segment counts | **Unusable as A/B quantities on this harness.** Distance inflates ×90–×315 non-deterministically (same route, same device: ×273 once, ×315 the next); segments split on desk-induced activity-recognition `STILL` events | — | — |
+
+## Q7–Q9 are the ones `923e16c` was meant to fix, and they are not yet re-measured
+
+The `b29d014` capture answered them against a route that drove the E40 sections **backwards**, east
+to west, at an implied 117 km/h. That is why Q8's early clear could not be closed out: with the
+route running against the direction the measurement is defined in, an unexplained termination could
+have been the app or could have been the route, and the recording cannot distinguish them.
+
+The `trajectcontrole.txt` committed at `923e16c` exists precisely to remove that ambiguity — one
+relation, `15682532`, driven west → east in the direction the measurement runs, entry gantry at
+second 166 and exit gantry at second 548, an 8.00 km transit in 382 s. **So the correct value for
+Q7 is a chip that appears shortly after second 166, settles near `Ø 75`, and clears at second 548.**
+Anything else is the defect Q8 points at.
+
+**That replay has not been run.** See the next section.
+
+## Attempt on the OnePlus 11 at `923e16c`, 2026-08-12 — blocked, nothing recorded
+
+| | |
+|---|---|
+| Commit | `923e16c` on `refactor/mapscreen-split` |
+| Device | OnePlus 11 (`CPH2449`, `OP594DL1`), serial `50043ff9`, **Android 16, SDK 36**, 1080×2412 at density 480 |
+| App | `io.github.maxke24.detour.debug` v1.74 built from `923e16c` and installed with `install -r` — **succeeded** |
+| Harness | `com.jellemax.mocklocation` v1.0 installed — **succeeded**; designated — **refused** |
+| Outcome | **No replay ran. No frames, no logcat, no TSV.** |
+
+`appops set com.jellemax.mocklocation android:mock_location allow` is refused by ColorOS:
+
+```
+java.lang.SecurityException: uid 2000 does not have android.permission.MANAGE_APP_OPS_MODES
+```
+
+and `pm grant` is refused the same way (`GRANT_RUNTIME_PERMISSIONS`). This is not a missing step —
+on this OEM the adb shell simply does not hold those permissions, and no invocation of `appops`
+recovers them. Confirmed by running the harness anyway, which fails four times per fix:
+
+```
+E MockLocation: addTestProvider(fused) failed: java.lang.SecurityException:
+    com.jellemax.mocklocation from uid 10407 not allowed to perform MOCK_LOCATION
+```
+
+**To unblock, a human has to designate the harness by hand:** Settings → System → Developer
+options → **Select mock location app** → `DetourMockLocation`. Developer options are already
+enabled (`development_settings_enabled=1`). Once that is set, `start-replay.sh` runs unmodified and
+its own designation check passes — nothing else about the recipe changes. This was deliberately not
+done by driving Settings with `input tap`: a mis-tap in Developer options can silently toggle
+something with consequences (OEM unlocking, "don't keep activities", revoking USB debugging), and
+that is not a risk worth taking blind on this device.
+
+The app's `ACCESS_FINE_LOCATION` and `ACCESS_COARSE_LOCATION` were found **already granted**
+(`USER_SET`), so the permission half of the setup needs nothing.
+
+**Device state, for the record:** nothing was uninstalled, cleared, revoked or reset. The release
+variant `io.github.maxke24.detour` — which holds the user's real trips — was **not** installed
+over, launched, cleared or touched in any way; its `lastUpdateTime` is still 2026-08-11 17:31:17.
+No device setting was changed: `screen_off_timeout` was read as **300000** and left at 300000, and
+`stay_on_while_plugged_in` was read as **0** and left at 0. `svc power stayon usb` was never run,
+because there was no recording to keep the screen awake for; a setting changed and restored for
+nothing is just churn with a failure mode. The probe route file written into the harness's `files/`
+was deleted, and the harness's foreground service was stopped with `am stopservice` (which is what
+calls `removeTestProvider`) rather than force-stopped — though it had registered no providers to
+leave stale.
+
+## This baseline post-dates stage 2 and cannot verify it
+
+Stated plainly because the filename pattern invites the opposite assumption. `FollowCamera`
+(`8e0d765`) and `NavPolicy` (`09ee448`) both landed **before** `09fddde`, the commit the first four
+runs were captured at:
+
+```sh
+git merge-base --is-ancestor 8e0d765 09fddde   # true
+git merge-base --is-ancestor 09ee448 09fddde   # true
+```
+
+So this is a valid reference for **stage 3 onward**, and it is *not* a "before" for stage 2's camera
+and nav-policy extractions. There is no recording of the code as it stood before those, and there
+cannot be one now — that is the cost of having deferred 0c past stage 2, and it is not recoverable
+by re-recording. Stage 2's evidence is its unit tests, which is what it has.
+
+For the same reason `d452d5b` ("clear the ambient speed limit when navigation starts or ends") sits
+between `09fddde` and the `b29d014` re-run, so the two `trajectcontrole` captures are not a clean
+A/B of each other either. The `b29d014` run is a *later* observation, not a control.
