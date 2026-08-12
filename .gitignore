@@ -24,7 +24,10 @@ __pycache__/
 
 # Claude Code local state — permission settings (can contain secrets typed
 # into allowed commands) and worktrees (each its own nested git checkout).
-.claude/
+# Skills are the exception: they are project documentation that happens to be
+# machine-readable, they carry no secrets, and they are meant to be shared.
+.claude/*
+!.claude/skills/
 
 # Raw takes for the Play declaration videos. tools/render_play_videos.sh
 # turns these into the captioned finals next to them, which are what Play
