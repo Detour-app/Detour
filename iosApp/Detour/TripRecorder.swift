@@ -288,9 +288,19 @@ final class TripRecorder: NSObject, ObservableObject {
         // keeps the trip alive.
         //
         // Decided in docs/refactor/mapscreen/15-divergence-register.md §C.3.
+        //
+        // The end itself is gated on auto-start, matching Android
+        // (`tracking/TripTrackingService.kt:1082`): a recording the user started
+        // by hand is theirs to end. Standing still for five minutes is a coffee,
+        // a photo stop or a long queue, not the end of the ride, and ending it
+        // there silently loses the rest of a trip the user asked for. The
+        // "moving" stamp is kept up to date either way, as Android's is, so the
+        // clock is honest if anything else ever reads it.
         if speed > 2.0 {
             movingSinceMs = nowMs()
-        } else if let since = movingSinceMs, nowMs() - since > Self.stationaryEndMs {
+        } else if startedAutomatically,
+                  let since = movingSinceMs,
+                  nowMs() - since > Self.stationaryEndMs {
             endTrip()
         }
     }
