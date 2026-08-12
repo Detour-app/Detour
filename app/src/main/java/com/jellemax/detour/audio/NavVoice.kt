@@ -8,9 +8,11 @@ import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.util.Log
 import java.util.Locale
 
 private const val UTTERANCE_ID = "detour-nav"
+private const val TAG = "DetourNavVoice"
 
 /**
  * Spoken turn instructions, for any surface that navigates.
@@ -118,7 +120,15 @@ class NavVoice(context: Context) {
             pending = text
             return
         }
-        requestFocus()
+        // A refused request means somebody else owns the output and said no to
+        // sharing it: a phone call, an assistant, another navigation app.
+        // Speaking anyway put a guidance prompt on top of a conversation — and
+        // because abandonFocus() no-ops when the request failed, nothing was
+        // ever handed back either. A missed prompt is the better of the two.
+        if (!requestFocus()) {
+            Log.w(TAG, "audio focus refused; guidance prompt dropped")
+            return
+        }
         val result = runCatching {
             engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, UTTERANCE_ID)
         }.getOrDefault(TextToSpeech.ERROR)
@@ -140,11 +150,15 @@ class NavVoice(context: Context) {
         ready = false
     }
 
-    private fun requestFocus() {
-        if (holdingFocus) return
+    /** True when the focus is ours. False means another client holds it and
+     *  will not share — telephony during a call, a voice assistant, another
+     *  turn-by-turn app. */
+    private fun requestFocus(): Boolean {
+        if (holdingFocus) return true
         holdingFocus = runCatching {
             audioManager?.requestAudioFocus(focusRequest)
         }.getOrNull() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        return holdingFocus
     }
 
     private fun abandonFocus() {
