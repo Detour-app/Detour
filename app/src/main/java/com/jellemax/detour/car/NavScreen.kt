@@ -9,7 +9,9 @@ import androidx.car.app.CarToast
 import androidx.car.app.Screen
 import androidx.car.app.model.Action
 import androidx.car.app.model.ActionStrip
+import androidx.car.app.model.CarColor
 import androidx.car.app.model.CarIcon
+import androidx.car.app.model.CarText
 import androidx.car.app.model.Distance
 import androidx.car.app.model.Template
 import androidx.car.app.navigation.NavigationManager
@@ -21,6 +23,7 @@ import androidx.car.app.navigation.model.RoutingInfo
 import androidx.car.app.navigation.model.Step
 import androidx.car.app.navigation.model.TravelEstimate
 import androidx.car.app.navigation.model.Trip
+import androidx.car.app.versioning.CarAppApiLevels
 import androidx.core.graphics.drawable.IconCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -363,7 +366,11 @@ class NavScreen(
             append(p.nextInstruction?.text).append('|')
             append(displayMeters(p.distanceToTurnMeters)).append('|')
             append(displayMeters(p.remainingMeters)).append('|')
-            append((p.remainingTimeMs ?: 0L) / 60_000)
+            append((p.remainingTimeMs ?: 0L) / 60_000).append('|')
+            // Part of the key, not just of the template: leaving the route has
+            // to redraw even when nothing else moved, and a car stopped just
+            // off the line moves none of the five values above.
+            append(offRoute(p))
         }
         if (key == templateKey) return
         templateKey = key
@@ -449,7 +456,8 @@ class NavScreen(
             builder.setNavigationInfo(info.build())
         }
         val remainingSec = ((p.remainingTimeMs ?: 0L) / 1000).coerceAtLeast(0)
-        builder.setDestinationTravelEstimate(travelEstimate(p.remainingMeters, remainingSec))
+        builder.setDestinationTravelEstimate(
+            travelEstimate(p.remainingMeters, remainingSec, offRoute = offRoute(p)))
         return builder.build()
     }
 
@@ -486,10 +494,48 @@ class NavScreen(
     private fun destinationLabel(): String =
         destinationName?.takeIf { it.isNotBlank() } ?: "Destination"
 
-    private fun travelEstimate(meters: Double, seconds: Long): TravelEstimate =
-        TravelEstimate.Builder(carDistance(meters), ZonedDateTime.now().plusSeconds(seconds))
+    /** Off the drawn line far enough that [NavPolicy] would ask for a fresh
+     *  route. The same bound the phone's nav bar reads
+     *  (`ui/MapScreen.kt:1426-1427`) and the same one [NavPolicy.decide]
+     *  reroutes on, so what the driver is told cannot disagree with what the
+     *  policy decided. Entry 8 of the divergence register is precisely that
+     *  this bound is named once. */
+    private fun offRoute(p: NavEngine.Progress): Boolean =
+        p.offRouteMeters > NavPolicy.OFF_ROUTE_METERS
+
+    /**
+     * [offRoute] defaults to false so [pushTrip]'s three call sites keep a
+     * zero-line diff: those estimates go to the instrument cluster through
+     * [NavigationManager.updateTrip], which is a fourth drawing surface and not
+     * part of this change.
+     */
+    private fun travelEstimate(
+        meters: Double,
+        seconds: Long,
+        offRoute: Boolean = false,
+    ): TravelEstimate {
+        val builder = TravelEstimate
+            .Builder(carDistance(meters), ZonedDateTime.now().plusSeconds(seconds))
             .setRemainingTimeSeconds(seconds)
-            .build()
+        if (offRoute) {
+            // Two signals, because the words need a newer host than the colour
+            // does: setTripText is @RequiresCarApi(5) while
+            // AndroidManifest.xml:56-57 declares minCarApiLevel 1, so on an
+            // older head unit the red readouts *are* the indicator. Colouring
+            // both matches the phone, which turns the same string
+            // error-coloured (`ui/Navigation.kt:195-200`).
+            //
+            // Persistent and not a toast on purpose: the defect being fixed is
+            // that the one spoken "Rerouting" at :258 leaves a driver who
+            // missed it with no way to tell.
+            builder.setRemainingDistanceColor(CarColor.RED)
+            builder.setRemainingTimeColor(CarColor.RED)
+            if (carContext.carAppApiLevel >= CarAppApiLevels.LEVEL_5) {
+                builder.setTripText(CarText.create("Off route"))
+            }
+        }
+        return builder.build()
+    }
 
     /** Travel time over [meters] of what's left, at the pace the router implied
      *  for the rest of the route (or [FALLBACK_MPS] when it gave no time). */
