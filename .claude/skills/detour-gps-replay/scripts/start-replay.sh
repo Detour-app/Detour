@@ -109,7 +109,11 @@ fi
 ADB=(adb -s "$SERIAL")
 "${ADB[@]}" get-state >/dev/null 2>&1 || { echo "error: $SERIAL not connected" >&2; exit 1; }
 
-if ! "${ADB[@]}" shell pm list packages | tr -d '\r' | grep -qx "package:$HARNESS"; then
+# `grep -x` rather than `grep -qx`: -q exits on the first match, `tr` then dies of
+# SIGPIPE, and `set -o pipefail` turns that into a failed pipeline — so a harness that IS
+# installed reports as missing. Without -q, grep reads to EOF and nothing gets a SIGPIPE.
+if ! "${ADB[@]}" shell pm list packages | tr -d '\r' | grep -x "package:$HARNESS" >/dev/null
+then
     cat >&2 <<EOF
 error: $HARNESS is not installed on $SERIAL.
        One-time setup, from tools/mocklocation/ (Gradle runs in the devcontainer):
@@ -121,7 +125,7 @@ EOF
 fi
 
 if ! "${ADB[@]}" shell appops get "$HARNESS" android:mock_location 2>/dev/null \
-        | tr -d '\r' | grep -q 'allow'; then
+        | tr -d '\r' | grep 'allow' >/dev/null; then   # not -q: see the SIGPIPE note above
     echo "error: $HARNESS is not the designated mock-location app. Grant it with:" >&2
     echo "  adb -s $SERIAL shell appops set $HARNESS android:mock_location allow" >&2
     echo "  (fused only honours mocks from a designated app — granting the shell does not help)" >&2
@@ -133,9 +137,17 @@ echo "stopping the release app so the replay cannot be recorded into real trip h
 "${ADB[@]}" shell am force-stop "$RELEASE"
 
 echo "pushing $(basename "$ROUTE") into the harness's own files dir"
+# A freshly installed harness has no files/ yet — MockService only ever *reads* a path, so
+# nothing has called getFilesDir(). Without this the push fails with
+# "sh: can't create files/route.txt: No such file or directory".
+"${ADB[@]}" shell "run-as $HARNESS mkdir -p files"
 "${ADB[@]}" shell "run-as $HARNESS sh -c 'cat > files/route.txt'" <"$ROUTE"
 
-remote_lines="$("${ADB[@]}" shell "run-as $HARNESS wc -l < files/route.txt" | tr -dc '0-9')"
+# The redirect has to happen *inside* run-as. run-as sets the cwd to the app's data dir only
+# for the process it execs, so a `< files/route.txt` left to the device shell is resolved
+# against / and fails with "can't open files/route.txt".
+remote_lines="$("${ADB[@]}" shell "run-as $HARNESS sh -c 'wc -l < files/route.txt'" \
+    | tr -dc '0-9')"
 if [ "$remote_lines" != "$(wc -l <"$ROUTE" | tr -dc '0-9')" ]; then
     echo "error: pushed $remote_lines lines, local file has $(wc -l <"$ROUTE") — push failed" >&2
     exit 1
