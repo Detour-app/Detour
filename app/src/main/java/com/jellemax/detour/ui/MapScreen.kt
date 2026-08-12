@@ -788,6 +788,18 @@ fun MapScreen(
     // fetch refreshes only when you near the edge of what you have (throttled on
     // failure so a network blip doesn't hammer the mirrors).
     LaunchedEffect(navigating) {
+        // Crossing into or out of navigation invalidates whatever sign we hold:
+        // the collector below is the only writer and it doesn't run while
+        // navigating, so the value would otherwise be the limit from wherever
+        // the route began and would survive the whole session — and then the
+        // trip after it. Stale in both directions: the camera chime falls back
+        // to it while navigating, and the HUD switches back to it on the way
+        // out. Clear it and let the next snap re-establish it, the way the car
+        // has since it shipped (car/SpinScreen.kt:117-121). The misses counter
+        // goes with it, or the first miss after the switch would clear a sign
+        // that was already cleared.
+        ambientSpeedLimitKmh = null
+        speedLimitMisses = 0
         if (navigating) return@LaunchedEffect
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
@@ -923,6 +935,11 @@ fun MapScreen(
                 warnedAt = null
                 return@collect
             }
+            // The ambient sign is the free-drive source. While navigating, the
+            // route's own posted limit is the authority and the ambient tracker
+            // is stopped — and now cleared, see the producer above — so a route
+            // segment with no maxspeed judges you against nothing instead of
+            // against the sign from wherever you set off.
             val limit = navProgressRef.value?.speedLimitKmh ?: ambientLimitRef.value
             val tooFast = limit != null && fix.speedMps * 3.6 > limit + 3.0
             if (tooFast && ahead.at != warnedAt) {
