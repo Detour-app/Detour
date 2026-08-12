@@ -133,12 +133,6 @@ final class NavModel: ObservableObject {
     private var route: RouteResult?
     private let voice = NavVoice()
 
-    // Voice bookkeeping: which instruction is being announced, and how close it
-    // was when we last said something about it.
-    private var voiceStepKey: Int32 = -1
-    private var voicePhase = 0
-    private var startAnnounced = false
-
     /// Spoken guidance being switched off has to cut the prompt already in
     /// flight, which is what the car does (car/NavScreen.kt:479-480). Without
     /// this, muting mid-drive finishes the sentence — and the toggle is not
@@ -151,9 +145,10 @@ final class NavModel: ObservableObject {
     /// `.onDisappear` and a cancelled watcher cannot be re-watched.
     private let voiceWatch = SettingsFlows.shared.voiceGuidance()
 
-    private static let voiceFarM = 800.0
-    private static let voiceNearM = 300.0
-    private static let voiceNowM = 80.0
+    /// The ladder, the latch and the wording: `:shared`'s, so this app, the
+    /// phone and the head unit cannot word the same maneuver differently.
+    /// One per session — it holds per-instruction state.
+    private let announcer = NavAnnouncer()
 
     init() {
         voiceWatch.watch { [weak self] in
@@ -171,9 +166,7 @@ final class NavModel: ObservableObject {
 
     func start(route: RouteResult) {
         self.route = route
-        startAnnounced = false
-        voiceStepKey = -1
-        voicePhase = 0
+        announcer.routeChanged()
     }
 
     func stop() {
@@ -189,54 +182,19 @@ final class NavModel: ObservableObject {
         announce(p)
     }
 
-    /// Announces the upcoming maneuver as it comes up, once per threshold.
+    /// Says whatever `NavAnnouncer` says is due for this fix. The decision and
+    /// the words are the core's; this model only decides that speech is how
+    /// iOS delivers them.
     private func announce(_ p: NavEngine.Progress) {
-        guard let instruction = p.nextInstruction else { return }
-        if instruction.startIndex != voiceStepKey {
-            voiceStepKey = instruction.startIndex
-            voicePhase = 0
+        if let text = announcer.onProgress(
+            instruction: p.nextInstruction, distanceMeters: p.distanceToTurnMeters
+        ) {
+            say(text)
         }
-        let distance = p.distanceToTurnMeters
-        let phase: Int
-        // Inclusive, matching the car's `distance <= VOICE_NOW_M`
-        // (car/NavScreen.kt:305-310). `..<` and `<=` disagree at exactly 800,
-        // 300 and 80 m — a measure-zero event on a real GPS stream, and a
-        // guaranteed one in any test written against either surface. Register
-        // entry 12.
-        switch distance {
-        case ...Self.voiceNowM: phase = 3
-        case ...Self.voiceNearM: phase = 2
-        case ...Self.voiceFarM: phase = 1
-        default: phase = 0
-        }
-        let cue = instruction.text.isEmpty ? "Continue" : instruction.text
-
-        // The first prompt of the drive ignores the thresholds: pressing Start
-        // and being told nothing for the next 3 km is indistinguishable from
-        // voice being broken.
-        if !startAnnounced {
-            startAnnounced = true
-            voicePhase = phase
-            say(phase == 3 ? cue : "In \(spokenDistance(distance)), \(cue)")
-            return
-        }
-        guard phase != 0, phase > voicePhase else { return }
-        voicePhase = phase
-        say(phase == 3 ? cue : "In \(spokenDistance(distance)), \(cue)")
     }
 
     private func say(_ text: String) {
         if SettingsValues.shared.voiceGuidance { voice.speak(text) }
-    }
-}
-
-/// Distance as a driver would say it, for the spoken prompts.
-private func spokenDistance(_ meters: Double) -> String {
-    switch meters {
-    case 1500...: return "\(Int((meters / 1000).rounded())) kilometers"
-    case 950...: return "1 kilometer"
-    case 100...: return "\(Int((meters / 100).rounded()) * 100) meters"
-    default: return "\(Int((meters / 10).rounded()) * 10) meters"
     }
 }
 
