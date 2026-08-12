@@ -139,9 +139,35 @@ final class NavModel: ObservableObject {
     private var voicePhase = 0
     private var startAnnounced = false
 
+    /// Spoken guidance being switched off has to cut the prompt already in
+    /// flight, which is what the car does (car/NavScreen.kt:479-480). Without
+    /// this, muting mid-drive finishes the sentence — and the toggle is not
+    /// reachable from the full-screen nav cover, so the only way to silence it
+    /// was to leave navigation. Register entry 12, first sub-bug.
+    ///
+    /// A property and not a local: `Watcher.watch` holds the subscription for
+    /// the object's life and `cancel()` tears down its whole scope, so it is
+    /// cancelled in `deinit` and never in `stop()` — `stop()` runs on every
+    /// `.onDisappear` and a cancelled watcher cannot be re-watched.
+    private let voiceWatch = SettingsFlows.shared.voiceGuidance()
+
     private static let voiceFarM = 800.0
     private static let voiceNearM = 300.0
     private static let voiceNowM = 80.0
+
+    init() {
+        voiceWatch.watch { [weak self] in
+            // `watch` fires once with the current value as well as on every
+            // change; stopping a synthesizer that is not speaking is a no-op,
+            // so no edge detection is needed here.
+            guard self?.voiceWatch.value == false else { return }
+            self?.voice.stop()
+        }
+    }
+
+    deinit {
+        voiceWatch.cancel()
+    }
 
     func start(route: RouteResult) {
         self.route = route
