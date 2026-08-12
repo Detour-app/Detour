@@ -172,10 +172,15 @@ final class NavModel: ObservableObject {
         }
         let distance = p.distanceToTurnMeters
         let phase: Int
+        // Inclusive, matching the car's `distance <= VOICE_NOW_M`
+        // (car/NavScreen.kt:305-310). `..<` and `<=` disagree at exactly 800,
+        // 300 and 80 m — a measure-zero event on a real GPS stream, and a
+        // guaranteed one in any test written against either surface. Register
+        // entry 12.
         switch distance {
-        case ..<Self.voiceNowM: phase = 3
-        case ..<Self.voiceNearM: phase = 2
-        case ..<Self.voiceFarM: phase = 1
+        case ...Self.voiceNowM: phase = 3
+        case ...Self.voiceNearM: phase = 2
+        case ...Self.voiceFarM: phase = 1
         default: phase = 0
         }
         let cue = instruction.text.isEmpty ? "Continue" : instruction.text
