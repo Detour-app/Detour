@@ -168,7 +168,8 @@ the 7.0 m/s bar unless you are specifically testing the probe path.
 
 ```sh
 .claude/skills/detour-gps-replay/scripts/gpx2route.py <in.gpx> <out.txt> \
-    [--interval-ms 1000] [--stop-span 12] [--stop-kmh 8] [--pull-away-kmh 20] [--trim M]
+    [--interval-ms 1000] [--stop-span 12] [--stop-kmh 8] [--pull-away-kmh 20] [--trim M] \
+    [--max-kmh 200]
 ```
 
 This implements everything in the two sections below: it resamples against the track's own
@@ -247,6 +248,31 @@ interval is held. Do not shorten it to a single interval: 25 m covered in one 10
 reports 90 km/h on that fix and can by itself trip the auto-start gate. **Both thresholds
 assume the 25 m decimation**; a source that was not decimated (a raw fix log from another
 recorder) needs `--stop-span 0` and its stops replayed from its own low-speed samples.
+
+### The outlier clamp, for sources this app did not export
+
+`--max-kmh` (default **200**) drops any sample whose implied speed from the last kept point
+exceeds it, and lets the resampler interpolate across the hole. `--max-kmh 0` disables it.
+
+It exists because the three thresholds above are not the only thing calibrated to Detour's own
+exporter. The app discards fixes looser than `MAX_START_ACCURACY_M = 25f` and decimates the
+stored trace to 25 m, so its GPX never contains a position spike. A third-party log has been
+through neither gate: OSM public trace 1741287 carries a sample implying **341.2 km/h**, which
+at 1 Hz is a 95 m jump between consecutive lines. That corrupts the recorded trip's
+`topSpeedMps` — one of the two headline numbers in the A/B protocol below — and two compounding
+spikes can trip the 500 m segment break and split the trace where nothing happened.
+
+**200 km/h**, because the threshold has to sit above every speed a vehicle could plausibly have
+been doing and below every speed only a fix error produces: posted limits top out at 130 km/h
+in the geography these fixtures cover, the existing three fixtures peak at 134 km/h, and a real
+motorcycle burst can reach 180. A tighter clamp would truncate a genuine top speed and falsify
+the baseline it exists to protect.
+
+Two more checks that go with it, when the source is somebody else's log rather than the app's
+own export: **screen candidates by p90 speed**, because filtering on stop count alone selects
+for pedestrians and a cycling trace never arms the 7.0 m/s auto-start gate; and watch for the
+converter's `warning: N consecutive samples rejected` — a run of drops is a relocation, not a
+spike, and interpolating across it fabricates a straight line at a speed nobody drove.
 
 ## The A/B protocol
 

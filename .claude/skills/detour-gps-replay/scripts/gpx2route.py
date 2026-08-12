@@ -31,6 +31,25 @@ plausible pull-away speed (--pull-away-kmh), rather than teleporting the whole 2
 final interval: a 25 m jump in one 1000 ms interval would report 90 km/h on that fix and can
 by itself trip the auto-start speed gate.
 
+The outlier clamp (--max-kmh) and why the default is 200: Detour's own GPX exports never
+needed one, because the app had already discarded anything looser than MAX_START_ACCURACY_M
+(25 m) and decimated the stored trace to 25 m spacing before it was ever written out. A
+third-party log — an OSM public trace, a raw fix log from another recorder — has been through
+none of that, and consumer GPS produces single-sample position spikes. OSM trace 1741287
+contains a sample implying 341.2 km/h; at a 1000 ms interval that is a 95 m jump between
+consecutive lines, which corrupts the recorded trip's topSpeedMps (one of the A/B protocol's
+two headline baseline numbers) and, if two spikes compound, trips the 500 m segment break in
+addTracePoint and splits the trace where nothing happened.
+
+200 km/h is the threshold because it has to sit above every speed a vehicle could plausibly
+have been doing and below every speed only a fix error produces. The fastest posted limit
+anywhere these fixtures live is 130 km/h (BE/NL/FR motorway), the existing three fixtures top
+out at 134 km/h, and an unrestricted-Autobahn or track-day motorcycle burst can genuinely
+reach 180. Clamping at, say, 150 would silently truncate a real top speed and quietly falsify
+the very baseline the clamp exists to protect; 200 leaves that headroom while still catching a
+341 km/h spike by a wide margin. It is a heuristic, not a constant in the codebase — pass
+--max-kmh 0 to disable it for a source you know is already clean.
+
 Reads a GPX, writes a route file. Touches no device and no repo file.
 """
 
@@ -96,6 +115,47 @@ def load_track(path):
     return [(lat, lon, (t - t0).total_seconds()) for lat, lon, t in pts]
 
 
+def drop_outliers(track, max_kmh):
+    """Drop points whose implied speed from the last *kept* point exceeds max_kmh.
+
+    Anchoring on the last kept point rather than the immediate predecessor is what makes a
+    single-sample spike disappear cleanly: the out-hop is rejected, and the point after it is
+    then measured against the point before the spike, which is a normal speed, so only the bad
+    sample is lost. The resampler interpolates straight across the hole, so a dropped point
+    costs a little geometric detail and nothing else.
+
+    Samples that do not advance the clock are counted separately, not as outliers. A 10 Hz
+    recorder (openpilot device logs on OSM are one) repeats a timestamp often, and a repeated
+    timestamp implies infinite speed by arithmetic while implying nothing at all about the
+    vehicle. They are still dropped — a sample that cannot be placed on the timeline distinctly
+    is not usable as an interval boundary — but reporting them as 'inf km/h outliers' would send
+    the reader hunting for a spike that is not there.
+
+    Returns (track, dropped, worst_kmh, longest_run, no_clock). A long run of consecutive drops
+    is not a spike — it is a genuine relocation (a recorder resuming after a tunnel, a log with
+    two drives concatenated), and interpolating across it fabricates a straight line at a speed
+    nobody drove. Reported so the caller can refuse rather than quietly smooth it over.
+    """
+    kept = [track[0]]
+    worst = 0.0
+    dropped = run = longest_run = no_clock = 0
+    for pt in track[1:]:
+        span = pt[2] - kept[-1][2]
+        if span <= 0:
+            no_clock += 1
+            continue
+        implied = haversine(kept[-1][:2], pt[:2]) / span * 3.6
+        if implied > max_kmh:
+            dropped += 1
+            run += 1
+            longest_run = max(longest_run, run)
+            worst = max(worst, implied)
+            continue
+        run = 0
+        kept.append(pt)
+    return kept, dropped, worst, longest_run, no_clock
+
+
 def trim_ends(track, metres):
     """Drop `metres` from each end. A trace's endpoints are the identifying addresses."""
     cum = [0.0]
@@ -129,14 +189,35 @@ def main():
     ap.add_argument("--trim", type=float, default=0.0, metavar="M",
                     help="drop M metres from each end, so a route can be kept without "
                          "publishing where the drive started and finished")
+    ap.add_argument("--max-kmh", type=float, default=200.0,
+                    help="drop a sample implying more than this and interpolate across it; "
+                         "0 disables. Third-party GPS logs were never accuracy-gated by "
+                         "this app and do contain position spikes (default 200)")
     args = ap.parse_args()
 
     if args.interval_ms <= 0:
         ap.error("--interval-ms must be positive")
     if args.pull_away_kmh <= 0:
         ap.error("--pull-away-kmh must be positive")
+    if args.max_kmh < 0:
+        ap.error("--max-kmh must not be negative (0 disables the clamp)")
 
     track = load_track(args.gpx)
+    if args.max_kmh > 0:
+        track, dropped, worst, run, no_clock = drop_outliers(track, args.max_kmh)
+        if no_clock:
+            print(f"dropped {no_clock} sample(s) that did not advance the clock (a repeated "
+                  f"timestamp; common in 10 Hz logs) — not outliers")
+        if dropped:
+            print(f"outlier clamp: dropped {dropped} sample(s) implying more than "
+                  f"{args.max_kmh:.0f} km/h, worst {worst:.1f} km/h; longest consecutive "
+                  f"run {run}")
+            if run > 3:
+                print(f"warning: {run} consecutive samples rejected — that is a relocation, "
+                      f"not a spike, and the resampler will fabricate a straight line across "
+                      f"it. Inspect the source before trusting this route.", file=sys.stderr)
+        if len(track) < 2:
+            sys.exit(f"--max-kmh {args.max_kmh:.0f} left under 2 points; raise it")
     if args.trim > 0:
         track = trim_ends(track, args.trim)
 
