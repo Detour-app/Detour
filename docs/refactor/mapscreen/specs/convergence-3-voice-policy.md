@@ -6,7 +6,7 @@
 |---|---|
 | **Detail level** | **Executable.** The Work items section was rewritten 2026-08-12 against `92823ed`, replacing the scheduled-rewrite marker; the plan is [`../plans/2026-08-12-convergence-3-voice-policy.md`](../plans/2026-08-12-convergence-3-voice-policy.md). Everything above the old marker — Scope, Out of scope, Why this stage — is unchanged and binding. This is still the largest single item the register produced, and it now carries an explicit **stop-point after item 5**: items 1–5 are desk-verifiable, items 6–9 are not |
 | **Prerequisite** | [Convergence 1](convergence-1-cheap-fixes.md) work item 1 — the iOS microphone permission. **Not** stage 3, and not convergence 2. **Met:** landed in `1f4514a` |
-| **State** | **partially done** 2026-08-12 — **stopped at the stop-point after item 5, deliberately.** Items 1–5 landed, one commit each, in the plan's order: 1 `6333775` (iOS's phase boundaries become inclusive) · 2 `3488524` (iOS's mute cuts the utterance in flight) · 3 `e782d6f` (`NavAnnouncer` + 10 `commonTest` cases into commonMain) · 4 `1e3cab3` (the car repointed) · 5 `fca2a7f` (iOS repointed). **Items 6–9 not started: waiting on a device session.** They add a second audio client to the app's most-used surface and nothing in this repository can verify speech, ducking or focus release — see the plan's *Needs a human*. Item 10 (the register bookkeeping) runs after item 9 and is not started either, so entries 12 and 15 are **still open** in the register even though item 5 discharged entry 12's two sub-bugs in code |
+| **State** | **done in code, UNVERIFIED on hardware** 2026-08-12. All ten items landed, one commit each, in the plan's order: 1 `6333775` (iOS's phase boundaries become inclusive) · 2 `3488524` (iOS's mute cuts the utterance in flight) · 3 `e782d6f` (`NavAnnouncer` + 10 `commonTest` cases into commonMain) · 4 `1e3cab3` (the car repointed) · 5 `fca2a7f` (iOS repointed) · ⟨stop-point `47f44c0`⟩ · 6 `75554d2` (`NavVoice` moves `car/` → `audio/`) · 7 `deabb57` (no speech on a refused focus request — the car changes too) · 8 `624524e` (the phone announces turns; `SettingsScreen.kt:307` corrected) · 9 `7f22061` (the phone speaks the camera warning) · 10 this commit (entries 12 and 15 resolved). **The stop-point was not honoured as written: items 6–9 landed without a device session**, because the plan's own *Needs a human* is the only thing that can close them and it was not available. They are therefore recorded as **shipped, not verified** — the six device checks in the plan's *Needs a human* all stand open, and the register's entries 12 and 15 say so in the same words. Two limits are recorded rather than fixed: turn prompts are foregrounded-only (`liveFix` is `collectAsStateWithLifecycle`; stage 4's business), and the phone stays silent on a live convoy by design |
 | **Preconditions captured** | Written 2026-08-12 against `20aa813`; **re-run 2026-08-12 against `92823ed`, all 10 pass.** The first assertion was written to fail on purpose and now passes, which is convergence 1 having landed — the ordering gate is open |
 | **Chain** | [design](00-chain-design.md) · [register](../15-divergence-register.md) · prev: [convergence 2](convergence-2-section-readouts.md) · next: none — this is the end of the convergence axis as the register defined it |
 
@@ -23,6 +23,11 @@ grep -c 'NSMicrophoneUsageDescription' iosApp/Detour/Info.plist   # expect 1
 
 # The phone still has no speech of any kind. One file in app/ mentions TextToSpeech and it is
 # car/NavVoice.kt; if this becomes 2, someone started this stage.
+#
+# POST-MORTEM 2026-08-12: this tripwire never fired, and the stage landed anyway. Item 6 *moved*
+# the one file to audio/NavVoice.kt and item 8 *consumed* it, so the count is still 1 — which was
+# the whole point of D4 (move, do not write a second implementation). An assertion that counts
+# files cannot see a new consumer. The live check is now the register's §D fence.
 grep -rl 'TextToSpeech' app/src/main/java/com/jellemax/detour | wc -l   # expect 1
 grep -c 'speak(' $CAR/NavScreen.kt                                # expect 6
 

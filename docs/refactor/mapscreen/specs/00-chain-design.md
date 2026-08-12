@@ -86,6 +86,17 @@ important structural decision in this directory.
    convergence commit that changed iOS behaviour reverts across two languages and, if commonMain
    is involved, across a published contract.
 
+**The convergence axis is complete, as the register defined it** (2026-08-12). Convergence 3
+closed §C.1 item 6 — the last item on the register's order of work — with all four §C decisions
+discharged: 1 (full parity, the phone speaks), 2, 3 and 4. §A's four remaining *needs-a-human*
+entries — 14 (the watch's discarded instruction text), 18 (the HUD at a standstill), 19 (distance
+quantisation) and 21 (catch-up order) — stay **one-line answers in the register** and do **not**
+get a fourth spec: each is a product question with no code shape to plan, and the register's own
+warning applies to any successor list (*"If this list grows past six, the register has stopped
+working."*). What the axis did **not** close is verification: convergence 3's phone-audio items
+landed without the device session their plan requires, so entries 12 and 15 are resolved in code
+and open on hardware. The structure axis is unaffected and continues from stage 3.
+
 **Where they touch: exactly one place.** Stage 3's **Consumed decisions** section. It records the
 five register entries stage 3 consumes and what each does to its scope; the only forward edge is
 that convergence 2 cannot start until stage 3 has landed `SectionAverageTracker`, because it

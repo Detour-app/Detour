@@ -1147,6 +1147,34 @@ inclusive boundaries and its `voice.stop()`-on-mute, both applied to iOS.** The 
 `shared/` candidate under the *"a policy earns the core when it is written more than once"* rule —
 with delivery per platform, per the `CircleEvents.kt` shape.
 
+**RESOLVED — `e782d6f` (policy), `1e3cab3` (car), `fca2a7f` (iOS), `75554d2` + `deabb57` +
+`624524e` (phone), in favour of decision 1's full parity.** The ladder, `spokenDistance` and the
+phase latch are now `NavAnnouncer` in `shared/…/data/NavAnnouncer.kt` with ten `commonTest` cases,
+and all three navigating surfaces call it. The two sub-bugs went the way this entry recommended:
+the boundary is inclusive, the car's (`6333775`), and iOS's mute cuts the utterance in flight
+(`3488524`). The phone's half took three commits rather than one because a move, a behaviour
+change and a feature may not share one: `NavVoice` moved out of `car/` into `audio/` (`75554d2`),
+stopped speaking over a refused focus request (`deabb57`, which changes the head unit too), and
+then drove the phone's nav loop (`624524e`).
+
+**Two things this entry did not know.** First, the announcement policy needs **no clock** — the
+latch is path-dependent over the distance sequence, not over time, and neither copy read a
+timestamp. Second, the phone's second audio client is not the user's music but Detour's own
+convoy service, which holds `AUDIOFOCUS_GAIN_TRANSIENT` and forces `MODE_IN_COMMUNICATION` for
+the life of a convoy (`convoy/ConvoyLiveService.kt:129,172-183`). The phone therefore does not
+speak while a convoy is live, which is a stricter rule than this entry's *"needs `NavVoice`'s
+audio-focus handling ported"* implied.
+
+**Still open, and recorded rather than fixed:** the phone announces turns only while the app is
+foregrounded, because `liveFix` is `collectAsStateWithLifecycle` (`MapScreen.kt:201`). Moving the
+announcer into `TripTrackingService` is a state-ownership change and belongs to stage 4.
+
+**Still UNVERIFIED, and it is most of what this entry was about.** Nothing in this repository can
+hear. The commits above compile, pass the unit suites and pass CI; **no one has confirmed that the
+phone is audible, that music ducks rather than pausing, that focus comes back between prompts, or
+that a live convoy is actually silent.** Six device checks are listed in the plan's *Needs a
+human*; until they are done, the phone's voice is *shipped*, not *verified*.
+
 **Blocks stage 3: no.** The voice policy is out of scope by name at
 `specs/stage-3-hazard-machines-to-shared.md:122-124`.
 
@@ -1305,6 +1333,18 @@ the obvious home for turn announcements too, which is a much larger change.
 **Recommendation: needs-a-human.** This is the register's clearest genuine product decision: the
 mechanism is understood, both sides have a written case, and the cost is a new dependency on the
 most-used surface.
+
+**RESOLVED — `7f22061`, decision 1's full parity.** The phone now chimes *and* speaks.
+No toast: the car's stands in for a visual the head unit has no room for, and the phone's map
+already draws the camera marker. Nothing about *when* to warn moved — `+3.0` and the `45.0`
+wedge are entry 13's and stay stage 3's `CameraWarner`, and the warning wording is still a
+literal at the delivery site so whichever of the two lands first declares it.
+
+The **UNVERIFIED** half of this entry stands: whether a spoken warning is audible over wind, and
+whether ducking a rider's music for a camera the app may be wrong about is the right trade, was
+the argument against decision 1 and is not settled by these commits. Nor is the cue itself
+observed — no camera warning has been heard on a phone; the change is one call inside an unchanged
+latch, verified by the compiler and by greps proving the latch's thresholds did not move.
 
 **Blocks stage 3: partly.** `CameraWarner` (machine 2) must decide whether it emits *"warn"* or
 *"chime / speak / toast"*. The `CircleEvents.kt` precedent that
@@ -1734,10 +1774,10 @@ items plus one open question plus a bug — so the buckets add to more than 22 b
 | 1 | Camera chime falls back to the ambient limit | product decision + bug | phone, car, wear, `README.md` | **yes** | survive: phone's fallback, staleness fixed |
 | 5 | Trip auto-detection: six rules | product decision + bug | iOS | no (out of scope) | survive: Android on 5a/b/c/e/f; **5d threshold RESOLVED `7c96bee`**, 5d gate + rest open |
 | 6 | Convoy relay: `left`, pruning, dead sockets | 5 bugs + 1 trade-off | iOS | no (out of scope) | survive: Android on 6a–6e |
-| 15 | Camera warning: chime vs chime+speak+toast | **product decision** | phone | partly | **needs-a-human** (§C1) |
+| 15 | Camera warning: chime vs chime+speak+toast | **product decision** | phone | partly | **RESOLVED `7f22061`** — full parity: chime + speak, no toast; audibility still unheard |
 | 2 | Overpass prefetch on the fix collector | plain bug | phone | **yes (ordering)** | survive: car's structure (stage 0d) |
 | 11 | Trajectcontrole adoption on car / iOS | **product decision** | car, iOS | it *is* stage 3 | **needs-a-human** (§C2) |
-| 12 | Voice: phone silent, iOS mute doesn't cut | **product decision** + bug | phone, iOS | no | **needs-a-human** (§C1) |
+| 12 | Voice: phone silent, iOS mute doesn't cut | **product decision** + bug | phone, iOS | no | **RESOLVED — policy `e782d6f`, car `1e3cab3`, iOS `fca2a7f` + `6333775` + `3488524`, phone `75554d2`/`deabb57`/`624524e`**; turn prompts foregrounded-only (stage 4), and no audio verified |
 | 20 | Place search: length, debounce, proximity | drift | car, iOS | no | survive: the phone's parameters |
 | 9 | Three-candidate roll: phone's copy vs `shared/` | product decision | phone, iOS | no | survive: `shared/` + phone's timeout |
 | 4 | Maneuver sign table, four copies, `-6` | drift | phone, wear, iOS | no | survive: car's code set, split glyph layer |
@@ -1974,8 +2014,13 @@ Concretely: `docs/refactor/mapscreen/scripts/check-divergences.sh`, one assertio
 shown **at that commit**. That is no longer true of three of them: convergence 1 resolved entry
 16's permission half and entry 8's car half, so the microphone assertion is inverted from `0` to
 `1`, the entry-8 literal assertion is corrected to `0` — it was false the day it was written, see
-entry 8 — and the car-indicator assertion is new and was never measured at `57260e4` at all. The
-expectations below are the post-convergence-1 values, measured against `7c96bee`:
+entry 8 — and the car-indicator assertion is new and was never measured at `57260e4` at all.
+
+**The fence is no longer measured at one commit, and pretending otherwise is what would rot it.**
+Entries 1, 3, 4, 6a, 10 and 16 carry their post-convergence-1 values, measured against `7c96bee`;
+entry 8's two are measured against `1c7f827` and `e6a6bf2`; and the three convergence-3 assertions
+at the end of the fence were first measured against `7f22061` and did not exist before it. When
+you add an assertion, say which commit produced its number.
 
 ```sh
 M=app/src/main/java/com/jellemax/detour/ui/MapScreen.kt
@@ -2014,6 +2059,15 @@ check 'the head unit has an off-route indicator' 1 \
 # Entry 10 — the car search call that drops both routing flags.
 check 'car search still routes without the avoid-* settings' 1 \
     "$(grep -c 'RoutingServer.route(config, from, result.location, TravelMode.CAR.ghProfile)$' $CAR/SearchScreen.kt)"
+
+# Entry 12 — RESOLVED. The policy exists once and all three surfaces call it.
+check 'the announce ladder lives only in :shared' 1 \
+    "$(grep -rl 'FAR_METERS = 800.0' shared/src/commonMain | wc -l)"
+check 'no surface kept its own ladder' 0 \
+    "$(grep -c 'VOICE_FAR_M\|voiceFarM' $CAR/NavScreen.kt iosApp/Detour/NavScreen.swift | grep -c ':[1-9]')"
+# Entry 15 — RESOLVED. Inverted on purpose: 0 means the phone went quiet again.
+check 'the phone speaks the camera warning' 1 \
+    "$(grep -c 'announceAloud("Speed camera ahead")' "$M")"
 ```
 
 Note the two **inverted** assertions. `check-preconditions.sh`'s header comment explains why they

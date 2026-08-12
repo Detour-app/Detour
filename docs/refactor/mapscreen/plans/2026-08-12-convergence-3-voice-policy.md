@@ -1381,8 +1381,12 @@ grep -c 'rememberUpdatedState' $M                    # expect 9 — must not dro
 grep -c '+ 3.0' $M                                   # expect 1 — entry 13 untouched
 grep -c '45.0' $M                                    # expect 1 — entry 13 untouched
 grep -c 'toneGen?.startTone' $M                      # expect 1 — Task 9 has not run yet
-grep -c 'on the car screen' app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt  # expect 0
+grep -c 'on the car screen' app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt  # expect 1
 ```
+
+  **That last expectation was `0` as written and it was wrong** — see the corrected Done Criterion.
+  `:431` (the position marker: *"on the phone map and on the car screen"*) is a different setting
+  and is still true after this stage. Only `:307` changes; the surviving hit is `:431`.
 
   `announceAloud`'s count depends on how many call sites land; assert the *declaration* plus the
   turn prompt plus the reroute cue as a minimum of 3, and read the diff for the rest rather than
@@ -1709,7 +1713,15 @@ than a fourth spec.
       iosApp/Detour/NavScreen.swift` is 0.
 - [ ] The phone announces turns and the camera warning, honours `Settings.voiceGuidance` including
       mid-drive, and stays silent on refused focus and on a live convoy.
-- [ ] `grep -c 'on the car screen' app/…/ui/SettingsScreen.kt` is 0.
+- [x] ~~`grep -c 'on the car screen' app/…/ui/SettingsScreen.kt` is 0.~~ **Corrected 2026-08-12
+      while executing item 8: this criterion was wrong and driving it to 0 would have deleted a
+      true sentence.** There are **two** occurrences and only one belongs to item 8:
+      `:307` — *"Turn instructions read aloud on the car screen"*, the voice setting's description,
+      which item 8 makes false; and `:431` — *"Drawn where you are, on the phone map and on the car
+      screen"*, the position-marker setting, which is true before and after this stage and is
+      untouched. The criterion is: **`:307` no longer says the setting is car-only, and
+      `grep -c 'on the car screen'` is 1, not 0** — the surviving hit being `:431`. Both lines were
+      read before either was edited.
 - [ ] `grep -c 'voice.stop()' iosApp/Detour/NavScreen.swift` is 2 and
       `grep -c 'case ..<Self.voiceNowM'` is 0.
 - [ ] **Entry 13 untouched:** `+3.0` still 1 in `MapScreen.kt` and 1 in `car/NavScreen.kt`, `45.0`
@@ -1771,6 +1783,26 @@ are navigation sessions with audio, so none of them qualifies for a desk-only ch
 how many greps pass. Task 3 is the one genuinely cheap item and is also the one most likely to be
 assumed rather than tested — run the tests, read the failures.
 
+### Greps in this plan that count this plan's own comments
+
+Recorded 2026-08-12 while executing items 6–9, and left in rather than silently edited, because the
+pattern repeats and the next plan will do it again: **four `grep -c … # expect 0` checks are
+defeated by the very comment text the plan dictates two steps earlier.** The intent of each holds;
+the number does not.
+
+| Step | Grep | Expected | Actual | Why |
+|---|---|---|:-:|---|
+| 6.3 | `androidx.car` in `audio/NavVoice.kt` | 0 | **1** | Step 6.1's new KDoc says *"never depended on a single `androidx.car` type"*. `grep -c '^import androidx.car'` is 0, which is the real check. |
+| 7.3 | `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK` | 1 | **2** | Pre-existing, not caused by this plan: a KDoc `[AudioManager.…]` link plus the code. It was 2 at `92823ed` too. |
+| 9.2 | `CameraWarner` in `shared/commonMain` + `app/` | 0 | **1** | Step 9.1's dictated comment names `CameraWarner` as the wording's home. Stage 3 genuinely has not landed. |
+| 8.5 / Done | `on the car screen` in `SettingsScreen.kt` | 0 | **1** | Two occurrences, one true — corrected above. |
+
+Batch 1 hit the same class twice in Step 3.3 (`TextToSpeech\|…\|java\.` and `nowMs\|Clock`, both
+matched by `NavAnnouncer.kt`'s KDoc). **Write the assertion against code, not against text:** anchor
+on `^import`, or strip comments first. One stale citation, too — Step 9.1's comment pointed at
+`car/NavScreen.kt:424-426` for the car's speak-the-camera argument; item 4 (`1e3cab3`) deleted ~30
+lines from that file, so it is `:392-394` and the landed comment says so.
+
 ## Needs a human
 
 Six things, none optional if the corresponding commit is to be called verified. Until each is done
@@ -1808,6 +1840,42 @@ the commit stands as **unverified** in the Status block — do not substitute a 
 **Head unit or DHU, Task 4** is a seventh if a unit is available: confirm the car's prompts are
 unchanged after the repoint. It is the lowest-risk item here (the extracted code is the car's own,
 under test) which is exactly why it is easiest to skip and worth naming.
+
+### Added 2026-08-12, while executing items 6–10
+
+**Items 6–9 landed without the device session the stop-point demands.** That was a deliberate
+call, recorded in the spec's Status as *shipped, not verified* rather than papered over — but it
+means the six checks above are not a formality, they are the whole of items 7, 8 and 9's
+verification. Three more came out of writing the code, and none of them existed when the list was
+first drafted:
+
+8. **Android phone, Task 8 — the Hub round trip tears the engine down and rebuilds it.**
+   `navVoice` is `remember`ed in `MapScreen`'s composition and `AppRoot` swaps screens with a bare
+   `AnimatedContent` and no `rememberSaveableStateHolder`
+   (`detour-compose-state-hazards` §5), so leaving the map for the Hub disposes the composition and
+   runs `onDispose { navVoice.shutdown() }` — a full `TextToSpeech.shutdown()`, not a pause. Coming
+   back constructs a second engine. **Confirm that guidance still speaks after a Hub visit, and
+   that it speaks after several**, because an OEM engine that does not survive repeated
+   create/shutdown cycles fails silently and looks exactly like the setting being off. Note while
+   there that `navigating` is plain `remember` (`MapScreen.kt:230`), so the Hub visit already ends
+   the nav session — that part is pre-existing and stage 4's, not this stage's.
+9. **Android phone, Task 8 — the focus release on a screen swap, not just on Exit.**
+   `stopNavigation()` is *not* called when the composition is disposed; the only thing that hands
+   the focus back on that path is `onDispose`. Navigate with music playing, go to the Hub **without**
+   pressing Exit, and confirm the music returns to full volume. This is the one leak path the Exit
+   button does not cover and it is invisible from here.
+10. **Android phone, Task 8 — `activeConvoyId` is a proxy, and the plan says so in a comment.**
+    `FriendsScreen.kt:678-683` records that `activeConvoyId` and *"`ConvoyLiveService` is actually
+    running"* are not exactly the same thing. Check both edges: a convoy joined but the live
+    service stopped (*does the phone speak again?* — it should), and the service running with
+    `activeConvoyId` momentarily null during connect/reconnect (*does one prompt get through?*).
+    If the proxy is wrong in the second direction, the fix is a new observable on
+    `ConvoyLiveClient`, which is a §B-bug-shaped change and not a plan edit.
+
+**Nothing in items 6–9 was heard.** The honest summary of this batch: the Kotlin compiles, R8 is
+happy, both unit suites pass, CI is green, and every grep in the plan that is about *code* holds.
+Not one claim about *sound* — audible, ducked, released, silent-on-convoy — has any evidence behind
+it, and none is obtainable in this repository.
 
 ## Next
 
