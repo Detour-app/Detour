@@ -30,6 +30,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.jellemax.detour.R
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.NavInstruction
 import com.jellemax.detour.data.RoadRoulette
@@ -49,22 +50,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.ZonedDateTime
 import kotlin.math.max
-import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 private const val TAG = "DetourNav"
 
 private const val CAMERA_FETCH_MARGIN_M = 1000.0
 private const val CAMERA_FETCH_THROTTLE_MS = 15_000L
-
-// Where the spoken prompts land, in metres before the turn. Three of them: one
-// early enough to change lane on a fast road, one to commit, and one at the
-// turn itself. Each fires at most once per instruction, and a step that starts
-// closer than a threshold simply skips it — in town that usually means only the
-// last two are heard.
-private const val VOICE_FAR_M = 800.0
-private const val VOICE_NEAR_M = 300.0
-private const val VOICE_NOW_M = 80.0
 
 /** Fallback pace for the "time to the next turn" estimate when the router gave
  *  no travel time, ~50 km/h. Only feeds the cluster's step ETA. */
@@ -104,6 +95,12 @@ class NavScreen(
 
     private val navigationManager = carContext.getCarService(NavigationManager::class.java)
     private val voice = NavVoice(carContext)
+
+    /** The ladder, the latch and the wording: `:shared`'s, so the head unit,
+     *  the phone and iOS cannot word the same maneuver differently. One per
+     *  session — it holds per-instruction state. */
+    private val announcer = NavAnnouncer()
+
     private val toneGen = runCatching { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90) }.getOrNull()
 
     private var route = initialRoute
@@ -122,12 +119,6 @@ class NavScreen(
     /** What the template last showed, so an unchanged screen isn't rebuilt and
      *  re-sent over the projection link once a second. */
     private var templateKey: String? = null
-
-    // Voice bookkeeping: which instruction is being announced, and how far
-    // through its three prompts we are.
-    private var voiceStepKey = Int.MIN_VALUE
-    private var voicePhase = 0
-    private var startAnnounced = false
 
     private var speedCameras: List<SpeedCameras.Camera> = emptyList()
     private var camerasCenter: LatLon? = null
@@ -258,7 +249,7 @@ class NavScreen(
             NavPolicy.Decision.Reroute -> {
                 rerouting = true
                 lastRerouteMs = now
-                speak("Rerouting")
+                speak(announcer.rerouting())
                 lifecycleScope.launch {
                     try {
                         val fresh = withContext(Dispatchers.IO) {
@@ -272,9 +263,7 @@ class NavScreen(
                         // Instruction indices belong to the old polyline; start the
                         // prompts for the new one from scratch, "Rerouting" followed
                         // by what the new line asks for next.
-                        voiceStepKey = Int.MIN_VALUE
-                        voicePhase = 0
-                        startAnnounced = false
+                        announcer.routeChanged()
                         templateKey = null
                     } catch (e: Exception) {
                         // stay on the old line; retried after the cooldown
@@ -294,33 +283,11 @@ class NavScreen(
         if (Settings.voiceGuidance.value) voice.speak(text)
     }
 
-    /** Announces the upcoming maneuver as it comes up, once per threshold. */
+    /** Speaks whatever [NavAnnouncer] says is due for this fix. The decision
+     *  and the words are the core's; this screen only decides that speech is
+     *  how the head unit delivers them. */
     private fun announce(p: NavEngine.Progress) {
-        val instruction = p.nextInstruction ?: return
-        if (instruction.startIndex != voiceStepKey) {
-            voiceStepKey = instruction.startIndex
-            voicePhase = 0
-        }
-        val distance = p.distanceToTurnMeters
-        val phase = when {
-            distance <= VOICE_NOW_M -> 3
-            distance <= VOICE_NEAR_M -> 2
-            distance <= VOICE_FAR_M -> 1
-            else -> 0
-        }
-        val cue = instruction.text.ifBlank { "Continue" }
-        // The first prompt of the drive ignores the thresholds: pressing Start
-        // and being told nothing for the next 3 km is indistinguishable from
-        // voice being broken.
-        if (!startAnnounced) {
-            startAnnounced = true
-            voicePhase = phase
-            speak(if (phase == 3) cue else "In ${spokenDistance(distance)}, $cue")
-            return
-        }
-        if (phase == 0 || phase <= voicePhase) return
-        voicePhase = phase
-        speak(if (phase == 3) cue else "In ${spokenDistance(distance)}, $cue")
+        announcer.onProgress(p.nextInstruction, p.distanceToTurnMeters)?.let { speak(it) }
     }
 
     // ---- host state -------------------------------------------------------
@@ -573,14 +540,6 @@ private fun carDistance(meters: Double): Distance {
 private fun displayMeters(meters: Double): Long =
     if (meters < 1000.0) (meters / 10.0).roundToLong() * 10
     else (meters / 100.0).roundToLong() * 100
-
-/** Distance as a driver would say it, for the spoken prompts. */
-private fun spokenDistance(meters: Double): String = when {
-    meters >= 1500.0 -> "${(meters / 1000.0).roundToInt()} kilometers"
-    meters >= 950.0 -> "1 kilometer"
-    meters >= 100.0 -> "${(meters / 100.0).roundToInt() * 100} meters"
-    else -> "${(meters / 10.0).roundToInt() * 10} meters"
-}
 
 /** A car [Step] for [instruction]: the spoken/written cue plus a maneuver icon.
  *  Null when there is no instruction to show. */
