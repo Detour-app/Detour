@@ -22,14 +22,14 @@ Markdown.
 
 **Spec:** [`../specs/convergence-1-cheap-fixes.md`](../specs/convergence-1-cheap-fixes.md) — its
 Scope, Out of scope and Work items are binding. **Its 13 preconditions were re-run against the
-working tree at `04a9323` and all 13 pass**, including the two inverted ones the spec flags as
+working tree at `5c4b8a3` and all 13 pass**, including the two inverted ones the spec flags as
 having come back contradicting the register.
 
 **Register:** [`../15-divergence-register.md`](../15-divergence-register.md) — entry 16 / §B5
 (item 1), entry 8 + §C decision 4 (items 2 and 3), entry 5d + §C decision 3 (item 4). This plan
 cites those entries; it does not restate their arguments.
 
-**Every line number below was derived with `grep -n` against the tree at `04a9323` on
+**Every line number below was derived with `grep -n` against the tree at `5c4b8a3` on
 `refactor/mapscreen-split`, with a clean working tree** (only `.devcontainer/` untracked). Three
 documents in this chain have carried wrong citations and register entry 8 was false in the commit
 that created it — re-derive before trusting any number here if anything has landed since.
@@ -107,7 +107,7 @@ Nothing new is created. Seven files are edited across four commits.
 
 ## Task 1: iOS declares and requests the microphone permission
 
-Register entry 16 / §B5. Verified at `04a9323`: `grep -c 'NSMicrophoneUsageDescription'
+Register entry 16 / §B5. Verified at `5c4b8a3`: `grep -c 'NSMicrophoneUsageDescription'
 iosApp/Detour/Info.plist` is **0**, `grep -rl 'requestRecordPermission\|AVAudioApplication'
 iosApp/ | wc -l` is **0**, and `PttAudio.swift:41` activates a `.playAndRecord` session.
 
@@ -341,7 +341,7 @@ Spec item 2, plus the resolutions for items 1, 3 and 4. **No code.** Entry 8's c
 already landed and this task records that; the spec is right that it is a bookkeeping item, not a
 code item.
 
-Verified at `04a9323`:
+Verified at `5c4b8a3`:
 
 ```sh
 grep -c 'NavPolicy.OFF_ROUTE_METERS' app/src/main/java/com/jellemax/detour/ui/MapScreen.kt  # 1
@@ -359,7 +359,7 @@ grep -c 'offRouteMeters ?: 0.0) > 60' app/src/main/java/com/jellemax/detour/ui/M
                         )
 ```
 
-`git show 1c7f827 -- .../ui/MapScreen.kt` confirms it: that commit — `docs(refactor): register
+`git show 7d57087 -- .../ui/MapScreen.kt` confirms it: that commit — `docs(refactor): register
 every cross-surface divergence before stage 3`, the commit that *added* the register — changed
 exactly that one expression, and its message's last paragraph says so. **So the register's entry 8
 asserted a literal that its own commit had just deleted.** Do not re-fix it; record it.
@@ -370,7 +370,7 @@ asserted a literal that its own commit had just deleted.** Do not re-fix it; rec
       paragraph and the `kotlin` fence quoting the bare `60`) with:
 
 ```markdown
-But the banner did not come along until `1c7f827` folded it in. `app/…/ui/MapScreen.kt:1426-1427`
+But the banner did not come along until `7d57087` folded it in. `app/…/ui/MapScreen.kt:1426-1427`
 now reads:
 
 ```kotlin
@@ -378,8 +378,8 @@ offRoute = (navProgress?.offRouteMeters ?: 0.0) >
     NavPolicy.OFF_ROUTE_METERS,
 ```
 
-**RESOLVED (constant half) — `1c7f827`, in favour of `NavPolicy.OFF_ROUTE_METERS`.** The bare `60`
-this entry was written against was already gone when the entry was committed: `1c7f827` is the
+**RESOLVED (constant half) — `7d57087`, in favour of `NavPolicy.OFF_ROUTE_METERS`.** The bare `60`
+this entry was written against was already gone when the entry was committed: `7d57087` is the
 commit that added this register and it carried the one-line change in its own diff. The prose here
 and the §D assertion below both claimed the literal still existed and were false the day they were
 written — corrected in place rather than deleted, so the shape of the mistake stays on record.
@@ -439,7 +439,7 @@ check 'iOS declares a microphone usage description' 1 \
 - [ ] `:1971-1973` — the entry-8 assertion, whose expectation the spec already corrected to 0:
 
 ```sh
-# Entry 8 — RESOLVED by 1c7f827. Inverted on purpose: 1 means the literal came back.
+# Entry 8 — RESOLVED by 7d57087. Inverted on purpose: 1 means the literal came back.
 check 'the 60 literal is gone' 0 \
     "$(grep -c 'offRouteMeters ?: 0.0) > 60' "$M")"
 ```
@@ -451,7 +451,7 @@ check 'the head unit has an off-route indicator' 1 \
     "$(grep -c '"Off route"' $CAR/NavScreen.kt)"
 ```
 
-- [ ] Update the sentence at `:1942-1943` that says every assertion *"was run against `57260e4`
+- [ ] Update the sentence at `:1942-1943` that says every assertion *"was run against `a0f7f42`
       and produces the count shown"* — it is no longer true of the three assertions above.
 
 ### Step 2.6 — §A rows and the Status blocks
@@ -480,7 +480,7 @@ check 'the head unit has an off-route indicator' 1 \
 ```
 docs(refactor): resolve the four convergence-1 register entries
 
-Entry 8's constant half needed no code: 1c7f827, the commit that added the
+Entry 8's constant half needed no code: 7d57087, the commit that added the
 register, already replaced MapScreen's bare 60 with NavPolicy.OFF_ROUTE_METERS
 and said so in its message. Entry 8's prose and its §D assertion both claimed
 the literal still existed, so that entry was false in its own first commit.
@@ -500,7 +500,7 @@ and drops the claim that every assertion in that fence was measured green.
 ## Task 3: a persistent off-route indicator on the head unit
 
 Register entry 8's second half, §C decision 4 (*"DECIDED: yes, add the indicator"*). Verified at
-`04a9323`: `grep -rl 'Off route' app/src/main/java/com/jellemax/detour/car | wc -l` is **0**, and
+`5c4b8a3`: `grep -rl 'Off route' app/src/main/java/com/jellemax/detour/car | wc -l` is **0**, and
 `grep -c 'speak("Rerouting")' .../car/NavScreen.kt` is **1** (`NavScreen.kt:258`) — one spoken
 cue, nothing persistent.
 
@@ -655,7 +655,7 @@ grep -c 'CarAppApiLevels.LEVEL_5' $CAR/NavScreen.kt             # expect 1
 - [ ] Tier 0, in the devcontainer:
 
 ```sh
-.claude/skills/detour-staged-refactor/scripts/tier0-greps.sh 04a9323 \
+.claude/skills/detour-staged-refactor/scripts/tier0-greps.sh 5c4b8a3 \
     app/src/main/java/com/jellemax/detour/car/NavScreen.kt
 docker exec -u 1000:1000 -w /workspaces/Detour recursing_volhard \
     ./gradlew :app:compileDebugKotlin
@@ -707,7 +707,7 @@ unit test — the builders need a CarContext and there is no Robolectric here.
 
 ## Task 4: iOS's "stopped" threshold becomes `2.0 m/s`
 
-§C decision 3, entry 5d's threshold half. Verified at `04a9323`:
+§C decision 3, entry 5d's threshold half. Verified at `5c4b8a3`:
 `grep -c 'if speed > 1.0' iosApp/Detour/TripRecorder.swift` is **1** (`:280`), and
 `grep -c 'if (speed > 2.0) lastMovingMs = now'
 app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt` is **1** (`:1069`).

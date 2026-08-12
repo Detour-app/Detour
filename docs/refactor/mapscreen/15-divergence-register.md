@@ -3,7 +3,7 @@
 Companion to [`13-surface-independence-audit.md`](13-surface-independence-audit.md), and an
 input to [`specs/stage-3-hazard-machines-to-shared.md`](specs/stage-3-hazard-machines-to-shared.md).
 
-Read-only, no build. Every claim re-derived from the tree at **`57260e4`** on
+Read-only, no build. Every claim re-derived from the tree at **`a0f7f42`** on
 `refactor/mapscreen-split`. Where audit 13 cites a `MapScreen.kt` line number, that citation is
 stale — the file went 3204 → 1553 lines across stages 1 and 2 — so every line number below was
 re-derived with `grep -n` rather than carried forward.
@@ -125,7 +125,7 @@ extraction.** The stale-limit half is a bug (§B1) and is not a product decision
 car's omission has no written rationale, and its `git blame` shows it was never a decision at
 all (see below).
 
-**RESOLVED (staleness half) — `d452d5b`, in favour of the car's reset.** Of the two shapes offered
+**RESOLVED (staleness half) — `bac833a`, in favour of the car's reset.** Of the two shapes offered
 at `:108-110` — keep the tracker running while navigating, or clear the value — the fix takes the
 second, because it is the one the car already ships with a written rationale and because keeping
 the producer running would put a second Overpass fetch on the fix collector during navigation,
@@ -519,7 +519,7 @@ if (speed > 2.0) lastMovingMs = now
 if (autoStarted && now - lastMovingMs > STATIONARY_END_MS) {
 ```
 
-iOS, `TripRecorder.swift:291-296` — as found, before `7c96bee` raised the threshold:
+iOS, `TripRecorder.swift:291-296` — as found, before `3928ce0` raised the threshold:
 
 ```swift
 if speed > 1.0 {
@@ -593,11 +593,11 @@ went wrong.
 promptly when you park, `2.0` refuses to end one while you are still pushing the bike into the
 garage. Both are defensible and this register is not entitled to pick.
 
-**RESOLVED (5d threshold) — `7c96bee`, §C decision 3, in favour of Android's `2.0 m/s`.**
+**RESOLVED (5d threshold) — `3928ce0`, §C decision 3, in favour of Android's `2.0 m/s`.**
 The rationale is now written beside the constant in `iosApp/Detour/TripRecorder.swift`, which is
 what neither surface had.
 
-**RESOLVED (5d gate) — `f8b0f5f`, in favour of Android's `autoStarted` gate.** The stationary end
+**RESOLVED (5d gate) — `35b8993`, in favour of Android's `autoStarted` gate.** The stationary end
 is now reached only for trips the iOS recorder started itself; a hand-started recording is the
 user's to end. The "moving" stamp still updates either way, as Android's does. **Unobserved:**
 nothing in this repo runs the iOS app, so this was verified by reading the two recorders against
@@ -764,7 +764,7 @@ And: **fix 6a and 6b in iOS Swift now, do not wait for the extraction.** They ar
 branch and a timer, they are user-visible today, and the extraction they are waiting for is a
 programme that has not been scheduled.
 
-**RESOLVED (6a and 6b) — `73f9311`, in favour of Android's rules, in Swift, without waiting for a
+**RESOLVED (6a and 6b) — `aff8407`, in favour of Android's rules, in Swift, without waiting for a
 `shared/` protocol.** `case "left"` removes the user from `peers` and `talking` exactly as the
 Kotlin branch does, and a 5 s sweep matching `PEER_PRUNE_INTERVAL_MS` now runs for the life of the
 connection loop — alongside it as on Android rather than per connection attempt, since peers held
@@ -847,7 +847,7 @@ decides to fetch a new route. Those two use the same distance, written twice.
 two call sites and one test file; **no third copy of the policy survives.** Stage 2's
 deduplication is real.
 
-But the banner did not come along until `1c7f827` folded it in. `app/…/ui/MapScreen.kt:1426-1427`
+But the banner did not come along until `7d57087` folded it in. `app/…/ui/MapScreen.kt:1426-1427`
 now reads:
 
 ```kotlin
@@ -860,8 +860,8 @@ As written, this entry said instead: *a bare `60`*, feeding `NavigationBottomBar
 and *the car has **no off-route indicator at all*** — it speaks `"Rerouting"` once
 (`app/…/car/NavScreen.kt:258`) and shows nothing persistent.
 
-**RESOLVED (constant half) — `1c7f827`, in favour of `NavPolicy.OFF_ROUTE_METERS`.** The bare `60`
-this entry was written against was already gone when the entry was committed: `1c7f827` is the
+**RESOLVED (constant half) — `7d57087`, in favour of `NavPolicy.OFF_ROUTE_METERS`.** The bare `60`
+this entry was written against was already gone when the entry was committed: `7d57087` is the
 commit that added this register and it carried the one-line change in its own diff. The prose here
 and the §D assertion below both claimed the literal still existed and were false the day they were
 written — corrected in place rather than deleted, so the shape of the mistake stays on record.
@@ -885,7 +885,7 @@ optional change.
 **Recommendation: survive — `NavPolicy.OFF_ROUTE_METERS`, one-line change.** The car banner is
 **needs-a-human** and should not ride along.
 
-**RESOLVED (car indicator) — `e6a6bf2`, decision 4 answered yes.** The head unit's
+**RESOLVED (car indicator) — `6551f37`, decision 4 answered yes.** The head unit's
 destination card now turns red and reads "Off route" while `p.offRouteMeters` exceeds
 `NavPolicy.OFF_ROUTE_METERS`. Two commits as decision 4 required, and the mechanical half was not
 one of them because it had already landed.
@@ -1024,7 +1024,7 @@ specifically has no way to express that today anyway.
 
 **Recommendation: bug — fix on its own** (§B3). Two arguments added to one call.
 
-**RESOLVED — `716f393`.** `SearchScreen.navigateTo` passes `Settings.avoidHighways.value` and
+**RESOLVED — `c7f698a`.** `SearchScreen.navigateTo` passes `Settings.avoidHighways.value` and
 `Settings.avoidSmallRoads.value`, so all five request sites now agree and a trip started from car
 search no longer changes its routing policy on its first reroute. **Still open:** the same line's
 hardcoded `TravelMode.CAR.ghProfile` (this entry's second half, also at `SpinScreen.kt:333`),
@@ -1183,15 +1183,15 @@ inclusive boundaries and its `voice.stop()`-on-mute, both applied to iOS.** The 
 `shared/` candidate under the *"a policy earns the core when it is written more than once"* rule —
 with delivery per platform, per the `CircleEvents.kt` shape.
 
-**RESOLVED — `e782d6f` (policy), `1e3cab3` (car), `fca2a7f` (iOS), `75554d2` + `deabb57` +
-`624524e` (phone), in favour of decision 1's full parity.** The ladder, `spokenDistance` and the
+**RESOLVED — `c95b19d` (policy), `c9547ee` (car), `fb59b8e` (iOS), `e7cb39f` + `31b2ba5` +
+`d682603` (phone), in favour of decision 1's full parity.** The ladder, `spokenDistance` and the
 phase latch are now `NavAnnouncer` in `shared/…/data/NavAnnouncer.kt` with ten `commonTest` cases,
 and all three navigating surfaces call it. The two sub-bugs went the way this entry recommended:
-the boundary is inclusive, the car's (`6333775`), and iOS's mute cuts the utterance in flight
-(`3488524`). The phone's half took three commits rather than one because a move, a behaviour
-change and a feature may not share one: `NavVoice` moved out of `car/` into `audio/` (`75554d2`),
-stopped speaking over a refused focus request (`deabb57`, which changes the head unit too), and
-then drove the phone's nav loop (`624524e`).
+the boundary is inclusive, the car's (`4e45f4a`), and iOS's mute cuts the utterance in flight
+(`04b0f98`). The phone's half took three commits rather than one because a move, a behaviour
+change and a feature may not share one: `NavVoice` moved out of `car/` into `audio/` (`e7cb39f`),
+stopped speaking over a refused focus request (`31b2ba5`, which changes the head unit too), and
+then drove the phone's nav loop (`d682603`).
 
 **Two things this entry did not know.** First, the announcement policy needs **no clock** — the
 latch is path-dependent over the distance sequence, not over time, and neither copy read a
@@ -1370,7 +1370,7 @@ the obvious home for turn announcements too, which is a much larger change.
 mechanism is understood, both sides have a written case, and the cost is a new dependency on the
 most-used surface.
 
-**RESOLVED — `7f22061`, decision 1's full parity.** The phone now chimes *and* speaks.
+**RESOLVED — `ae32722`, decision 1's full parity.** The phone now chimes *and* speaks.
 No toast: the car's stands in for a visual the head unit has no room for, and the phone's map
 already draws the camera marker. Nothing about *when* to warn moved — `+3.0` and the `45.0`
 wedge are entry 13's and stay stage 3's `CameraWarner`, and the warning wording is still a
@@ -1412,7 +1412,7 @@ if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
     != PackageManager.PERMISSION_GRANTED) { return@detectTapGestures }
 ```
 
-iOS has neither. **As found** (pre-`1f4514a`; see the RESOLVED marker below, and note the line
+iOS has neither. **As found** (pre-`858dc1e`; see the RESOLVED marker below, and note the line
 numbers in this entry are the ones it was written against):
 `grep -n '<key>' iosApp/Detour/Info.plist` lists
 `NSLocationWhenInUseUsageDescription` (`:30`), `NSLocationAlwaysAndWhenInUseUsageDescription`
@@ -1439,7 +1439,7 @@ means iOS push-to-talk cannot legitimately capture audio.
   `ConvoyLiveClient.sendPttStart()`. iOS sends it first — `iosApp/Detour/ConvoyBar.swift:96-98`
   sets `transmitting = true`, calls `sendPttStart()`, *then* `PttAudio.shared.startCapture`, which
   has three silent `return` paths (`PttAudio.swift:86, :92, :119`). **A failed start leaves every
-  peer with a lit "talking" badge and no audio.** Still open after `1f4514a`, which added a
+  peer with a lit "talking" badge and no audio.** Still open after `858dc1e`, which added a
   permission gate above this block and did not reorder it.
 - **The button is live while the socket is down on iOS.** Android gates on
   `visible = convoyConnected && activeConvoyId != null` (`app/…/ui/MapScreen.kt:1321`); iOS on
@@ -1463,7 +1463,7 @@ means iOS push-to-talk cannot legitimately capture audio.
 **Recommendation: bug — three separate fixes** (§B5). The permission is an `Info.plist` key plus a
 request; the frame ordering is a statement move; the visibility gate is one `&&`.
 
-**RESOLVED (permission only) — `1f4514a`.** `NSMicrophoneUsageDescription` is declared and
+**RESOLVED (permission only) — `858dc1e`.** `NSMicrophoneUsageDescription` is declared and
 the press path asks for the record permission before capture. **Still open:** the `sendPttStart()`
 ordering and the socket-down visibility gate, both deliberately left out of that commit. The
 severity of the original state — termination versus silent failure — is still **UNVERIFIED** and
@@ -1793,7 +1793,7 @@ entry in the register where iOS is the better copy.
 
 - **6 are plain bugs** — one side is wrong, not different. §B. Four were found by this register and
   are not filed anywhere; one is `maxke24/Detour#21`; one is already scheduled as stage 0d.
-  **Four of the six are now fixed** — B1 `d452d5b`, B2 `f8b0f5f`, B3 `716f393`, B6 `73f9311`, one
+  **Four of the six are now fixed** — B1 `bac833a`, B2 `35b8993`, B3 `c7f698a`, B6 `aff8407`, one
   commit each. **Two remain:** B4 (entry 2, the Overpass stall, waiting on stage 0d and a replay
   route) and the open two thirds of B5 (entry 16's `sendPttStart()` ordering and visibility gate).
 - **12 have a defensible better copy on the evidence** and need no decision: 2, 4, 6a–6e, 7, 8, 9,
@@ -1809,25 +1809,25 @@ items plus one open question plus a bug — so the buckets add to more than 22 b
 
 | # | Divergence | Kind | Surfaces affected | Blocks stage 3 | Verdict |
 |---|---|---|---|:-:|---|
-| 16 | **iOS PTT has no microphone permission at all** | **bug** | iOS | no | **permission RESOLVED `1f4514a`**; ordering + socket gate open (§B5) |
-| 1 | Camera chime falls back to the ambient limit | product decision + bug | phone, car, wear, `README.md` | **yes** | survive: phone's fallback; **staleness RESOLVED `d452d5b`** (the car's reset), fallback for the car is stage 3's |
-| 5 | Trip auto-detection: six rules | product decision + bug | iOS | no (out of scope) | survive: Android on 5a/b/c/e/f; **5d RESOLVED — threshold `7c96bee`, gate `f8b0f5f`**; rest open |
-| 6 | Convoy relay: `left`, pruning, dead sockets | 5 bugs + 1 trade-off | iOS | no (out of scope) | survive: Android on 6a–6e; **6a + 6b RESOLVED `73f9311`**; 6c–6e open |
-| 15 | Camera warning: chime vs chime+speak+toast | **product decision** | phone | partly | **RESOLVED `7f22061`** — full parity: chime + speak, no toast; audibility still unheard |
+| 16 | **iOS PTT has no microphone permission at all** | **bug** | iOS | no | **permission RESOLVED `858dc1e`**; ordering + socket gate open (§B5) |
+| 1 | Camera chime falls back to the ambient limit | product decision + bug | phone, car, wear, `README.md` | **yes** | survive: phone's fallback; **staleness RESOLVED `bac833a`** (the car's reset), fallback for the car is stage 3's |
+| 5 | Trip auto-detection: six rules | product decision + bug | iOS | no (out of scope) | survive: Android on 5a/b/c/e/f; **5d RESOLVED — threshold `3928ce0`, gate `35b8993`**; rest open |
+| 6 | Convoy relay: `left`, pruning, dead sockets | 5 bugs + 1 trade-off | iOS | no (out of scope) | survive: Android on 6a–6e; **6a + 6b RESOLVED `aff8407`**; 6c–6e open |
+| 15 | Camera warning: chime vs chime+speak+toast | **product decision** | phone | partly | **RESOLVED `ae32722`** — full parity: chime + speak, no toast; audibility still unheard |
 | 2 | Overpass prefetch on the fix collector | plain bug | phone | **yes (ordering)** | survive: car's structure (stage 0d) |
 | 11 | Trajectcontrole adoption on car / iOS | **product decision** | car, iOS | it *is* stage 3 | **needs-a-human** (§C2) |
-| 12 | Voice: phone silent, iOS mute doesn't cut | **product decision** + bug | phone, iOS | no | **RESOLVED — policy `e782d6f`, car `1e3cab3`, iOS `fca2a7f` + `6333775` + `3488524`, phone `75554d2`/`deabb57`/`624524e`**; turn prompts foregrounded-only (stage 4), and no audio verified |
+| 12 | Voice: phone silent, iOS mute doesn't cut | **product decision** + bug | phone, iOS | no | **RESOLVED — policy `c95b19d`, car `c9547ee`, iOS `fb59b8e` + `4e45f4a` + `04b0f98`, phone `e7cb39f`/`31b2ba5`/`d682603`**; turn prompts foregrounded-only (stage 4), and no audio verified |
 | 20 | Place search: length, debounce, proximity | drift | car, iOS | no | survive: the phone's parameters |
 | 9 | Three-candidate roll: phone's copy vs `shared/` | product decision | phone, iOS | no | survive: `shared/` + phone's timeout |
 | 4 | Maneuver sign table, four copies, `-6` | drift | phone, wear, iOS | no | survive: car's code set, split glyph layer |
 | 17 | Car free-drive map ignores speed-adaptive zoom | drift | car | no | survive: the shared rule |
-| 10 | Car search drops the avoid-* settings | plain bug | car | no | **RESOLVED `716f393`**; the same line's hardcoded car profile is still open |
+| 10 | Car search drops the avoid-* settings | plain bug | car | no | **RESOLVED `c7f698a`**; the same line's hardcoded car profile is still open |
 | 19 | Distance-to-turn: metres vs 100 m steps | product decision | phone, wear, iOS | no | **needs-a-human**, low stakes |
 | 7 | `fetchLocation`, five one-shot lookups | drift | phone, car | no | survive: high-accuracy shape, parameterised |
 | 18 | Speed HUD fades at standstill on the phone only | product decision | phone or car | constrains it | **needs-a-human**, "leave both" is fine |
 | 21 | Catch-up order reversed; iOS lacks a self-filter | product decision + gap | one platform, iOS | no | **needs-a-human** on order; survive the filter |
 | 14 | Wear discards the instruction text | product decision (small) | wear | no | **needs-a-human** (§C4-adjacent) |
-| 8 | `60` literal vs `NavPolicy.OFF_ROUTE_METERS` | latent | phone | no | **RESOLVED — constant `1c7f827`, car indicator `e6a6bf2`** |
+| 8 | `60` literal vs `NavPolicy.OFF_ROUTE_METERS` | latent | phone | no | **RESOLVED — constant `7d57087`, car indicator `6551f37`** |
 | 22 | Trip dates: fixed pattern vs locale-derived | drift | phone | no | survive: **iOS's** |
 | 3 | Camera easing `dt` clamp, 0.1 vs 0.25 | not really divergent | either | no | leave both; unify the other seven constants |
 | 13 | `+5` / `+3.0` / `45.0` literals | not yet divergent | phone, car, wear | consumed by it | survive: both values, hoisted |
@@ -1858,13 +1858,13 @@ left behind) and **9** (the inline three-candidate roll). Both belong in a stage
 One side is wrong, not different. Each gets its own commit, and none of them is a decision.
 `DECISION.md:394-400` — *"Never in one commit: … an extraction **and** the bug it reveals"*.
 
-**Status: four of six fixed** — B1 `d452d5b`, B3 `716f393`, B2 `f8b0f5f`, B6 `73f9311`, in that
+**Status: four of six fixed** — B1 `bac833a`, B3 `c7f698a`, B2 `35b8993`, B6 `aff8407`, in that
 order, one commit each, each verified against the tree before it was fixed. B4 and B5's remaining
 two thirds are open. Every one of the four line-number citations below was re-derived and held; the
 line numbers themselves had drifted (stage 2 and the voice work moved `MapScreen.kt`), so each
 resolution marker names the code rather than the line.
 
-**B1 — `ambientSpeedLimitKmh` is never reset, so it is stale twice over.** **RESOLVED — `d452d5b`.**
+**B1 — `ambientSpeedLimitKmh` is never reset, so it is stale twice over.** **RESOLVED — `bac833a`.**
 `app/…/ui/MapScreen.kt:733-734` gates the producer off while `navigating`, and nothing clears the
 value (`grep -n 'ambientSpeedLimitKmh'` → `241, 757, 762, 848, 1361`; the only writers are a
 successful snap and three consecutive misses). Two symptoms:
@@ -1892,7 +1892,7 @@ map's"; every constant matches (margin 500 m, throttle 10 s, min 2.0 m/s, 3 miss
 does not. Not filed upstream. Found by this register. A reviewer diffing the two copies without
 reading this could reasonably conclude the car is right outright.
 
-`d452d5b` clears both the sign and the miss counter at the top of the producer's
+`bac833a` clears both the sign and the miss counter at the top of the producer's
 `LaunchedEffect(navigating)`, so every transition in either direction resets them — the car's rule,
 in the phone's idiom. Reproduced before fixing: the only writers really were the snap and the
 three-miss clear, both inside the gated collector, and both consumers really did read the frozen
@@ -1901,23 +1901,23 @@ behaviour: during navigation a route segment with no `maxspeed` now chimes on no
 a stale sign. **No test** — the rule lives in a Compose effect, and reaching it from a JVM test
 means extracting the ambient tracker, which is stage 3's machine 3 and may not share this commit.
 
-**B2 — iOS auto-ends manually started trips.** **RESOLVED — `f8b0f5f`.**
+**B2 — iOS auto-ends manually started trips.** **RESOLVED — `35b8993`.**
 `iosApp/Detour/TripRecorder.swift:291-296` runs the
 5-minute stationary end-of-trip check unconditionally; Android gates it on `autoStarted`
 (`app/…/tracking/TripTrackingService.kt:1082`). A user who starts a recording by hand and then
 stops for five minutes — a coffee, a photo, a long queue — loses the rest of it. Not filed
 upstream. Found by this register.
 
-`f8b0f5f` gates the end — not the "moving" stamp, which Android also keeps updating — on the
+`35b8993` gates the end — not the "moving" stamp, which Android also keeps updating — on the
 `startedAutomatically` flag iOS already tracked for `endTrip`'s false-positive rule and simply never
 consulted here. **Not observable here:** nothing in this repo runs the iOS app. On a device: start a
 recording by hand, stand still for six minutes, confirm it is still recording. **No test** —
 `iosApp/` has no test target, and CI's JVM/Native tests cover `:shared` only.
 
-**B3 — The car's search screen drops the routing preferences.** **RESOLVED — `716f393`.** Entry 10.
+**B3 — The car's search screen drops the routing preferences.** **RESOLVED — `c7f698a`.** Entry 10.
 `app/…/car/SearchScreen.kt:138`. Not filed upstream. Found by this register. Two arguments.
 
-`716f393` adds exactly those two arguments, so all five request sites agree. Verified before and
+`c7f698a` adds exactly those two arguments, so all five request sites agree. Verified before and
 after against all five sites, and it compiles (`:app:compileDebugKotlin`). The one behaviour change
 that *is* checkable at a desk — nothing else on that call moved — is that the head unit's search now
 honours settings it was ignoring; the travel-mode half of entry 10 is untouched. **No test:** one
@@ -1931,7 +1931,7 @@ deferred pending replay route (ii).
 `iosApp/Detour/Info.plist` and no permission request anywhere in `iosApp/`, against
 `PttAudio.swift:83` activating a `.playAndRecord` session. Three fixes, three commits: the
 permission, the `sendPttStart()` ordering (`ConvoyBar.swift:96-98`), and the visibility gate
-(`ConvoyBar.swift:22`). **One of the three has landed:** the permission, in `1f4514a` — the key is
+(`ConvoyBar.swift:22`). **One of the three has landed:** the permission, in `858dc1e` — the key is
 declared and `PttAudio.capturePermission()` gates the press. **The ordering and the visibility gate
 remain open**, deliberately kept out of that commit so neither hides in its diff. Not filed
 upstream. Found by this register. **The severity — process termination versus silent failure — is
@@ -1939,14 +1939,14 @@ UNVERIFIED and must be confirmed on a device.** The missing key and the missing 
 verified.
 
 **B6 — iOS drops convoy peers that left and never prunes ones that go quiet.** **RESOLVED —
-`73f9311`.** Entry 6a and 6b. A
+`aff8407`.** Entry 6a and 6b. A
 `case "left"` branch (`ConvoyLiveClient.swift`, absent) and a periodic sweep to match
 `PEER_PRUNE_INTERVAL_MS` (`app/…/net/ConvoyLiveClient.kt:401`). Not filed upstream. Found by this
 register. Fix in Swift now — do not wait for a `shared/` extraction of the protocol, which is a
 programme nobody has scheduled. Related and in the same area: iOS's mute does not stop the
 utterance in flight (entry 12, one `voice.stop()` call).
 
-`73f9311` adds both: the `left` branch, and a `prunePeersPeriodically()` task owned by the
+`aff8407` adds both: the `left` branch, and a `prunePeersPeriodically()` task owned by the
 connection loop rather than by one connection attempt, so peers do not sit frozen through a backoff
 either. Reproduced before fixing — the Swift switch really had nine cases and no `left`, and
 `pruneStalePeers()` really had exactly one caller, in the inbound `location` branch. **Not
@@ -2086,21 +2086,21 @@ non-zero exit on any failure).
 
 Concretely: `docs/refactor/mapscreen/scripts/check-divergences.sh`, one assertion per entry, each a
 `grep -c` of the *quoted text* with an expected count, using the same `check`/`fails` harness as
-`check-preconditions.sh`. Every assertion below was run against `57260e4` and produced the count
+`check-preconditions.sh`. Every assertion below was run against `a0f7f42` and produced the count
 shown **at that commit**. That is no longer true of three of them: convergence 1 resolved entry
 16's permission half and entry 8's car half, so the microphone assertion is inverted from `0` to
 `1`, the entry-8 literal assertion is corrected to `0` — it was false the day it was written, see
-entry 8 — and the car-indicator assertion is new and was never measured at `57260e4` at all.
+entry 8 — and the car-indicator assertion is new and was never measured at `a0f7f42` at all.
 
 **The fence is no longer measured at one commit, and pretending otherwise is what would rot it.**
-Entries 1, 3, 4, 6a, 10 and 16 carry their post-convergence-1 values, measured against `7c96bee`;
-entry 8's two are measured against `1c7f827` and `e6a6bf2`; and the three convergence-3 assertions
-at the end of the fence were first measured against `7f22061` and did not exist before it. When
+Entries 1, 3, 4, 6a, 10 and 16 carry their post-convergence-1 values, measured against `3928ce0`;
+entry 8's two are measured against `7d57087` and `6551f37`; and the three convergence-3 assertions
+at the end of the fence were first measured against `ae32722` and did not exist before it. When
 you add an assertion, say which commit produced its number.
 
-The §B bug fixes moved six more. Measured against `73f9311`: entry 1's new reset assertion (`2`),
+The §B bug fixes moved six more. Measured against `aff8407`: entry 1's new reset assertion (`2`),
 entry 5d's gate (`1`), entry 10's two (`0` and `1`, the second new), and entry 6a's — inverted from
-`0` to `1` — plus 6b's sweep (`2`), which is new and was never measured at `57260e4` either. Four of
+`0` to `1` — plus 6b's sweep (`2`), which is new and was never measured at `a0f7f42` either. Four of
 those five are absences that became presences, so four assertions flipped direction in one pass:
 that is the register working as designed, and it is also why the fence is a script and not a table.
 
@@ -2128,7 +2128,7 @@ check 'the -6 roundabout-exit branch is still car-only' 1 \
 check 'iOS declares a microphone usage description' 1 \
     "$(grep -c 'NSMicrophoneUsageDescription' iosApp/Detour/Info.plist)"
 
-# Entries 6a and 6b — RESOLVED by 73f9311. Both were absences, so both are now
+# Entries 6a and 6b — RESOLVED by aff8407. Both were absences, so both are now
 # inverted: 0 means the left branch or the sweep was lost again. The pruner
 # counts 2 — the definition and the one place the connection loop starts it.
 check 'iOS handles the relay left frame' 1 \
@@ -2136,12 +2136,12 @@ check 'iOS handles the relay left frame' 1 \
 check 'iOS prunes quiet peers on a timer' 2 \
     "$(grep -c 'prunePeersPeriodically' iosApp/Detour/ConvoyLiveClient.swift)"
 
-# Entry 5d's gate — RESOLVED by f8b0f5f. Inverted: 0 means a hand-started iOS
+# Entry 5d's gate — RESOLVED by 35b8993. Inverted: 0 means a hand-started iOS
 # trip can auto-end again.
 check 'iOS only auto-ends trips it auto-started' 1 \
     "$(grep -c 'else if startedAutomatically,' iosApp/Detour/TripRecorder.swift)"
 
-# Entry 1's staleness half (§B1) — RESOLVED by d452d5b. NOTE the count is 2, not
+# Entry 1's staleness half (§B1) — RESOLVED by bac833a. NOTE the count is 2, not
 # 1: the three-miss clear inside the collector and the reset above the navigating
 # gate both null the same field. A count of 1 means the reset went away — which
 # is the whole bug — and this is the assertion stage 3 must keep green when
@@ -2149,15 +2149,15 @@ check 'iOS only auto-ends trips it auto-started' 1 \
 check 'the ambient limit is still reset on the navigating transition' 2 \
     "$(grep -c 'ambientSpeedLimitKmh = null' "$M")"
 
-# Entry 8 — RESOLVED by 1c7f827. Inverted on purpose: 1 means the literal came back.
+# Entry 8 — RESOLVED by 7d57087. Inverted on purpose: 1 means the literal came back.
 check 'the 60 literal is gone' 0 \
     "$(grep -c 'offRouteMeters ?: 0.0) > 60' "$M")"
 
-# Entry 8, car half — RESOLVED by e6a6bf2. The head unit's persistent indicator.
+# Entry 8, car half — RESOLVED by 6551f37. The head unit's persistent indicator.
 check 'the head unit has an off-route indicator' 1 \
     "$(grep -c '"Off route"' $CAR/NavScreen.kt)"
 
-# Entry 10 — RESOLVED by 716f393. Both halves of the old assertion are kept: the
+# Entry 10 — RESOLVED by c7f698a. Both halves of the old assertion are kept: the
 # flag-less call must stay gone, and the flags must stay passed.
 check 'car search no longer routes without the avoid-* settings' 0 \
     "$(grep -c 'RoutingServer.route(config, from, result.location, TravelMode.CAR.ghProfile)$' $CAR/SearchScreen.kt)"

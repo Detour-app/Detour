@@ -6,8 +6,8 @@
 |---|---|
 | **Detail level** | Intent + constraints. **The Work items section requires a rewrite before use** — see below. |
 | **Prerequisite** | [Stage 2](stage-2-pure-extractions.md) complete |
-| **State** | not started — **blocked on evidence.** The blocking product call (register decision 2) was made 2026-08-12, yes to all three surfaces (`20aa813`); see [Consumed decisions](#consumed-decisions). Route (i) now exists (`09fddde`) and the stage-0 baseline landed (`306a70f`), but **the baseline captured no section events**: both Overpass mirrors refused connections throughout that run, so the average-speed chip machine 1 is measured against was never observed. Needs a 17-minute re-run of `trajectcontrole.txt` once Overpass answers. 12 pass, 1 fail on 2026-08-12 |
-| **Preconditions captured** | 2026-08-11; re-run 2026-08-12 against `20aa813` — 11 pass, 1 fail (the missing baseline directory). An earlier run read 9 pass with 2 informational: `chain-status.sh` could not judge `# expect 1  (camera-warn latch)`, because it treated the explanatory parenthetical as part of the expected value and silently ungated the assertion. Fixed in the script rather than by rewording the specs, since seven assertions across stages 2 and 3 were affected |
+| **State** | not started — **blocked on evidence.** The blocking product call (register decision 2) was made 2026-08-12, yes to all three surfaces (`5613e59`); see [Consumed decisions](#consumed-decisions). Route (i) now exists (`5fc8e90`) and the stage-0 baseline landed (`e313a28`), but **the baseline captured no section events**: both Overpass mirrors refused connections throughout that run, so the average-speed chip machine 1 is measured against was never observed. Needs a 17-minute re-run of `trajectcontrole.txt` once Overpass answers. 12 pass, 1 fail on 2026-08-12 |
+| **Preconditions captured** | 2026-08-11; re-run 2026-08-12 against `5613e59` — 11 pass, 1 fail (the missing baseline directory). An earlier run read 9 pass with 2 informational: `chain-status.sh` could not judge `# expect 1  (camera-warn latch)`, because it treated the explanatory parenthetical as part of the expected value and silently ungated the assertion. Fixed in the script rather than by rewording the specs, since seven assertions across stages 2 and 3 were affected |
 | **Chain** | [design](00-chain-design.md) · [roadmap](../DECISION.md) · [register](../15-divergence-register.md) · prev: [stage 2](stage-2-pure-extractions.md) · next: [stage 4](stage-4-state-ownership.md) · consumed by: [convergence 2](convergence-2-section-readouts.md) |
 
 > **Scheduled rewrite.** This spec fixes the goal, the destination and the constraints, which
@@ -44,7 +44,7 @@ grep -c '^expect ' shared/src/commonMain/kotlin/com/jellemax/detour/data/Platfor
 # The baseline recordings from stage 0 exist AND captured section events.
 #
 # `test -d` was the original assertion and it was too weak: the directory landed
-# in 306a70f with two of three routes recorded cleanly, so the fence went green
+# in e313a28 with two of three routes recorded cleanly, so the fence went green
 # while the one thing machine 1 is measured against — the average-speed chip
 # appearing, settling and clearing — had never been observed. Both Overpass
 # mirrors were refusing connections during that run, so no section data reached
@@ -85,11 +85,11 @@ Then the car's copies are deleted and pointed at the core, one commit behind eac
 
 ## Blocker: the early clear is still undiagnosed, and it is not the parser
 
-The section baseline (`306a70f`, re-run `17d9da5`) found that the average-speed readout clears
+The section baseline (`e313a28`, re-run `056227d`) found that the average-speed readout clears
 a few hundred metres into a section rather than at the exit gantry. maxke24/Detour#22 read that
 as `SpeedCameras.parseSection` treating a clipped Overpass node set as complete — a section
 longer than `PREFETCH_RADIUS_M` yielding a bogus short section whose far end sits just past the
-entry. **That mechanism is refuted for these two relations** (`ce67a77`,
+entry. **That mechanism is refuted for these two relations** (`5eb03bb`,
 `SpeedCameraSectionTest` in `shared/src/commonTest/.../ParsingTest.kt`): clipped to the entry
 end, both are *rejected*, because their end clusters are 22 m and 14 m across against a 200 m
 `MIN_SPAN_M`. Clipping loses a section; it does not shorten one. So there is no parser fix to
@@ -227,7 +227,7 @@ written to prevent.
 The remaining sixteen entries, four of which are out of scope by name below: the convoy protocol
 (6), trip auto-detection (5), the nav vocabulary (4, 19) and the voice policy (12, 15's delivery
 half). Two more are stage-2 leftovers rather than stage-3 inputs — entry 8 (the off-route
-literal, whose constant half has **already landed** in `1c7f827`) and entry 9 (the inline
+literal, whose constant half has **already landed** in `7d57087`) and entry 9 (the inline
 three-candidate roll). This stage's risk section warns that all of it *"will look easy"* once
 three machines are in the core, and that they are *"each larger than all of stage 3."*
 

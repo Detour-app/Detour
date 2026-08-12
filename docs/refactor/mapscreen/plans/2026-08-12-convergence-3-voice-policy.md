@@ -22,9 +22,9 @@ Kotlin Multiplatform commonMain + commonTest (`shared/`) · Kotlin with
 
 **Spec:** [`../specs/convergence-3-voice-policy.md`](../specs/convergence-3-voice-policy.md) — its
 Scope, Out of scope, *Why this stage* and its rewritten Work items are all binding. **Its 10
-preconditions were re-run against the working tree at `92823ed` and all 10 pass**, including the
+preconditions were re-run against the working tree at `cfa113f` and all 10 pass**, including the
 first, which was written to fail on purpose and now passes because convergence 1's microphone
-permission landed in `1f4514a`:
+permission landed in `858dc1e`:
 
 ```
 mic key 1 · TextToSpeech files 1 · speak( 6 · VOICE_FAR_M 2 · voiceFarM 2 ·
@@ -38,11 +38,11 @@ decision 1 (*"full parity — port `NavVoice` to the phone"*), §C.1 item 6, and
 **constraint** rather than an input. This plan cites those entries; it does not restate their
 arguments.
 
-**Every line number below was derived with `grep -n` against the tree at `92823ed` on
+**Every line number below was derived with `grep -n` against the tree at `cfa113f` on
 `refactor/mapscreen-split`**, with a clean working tree (only `.devcontainer/` and a stray
 `detour-car-*.gpx` untracked). The spec's own Scope section and the register's entry 12 carry **eight** stale
 `car/NavScreen.kt` citations, listed in the spec's *Citations that drifted* — the file grew when
-`e6a6bf2` added the off-route indicator. Re-derive before trusting any number here if anything has
+`6551f37` added the off-route indicator. Re-derive before trusting any number here if anything has
 landed since.
 
 ## Global Constraints
@@ -135,7 +135,7 @@ Two files created, eight edited, one moved, across ten commits.
 
 ## Task 1: iOS's announce ladder gets inclusive phase boundaries
 
-Entry 12's second sub-bug. Verified at `92823ed`: `grep -c 'case ..<Self.voiceNowM'
+Entry 12's second sub-bug. Verified at `cfa113f`: `grep -c 'case ..<Self.voiceNowM'
 iosApp/Detour/NavScreen.swift` is **1** and `grep -c 'distance <= VOICE_NOW_M'
 app/…/car/NavScreen.kt` is **1** — `..<` against `<=`. At exactly 800.0, 300.0 or 80.0 m the two
 surfaces choose different phases.
@@ -206,7 +206,7 @@ iosApp/ has no test target.
 
 ## Task 2: iOS's mute stops the utterance in flight
 
-Entry 12's first sub-bug. Verified at `92823ed`: `grep -c 'voice.stop()'
+Entry 12's first sub-bug. Verified at `cfa113f`: `grep -c 'voice.stop()'
 iosApp/Detour/NavScreen.swift` is **1**, and that one is the `.onDisappear` path
 (`:42` → `stop()` at `:153-156`). Nothing reacts to `Settings.voiceGuidance` changing while the
 nav cover is up, so muting mid-drive finishes the sentence — where the car cuts it
@@ -315,7 +315,7 @@ iosApp/ has no test target.
 Spec item 3 and design decisions D1–D3. **Nothing consumes it in this commit** — that is Tasks 4
 and 5, and keeping them separate is what makes each repoint a reviewable no-op.
 
-Verified at `92823ed`: the two copies agree on `800/300/80`
+Verified at `cfa113f`: the two copies agree on `800/300/80`
 (`car/NavScreen.kt:65-67` ↔ `NavScreen.swift:142-144`), on `spokenDistance`
 (`car/NavScreen.kt:577-583` ↔ `NavScreen.swift:203-210`) and on the latch's three fields
 (`car/NavScreen.kt:128-130` ↔ `NavScreen.swift:138-140`). After Task 1 they also agree on the
@@ -778,13 +778,13 @@ grep -c 'roundToInt' $CAR/NavScreen.kt                               # expect 0
 grep -c 'roundToLong' $CAR/NavScreen.kt                              # expect 4
 grep -c '+ 3.0' $CAR/NavScreen.kt                                    # expect 1 — entry 13 untouched
 grep -c '45.0' $CAR/NavScreen.kt                                     # expect 1 — entry 13 untouched
-grep -c '"Off route"' $CAR/NavScreen.kt                              # expect 1 — e6a6bf2 untouched
+grep -c '"Off route"' $CAR/NavScreen.kt                              # expect 1 — 6551f37 untouched
 ```
 
 - [ ] Tier 0, in the devcontainer:
 
 ```sh
-.claude/skills/detour-staged-refactor/scripts/tier0-greps.sh 92823ed \
+.claude/skills/detour-staged-refactor/scripts/tier0-greps.sh cfa113f \
     app/src/main/java/com/jellemax/detour/car/NavScreen.kt
 docker exec -u 1000:1000 -w /workspaces/Detour recursing_volhard \
     ./gradlew :app:compileDebugKotlin
@@ -819,7 +819,7 @@ stays: that is the template's rounding, not the voice's.
 
 Verified: tier0-greps, compileDebugKotlin, assembleDebug, assembleRelease,
 :app: and :shared: unit tests, and greps proving the entry-13 literals (+3.0,
-45.0) and e6a6bf2's off-route indicator are untouched. No new unit test — the
+45.0) and 6551f37's off-route indicator are untouched. No new unit test — the
 extracted logic is covered by NavAnnouncerTest and what is left needs a
 CarContext, which nothing here can build.
 
@@ -953,7 +953,7 @@ type-checked for the first time by ios.yml on the pull request.
 
 ## Task 6: `NavVoice` moves out of `car/`
 
-Spec D4. Verified at `92823ed`: `car/NavVoice.kt` imports `android.content.Context`,
+Spec D4. Verified at `cfa113f`: `car/NavVoice.kt` imports `android.content.Context`,
 `android.media.{AudioAttributes,AudioFocusRequest,AudioManager}`, `android.os.{Handler,Looper}`,
 `android.speech.tts.{TextToSpeech,UtteranceProgressListener}` and `java.util.Locale` — and
 `grep -c 'androidx.car' app/src/main/java/com/jellemax/detour/car/NavVoice.kt` is **0**. It is in
@@ -1069,7 +1069,7 @@ compileDebugKotlin, assembleDebug, assembleRelease, :app: unit tests.
 Spec D5, silence 2. **A behaviour change on the car as well as the phone**, which is why it is its
 own commit and not folded into Task 8.
 
-Verified at `92823ed`: `requestFocus()` (`:138-143`) records the result in `holdingFocus` and
+Verified at `cfa113f`: `requestFocus()` (`:138-143`) records the result in `holdingFocus` and
 `speak()` (`:116-121`) then speaks regardless. `abandonFocus()` (`:145-149`) returns early when
 `holdingFocus` is false, so today a refused request means the app talks over whoever refused it and
 never abandons anything.
@@ -1205,7 +1205,7 @@ source set here, so nothing exercises TextToSpeech or AudioManager.
 
 ## Task 8: spoken turn instructions on the phone
 
-The feature. Register decision 1, entry 12's main half. Verified at `92823ed`:
+The feature. Register decision 1, entry 12's main half. Verified at `cfa113f`:
 `grep -rl 'TextToSpeech' app/src/main/java/com/jellemax/detour | wc -l` is **1** and that one file
 is `audio/NavVoice.kt` after Task 6 — the phone still says nothing.
 
@@ -1456,7 +1456,7 @@ audible, whether music ducks, or whether focus is released. See the plan's
 Entry 15's other half. Its own commit and not Task 8's, because it changes the **second** of two
 `lastFix` consumers and `detour-compose-state-hazards` §4 forbids changing two in one commit.
 
-Verified at `92823ed`: the phone's warning block is `MapScreen.kt:871-874` — a `toneGen` call and a
+Verified at `cfa113f`: the phone's warning block is `MapScreen.kt:871-874` — a `toneGen` call and a
 latch assignment, nothing else — while the car speaks and toasts at `:427-430` under a comment
 arguing exactly why (*"only the spoken one reaches a driver who is looking at the road with the
 radio on"*).
@@ -1473,7 +1473,7 @@ stage 3's `CameraWarner` and are not read, not moved and not re-declared here. S
 the interlock.
 
 **The wording.** If stage 3 has landed and `CameraWarner` already owns the warning text, take it
-from there and declare nothing. If it has not — which is the case as of `92823ed` — leave the
+from there and declare nothing. If it has not — which is the case as of `cfa113f` — leave the
 literal at the delivery site with a comment naming `CameraWarner` as its home, exactly as the
 spec's Out of scope section instructs for the delivery-site question.
 
@@ -1652,7 +1652,7 @@ check 'the phone speaks the camera warning' 1 \
     "$(grep -c 'announceAloud("Speed camera ahead")' "$M")"
 ```
 
-- [ ] Update the sentence at `:1975-1978` that dates the fence's expectations to `7c96bee` — three
+- [ ] Update the sentence at `:1975-1978` that dates the fence's expectations to `3928ce0` — three
       of its assertions are now measured against this stage instead.
 
 ### Step 10.5 — the Status blocks and the axis note
@@ -1694,7 +1694,7 @@ foregrounded, because liveFix is collectAsStateWithLifecycle. That is a
 state-ownership change and belongs to stage 4.
 
 Adds three §D assertions for entries 12 and 15, two of them inverted, and drops
-the claim that the whole fence was measured at 7c96bee. Entry 13's row is not
+the claim that the whole fence was measured at 3928ce0. Entry 13's row is not
 touched — nothing here resolved it.
 
 Closes §C.1 item 6, the last item on the register's order of work. §A's four
@@ -1793,14 +1793,14 @@ the number does not.
 | Step | Grep | Expected | Actual | Why |
 |---|---|---|:-:|---|
 | 6.3 | `androidx.car` in `audio/NavVoice.kt` | 0 | **1** | Step 6.1's new KDoc says *"never depended on a single `androidx.car` type"*. `grep -c '^import androidx.car'` is 0, which is the real check. |
-| 7.3 | `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK` | 1 | **2** | Pre-existing, not caused by this plan: a KDoc `[AudioManager.…]` link plus the code. It was 2 at `92823ed` too. |
+| 7.3 | `AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK` | 1 | **2** | Pre-existing, not caused by this plan: a KDoc `[AudioManager.…]` link plus the code. It was 2 at `cfa113f` too. |
 | 9.2 | `CameraWarner` in `shared/commonMain` + `app/` | 0 | **1** | Step 9.1's dictated comment names `CameraWarner` as the wording's home. Stage 3 genuinely has not landed. |
 | 8.5 / Done | `on the car screen` in `SettingsScreen.kt` | 0 | **1** | Two occurrences, one true — corrected above. |
 
 Batch 1 hit the same class twice in Step 3.3 (`TextToSpeech\|…\|java\.` and `nowMs\|Clock`, both
 matched by `NavAnnouncer.kt`'s KDoc). **Write the assertion against code, not against text:** anchor
 on `^import`, or strip comments first. One stale citation, too — Step 9.1's comment pointed at
-`car/NavScreen.kt:424-426` for the car's speak-the-camera argument; item 4 (`1e3cab3`) deleted ~30
+`car/NavScreen.kt:424-426` for the car's speak-the-camera argument; item 4 (`c9547ee`) deleted ~30
 lines from that file, so it is `:392-394` and the landed comment says so.
 
 ## Needs a human

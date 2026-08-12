@@ -4,7 +4,7 @@ Read-only audit of `refactor/mapscreen-split` against `main`, 2026-08-12. Every 
 measured, not estimated; the command that produced it is named where it is not obvious. Nothing
 was deleted, moved or committed — this is a proposal to approve or reject.
 
-Baseline for all measurements: `main` = `07fe490`, `HEAD` = `fc3a3c6`, merge-base diff
+Baseline for all measurements: `main` = `07fe490`, `HEAD` = `e0c49d5`, merge-base diff
 `git diff --stat main...HEAD` → **141 files changed, 82 480 insertions(+), 1 860 deletions(-)**.
 
 > This file is itself 63 KB of markdown arguing that this branch has too much markdown, which is not
@@ -49,7 +49,7 @@ a recording.
 
 ### The exposure window that existed and was not realised
 
-The file's mtime is **2026-08-12 11:41**. The `*.gpx` ignore rule landed at **`923e16c`,
+The file's mtime is **2026-08-12 11:41**. The `*.gpx` ignore rule landed at **`ba74e40`,
 2026-08-12 20:17** — an **8 h 36 min window** in which the file sat in the working tree, untracked
 and unignored, while roughly a dozen commits were made. Any `git add -A` or `git add .` in that
 window would have committed it. It did not happen. `tools/mocklocation/baseline/README.md:59` even
@@ -94,7 +94,7 @@ of the delta, and it was never committed.
 | Option | Warranted? | Cost |
 |---|---|---|
 | **Move the file out of the working tree** into the scratchpad | **Yes — do this** | One `mv`. Zero risk. |
-| Keep the `*.gpx` ignore rule | **Yes — already done** at `923e16c` | Zero |
+| Keep the `*.gpx` ignore rule | **Yes — already done** at `ba74e40` | Zero |
 | `git filter-repo` / BFG history rewrite | **No** | Would be pure cost: a force-push to `origin/refactor/mapscreen-split`, every local clone invalidated, every commit SHA in `DECISION.md`, the specs, the baseline README and the route README rewritten — for a blob that is not in history. |
 | Rotate / notify anyone | **No** | Nothing was published. |
 
@@ -174,7 +174,7 @@ is concentrated far more narrowly than it feels: **three paths hold 93.6 % of th
 
 ### One accounting note
 
-`docs/security/asvs-5.0.0-l2-detour-independent-2026-08-11.md` was added by **`18e0a91`
+`docs/security/asvs-5.0.0-l2-detour-independent-2026-08-11.md` was added by **`21a02b4`
 `docs(refactor): record stage 1 complete and fix four bookkeeping errors`**. A one-megabyte
 security assessment rode into the branch inside a refactor-bookkeeping commit, and
 `grep -rl 'asvs-5.0.0-l2-detour'` finds **no file outside `docs/security/` that references it**.
@@ -228,8 +228,8 @@ Claims checked against the files:
 So the README's numbers are sound. **What has gone stale is the indexing, and the README says so
 itself**, in a warning box it wrote against itself:
 
-> "⚠ The route files changed at `923e16c`. … Every fix index in this file was recorded against the
-> route files as they stood at `09fddde`. `923e16c` replaced all three, so **an index here does not
+> "⚠ The route files changed at `ba74e40`. … Every fix index in this file was recorded against the
+> route files as they stood at `5fc8e90`. `ba74e40` replaced all three, so **an index here does not
 > index the current route files.**" — `README.md:12-16`
 
 and per route: `trajectcontrole` **"Totally invalid. Different geometry, different direction,
@@ -239,7 +239,7 @@ different length. Nothing below transfers."** Its own Q7/Q8/Q9 rows are marked
 This is the decisive fact for the cut. Every PNG and every logcat line in this directory was
 captured against route files that **no longer exist in the tree**. They cannot be re-compared frame
 by frame against a future run, because the future run replays different geometry. What survives
-`923e16c` is exactly the set of claims expressed as latencies and yes/nos — Q1 through Q6 — and
+`ba74e40` is exactly the set of claims expressed as latencies and yes/nos — Q1 through Q6 — and
 those live in the README's prose and in the 5 KB of `*-events.tsv`.
 
 ### Evidence a human will re-read, vs. bulk a sentence replaces
@@ -308,7 +308,7 @@ image — but it is cheap and it is the version of this cut least likely to be r
 
 ### In-flight work — do not touch
 
-A sixth run is being recorded right now — `stop-start` at `2cbc5aa`. `git status` shows `README.md`
+A sixth run is being recorded right now — `stop-start` at `fca3c35`. `git status` shows `README.md`
 **modified** and ten untracked files, growing while this audit was written. On-disk the directory is
 **11 747 284 bytes** against 9 979 301 committed; the `-stall.tsv` row counts now sum to **4 155**,
 not the README's 3 909, because of the extra 246-row run.
@@ -419,7 +419,7 @@ why the older reports are now a liability:
 > 3204 → 1553 lines across stages 1 and 2 — so every line number below was re-derived with
 > `grep -n` rather than carried forward." — `15-divergence-register.md:6-8`
 
-So the register fixed its own citations and left audit 13's broken. And commit `18e0a91` made the
+So the register fixed its own citations and left audit 13's broken. And commit `21a02b4` made the
 retention policy explicit: *"The historical analysis reports keep their original wording: they are
 the record of what was believed at the time, not instructions."* That is a defensible policy for a
 document nobody will open, and a hazard for one sitting in `docs/` under a name like
@@ -613,7 +613,7 @@ classification of a file that no longer exists).
   all record that this is impossible on a modified file. Three documents currently point readers at
   those two wrong lines. Since this file is now in the **keep** set, fix them.
 - **`specs/stage-0-verification-baseline.md:9`'s `Status:` row is stale** — it says tasks 2–4 are
-  deferred, but the routes and baseline landed afterwards (`09fddde`, `306a70f`); only 0d is open.
+  deferred, but the routes and baseline landed afterwards (`5fc8e90`, `e313a28`); only 0d is open.
   This is the third instance of the Status-drift failure that `detour-staged-refactor` §6 exists to
   prevent, and `chain-status.sh` reports that row verbatim.
 
@@ -845,7 +845,7 @@ Citations to repoint or fix:
 - `12-eval-risk-sequencing.md:491` and `:761-762` — remove the `git show -M -C` rename-detection
   criterion. **This file is kept**, and three documents point at those two lines.
 - `specs/stage-0-verification-baseline.md:9` — its `Status:` row still says tasks 2–4 are deferred;
-  the routes and baseline landed at `09fddde`/`306a70f`. Only 0d is open.
+  the routes and baseline landed at `5fc8e90`/`e313a28`. Only 0d is open.
 
 `.claude/skills/detour-compose-state-hazards/SKILL.md`'s citation of
 `12-eval-risk-sequencing.md:48-159` needs **no** change — that file stays.
@@ -874,7 +874,7 @@ git rm tools/mocklocation/baseline/*.log
 # Then edit tools/mocklocation/baseline/README.md: the Artifacts table's PNG and .log
 # rows, and the 18 inline "…-<topic>.png" citations, become statements of
 # the number rather than pointers to a file. The measured values are already in the prose,
-# so this is deletion of pointers, not of findings. Keep the ⚠ 923e16c warning box and
+# so this is deletion of pointers, not of findings. Keep the ⚠ ba74e40 warning box and
 # the whole "named quantities" Q1-Q9 table verbatim — that table is the deliverable.
 git add tools/mocklocation/baseline/README.md
 git commit -m "chore(tools): keep the baseline's numbers, drop the pixels they were read from
@@ -883,7 +883,7 @@ The Q1-Q9 table, the events/stall/frame TSVs and the README's prose hold every
 conclusion. The 25 PNGs and four logcat dumps they were derived from do not:
 14 of the 25 PNGs are cited by nothing, the 11 that are cited are cited by
 sentences that already state the number, and 85% of the logcat is Samsung
-platform chatter. All of it was captured against route files that 923e16c
+platform chatter. All of it was captured against route files that ba74e40
 replaced, so none of it can be re-compared frame by frame anyway.
 
 9 979 301 -> 330 146 bytes."
@@ -895,7 +895,7 @@ replaced, so none of it can be re-compared frame by frame anyway.
 git rm docs/security/asvs-5.0.0-l2-detour-independent-2026-08-11.md
 git commit -m "chore(docs): take the ASVS report out of the refactor branch
 
-A 14 827-line independent ASVS L2 assessment arrived inside 18e0a91,
+A 14 827-line independent ASVS L2 assessment arrived inside 21a02b4,
 a stage-1 bookkeeping commit, and nothing in the repo references it.
 It is the second-largest file this branch adds and it is unrelated to
 the MapScreen refactor. It should land on its own terms."
@@ -928,7 +928,7 @@ git rm -r docs/refactor/mapscreen/verification
 
 # Then edit DECISION.md: replace the "Index of reports" section (DECISION.md:69) with a
 # line recording that the reports existed, what they concluded, and that they are
-# recoverable at fc3a3c6. Also drop the two dead references to
+# recoverable at e0c49d5. Also drop the two dead references to
 # docs/refactor/mapscreen/scripts/check-divergences.sh from 15-divergence-register.md
 # and specs/00-chain-design.md — that script was never written.
 git add docs/refactor/mapscreen/DECISION.md \
@@ -950,7 +950,7 @@ Kept: 12-eval-risk-sequencing.md, which is not an evaluation but the only copy
 of the Tier 0-3 verification checklist every spec's done-criteria name; and the
 stage-2 plan, whose write-site mapping table CameraAuthority.kt cites by name.
 
-Recoverable at fc3a3c6. 1 247 440 -> 430 471 bytes."
+Recoverable at e0c49d5. 1 247 440 -> 430 471 bytes."
 ```
 
 ### Step 6 — verify nothing regressed
@@ -968,7 +968,7 @@ grep -c 'RFCT42HS9WY' tools/mocklocation/baseline/README.md   # 13 today; redact
 
 - **No history rewrite.** No `filter-repo`, no `BFG`, no force-push. There is nothing in history to
   remove: the GPX blob was never written to the object database, and everything else being cut is
-  documentation whose presence in history is harmless and whose recoverability at `fc3a3c6` is the
+  documentation whose presence in history is harmless and whose recoverability at `e0c49d5` is the
   point.
 - **No `pm clear`, no device changes.** Out of scope.
 - **No touching `tools/mocklocation/routes/`.** That is the asset.

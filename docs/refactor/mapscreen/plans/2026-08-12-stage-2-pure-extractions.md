@@ -18,13 +18,13 @@ deliberately left with zero callers for stage 4 to judge. `MapScreen.kt` keeps e
 
 **Spec:** [`../specs/stage-2-pure-extractions.md`](../specs/stage-2-pure-extractions.md) — its
 Scope, Out of scope and Work items are binding. Preconditions re-verified against the working
-tree at base commit `4cf2977` on `refactor/mapscreen-split`: `SpinShare.kt` exists,
+tree at base commit `4259a41` on `refactor/mapscreen-split`: `SpinShare.kt` exists,
 `MapScreen.kt` is 1549 lines (inside the 1500–1700 range), the three inline policies are still
 shaped as described, `leadingSpinIndex` still has two call sites, the car's
 `Same arrival/reroute policy` comment is still there, and `.github/workflows/build.yml:118`
 still runs `:app:testDebugUnitTest :shared:testDebugUnitTest`.
 
-**Every line number in this plan was derived with `grep -n` against the tree at `4cf2977`.**
+**Every line number in this plan was derived with `grep -n` against the tree at `4259a41`.**
 The spec's own citations predate stage 1 and are wrong; re-derive before trusting any number,
 including these, if anything has landed since.
 
@@ -102,7 +102,7 @@ Items 2a, 2b and 2c are independent and may run in parallel. Two orderings are n
 | 2d | `app/src/test/java/com/jellemax/detour/map/CameraAuthorityTest.kt` | 11 tests | — |
 
 `com.jellemax.detour.map` does not exist yet (`grep -rn 'package com.jellemax.detour.map' app/`
-→ no hits at `4cf2977`). Nothing that is really UI may accumulate in it.
+→ no hits at `4259a41`). Nothing that is really UI may accumulate in it.
 
 ---
 
@@ -546,7 +546,7 @@ else referenced the three:
 grep -rn 'ARRIVE_METERS\|OFF_ROUTE_METERS\|REROUTE_COOLDOWN_MS' app/src/main/java/com/jellemax/detour/
 ```
 Expected: hits only in `map/NavPolicy.kt` and the two `NavPolicy.` references in the new car
-code. At `4cf2977` the only uses were `NavScreen.kt:243` and `:249`.
+code. At `4259a41` the only uses were `NavScreen.kt:243` and `:249`.
 
 - [ ] **Step 3: Compile, test, commit**
 
@@ -1092,7 +1092,7 @@ and stage 4 gets real code to compare against the Compose state-holder alternati
 proposals. Runs after 2c (see Sequencing).
 
 **The nine write sites it models.** Derived with `grep -n 'camSuspended\|lastGestureMs\|followMe'`
-at `4cf2977`; re-derive before writing the file.
+at `4259a41`; re-derive before writing the file.
 
 | `MapScreen.kt` | What it is | `camSuspended` | `lastGestureMs` | `followMe` | Action |
 |---|---|---|---|---|---|
@@ -1418,12 +1418,12 @@ git commit -m "refactor(map): add CameraAuthority as a tested reducer, no caller
       → `0`. In its own commit, one behind 2a.
 - [ ] `grep -rn 'CameraAuthority' app/src/main/java/com/jellemax/detour/ui app/src/main/java/com/jellemax/detour/car`
       → no hits.
-- [ ] `MapScreen.kt`'s vote-round effect (`:569-581` at `4cf2977`) has a zero-line diff across
+- [ ] `MapScreen.kt`'s vote-round effect (`:569-581` at `4259a41`) has a zero-line diff across
       the whole stage:
-      `git diff 4cf2977..HEAD -- app/src/main/java/com/jellemax/detour/ui/MapScreen.kt | grep -c 'leadingSpinIndex\|containsAll'`
+      `git diff 4259a41..HEAD -- app/src/main/java/com/jellemax/detour/ui/MapScreen.kt | grep -c 'leadingSpinIndex\|containsAll'`
       → `0`.
 - [ ] No `remember`, `rememberSaveable` or `rememberUpdatedState` declaration in `MapScreen.kt`
-      changed, and no effect key list changed. `tier0-greps.sh 4cf2977` prints every effect
+      changed, and no effect key list changed. `tier0-greps.sh 4259a41` prints every effect
       declaration the range touched; read them.
 - [ ] `leadingSpinIndex` has exactly two call sites still, both unedited, now resolved through
       an import.
@@ -1434,7 +1434,7 @@ git commit -m "refactor(map): add CameraAuthority as a tested reducer, no caller
 commit:
 
 ```sh
-.claude/skills/detour-staged-refactor/scripts/tier0-greps.sh 4cf2977
+.claude/skills/detour-staged-refactor/scripts/tier0-greps.sh 4259a41
 ./gradlew :app:assembleDebug :app:assembleRelease
 ./gradlew :app:testDebugUnitTest :shared:testDebugUnitTest
 ```
@@ -1456,7 +1456,7 @@ side, and it must not become 0 s or never.
 **Honest note on the baseline.** Stage 0's tasks 0b and 0c never landed:
 `tools/mocklocation/routes/` and `tools/mocklocation/baseline/` do not exist in the tree, so
 "against the stage-0 baseline" as the spec words it is not available. Capture the before-run on
-`4cf2977` yourself and A/B against that. Keep the route file — an A against a route you cannot
+`4259a41` yourself and A/B against that. Keep the route file — an A against a route you cannot
 reproduce is worth nothing.
 
 **`NavPolicy` ships without replay coverage, and that is a gap, not a pass.** Route (iii)

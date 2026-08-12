@@ -8,7 +8,7 @@ against whatever we actually build.
 
 ## Status — stop-point B reached, 2026-08-12
 
-**Stage 2 is complete.** Five commits (`09ee448`…`b1ec1b6`) extracted four decisions into
+**Stage 2 is complete.** Five commits (`2452dfc`…`d451fe5`) extracted four decisions into
 `com.jellemax.detour.map`, each with plain-JUnit4 tests: `NavPolicy` (arrival and reroute),
 `GroupSpinRules` (the convoy vote round), `FollowCamera` (camera resume) and `CameraAuthority`
 (a reducer for the follow/park/resume machine, **deliberately unwired** — zero callers,
@@ -32,6 +32,20 @@ enters one trajectcontrole gantry and exits the other. No such recording exists:
 canonical routes, (ii) and (iv) have been built from real drives, (iii) is dropped for want of
 a routing server, and (i) needs one unbroken E40 run from before 50.86929, 4.49257 to past
 50.86183, 4.60503.
+
+**Every commit SHA cited on this branch changed on 2026-08-13.** The branch history was rewritten
+to purge two path sets that should never have been tracked: the baseline's replay captures (29
+screenshots and four logcat dumps, 9.6 MB) and `docs/security/`'s ASVS L2 report (1.05 MB). The
+rewrite touched every commit from the first affected one — now `21a02b4`, "record stage 1 complete
+and fix four bookkeeping errors" — to the tip, so all 49 of those commits carry new SHAs. Every
+SHA citation in this file, the specs, the plans, the divergence register and the baseline README
+was mechanically remapped old → new by matching commit subjects, which are unchanged and unique;
+nothing else in those documents was edited. Two things a reader should expect not to match: the
+pre-rewrite commits survive only on the local branch `backup/pre-rewrite-20260813`, and
+`origin/refactor/mapscreen-split` still points at the pre-rewrite history until it is force-pushed.
+The baseline's `.tsv` filenames (`stop-start-09fddde.tsv` and its siblings) still embed pre-rewrite
+abbreviations; they were left alone so the paths keep resolving, so a filename's SHA no longer
+matches the commit the surrounding prose names.
 
 ## Status — stop-point A reached, 2026-08-12
 

@@ -9,10 +9,10 @@ re-recording produces files that look the same and mean nothing. Work item 0c of
 If a later run disagrees with a number here, the number here is the baseline. Add a second file;
 do not overwrite one of these.
 
-> ## ⚠ The route files changed at `923e16c`. Read this before comparing anything.
+> ## ⚠ The route files changed at `ba74e40`. Read this before comparing anything.
 >
-> Every fix index in this file was recorded against the route files as they stood at `09fddde`.
-> `923e16c` replaced all three (`../routes/README.md` says why), so **an index here does not
+> Every fix index in this file was recorded against the route files as they stood at `5fc8e90`.
+> `ba74e40` replaced all three (`../routes/README.md` says why), so **an index here does not
 > index the current route files.** Specifically:
 >
 > | Route | Then | Now | Effect on the indices below |
@@ -24,7 +24,7 @@ do not overwrite one of these.
 > Recover a superseded route file to re-interpret an index against what was actually replayed:
 >
 > ```sh
-> git show 09fddde:tools/mocklocation/routes/trajectcontrole.txt
+> git show 5fc8e90:tools/mocklocation/routes/trajectcontrole.txt
 > ```
 >
 > **This is a limitation of this baseline, not a licence to re-record it.** The qualitative
@@ -34,29 +34,29 @@ do not overwrite one of these.
 > kilometre of the E40 the route covered. Those still stand. It is the fix-index arithmetic that
 > does not.
 
-**`trajectcontrole` has a second capture, at `b29d014`, and it is not a replacement.** The
-`09fddde` run of that route recorded no section behaviour at all because both Overpass mirrors
+**`trajectcontrole` has a second capture, at `689c580`, and it is not a replacement.** The
+`5fc8e90` run of that route recorded no section behaviour at all because both Overpass mirrors
 were refusing (below), so for the section quantities there was no "before" to lose — which is
-the only reason re-recording was legitimate under the rule above. Everything `09fddde` *did*
+the only reason re-recording was legitimate under the rule above. Everything `5fc8e90` *did*
 measure on that route (the HUD fade/return cycles, the stall count) is still the baseline; the
-`b29d014` files add the section quantities and nothing else supersedes them. Both sets of files
-are kept side by side, named by their commit. Do not use the `b29d014` run as the "before" side
-of any A/B: it was captured after `d452d5b`, `b29d014` and the rest of stage 2 had landed.
+`689c580` files add the section quantities and nothing else supersedes them. Both sets of files
+are kept side by side, named by their commit. Do not use the `689c580` run as the "before" side
+of any A/B: it was captured after `bac833a`, `689c580` and the rest of stage 2 had landed.
 
 ## What was captured
 
 | | |
 |---|---|
-| Commit | `09fddde` on `refactor/mapscreen-split`; tree clean apart from untracked `.devcontainer/` |
+| Commit | `5fc8e90` on `refactor/mapscreen-split`; tree clean apart from untracked `.devcontainer/` |
 | Device | Samsung Galaxy Z Fold 3 (`SM-F926B`), serial `RFCT42HS9WY`, **Android 15, SDK 35** |
 | Display | inner panel, 1768×2208 at density 420 (2.625 px/dp), display id `4630947232161729154` |
-| App | `io.github.maxke24.detour.debug` v1.74, built from `09fddde` |
+| App | `io.github.maxke24.detour.debug` v1.74, built from `5fc8e90` |
 | Harness | `com.jellemax.mocklocation` v1.0, designated (`appops get` → `MOCK_LOCATION: allow`) |
 | Date | 2026-08-12, 12:23–14:10 local (CEST) |
-| Routes | `../routes/{stop-start,trajectcontrole,urban-limits}.txt` at `intervalMs=1000`, **as those files stood at `09fddde`** — unmodified then, but all three were replaced at `923e16c`; see the warning above |
+| Routes | `../routes/{stop-start,trajectcontrole,urban-limits}.txt` at `intervalMs=1000`, **as those files stood at `5fc8e90`** — unmodified then, but all three were replaced at `ba74e40`; see the warning above |
 
 The `trajectcontrole` re-run differs from that table in three places and nowhere else: commit
-`b29d014` (tree clean apart from untracked `.devcontainer/` and an untracked GPX), date 2026-08-12
+`689c580` (tree clean apart from untracked `.devcontainer/` and an untracked GPX), date 2026-08-12
 **18:02–18:19** CEST, and a 1000 ms screencap cadence. Same device, same display id, same app
 version, same harness — which was verified still designated with `appops get` rather than
 reinstalled — and the same unmodified route file at `intervalMs=1000`.
@@ -90,7 +90,7 @@ adb -s RFCT42HS9WY shell am start -n io.github.maxke24.detour.debug/com.jellemax
 adb -s RFCT42HS9WY logcat -c
 adb -s RFCT42HS9WY logcat -v threadtime > logcat.log &
 .claude/skills/detour-gps-replay/scripts/start-replay.sh tools/mocklocation/routes/<route>.txt RFCT42HS9WY 1000
-#   screencap every 2000 ms (1500 ms for urban-limits; 1000 ms for the b29d014
+#   screencap every 2000 ms (1500 ms for urban-limits; 1000 ms for the 689c580
 #   trajectcontrole re-run, which needed one frame per fix) for the duration + 4%
 .claude/skills/detour-gps-replay/scripts/stop-replay.sh RFCT42HS9WY
 adb -s RFCT42HS9WY shell input tap 232 1474     # End trip; bounds from a uiautomator dump
@@ -116,23 +116,23 @@ Nothing was uninstalled, no data was cleared, no permission was changed and no d
 was changed. See "Deviation from the skill" below for the one instruction not followed, and why.
 
 **State this left on the device:** **six** synthetic trips in the `.debug` variant's history —
-five from `09fddde`, one more from the `b29d014` re-run (`files/trips.json` did not exist before;
+five from `5fc8e90`, one more from the `689c580` re-run (`files/trips.json` did not exist before;
 the release variant is not installed, so no real history was ever at risk) — and the harness
 installed and still designated. The test providers were removed cleanly after both sessions:
 `dumpsys location` afterwards shows real fixes again (gps hAcc 10.6 m / 29 satellites after
-`09fddde`, hAcc 4.53 m / 21 satellites after `b29d014`), not a device pinned to the last replayed
+`5fc8e90`, hAcc 4.53 m / 21 satellites after `689c580`), not a device pinned to the last replayed
 coordinate. Delete the synthetic trips from the app if you want the debug history empty; do **not**
 `pm clear` to do it. Nothing was uninstalled, cleared, revoked or reconfigured in either session;
 the app was installed with `install -r` over itself, which keeps its data.
 
 ## Artifacts
 
-`<sha>` below is the commit the run was captured from — `09fddde` for the original three routes,
-`b29d014` for the `trajectcontrole` re-run, `2cbc5aa` for the `stop-start` run on the OnePlus 11.
+`<sha>` below is the commit the run was captured from — `5fc8e90` for the original three routes,
+`689c580` for the `trajectcontrole` re-run, `fca3c35` for the `stop-start` run on the OnePlus 11.
 The formats are identical between them, on purpose: the whole point of a re-run is a file that can be
-compared against the first. The one exception is named where it occurs — `2cbc5aa` was captured on a
+compared against the first. The one exception is named where it occurs — `fca3c35` was captured on a
 device rendering the app in **dark** theme, so its `dial_ink` counts *white* ink and its
-`map_mean`/`map_sd` are not numerically comparable with `09fddde`'s. The on/off semantics are.
+`map_mean`/`map_sd` are not numerically comparable with `5fc8e90`'s. The on/off semantics are.
 
 | File | What it is |
 |---|---|
@@ -168,7 +168,7 @@ frame is reduced to signals keyed on colours the app picks deliberately and the 
 
 Measured values for reference: sign present → `sign_red` 0.0244; `sign_ink` 0.1348 = `30` or
 `50`, 0.1233 = `70`, 0.1772 = `120`; HUD present → `dial_ink` ≈ 0.045–0.063. **Chip present →
-`avg_blue` 0.0206 = `Ø 121`, 0.0226 = `Ø 120`** (from `trajectcontrole-b29d014`; at `09fddde` this
+`avg_blue` 0.0206 = `Ø 121`, 0.0226 = `Ø 120`** (from `trajectcontrole-b29d014`; at `5fc8e90` this
 column was 0 on every frame of every route, so the marker itself had never been confirmed to
 work). The chip's own threshold in `events.py` is `avg_blue > 0.0004`, two orders of magnitude
 below the measured value, so it is not a marginal detection.
@@ -208,7 +208,7 @@ per-fix timeline**. That is what the cadence below was measured from.
 
 `MockService` sleeps `intervalMs` *after* pushing to four providers, so a nominal 1000 ms replay
 advances one fix every **1.018–1.022 s** (per run: `stop-start` 1.0224, `trajectcontrole` 1.018,
-`urban-limits` 1.0189, `trajectcontrole` at `b29d014` 1.02030, from the first and last
+`urban-limits` 1.0189, `trajectcontrole` at `689c580` 1.02030, from the first and last
 `MockLocation` line and the number of pushes).
 Over a 13-minute route that is 17 s of drift. Every fix index in `*-events.tsv` and
 `*-stall.tsv` is corrected by the per-run factor — uncorrected, it once made a reconstructed
@@ -319,9 +319,9 @@ normal on both neighbours). The fix stream is continuous across them and the pre
 none, so this is most likely `screencap` catching the composited SurfaceView mid-swap rather than
 an app stall. Worth knowing so a later run's identical blip is not read as a regression.
 
-### trajectcontrole at `09fddde` — 984 fixes, 17.0 km · Overpass unavailable · **did not test what it exists to test**
+### trajectcontrole at `5fc8e90` — 984 fixes, 17.0 km · Overpass unavailable · **did not test what it exists to test**
 
-Superseded for the section quantities by the `b29d014` re-run in the next subsection; still the
+Superseded for the section quantities by the `689c580` re-run in the next subsection; still the
 baseline for this route's HUD and stall behaviour.
 
 **No average-speed chip and no speed-limit sign ever appeared** (`avg_blue` and `sign_red` are 0
@@ -333,11 +333,11 @@ markers, `RoadRoulette.speedLimitWays()` feeds the sign, and both are Overpass. 
 
 - Section entry gating, the running average, its settled value, when it clears, and the
   back-to-back transition over the shared gantry are all unrecorded **in this run**. They were
-  recorded in the `b29d014` re-run below.
+  recorded in the `689c580` re-run below.
 - The route's two sections start at 2.47 km, share a gantry at 6.36 km and exit at 14.35 km
   (`../routes/README.md`), which is **fixes 72, 218 and 463** of this route file — all of it
   inside the first eight minutes, so a re-run needs only a few minutes of a healthy mirror.
-  (`09fddde`'s note said 73/219/464; recomputed against the route file with the gantry
+  (`5fc8e90`'s note said 73/219/464; recomputed against the route file with the gantry
   coordinates fetched from the OSM API, the closest fixes are 72, 218 and 463.)
 
 What it does establish:
@@ -350,14 +350,14 @@ What it does establish:
 - The nine standstills are all at fixes ≥536, i.e. **after** both sections end (the second exits
   at 464). `../routes/README.md` says they are "inside the sections"; they are not.
 
-### trajectcontrole re-run at `b29d014` — 1029 frames · Overpass healthy for the first ~2.5 min
+### trajectcontrole re-run at `689c580` — 1029 frames · Overpass healthy for the first ~2.5 min
 
-Captured 2026-08-12 18:02:05–18:19:20 CEST from `b29d014` (app v1.74), same device, same display
+Captured 2026-08-12 18:02:05–18:19:20 CEST from `689c580` (app v1.74), same device, same display
 id, same route file, same `intervalMs=1000`. The replay ran to the end — `replay finished at point
 984/984`. Measured cadence for this run: **1.02030 s per fix** (984 pushes, first 18:02:05.654,
 last 18:18:48.606), so every fix index below is that-corrected.
 
-**Captured at a 1000 ms cadence, not `09fddde`'s 2000 ms** — one frame per fix. That was a
+**Captured at a 1000 ms cadence, not `5fc8e90`'s 2000 ms** — one frame per fix. That was a
 deliberate departure and it is the reason the run answers question 4 at all: the chip is expected
 to be absent for only about two fixes across the shared gantry (the exit fix clears it, the
 re-entry fix sets it null again until `accMeters > 20`), and at a 2 s cadence that transition can
@@ -431,12 +431,12 @@ shared node really is one node in both relations. The route still tests what it 
 #### Everything else this run measured
 
 - **0 stalls in 1028 frame pairs** — no identical map region while the route was above 20 km/h,
-  matching `09fddde`. The single HUD-absent window, fixes 5–8, is the auto-start gate not yet
+  matching `5fc8e90`. The single HUD-absent window, fixes 5–8, is the auto-start gate not yet
   satisfied (`HUD-ON` at fix 9), not a freeze.
 - **Sign**: `SIGN-ON` at fix 11 showing 120, then `SIGN-CLEARED` at fix 129 (cum 4300 m) and never
   again — the held set running dry once Overpass began refusing, the same shape as `urban-limits`
   run 2. The section chip and the sign therefore cleared for unrelated reasons, 48 fixes apart.
-- **Nine standstills, HUD fade/return throughout the second half**, consistent with `09fddde`.
+- **Nine standstills, HUD fade/return throughout the second half**, consistent with `5fc8e90`.
 - **Recorded trip**: one trip, mode `CAR` (not retagged `WALK`), `topSpeedMps` 35.93 (129 km/h,
   faithful to the route), `distanceMeters` 5 363 588 — ×315 inflated, the same non-deterministic
   bug as the first four runs. Still not usable as an A/B quantity. Trace: 369 segments, 2779
@@ -471,11 +471,11 @@ devcontainer on the same WAN as the phone's Wi-Fi, plus `curl` from the device i
 | 12:43–13:38 | refusing: `000` in 0.2–7 s; from the device, `curl (7) couldn't connect` after 7.2 s | `/api/status` 200 but in 15.4 s; `/api/interpreter` gave **no response at all in 90 s** |
 | 13:39–13:47 | healthy: status 200 in 0.1–0.2 s, a real way query 200 in **0.47 s** | still unusable |
 | 13:48:42 → 14:10+ | refusing again — **3.5 minutes after the second `urban-limits` replay began** | still unusable |
-| 17:55–18:02 | recovered, but flaky: the same small query answered `200, 200, 504` and then `200, 504, 200, 200` — 3/4 immediately before the `b29d014` replay was started | — |
+| 17:55–18:02 | recovered, but flaky: the same small query answered `200, 200, 504` and then `200, 504, 200, 200` — 3/4 immediately before the `689c580` replay was started | — |
 | 18:02–18:03:36 | healthy through the start of the run: status 200 in 0.17 s. Both Overpass-fed features worked — sign at fix 11, chip at fix 73 | — |
 | 18:04:31 → 18:37+ | refusing again — **~2.5 minutes after the `trajectcontrole` replay began**, and still refusing 25 minutes after it ended | `overpass.private.coffee` also `000`; `overpass.osm.ch` answers but is a Switzerland-only extract, so it returns 0 elements for this bbox |
 
-The `b29d014` row repeats the `09fddde` pattern almost exactly: a healthy window, a replay started
+The `689c580` row repeats the `5fc8e90` pattern almost exactly: a healthy window, a replay started
 inside it, and a re-block two to three minutes later. Note the shape of the recovery, because it
 matters for judging when to start a run — `overpass-api.de` returned `504` (a gateway timeout from
 an overloaded server) rather than `000` (a refused connection) while it was coming back, and
@@ -499,13 +499,13 @@ of that traffic (the whole of `stop-start`) was followed by an hour of refusals;
 resumed traffic re-blocked the IP within 3.5 minutes.
 
 **Do not read this as measured field behaviour, and do not file it as one.** This applies to the
-`b29d014` re-run exactly as much as to the original three, and re-reading it as field behaviour
+`689c580` re-run exactly as much as to the original three, and re-reading it as field behaviour
 gets easier, not harder, now that the pattern has repeated. Replay compresses geography in a way
 real driving does not: three routes run back to back over one bounding box, a fourth replay of one
 of them the same evening, repeatedly, from a single IP that had also served a 335 kB Overpass query
 for the gantry lookups earlier the same day. A real user drives through an area once, from a
 residential or mobile address. The honest claim is about the *mechanism*, not the frequency — and
-the `b29d014` run puts a number on the mechanism (~143 requests for one 17 km route, 136 of them
+the `689c580` run puts a number on the mechanism (~143 requests for one 17 km route, 136 of them
 retries into a refusal) without making the frequency any more representative. The mechanism is
 worth its own investigation independent of this refactor:
 
@@ -527,10 +527,10 @@ trips are badly wrong and one is right:
 | Run | Route length | Recorded `distanceMeters` |
 |---|---|---|
 | stop-start | 9.7 km | 881 088 m (×90) |
-| trajectcontrole (`09fddde`) | 17.0 km | 4 633 883 m (×273) |
+| trajectcontrole (`5fc8e90`) | 17.0 km | 4 633 883 m (×273) |
 | urban-limits run 1 | 23.5 km | **24 431 m (correct)** |
 | urban-limits run 2 | 23.5 km | 3 319 833 m (×141) |
-| trajectcontrole (`b29d014`) | 17.0 km | 5 363 588 m (×315) |
+| trajectcontrole (`689c580`) | 17.0 km | 5 363 588 m (×315) |
 
 The last row is the useful one for pinning this down: **the same route file, replayed at the same
 interval on the same device, inflated by ×273 once and ×315 the other time.** So the multiplier is
@@ -573,7 +573,7 @@ one frees the main thread instead of blocking it, so the others keep receiving.
 
 The measurements agree: **0 stalls in 3 909 frame pairs across five runs** (382 + 493 + 1 003 +
 1 003 + 1 028), including three whole routes where the fetches were hanging until the 5 s connect
-timeout — the `b29d014` re-run adds fourteen minutes of a *refusing* mirror at a 1 s cadence, which
+timeout — the `689c580` re-run adds fourteen minutes of a *refusing* mirror at a 1 s cadence, which
 is the tightest look at this yet. A stall here means a pixel-identical map region while the route
 says the vehicle was above 20 km/h; at a 1–2 s cadence, that catches any freeze of that length or
 longer. The single identical pair in the whole set is `urban-limits` run 2 at fix 1091, the 1.5 s
@@ -596,8 +596,8 @@ accuracy of every fix it handles):
 **Inside all five replay windows, 100% of the fixes the platform handled carried accuracy 4.00 —
 the harness's constant.** Every fix with any other accuracy is timestamped either a fraction of a
 second *before* the first replayed fix or *after* the last one; e.g. on `trajectcontrole` at
-`09fddde` the non-mock fixes are at 12:43:24.039 (first mock: 12:43:24.327) and 12:59:55.701 (last
-mock: 12:59:51.818), and on the `b29d014` re-run the 2953 handled fixes are *all* 4.00 with the
+`5fc8e90` the non-mock fixes are at 12:43:24.039 (first mock: 12:43:24.327) and 12:59:55.701 (last
+mock: 12:59:51.818), and on the `689c580` re-run the 2953 handled fixes are *all* 4.00 with the
 first other value at 18:18:53.722, after the last mock push at 18:18:48.606. Every recorded trace
 also stays on its route. No real provider contaminated any run, and the teleporting the skill warns
 about did not occur.
@@ -608,7 +608,7 @@ trip `overshot` instantly), and the log rules it out.
 
 ## What could not be captured
 
-- **Average-speed sections: captured at `b29d014`, and the answers are above.** Entry gating, the
+- **Average-speed sections: captured at `689c580`, and the answers are above.** Entry gating, the
   running average and its settled value, and whether the readout appears twice across the shared
   gantry are all recorded. What that run leaves open is narrower but sharper: **why the measurement
   terminated 306 m into a 3852 m section**, which none of the three exit conditions can account
@@ -639,7 +639,7 @@ Work item 0c's actual deliverable. Everything above is evidence; this is the sho
 run is measured against, so that "it looks the same" is never the comparison. Each row names the
 quantity, the value observed, and the file the value is read out of.
 
-| # | Quantity | Baseline value | Read from | Still valid after `923e16c`? |
+| # | Quantity | Baseline value | Read from | Still valid after `ba74e40`? |
 |---|---|---|---|---|
 | Q1 | Fixes from the last successful speed-limit snap to the sign clearing | **3 fixes ≈ 3.1 s** — seen twice independently: `stop-start` fix 470→473, `urban-limits` run 2 fix 609→612 | `stop-start-09fddde-events.tsv`, `urban-limits-09fddde-events.tsv` | **Yes.** A latency in fixes, not a position. This is the 0d acceptance criterion; if it shrinks, the `StateFlow` drops were load-bearing and the 3-miss hysteresis needs retuning in that same commit |
 | Q2 | Does the sign ever show a cross-street or frontage-road value? | **No.** No wrong-road value on any of five runs. The one near-miss is a change to 120 three fixes before the route reaches motorway pace — the sign picking up the motorway from the acceleration lane, which is correct | `…-sign-values.png` | **Yes**, as a yes/no |
@@ -650,16 +650,16 @@ quantity, the value observed, and the file the value is read out of.
 | Q7 | Does a section average appear, where, at what value? | **Yes — at fix 73, 34 m past the entry gantry, reading `Ø 121`, settling to `Ø 120` and holding it for eight frames** while the route was doing 121–124 km/h | `trajectcontrole-b29d014-events.tsv`, `…-chip-values.png` | **No — recorded against the superseded route.** See below |
 | Q8 | Does it clear at the far gantry? | **No. It cleared at fix 81, 306 m into a 3852 m section, 3529 m short of the exit gate** — and none of the three exit conditions (`reachedEnd`, `overshot`, `timedOut`) can fire there. Five alternative explanations were checked and ruled out | `trajectcontrole-b29d014-events.tsv` | **No** — same reason |
 | Q9 | Does it re-arm at the shared gantry? | **No. Exactly two AVG events in 1029 frames**, one on and one cleared | `trajectcontrole-b29d014-events.tsv` | **No** — the new route only enters the second relation, so this is now testable as a *positive* |
-| — | Trip `distanceMeters` / `topSpeedMps` / trace segment counts | **Unusable as A/B quantities on this harness.** Distance inflates ×90–×315 non-deterministically (same route, same device: ×273 once, ×315 the next); segments split on desk-induced activity-recognition `STILL` events. **`topSpeedMps` is not safe either** — it stayed faithful on the Z Fold but came out at 1359.93 m/s (4 896 km/h) on the OnePlus 11; see the `2cbc5aa` section below for where in the run that value was acquired | — | — |
+| — | Trip `distanceMeters` / `topSpeedMps` / trace segment counts | **Unusable as A/B quantities on this harness.** Distance inflates ×90–×315 non-deterministically (same route, same device: ×273 once, ×315 the next); segments split on desk-induced activity-recognition `STILL` events. **`topSpeedMps` is not safe either** — it stayed faithful on the Z Fold but came out at 1359.93 m/s (4 896 km/h) on the OnePlus 11; see the `fca3c35` section below for where in the run that value was acquired | — | — |
 
-## Q7–Q9 are the ones `923e16c` was meant to fix, and they are not yet re-measured
+## Q7–Q9 are the ones `ba74e40` was meant to fix, and they are not yet re-measured
 
-The `b29d014` capture answered them against a route that drove the E40 sections **backwards**, east
+The `689c580` capture answered them against a route that drove the E40 sections **backwards**, east
 to west, at an implied 117 km/h. That is why Q8's early clear could not be closed out: with the
 route running against the direction the measurement is defined in, an unexplained termination could
 have been the app or could have been the route, and the recording cannot distinguish them.
 
-The `trajectcontrole.txt` committed at `923e16c` exists precisely to remove that ambiguity — one
+The `trajectcontrole.txt` committed at `ba74e40` exists precisely to remove that ambiguity — one
 relation, `15682532`, driven west → east in the direction the measurement runs, entry gantry at
 second 166 and exit gantry at second 548, an 8.00 km transit in 382 s. **So the correct value for
 Q7 is a chip that appears shortly after second 166, settles near `Ø 75`, and clears at second 548.**
@@ -667,13 +667,13 @@ Anything else is the defect Q8 points at.
 
 **That replay has not been run.** See the next section.
 
-## Attempt on the OnePlus 11 at `923e16c`, 2026-08-12 — blocked, nothing recorded
+## Attempt on the OnePlus 11 at `ba74e40`, 2026-08-12 — blocked, nothing recorded
 
 | | |
 |---|---|
-| Commit | `923e16c` on `refactor/mapscreen-split` |
+| Commit | `ba74e40` on `refactor/mapscreen-split` |
 | Device | OnePlus 11 (`CPH2449`, `OP594DL1`), serial `50043ff9`, **Android 16, SDK 36**, 1080×2412 at density 480 |
-| App | `io.github.maxke24.detour.debug` v1.74 built from `923e16c` and installed with `install -r` — **succeeded** |
+| App | `io.github.maxke24.detour.debug` v1.74 built from `ba74e40` and installed with `install -r` — **succeeded** |
 | Harness | `com.jellemax.mocklocation` v1.0 installed — **succeeded**; designated — **refused** |
 | Outcome | **No replay ran. No frames, no logcat, no TSV.** |
 
@@ -714,7 +714,7 @@ was deleted, and the harness's foreground service was stopped with `am stopservi
 calls `removeTestProvider`) rather than force-stopped — though it had registered no providers to
 leave stale.
 
-## `stop-start` on the OnePlus 11 at `2cbc5aa`, 2026-08-12 — the attempt above, unblocked
+## `stop-start` on the OnePlus 11 at `fca3c35`, 2026-08-12 — the attempt above, unblocked
 
 The harness was designated by hand in Developer options between the two sessions, so
 `start-replay.sh` ran unmodified and the whole route replayed. **This is a later observation, not a
@@ -724,17 +724,17 @@ what follows is the part a later run is measured against.
 
 | | |
 |---|---|
-| Commit | `2cbc5aa`; `git diff --stat 923e16c..2cbc5aa` touches only the harness manifest and this file, so the installed debug v1.74 *is* the app code at `2cbc5aa` and nothing was rebuilt. **The branch was then merged forward to `fc3a3c6` (upstream main) while this run was being analysed, changing 38 files under `app/`+`shared/` — so this run is a reference for `2cbc5aa`, not for `fc3a3c6`.** The merge left `tools/mocklocation/` untouched and `routes/stop-start.txt` byte-identical |
+| Commit | `fca3c35`; `git diff --stat ba74e40..fca3c35` touches only the harness manifest and this file, so the installed debug v1.74 *is* the app code at `fca3c35` and nothing was rebuilt. **The branch was then merged forward to `e0c49d5` (upstream main) while this run was being analysed, changing 38 files under `app/`+`shared/` — so this run is a reference for `fca3c35`, not for `e0c49d5`.** The merge left `tools/mocklocation/` untouched and `routes/stop-start.txt` byte-identical |
 | Device | OnePlus 11 (`CPH2449`), serial `50043ff9`, Android 16 SDK 36, 1080×2412 at density 480, **dark theme** |
 | Release variant | **installed on this device**, unlike the Z Fold. Force-stopped by the script, never restarted during the run, `lastUpdateTime` unchanged |
-| Route | `../routes/stop-start.txt` at `2cbc5aa`, `intervalMs=1000`: 762 fixes, 9.704 km. Holds over fixes 359–370, 395–436, 672–686, 696–706 |
+| Route | `../routes/stop-start.txt` at `fca3c35`, `intervalMs=1000`: 762 fixes, 9.704 km. Holds over fixes 359–370, 395–436, 672–686, 696–706 |
 | Cadence | **1.0156 s/fix** (Z Fold: 1.0224). Completed 762/762; 247 frames at 3.3 s |
 | Overpass | **reachable from the phone** (unreachable from the host at the same time), so this run *does* carry ambient-limit evidence: sign on at fix 93, values 30 / 50 / 120 |
 
 - **One trip, mode `CAR`**, `distanceMeters` 537 025.5 (×55.3), `topSpeedMps` 1359.93, duration 943.2 s
   of which 772.9 s is the replay. Auto-stop did not fire at any of the four standstills, which is
   correct. **Auto-end cannot be exercised by a replay** — the 5-minute check runs in
-  `onTripLocation`, so it needs fixes; the trip was closed with the End trip button, as at `09fddde`.
+  `onTripLocation`, so it needs fixes; the trip was closed with the End trip button, as at `5fc8e90`.
 - **Where the inflation comes from, measured this time.** Distance is *correct* for the first ~100
   fixes (371 m at fix 34, 1,3 km at fix 101), grew **8,6 km during 20 s of the 41 s standstill** while
   every replayed fix carried the same coordinate, and gained its last **7,6 km** *after* the providers
@@ -778,12 +778,12 @@ red** against an ambient 30. Those readings are faithful to the file; the file i
 ## This baseline post-dates stage 2 and cannot verify it
 
 Stated plainly because the filename pattern invites the opposite assumption. `FollowCamera`
-(`8e0d765`) and `NavPolicy` (`09ee448`) both landed **before** `09fddde`, the commit the first four
+(`4a03ead`) and `NavPolicy` (`2452dfc`) both landed **before** `5fc8e90`, the commit the first four
 runs were captured at:
 
 ```sh
-git merge-base --is-ancestor 8e0d765 09fddde   # true
-git merge-base --is-ancestor 09ee448 09fddde   # true
+git merge-base --is-ancestor 4a03ead 5fc8e90   # true
+git merge-base --is-ancestor 2452dfc 5fc8e90   # true
 ```
 
 So this is a valid reference for **stage 3 onward**, and it is *not* a "before" for stage 2's camera
@@ -791,6 +791,17 @@ and nav-policy extractions. There is no recording of the code as it stood before
 cannot be one now — that is the cost of having deferred 0c past stage 2, and it is not recoverable
 by re-recording. Stage 2's evidence is its unit tests, which is what it has.
 
-For the same reason `d452d5b` ("clear the ambient speed limit when navigation starts or ends") sits
-between `09fddde` and the `b29d014` re-run, so the two `trajectcontrole` captures are not a clean
-A/B of each other either. The `b29d014` run is a *later* observation, not a control.
+For the same reason `bac833a` ("clear the ambient speed limit when navigation starts or ends") sits
+between `5fc8e90` and the `689c580` re-run, so the two `trajectcontrole` captures are not a clean
+A/B of each other either. The `689c580` run is a *later* observation, not a control.
+
+### A note on the filenames in this directory
+
+The `.tsv` names embed the abbreviated SHA of the commit their run was captured
+at — `stop-start-09fddde.tsv` and its siblings. Those abbreviations are
+**pre-rewrite**: this branch's history was purged on 2026-08-13 (see
+`docs/refactor/mapscreen/DECISION.md`) and every commit from `21a02b4` onward
+took a new SHA. The filenames were deliberately left alone so the paths keep
+resolving, which means a filename's SHA no longer names a commit you can look
+up. The prose in this file cites the post-rewrite SHAs. Renaming the files to
+match is a safe follow-up nobody has needed yet.

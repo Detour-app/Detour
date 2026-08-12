@@ -6,8 +6,8 @@
 |---|---|
 | **Detail level** | **Full** — three named fixes on three surfaces, each verified against the tree today |
 | **Prerequisite** | None. This is the first spec on the convergence axis and depends on no stage of the structure axis |
-| **State** | **done** 2026-08-12, four commits, none skipped: item 1 `1f4514a` (iOS microphone permission) · item 3 `e6a6bf2` (car off-route indicator) · item 4 `7c96bee` (iOS `2.0 m/s`) · item 2 = the commit carrying this Status row (register bookkeeping, which cannot cite its own SHA; entry 8's constant half had already landed in `1c7f827`, which is what item 2 records). Plan: [`../plans/2026-08-12-convergence-1-cheap-fixes.md`](../plans/2026-08-12-convergence-1-cheap-fixes.md). **Code-complete, not device-verified:** the car commit passed `compileDebugKotlin`, both assembles and the `:app:`/`:shared:` unit tests, and both iOS commits were type-checked by `ios.yml` on PR #1 (run 31600855937, green) — but the four checks under the plan's *Needs a device* remain outstanding, so no behaviour on any surface has been observed |
-| **Preconditions captured** | 2026-08-12 against `20aa813`. Every assertion below was executed before it was written down; two of them came back with a value that contradicted what the register says (items 2 and the PTT gate count) and the expectations here are the measured values, not the quoted ones |
+| **State** | **done** 2026-08-12, four commits, none skipped: item 1 `858dc1e` (iOS microphone permission) · item 3 `6551f37` (car off-route indicator) · item 4 `3928ce0` (iOS `2.0 m/s`) · item 2 = the commit carrying this Status row (register bookkeeping, which cannot cite its own SHA; entry 8's constant half had already landed in `7d57087`, which is what item 2 records). Plan: [`../plans/2026-08-12-convergence-1-cheap-fixes.md`](../plans/2026-08-12-convergence-1-cheap-fixes.md). **Code-complete, not device-verified:** the car commit passed `compileDebugKotlin`, both assembles and the `:app:`/`:shared:` unit tests, and both iOS commits were type-checked by `ios.yml` on PR #1 (run 31600855937, green) — but the four checks under the plan's *Needs a device* remain outstanding, so no behaviour on any surface has been observed |
+| **Preconditions captured** | 2026-08-12 against `5613e59`. Every assertion below was executed before it was written down; two of them came back with a value that contradicted what the register says (items 2 and the PTT gate count) and the expectations here are the measured values, not the quoted ones |
 | **Chain** | [design](00-chain-design.md) · [register](../15-divergence-register.md) · prev: none · next: [convergence 2](convergence-2-section-readouts.md) |
 
 ## Preconditions
@@ -48,7 +48,7 @@ grep -c 'if (speed > 2.0) lastMovingMs = now' app/src/main/java/com/jellemax/det
 ```
 
 **Post-hoc, after this stage landed** (recorded rather than edited into the fence above, so what
-was measured on 2026-08-12 stays legible). Re-running the block against `7c96bee` inverts exactly
+was measured on 2026-08-12 stays legible). Re-running the block against `3928ce0` inverts exactly
 the five assertions the four work items claim, and nothing else:
 `NSMicrophoneUsageDescription` 0 → 1, the `requestRecordPermission|AVAudioApplication` file count
 0 → 1, `Off route` files under `car/` 0 → 1, and `if speed > 1.0` 1 → 0. The three
@@ -136,7 +136,7 @@ offRoute = (navProgress?.offRouteMeters ?: 0.0) >
     NavPolicy.OFF_ROUTE_METERS,
 ```
 
-It landed inside `1c7f827` — the commit that *added the register* — and its message says so in
+It landed inside `7d57087` — the commit that *added the register* — and its message says so in
 its last paragraph. Two consequences, both worth knowing before you plan anything:
 
 - **The register's entry 8 is stale in its own first commit.** Its prose still says *"A bare
@@ -144,7 +144,7 @@ its last paragraph. Two consequences, both worth knowing before you plan anythin
   assertion was false the moment it was committed, which makes it the fifth of the kind
   `detour-staged-refactor` §2 warns about — *"wrong on the day it was written"*.
 - **This work item is a bookkeeping item, not a code item.** Mark entry 8's constant half
-  **resolved** with `1c7f827`, and correct the §D assertion to `# expect 0`.
+  **resolved** with `7d57087`, and correct the §D assertion to `# expect 0`.
 
 ### 3. Car: a persistent off-route indicator
 

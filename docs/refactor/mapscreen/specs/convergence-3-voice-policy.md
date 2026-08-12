@@ -4,10 +4,10 @@
 
 | | |
 |---|---|
-| **Detail level** | **Executable.** The Work items section was rewritten 2026-08-12 against `92823ed`, replacing the scheduled-rewrite marker; the plan is [`../plans/2026-08-12-convergence-3-voice-policy.md`](../plans/2026-08-12-convergence-3-voice-policy.md). Everything above the old marker — Scope, Out of scope, Why this stage — is unchanged and binding. This is still the largest single item the register produced, and it now carries an explicit **stop-point after item 5**: items 1–5 are desk-verifiable, items 6–9 are not |
-| **Prerequisite** | [Convergence 1](convergence-1-cheap-fixes.md) work item 1 — the iOS microphone permission. **Not** stage 3, and not convergence 2. **Met:** landed in `1f4514a` |
-| **State** | **done in code, UNVERIFIED on hardware** 2026-08-12. All ten items landed, one commit each, in the plan's order: 1 `6333775` (iOS's phase boundaries become inclusive) · 2 `3488524` (iOS's mute cuts the utterance in flight) · 3 `e782d6f` (`NavAnnouncer` + 10 `commonTest` cases into commonMain) · 4 `1e3cab3` (the car repointed) · 5 `fca2a7f` (iOS repointed) · ⟨stop-point `47f44c0`⟩ · 6 `75554d2` (`NavVoice` moves `car/` → `audio/`) · 7 `deabb57` (no speech on a refused focus request — the car changes too) · 8 `624524e` (the phone announces turns; `SettingsScreen.kt:307` corrected) · 9 `7f22061` (the phone speaks the camera warning) · 10 this commit (entries 12 and 15 resolved). **The stop-point was not honoured as written: items 6–9 landed without a device session**, because the plan's own *Needs a human* is the only thing that can close them and it was not available. They are therefore recorded as **shipped, not verified** — the six device checks in the plan's *Needs a human* all stand open, and the register's entries 12 and 15 say so in the same words. Two limits are recorded rather than fixed: turn prompts are foregrounded-only (`liveFix` is `collectAsStateWithLifecycle`; stage 4's business), and the phone stays silent on a live convoy by design |
-| **Preconditions captured** | Written 2026-08-12 against `20aa813`; **re-run 2026-08-12 against `92823ed`, all 10 pass.** The first assertion was written to fail on purpose and now passes, which is convergence 1 having landed — the ordering gate is open |
+| **Detail level** | **Executable.** The Work items section was rewritten 2026-08-12 against `cfa113f`, replacing the scheduled-rewrite marker; the plan is [`../plans/2026-08-12-convergence-3-voice-policy.md`](../plans/2026-08-12-convergence-3-voice-policy.md). Everything above the old marker — Scope, Out of scope, Why this stage — is unchanged and binding. This is still the largest single item the register produced, and it now carries an explicit **stop-point after item 5**: items 1–5 are desk-verifiable, items 6–9 are not |
+| **Prerequisite** | [Convergence 1](convergence-1-cheap-fixes.md) work item 1 — the iOS microphone permission. **Not** stage 3, and not convergence 2. **Met:** landed in `858dc1e` |
+| **State** | **done in code, UNVERIFIED on hardware** 2026-08-12. All ten items landed, one commit each, in the plan's order: 1 `4e45f4a` (iOS's phase boundaries become inclusive) · 2 `04b0f98` (iOS's mute cuts the utterance in flight) · 3 `c95b19d` (`NavAnnouncer` + 10 `commonTest` cases into commonMain) · 4 `c9547ee` (the car repointed) · 5 `fb59b8e` (iOS repointed) · ⟨stop-point `9ef23f6`⟩ · 6 `e7cb39f` (`NavVoice` moves `car/` → `audio/`) · 7 `31b2ba5` (no speech on a refused focus request — the car changes too) · 8 `d682603` (the phone announces turns; `SettingsScreen.kt:307` corrected) · 9 `ae32722` (the phone speaks the camera warning) · 10 this commit (entries 12 and 15 resolved). **The stop-point was not honoured as written: items 6–9 landed without a device session**, because the plan's own *Needs a human* is the only thing that can close them and it was not available. They are therefore recorded as **shipped, not verified** — the six device checks in the plan's *Needs a human* all stand open, and the register's entries 12 and 15 say so in the same words. Two limits are recorded rather than fixed: turn prompts are foregrounded-only (`liveFix` is `collectAsStateWithLifecycle`; stage 4's business), and the phone stays silent on a live convoy by design |
+| **Preconditions captured** | Written 2026-08-12 against `5613e59`; **re-run 2026-08-12 against `cfa113f`, all 10 pass.** The first assertion was written to fail on purpose and now passes, which is convergence 1 having landed — the ordering gate is open |
 | **Chain** | [design](00-chain-design.md) · [register](../15-divergence-register.md) · prev: [convergence 2](convergence-2-section-readouts.md) · next: none — this is the end of the convergence axis as the register defined it |
 
 ## Preconditions
@@ -115,9 +115,9 @@ about `README.md:383-385` in entry 1.
 
 ## Work items
 
-Rewritten 2026-08-12 against `92823ed`, replacing the scheduled-rewrite marker. **Ten items, ten
+Rewritten 2026-08-12 against `cfa113f`, replacing the scheduled-rewrite marker. **Ten items, ten
 commits, in the order below.** Every line number in this section was re-derived with `grep -n`
-against that tree; the sections above it were written against `20aa813` and several of their
+against that tree; the sections above it were written against `5613e59` and several of their
 citations have drifted (see *Citations that drifted* at the end).
 
 ### The design decisions this rewrite takes
@@ -219,7 +219,7 @@ stage 4's subject, and **not** this spec's. Record it as a known limitation; do 
 **D7 — this spec declares none of entry 13's constants, in either landing order.** Entry 13 is
 `+5` (three copies: `MapHud.kt:184`, `car/CarMapRenderer.kt:635`, `wear/…/MainActivity.kt:140`),
 `+3.0` (two: `MapScreen.kt:870`, `car/NavScreen.kt:421`) and the `45.0` wedge (two:
-`MapScreen.kt:863`, `car/NavScreen.kt:414`) — all verified at `92823ed`. Every one of them is
+`MapScreen.kt:863`, `car/NavScreen.kt:414`) — all verified at `cfa113f`. Every one of them is
 stage 3's `CameraWarner` or stays in `app/`. This spec's constants are the **voice ladder**
 (`800/300/80`) and `spokenDistance`, which entry 13 does not list. The phone's spoken hazard cue
 is added *inside* the existing `if (tooFast && ahead.at != warnedAt)` block
@@ -338,8 +338,8 @@ home. Neither stage writes a copy the other could have read.
 
 ### Citations that drifted
 
-The sections above were written against `20aa813`, before `e6a6bf2` added lines to
-`car/NavScreen.kt`. Re-derived at `92823ed`: the reroute re-arm is `:275-277` (Scope says
+The sections above were written against `5613e59`, before `6551f37` added lines to
+`car/NavScreen.kt`. Re-derived at `cfa113f`: the reroute re-arm is `:275-277` (Scope says
 `:272-274`), the mute toggle is `:479-480` (Scope says `:470-473`), and the register's entry-12
 citations `:62-64`, `:291`, `:302-307`, `:258` and `:420` are now `:65-67`, `:293`, `:305-310`,
 `:261` and `:427`. `NavVoice.kt:41-43`/`:138-149`, `MapScreen.kt:871-874`, `Settings.kt:132` and

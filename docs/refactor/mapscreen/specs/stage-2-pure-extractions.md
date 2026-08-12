@@ -6,7 +6,7 @@
 |---|---|
 | **Detail level** | Function level — named extractions, no line ranges (stage 1 invalidates them) |
 | **Prerequisite** | [Stage 1](stage-1-mechanical-split.md) — **complete** 2026-08-12, `MapScreen.kt` at 1549 lines |
-| **State** | **done** 2026-08-12 — five commits (`09ee448`…`b1ec1b6`), 32 new tests (suite 18 → 50, all passing). Two carve-outs recorded in [`../DECISION.md`](../DECISION.md): `GroupSpinRules`' call site is unchanged (needs two devices) and no GPS replay was run (stage 0's routes and baseline were deferred, so there is no recorded before). Plan: [`../plans/2026-08-12-stage-2-pure-extractions.md`](../plans/2026-08-12-stage-2-pure-extractions.md) |
+| **State** | **done** 2026-08-12 — five commits (`2452dfc`…`d451fe5`), 32 new tests (suite 18 → 50, all passing). Two carve-outs recorded in [`../DECISION.md`](../DECISION.md): `GroupSpinRules`' call site is unchanged (needs two devices) and no GPS replay was run (stage 0's routes and baseline were deferred, so there is no recorded before). Plan: [`../plans/2026-08-12-stage-2-pure-extractions.md`](../plans/2026-08-12-stage-2-pure-extractions.md) |
 | **Preconditions captured** | 2026-08-11, describing the state stage 1 was expected to leave. Re-checked 2026-08-12 against the real post-stage-1 file: the size range holds (1549 is inside 1500–1700), and the `leadingSpinIndex` count was corrected from 1 to 2 — it has always had two call sites, so the original figure would have tripped a false staleness alarm on its first run. |
 | **Chain** | [design](00-chain-design.md) · [roadmap](../DECISION.md) · prev: [stage 1](stage-1-mechanical-split.md) · next: [stage 3](stage-3-hazard-machines-to-shared.md) |
 
