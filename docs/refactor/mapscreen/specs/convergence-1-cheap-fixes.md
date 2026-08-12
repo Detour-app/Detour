@@ -6,7 +6,7 @@
 |---|---|
 | **Detail level** | **Full** — three named fixes on three surfaces, each verified against the tree today |
 | **Prerequisite** | None. This is the first spec on the convergence axis and depends on no stage of the structure axis |
-| **State** | not started · **one of its four work items has already landed** — see item 2 |
+| **State** | **done** 2026-08-12, four commits, none skipped: item 1 `1f4514a` (iOS microphone permission) · item 3 `e6a6bf2` (car off-route indicator) · item 4 `7c96bee` (iOS `2.0 m/s`) · item 2 = the commit carrying this Status row (register bookkeeping, which cannot cite its own SHA; entry 8's constant half had already landed in `1c7f827`, which is what item 2 records). Plan: [`../plans/2026-08-12-convergence-1-cheap-fixes.md`](../plans/2026-08-12-convergence-1-cheap-fixes.md). **Code-complete, not device-verified:** the car commit passed `compileDebugKotlin`, both assembles and the `:app:`/`:shared:` unit tests, and both iOS commits were type-checked by `ios.yml` on PR #1 (run 31600855937, green) — but the four checks under the plan's *Needs a device* remain outstanding, so no behaviour on any surface has been observed |
 | **Preconditions captured** | 2026-08-12 against `20aa813`. Every assertion below was executed before it was written down; two of them came back with a value that contradicted what the register says (items 2 and the PTT gate count) and the expectations here are the measured values, not the quoted ones |
 | **Chain** | [design](00-chain-design.md) · [register](../15-divergence-register.md) · prev: none · next: [convergence 2](convergence-2-section-readouts.md) |
 
@@ -46,6 +46,20 @@ grep -c 'speak("Rerouting")' $CAR/NavScreen.kt                    # expect 1
 grep -c 'if speed > 1.0' iosApp/Detour/TripRecorder.swift          # expect 1
 grep -c 'if (speed > 2.0) lastMovingMs = now' app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt   # expect 1
 ```
+
+**Post-hoc, after this stage landed** (recorded rather than edited into the fence above, so what
+was measured on 2026-08-12 stays legible). Re-running the block against `7c96bee` inverts exactly
+the five assertions the four work items claim, and nothing else:
+`NSMicrophoneUsageDescription` 0 → 1, the `requestRecordPermission|AVAudioApplication` file count
+0 → 1, `Off route` files under `car/` 0 → 1, and `if speed > 1.0` 1 → 0. The three
+deliberately-untouched bugs still measure their original values.
+
+One assertion moved without a work item claiming it: **`grep -c 'playAndRecord'
+iosApp/Detour/PttAudio.swift` is now 2, not 1.** That is not a second record session — the only
+`setCategory(.playAndRecord, …)` is still unique, now at `PttAudio.swift:83`. The second hit is
+prose inside `capturePermission()`'s doc comment at `:49`. The assertion was counting a code
+construct with a pattern that also matches a comment; a future reader should read it as *"one
+`.playAndRecord` activation"* and grep `setCategory(.playAndRecord` if they want that guarantee.
 
 ## Why this stage
 

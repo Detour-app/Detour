@@ -505,7 +505,7 @@ if (speed > 2.0) lastMovingMs = now
 if (autoStarted && now - lastMovingMs > STATIONARY_END_MS) {
 ```
 
-iOS, `TripRecorder.swift:280-284`:
+iOS, `TripRecorder.swift:291-296` — as found, before `7c96bee` raised the threshold:
 
 ```swift
 if speed > 1.0 {
@@ -578,6 +578,11 @@ went wrong.
 5d's auto-start gate is a bug.** The 5d threshold is genuinely arguable: `1.0` ends a trip
 promptly when you park, `2.0` refuses to end one while you are still pushing the bike into the
 garage. Both are defensible and this register is not entitled to pick.
+
+**RESOLVED (5d threshold) — `7c96bee`, §C decision 3, in favour of Android's `2.0 m/s`.**
+The rationale is now written beside the constant in `iosApp/Detour/TripRecorder.swift`, which is
+what neither surface had. **Still open:** 5d's `autoStarted` gate (§B2), and all of 5a, 5b, 5c, 5e
+and 5f.
 
 **Blocks stage 3: no.** Trip auto-detection is explicitly **out of scope** at
 `specs/stage-3-hazard-machines-to-shared.md:122-124` — *"they are a separate programme, not this
@@ -812,17 +817,24 @@ decides to fetch a new route. Those two use the same distance, written twice.
 two call sites and one test file; **no third copy of the policy survives.** Stage 2's
 deduplication is real.
 
-But the banner did not come along. `app/…/ui/MapScreen.kt:1426`:
+But the banner did not come along until `1c7f827` folded it in. `app/…/ui/MapScreen.kt:1426-1427`
+now reads:
 
 ```kotlin
-BottomCard.NAV -> NavigationBottomBar(
-    progress = navProgress,
-    offRoute = (navProgress?.offRouteMeters ?: 0.0) > 60,
+offRoute = (navProgress?.offRouteMeters ?: 0.0) >
+    NavPolicy.OFF_ROUTE_METERS,
 ```
 
-A bare `60`, feeding `NavigationBottomBar`'s `offRoute: Boolean` (`app/…/ui/Navigation.kt:158`,
-rendered at `:195` as the string `"Off route"`). The car has **no off-route indicator at all** —
-it speaks `"Rerouting"` once (`app/…/car/NavScreen.kt:258`) and shows nothing persistent.
+As written, this entry said instead: *a bare `60`*, feeding `NavigationBottomBar`'s
+`offRoute: Boolean` (`app/…/ui/Navigation.kt:158`, rendered at `:195` as the string `"Off route"`),
+and *the car has **no off-route indicator at all*** — it speaks `"Rerouting"` once
+(`app/…/car/NavScreen.kt:258`) and shows nothing persistent.
+
+**RESOLVED (constant half) — `1c7f827`, in favour of `NavPolicy.OFF_ROUTE_METERS`.** The bare `60`
+this entry was written against was already gone when the entry was committed: `1c7f827` is the
+commit that added this register and it carried the one-line change in its own diff. The prose here
+and the §D assertion below both claimed the literal still existed and were false the day they were
+written — corrected in place rather than deleted, so the shape of the mistake stays on record.
 
 **How they differ, in what a user notices.** Nothing today: both numbers are 60. The divergence
 is latent — the next person to tune the reroute distance changes `NavPolicy.OFF_ROUTE_METERS`,
@@ -842,6 +854,11 @@ optional change.
 
 **Recommendation: survive — `NavPolicy.OFF_ROUTE_METERS`, one-line change.** The car banner is
 **needs-a-human** and should not ride along.
+
+**RESOLVED (car indicator) — `e6a6bf2`, decision 4 answered yes.** The head unit's
+destination card now turns red and reads "Off route" while `p.offRouteMeters` exceeds
+`NavPolicy.OFF_ROUTE_METERS`. Two commits as decision 4 required, and the mechanical half was not
+one of them because it had already landed.
 
 **Blocks stage 3: no.** Stage 2 leftover. Fix it in stage 2's own follow-up, not in stage 3.
 
@@ -1319,11 +1336,13 @@ if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
     != PackageManager.PERMISSION_GRANTED) { return@detectTapGestures }
 ```
 
-iOS has neither. `grep -n '<key>' iosApp/Detour/Info.plist` lists
+iOS has neither. **As found** (pre-`1f4514a`; see the RESOLVED marker below, and note the line
+numbers in this entry are the ones it was written against):
+`grep -n '<key>' iosApp/Detour/Info.plist` lists
 `NSLocationWhenInUseUsageDescription` (`:30`), `NSLocationAlwaysAndWhenInUseUsageDescription`
 (`:35`) and `NSMotionUsageDescription` (`:37`) — **no `NSMicrophoneUsageDescription`**. And
 `grep -rn 'Microphone\|recordPermission\|requestRecordPermission\|AVAudioApplication' iosApp/`
-returns **nothing**, while `iosApp/Detour/PttAudio.swift:41` does:
+returned **nothing**, while `iosApp/Detour/PttAudio.swift:41` — now `:83` — does:
 
 ```swift
 try session.setCategory(.playAndRecord, mode: .voiceChat, ...)
@@ -1341,19 +1360,20 @@ means iOS push-to-talk cannot legitimately capture audio.
 - **The "talking" frame is sent before capture is proven.** Android sends it last —
   `app/…/audio/PushToTalk.kt:58-65`: `if (record.state != AudioRecord.STATE_INITIALIZED) {
   record.release(); return }` … then `record.startRecording()` … then
-  `ConvoyLiveClient.sendPttStart()`. iOS sends it first — `iosApp/Detour/ConvoyBar.swift:71-75`
+  `ConvoyLiveClient.sendPttStart()`. iOS sends it first — `iosApp/Detour/ConvoyBar.swift:96-98`
   sets `transmitting = true`, calls `sendPttStart()`, *then* `PttAudio.shared.startCapture`, which
-  has three silent `return` paths (`PttAudio.swift:44, :50, :78`). **A failed start leaves every
-  peer with a lit "talking" badge and no audio.**
+  has three silent `return` paths (`PttAudio.swift:86, :92, :119`). **A failed start leaves every
+  peer with a lit "talking" badge and no audio.** Still open after `1f4514a`, which added a
+  permission gate above this block and did not reorder it.
 - **The button is live while the socket is down on iOS.** Android gates on
   `visible = convoyConnected && activeConvoyId != null` (`app/…/ui/MapScreen.kt:1321`); iOS on
-  `if live.activeConvoyId != nil` (`iosApp/Detour/ConvoyBar.swift:16`), with `live.connected` only
-  tinting a dot (`:19`). You can hold the mic and talk into a closed socket.
+  `if live.activeConvoyId != nil` (`iosApp/Detour/ConvoyBar.swift:22`), with `live.connected` only
+  tinting a dot (`:25`). You can hold the mic and talk into a closed socket. Still open.
 - **Chunk length.** `CHUNK_SAMPLES = SAMPLE_RATE / 25` = 640 samples / 1280 bytes on both
   (`PushToTalk.kt:31-32` ↔ `PttAudio.swift:16`), and Android always emits exactly that
   (`PushToTalk.kt:67-71`). iOS's emitted size is set by the hardware tap —
-  `PttAudio.swift:52` `installTap(onBus: 0, bufferSize: 1024, format: hardware)`, one `convert` per
-  callback into a `frameCapacity: Self.chunkSamples` buffer (`:55`) — so at a 48 kHz hardware format
+  `PttAudio.swift:94` `installTap(onBus: 0, bufferSize: 1024, format: hardware)`, one `convert` per
+  callback into a `frameCapacity: Self.chunkSamples` buffer (`:97`) — so at a 48 kHz hardware format
   1024 input frames yield ~341 output samples, i.e. ~21 ms on a wire `PttAudio.swift:5-7` documents
   as 40 ms. **Whether `AVAudioConverter` buffers the residue across taps is UNVERIFIED**; the
   constant/emission mismatch follows from the two lines.
@@ -1366,6 +1386,14 @@ means iOS push-to-talk cannot legitimately capture audio.
 
 **Recommendation: bug — three separate fixes** (§B5). The permission is an `Info.plist` key plus a
 request; the frame ordering is a statement move; the visibility gate is one `&&`.
+
+**RESOLVED (permission only) — `1f4514a`.** `NSMicrophoneUsageDescription` is declared and
+the press path asks for the record permission before capture. **Still open:** the `sendPttStart()`
+ordering and the socket-down visibility gate, both deliberately left out of that commit. The
+severity of the original state — termination versus silent failure — is still **UNVERIFIED** and
+was not confirmed by that commit either: nothing was run on a device. The Swift does compile —
+`ios.yml` run 31600855937 on PR #1 built it for the simulator — which is a type-check, not a
+behaviour check.
 
 **Blocks stage 3: no.**
 
@@ -1702,9 +1730,9 @@ items plus one open question plus a bug — so the buckets add to more than 22 b
 
 | # | Divergence | Kind | Surfaces affected | Blocks stage 3 | Verdict |
 |---|---|---|---|:-:|---|
-| 16 | **iOS PTT has no microphone permission at all** | **bug** | iOS | no | fix on its own (§B5) |
+| 16 | **iOS PTT has no microphone permission at all** | **bug** | iOS | no | **permission RESOLVED `1f4514a`**; ordering + socket gate open (§B5) |
 | 1 | Camera chime falls back to the ambient limit | product decision + bug | phone, car, wear, `README.md` | **yes** | survive: phone's fallback, staleness fixed |
-| 5 | Trip auto-detection: six rules | product decision + bug | iOS | no (out of scope) | survive: Android on 5a/b/c/e/f; 5d split |
+| 5 | Trip auto-detection: six rules | product decision + bug | iOS | no (out of scope) | survive: Android on 5a/b/c/e/f; **5d threshold RESOLVED `7c96bee`**, 5d gate + rest open |
 | 6 | Convoy relay: `left`, pruning, dead sockets | 5 bugs + 1 trade-off | iOS | no (out of scope) | survive: Android on 6a–6e |
 | 15 | Camera warning: chime vs chime+speak+toast | **product decision** | phone | partly | **needs-a-human** (§C1) |
 | 2 | Overpass prefetch on the fix collector | plain bug | phone | **yes (ordering)** | survive: car's structure (stage 0d) |
@@ -1720,7 +1748,7 @@ items plus one open question plus a bug — so the buckets add to more than 22 b
 | 18 | Speed HUD fades at standstill on the phone only | product decision | phone or car | constrains it | **needs-a-human**, "leave both" is fine |
 | 21 | Catch-up order reversed; iOS lacks a self-filter | product decision + gap | one platform, iOS | no | **needs-a-human** on order; survive the filter |
 | 14 | Wear discards the instruction text | product decision (small) | wear | no | **needs-a-human** (§C4-adjacent) |
-| 8 | `60` literal vs `NavPolicy.OFF_ROUTE_METERS` | latent | phone | no | survive: the constant |
+| 8 | `60` literal vs `NavPolicy.OFF_ROUTE_METERS` | latent | phone | no | **RESOLVED — constant `1c7f827`, car indicator `e6a6bf2`** |
 | 22 | Trip dates: fixed pattern vs locale-derived | drift | phone | no | survive: **iOS's** |
 | 3 | Camera easing `dt` clamp, 0.1 vs 0.25 | not really divergent | either | no | leave both; unify the other seven constants |
 | 13 | `+5` / `+3.0` / `45.0` literals | not yet divergent | phone, car, wear | consumed by it | survive: both values, hoisted |
@@ -1779,7 +1807,7 @@ map's"; every constant matches (margin 500 m, throttle 10 s, min 2.0 m/s, 3 miss
 does not. Not filed upstream. Found by this register. A reviewer diffing the two copies without
 reading this could reasonably conclude the car is right outright.
 
-**B2 — iOS auto-ends manually started trips.** `iosApp/Detour/TripRecorder.swift:280-284` runs the
+**B2 — iOS auto-ends manually started trips.** `iosApp/Detour/TripRecorder.swift:291-296` runs the
 5-minute stationary end-of-trip check unconditionally; Android gates it on `autoStarted`
 (`app/…/tracking/TripTrackingService.kt:1082`). A user who starts a recording by hand and then
 stops for five minutes — a coffee, a photo, a long queue — loses the rest of it. Not filed
@@ -1794,11 +1822,14 @@ deferred pending replay route (ii).
 
 **B5 — iOS push-to-talk cannot capture audio.** Entry 16. No `NSMicrophoneUsageDescription` in
 `iosApp/Detour/Info.plist` and no permission request anywhere in `iosApp/`, against
-`PttAudio.swift:41` activating a `.playAndRecord` session. Three fixes, three commits: the
-permission, the `sendPttStart()` ordering (`ConvoyBar.swift:71-75`), and the visibility gate
-(`ConvoyBar.swift:16`). Not filed upstream. Found by this register. **The severity — process
-termination versus silent failure — is UNVERIFIED and must be confirmed on a device.** The missing
-key and the missing request are verified.
+`PttAudio.swift:83` activating a `.playAndRecord` session. Three fixes, three commits: the
+permission, the `sendPttStart()` ordering (`ConvoyBar.swift:96-98`), and the visibility gate
+(`ConvoyBar.swift:22`). **One of the three has landed:** the permission, in `1f4514a` — the key is
+declared and `PttAudio.capturePermission()` gates the press. **The ordering and the visibility gate
+remain open**, deliberately kept out of that commit so neither hides in its diff. Not filed
+upstream. Found by this register. **The severity — process termination versus silent failure — is
+UNVERIFIED and must be confirmed on a device.** The missing key and the missing request were
+verified.
 
 **B6 — iOS drops convoy peers that left and never prunes ones that go quiet.** Entry 6a and 6b. A
 `case "left"` branch (`ConvoyLiveClient.swift`, absent) and a periodic sweep to match
@@ -1939,8 +1970,12 @@ non-zero exit on any failure).
 
 Concretely: `docs/refactor/mapscreen/scripts/check-divergences.sh`, one assertion per entry, each a
 `grep -c` of the *quoted text* with an expected count, using the same `check`/`fails` harness as
-`check-preconditions.sh`. **Every assertion below was run against `57260e4` and produces the count
-shown**, so the script starts green:
+`check-preconditions.sh`. Every assertion below was run against `57260e4` and produced the count
+shown **at that commit**. That is no longer true of three of them: convergence 1 resolved entry
+16's permission half and entry 8's car half, so the microphone assertion is inverted from `0` to
+`1`, the entry-8 literal assertion is corrected to `0` — it was false the day it was written, see
+entry 8 — and the car-indicator assertion is new and was never measured at `57260e4` at all. The
+expectations below are the post-convergence-1 values, measured against `7c96bee`:
 
 ```sh
 M=app/src/main/java/com/jellemax/detour/ui/MapScreen.kt
@@ -1965,12 +2000,16 @@ check 'the -6 roundabout-exit branch is still car-only' 1 \
 # Entries 6a and 16 — inverted assertions, the kind worth running rather than eyeballing.
 check 'iOS still ignores the relay left frame' 0 \
     "$(grep -c 'case "left"' iosApp/Detour/ConvoyLiveClient.swift)"
-check 'iOS still declares no microphone usage description' 0 \
+check 'iOS declares a microphone usage description' 1 \
     "$(grep -c 'NSMicrophoneUsageDescription' iosApp/Detour/Info.plist)"
 
-# Entry 8 — the off-route literal stage 2 left behind.
-check 'the 60 literal is still there (0 once NavPolicy.OFF_ROUTE_METERS replaces it)' 1 \
+# Entry 8 — RESOLVED by 1c7f827. Inverted on purpose: 1 means the literal came back.
+check 'the 60 literal is gone' 0 \
     "$(grep -c 'offRouteMeters ?: 0.0) > 60' "$M")"
+
+# Entry 8, car half — RESOLVED by e6a6bf2. The head unit's persistent indicator.
+check 'the head unit has an off-route indicator' 1 \
+    "$(grep -c '"Off route"' $CAR/NavScreen.kt)"
 
 # Entry 10 — the car search call that drops both routing flags.
 check 'car search still routes without the avoid-* settings' 1 \
