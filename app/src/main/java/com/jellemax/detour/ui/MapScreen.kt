@@ -92,6 +92,7 @@ import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.map.FollowCamera
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.leadingSpinIndex
 import com.jellemax.detour.tracking.TripTrackingService
@@ -406,18 +407,26 @@ fun MapScreen(
         onDispose { mapView.setOnTouchListener(null) }
     }
 
-    // Driving off takes the camera back. Not while a spin is on screen (own
-    // or a convoy's, still being voted on): the candidates are the whole
-    // reason the map is parked where it is, and a passenger spinning at
-    // speed would otherwise never get to read them.
+    // Driving off takes the camera back; the rule is FollowCamera's. The keys are
+    // derived booleans on purpose - keying on the collections themselves would
+    // restart this collector on every convoy vote.
     LaunchedEffect(camSuspended, spinning, candidates.isEmpty(), spinOffer == null) {
-        if (!camSuspended || spinning || candidates.isNotEmpty() || spinOffer != null) {
+        if (!FollowCamera.shouldWatch(
+                camSuspended = camSuspended,
+                spinning = spinning,
+                hasCandidates = candidates.isNotEmpty(),
+                hasSpinOffer = spinOffer != null,
+            )
+        ) {
             return@LaunchedEffect
         }
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
-            if (fix.speedMps >= CAM_RESUME_SPEED_MPS &&
-                System.currentTimeMillis() - lastGestureMs > CAM_RESUME_QUIET_MS
+            if (FollowCamera.shouldResume(
+                    speedMps = fix.speedMps,
+                    nowMs = System.currentTimeMillis(),
+                    lastGestureMs = lastGestureMs,
+                )
             ) {
                 camSuspended = false
             }
