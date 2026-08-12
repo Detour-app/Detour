@@ -83,27 +83,47 @@ Three stateful machines move into `shared/src/commonMain/.../drive/`, with tests
 
 Then the car's copies are deleted and pointed at the core, one commit behind each extraction.
 
-## Blocker: fix maxke24/Detour#22 before extracting machine 1
+## Blocker: the early clear is still undiagnosed, and it is not the parser
 
 The section baseline (`306a70f`, re-run `17d9da5`) found that the average-speed readout clears
-a few hundred metres into a section rather than at the exit gantry, and traced it to
-`SpeedCameras.parseSection` treating a clipped Overpass node set as complete: a section longer
-than `PREFETCH_RADIUS_M` yields a bogus short section whose far end sits just past the entry.
-`sectionExitGate` is **not** implicated — entry is correct — so this is a parser defect, not a
-tracker one.
+a few hundred metres into a section rather than at the exit gantry. maxke24/Detour#22 read that
+as `SpeedCameras.parseSection` treating a clipped Overpass node set as complete — a section
+longer than `PREFETCH_RADIUS_M` yielding a bogus short section whose far end sits just past the
+entry. **That mechanism is refuted for these two relations** (`ce67a77`,
+`SpeedCameraSectionTest` in `shared/src/commonTest/.../ParsingTest.kt`): clipped to the entry
+end, both are *rejected*, because their end clusters are 22 m and 14 m across against a 200 m
+`MIN_SPAN_M`. Clipping loses a section; it does not shorten one. So there is no parser fix to
+make first, and #22 needs correcting rather than closing.
 
-**This changes what machine 1's characterisation tests are for.** Written against current
+Two further facts from the same tree, neither of which needs Overpass:
+
+- The prefetch attempts on a 15 s throttle, so at ~1.02 s/fix they land every ~14.7 fixes, and
+  the one that produced the entry must be at fix ≤ 72. Every such centre leaves the far gantry
+  **outside** the 4 km circle — 6 321 m at fix 0, 4 304 m at fix 59, and 4 000 m at fix 68 in the
+  latest case that fits the cadence. The chip still appeared at fix 73, which needs a parse with
+  both ends, so `out geom` almost certainly returns relation member nodes beyond the `around`
+  radius — i.e. the clipping #22 assumes may not happen at all.
+- Under no-clipping, `15682532` was complete in the fix-88 answer and the readout **should** have
+  re-armed at the shared gantry at fix 218. It did not. So one unexplained suppression of section
+  state accounts for both the clear at fix 81 and the missing re-arm — and neither the parser nor
+  `sectionExitGate` can produce it.
+
+**This still changes what machine 1's characterisation tests are for.** Written against current
 behaviour they would encode the early clear as intended, which is exactly the trap
 characterisation testing sets: it preserves whatever is there, bug included. So:
 
-1. Fix #22 first, in its own commit, on the parser.
-2. Re-run `trajectcontrole.txt` and confirm the readout now survives to the exit gantry and
-   re-arms across the shared node at 6.36 km — the transition the route was built for and which
-   has still never been observed working.
+1. Diagnose the termination first, in its own commit — on the tracker's state, not the parser.
+   `sectionAvgKmh`'s three writers are already enumerated in the baseline README; what has not
+   been checked is whether the collector itself survives, i.e. whether `TripTrackingService.lastFix`
+   re-emits into a fresh `LaunchedEffect(Unit)` body, or whether `active` is reset by something
+   outside the two branches that write it.
+2. Re-run `trajectcontrole.txt` and confirm the readout survives to the exit gantry and re-arms
+   across the shared node at 6.36 km — the transition the route was built for and which has still
+   never been observed working.
 3. Only then write machine 1's characterisation tests, against corrected behaviour.
 
-Confirming #22's mechanism needs one Overpass query replicating `near()`'s exact request, and
-Overpass has been refusing this IP since the run. That is the current block.
+Replaying `near()`'s own query against a reachable mirror is still the one measurement that would
+settle what `speedSections` held; Overpass has been refusing this IP since the run.
 
 ## Consumed decisions
 
