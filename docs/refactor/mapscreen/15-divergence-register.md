@@ -1821,6 +1821,11 @@ twice.
 
 ## §C — Decisions a human must make
 
+> **All four were decided on 2026-08-12.** The answers are recorded inline below, each with
+> what it commits us to. Two of them — 1 and 2 — are **new feature work, not deduplication**,
+> and that distinction governs how they are sequenced: neither may ride inside a stage-3
+> extraction commit. See §C.1 below for the resulting order of work.
+
 Four. Everything else in §A either has a defensible best copy on evidence, or is a bug.
 
 1. **Does the phone speak?** (entry 15, pulling in entry 12.) The car's own code argues that a
@@ -1829,19 +1834,77 @@ Four. Everything else in §A either has a defensible best copy on evidence, or i
    handling or it ducks the user's music for a camera warning that may be wrong. **This is the
    one decision in the register with no technically-correct answer.**
 
+   > **DECIDED: full parity — port `NavVoice` to the phone.** The phone announces turns and
+   > hazards as the car and iOS already do.
+   >
+   > This is a **new feature**, and the largest single item to come out of this register. It
+   > commits us to: audio-focus handling and ducking on the phone; a third consumer of the
+   > announcement thresholds (entry 13's `+5`/`+3` family), which is the argument for moving
+   > the announcement *policy* into `shared/` rather than writing a third copy; and resolving
+   > entry 16 first, because iOS PTT already grabs `.playAndRecord` without declaring a
+   > microphone permission and a second audio client will make that failure louder.
+   >
+   > It does **not** belong in stage 3. Stage 3 moves the hazard *machines*; the voice policy
+   > is a separate extraction with its own spec, and the phone's `NavVoice` implementation is
+   > feature work after that.
+
 2. **Do the car and iOS get the trajectcontrole average?** (entry 11.) Stage 3 extracts the
    tracker either way. Whether the head unit shows a fifth readout, and whether iOS gains a
    feature it has never had, are product calls that change what the machine's output has to
    serve — so decide before the extraction, not after.
+
+   > **DECIDED: all three surfaces.**
+   >
+   > This settles stage 3's destination beyond argument: `SectionAverageTracker` goes to
+   > `shared/` commonMain, because iOS cannot consume anything in `app/`. It also means the
+   > tracker's output is a public contract from day one rather than a phone detail — so its
+   > `StateFlow` element type should be chosen with the iOS `FlowWatcher` cost in mind (one
+   > subclass per new element type), and it should expose the average and the posted limit as
+   > one value rather than two flows.
+   >
+   > The car is cheap: it already fetches the section data and discards it. iOS is the real
+   > work — SwiftUI readout plus the watcher — and is feature work *after* stage 3 lands the
+   > tracker, not part of it.
 
 3. **`2.0 m/s` or `1.0 m/s` for "stopped"?** (entry 5d.) `1.0` ends a trip promptly when you
    park; `2.0` refuses to end one while you are still pushing the bike into the garage. Both
    phones have shipped for months on their own value and neither has a written rationale.
    The *gate* half of 5d is a bug (§B2) and is not part of this question.
 
+   > **DECIDED: `2.0 m/s`, Android's value.** iOS changes to match.
+   >
+   > Rationale, which is what was missing: the failure modes are asymmetric. Ending a trip too
+   > late adds harmless idle time to a recording; ending it too early truncates a ride and
+   > loses data that cannot be recovered. When in doubt, keep recording.
+   >
+   > This is a **behaviour change on iOS** and gets its own commit, with that rationale in the
+   > message — it is exactly the kind of change that must not hide inside a deduplication.
+   > Write the reasoning next to the constant, so the next person does not have to re-derive it.
+
 4. **Does the head unit get an "Off route" indicator?** (entry 8.) Today it speaks "Rerouting"
    once and shows nothing persistent, so a driver who missed the announcement cannot tell. The
    constant deduplication is mechanical; adding the indicator is a car-UI decision.
+
+   > **DECIDED: yes, add the indicator.**
+   >
+   > Two commits, not one: the constant deduplication is mechanical and behaviour-preserving,
+   > the indicator is car UI that changes what a driver sees. The phone already shows this, so
+   > there is a precedent to match rather than a design to invent.
+
+### §C.1 — Resulting order of work
+
+The two expensive decisions both expand scope, so the sequencing matters more than it did:
+
+1. **Entry 16 first** — iOS microphone permission. It is a bug (§B), it is cheap, and decision 1
+   adds a second audio client on top of it.
+2. **Entry 8's constant**, then its car indicator. Independent of everything else.
+3. **Decision 3** — the iOS `2.0 m/s` change, own commit, own rationale.
+4. **Stage 3 as specified**, with `SectionAverageTracker` in commonMain and its output shaped
+   for three consumers rather than one.
+5. **Then** the car and iOS section readouts — feature work consuming what stage 3 produced.
+6. **Then** the announcement policy into `shared/`, and only after that the phone `NavVoice`.
+
+Nothing in 4–6 may share a commit with the extraction it depends on.
 
 Three smaller ones are also genuine but do not need a meeting — a one-line answer unblocks each:
 **does the watch show the instruction text it already receives** (entry 14), **should the phone's
