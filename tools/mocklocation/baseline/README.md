@@ -43,6 +43,12 @@ measure on that route (the HUD fade/return cycles, the stall count) is still the
 are kept side by side, named by their commit. Do not use the `689c580` run as the "before" side
 of any A/B: it was captured after `bac833a`, `689c580` and the rest of stage 2 had landed.
 
+**And a third, at `a90c3df`, which is the one Q7–Q9 are now read from.** It is the first run of this
+route against the file `ba74e40` introduced, and the first with a mirror that answered for the whole
+drive. Same rule as above: it supersedes nothing, it is a *later* observation and not a control, and
+it is filed beside the other two rather than over them. The `5fc8e90` and `689c580` numbers stay
+exactly where they are.
+
 ## What was captured
 
 | | |
@@ -128,7 +134,10 @@ the app was installed with `install -r` over itself, which keeps its data.
 ## Artifacts
 
 `<sha>` below is the commit the run was captured from — `5fc8e90` for the original three routes,
-`689c580` for the `trajectcontrole` re-run, `fca3c35` for the `stop-start` run on the OnePlus 11.
+`689c580` for the `trajectcontrole` re-run, `fca3c35` for the `stop-start` run on the OnePlus 11,
+`a90c3df` for the `trajectcontrole` run that finally answered Q7–Q9. **`a90c3df` has no `.png` and
+no `-stall.tsv`** — its capture is the HUD band only, and the 9.6 MB of images this directory used
+to carry were purged from history on 2026-08-13, so nothing image-shaped goes back in.
 The formats are identical between them, on purpose: the whole point of a re-run is a file that can be
 compared against the first. The one exception is named where it occurs — `fca3c35` was captured on a
 device rendering the app in **dark** theme, so its `dial_ink` counts *white* ink and its
@@ -460,6 +469,78 @@ An expectation of "roughly five queries for this route" is right about the *succ
 wrong by a factor of thirty about what a refusing mirror actually receives, which is precisely the
 no-backoff mechanism flagged below.
 
+### trajectcontrole at `a90c3df` — 1765 frames · Overpass healthy **throughout** · the run Q7–Q9 needed
+
+Captured 2026-08-13 08:00:15–08:25:09 CEST from `a90c3df`, same device and display id, app v1.74
+**rebuilt from `a90c3df`** (the installed binary predated the `e0c49d5` merge). Route
+`../routes/trajectcontrole.txt` as it stands at `a90c3df` — the 1466-fix, 27 283 m file `ba74e40`
+introduced — at `intervalMs=1000`. Completed **1466/1466**. Measured cadence **1.01866 s/fix**.
+Full write-up in [`../../../.superpowers/sdd/replay-trajectcontrole.md`](../../../.superpowers/sdd/replay-trajectcontrole.md).
+
+**Captured at a mean 0.873 s per frame — faster than one frame per fix**, so no transition could
+fall between frames. That needed the raw framebuffer: `screencap -p` costs 2.00 s per frame on this
+device against 1.03 s for `screencap` without `-p` (15.6 MB RGBA, 16-byte header, no row padding).
+The crop is the HUD band only (768×470 at screen `1000,1140`), which is why there is **no
+`-stall.tsv` for this run** — the map region is not in the capture. That is stated as not measured
+rather than measured badly; Q4 already rests on 3 909 frame pairs.
+
+All four AVG events, from `trajectcontrole-a90c3df-events.tsv`:
+
+| Fix | Event | Value | Why |
+|---|---|---|---|
+| **166** | `AVG-ON` | `Ø 115` | first fix inside the west gate's 60 m radius (window 165–168, closest 13.2 m at 166) — **zero latency**, because the *first* prefetch already held the section |
+| **543** | `AVG-CLEARED` | last read `Ø 75` | `reachedEnd`: first fix inside the exit node's 60 m gate (window 543–553), `accMeters` ≈ **7 946 m of the relation's 7 950 m** |
+| **546** | `AVG-ON` | `Ø 38` | re-armed into `15685856` three fixes later, over the shared node |
+| **804** | `AVG-CLEARED` | last read `Ø 79` | `overshot`: `accMeters` > 3852.2 × 1.4 + 400 = 5 793 m. The route's own cumulative distance makes that first true at fix **805** |
+
+The average tracked the geometry: `Ø 115` at the gate while the route was doing 119 km/h, then
+84 → 78 → **75** as the slow middle (11–42 km/h over fixes 400–550) pulled it down. The route's
+8 000 m transit in 382 s is **75.4 km/h**. The second measurement's far end is unreachable on this
+route — closest approach to the Leuven gantry pair is **1 202 m**, twenty times the gate — so
+`overshot` is the only exit it could have, and that is a property of the route, not a defect.
+
+- **Sign: six distinct posted limits exercised — 30, 50, 70, 90, 100, 120.** The richest sign
+  baseline in this directory; `stop-start` reached four and the other two runs only ever showed 120.
+  No held-set exhaustion, because no fetch failed.
+- **`speedSections` was seen directly**, not inferred: `SpeedCameras.near()`'s exact query was
+  replayed against `overpass-api.de` at two centres before the run. `15682532` comes back with all
+  three node members carrying coordinates including one **10 459 m outside the 4 km `around`
+  radius** — so **`out geom` does not clip relation members**, which is the premise under #22, now
+  measured rather than argued.
+- **Request cost: ~35 for the whole route**, all successful — camera/section prefetch 9 (fixes 0,
+  177, 264, 356, 633, 789, 882, 1100, 1464), ambient 26. Same derivation as `689c580`'s ~143, which
+  is what the identical route costs a *refusing* mirror.
+- **Recorded trip**: one trip, `CAR`, `distanceMeters` **28 126.4** for a 27 283 m route — **+3.1 %,
+  correct**, the first time this route recorded a usable distance. `topSpeedMps` 37.32 (134 km/h),
+  faithful. Trace **5 segments, 835 points** — four splits, all at the 200-point boundary, so not
+  one activity-recognition `STILL` flush, against 369 segments for 2 779 points at `689c580`.
+- **Contamination**: inside the window the platform handled **4 397** fixes, **4 395 at accuracy
+  4.00**. The two exceptions are accuracy 20.00 m at **+1493.13 s and +1493.17 s** after the first
+  push — the final 0.2 s, while `removeTestProvider` was running.
+- **HUD faded and returned once**, at the route's only standstill (fixes 1124–1130): `HUD-CLEARED`
+  1124, `HUD-ON` 1131.
+
+#### Two marker hazards this run had to fix, which the columns above do not survive
+
+**`dial_ink` reads a red dial as "no HUD".** `SpeedHud` turns the whole dial `errorContainer` once
+`speedKmh > limitKmh + 5` (`MapHud.kt:184,201-217`), and `onErrorContainer` is `#5A1710`, whose red
+channel is 90 — above any near-black threshold. At 121–131 km/h against a posted 120, **83 of 125
+frames in one sampled window read `dial_ink` = 0 with the HUD plainly on screen.** A `dial_red`
+column keyed on `errorContainer` was added; "HUD present" is `dial_ink > 0.008 or dial_red > 0.05`.
+Frame 302 is the proof: `dial_ink` 0.000, `dial_red` 0.445, dial legibly reading 126 in red.
+
+**`errorContainer` cannot tell a red chip from a red dial** — they share the fill, and the
+baseline's single strip covers both. Each marker is therefore scoped to its own sub-box:
+`chip_fill`/`chip_err` over `CHIP`, `dial_ink`/`dial_red` over `DIAL`. Without that, this run's red
+dial would have registered as an over-limit chip for most of the motorway. The existing note
+anticipated the hazard for the chip but not that the *dial* trips the same colour.
+
+**A one-frame `sign_red` = 0 at this cadence is a value change, not a clear.** `SpeedLimitSign` sits
+inside a 300 ms `Crossfade` (`MapHud.kt:195`), so a frame can land mid-fade with no ring on screen.
+Frames 145/146/147 are `100` → nothing → `120`. Every `SIGN-CLEARED` immediately followed by
+`SIGN-ON` in this run's events file is one of these. The 1–2 s cadences of the earlier runs mostly
+stepped over them, which is why the column looked binary there.
+
 ## Overpass was the limiting factor, and the app's own request rate is why
 
 Timeline, measured — poll of `/api/status` and of a real way query every ~60 s from the
@@ -474,6 +555,14 @@ devcontainer on the same WAN as the phone's Wi-Fi, plus `curl` from the device i
 | 17:55–18:02 | recovered, but flaky: the same small query answered `200, 200, 504` and then `200, 504, 200, 200` — 3/4 immediately before the `689c580` replay was started | — |
 | 18:02–18:03:36 | healthy through the start of the run: status 200 in 0.17 s. Both Overpass-fed features worked — sign at fix 11, chip at fix 73 | — |
 | 18:04:31 → 18:37+ | refusing again — **~2.5 minutes after the `trajectcontrole` replay began**, and still refusing 25 minutes after it ended | `overpass.private.coffee` also `000`; `overpass.osm.ch` answers but is a Switzerland-only extract, so it returns 0 elements for this bbox |
+| **2026-08-13 08:00:30 → 08:24:12** | **healthy for the whole `a90c3df` run: 13/13 status polls 200**, eleven of them in 0.10–0.17 s. Degrading at the end — **4.34 s at 08:22:10 and 6.47 s at 08:24:12** — but never refusing, and both Overpass-fed features were live at the finish | `/api/status` 200 in 0.34 s at 07:57, not needed |
+
+**The `a90c3df` row is the first `trajectcontrole` run that did not get re-blocked**, and it is the
+one where the app made ~35 requests instead of ~143. That is consistent with the mechanism below and
+**it is not evidence for it** — a day had passed, so the earlier penalty may simply have expired.
+Two habits from that run are worth copying regardless: poll `/api/status` every ~120 s rather than
+every 60, and replay `near()`'s own query at the handful of centres that matter *before* the drive
+instead of hoping the mirror survives until afterwards.
 
 The `689c580` row repeats the `5fc8e90` pattern almost exactly: a healthy window, a replay started
 inside it, and a re-block two to three minutes later. Note the shape of the recovery, because it
@@ -608,19 +697,23 @@ trip `overshot` instantly), and the log rules it out.
 
 ## What could not be captured
 
-- **Average-speed sections: captured at `689c580`, and the answers are above.** Entry gating, the
-  running average and its settled value, and whether the readout appears twice across the shared
-  gantry are all recorded. What that run leaves open is narrower but sharper: **why the measurement
-  terminated 306 m into a 3852 m section**, which none of the three exit conditions can account
-  for. Settling it needs `SpeedCameras.near()`'s own query replayed so the contents of
-  `speedSections` can be seen, and Overpass refused for the whole post-run window. That is one
-  query against a healthy mirror, not another replay — **do not re-drive the route for it.**
-- **Exit detection at a real gantry**, therefore, is still unmeasured: the measurement never
-  survived far enough to reach one. So is the shared-gantry re-arm as a *positive* observation —
-  what is recorded is that it did not happen, which is only half of what stage 3 wants.
+- **Average-speed sections: fully captured at `a90c3df`** — entry gating, the running average and
+  its settled value, exit at a real gantry by `reachedEnd`, the shared-gantry re-arm as a
+  *positive*, and a second termination by `overshot` within one fix of the arithmetic. `near()`'s
+  own query was replayed at two centres before the run, so what `speedSections` held is measured
+  too. **Nothing about the section machine is outstanding for stage 3.** Still not exercised, and
+  neither is reachable by any fixture here: **`reachedEnd` at a far gantry entered from the near end**
+  (this route's exit gate is also the next section's entry), **`timedOut`** (30 minutes in one
+  section) and **the over-limit red chip** (no relation in this geography tags `maxspeed`).
+- **Why the `689c580` run cleared 306 m into a 3852 m section is narrowed, not diagnosed.**
+  `a90c3df` rules out the clipping premise — `out geom` returns members 10 459 m outside the
+  `around` radius — and shows the machine is correct given a populated `speedSections`, which points
+  at what *that* run's `speedSections` held. Its inputs are gone, so this cannot be closed; do not
+  re-drive the route for it.
 - **The urban half of `urban-limits`:** posted-limit changes, cross streets and the frontage
-  road, for the same reason. The sign baseline that does exist covers 120 on the motorway and the
-  30/50/70/120 sequence on `stop-start`.
+  road. Partly superseded — `trajectcontrole` at `a90c3df` displayed **30, 50, 70, 90, 100, 120**,
+  so the sign has now been seen changing value six ways on one drive; what is still missing is a
+  *wrong*-road value to have been looked for on an urban grid.
 - **Route (iii), off-route/reroute:** does not exist — no reachable routing server, so there is
   no computed route to deviate from (`../routes/README.md`,
   `docs/refactor/mapscreen/DECISION.md`).
@@ -643,16 +736,17 @@ quantity, the value observed, and the file the value is read out of.
 |---|---|---|---|---|
 | Q1 | Fixes from the last successful speed-limit snap to the sign clearing | **3 fixes ≈ 3.1 s** — seen twice independently: `stop-start` fix 470→473, `urban-limits` run 2 fix 609→612 | `stop-start-09fddde-events.tsv`, `urban-limits-09fddde-events.tsv` | **Yes.** A latency in fixes, not a position. This is the 0d acceptance criterion; if it shrinks, the `StateFlow` drops were load-bearing and the 3-miss hysteresis needs retuning in that same commit |
 | Q2 | Does the sign ever show a cross-street or frontage-road value? | **No.** No wrong-road value on any of five runs. The one near-miss is a change to 120 three fixes before the route reaches motorway pace — the sign picking up the motorway from the acceleration lane, which is correct | `…-sign-values.png` | **Yes**, as a yes/no |
-| Q3 | Speed-limit values actually exercised | **30, 50, 70, 120** (all on `stop-start`); `urban-limits` and `trajectcontrole` only ever displayed **120** before their held set ran dry | `stop-start-09fddde-events.tsv` | **Yes** |
+| Q3 | Speed-limit values actually exercised | **30, 50, 70, 90, 100, 120** — six values on `trajectcontrole` at `a90c3df`, the only run whose mirror never failed. `stop-start` reached 30/50/70/120; `urban-limits` and the two earlier `trajectcontrole` runs only ever displayed **120** before their held set ran dry | `trajectcontrole-a90c3df.tsv` (distinct `sign_ink`), `stop-start-09fddde-events.tsv` | **Yes** |
 | Q4 | Camera or HUD frozen > 1 s | **0 stalls in 3 909 frame pairs** across five runs, including fourteen minutes against a *refusing* Overpass mirror at a 1 s cadence | `…-stall.tsv` (all five) | **Yes** |
 | Q5 | Does the speed HUD ease to zero and hold at a standstill, and return? | **Yes, at 4/4 stops on `stop-start`**, and across all nine on `trajectcontrole`. Fade lands 1–2 fixes into the stop, return 2 fixes after moving off. The easing is gradual (28 → 8 → 19 → 16 km/h, then gone), not snatched away | `stop-start-09fddde-events.tsv`, `…-stop2-window.png` | **Latency yes; the fix indices no** — the stops now start at the same fix but run 3 fixes longer |
 | Q6 | Does the map camera park and resume? | **Yes.** Frame-to-frame map RMSE is *exactly* 0 for five consecutive pairs inside the 38 s stop — no pan, no rotation, and no north-up snap. Following resumed unaided after all four stops; no re-centre tap was needed | `stop-start-09fddde-stall.tsv`, `…-bearing-hold.png`, `…-camera-park.png` | **Yes** as a yes/no; the RMSE-zero run is now 3 fixes longer |
-| Q7 | Does a section average appear, where, at what value? | **Yes — at fix 73, 34 m past the entry gantry, reading `Ø 121`, settling to `Ø 120` and holding it for eight frames** while the route was doing 121–124 km/h | `trajectcontrole-b29d014-events.tsv`, `…-chip-values.png` | **No — recorded against the superseded route.** See below |
-| Q8 | Does it clear at the far gantry? | **No. It cleared at fix 81, 306 m into a 3852 m section, 3529 m short of the exit gate** — and none of the three exit conditions (`reachedEnd`, `overshot`, `timedOut`) can fire there. Five alternative explanations were checked and ruled out | `trajectcontrole-b29d014-events.tsv` | **No** — same reason |
-| Q9 | Does it re-arm at the shared gantry? | **No. Exactly two AVG events in 1029 frames**, one on and one cleared | `trajectcontrole-b29d014-events.tsv` | **No** — the new route only enters the second relation, so this is now testable as a *positive* |
-| — | Trip `distanceMeters` / `topSpeedMps` / trace segment counts | **Unusable as A/B quantities on this harness.** Distance inflates ×90–×315 non-deterministically (same route, same device: ×273 once, ×315 the next); segments split on desk-induced activity-recognition `STILL` events. **`topSpeedMps` is not safe either** — it stayed faithful on the Z Fold but came out at 1359.93 m/s (4 896 km/h) on the OnePlus 11; see the `fca3c35` section below for where in the run that value was acquired | — | — |
+| Q7 | Does a section average appear, where, at what value? | **Yes — `AVG-ON` at fix 166**, the first fix inside the west gate's 60 m radius, reading `Ø 115` and converging to **`Ø 75`** against a transit the route's geometry puts at **75.4 km/h**. **Zero latency**: the first prefetch already held the section | `trajectcontrole-a90c3df-events.tsv` | **Yes** — measured against the current route file |
+| Q8 | Does it clear at the far gantry? | **Yes, at fix 543**, the first fix inside the exit node's 60 m gate, having accumulated **7 946 m of the relation's 7 950 m span**. `reachedEnd`, as written. The `689c580` early clear (fix 81, 306 m into 3 852 m) **did not reproduce** | `trajectcontrole-a90c3df-events.tsv` | **Yes** |
+| Q9 | Does it re-arm at the shared gantry? | **Yes — `AVG-ON` at fix 546**, three fixes after clearing, reading `Ø 38` against a route doing 38–40 km/h. That measurement then cleared at **fix 804** by `overshot`, which the route's cumulative distance puts at fix **805**. **Four AVG events in 1765 frames**, all four explained | `trajectcontrole-a90c3df-events.tsv` | **Yes** |
+| Q10 | Is the chip ever red (average over the section's posted limit)? | **No, and it cannot be here.** Neither E40 relation tags `maxspeed`, so `Section.maxspeedKmh` is null, `over` is false and the chip stays `tertiaryContainer` for both measurements. `chip_err` is 0 on all 1765 frames. **A missing red state on this route is correct, not a defect** | `trajectcontrole-a90c3df.tsv` | **Yes**, as a yes/no. Exercising red needs a relation that tags `maxspeed`, or a fixture |
+| — | Trip `distanceMeters` / `topSpeedMps` / trace segment counts | **Unusable as A/B quantities on this harness.** Distance inflates ×90–×315 non-deterministically (same route, same device: ×273 once, ×315 the next); segments split on desk-induced activity-recognition `STILL` events. **`topSpeedMps` is not safe either** — it stayed faithful on the Z Fold but came out at 1359.93 m/s (4 896 km/h) on the OnePlus 11; see the `fca3c35` section below for where in the run that value was acquired. **The `a90c3df` run is the counter-example that gives the inflation a shape**: 28 126 m for a 27 283 m route (+3.1 %), 5 trace segments for 835 points, and only **2** non-mock fixes inside the window, both in its last 0.2 s. Six runs now line up as "clean fix stream → correct distance", so control the real providers rather than treating the accumulator as random | `trajectcontrole-a90c3df.tsv` and the report | — |
 
-## Q7–Q9 are the ones `ba74e40` was meant to fix, and they are not yet re-measured
+## Q7–Q9 were the ones `ba74e40` was meant to fix, and `a90c3df` re-measured them
 
 The `689c580` capture answered them against a route that drove the E40 sections **backwards**, east
 to west, at an implied 117 km/h. That is why Q8's early clear could not be closed out: with the
@@ -665,7 +759,9 @@ second 166 and exit gantry at second 548, an 8.00 km transit in 382 s. **So the 
 Q7 is a chip that appears shortly after second 166, settles near `Ø 75`, and clears at second 548.**
 Anything else is the defect Q8 points at.
 
-**That replay has not been run.** See the next section.
+**That replay has been run, at `a90c3df` on 2026-08-13.** Q7–Q9 are re-measured below and all three
+came out correct; the two attempt sections that follow are kept as the record of how it got blocked
+twice first.
 
 ## Attempt on the OnePlus 11 at `ba74e40`, 2026-08-12 — blocked, nothing recorded
 
