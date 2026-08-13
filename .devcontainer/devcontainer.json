@@ -1,0 +1,46 @@
+{
+    "name": "Detour (.NET + Android/Gradle)",
+    "dockerFile": "./Dockerfile",
+    "remoteUser": "vscode",
+    "features": {
+        // backend/ tests use Testcontainers and the local infrastructure is
+        // docker/dev/docker-compose.yml, so the container needs a Docker client.
+        // Outside-of-docker, not docker-in-docker: it talks to the host daemon,
+        // which is the same daemon Testcontainers' port mappings resolve against
+        // under --network=host.
+        "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+            "moby": false
+        }
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-dotnettools.csharp",
+                "ms-dotnettools.csdevkit",
+                "fwcd.kotlin",
+                "vscjava.vscode-gradle"
+            ],
+            "settings": {}
+        }
+    },
+    "mounts": [
+        // Signing/pushing from inside the container without re-adding keys.
+        "source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,readonly,type=bind",
+        // Named volumes, not binds of the host's caches: the host JDK is 26 and
+        // cannot run this build at all, so there is no Gradle cache worth
+        // sharing — and keeping them apart means the container's daemon never
+        // fights the host's over lock files. NuGet gets the same treatment so a
+        // restore survives a container rebuild.
+        "source=detour-gradle-cache,target=/home/vscode/.gradle,type=volume",
+        "source=detour-nuget-cache,target=/home/vscode/.nuget,type=volume"
+    ],
+    "runArgs": [
+        "--privileged", // USB access for a phone plugged into the host
+        "--network=host" // reach the ADB server running on the host
+    ],
+    // Make sure the host's ADB server is up before the container starts, so
+    // --network=host has something to talk to.
+    "initializeCommand": "adb devices || true",
+    // Docker creates named volumes owned by root; both builds run as vscode.
+    "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.gradle /home/vscode/.nuget"
+}
