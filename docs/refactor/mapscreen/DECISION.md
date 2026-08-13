@@ -6,6 +6,34 @@ is the synthesis of a nine-agent investigation into how to split it. It is the d
 record; the underlying reports are kept alongside it so the reasoning stays checkable
 against whatever we actually build.
 
+## Deviation — machines 1 and 2 ran without a gate between them, 2026-08-13
+
+The stage-3 plan puts a mandatory replay gate **between** machines, not after all three,
+because these are separate `TripTrackingService.lastFix` consumers and
+`detour-compose-state-hazards` §4 forbids two such changes in flight. Machine 1's gate closed
+only partially — all five section transitions reproduced offline against the extracted Kotlin,
+plus the fix-546 re-arm on device, but transitions 1–3 were never observed on hardware, because
+`overpass-api.de` TCP-refuses this WAN IP and kumi sits at or past the app's own 12 s client
+budget. Machine 2 was dispatched anyway. That was a judgement call made at dispatch and it
+should have been stated then rather than after a subagent flagged it.
+
+**Why it is defensible.** The two machines touch different `collect` blocks — the section
+effect at `MapScreen.kt:1014`, the camera-warn effect at `:971` — and their observable outputs
+are disjoint: the average-speed chip versus the camera chime. A batched replay can still
+attribute a regression by which readout misbehaves, and each machine's commits are separable,
+so the worst case is a two-way bisect rather than an unattributable mystery.
+
+**Why machine 3 is nevertheless held.** `CameraWarner.onFix(…, limitKmh)` takes the posted
+limit as a parameter, and that limit is `ambientSpeedLimitKmh` — machine 3's own output. So a
+broken limit breaks the chime's too-fast decision, and a chime regression would be
+attributable to either machine 2 or machine 3. That coupling is real, unlike the one between
+machines 1 and 2, so machine 3 does not start until a replay has confirmed the first two.
+
+**What unblocks it:** one healthy Overpass mirror, checked with
+`.claude/skills/detour-gps-replay/scripts/overpass-ready.sh` — a JSON body inside the app's
+budget, not an HTTP 200. Then one run of `trajectcontrole.txt` satisfies both outstanding
+gates at once, since the chip and the chime are recorded from the same route.
+
 ## Status — stop-point B reached, 2026-08-12
 
 **Stage 2 is complete.** Five commits (`2452dfc`…`d451fe5`) extracted four decisions into
