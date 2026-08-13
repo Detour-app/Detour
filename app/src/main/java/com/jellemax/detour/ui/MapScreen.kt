@@ -44,7 +44,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -97,6 +96,7 @@ import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.map.FollowCamera
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.leadingSpinIndex
@@ -244,19 +244,19 @@ fun MapScreen(
     // tapped open, and folds back down on its own after a spin lands.
     var settingsCollapsed by rememberSaveable { mutableStateOf(true) }
     var ambientSpeedLimitKmh by remember { mutableStateOf<Double?>(null) }
-    var speedLimitWays by remember {
-        mutableStateOf<List<RoadRoulette.SpeedLimitWay>>(emptyList())
-    }
-    var speedLimitWaysCenter by remember { mutableStateOf<LatLon?>(null) }
-    var speedLimitFetchMs by remember { mutableLongStateOf(0L) }
+    // The prefetched way set, the fetch throttle, the miss counter and the
+    // snapped value: SpeedLimitTracker's, in shared/…/drive/, where the policy
+    // lives with its tests. ambientSpeedLimitKmh stays its own state because the
+    // camera chime snapshots it below and the HUD reads it; collapsing the two is
+    // the state layer's call, not this one's.
+    var limitState by remember { mutableStateOf(SpeedLimitTracker.State()) }
     // Out here rather than inside the effect that uses it, for the same reason
-    // speedLimitFetchMs is: that effect is keyed on `navigating` and restarts,
-    // and a holder that restarted with it would forget an in-flight fetch — so
-    // the guard would wave a second one through on the very next fix after a
+    // limitState is: that effect is keyed on `navigating` and restarts, and a
+    // holder that restarted with it would forget an in-flight fetch — so the
+    // guard would wave a second one through on the very next fix after a
     // navigation toggle. The fetch itself runs on `scope`, which outlives the
     // restart, so the two have to agree about what is running.
     var speedLimitFetchJob by remember { mutableStateOf<Job?>(null) }
-    var speedLimitMisses by remember { mutableIntStateOf(0) }
     var speedCameras by remember { mutableStateOf<List<SpeedCameras.Camera>>(emptyList()) }
     var speedSections by remember { mutableStateOf<List<SpeedCameras.Section>>(emptyList()) }
     // Non-null only while driving through a trajectcontrole: the running average
@@ -791,35 +791,27 @@ fun MapScreen(
         }
     }
 
-    // Ambient speed-limit sign while just driving (not navigating). We prefetch
-    // every tagged way in a ~1.5km circle once, then snap locally against that
-    // set on every fix — so the sign flips the instant you cross onto a new
-    // road, instead of lagging a throttled Overpass round-trip behind you. The
-    // fetch refreshes only when you near the edge of what you have (throttled on
-    // failure so a network blip doesn't hammer the mirrors).
+    // Ambient speed-limit sign while just driving (not navigating). The whole
+    // policy — the prefetch throttle, the local snap and the three-miss clear —
+    // is SpeedLimitTracker's (shared/…/drive/), where it lives with its tests and
+    // is shared with the head unit. The I/O below is ours: commonMain has no
+    // Dispatchers, so the machine says a fetch is wanted and we perform it.
     LaunchedEffect(navigating) {
-        // Crossing into or out of navigation invalidates whatever sign we hold:
-        // the collector below is the only writer and it doesn't run while
-        // navigating, so the value would otherwise be the limit from wherever
-        // the route began and would survive the whole session — and then the
-        // trip after it. Stale in both directions: the camera chime falls back
-        // to it while navigating, and the HUD switches back to it on the way
-        // out. Clear it and let the next snap re-establish it, the way the car
-        // has since it shipped (car/SpinScreen.kt:117-121). The misses counter
-        // goes with it, or the first miss after the switch would clear a sign
-        // that was already cleared.
+        // Crossing into or out of navigation invalidates whatever sign we hold;
+        // reset() says why, and keeps the prefetched area. Clear it and let the
+        // next snap re-establish it, the way the car has since it shipped
+        // (car/SpinScreen.kt's onStart).
+        limitState = SpeedLimitTracker.reset(limitState)
         ambientSpeedLimitKmh = null
-        speedLimitMisses = 0
         if (navigating) return@LaunchedEffect
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
-            if (fix.speedMps < 2.0) return@collect
+            // Not just the machine's own floor: returning here is what also keeps
+            // a parked phone from prefetching.
+            if (fix.speedMps < SpeedLimitTracker.MIN_MPS) return@collect
             val pos = LatLon(fix.lat, fix.lon)
-            val fromCenter = speedLimitWaysCenter?.let { RoadRoulette.distanceMeters(it, pos) }
-                ?: Double.MAX_VALUE
             val now = System.currentTimeMillis()
-            if (fromCenter > RoadRoulette.SPEED_PREFETCH_RADIUS_M - 500.0 &&
-                now - speedLimitFetchMs > 10_000 &&
+            if (SpeedLimitTracker.needsWays(limitState, pos, now) &&
                 speedLimitFetchJob?.isActive != true
             ) {
                 // The refresh runs in its own coroutine. lastFix is a StateFlow
@@ -831,8 +823,8 @@ fun MapScreen(
                 // limit that stops following the road for ten seconds is not.
                 // The isActive guard is what now stops two fetches overlapping,
                 // which is the job the inline await used to do by accident.
-                // Same fix as car/SpinScreen.kt:265-287.
-                speedLimitFetchMs = now
+                // Same fix as car/SpinScreen.kt's updateSpeedLimit.
+                limitState = SpeedLimitTracker.fetchStarted(limitState, now)
                 speedLimitFetchJob = scope.launch {
                     // runCatching because this no longer runs inside the
                     // collector: an exception escaping here would cancel
@@ -844,24 +836,16 @@ fun MapScreen(
                     val ways = runCatching {
                         withContext(Dispatchers.IO) { RoadRoulette.speedLimitWays(pos) }
                     }.getOrDefault(emptyList())
-                    if (ways.isNotEmpty()) {
-                        speedLimitWays = ways
-                        speedLimitWaysCenter = pos
-                    }
+                    limitState = SpeedLimitTracker.withWays(limitState, ways, pos)
                 }
             }
-            // Heading lets the snap reject the cross street and the frontage
-            // road, which is most of why the sign used to show nonsense.
-            val result = RoadRoulette.snapSpeedLimitKmh(
-                pos, fix.bearingDeg?.toDouble(), speedLimitWays)
-            if (result != null) {
-                ambientSpeedLimitKmh = result
-                speedLimitMisses = 0
-            } else if (++speedLimitMisses >= 3) {
-                // A few misses in a row means the limit really ended (or the road
-                // isn't tagged), not a one-fix gap — only then clear the sign.
-                ambientSpeedLimitKmh = null
-            }
+            limitState = SpeedLimitTracker.onFix(
+                state = limitState,
+                at = pos,
+                headingDeg = fix.bearingDeg?.toDouble(),
+                speedMps = fix.speedMps,
+            )
+            ambientSpeedLimitKmh = limitState.limitKmh
         }
     }
 
