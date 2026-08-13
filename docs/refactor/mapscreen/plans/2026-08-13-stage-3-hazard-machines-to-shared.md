@@ -148,7 +148,7 @@ is `detour-shared-core` §3's test for whether the shape is right:
 | `RoadRoulette.distanceMeters(a, b)` | `RoadRoulette.kt:424-432` | haversine over r = 6 371 000 m |
 
 They disagree by a factor of 1.001125 (111 320 vs 6 371 000·π/180 = 111 194.9), so
-`offset(p, 1000.0, …)` measures **998.886 m** by `distanceMeters` — the ratio is 0.998886, **not** 1.0011. This was inverted when the plan was written and caught by machine 1, whose derived assertions passed while the literal did not; machines 2 and 3 inherit the same helper, so use 0.998886. Every distance fixture below
+`offset(p, 1000.0, …)` measures **998.886 m** by `distanceMeters` — the ratio is 0.998876, **not** 1.0011. This was inverted when the plan was written and caught by machine 1, whose derived assertions passed while the literal did not; machines 2 and 3 inherit the same helper, so use 0.998876. Every distance fixture below
 therefore keeps a ≥1 m margin from its threshold, and where a boundary must be hit exactly the
 test uses an **angle** instead — `offset` and `RoadRoulette.bearingDeg` share the same flat
 projection, so a point placed at bearing `θ` reads back as exactly `θ`

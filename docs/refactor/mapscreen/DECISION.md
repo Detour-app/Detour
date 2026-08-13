@@ -6,6 +6,28 @@ is the synthesis of a nine-agent investigation into how to split it. It is the d
 record; the underlying reports are kept alongside it so the reasoning stays checkable
 against whatever we actually build.
 
+## Status — stop-point C reached, 2026-08-13
+
+**Stage 3 is complete.** All three road-hazard machines now live in
+`shared/src/commonMain/kotlin/com/jellemax/detour/drive/` with `commonTest` coverage, which is
+the source set `ios.yml` gates on both JVM and Kotlin/Native. `MapScreen.kt` is **1640 lines**,
+down from 3204 where this began. 166 unit tests, 0 failures.
+
+That was the point of the stage, and it is worth stating plainly: `RoadRoulette.speedLimitWays`,
+`snapSpeedLimitKmh` and `SpeedCameras.near` had been sitting in commonMain unused because only
+the *stateful wrapper* around them was welded into a composable. iOS can now reach all three
+features for the first time.
+
+**The three replay gates are outstanding.** Both app mirrors refuse this host, and the one
+healthy public mirror is a Switzerland-only extract with no Belgian data. The maintainer decided
+to trade behaviour verification for completion, so the machines ship on unit tests, the compile
+gate and Kotlin/Native. What that specifically leaves unverified: the distinct posted-limit
+ladder, the 3-fix clear latency, the camera chime (which cannot be observed at all — see below),
+and everything Compose-side about the rewires.
+
+**Stage 4 is next and its collision with #21 turned out not to apply** — see the evidence
+section in [`specs/stage-4-state-ownership.md`](specs/stage-4-state-ownership.md).
+
 ## Deviation — machines 1 and 2 ran without a gate between them, 2026-08-13
 
 The stage-3 plan puts a mandatory replay gate **between** machines, not after all three,
