@@ -46,8 +46,8 @@ before writing custom firmware.
 
 ## 3. Motorcycle GPS companion project
 
-This screen is being turned into a handlebar-mounted nav display for Map
-Roulette: it shows the same turn-by-turn info as the Wear OS watch (turn,
+This screen is being turned into a handlebar-mounted nav display for
+Detour: it shows the same turn-by-turn info as the Wear OS watch (turn,
 distance to turn, speed, speeding warning), plus extras the bigger screen
 has room for — speed limit number, road name, remaining distance/ETA.
 

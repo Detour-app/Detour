@@ -65,14 +65,27 @@ Detour needs no account and no server. Trips, traces and fog live in private
 storage on your phone. There is no advertising, no analytics and no crash
 reporting of any kind — none, not "anonymised".
 
-If you want sync, friends and a shared fog of war, you point the app at a sync
-server you run yourself; the install script builds one for you. Routing and
-address search can point at your own instances too. Your rides stay on hardware
+Routing and address search can point at instances you run yourself, and if you
+run the Detour server too, your trips, fog of war and friends sync to hardware
 you own.
 
 Map data © OpenStreetMap contributors, ODbL. Tiles by OpenFreeMap. Geocoding by
 Photon.
 ```
+
+### Decide this before submitting
+
+The published build bakes in **no** server addresses — CI passes none, and the
+realm's issuer has no runtime setting — so on a Play install, signing in is
+unavailable and every account feature behaves as it does when signed out. The
+copy above therefore describes sync as something you get by running the server
+*and* building the app, which is honest but easy to misread as "sign in from the
+store build".
+
+Two ways to resolve it, and it is a product decision rather than a wording one:
+bake a default realm into the release build, or trim the sync sentence to
+routing and search only. Until one is picked, the paragraph stays as written and
+[App access](#app-content-answers) below says the same thing to the reviewer.
 
 ## Graphics needed
 
@@ -95,12 +108,14 @@ position, so they are safe to publish as-is.
 - **Privacy policy URL** — `https://maxke24.github.io/Detour/privacy.html`
   (enable GitHub Pages first: repo Settings → Pages → source `main` / `/docs`)
 - **App access** — all functionality is available without restrictions. Sign-in
-  is optional and only reaches a server the user supplies, so no test
-  credentials are required. Say so in the free-text box.
+  is optional, reaches only a server the user supplies, and is unavailable in
+  this build because it carries no server configuration, so no test credentials
+  are required or possible. Say so in the free-text box.
 - **Ads** — no ads.
 - **Content rating** — Utility/Productivity/Communication questionnaire; answer
-  no to every content category. User-to-user communication: **yes**, because of
-  convoy push-to-talk and friends.
+  no to every content category. User-to-user communication: **yes** — friends,
+  convoys and circles let users see and message each other's presence, and the
+  answer should not change if push-to-talk returns.
 - **Target audience** — 18+ (it is a driving app), not appealing to children.
 - **News app** — no.
 - **Data safety** — see below.
@@ -122,11 +137,12 @@ later, declare instead:
 |---|---|---|---|---|
 | Location (precise) | Yes | No | App functionality | Yes, user-configured sync only |
 | Personal info (name/email) | Yes | No | Account management | Yes, sign-in is optional |
-| Audio | No | No | — | Convoy audio is transient, never stored |
+| Audio | No | No | — | Push-to-talk is not carried today; when it returns it is transient and never stored |
 
 - **Data encrypted in transit** — yes (HTTPS/WSS throughout).
-- **Users can request data deletion** — yes; uninstall wipes local data, and the
-  server admin dashboard deletes an account.
+- **Users can request data deletion** — yes; uninstall wipes local data, and a
+  server administrator deletes an account through the administration endpoints,
+  which removes every row it owns.
 
 ## Wear OS
 

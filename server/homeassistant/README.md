@@ -47,7 +47,8 @@ homeassistant:
 ```
 
 Restart Home Assistant (Developer tools → YAML → Restart). Fifteen entities
-appear under `sensor.map_roulette_*`.
+appear under `sensor.map_roulette_*` — the app's old name, kept because renaming
+an entity breaks every card and automation already pointing at it.
 
 | Entity | What it holds |
 | --- | --- |
@@ -71,11 +72,15 @@ Both endpoints are polled every 5 minutes; `/api/dashboard/rides` fetches the ne
 
 `dashboard.yaml` is a ready-made dashboard for these entities: lifetime totals
 and a coverage gauge, speed/lean gauges with a kilometres-per-day bar chart, the
-last ride broken out with the track map beside it, and a table of the last 15
-rides. A second view lists the badges with their earned dates.
+last ride broken out, and a table of the last 15 rides. A second view lists the
+badges with their earned dates.
 
-Copy it to `config/dashboards/detour.yaml`, set the iframe card's `url` to
-your own server and key, and register it in `configuration.yaml`:
+The one card it does **not** fill in is the map: it ships an empty iframe where
+the old server's rendered track page used to sit. See
+[Cards of your own](#5-cards-of-your-own) for the endpoint that replaced it.
+
+Copy the file to `config/dashboards/detour.yaml` and register it in
+`configuration.yaml`:
 
 ```yaml
 lovelace:
@@ -110,12 +115,24 @@ content: >-
   {% endfor %}
 ```
 
-The last ride's track: **temporarily unavailable.** The card was an iframe onto a
-map page the old server rendered itself; the service that replaced it serves ride
-geometry as JSON (`/api/dashboard/rides/track`) and renders nothing, so there is
-no URL to point an iframe at. Rebuilding the card on top of that endpoint — with
-a template or a custom card that draws the coordinates — is the open piece of
-work here. The rest of the dashboard is unaffected.
+The last ride's track needs a card of your own. The old iframe card pointed at a
+map page the previous server rendered itself; this service renders nothing and
+serves geometry as JSON instead:
+
+```
+GET /api/dashboard/rides/track?start=<ms>&tolerance=6&max=400
+```
+
+Leave `start` off and it returns the **newest** ride, so a polling sensor needs
+no second request to discover what "latest" is. `tolerance` is the
+simplification distance in metres and `max` the point budget — the defaults are
+sized to fit inside a Home Assistant entity attribute. Speed and lean peaks are
+read off the raw track rather than off what survived thinning, so a dropped
+sample never drops the corner it was carrying.
+
+Draw it with whatever you already use for geometry — a `rest` sensor feeding a
+map card, or a custom card that reads the coordinate list. The rest of the
+dashboard does not depend on this one.
 
 ## 6. Optional: skip the tunnel on your LAN
 
