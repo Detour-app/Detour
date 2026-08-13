@@ -95,6 +95,7 @@ import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.map.FollowCamera
 import com.jellemax.detour.map.NavPolicy
@@ -955,9 +956,9 @@ fun MapScreen(
     }
 
     // Chime when a camera lies ahead, close, and we're over the posted limit —
-    // the one case worth interrupting for. One chime per camera: warnedAt holds
-    // the camera we last sounded for and clears once it's behind us, re-arming
-    // for the next. Silent when the limit is unknown: we can't judge "too fast".
+    // the one case worth interrupting for. The rule, the one-chime-per-camera
+    // latch and the wording are CameraWarner's (shared/…/drive/), where they live
+    // with their tests; what to do about a warning is ours.
     val speedCamerasRef = rememberUpdatedState(speedCameras)
     val ambientLimitRef = rememberUpdatedState(ambientSpeedLimitKmh)
     val navProgressRef = rememberUpdatedState(navProgress)
@@ -966,47 +967,40 @@ fun MapScreen(
     }
     DisposableEffect(Unit) { onDispose { toneGen?.release() } }
     LaunchedEffect(Unit) {
-        var warnedAt: LatLon? = null
+        var warnerState = CameraWarner.State()
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
-            val pos = LatLon(fix.lat, fix.lon)
-            val heading = fix.bearingDeg?.toDouble()
-            val ahead = speedCamerasRef.value.filter { cam ->
-                RoadRoulette.distanceMeters(pos, cam.at) <= SpeedCameras.WARN_METERS &&
-                    (heading == null ||
-                        RoadRoulette.withinWedge(pos, cam.at, heading, 45.0))
-            }.minByOrNull { RoadRoulette.distanceMeters(pos, it.at) }
-            if (ahead == null) {
-                warnedAt = null
-                return@collect
-            }
             // The ambient sign is the free-drive source. While navigating, the
             // route's own posted limit is the authority and the ambient tracker
             // is stopped — and now cleared, see the producer above — so a route
             // segment with no maxspeed judges you against nothing instead of
             // against the sign from wherever you set off.
-            val limit = navProgressRef.value?.speedLimitKmh ?: ambientLimitRef.value
-            val tooFast = limit != null && fix.speedMps * 3.6 > limit + 3.0
-            if (tooFast && ahead.at != warnedAt) {
-                toneGen?.startTone(ToneGenerator.TONE_PROP_BEEP2, 400)
-                // A TONE_PROP_BEEP2 on the notification stream is inaudible on
-                // a bar mount with earplugs in and wind noise — which is this
-                // app's primary configuration. The head unit has spoken this
-                // since it shipped and its comment says why
-                // (car/NavScreen.kt:392-394). Register entry 15.
-                //
-                // No toast: the car's stands in for a visual the head unit has
-                // no room for, and the phone's map already draws the camera
-                // marker. The snackbarHostState this screen already owns is the
-                // error channel; routing a routine hazard through it would
-                // teach the rider to ignore errors.
-                //
-                // The wording is a literal here and not in :shared because
-                // stage 3's CameraWarner is where the warning decision and its
-                // text belong; whichever of the two lands first declares it,
-                // and neither writes a second copy.
-                announceAloud("Speed camera ahead")
-                warnedAt = ahead.at
+            val step = CameraWarner.onFix(
+                state = warnerState,
+                cameras = speedCamerasRef.value,
+                at = LatLon(fix.lat, fix.lon),
+                headingDeg = fix.bearingDeg?.toDouble(),
+                speedKmh = fix.speedMps * 3.6,
+                limitKmh = navProgressRef.value?.speedLimitKmh ?: ambientLimitRef.value,
+            )
+            warnerState = step.state
+            when (val outcome = step.outcome) {
+                is CameraWarner.Outcome.Warn -> {
+                    toneGen?.startTone(ToneGenerator.TONE_PROP_BEEP2, 400)
+                    // A TONE_PROP_BEEP2 on the notification stream is inaudible on
+                    // a bar mount with earplugs in and wind noise — which is this
+                    // app's primary configuration. The head unit has spoken this
+                    // since it shipped and its comment says why
+                    // (car/NavScreen.kt's checkCameras). Register entry 15.
+                    //
+                    // No toast: the car's stands in for a visual the head unit has
+                    // no room for, and the phone's map already draws the camera
+                    // marker. The snackbarHostState this screen already owns is the
+                    // error channel; routing a routine hazard through it would
+                    // teach the rider to ignore errors.
+                    announceAloud(outcome.text)
+                }
+                CameraWarner.Outcome.Silent -> {}
             }
         }
     }
