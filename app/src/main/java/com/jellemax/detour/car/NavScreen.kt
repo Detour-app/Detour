@@ -42,6 +42,7 @@ import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CancellationException
@@ -124,7 +125,8 @@ class NavScreen(
     private var speedCameras: List<SpeedCameras.Camera> = emptyList()
     private var camerasCenter: LatLon? = null
     private var lastCameraFetchMs = 0L
-    private var warnedCameraAt: LatLon? = null
+    /** The one-chime-per-camera latch, CameraWarner's. */
+    private var warnerState = CameraWarner.State()
     /** The in-flight Overpass fetch, so a slow mirror is waited on once rather
      *  than re-requested by every fix that lands while it is still running. */
     private var cameraFetchJob: Job? = null
@@ -377,25 +379,29 @@ class NavScreen(
                 }
             }
         }
-        val ahead = speedCameras.filter { cam ->
-            RoadRoulette.distanceMeters(pos, cam.at) <= SpeedCameras.WARN_METERS &&
-                (headingDeg == null || RoadRoulette.withinWedge(pos, cam.at, headingDeg, 45.0))
-        }.minByOrNull { RoadRoulette.distanceMeters(pos, it.at) }
-        if (ahead == null) {
-            warnedCameraAt = null
-            return
-        }
-        val limit = progress?.speedLimitKmh
-        val tooFast = limit != null && currentSpeedKmh > limit + 3.0
-        if (tooFast && ahead.at != warnedCameraAt) {
-            toneGen?.startTone(ToneGenerator.TONE_PROP_BEEP2, 400)
-            // The toast is on the car screen and the tone is on the phone's
-            // notification stream; only the spoken one reaches a driver who is
-            // looking at the road with the radio on.
-            speak("Speed camera ahead")
-            carContext.getCarService(AppManager::class.java)
-                .showToast("Speed camera ahead", CarToast.LENGTH_SHORT)
-            warnedCameraAt = ahead.at
+        val step = CameraWarner.onFix(
+            state = warnerState,
+            cameras = speedCameras,
+            at = pos,
+            headingDeg = headingDeg,
+            speedKmh = currentSpeedKmh,
+            // No ambient sign on this screen to fall back on: NavScreen has no
+            // speed-limit tracker of its own, so an untagged route segment judges
+            // you against nothing. The phone falls back to its ambient sign.
+            limitKmh = progress?.speedLimitKmh,
+        )
+        warnerState = step.state
+        when (val outcome = step.outcome) {
+            is CameraWarner.Outcome.Warn -> {
+                toneGen?.startTone(ToneGenerator.TONE_PROP_BEEP2, 400)
+                // The toast is on the car screen and the tone is on the phone's
+                // notification stream; only the spoken one reaches a driver who is
+                // looking at the road with the radio on.
+                speak(outcome.text)
+                carContext.getCarService(AppManager::class.java)
+                    .showToast(outcome.text, CarToast.LENGTH_SHORT)
+            }
+            CameraWarner.Outcome.Silent -> {}
         }
     }
 
