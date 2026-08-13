@@ -95,6 +95,7 @@ import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.map.FollowCamera
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.leadingSpinIndex
@@ -1010,66 +1011,26 @@ fun MapScreen(
         }
     }
 
-    // Average speed through a trajectcontrole. Enter at one end heading for the
-    // other, then integrate GPS distance over elapsed time until we pass that
-    // far end (or overshoot / time out). The average is what the section
-    // actually measures, so it's the number worth seeing while inside one.
+    // Average speed through a trajectcontrole: SectionAverageTracker's call now
+    // (shared/…/drive/), where the gate rules, the eight thresholds and the
+    // reasoning behind each live with their tests.
     val speedSectionsRef = rememberUpdatedState(speedSections)
     LaunchedEffect(Unit) {
-        var active: SpeedCameras.Section? = null
-        var exitGate: List<LatLon> = emptyList()
-        var entryMs = 0L
-        var accMeters = 0.0
-        var last: LatLon? = null
+        var st = SectionAverageTracker.State()
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
-            val pos = LatLon(fix.lat, fix.lon)
-            val now = System.currentTimeMillis()
-            val current = active
-            if (current == null) {
-                // Below 2 m/s the bearing is noise, so a stopped phone can't
-                // heading-test its way into a section.
-                val heading = fix.bearingDeg?.toDouble()
-                    ?.takeIf { fix.speedMps > 2.0 } ?: return@collect
-                // Nearest match, not the first: the two directions of one
-                // trajectcontrole are separate relations sharing a location, and
-                // a short section can sit inside a longer one.
-                val entered = speedSectionsRef.value
-                    .mapNotNull { s -> sectionExitGate(s, pos, heading)?.let { s to it } }
-                    .minByOrNull { (s, _) ->
-                        (s.endA + s.endB).minOf { RoadRoulette.distanceMeters(pos, it) }
-                    }
-                if (entered != null) {
-                    active = entered.first
-                    exitGate = entered.second
-                    entryMs = now
-                    accMeters = 0.0
-                    last = pos
-                    sectionAvgKmh = null
-                    sectionLimitKmh = entered.first.maxspeedKmh
-                }
-            } else {
-                last?.let { accMeters += RoadRoulette.distanceMeters(it, pos) }
-                last = pos
-                val elapsedHours = (now - entryMs) / 3_600_000.0
-                if (elapsedHours > 0 && accMeters > 20.0) {
-                    sectionAvgKmh = (accMeters / 1000.0) / elapsedHours
-                }
-                // Only the end we drove in towards ends the measurement. The
-                // 150 m floor keeps the gate we entered through from counting as
-                // the exit on the fix right after entering.
-                val reachedEnd = accMeters > 150.0 &&
-                    exitGate.any { RoadRoulette.distanceMeters(pos, it) < SECTION_GATE_METERS }
-                val overshot = accMeters > current.spanMeters * 1.4 + 400.0
-                val timedOut = now - entryMs > 30 * 60_000L
-                if (reachedEnd || overshot || timedOut) {
-                    active = null
-                    exitGate = emptyList()
-                    last = null
-                    sectionAvgKmh = null
-                    sectionLimitKmh = null
-                }
-            }
+            st = SectionAverageTracker.onFix(
+                state = st,
+                sections = speedSectionsRef.value,
+                at = LatLon(fix.lat, fix.lon),
+                headingDeg = fix.bearingDeg?.toDouble(),
+                speedMps = fix.speedMps,
+                nowMs = System.currentTimeMillis(),
+            )
+            // Two states, one assignment source: they can no longer disagree
+            // across a recomposition. Collapsing them into one is stage 4's.
+            sectionAvgKmh = st.reading.averageKmh
+            sectionLimitKmh = st.reading.limitKmh
         }
     }
 

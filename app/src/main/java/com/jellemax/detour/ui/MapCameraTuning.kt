@@ -1,9 +1,5 @@
 package com.jellemax.detour.ui
 
-import com.jellemax.detour.data.LatLon
-import com.jellemax.detour.data.RoadRoulette
-import com.jellemax.detour.data.SpeedCameras
-
 /** Exponentially smooths a compass bearing toward [target], taking the
  *  shortest way round the 0/360 wrap, so heading-up rotation eases instead
  *  of snapping to each noisy raw GPS fix. */
@@ -63,38 +59,3 @@ internal const val CAM_RESUME_QUIET_MS = 8_000L
 // at most, so polling faster than that would just re-fetch the same row —
 // this matches that cadence rather than guessing a separate one.
 internal const val CIRCLE_FIX_POLL_MS = 120_000L
-
-// How close to a section's device node counts as passing it, for entering and
-// leaving a trajectcontrole average-speed measurement.
-internal const val SECTION_GATE_METERS = 60.0
-
-// How far off your heading the far end of a section may lie and still count as
-// driving into it. Wide, because a long section can curve away — it only has to
-// separate "the other end is ahead of me" from "behind me, I'm on my way out".
-internal const val SECTION_WEDGE_DEG = 75.0
-
-/**
- * The far end of [section], if this fix is entering it: within the gate of one
- * end and heading towards the other. Null otherwise.
- *
- * The heading test is what makes the gate mean "driving the section". Passing a
- * device node says nothing on its own — you pass one on the way *out* too, and
- * on every side street that crosses one — and matching on that alone used to
- * start a measurement as you left a section, which is what put an average on
- * screen after the trajectcontrole instead of during it.
- */
-internal fun sectionExitGate(
-    section: SpeedCameras.Section,
-    pos: LatLon,
-    headingDeg: Double,
-): List<LatLon>? {
-    fun atGate(end: List<LatLon>) =
-        end.any { RoadRoulette.distanceMeters(pos, it) < SECTION_GATE_METERS }
-    fun ahead(end: List<LatLon>) =
-        end.any { RoadRoulette.withinWedge(pos, it, headingDeg, SECTION_WEDGE_DEG) }
-    return when {
-        atGate(section.endA) && ahead(section.endB) -> section.endB
-        atGate(section.endB) && ahead(section.endA) -> section.endA
-        else -> null
-    }
-}
