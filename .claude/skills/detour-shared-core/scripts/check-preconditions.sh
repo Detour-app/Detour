@@ -30,6 +30,17 @@ ANGLES=$COMMON/kotlin/com/jellemax/detour/data/Angles.kt
 fails=0
 count() { grep -c "$1" "$2" 2>/dev/null || true; }
 files_with() { grep -rl "$1" "$COMMON" 2>/dev/null | tr '\n' ' ' | sed 's/ $//'; }
+# A bare `interface` is a dependency-inversion seam and CONTRIBUTING.md:40 says one earns its
+# keep only with more than one implementation. A `sealed interface` is not that: it is a closed
+# sum type whose implementations all sit in the same file and none of which is a platform swap,
+# and it is this repo's established way of returning a decision — NavPolicy.Decision,
+# GroupSpinRules.SpinRoundOutcome and CameraAuthority.Action all use it. Matching the bare
+# string caught those too, which failed the check for following the house pattern.
+files_with_open_interface() {
+    grep -rl 'interface ' "$COMMON" 2>/dev/null | while read -r f; do
+        grep -h 'interface ' "$f" | grep -qv 'sealed interface ' && printf '%s\n' "$f"
+    done | tr '\n' ' ' | sed 's/ $//'
+}
 check() { # check <description> <expected> <actual>
     if [ "$2" = "$3" ]; then
         printf 'PASS  %s\n' "$1"
@@ -45,8 +56,8 @@ check 'Platform.kt declares exactly 4 expects (a fifth is the signal to push the
     4 "$(count '^expect ' "$PLATFORM")"
 check 'commonMain has ZERO Dispatchers — make the function suspend and let the caller choose' \
     '' "$(files_with 'Dispatchers')"
-check 'commonMain has ZERO interfaces — 33 object singletons is the house pattern' \
-    '' "$(files_with 'interface ')"
+check 'commonMain has ZERO non-sealed interfaces — a port earns one only with two implementations' \
+    '' "$(files_with_open_interface)"
 check 'wear/ does NOT depend on :shared (so "shared" does not reach the watch)' \
     0 "$(count 'project(":shared")' wear/build.gradle.kts)"
 check 'app/ DOES depend on :shared' 1 "$(count 'project(":shared")' app/build.gradle.kts)"
