@@ -35,6 +35,7 @@ import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.pickCandidate
+import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ui.formatDistanceKm
 import kotlinx.coroutines.CancellationException
@@ -44,21 +45,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val TAG = "DetourSpin"
-
-// Ambient speed-limit sign, same policy as the phone map's (MapScreen.kt): one
-// Overpass fetch covers a wide circle, then every fix snaps locally against
-// that set, so the sign flips as you cross onto a new road instead of lagging a
-// throttled round-trip behind you.
-private const val LIMIT_FETCH_MARGIN_M = 500.0
-private const val LIMIT_FETCH_THROTTLE_MS = 10_000L
-
-/** Below this the heading is noise and you are probably parked, so the snap —
- *  which leans on heading to reject the cross street — is skipped. */
-private const val LIMIT_MIN_MPS = 2.0
-
-/** Misses in a row before the sign is cleared. One gap is an untagged stretch;
- *  three is the limit really having ended. */
-private const val LIMIT_MISSES_TO_CLEAR = 3
 
 /**
  * Car-screen "Spin": road-only, [TravelMode.CAR] fixed — no POI kinds or the
@@ -90,12 +76,10 @@ class SpinScreen(
     private var spinning = false
     private var errorText: String? = null
 
-    // Ambient speed limit, for the HUD ring while no route is running.
-    private var limitWays: List<RoadRoulette.SpeedLimitWay> = emptyList()
-    private var limitWaysCenter: LatLon? = null
-    private var lastLimitFetchMs = 0L
-    private var limitMisses = 0
-    private var ambientLimitKmh: Double? = null
+    // Ambient speed limit, for the HUD ring while no route is running. The
+    // prefetch throttle, the snap and the three-miss clear are
+    // SpeedLimitTracker's, in shared/…/drive/, shared with the phone map.
+    private var limitState = SpeedLimitTracker.State()
     /** The in-flight Overpass fetch — see [updateSpeedLimit]. */
     private var limitFetchJob: Job? = null
 
@@ -116,9 +100,10 @@ class SpinScreen(
                 }.onFailure { Log.w(TAG, "could not start location updates", it) }
                 // Coming back from a drive: the last ambient sign is from
                 // wherever you set off, so show nothing until the next fix
-                // snaps rather than a stale limit from another town.
-                ambientLimitKmh = null
-                limitMisses = 0
+                // snaps rather than a stale limit from another town. reset()
+                // keeps the prefetched area and the throttle stamp, exactly as
+                // clearing these two fields by hand did.
+                limitState = SpeedLimitTracker.reset(limitState)
             }
             override fun onStop(owner: LifecycleOwner) {
                 runCatching { TripTrackingService.setUiVisible(carContext, false) }
@@ -147,7 +132,7 @@ class SpinScreen(
                     } catch (e: Exception) {
                         Log.w(TAG, "speed limit snap failed", e)
                     }
-                    renderer.updateHud(fix.speedMps * 3.6, ambientLimitKmh)
+                    renderer.updateHud(fix.speedMps * 3.6, limitState.limitKmh)
                 }
             }
         }
@@ -263,36 +248,23 @@ class SpinScreen(
      * back. Same fix as [NavScreen.checkCameras].
      */
     private fun updateSpeedLimit(pos: LatLon, bearingDeg: Float?, speedMps: Double) {
-        if (speedMps < LIMIT_MIN_MPS) return
-        val fromCenter = limitWaysCenter?.let { RoadRoulette.distanceMeters(it, pos) }
-            ?: Double.MAX_VALUE
+        if (speedMps < SpeedLimitTracker.MIN_MPS) return
         val now = System.currentTimeMillis()
-        if (fromCenter > RoadRoulette.SPEED_PREFETCH_RADIUS_M - LIMIT_FETCH_MARGIN_M &&
-            now - lastLimitFetchMs > LIMIT_FETCH_THROTTLE_MS &&
+        if (SpeedLimitTracker.needsWays(limitState, pos, now) &&
             limitFetchJob?.isActive != true
         ) {
             // Throttled on failure too: an empty result is a network blip, and
             // hammering the Overpass mirrors from a moving car fixes nothing.
-            lastLimitFetchMs = now
+            limitState = SpeedLimitTracker.fetchStarted(limitState, now)
             limitFetchJob = lifecycleScope.launch {
                 val ways = runCatching {
                     withContext(Dispatchers.IO) { RoadRoulette.speedLimitWays(pos) }
                 }.onFailure { Log.w(TAG, "speed limit lookup failed", it) }
                     .getOrDefault(emptyList())
-                if (ways.isNotEmpty()) {
-                    limitWays = ways
-                    limitWaysCenter = pos
-                }
+                limitState = SpeedLimitTracker.withWays(limitState, ways, pos)
             }
         }
-        // Heading lets the snap reject the cross street and the frontage road.
-        val snapped = RoadRoulette.snapSpeedLimitKmh(pos, bearingDeg?.toDouble(), limitWays)
-        if (snapped != null) {
-            ambientLimitKmh = snapped
-            limitMisses = 0
-        } else if (++limitMisses >= LIMIT_MISSES_TO_CLEAR) {
-            ambientLimitKmh = null
-        }
+        limitState = SpeedLimitTracker.onFix(limitState, pos, bearingDeg?.toDouble(), speedMps)
     }
 
     private fun fetchLocation() {
