@@ -1020,6 +1020,86 @@ route settles at 25–30 km/h. `urban-limits` has the same defect on its one 18 
 red** against an ambient 30. Those readings are faithful to the file; the file is wrong.
 `gpx2route.py` should spread the first hop after a hold over at least the `--pull-away-kmh` interval.
 
+## Outstanding: the stage-3 replay gates, deferred 2026-08-13 — what a later batched run must measure
+
+Stage 3 puts a mandatory replay gate **between** its three machines, not after them
+(`docs/refactor/mapscreen/plans/2026-08-13-stage-3-hazard-machines-to-shared.md`, Sequencing).
+None of those gates has been closed on hardware, because
+`.claude/skills/detour-gps-replay/scripts/overpass-ready.sh` reports **both mirrors DOWN** — no
+JSON body inside the app's own 12 s client budget from `overpass-api.de` or
+`overpass.kumi.systems`. With no mirror, `speedSections` and `speedLimitWays` are empty and
+`SpeedCameras.near` returns nothing, so a run would record a clean-looking capture with exactly
+the quantity being verified missing. That has happened twice in this directory already (the
+`5fc8e90` and `689c580` runs) and it is why no run was recorded now.
+`DECISION.md`'s *"Deviation — machines 1 and 2 ran without a gate between them"* records the
+call and why machine 3 is held rather than dispatched.
+
+**One healthy mirror closes all three from one replay of `routes/trajectcontrole.txt`** — it is
+the only fixture that exercises all three machines at once, and the only route with **5**
+`highway=speed_camera` nodes inside `WARN_METERS` of the driven line (`../routes/README.md`;
+`urban-limits` and `stop-start` bring only one each). Device `RFCT42HS9WY`, `.debug` variant,
+`start-replay.sh` / `stop-replay.sh`. Run it at HEAD, and — because two of the three quantities
+below have no recorded "before" — capture the same route at `69bdf6b` in the same session while
+the mirror is up, so the A/B is a control rather than a later observation.
+
+### Machine 2, `CameraWarner`: the chime, and the reason it needs a method rather than a column
+
+**The named quantity: the number of `"Speed camera ahead"` warnings and the fix index of each,
+plus the set of distinct camera nodes among them (ceiling 5).**
+
+**There is no camera baseline in this directory and the chime cannot be read out of a capture as
+the harness stands.** Two facts, both verified:
+
+- No events TSV has ever carried a camera column — the schema is
+  `fix elapsed_s cum_m route_kmh event chip_fill chip_err sign_red dial_ink dial_red avg_box`
+  and it is derived from **screen** state. The chime has no on-screen state on the phone: the map
+  already draws the camera marker, and the warning deliberately raises no toast and no snackbar
+  (see the comment at the phone call site).
+- The plan's *"read them out of the logcat capture"* does not work either. `announceAloud` →
+  `NavVoice.speak` logs **only on failure** (`audio focus refused; guidance prompt dropped`), so
+  a successful chime writes nothing to logcat. A run that greps for it will find zero and that
+  zero means nothing.
+
+So measure it as **inputs plus arithmetic**, all of which are observable, and compare the two
+runs on these three:
+
+1. **That the prefetch was populated at all** — the camera marker drawn on the map is the proof
+   (`…-t0074-chip-on.png` at `a90c3df` shows one on the E40 gantry). Without this the run is
+   void, exactly as a section run without `speedSections` is.
+2. **The predicted chime set, computed offline** from the route file and the recorded capture:
+   the fixes at which a `highway=speed_camera` node lies within `WARN_METERS` (400 m) **and**
+   inside `CameraWarner.AHEAD_WEDGE_DEG` (45°) of the fix bearing, **and** `route_kmh` exceeds
+   the displayed limit by more than `OVER_LIMIT_KMH` (3.0). Then collapse consecutive fixes on
+   the same node — that collapse *is* the latch, and the count of distinct nodes is the expected
+   number of chimes. Both runs must produce the same fix indices and the same node sequence.
+3. **The displayed limit the arithmetic used**, from `sign_red` / the sign value already captured
+   per fix. This is the coupling that holds machine 3: `CameraWarner.onFix(…, limitKmh)` is fed
+   `ambientSpeedLimitKmh`, machine 3's own output, so a wrong sign breaks the chime decision and
+   the two are not separately attributable. Record the sign ladder in the same run.
+
+If the chime itself is wanted as a *directly observed* quantity rather than a predicted one, that
+needs a log line at the phone call site — a code change, out of stage 3's scope, and worth
+filing rather than smuggling into a refactor commit. The 11 `commonTest` tests in
+`shared/src/commonTest/kotlin/com/jellemax/detour/drive/CameraWarnerTest.kt` pin the arithmetic
+of all three points above; what the replay adds is that the *inputs* still arrive.
+
+**One branch no replay can reach**, whatever the mirror does: a null heading. The mock provider
+always derives a bearing, so the stopped-phone path is covered by
+`aNullHeadingWarnsOnDistanceAlone` only.
+
+### Machines 1 and 3, in the same run
+
+- **Machine 1, `SectionAverageTracker`** — already fully captured *as behaviour* at `a90c3df`
+  (see "What could not be captured" above), but that capture pre-dates the extraction. What the
+  batched run owes is that the four AVG events still fall at the same fixes: `AVG-ON` 166,
+  `AVG-CLEARED` 543, `AVG-ON` 546, `AVG-CLEARED` 804, with the chip converging to `Ø 75` against
+  the route's own 75.4 km/h. Transitions 1–3 were never observed on hardware after the move.
+- **Machine 3, `SpeedLimitTracker`** — not started, and held on the coupling in point 3 above.
+  Its own quantities are the six-value ladder 30/50/70/90/100/120 on `trajectcontrole` and the
+  3-fix clear, independently sited at 470→473 on `stop-start` and 609→612 on `urban-limits`. Both
+  fixtures, each for the quantity it can measure (`urban-limits` has **no** sign baseline for its
+  urban half — see its section above).
+
 ## This baseline post-dates stage 2 and cannot verify it
 
 Stated plainly because the filename pattern invites the opposite assumption. `FollowCamera`
