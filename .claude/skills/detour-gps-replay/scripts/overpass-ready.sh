@@ -36,7 +36,15 @@ MIRRORS=(
 # Cheapest possible real query: a count, in a box a few hundred metres across.
 # `out count` still exercises the parser and the database, unlike a bare status
 # page, so a mirror that is up but refusing queries fails here as it should.
-QUERY='[out:json][timeout:10];node["highway"="speed_camera"](50.86,4.60,50.87,4.61);out count;'
+# Ask for data that must exist in the fixtures' own geography, and require a
+# non-zero count. A bbox on the E40 between the two trajectcontrole gantries has
+# speed cameras in it; a mirror serving a regional extract answers this in
+# milliseconds with valid JSON and a count of 0. overpass.osm.ch does exactly
+# that — 50 cameras around Zurich, 0 around Brussels — so "JSON inside the
+# budget" is not sufficient. An empty answer reaches the app as a network blip
+# by design, which is the same silent-empty-run that has already cost two
+# baselines.
+QUERY='[out:json][timeout:10];node["highway"="speed_camera"](50.86,4.60,50.90,4.66);out count;'
 
 ok=1
 for m in "${MIRRORS[@]}"; do
@@ -53,8 +61,15 @@ for m in "${MIRRORS[@]}"; do
   elif [ "$elapsed" -gt $(( BUDGET_S * 1000 )) ]; then
     verdict="TOO SLOW    JSON in ${elapsed}ms, past the app's own budget"
   else
-    verdict="READY       JSON in ${elapsed}ms"
-    ok=0
+    # count comes back as elements[0].tags.nodes on an `out count` query.
+    n=$(printf '%s' "$body" | tr -d ' \n' | sed -n 's/.*"nodes":"\{0,1\}\([0-9]*\).*/\1/p')
+    if [ -z "$n" ] || [ "$n" = "0" ]; then
+      verdict="NO DATA     JSON in ${elapsed}ms but 0 cameras in a Belgian bbox —"
+      verdict="$verdict regional extract, not the planet"
+    else
+      verdict="READY       JSON in ${elapsed}ms, ${n} cameras"
+      ok=0
+    fi
   fi
   [ "$QUIET" -eq 1 ] || printf '  %-46s %s\n' "$(printf '%s' "$m" | cut -d/ -f3)" "$verdict"
 done
