@@ -68,19 +68,56 @@ research note that proposed them.
 
 | File | Length | Standstills | Verified assertion |
 |---|---|---|---|
-| `public-trajectcontrole.txt` | 288 s (4m48s), 7.97 km, mean 99.7 km/h, max 100.3 km/h | none — synthetic | **Full transit of relation `15682532`, west → east.** West device node (50.86929, 4.49257) **0 m** away at line 0; east node (50.86183, 4.60503) **13 m** away at line 287. Both inside `SECTION_GATE_METERS` (60 m), in the measured order. Transit **7.97 km in 287 s, mean 100.0 km/h** — that is the value a correct section average must settle at, and it is an *input*, not a measurement (see below). |
+| `public-trajectcontrole.txt` | 458 s (7m38s), 12.69 km, mean 100.0 km/h, per-step 99.7–100.3 km/h | none — synthetic | **Full transit of relation `15682532`, west → east, behind a 4.72 km lead-in.** West device node (50.86929, 4.49257) **10.6 m** away at line 170; east node (50.86183, 4.60503) **2.9 m** away at line 457. Both inside `SECTION_GATE_METERS` (60 m), in the measured order. Transit **7.97 km in 287 s, mean 100.0 km/h** — that is the value a correct section average must settle at, and it is an *input*, not a measurement (see below). **170 s of replay precede the west gate**, which is what lets the prefetch land before the gate (see below). |
 | `public-stop-start.txt` | 3005 s (50m05s), 18.45 km, mean 22.1 km/h, max 193 km/h | **20 runs of ≥ 8 s below 0.6 m/s, totalling 1288 s** — longest 439 s, then 134, 112, 103, 97, 90, 60, 46, 30, 30 s. Of those, **548 fixes report speed exactly 0** and 127 runs are byte-identical consecutive lines (longest 8 s). | Real standstills survive resampling: 15 runs of ≥ 8 s sit below the app's own 2.0 m/s moving gate. Camera park and resume, HUD easing to zero, bearing hold below 2 m/s. Clears auto-start with 353 s / 10.4 km above 7.0 m/s. Also intended to cover posted-limit variety — 8 distinct `maxspeed` values in its footprint (5/10/15/20/30/50/70/120), **carried from the research note and not re-verified here**, because Overpass 504'd. |
 | `public-trajectcontrole-reverse.txt` | 600 s (10m00s), 19.40 km, mean 116.4 km/h, max 135 km/h | none | **Transits relation `15682532`'s two device nodes east → west, against the measured direction.** East node **19 m** at line 326, west node **23 m** at line 567; transit 8.00 km in 241 s = **119.5 km/h**. Read the caveat below — this fixture documents behaviour, it does not assert a refusal. |
 
 ### What `public-trajectcontrole.txt` does and does not prove
 
-Its whole point is that the expected answer is an input. It routes *from one
-device node to the other*, so the two gates are the endpoints by construction,
-and it is densified at a fixed 27.78 m per 1000 ms line, so a correct running
-average has one value it can settle at: **100.0 km/h**. 100 km/h was chosen
-because it is a plausible motorway cruise below the 120 posted on both device
-nodes; regenerating at 120 km/h instead is a one-number change and yields 240
-lines with the east node 19 m away, if an over-the-limit transit is ever wanted.
+Its whole point is that the expected answer is an input. It routes along the
+motorway *through* the west device node and *to* the east one, and it is
+densified at a fixed 27.78 m per 1000 ms line, so a correct running average has
+one value it can settle at: **100.0 km/h**. 100 km/h was chosen because it is a
+plausible motorway cruise below the 120 posted on both device nodes; regenerating
+at 120 km/h instead is a one-number change and yields 381 lines, west gate 11.6 m
+at line 141 and east gate 30.6 m at line 380 (measured, not projected), if an
+over-the-limit transit is ever wanted. Note that the densification offsets move
+when the step changes, so **the gate distances must be re-measured after any
+regeneration** — they are not properties of the request.
+
+### The lead-in, and why the file is 12.69 km rather than 7.97 km
+
+The first revision of this file started *at* the west device node, so its entry
+gate was line 0. That geometry was correct and unusable: `speedSections` is
+populated by an Overpass round trip fired on the first fix (`MapScreen.kt`, the
+`SpeedCameras.near` effect), and at 100 km/h the 60 m gate is only **4 lines
+wide** (lines 168–171 in the current file). A fixture whose gate is at line 0
+drives past its own entry with an empty section list, and nothing arms. The
+failure looked like a geometry problem and was not one.
+
+So the route now starts **4.72 km west of the west gantry**, on the eastbound
+carriageway, giving **170 s of replay before the west gate** — measured along the
+file, not estimated. The personal `trajectcontrole.txt` is the yardstick and its
+replayed lead-in is **3.66 km / 166 s** (its untrimmed drive had 4.68 km, but
+`--trim 1000` removed 1.02 km of it), so this fixture now has slightly more
+runway than the fixture that is known to arm.
+
+Two further measurements matter, because 170 s of *replay* is not 170 s of
+*prefetch opportunity*:
+
+- The prefetch is a `node(around:4000, …)` at the current position
+  (`SpeedCameras.PREFETCH_RADIUS_M = 4000.0`). At line 0 the west gantry is
+  **4642 m** away straight-line, i.e. **outside** the circle; it comes inside at
+  **line 24** (0.67 km in). So the earliest fetch that can see the section is the
+  first one issued after line 24, leaving **146 s** before the gate. At the 15 s
+  prefetch throttle that is roughly nine more attempts.
+- The east gantry is **12 387 m** away at line 0 and does not come inside 4000 m
+  until **line 313** — 8.69 km in, well *after* the west gate at line 170. The two
+  gantries are 7.97 km apart, so no single 4 km circle can ever hold both. Whether
+  that matters depends on something this fixture cannot settle: whether Overpass
+  `out geom` returns relation member nodes beyond the `around` radius. See the
+  stage-3 spec's blocker section — this is exactly the question maxke24/Detour#22
+  turns on, and the fixture is now shaped so a replay can answer it.
 
 Three limits, none of which the number hides:
 
@@ -93,16 +130,16 @@ Three limits, none of which the number hides:
   `maxspeed` from the *relation's* tags and relation `15682532` carries none —
   the `maxspeed=120` is on the two device nodes, which the app does not read.
   This is equally true of the existing `trajectcontrole.txt`.
-- **The west gantry is line 0, and the section prefetch may not have arrived by
-  then.** `speedSections` is populated by an Overpass round trip fired on the
-  first fix (`MapScreen.kt`, the `SpeedCameras.near` effect), and at 100 km/h the
-  60 m gate is 2.2 s wide. If the fetch is slower than that — it usually is — the
-  fixture drives past its own entry gate with an empty section list and no
-  measurement arms. Nothing is wrong with the geometry; the race is
-  environmental. Give it a lead-in when this matters: re-run the §7.1 recipe with
-  a third waypoint a few km west of the west node, which pushes the gate several
-  minutes into the file. `public-trajectcontrole-reverse.txt` does not have this
-  problem — its first gate is at line 326.
+- **The lead-in makes the prefetch likely, not certain, and the lead-in itself is
+  not a realistic approach.** 146 s inside prefetch range is a large margin, but
+  it is still a race against a public Overpass mirror that has returned 504 for
+  entire sessions (see below) — if a replay shows no section chip, confirm
+  Overpass answered *at all* before concluding anything about the tracker. And
+  the lead-in is densified at the same fixed 27.78 m per line, so the file joins
+  the motorway already at 100 km/h: there is no acceleration, no merge and no
+  approach profile. It buys time for the fetch; it does not add driving realism.
+  (`public-trajectcontrole-reverse.txt` never had the line-0 problem — its first
+  gate is at line 326 — but it is a real trace and cannot assert its average.)
 
 ### `public-trajectcontrole-reverse.txt` documents a limitation, it does not assert a refusal
 
@@ -130,7 +167,7 @@ The four scenarios from
 
 | Scenario | Personal fixture | Public fixture | Status |
 |---|---|---|---|
-| 1. Average-speed section, gantry to gantry | `trajectcontrole.txt` (75.4 km/h transit) | `public-trajectcontrole.txt` (100.0 km/h transit) | **Covered by public data**, and better: the expected average is asserted rather than derived, and the file is regenerable when OSM moves a gantry. Subject to the prefetch-race caveat above. |
+| 1. Average-speed section, gantry to gantry | `trajectcontrole.txt` (75.4 km/h transit, 166 s lead-in) | `public-trajectcontrole.txt` (100.0 km/h transit, 170 s lead-in) | **Covered by public data**, and better: the expected average is asserted rather than derived, and the file is regenerable when OSM moves a gantry. The prefetch race that made the first revision unusable is now bought off with a 4.72 km lead-in. |
 | 2. Urban stop-start | `stop-start.txt` (4 stops: 12/42/15/11 s) | `public-stop-start.txt` (20 stops, longest 439 s) | **Covered, but not a drop-in swap** — see the two behavioural differences below. |
 | 3. Posted-limit variety | `urban-limits.txt` | `public-stop-start.txt` (8 distinct `maxspeed` values in its footprint) | **Probably covered, unconfirmed.** One trace covers scenarios 2 and 3 together, as one drive should — but the 8 `maxspeed` values come from the research note and could not be re-measured (Overpass 504). Keep `urban-limits.txt` until that query runs. |
 | 4. Deviation, for reroute | does not exist | does not exist | **Blocked on infrastructure, not on data** — see below. No dataset fixes it. |
@@ -168,8 +205,8 @@ The camera counts in the table further down were produced against
 `overpass.private.coffee`. Both that mirror and `overpass.kumi.systems` returned
 **504** for all but one request on 2026-08-13, so the equivalent columns for the
 `public-` files are **not reported rather than guessed**. The bboxes to run them
-over, when Overpass is answering: `public-trajectcontrole` 4.4926,50.8619 →
-4.6048,50.8693; `public-stop-start` 4.6888,50.8739 → 4.7990,50.9531;
+over, when Overpass is answering: `public-trajectcontrole` 4.4286,50.8587 →
+4.6050,50.8693 (widened west by the lead-in); `public-stop-start` 4.6888,50.8739 → 4.7990,50.9531;
 `public-trajectcontrole-reverse` 4.4783,50.8581 → 4.7159,50.9085. Method is the
 one below — `WARN_METERS` (400 m) of the driven line, and
 `SpeedCameras.PREFETCH_RADIUS_M` (4000 m) for prefetch reach.
