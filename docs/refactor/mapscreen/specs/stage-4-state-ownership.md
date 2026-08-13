@@ -113,6 +113,39 @@ Gather these before the brainstorm; they did not exist when this spec was writte
    legitimate answer — and it may be a better one, because `#21` is a defect a user reported and
    stage 4 is a structural preference.
 
+## Evidence gathered 2026-08-13 — and the collision is narrower than this spec claimed
+
+Measured against `7e8a7f2`, after stage 3's machines 1 and 2 landed:
+
+| Question the spec asks | Answer |
+|---|---|
+| How much state is left | `MapScreen.kt` 1656 lines, 59 `remember*`, 34 `LaunchedEffect`, **10** `camSuspended` writes |
+| Is `CameraAuthority` still available | Yes — zero callers, 11 passing tests, untouched since stage 2 |
+| Does `car/` want it | Unresolved; `car/CarMapRenderer.kt` carries its own loop |
+| Is the `rememberSaveable` rotation risk real | **Yes.** 6 uses in `MapScreen.kt`, and `AndroidManifest.xml` declares **no** `configChanges`, so rotation destroys the activity and those six are load-bearing. A naive Compose holder loses them. |
+| Is #21 fixed, started, or only filed | **Open, zero comments** — untouched |
+
+**The head-on collision this spec describes does not apply to wiring `CameraAuthority`.** The
+spec says stage 4 and #21 "both touch `camTarget`, `camTargetBearing`, the `applied*` quartet,
+the `withFrameNanos` loop and `myLocation`". That is true of a stage 4 that took over the whole
+camera. It is not true of the reducer stage 2 actually built:
+
+- `CameraAuthority.State` holds `followMe`, `camSuspended`, `lastGestureMs` and a derived
+  `following` — the *authority*, meaning whether to follow.
+- #21 is about the *easing* — the marker updating at the GPS rate, the epsilon gate stalling at
+  city speeds, and the absence of dead reckoning. Those live in `camTarget`, the `applied*`
+  quartet and the frame loop.
+
+Verified disjoint: the `withFrameNanos` loop body contains **no reference** to `followMe`,
+`camSuspended` or `lastGestureMs`. It reads only the derived `cameraActive` (`MapScreen.kt:277`)
+as an effect key, and all ten `camSuspended` writes are authority transitions outside the loop.
+
+**Consequence for the decision.** Wiring `CameraAuthority` and fixing #21 are separable, so
+"one of them waits" is not required. The `rememberSaveable` finding also settles the choice
+between the two candidate patterns on cost rather than taste: with no `configChanges`, the
+Compose-holder option has to reimplement six saveable values correctly or lose them on
+rotation, while the reducer touches none of them.
+
 ## Forbidden, whichever way it goes
 
 - **Never both patterns for the camera.** Named above; it is the one hard rule of this stage.
