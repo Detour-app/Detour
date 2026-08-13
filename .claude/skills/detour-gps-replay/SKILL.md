@@ -138,6 +138,31 @@ state.
 
 Watch it with `adb logcat -s MockLocation` while it runs.
 
+## Check Overpass before a run that needs it
+
+```sh
+.claude/skills/detour-gps-replay/scripts/overpass-ready.sh
+```
+
+**Gate on a JSON body, never on the status code.** A loaded mirror answers HTTP 200 with an
+HTML error page, so `curl -w '%{http_code}'` reports 200 and the app then parses nothing. That
+is how one session concluded "Overpass is back" and sent a 24-minute replay into a dead mirror,
+for the second time. A mirror can also refuse the TCP connection for one WAN IP while answering
+another, so a green result is about *this* host and now, not about Overpass.
+
+The app's own budget is the second gate, and the one that catches the near-miss: both
+`SpeedCameras.near` and `RoadRoulette.speedLimitWays` issue `[out:json][timeout:20]` and the
+client gives up well before a slow mirror finishes. A mirror answering in 11.9 s against a 12 s
+budget is reachable and still useless — a full route makes ~35 requests, and most of them will
+time out. Treat a single sample near the budget as a fail, not a pass.
+
+**What a run without Overpass is still worth.** Trip auto-detection, trace decimation, camera
+follow/park and the speed HUD are all unaffected. What dies is everything downstream of
+`speedSections` and `speedLimitWays`: the average-speed chip, the posted-limit sign and the
+camera chime. So a section baseline recorded without Overpass looks like a clean run with
+exactly the quantity you wanted missing — which has now happened twice, and is why stage 3's
+precondition counts `AVG-ON` markers rather than trusting that the directory exists.
+
 ## Turn off every real location source first
 
 Wi-Fi scanning, cell positioning, a paired GPS accessory — all of it. `MockService` registers
