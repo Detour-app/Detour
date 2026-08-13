@@ -129,8 +129,18 @@ this recording.
 
 `MapScreen.kt:1037` and `:1075` each `await` an Overpass round-trip **inside** a
 `TripTrackingService.lastFix` collector. A `StateFlow` conflates while a collector is
-suspended, so every fix arriving during a slow request is dropped — freezing the camera, the
-speed HUD and the turn card behind a network call.
+suspended, so every fix arriving during a slow request is dropped.
+
+**Corrected 2026-08-13, after the fix was measured.** This spec said the drops freeze "the
+camera, the speed HUD and the turn card". That is true of the **car**, where `onFix`
+(`car/NavScreen.kt:216`) is one sequential function, and false of the **phone**, where the
+camera runs in its own `LaunchedEffect(liveFix, defaultZoom)` (`MapScreen.kt:1080`) and the HUD
+reads `liveFix` directly — so a suspended ambient-limit collector cannot stall either. The
+replay confirmed it from the other side: 0 stalls in 1 654 frame pairs, and the one
+`Choreographer: Skipped` line in 62 MB of logcat fires 25 s before the replay starts. What the
+fix actually recovers is the ambient-limit collector's *own* stream: at the mirror's measured
+4.1–6.9 s responses the old code dropped 88–132 of 1 442 fixes, 6–9%, which is the speed-limit
+sign missing road changes rather than the map freezing.
 
 The car surface hit this twice and fixed it twice, with written rationale both times:
 `car/NavScreen.kt:365-377` and `car/SpinScreen.kt:254-264`. **Port the car's pattern** (a
