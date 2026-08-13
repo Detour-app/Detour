@@ -52,9 +52,16 @@ grep -c '^expect ' shared/src/commonMain/kotlin/com/jellemax/detour/data/Platfor
 # mirrors were refusing connections during that run, so no section data reached
 # the app at all. Count the frames where the chip was present instead.
 test -d tools/mocklocation/baseline && echo baseline-present
-cat tools/mocklocation/baseline/trajectcontrole-*-events.tsv 2>/dev/null \
-  | awk -F'\t' 'NR>1 && $5!="0" && $5!="" && $5!="-" {n++} END{print n+0}'   # expect >= 1
+grep -ch 'AVG-ON' tools/mocklocation/baseline/trajectcontrole-*-events.tsv 2>/dev/null \
+  | awk '{n+=$1} END{print n+0}'   # expect >= 1
 ```
+
+The first version of this assertion counted "field 5 is non-empty and non-zero", which was the
+`avg` column in the `09fddde` schema and became the `event` column in `a90c3df`'s. It therefore
+counted every event row — 25 of them — and went green on a run whose section events were the
+one thing being checked for. A gate that passes for the wrong reason is worse than no gate, so
+it now matches on the `AVG-ON` marker itself, which names the transition rather than a column
+position. Corrected 2026-08-13, found while writing this stage's plan.
 
 ## Why this stage
 
