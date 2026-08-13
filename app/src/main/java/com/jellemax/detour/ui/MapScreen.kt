@@ -247,6 +247,13 @@ fun MapScreen(
     }
     var speedLimitWaysCenter by remember { mutableStateOf<LatLon?>(null) }
     var speedLimitFetchMs by remember { mutableLongStateOf(0L) }
+    // Out here rather than inside the effect that uses it, for the same reason
+    // speedLimitFetchMs is: that effect is keyed on `navigating` and restarts,
+    // and a holder that restarted with it would forget an in-flight fetch — so
+    // the guard would wave a second one through on the very next fix after a
+    // navigation toggle. The fetch itself runs on `scope`, which outlives the
+    // restart, so the two have to agree about what is running.
+    var speedLimitFetchJob by remember { mutableStateOf<Job?>(null) }
     var speedLimitMisses by remember { mutableIntStateOf(0) }
     var speedCameras by remember { mutableStateOf<List<SpeedCameras.Camera>>(emptyList()) }
     var speedSections by remember { mutableStateOf<List<SpeedCameras.Section>>(emptyList()) }
@@ -810,13 +817,35 @@ fun MapScreen(
                 ?: Double.MAX_VALUE
             val now = System.currentTimeMillis()
             if (fromCenter > RoadRoulette.SPEED_PREFETCH_RADIUS_M - 500.0 &&
-                now - speedLimitFetchMs > 10_000
+                now - speedLimitFetchMs > 10_000 &&
+                speedLimitFetchJob?.isActive != true
             ) {
+                // The refresh runs in its own coroutine. lastFix is a StateFlow
+                // and this collector is sequential, so awaiting a mirror *here*
+                // suspended the collector — and every fix that landed meanwhile
+                // was conflated away, so the snap below, the miss counter and
+                // the sign all stopped tracking the road for as long as Overpass
+                // took. A mirror having a slow ten seconds is normal; a posted
+                // limit that stops following the road for ten seconds is not.
+                // The isActive guard is what now stops two fetches overlapping,
+                // which is the job the inline await used to do by accident.
+                // Same fix as car/SpinScreen.kt:265-287.
                 speedLimitFetchMs = now
-                val ways = withContext(Dispatchers.IO) { RoadRoulette.speedLimitWays(pos) }
-                if (ways.isNotEmpty()) {
-                    speedLimitWays = ways
-                    speedLimitWaysCenter = pos
+                speedLimitFetchJob = scope.launch {
+                    // runCatching because this no longer runs inside the
+                    // collector: an exception escaping here would cancel
+                    // `scope`, i.e. every coroutine this screen owns, where
+                    // inline it only killed this one collector. speedLimitWays
+                    // swallows IOException but not the SerializationException a
+                    // busy Overpass's HTML error page produces — the hazard
+                    // SpeedCameras.near:65-79 documents and catches.
+                    val ways = runCatching {
+                        withContext(Dispatchers.IO) { RoadRoulette.speedLimitWays(pos) }
+                    }.getOrDefault(emptyList())
+                    if (ways.isNotEmpty()) {
+                        speedLimitWays = ways
+                        speedLimitWaysCenter = pos
+                    }
                 }
             }
             // Heading lets the snap reject the cross street and the frontage
@@ -841,6 +870,10 @@ fun MapScreen(
     LaunchedEffect(Unit) {
         var center: LatLon? = null
         var lastFetchMs = 0L
+        // Coroutine-local, unlike the ambient limit's holder up in the body:
+        // this effect is keyed on Unit and never restarts, so a local has
+        // nothing to lose. Keeping it here is what says so.
+        var fetchJob: Job? = null
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
             val pos = LatLon(fix.lat, fix.lon)
@@ -848,14 +881,24 @@ fun MapScreen(
                 ?: Double.MAX_VALUE
             val now = System.currentTimeMillis()
             if (fromCenter > SpeedCameras.PREFETCH_RADIUS_M - 1000.0 &&
-                now - lastFetchMs > 15_000
+                now - lastFetchMs > 15_000 &&
+                fetchJob?.isActive != true
             ) {
+                // Own coroutine, isActive guard, runCatching: same reasoning as
+                // the ambient limit above, and as car/NavScreen.kt:348-379,
+                // which is where this was diagnosed. This collector feeds the
+                // section machine, so suspending it also stalled the running
+                // average's own fix stream.
                 lastFetchMs = now
-                val result = withContext(Dispatchers.IO) { SpeedCameras.near(pos) }
-                if (result != null) {
-                    speedCameras = result.cameras
-                    speedSections = result.sections
-                    center = pos
+                fetchJob = scope.launch {
+                    val result = runCatching {
+                        withContext(Dispatchers.IO) { SpeedCameras.near(pos) }
+                    }.getOrNull()
+                    if (result != null) {
+                        speedCameras = result.cameras
+                        speedSections = result.sections
+                        center = pos
+                    }
                 }
             }
         }
