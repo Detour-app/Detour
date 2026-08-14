@@ -27,11 +27,10 @@ system) and is not on its way to becoming a second app.
 - **Android runs on it.** `./gradlew :app:assembleDebug` builds; the phone app
   behaves as before. This is why the port could not stay on a side branch —
   it rewrote the Android app too, so the two platforms have one history.
-- **The iOS app is feature-complete against everything that can port**: map and
-  spin, trip recording in the background, history and trip detail with GPX
-  export, badges, saved places, settings, friends and the leaderboard,
-  in-app turn-by-turn with spoken directions, and convoy live location with
-  push-to-talk.
+- **Everything that does not need an account is ported**: map and spin, trip
+  recording in the background, history and trip detail with GPX export, badges,
+  saved places, routes, settings, and in-app turn-by-turn with spoken
+  directions.
 - **CI on `macos-15`** — free and unmetered on this public repo. Runs the
   shared tests on both the JVM and Kotlin/Native, builds the app for the
   simulator, boots it, and uploads a screenshot. No Mac and no Apple Developer
@@ -84,8 +83,23 @@ Not gaps — decisions, and the places to look first if behaviour diverges.
 
 ## Not done
 
-1. **watchOS app.** Small, but nothing reuses from `wear/`.
-2. **Signed device builds.** CI builds for the simulator only.
+1. **Sign-in — and with it, half the app.** This is the gap that matters.
+   Signing in moved to the identity provider's own page in a browser
+   (authorization code with PKCE). Android does that in a Custom Tab
+   (`app/auth/Oidc.kt`); the iOS side needs an `ASWebAuthenticationSession` and
+   has not been written, so `SignInForm` states the situation rather than
+   offering a password form the server would refuse.
+
+   `signedIn` is therefore always false on iOS, which gates friends and the
+   leaderboard, convoys, circles, circle notifications, circle sync and trip
+   sync. Everything listed under *Done* still works; everything that needs an
+   account does not.
+
+   The missing pieces are the browser trip and a SHA-256 for the PKCE challenge
+   (`CryptoKit`) — maybe 80 lines. Everything after the redirect already exists
+   in shared `Auth`, whose `exchangeCode(code:verifier:)` is exported to Swift.
+2. **watchOS app.** Small, but nothing reuses from `wear/`.
+3. **Signed device builds.** CI builds for the simulator only.
 
 ### Will not port
 

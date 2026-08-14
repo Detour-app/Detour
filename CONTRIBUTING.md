@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- JDK 17
+- JDK 17 or newer — the modules target 17; CI builds on 21
 - Android SDK 35 (compile/target), min SDK 26
 - .NET 10 SDK and Docker if you're touching the backend — Docker for the
   development stack (Postgres, Redis, Keycloak) and for the integration tests,
@@ -81,14 +81,21 @@ Without a Mac, push the branch and let the *iOS* workflow build it on
 `macos-15` — it uploads a simulator app, an unsigned `.ipa` and a screenshot of
 the app running.
 
-No server URLs, API keys, or Cloudflare Access secrets are required to build.
-The app takes all of that at runtime (Settings), or from `local.properties`
-for a personal local build — see the `routingCfg()` helper in
-`app/build.gradle.kts` for the property/env-var names it reads. If your
-services sit behind one path-routed hostname, a single `server.url` covers
-routing and the geocoder; the per-service keys override it where they're set.
-The API needs `api.url` of its own — `/api` is already the geocoder's path in
-that layout — and `idp.issuer` for the realm that issues rider tokens.
+No server URLs, API keys, or Cloudflare Access secrets are required to build,
+and CI bakes none in. Most of them can be typed into Settings at runtime, or
+baked into a personal build from `local.properties` — see the `routingCfg()`
+helper in `app/build.gradle.kts` for the property and env-var names it reads.
+If your services sit behind one path-routed hostname, a single `server.url`
+covers routing and the geocoder; the per-service keys override it where they're
+set. The API needs `api.url` of its own, because `/api` is already the
+geocoder's path in that layout.
+
+**`idp.issuer` is the exception: it is build-time only.** There is no Settings
+field for the realm, so a build without it cannot sign in at all, and every
+account feature behaves as it does when signed out. That is why the published
+APKs have no sign-in — they are built with no properties set. To work on
+anything involving an account, put `api.url` and `idp.issuer` in
+`local.properties` and build your own.
 
 ## Running the backend locally
 
@@ -156,6 +163,23 @@ are fine — delete them once they're merged rather than leaving them on origin.
 - If you touched security- or privacy-relevant code (BLE, backup rules,
   credential storage, the keychain), say so explicitly — those get a closer
   look.
+
+## Documentation
+
+[`docs/`](docs/README.md) has an index; start there rather than guessing at
+filenames.
+
+Two documents are cited **by section number** from code comments, so their
+numbering is load-bearing — append rather than renumber:
+
+| Document | Cited as | Covers |
+| --- | --- | --- |
+| [docs/BACKEND_SPEC.md](docs/BACKEND_SPEC.md) | `spec §11` (backend) | What the service must do |
+| [docs/CIRCLES_AND_CONVOYS.md](docs/CIRCLES_AND_CONVOYS.md) | `docs/CIRCLES_AND_CONVOYS.md section 6` (apps) | Groups, and the live relay's wire format |
+
+Change behaviour that either one describes, and the document is part of the
+change — a spec that has quietly drifted is worse than none, because the next
+person checks their work against it.
 
 ## Code style
 

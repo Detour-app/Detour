@@ -24,6 +24,7 @@ Ghent. Nothing in them is a real location.</sub>
 - [Recording a ride](#recording-a-ride)
 - [Fog of war](#fog-of-war)
 - [Search and saved places](#search-and-saved-places)
+- [Routes](#routes)
 - [You: history, badges, friends](#you-history-badges-friends)
 - [Settings reference](#settings-reference)
 - [On your wrist](#on-your-wrist)
@@ -32,7 +33,12 @@ Ghent. Nothing in them is a real location.</sub>
 - [Stack](#stack)
 - [Build](#build)
 - [Self-hosting the server](#self-hosting-the-server)
+  - [Pointing the app at it](#pointing-the-app-at-it)
+  - [What leaves your device](#what-leaves-your-device)
 - [Attribution](#attribution)
+
+Building on it, or changing it, starts at [CONTRIBUTING.md](CONTRIBUTING.md);
+everything else lives in [docs/](docs/README.md).
 
 ## Install
 
@@ -64,8 +70,10 @@ key, so it can't be updated by a GitHub APK either.
 5. **Go.** Navigate in the app, or hand the destination to Google Maps, Waze or
    anything else installed.
 
-Everything works with no account and no server. Sign-in only buys you sync,
-friends and a shared fog of war.
+Everything above works with no account and no server. Sign-in only buys you
+sync, friends, convoys, circles and a shared fog of war — and it needs a build
+that points at a server you run, which the published APKs deliberately are not.
+See [Pointing the app at it](#pointing-the-app-at-it).
 
 ## The map screen
 
@@ -173,6 +181,10 @@ The navigate button offers:
 - **Google Maps** / **Waze** / **Other app** — hand the destination off. For a
   moto round trip, Google Maps gets the whole waypoint chain.
 
+Pick one and the app remembers it: the button goes straight there next time.
+Long-press it to bring the chooser back, or clear the choice under Settings →
+Navigation.
+
 <br clear="right">
 
 <img src="docs/screenshots/navigate.png" width="260" align="right" alt="In-app navigation">
@@ -269,6 +281,27 @@ dropping or spinning a destination, or with **Add place** on the Saved places
 screen. They show up as chips over the map; one tap makes a place the current
 destination.
 
+## Routes
+
+A spin gives you one destination. A **route** is the other way round: stops you
+chose, in the order you want them, kept for later. **You → Routes** lists them,
+each with its stop count, distance and time.
+
+- **Build one** by tapping the map to append stops, or searching for them, then
+  reorder or drop any of them and pick a mode. The routing server strings them
+  together.
+- **Ride it** in the app, or hand the whole chain to Google Maps (up to nine via
+  points; beyond that the extras are dropped rather than silently reordered).
+- **Import and export GPX.** Export writes the routed track; import reads a GPX
+  from anywhere, waypoints-only files included — those get routed on first use.
+- **Share one with a friend.** It lands in their Routes list marked with your
+  name. Un-friending someone deletes every route shared between you, in both
+  directions.
+
+Unlike trips and fog, routes are **not** part of sync: they live on the phone,
+and a shared one only leaves it when you send it to someone. Export the ones you
+want to keep before a reinstall.
+
 ## You: history, badges, friends
 
 <table>
@@ -298,24 +331,37 @@ friends and compare totals, rides and badges on a leaderboard. Friends never see
 your trips or your map — only totals and badges, plus your fog if you have
 opted into sharing it.
 
-**Circles** are the long-lived counterpart to a convoy: family or roommates
-rather than a ride. A circle doesn't end when you stop driving, has no
-push-to-talk, and shows each member's last known position — posted every couple
-of minutes, so it reads as "last seen", not a live trail. Share a saved place
-into one and everyone sees arrivals and departures there; the geofence is
-worked out on your own phone, so the stream of fixes behind it never leaves it.
-Sharing is per person per circle and pausable at any time. Both kinds are
-invite-only and only ever from someone you're already friends with —
+**Convoys** are for riding together: everyone in one sees the others move on
+the map in real time, and can share a spin so the group votes on where to go.
+A convoy is per-ride — it exists while you're in it and is gone when the last
+member leaves. *Push-to-talk is currently off* (see
+[Self-hosting the server](#self-hosting-the-server)); everything else in a
+convoy works.
+
+**Circles** are the long-lived counterpart: family or roommates rather than a
+ride. A circle doesn't end when you stop driving, never carries voice, and
+shows each member's last known position — posted every couple of minutes, so it
+reads as "last seen", not a live trail. Share a saved place into one and
+everyone sees arrivals and departures there; the geofence is worked out on your
+own phone, so the stream of fixes behind it never leaves it. Sharing is per
+person per circle and pausable at any time.
+
+Both are invite-only and only ever from someone you're already friends with.
 [docs/CIRCLES_AND_CONVOYS.md](docs/CIRCLES_AND_CONVOYS.md) covers how the two
-share one mechanism.
+share one mechanism, and documents the live protocol behind them.
 
 <img src="docs/screenshots/account.png" width="260" align="right" alt="Account screen">
 
-Signing in takes a username, a password and — if your server asks for one — an
-invite code. The same account drives trip/trace sync, so a reinstall restores
-your history and fog from the server. Leave an email address and the server can
-mail you a reset link if you forget the password; the link opens straight back
-into this screen.
+**Signing in happens in a browser, on your server's own sign-in page.** Tapping
+sign in opens a Custom Tab at the server's identity provider (Keycloak); you
+enter your details there and it hands the app back a token. Detour never sees
+your password, and there is no password form, no registration form and no
+invite-code box in the app — accounts, resets and who may register all live in
+the realm's own pages. See
+[Self-hosting the server](#self-hosting-the-server).
+
+The same account drives trip/trace sync, so a reinstall restores your history
+and fog from the server.
 
 <br clear="right">
 
@@ -348,6 +394,10 @@ into this screen.
   in its cradle, then calibrate.
 
 **Navigation**
+- *Spoken guidance* — turn instructions read aloud on the car screen (and on
+  iPhone). The speaker button on the nav screen mutes them mid-drive.
+- *Remembered nav app* — which app the navigate button launches without asking.
+  Long-press it to change; *Reset* puts the chooser back.
 - *Avoid highways* — in-app navigation skips motorways in car mode.
 - *Avoid small roads* — prefer real roads over narrow rural lanes.
 
@@ -394,10 +444,15 @@ route and how to debug the car screen.
 
 A SwiftUI app in `iosApp/` runs on the same core as the Android one: map and
 spin, trip recording in the background, history with GPX export, badges, saved
-places, friends and the leaderboard, in-app turn-by-turn with spoken
-directions, convoy live location with push-to-talk, circles, and the group
-spin — an iPhone rolls the same three candidates, can share them with a
-convoy, and votes on a shared spin like any other member.
+places and in-app turn-by-turn with spoken directions.
+
+**The iPhone app cannot sign in yet.** Sign-in moved to the identity provider's
+own page in a browser, and the iOS side of that (`ASWebAuthenticationSession`)
+has not been written — the Android side has. So everything that needs an
+account is currently unreachable on iPhone: sync, friends and the leaderboard,
+convoys, circles and the group spin. Everything that doesn't need one — the
+map, spinning, recording rides, routes, navigation — works. The account screen
+says so rather than offering a password form the server would refuse.
 
 Three things are Android-only and are not coming to iOS: **Android Auto**
 (CarPlay navigation needs an entitlement Apple grants on application, and
@@ -544,10 +599,36 @@ across at all — Keycloak never saw the old hashes, so every rider signs up aga
 Sync is optional; with no server configured everything stays on the phone. With
 one, your trips and traces live on hardware you own.
 
-**Convoy live location and push-to-talk are temporarily unavailable.** They ride
-on a WebSocket relay that has not been rebuilt yet, and the app says so where the
-controls were. Circles — shared places, positions and arrival history — do not
-use it and work normally.
+### Pointing the app at it
+
+Two of the three addresses can be typed into Settings → Servers & sync at
+runtime: the routing server and the search server. The **realm cannot** — the
+issuer is read at startup from the build, because a sign-in page is the one
+address it must not be possible to redirect by editing a text field.
+
+So signing in needs an APK that already knows your realm. Put both in
+`local.properties` and build your own:
+
+```properties
+api.url=https://api.example.com
+idp.issuer=https://idp.example.com/realms/detour
+```
+
+The APKs published on the releases page are built by CI with **no** server
+configuration baked in, so on those, sign-in is unavailable and every social
+feature behaves as it does when signed out. That is deliberate — a public
+release should not ship someone else's server address — but it does mean sync,
+friends, circles and convoys are for people who build the app themselves.
+[CONTRIBUTING.md](CONTRIBUTING.md) lists every property, and
+[docker/prod/CLOUDFLARE.md](docker/prod/CLOUDFLARE.md) has a worked example.
+
+**Push-to-talk is the one thing still missing.** The live relay was rebuilt
+along with the rest of the server and is back — convoy live location, the
+shared spin vote and circle arrival alerts all ride it again. Voice does not:
+the relay accepts push-to-talk frames off the wire and drops them, because what
+comes back will be Opus over binary frames rather than the raw PCM base64'd into
+JSON that the old server relayed at roughly 40 KB/s per talker per listener. The
+app says so where the talk button was.
 
 ### What leaves your device
 

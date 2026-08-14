@@ -3,8 +3,12 @@
 The sync and social service. One service, one database,
 one identity provider.
 
-- **What it must do:** [docs/rewrite/BACKEND_FUNCTIONAL_SPEC.md](../docs/rewrite/BACKEND_FUNCTIONAL_SPEC.md)
-  — behaviour only, no code, deliberately language-agnostic.
+- **What it must do:** [docs/BACKEND_SPEC.md](../docs/BACKEND_SPEC.md) —
+  behaviour and rules, no code. Backend comments cite its sections as
+  `spec §11`, so its numbering is stable.
+- **The group features in detail:**
+  [docs/CIRCLES_AND_CONVOYS.md](../docs/CIRCLES_AND_CONVOYS.md) — convoys,
+  circles, and the live relay's wire format.
 - **Poking at it by hand:** [bruno/README.md](../bruno/README.md) — a generated
   Bruno collection covering every endpoint.
 - **Standing it up somewhere real:** [INSTALL.md](INSTALL.md) — the container, the

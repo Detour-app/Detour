@@ -4,6 +4,17 @@ What Play needs before Detour can ship with `ACCESS_BACKGROUND_LOCATION`.
 Form lives at: **Play Console → Policy and programmes → App content →
 Sensitive app permissions → Location permissions → Start declaration**.
 
+> **Push-to-talk is currently switched off in the app** — the server relay drops
+> voice frames, so the talk button is not reachable. `RECORD_AUDIO` and
+> `FOREGROUND_SERVICE_MICROPHONE` are still declared in the manifest and
+> `ConvoyLiveService` still declares `location|microphone`, so the microphone
+> half of this declaration is still required and the copy below still applies.
+> The convoy video shows the feature working, which it did when recorded. If
+> voice is not back by the time this is submitted, re-record that take without
+> the microphone shots and say in the form that the capability is present but
+> disabled — describing a feature a reviewer cannot reach is what gets a
+> declaration bounced.
+
 ## Why Detour needs it
 
 `TripTrackingService` monitors activity recognition and location so a ride

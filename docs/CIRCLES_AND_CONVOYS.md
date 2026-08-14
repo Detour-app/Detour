@@ -1,431 +1,298 @@
 # Circles and convoys: one mechanism, two policies
 
-Design note for [issue #6](https://github.com/maxke24/Detour/issues/6) (Life360-style
-circles). Written against `main` @ `4301232`. Line references are to
-the backend of that day and will drift; the behaviour they describe will not.
+How the two group features work, as built. Code across the backend and both apps
+cites this file **by section number** — `docs/CIRCLES_AND_CONVOYS.md section 6`
+and so on — so sections are stable; add at the end rather than renumbering.
 
-A convoy already *is* a circle. It has a group, a membership table gated on friendship,
-and a live position feed — everything a circle needs, running in production today. What
-separates the two is not structure but policy: how long the group lives, whether
-anything is written down, and how often a phone speaks.
+Companion documents: the service's own rules are in
+[BACKEND_SPEC.md](BACKEND_SPEC.md) (`spec §11` in backend comments is its live
+relay section, not §11 here), and the wire vocabulary is mirrored in
+`backend/Detour/Detour.Api/Live/LiveFrames.cs`. Where this file and that file
+disagree, the code wins and this file is the bug.
 
 ---
 
-## 1. What exists today
+## 1. The idea
 
-Convoys were built for one job: a group of friends on a ride seeing each other on the
-map and talking over push-to-talk. The implementation is deliberately thin, and that
-thinness is what makes it reusable.
+A convoy and a circle are the same thing wearing different policy.
 
-### Server: two tables, five endpoints, one socket
+Both are a named group with a membership table, gated on friendship, with a live
+position feed. What separates them is not structure but policy: how long the
+group lives, whether anything is written down, how often a phone speaks, and
+whether voice is allowed at all.
 
-The schema is membership only. Nothing about a convoy's live state touches SQLite:
+Building them as one entity was a decision, not an accident, and it comes with a
+rule that keeps it honest: **if shared code has to ask "is this a convoy?" in
+more than about three places, the merge has gone one layer too deep.** Today the
+count is two, both in the relay — the voice gate and the destination-vote gate —
+with every other difference expressed as data.
 
-```sql
--- The shape it had when this was designed, kept for the reasoning below; the
--- service that serves it now maps the same membership onto Postgres.
-CREATE TABLE IF NOT EXISTS convoys (
-    id         INTEGER PRIMARY KEY,
-    name       TEXT NOT NULL,
-    owner_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    created_ms INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS convoy_members (
-    convoy_id  INTEGER NOT NULL REFERENCES convoys(id) ON DELETE CASCADE,
-    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    status     TEXT NOT NULL CHECK (status IN ('invited', 'accepted')),
-    joined_ms  INTEGER NOT NULL,
-    PRIMARY KEY (convoy_id, user_id)
-);
-```
+## 2. The two, side by side
 
-Five HTTP handlers sit on top, all in the 120 lines from `:1333` to `:1453`:
-`do_convoy_create`, `do_convoy_invite`, `do_convoy_respond`, `do_convoy_leave`,
-`do_convoys`, dispatched through
-`CONVOY_ACTION_RE = ^/convoys/(\d+)/(invite|respond|leave)$`. Authorization is one
-helper pair — `_convoy_member()` and `is_convoy_member()` at `:1319` — and an invite is
-additionally gated on an accepted friendship.
-
-Live state runs beside the HTTP server on its own port (8990 vs 8790), as an asyncio
-WebSocket listener in a background thread. Its registry is a single module-level dict:
-
-```
-convoy_id -> {user_id: (username, websocket, token_hash)}
-```
-
-The protocol is one JSON object per text frame, after a normal `Authorization: Bearer`
-handshake: `join` → `joined`, then `location`, `ptt_start`, `ptt_audio`, `ptt_end`, with
-`left` pushed to peers on disconnect.
-
-Guard rails already in place, worth keeping through any merge:
-
-| Guard | Where | What it prevents |
+|  | Convoy | Circle |
 |---|---|---|
-| `_valid_location()` | `:1568` | NaN or out-of-range coordinates relayed onward — peers' GeoJSON layers reject NaN and the map dies for everyone |
-| `MAX_AUDIO_CHUNK_B64 = 20_000` | `:1495` | Unbounded audio frames from a broken or hostile client |
-| `BROADCAST_SEND_TIMEOUT_SEC = 2.0` | `:1498` | One peer on a bad link stalling everyone else's traffic |
-| `STALE_SWEEP_INTERVAL_SEC = 15` | `:1491` | Sockets outliving a revoked token when the revocation happened in another process |
-| `_convoy_part()` identity check | `:1552` | A slow-closing old socket evicting the reconnect that already replaced it |
+| For | A ride together | Family, housemates — who is where |
+| Lifetime | Dies when the last member leaves | Persists, including while you are alone in it |
+| Cadence | Seconds | Minutes |
+| Position history | Nothing stored, ever | Latest fix per member, overwritten in place |
+| Voice | Allowed by the rules; not carried today (§6.4) | **Never** |
+| Shared destination vote | Yes | **No** |
+| Sharing switch | Connected means sharing | Opt-in per member, pausable |
+| Shared places, arrivals | — | Yes |
 
-### Clients
+**Both are invite-only, and an invite requires an accepted friendship.** That is
+what makes membership mean "granted access" rather than "found the room". It is
+also why the friends screen and the circles screen are two views of one
+relationship: you cannot be in a group with someone you are not friends with, so
+un-friending someone is not a partial withdrawal.
 
-| File | Role | Size |
+Neither ever exposes a member's trips, traces or map. A group shares live
+position, and for circles a last-known position and arrival events. That is all.
+
+## 3. The data model
+
+One entity, discriminated by kind, with policy carried as columns rather than as
+`if kind ==` branches in the handlers:
+
+| Table | Holds |
+|---|---|
+| `groups` | id, kind (`convoy` / `circle`), name, owner, created |
+| `group_members` | group, member, status (`invited` / `accepted`), joined, `is_sharing` |
+| `member_fixes` | one row per (group, member): lat, lon, accuracy, instant. Circles only. |
+| `circle_places` | a place shared into a circle by one member: identifier, name, radius |
+| `place_events` | arrival/departure records, newest-N per circle |
+
+Two things carry the whole product distinction, and neither is an `if` in a
+handler:
+
+- **`GroupKind.DropWhenEmpty`** — the kind is a `SmartEnum` stored by name, and
+  it *answers* whether an empty group should go, rather than the leave path
+  asking what kind it holds. Empty-group deletion is the single most likely place
+  for a shared handler to silently break circles: someone leaves your family
+  circle, you are alone in it, and it evaporates. Asking the kind means the leave
+  path has one behaviour and cannot forget a case.
+- **`is_sharing` on the membership, not on the group.** Pausing is per person per
+  circle. On the group it would make one member's pause everybody's.
+
+`member_fixes` is one row per member, overwritten in place. No history table, no
+trail — see §8.
+
+Because kinds are stored by name, **reordering the enum members must never
+silently remap existing rows** — the same rule as every other `SmartEnum` in the
+backend.
+
+## 4. The API surface
+
+Two endpoint namespaces over one implementation, so the API reads by intent and
+per-kind rules have an obvious home.
+
+| Path | Notes |
+|---|---|
+| `POST`/`GET` `/api/convoys` · `/api/circles` | Create, list. Kind comes from the path. |
+| `POST /api/groups/{id}/invitations` | Membership *and* friendship required |
+| `POST /api/groups/{id}/invitations/respond` | Accept or decline |
+| `DELETE /api/groups/{id}/membership` | Leave; drops live sockets and the leaver's places and last fix |
+| `PUT /api/circles/{id}/sharing` | Circles only — a convoy id answers 404, not "not applicable" |
+| `POST`/`GET` `/api/circles/{id}/positions` | The low-cadence path (§10) |
+| `POST`/`GET` `/api/circles/{id}/places` · `DELETE /api/circle-places/{id}` | Owner-only delete |
+| `POST`/`GET` `/api/circles/{id}/events` | Arrivals and departures |
+| `POST /api/me/fix` | One fix, fanned out to every group the caller shares with |
+| `GET /api/live` | The WebSocket upgrade (§6) |
+
+A group id that does not exist and a group you are not in produce the **same**
+answer, so ids cannot be enumerated.
+
+> **Path naming, learned the hard way.** Do not name anything under `/route…`.
+> A public hostname sharing a tunnel with GraphHopper matches `/route` as a
+> *prefix*, so `/routes/*` never reaches this service — it answers 404 from
+> GraphHopper while the identical path returns 401 correctly on localhost. That
+> is why route sharing lives at `/shared-routes/*`. Verify every new endpoint
+> through the public hostname, not just the box.
+
+## 5. The clients
+
+| File | Role |
+|---|---|
+| `shared/…/data/Groups.kt` | Membership calls for both kinds, taking the kind as a parameter |
+| `shared/…/data/CircleFixes.kt` | The low-cadence position path |
+| `shared/…/data/CircleEvents.kt` | Arrival/departure feed and the on-device geofence evaluator |
+| `app/…/net/ConvoyLiveClient.kt` | The socket: peers, connection state, active groups |
+| `app/…/convoy/ConvoyLiveService.kt` | Foreground service holding the socket while the screen is off |
+| `app/…/tracking/TripTrackingService.kt` | The circle tick — one collector, two sinks (§10) |
+| `iosApp/Detour/ConvoyLiveClient.swift` | The socket counterpart |
+| `iosApp/Detour/CircleSync.swift` | The circle tick counterpart |
+
+The two UIs stay entirely separate. A circle screen and a convoy screen have
+almost nothing visually in common, and merging them would be the one merge with
+no payoff.
+
+## 6. The live relay, on the wire
+
+One WebSocket at `/api/live`, authenticated by the same rider token as every
+REST call — an ordinary endpoint on the ordinary port, not a second listener.
+
+### 6.1 One socket, many groups
+
+A rider in a circle all day who also starts a convoy for a ride needs both at
+once, so **joining adds a membership rather than replacing it**:
+
+```
+socket ──joined = {circle 2, convoy 7}──┬──► convoy 7    seconds
+rider 3                                 │
+                                        └──► circle 2    minutes
+```
+
+Consequences worth knowing before touching it:
+
+- Each (group, member) pairing is validated independently. A connection can go
+  stale in one group and stay valid in another, and is closed only when it holds
+  no valid membership anywhere.
+- A second connection for the same rider in the same group closes the first,
+  rather than leaving a ghost that keeps receiving forever.
+- Leaving a group drops that membership instantly; a periodic sweep re-validates
+  every open connection, so a revocation from elsewhere lands within seconds.
+
+### 6.2 Frames, client to server
+
+Every frame is one JSON object with a `type`. A malformed frame is dropped
+rather than closing an otherwise fine connection, and a client that floods has
+frames dropped silently — telling it which ones it lost would be a second
+channel to flood.
+
+| `type` | Keys | Rules |
 |---|---|---|
-| `shared/…/data/Convoys.kt` | Membership calls only — create, list, invite, respond, leave | 57 lines |
-| `app/…/net/ConvoyLiveClient.kt` | OkHttp WebSocket singleton; StateFlows for peers, talking, connected, activeConvoyId | 335 lines |
-| `app/…/convoy/ConvoyLiveService.kt` | Foreground service holding the socket and mic while the screen is off | 191 lines |
-| `iosApp/Detour/ConvoyLiveClient.swift` | URLSessionWebSocketTask counterpart | 237 lines |
-| `iosApp/Detour/LocationBroadcast.swift` | Pushes the current fix into the socket | 37 lines |
-| `iosApp/Detour/ConvoyBar.swift` | The on-map peer strip and PTT button | 84 lines |
+| `join` | `groupId` | Must be an accepted membership. Refusal comes back as `error`, worded the same whether the group is missing or you are not in it. |
+| `location` | `lat`, `lon`, optional `accuracyM`, `headingDeg`, `speedKmh`, `ts` | **No `groupId`.** One fix is one fix; fanning it out to every group the sender shares with is the relay's job, not the phone's. Dropped entirely if the sender has paused sharing. In a circle it also overwrites the sender's stored last fix. |
+| `spin_offer` | `groupId`, `candidates[]` of `{lat, lon, distanceM?, durationS?, name?}` | **Convoy only.** 1–3 candidates. One invalid candidate voids the whole frame — a rider must never vote on a sheet missing an option their peers can see. |
+| `spin_vote` | `groupId`, `index` | **Convoy only.** Index 0–2; anything else is dropped rather than relayed as a vote for a candidate nobody offered. |
 
-### The two invariants that define it
+Voice frames (`ptt_start`, `ptt_audio`, `ptt_end`) are accepted off the wire and
+dropped, exactly as an unknown type is — see §6.4.
 
-1. **Nothing is persisted.** Per the relay's own comment: a convoy's position and audio
-   "exist only as long as the socket does — same spirit as fog: it's a live view between
-   consenting members, not a record."
-2. **Membership is the only privacy gate.** There is no second check anywhere in the
-   relay; if `is_convoy_member` says yes, you receive everything that convoy broadcasts.
+### 6.3 Frames, server to client
 
----
+| `type` | Keys |
+|---|---|
+| `joined` | `groupId` |
+| `error` | `message` — the client closes on this rather than sitting connected but never joined |
+| `positions` | `peers[]` of `{u, lat, lon, h?, s?, ts, ttl}` |
+| `left` | `user` |
+| `spin_offer` / `spin_vote` | the client's frame plus `groupId` and `user` |
+| `place_event` | `groupId`, `user`, `placeId`, `placeName`, `kind`, `ts` |
 
-## 2. What a circle adds
+Position keys are abbreviated and nothing else is: a position goes out several
+times a minute per peer, multiplied by peers × riders, while every other frame
+is rare enough that clarity is free.
 
-| Capability | Convoy today | Circle needs | Verdict |
-|---|---|---|---|
-| Group entity | Yes | Same | **Merge** |
-| Membership + invite by friend | Yes | Same | **Merge** |
-| Authorization gate | `is_convoy_member` | Same, per group | **Merge** |
-| Live position transport | WebSocket relay | Same relay, lower cadence | **Merge** |
-| Group lifetime | Deleted when empty | Persists while you're alone in it | **Split** |
-| Push-to-talk | Yes | **No** | **Split** |
-| Sharing state | Connected = sharing | Opt-in, pausable, visible | **Split** |
-| Last known position | None stored | Stored, or the map is blank | **New** |
-| Shared places | — | Circle-scoped geofences | **New** |
-| Arrival notifications | — | Push fan-out | **Blocked** |
+**`ttl` is per peer, not a client-side constant.** A convoy rider and a circle
+member arrive on the same stream at wildly different cadences — 20 seconds for a
+fix that came over a socket, 300 for one posted over HTTP — and a single
+hardcoded staleness window either flickers circle members off the map between
+updates or leaves a dropped convoy rider frozen on it.
 
-### The blocked row, restated
+**`place_event` is server-originated only.** A client cannot cause one by
+sending it, which is why there is no inbound counterpart. It is also why there is
+no push notification anywhere in this project: arrivals reach an open app through
+this frame and a closed one by polling the feed, and adding real push would mean
+device tokens, a vendor service and, for iOS, a paid developer account.
 
-There is no push infrastructure in this project. No FCM, no APNs, no Firebase
-dependency, no device-token table. Every notification today is a local foreground-service
-notification. Arrival push additionally needs an Apple Developer account and a signing
-identity — the iOS workflow builds with `CODE_SIGNING_ALLOWED=NO`. Treat issue #6's work
-area 4 as gated on a purchase, not on engineering time.
+### 6.4 Voice
 
----
+Push-to-talk is **not carried today**. The rules for it stand — convoy only,
+rejected for circles, one chunk bounded in size — but the relay drops the frames.
 
-## 3. The merged data model
+What comes back will be Opus over binary frames. Raw 16 kHz PCM base64'd into
+JSON cost roughly 40 KB/s per talker per listener, which is what made it worth
+deferring rather than porting. Both apps read this from one shared feature flag,
+so neither can quietly disagree with the other about what works.
 
-One entity, discriminated by kind. The `kind` column carries the product distinction;
-every policy difference hangs off it or off a column beside it.
+### 6.5 The gate that matters most
 
-```sql
-CREATE TABLE IF NOT EXISTS groups (
-    id           INTEGER PRIMARY KEY,
-    kind         TEXT NOT NULL CHECK (kind IN ('convoy', 'circle')),
-    name         TEXT NOT NULL,
-    owner_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    created_ms   INTEGER NOT NULL,
-    -- policy as data, not as an `if kind ==` in the leave path:
-    -- a convoy with nobody left is dead weight, a circle is not.
-    drop_when_empty INTEGER NOT NULL DEFAULT 1
-);
-
-CREATE TABLE IF NOT EXISTS group_members (
-    group_id   INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    status     TEXT NOT NULL CHECK (status IN ('invited', 'accepted')),
-    joined_ms  INTEGER NOT NULL,
-    -- circles only: the pause switch. Convoy rows leave it 1 and ignore it.
-    sharing    INTEGER NOT NULL DEFAULT 1,
-    PRIMARY KEY (group_id, user_id)
-);
-```
-
-Two design notes on that shape:
-
-- **`drop_when_empty` rather than a `kind` branch.** The empty-group deletion in
-  `do_convoy_leave` (`:1405`) is the single most likely place for a merge to silently
-  break circles — someone leaves your family circle, you are alone in it, and it
-  evaporates. Making it a column means the shared leave handler never needs to know what
-  kind of group it holds.
-- **`sharing` lives on the membership, not the group.** Pausing is per person per
-  circle. Putting it on the group would make one member's pause everybody's.
-
-### Shared places, when they come
-
-Existing `saved_places` is `(user_id, place_id, json)` with the client's JSON stored
-opaquely and round-tripped through `/sync`. Circle places should follow the precedent set
-by shared routes: **user-owned, shared into a group, revoked when the sharing
-relationship ends**. That answers the issue's open question about ownership without
-inventing a second model, and it makes the delete semantics obvious when a creator
-leaves.
-
----
-
-## 4. Migration
-
-The tables are live with real data, and clients cache convoy ids locally, so ids must
-survive. SQLite does this without moving a row:
-
-```sql
-ALTER TABLE convoys        RENAME TO groups;
-ALTER TABLE convoy_members RENAME TO group_members;
-ALTER TABLE groups        ADD COLUMN kind TEXT NOT NULL DEFAULT 'convoy';
-ALTER TABLE groups        ADD COLUMN drop_when_empty INTEGER NOT NULL DEFAULT 1;
-ALTER TABLE group_members ADD COLUMN sharing INTEGER NOT NULL DEFAULT 1;
-```
-
-Notes for whoever runs it:
-
-- `init_db()` already carries "added after the first release" column migrations, so this
-  fits the existing pattern rather than needing a new mechanism.
-- SQLite rewrites foreign-key references in dependent tables on `RENAME TO` under modern
-  defaults; verify with `PRAGMA foreign_key_check` on a copy before touching production.
-- The convoy id space is unchanged, so a phone holding `activeConvoyId = 7` keeps
-  working across the deploy without a re-login.
-- The cheaper alternative — keep the table names, add `kind` — also works and is lower
-  risk, but leaves circles living permanently in a table called `convoys`. Worth the
-  rename while there are two users on the server; not worth it later.
-
----
-
-## 5. API and client surface
-
-Keep **two endpoint namespaces over one implementation**. Shared handlers, distinct
-paths, so the API reads by intent and per-kind rules have an obvious home:
-
-| Path | Handler | Kind-specific behaviour |
-|---|---|---|
-| `POST /circles` · `POST /convoys` | `do_group_create(kind, …)` | Sets `kind`, `drop_when_empty` |
-| `GET /circles` · `GET /convoys` | `do_groups(kind, …)` | `WHERE kind = ?` |
-| `POST /{ns}/{id}/invite` | `do_group_invite` | None — friendship gate is identical |
-| `POST /{ns}/{id}/respond` | `do_group_respond` | None |
-| `POST /{ns}/{id}/leave` | `do_group_leave` | Reads `drop_when_empty`; evicts live sockets either way |
-| `POST /circles/{id}/sharing` | `do_group_sharing` | Circles only — 404 on a convoy id |
-
-> **Path naming, learned the hard way.** Do not name anything under `/route…`. The public
-> sync hostname shares its tunnel with GraphHopper and the router's `/route` ingress rule
-> matches as a *prefix*, so `/routes/*` never reaches the sync server — it answers 404
-> from GraphHopper while the identical path returns 401 correctly on localhost. That is
-> why route sharing lives at `/shared-routes/*`. Verify every new endpoint through the
-> public hostname, not just the box.
-
-On the client, `Convoys.kt` (57 lines) becomes a `Groups` object taking a kind, and the
-two UIs stay entirely separate — a circle screen and a convoy screen have almost nothing
-visually in common, and merging them would be the one merge with no payoff.
-
----
-
-## 6. The relay: the one risky edit
-
-Everything above is additive. This part is surgery on shipped, working code that carries
-the privacy gate.
-
-The relay is **one scope per socket, by design**. From `handle_live_socket` (`:1602`): a
-local `convoy_id` variable tracks the socket's single membership, and joining a second
-convoy parts the first. A user who is in a circle continuously *and* starts a convoy for
-a ride needs both at once — which that model cannot express.
-
-```
-TODAY                                  PROPOSED
-
-socket ──convoy_id = 7──► convoy 7     socket ──groups = {7, 2}──┬──► convoy 7
-user 3                    peers dict   user 3                    │    seconds · PTT
-                                                                 │
-                          circle 2                               └──► circle 2
-                          unreachable                                 minutes · no audio
-   joining parts the other                 one connection, two cadences
-```
-
-The registry keeps its shape — `group_id → {user_id: (username, socket, token_hash)}`.
-What changes is that a socket may appear in several of its buckets at once.
-
-### Functions touched
-
-| Function | Line | Change |
-|---|---|---|
-| `handle_live_socket` | 1602 | Local `convoy_id` becomes a `set` of joined ids; `join` adds rather than replaces; every message routes to the group named in the frame, so `location` / `ptt_*` need a `groupId` field |
-| `_convoy_join` | 1542 | Unchanged in shape; still returns the socket it replaced, still per group |
-| `_convoy_part` | 1552 | Unchanged — the identity check that stops a slow close evicting a fast reconnect must survive verbatim |
-| `_convoy_broadcast` | 1525 | Unchanged |
-| socket teardown (`finally`) | 1680 | Parts every joined group, not one, and broadcasts `left` to each |
-| `_evict` / `_evict_everywhere` | 1686 | Must not close a socket still legitimately in another group — evict per group, close only when the set empties |
-| staleness sweep | — | Re-validates each membership of each socket instead of one |
-
-Roughly 50–70 lines across those. The protocol gains a `groupId` on every non-join frame,
-which is a wire-compatible break: an old client sending `location` without one must be
-treated as "my only joined group" for one release, or old builds stop showing up on
-peers' maps mid-ride.
-
-> **Gate push-to-talk on kind, server-side.** If `ptt_start` / `ptt_audio` / `ptt_end`
-> are relayed for any group the socket has joined, every circle silently gains always-on
-> voice broadcast between people who signed up for a dot on a map. Hiding the button in
-> the UI is not the fix — reject the frame on the server when the target group's kind is
-> not `convoy`. This is the single highest-consequence line in the whole merge.
-
-Group spin (`spin_offer` / `spin_vote`, added after the merge shipped — a convoy votes on
-a spun destination together) rides the same relay and is gated exactly the same way: kind
-must be `convoy`, checked server-side, not left to the client to hide a button. Like PTT,
-it is stateless pass-through — the server validates and relays, but the vote tally itself
-lives only in each client's `ConvoyLiveClient` for the life of the round; nothing is
-persisted.
-
-Because the tally is client-side, *who* ends the round matters. Only the member who
-shared the spin closes it, by broadcasting the winner as a `spin_offer` carrying a single
-candidate; every client commits a one-candidate offer on sight. Letting each device decide
-for itself once "everyone has voted" would have been simpler and wrong — a peer that has
-been quiet for 20s is pruned from one phone's live-peer set and not another's, so the two
-can call the round complete on different vote counts and route the convoy to two different
-destinations.
-
----
+**Voice and destination votes are gated on kind, server-side, per frame.**
+Hiding a button in the UI is not the fix: if `ptt_*` or `spin_*` were relayed for
+any group a socket has joined, every circle would silently gain always-on voice
+between people who signed up for a dot on a map. The check is re-run per frame
+rather than cached from join time — stricter, and it costs nothing.
 
 ## 7. Policy split, line by line
 
 | Dimension | Convoy | Circle | Expressed as |
 |---|---|---|---|
-| Lifetime | Dies when empty | Survives | `groups.drop_when_empty` |
-| Position retention | Nothing written | Latest fix only | New table, written only for `kind='circle'` |
-| Cadence | Seconds | Minutes, adaptive | Client policy, no server code |
-| Audio | Yes | Never | Server-side kind check in the relay |
-| Sharing default | Connected = sharing | Opt-in, pausable | `group_members.sharing` |
-| Membership feel | Per ride, invite each time | Long-lived | UI only |
-| Place events | — | Arrival / departure | Separate subsystem, circle-only |
+| Lifetime | Dies when empty | Survives | `GroupKind.DropWhenEmpty` |
+| Position retention | Nothing written | Latest fix only | `member_fixes`, written for circles only |
+| Cadence | ~2 s | ~2 min | Client policy, no server code |
+| Voice | Convoy-only rule | Never | Server-side kind check in the relay |
+| Destination vote | Yes | Never | Server-side kind check in the relay |
+| Sharing default | Connected = sharing | Opt-in, pausable | `group_members.is_sharing` |
+| Size cap | None | 15 | Enforced on invite |
+| Place events | — | Arrival / departure | Separate tables, circle-only |
 
-The rule that keeps this honest: **if shared code has to ask "is this a convoy?" in more
-than about three places, the merge has gone one layer too deep** and the right answer is
-two implementations over one schema. Right now the count is exactly one — the PTT gate —
-with everything else expressed as a column.
+Two of those rows are code that asks about kind — both in the relay, both the
+gate in §6.5. Everything else is data.
 
----
+## 8. What is persisted, and what is not
 
-## 8. Persistence: the real fork in the road
+A circle whose positions live only in open sockets shows you nothing until the
+other person opens the app — which is not the product. So a circle stores one row
+per member: the latest fix, overwritten in place. No history, no trail. It exists
+only for circles you joined, only while that circle's sharing switch is on, and
+leaving deletes it.
 
-This is the decision issue #6 defers and shouldn't. A circle whose positions live only in
-open sockets shows you nothing until the other person opens the app — which is not the
-product. So circles need at minimum:
+That is a real change in what this service *is*: **for circles, it stops being
+purely a relay and becomes an observer.** Defensible — opt-in, pausable,
+latest-fix-only, deleted on leave — but it is the one place the server keeps
+somebody's position, and it should stay the only one.
 
-```sql
-CREATE TABLE IF NOT EXISTS member_last_fix (
-    group_id   INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    lat        REAL NOT NULL,
-    lon        REAL NOT NULL,
-    accuracy_m REAL,
-    ts_ms      INTEGER NOT NULL,
-    PRIMARY KEY (group_id, user_id)     -- one row per member: latest only, no history
-);
-```
+**Geofences are evaluated on the device.** A circle place has a radius; whether
+you crossed it is decided on your own phone, from fixes that already arrive, and
+only the resulting arrival or departure is posted. The stream of fixes behind it
+never leaves the device, which makes this both the cheaper option and the one
+consistent with everything else here. It also keeps the feature off the OS's
+per-app region-monitoring budget.
 
-One row per member, overwritten in place. No history table, no trail. That keeps the
-change as small as it can be while still shipping a working feature, and it preserves the
-project's current posture: trips are never returned to anyone but their owner, traces stay
-private, and the server observes nothing it doesn't have to.
+Pausing is enforced **server-side as well as on the device**. Trusting the client
+would mean a stale build keeps broadcasting after the user believes they stopped.
 
-Note what this changes anyway: **the server stops being purely a relay and becomes an
-observer**, for circles only. That is defensible — opt-in, pausable, latest-fix-only —
-but it deserves a paragraph in the issue rather than a bullet, because it changes what
-Detour *is*.
+## 9. Security properties to preserve
 
-The same reasoning settles the geofence question the issue leaves open: evaluating
-transitions on-device keeps the stream off the server entirely, so it is both the cheaper
-and the more consistent choice, and it should be decided before any of this is built
-rather than "once measured".
-
----
-
-## 9. Security review of the merge
-
-1. **The gate is load-bearing.** `is_convoy_member` is the *only* thing standing between
-   an authenticated stranger and your live position. Merging means one function protects
-   two features — good for auditability, unforgiving of a mistake. It deserves direct
-   tests, which it does not currently have.
-2. **Join must re-check, every time.** Today's handler checks membership on each `join`
-   frame rather than caching it. Keep that: a circle connection can be open for days, and
-   being removed from a circle has to take effect without waiting for a reconnect.
-3. **Eviction paths multiply.** Leaving, being removed, logging out, and
-   `--revoke-tokens` from a separate process all have to drop the right sockets — and
-   with multi-group sockets, drop the right *memberships* without killing a connection
-   that is still valid elsewhere.
-4. **Probing.** The existing handlers deliberately return the same 403 for "no such
-   convoy" and "not a member" so ids can't be enumerated. Preserve that in the shared
-   handler; a merged id space makes enumeration marginally more attractive.
-5. **Pause must be enforced server-side.** A member who paused sharing should have their
-   `location` frames dropped at the relay, not merely stop being sent by their own client.
-   Trusting the client here means a stale build keeps broadcasting after the user believes
-   they stopped.
-
----
+1. **Membership is the only gate.** One function stands between an authenticated
+   stranger and your live position, and it now protects two features — good for
+   auditability, unforgiving of a mistake.
+2. **Join re-checks, every time.** A circle connection can be open for days;
+   being removed has to take effect without waiting for a reconnect.
+3. **Eviction paths multiply.** Leaving, being removed, a session ending, and an
+   out-of-band revocation all have to drop the right *memberships* without
+   killing a connection still valid elsewhere.
+4. **Existence and permission answer alike**, so ids cannot be enumerated.
+5. **Pause is server-enforced** (§8).
+6. **Voice and votes are gated on kind, server-side** (§6.5).
 
 ## 10. Battery and network
 
-Android is already most of the way there: `ACCESS_BACKGROUND_LOCATION`,
-`ACTIVITY_RECOGNITION`, and an always-on `TripTrackingService` with automatic drive
-detection. iOS has `UIBackgroundModes: location` for trip recording. Neither platform
-needs new background machinery for circles — they need a second consumer of fixes that
-already arrive.
+**One collector, two sinks.** The failure mode to design against is two
+independent location subscriptions — the convoy's and the circle's — running
+together during a ride and doubling the cost of the app's most expensive feature.
+There is one location stream; convoys and circles are both sinks on it, and the
+highest active cadence wins. Neither platform opens a second subscription, and
+neither registers OS geofences.
 
-**One collector, two sinks.** The failure mode to design against is two independent
-location subscriptions — convoy's and circle's — running together during a ride and
-doubling the battery cost of the feature that is already the app's most expensive. One
-collector, fanning out to whichever sinks are active, with the highest active cadence
-winning.
+Cadences, and why:
 
-The issue's cadence proposals (adaptive interval, drop sub-threshold movement, batch and
-flush) are sound and largely client-side. The one worth resolving early is transport:
-circles at minute cadence do not justify holding a WebSocket open all day. A cheap `POST`
-of the latest fix, with the socket used only when a screen is actually watching the
-circle, is likely both simpler and cheaper — and it degrades gracefully when the phone has
-no connectivity.
-
----
-
-## 11. Risk register
-
-| Risk | Severity | Mitigation |
+| Tick | Interval | Why |
 |---|---|---|
-| PTT leaks into circles | Critical | Server-side kind check on all three PTT frame types; test that asserts rejection |
-| Group spin leaks into circles | Critical | Same server-side kind check, applied to `spin_offer`/`spin_vote` too; mirrored rejection tests |
-| Regression in convoy live location, a shipped feature | High | Tests on the relay's reconnect/eviction semantics *before* the multi-group change |
-| Circle deleted when its last member leaves | High | `drop_when_empty` as data, not an `if` |
-| Old clients drop off peers' maps after the protocol gains `groupId` | Medium | One release of "no groupId = my only group" tolerance |
-| Rename migration corrupts foreign keys | Medium | Rehearse on a copy; `PRAGMA foreign_key_check`; the backup script already exists |
-| Double battery drain from two collectors | Medium | Single collector with fan-out |
+| Convoy position | ~2 s | It is a live ride feed; anything slower reads as a frozen map |
+| Circle position + geofence check | 2 min | Presence, not a trail. "Last seen" stays current without a cost anyone notices |
+| Circle tick with no circle to share with | 30 min | What a rider who never touches the feature pays, and the delay before their first circle starts working |
 
----
+Transport follows from that: a circle at minute cadence does not justify holding
+a socket open all day, so the low-cadence path is a plain `POST` of the latest
+fix (§4), and the socket is for when a screen is actually watching. It also
+degrades gracefully when the phone has no connectivity.
 
-## 12. Rollout
+## 11. What is not built
 
-Ordered so the risky step happens after there are tests, and so something useful ships
-before the blocked part is unblocked.
-
-| Phase | Contents | Estimate |
-|---|---|---|
-| 0 · Safety net | Tests for membership gating, reconnect, eviction on the relay as it stands | 1 day |
-| 1 · Schema merge | Rename, `kind`, `drop_when_empty`, `sharing`; shared handlers behind both namespaces; convoy behaviour unchanged | 1–2 days |
-| 2 · Circles, no live data | Create/invite/leave, both UIs, membership visible — a circle that exists but shows nothing yet | 2–3 days |
-| 3 · Relay multi-group | The socket change, `groupId` on frames, PTT gate, server-side pause | 2–3 days |
-| 4 · Last fix + map | `member_last_fix`, low-cadence upload, circle map view | 3–4 days |
-| 5 · Shared places | Circle-scoped places on the shared-routes precedent | 3–4 days |
-| 6 · Arrival events | On-device geofence eval, events posted and shown in-app — *no push* | 4–5 days |
-| 7 · Push fan-out | FCM + APNs + token registry | **Blocked** |
-
-Phases 0–6 deliver the whole Life360 shape minus the notification arriving while the app
-is closed, and none of them need an Apple Developer account. That is the version worth
-building first.
-
----
-
-## 13. Open questions for the issue
-
-- **Is a circle a convoy that never ends, in the user's mind too?** If yes, one screen
-  with two modes may beat two screens — worth a UI sketch before phase 2.
-- **Do places belong to a circle or to a user?** Shared routes already answered the
-  analogous question: user-owned, shared, revoked with the relationship. Following it
-  saves a design round.
-- **Circle size cap.** Needed before fan-out cost matters; 10–15 matches the
-  family/roommates framing and keeps device geofence budgets irrelevant.
-- **Dwell and hysteresis defaults** — radius bounds, minimum dwell — belong on the place
-  row, and should be decided with one real GPS trace rather than by intuition.
-- **Does the moving member see their own arrival was broadcast?** The issue raises it; it
-  should be a requirement, not a consideration.
+- **Push notifications.** No device tokens, no vendor push service (§6.3).
+- **Voice** (§6.4).
+- **Convoy or circle history.** Nothing is written down for a convoy at all, and
+  a circle keeps one row per member with no trail behind it. That is a decision,
+  not a gap to fill.

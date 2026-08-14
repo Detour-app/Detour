@@ -32,7 +32,7 @@
 <body>
 
 <h1>Privacy Policy — Detour</h1>
-<p class="updated">Last updated: 5 August 2026</p>
+<p class="updated">Last updated: 13 August 2026</p>
 
 <p>Detour is an Android app that picks a random road destination within a radius
 you choose, routes you to it, and records the ride. This policy explains what
@@ -56,7 +56,8 @@ policy or your data, write to
       cornering g.</li>
   <li><strong>Explored area ("fog of war")</strong> — the ground your traces
       have uncovered on the map.</li>
-  <li><strong>Saved places</strong> — locations you save yourself.</li>
+  <li><strong>Saved places and routes</strong> — locations and multi-stop routes
+      you save yourself, including any a friend shared with you.</li>
   <li><strong>Settings</strong> — theme, radius, vehicle mappings, server
       addresses and credentials you enter.</li>
   <li><strong>Paired Bluetooth device names</strong> — used to work out which
@@ -97,13 +98,20 @@ requests under their own policies.</p>
 
 <h2>Optional sync account</h2>
 <p>Detour works fully offline-first with no account. If you choose to sign in to
-a sync server — one you self-host, or one you have been invited to — the
-following is sent to that server:</p>
+a sync server — one you self-host, or one you have been invited to — signing in
+happens on that server's own sign-in page, in a browser, and the app receives
+only the access token that page issues. <strong>Detour never sees your
+password.</strong> Your username, password and email address are held by that
+server's identity provider, under whatever policy its operator sets, and are
+governed by that operator rather than by this app.</p>
+<p>Once signed in, the following is sent to that server:</p>
 <ul>
-  <li>Your username, a password (stored by the server as a hash), and an email
-      address only if you choose to supply one for password resets.</li>
+  <li>Your username, as the handle other members see, and your email address if
+      the server's sign-in page asked for one.</li>
   <li>Your trips, GPS traces, explored area, saved places, badges and friend
       list, so that a reinstall restores them.</li>
+  <li>A planned route, only if you explicitly share one with a friend. Routes
+      you keep to yourself are never uploaded.</li>
   <li>Your explored area is shared with an accepted friend only if you turn on
       <em>Share fog with friends</em>, which is off by default and strictly
       reciprocal. Friends otherwise see only totals and badges — never your
@@ -113,13 +121,22 @@ following is sent to that server:</p>
 access to any server you run. Data on a self-hosted server is under your
 control.</p>
 
-<h2>Convoy and the microphone</h2>
-<p>Convoy is an optional feature that shares your live position with the other
-members of a convoy you have joined, through your sync server, for as long as
-you stay joined.</p>
+<h2>Convoys, circles and the microphone</h2>
+<p>A <strong>convoy</strong> is an optional feature that shares your live
+position with the other members of a convoy you have joined, through your sync
+server, for as long as you stay joined. Nothing about a convoy's live position
+is stored on the server.</p>
+<p>A <strong>circle</strong> is the long-lived version, for people you choose.
+Your latest position is sent to the server every couple of minutes while a
+circle's sharing switch is on, and the server keeps <em>one</em> position per
+member per circle, overwritten each time — no history and no trail. Pausing
+sharing stops it at the server, not just on your phone, and leaving a circle
+deletes it. Arrivals and departures at a shared place are worked out on your own
+device; only the resulting event is sent.</p>
 <p>The microphone is used only while you are holding the push-to-talk button in
-an active convoy. Audio is streamed to the other convoy members in real time. It
-is not recorded, not written to storage, and not retained by the app.</p>
+an active convoy. Audio is streamed to the other convoy members in real time; it
+is not recorded, not written to storage, and not retained by the app.
+Push-to-talk is currently switched off, so no audio is captured at all.</p>
 
 <h2>Permissions and why they are needed</h2>
 <ul>
@@ -153,8 +170,11 @@ is not recorded, not written to storage, and not retained by the app.</p>
       list, wipe your explored area with Settings &rarr; Fog of war &rarr; Reset
       explored area, or uninstall the app to remove everything.</li>
   <li><strong>On a sync server</strong> — ask the administrator of that server
-      to remove your account, which deletes the rows belonging to it. If you run
-      the server yourself, do this from the <code>/admin</code> dashboard.</li>
+      to remove your account, which deletes every row belonging to it: trips,
+      traces, saved places, shared routes, badges, friendships and group
+      memberships.
+      Your sign-in details live with that server's identity provider and are
+      removed there separately.</li>
 </ul>
 
 <h2>Children</h2>
