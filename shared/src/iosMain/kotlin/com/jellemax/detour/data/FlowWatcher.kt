@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import com.jellemax.detour.drive.SectionAverageTracker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -126,6 +127,25 @@ class TracesWatcher internal constructor(
         flow.collect { value = it; onChange() }
 }
 
+/**
+ * The trajectcontrole average and the posted limit it is judged against.
+ *
+ * One subclass and not two because [SectionAverageTracker.Reading] carries both
+ * numbers — which is the whole reason the register's decision 2 asked for them
+ * as one value. Handed out by `SectionAverageHolder.readings()`, not by a
+ * factory object here: unlike a setting, there is no single flow to observe,
+ * only whatever the screen's own holder is stepping.
+ */
+class SectionReadingWatcher internal constructor(
+    private val flow: StateFlow<SectionAverageTracker.Reading>,
+) : Watcher() {
+    var value: SectionAverageTracker.Reading = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
 /** The settings a SwiftUI screen binds to. */
 object SettingsFlows {
     fun tripMode() = TravelModeWatcher(Settings.tripMode)
@@ -197,4 +217,10 @@ object Enums {
     val minZoom: Float = Settings.DEFAULT_ZOOM_MIN
     val maxZoom: Float = Settings.DEFAULT_ZOOM_MAX
     val defaultFogRadius: Float = Settings.FOG_RADIUS_DEFAULT
+
+    /** The radius [SpeedCameras.near] prefetches. Swift needs it twice — the
+     *  call takes it explicitly, since exported functions carry no default
+     *  arguments, and "have I driven near the edge of what I hold" has to be
+     *  measured against the same number the fetch used. */
+    val cameraPrefetchRadiusMeters: Double = SpeedCameras.PREFETCH_RADIUS_M
 }
