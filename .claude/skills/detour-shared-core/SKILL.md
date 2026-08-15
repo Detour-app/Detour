@@ -28,7 +28,7 @@ re-derive it before trusting the body.
 .claude/skills/detour-shared-core/scripts/check-preconditions.sh
 ```
 
-Seven assertions, `PASS`/`FAIL` per line, non-zero exit if any failed: the three `expect`s all
+Seven assertions, `PASS`/`FAIL` per line, non-zero exit if any failed: the four `expect`s all
 in `Platform.kt`, **zero** `Dispatchers` in `commonMain`, **exactly one** non-sealed
 `interface` there (`Prefs`, pinned to `Platform.kt` so a second one is still caught), `wear/`
 still **not** depending on `:shared`, `app/` still depending on it, and `nowMs()` still in
@@ -91,19 +91,21 @@ Measured today (whole-file line counts, `find … | xargs cat | wc -l`):
 
 ## 3. The `expect` ceiling
 
-`shared/src/commonMain/` contains **exactly three `expect` declarations, all in one file**,
+`shared/src/commonMain/` contains **exactly four `expect` declarations, all in one file**,
 `shared/src/commonMain/kotlin/com/jellemax/detour/data/Platform.kt`:
 
 - `expect fun prefs(name: String): Prefs` (`:48`) — opens the named bag of primitives; `Prefs`
   itself is an `interface` (`:32`), not an `expect`, because it has more than one implementation
   per platform — see §4's Interfaces / DI row
-- `expect fun appFilesDir(): Path` (`:51`)
-- `expect val fileSystem: FileSystem` (`:54`)
+- `expect fun securePrefs(): Prefs` (`:58`) — the one encrypted bag, for credentials; no name
+  parameter, because there is exactly one of these and a name would be a second way to say so
+- `expect fun appFilesDir(): Path` (`:61`)
+- `expect val fileSystem: FileSystem` (`:64`)
 
-Three concerns: a key-value store, an app-private directory, a file system. That is the whole
-platform surface of a 4,927-line core. `Platform.kt:11-14` states the rule in the file itself,
-and `CONTRIBUTING.md:26-28` repeats it: **wanting a fourth expect is the signal to push the
-dependency in from the platform instead.**
+Four concerns: a key-value store (plain, and encrypted for credentials), an app-private
+directory, a file system. That is the whole platform surface of the core. `Platform.kt:11-14`
+states the rule in the file itself, and `CONTRIBUTING.md:26-28` repeats it: **wanting a fifth
+expect is the signal to push the dependency in from the platform instead.**
 
 What "push it in" means concretely, with the pattern already in the tree:
 

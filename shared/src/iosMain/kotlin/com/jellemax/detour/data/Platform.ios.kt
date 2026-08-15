@@ -57,6 +57,14 @@ internal class UserDefaultsPrefs(private val bag: String) : Prefs {
 actual fun prefs(name: String): Prefs = UserDefaultsPrefs(name)
 
 /**
+ * Not yet encrypted. iOS keeps NSUserDefaults behind the same interface so the
+ * Keychain implementation is a self-contained follow-up rather than a rewrite —
+ * it cannot be verified from this repo's CI (no Swift test target), and shipping
+ * security-critical code on a compile alone is how surfaces drift apart.
+ */
+actual fun securePrefs(): Prefs = UserDefaultsPrefs("secure")
+
+/**
  * Documents rather than Application Support: these are the user's own trips
  * and traces, and putting them here is what lets the GPX exports show up over
  * iTunes/Finder file sharing later without moving the store.

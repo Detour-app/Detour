@@ -45,6 +45,12 @@ internal class SharedPrefsStore(private val p: SharedPreferences) : Prefs {
 actual fun prefs(name: String): Prefs =
     SharedPrefsStore(requireContext().getSharedPreferences(name, Context.MODE_PRIVATE))
 
+actual fun securePrefs(): Prefs =
+    KeystorePrefs(requireContext().getSharedPreferences(SECURE_STORE, Context.MODE_PRIVATE))
+
+/** The file name, also referenced by the backup rules that exclude it. */
+internal const val SECURE_STORE = "secure"
+
 actual fun appFilesDir(): Path = requireContext().filesDir.absolutePath.toPath()
 
 actual val fileSystem: FileSystem get() = FileSystem.SYSTEM

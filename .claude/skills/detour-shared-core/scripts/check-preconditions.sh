@@ -53,8 +53,8 @@ check() { # check <description> <expected> <actual>
 
 check 'the ONLY file with an expect declaration is Platform.kt' \
     "$PLATFORM" "$(files_with 'expect ')"
-check 'Platform.kt declares exactly 3 expects (a fourth is the signal to push the dependency in)' \
-    3 "$(count '^expect ' "$PLATFORM")"
+check 'Platform.kt declares exactly 4 expects (a fifth is the signal to push the dependency in)' \
+    4 "$(count '^expect ' "$PLATFORM")"
 check 'commonMain has ZERO Dispatchers — make the function suspend and let the caller choose' \
     '' "$(files_with 'Dispatchers')"
 check 'commonMain has exactly ONE non-sealed interface (Prefs — three implementations, CONTRIBUTING.md:40)' \

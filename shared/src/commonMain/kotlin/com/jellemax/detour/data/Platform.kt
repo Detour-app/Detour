@@ -47,6 +47,16 @@ interface Prefs {
 /** Opens (or creates) the preference bag called [name]. */
 expect fun prefs(name: String): Prefs
 
+/**
+ * The one bag for credentials. Encrypted at rest on Android, where the key lives in
+ * the Keystore and never leaves it.
+ *
+ * No name parameter: there is exactly one secure bag, and a name would be a second
+ * way to say the same thing. Still four expects in this file — [Prefs] became an
+ * interface, so the platform surface did not grow.
+ */
+expect fun securePrefs(): Prefs
+
 /** App-private directory for the trip/trace/coverage files. */
 expect fun appFilesDir(): Path
 
