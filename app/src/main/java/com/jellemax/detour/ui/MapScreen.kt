@@ -1103,10 +1103,6 @@ fun MapScreen(
         var lastTargetLat = Double.NaN
         var lastTargetLon = Double.NaN
         var lastNs = withFrameNanos { it }
-        // TEMPORARY (#21 measurement) — removed before merge.
-        var instFrames = 0
-        var instPushes = 0
-        var instLastLogNs = lastNs
         while (true) {
             val ns = withFrameNanos { it }
             // Clamp dt so a dropped frame or a stalled render doesn't teleport us.
@@ -1175,24 +1171,6 @@ fun MapScreen(
                 appliedZoom = zoom
                 appliedBearing = bearing
             }
-
-            // TEMPORARY (#21 measurement) — removed before merge.
-            instFrames++
-            if (moved) instPushes++
-            if (ns - instLastLogNs >= 1_000_000_000L) {
-                val f = liveFix
-                val gapM = if (f != null)
-                    RoadRoulette.distanceMeters(LatLon(lat, lon), LatLon(f.lat, f.lon))
-                else Double.NaN
-                android.util.Log.d(
-                    "DetourMapMotion",
-                    "cam frames=$instFrames pushes=$instPushes " +
-                        "speedKmh=${"%.1f".format((f?.speedMps ?: 0.0) * 3.6)} " +
-                        "gapM=${"%.1f".format(gapM)}")
-                instFrames = 0
-                instPushes = 0
-                instLastLogNs = ns
-            }
         }
     }
 
@@ -1209,13 +1187,8 @@ fun MapScreen(
         val overlays = mapOverlays ?: return@LaunchedEffect
         var lastLat = Double.NaN
         var lastLon = Double.NaN
-        // TEMPORARY (#21 measurement) — removed before merge. Counted and logged once a
-        // second rather than per push: a log line per frame is ~60/s, and that much
-        // logcat traffic would perturb the frame rate this run exists to measure.
-        var instPushes = 0
-        var instLastLogNs = 0L
         while (true) {
-            val ns = withFrameNanos { it }
+            withFrameNanos { it }
             val f = liveFix ?: continue
             val here = MapMotion.predict(
                 at = LatLon(f.lat, f.lon),
@@ -1229,14 +1202,6 @@ fun MapScreen(
                 overlays.setPosition(here, camTargetBearing?.toDouble())
                 lastLat = here.lat
                 lastLon = here.lon
-                instPushes++   // TEMPORARY (#21 measurement)
-            }
-            // TEMPORARY (#21 measurement) — removed before merge.
-            if (instLastLogNs == 0L) instLastLogNs = ns
-            if (ns - instLastLogNs >= 1_000_000_000L) {
-                android.util.Log.d("DetourMapMotion", "marker pushes=$instPushes")
-                instPushes = 0
-                instLastLogNs = ns
             }
         }
     }
