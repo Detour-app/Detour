@@ -33,8 +33,9 @@ If these disagree with what the body says, the body is stale. Re-derive before t
 
 Five assertions, `PASS`/`FAIL` per line, non-zero exit if any failed: 9 `rememberUpdatedState`
 lines (1 import + 8 uses), 6 `lastFix` subscriptions (5 raw collectors + 1
-`collectAsStateWithLifecycle`) and 5 `withFrameNanos` lines in `MapScreen.kt`, plus the two
-inverted ones.
+`collectAsStateWithLifecycle`) and 6 `withFrameNanos` lines in `MapScreen.kt` (1 import + 2
+each for the speed and camera loops' `lastNs` seed-and-read + 1 for the position-marker loop,
+which needs no `dt` and so seeds no `lastNs`), plus the two inverted ones.
 
 The last two matter as much as the first three: this app uses **no** `derivedStateOf` and
 **no** `snapshotFlow` anywhere, and `MainActivity` handles **no** configuration changes
@@ -144,9 +145,33 @@ Verified instances in `MapScreen.kt`:
 
 `TripDetailScreen.kt:369` has the same shape (`var lastNs` in the replay frame loop).
 
-All of these sit in `LaunchedEffect(Unit)` or in a key list that cannot currently change.
-That is the only thing protecting them. **Any change that gives one of these effects a key it
-did not have turns a permanent accumulator into one that resets** — and the compiler approves.
+Most of these sit in `LaunchedEffect(Unit)` or in a key list that cannot currently change.
+**The camera loop is the exception, and it is worth knowing which way round it is:** it is
+keyed `LaunchedEffect(cameraActive, haveFix, mapLibreMap)`, and `cameraActive` is
+`camAuthority.cameraActive(navigating)`, so it re-keys on every pan, park and resume. Its
+accumulators therefore reset routinely rather than never — the ease re-anchors at the current
+target, which is what makes a resume snap to you rather than slide. Do not "fix" that by
+removing the key.
+
+**Any change that gives one of these effects a key it did not have turns a permanent
+accumulator into one that resets** — and the compiler approves.
+
+Compose's frame clock also pauses entirely while the Activity is stopped — measured with a GPS
+replay running: 6 camera-loop samples in 5 s foregrounded, 0 in 18 s backgrounded, 5 in 5 s on
+return. `camTarget`'s only writer is `LaunchedEffect(liveFix, defaultZoom)`
+(`MapScreen.kt:1046, 1048`), and `liveFix` is
+`TripTrackingService.lastFix.collectAsStateWithLifecycle()` (`MapScreen.kt:209`) — a
+*lifecycle-aware* collector, not a raw one, and it stops below `STARTED`. So while the app is
+backgrounded, collection halts, `camTarget` freezes, and — since the frame clock is paused too
+— the loop's `lat`/`lon` freeze right alongside it. Nothing is tracking anything while the app
+is away.
+
+The jump happens on **resume**, not during the absence: the collector re-subscribes, and the
+underlying `StateFlow` conflates, so it delivers only the single latest fix in one step —
+`camTarget` snaps the whole distance at once, right as the frame clock restarts and the loop's
+frozen `lat`/`lon` see a target that may be hundreds of metres away for the first time. That is
+exactly what the snap guard (`MapMotion.shouldSnap`) exists to close, on resume rather than
+across the absence.
 
 **Check.** Before changing an effect's keys, read its body and list its locals. If there are
 any, the change is behavioural and earns a GPS replay A/B (see `detour-gps-replay`), not a

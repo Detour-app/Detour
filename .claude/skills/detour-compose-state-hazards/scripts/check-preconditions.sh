@@ -42,7 +42,8 @@ check 'MapScreen has 9 rememberUpdatedState lines (1 import + 8 uses) — §2' \
     9 "$(count 'rememberUpdatedState' "$M")"
 check 'MapScreen has 6 lastFix subscriptions (5 raw collectors + 1 collectAsState…) — §4' \
     6 "$(count 'lastFix.collect' "$M")"
-check 'MapScreen has 5 withFrameNanos lines — §6' 5 "$(count 'withFrameNanos' "$M")"
+check 'MapScreen has 6 withFrameNanos lines (import + speed/camera lastNs pairs + marker loop) — §6' \
+    6 "$(count 'withFrameNanos' "$M")"
 check 'the app still uses NO derivedStateOf and NO snapshotFlow anywhere — §6' \
     '' "$(grep -rl 'derivedStateOf\|snapshotFlow' app/src/main/java/ 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 check 'MainActivity still handles NO configChanges, so a rotate recreates it — §5' \

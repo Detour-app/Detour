@@ -100,6 +100,7 @@ import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.map.CameraAuthority
 import com.jellemax.detour.map.FollowCamera
+import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.leadingSpinIndex
 import com.jellemax.detour.tracking.TripTrackingService
@@ -632,9 +633,12 @@ fun MapScreen(
             candidates = displayCandidates.mapIndexed { i, c ->
                 CandidatePin(c.destination, CANDIDATE_COLORS[i % CANDIDATE_COLORS.size])
             },
-            // Marker updates per fix (~1 Hz); the eased camera glides the map
-            // under it, so it stays smooth without a per-frame source rewrite.
-            showPosition = true,
+            // render() ends with its own setPosition() call (MapLibreMap.kt:413), and this
+            // effect is keyed on route, mode and candidates among others — so a route or
+            // spin result arriving mid-drive would otherwise re-place the dot at the raw
+            // fix for one frame, fighting the per-frame marker loop below. False keeps
+            // that loop the sole writer of SRC_POSITION.
+            showPosition = false,
             // Same bearing the camera is easing towards, which is already held
             // through a stop rather than following the noise below 2 m/s.
             positionBearingDeg = camTargetBearing?.toDouble(),
@@ -1091,14 +1095,14 @@ fun MapScreen(
         var lon = start.lon
         var bearing = camTargetBearing ?: 0f
         var zoom = map.cameraPosition.zoom.takeIf { it > 1.0 } ?: camTargetZoom
-        // Last values actually pushed to the map. Comparing against these lets us
-        // skip setCamera once the ease has settled: an unchanged camera keeps the
-        // map idle, which is what stops the per-frame GL redraw + fog invalidate
-        // from burning the whole frame budget while stationary or cruising steady.
-        var appliedLat = Double.NaN
-        var appliedLon = 0.0
-        var appliedZoom = 0.0
-        var appliedBearing = 0f
+        // Whether the camera has ever actually been pushed to the map. MapMotion.shouldPush
+        // needs only this as a "first frame" sentinel — it compares the eased lat/lon/zoom/
+        // bearing above against the target itself, not against a record of what was last
+        // applied — which is what stops the per-frame GL redraw + fog invalidate from
+        // running once the ease has settled and the target has stopped moving.
+        var neverPushed = true
+        var lastTargetLat = Double.NaN
+        var lastTargetLon = Double.NaN
         var lastNs = withFrameNanos { it }
         while (true) {
             val ns = withFrameNanos { it }
@@ -1106,10 +1110,36 @@ fun MapScreen(
             val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.1)
             lastNs = ns
 
-            camTarget?.let { target ->
-                val a = 1.0 - exp(-dt / CAM_POS_TAU)
-                lat += (target.lat - lat) * a
-                lon += (target.lon - lon) * a
+            // Where the vehicle is now, plus CAM_POS_TAU of lead. The lead is what
+            // cancels the ease's own steady-state error: a first-order lag driven at
+            // constant velocity settles v*tau behind its input, so aiming tau ahead
+            // leaves the camera on the true position instead of behind it.
+            val f = liveFix
+            val camTargetNow = if (f != null) MapMotion.predict(
+                at = LatLon(f.lat, f.lon),
+                bearingDeg = f.bearingDeg,
+                speedMps = f.speedMps,
+                fixTimeMs = f.timeMs,
+                nowMs = System.currentTimeMillis(),
+                leadSeconds = CAM_POS_TAU,
+            ) else camTarget
+            camTargetNow?.let { target ->
+                if (MapMotion.shouldSnap(LatLon(lat, lon), target)) {
+                    // Too far to be continuous motion — a resume from background, a
+                    // tunnel exit, a first fix after an outage. Easing across it would
+                    // sweep the camera, and MapLibre's tile requests, over everything
+                    // in between. Bearing and zoom re-anchor here too, so the whole
+                    // camera teleports as one instead of still rotating and zooming in
+                    // over their own time constants after a background-resume snap.
+                    lat = target.lat
+                    lon = target.lon
+                    bearing = camTargetBearing ?: bearing
+                    zoom = camTargetZoom
+                } else {
+                    val a = 1.0 - exp(-dt / CAM_POS_TAU)
+                    lat += (target.lat - lat) * a
+                    lon += (target.lon - lon) * a
+                }
             }
             camTargetBearing?.let { target ->
                 bearing = smoothBearing(
@@ -1120,23 +1150,60 @@ fun MapScreen(
             // Heading-up while moving: MapLibre bearing points the camera along
             // travel, so the road you're on runs up the screen. The camera-move
             // listener redraws the fog; the position dot is world-fixed and rides
-            // along on its own. Only pushed when the change since the last push is
-            // visible (sub-pixel/sub-degree moves are dropped), so a settled camera
-            // does no work at all.
-            var dBearing = (bearing - appliedBearing) % 360f
-            if (dBearing > 180f) dBearing -= 360f
-            if (dBearing < -180f) dBearing += 360f
-            val moved = appliedLat.isNaN() ||
-                abs(lat - appliedLat) > CAM_POS_EPS_DEG ||
-                abs(lon - appliedLon) > CAM_POS_EPS_DEG ||
-                abs(zoom - appliedZoom) > CAM_ZOOM_EPS ||
-                abs(dBearing) > CAM_BEARING_EPS_DEG
+            // Push while the ease has not converged, or while the target itself is
+            // moving. The old test compared this frame's step against the last pushed
+            // value, which cannot tell a slow camera from a settled one: at 20 km/h a
+            // frame moves 0.09 m against a 0.14 m threshold, so the camera was pushed
+            // every third frame and stepped visibly. A parked map still does no work,
+            // because then the target is still and the camera has converged on it.
+            val targetMoved = camTargetNow != null &&
+                (camTargetNow.lat != lastTargetLat || camTargetNow.lon != lastTargetLon)
+            if (camTargetNow != null) {
+                lastTargetLat = camTargetNow.lat
+                lastTargetLon = camTargetNow.lon
+            }
+            val moved = MapMotion.shouldPush(
+                camLat = lat, camLon = lon, camZoom = zoom, camBearing = bearing,
+                tgtLat = camTargetNow?.lat ?: lat, tgtLon = camTargetNow?.lon ?: lon,
+                tgtZoom = camTargetZoom, tgtBearing = camTargetBearing ?: bearing,
+                targetMoved = targetMoved,
+                neverPushed = neverPushed,
+            )
             if (moved) {
                 setCamera(map, lat, lon, zoom, bearing)
-                appliedLat = lat
-                appliedLon = lon
-                appliedZoom = zoom
-                appliedBearing = bearing
+                neverPushed = false
+            }
+        }
+    }
+
+    // The dot, interpolated per frame. It used to be re-placed only when a fix arrived,
+    // about once a second, at the raw fix position — so it stepped forward and the camera
+    // slid after it. Worst when the camera is parked (after a pan, with follow off, or
+    // with a spin result up), because then nothing is gliding underneath to mask it, which
+    // is why this loop is deliberately independent of cameraActive.
+    //
+    // setPosition writes one point into SRC_POSITION. render() rewrites eight sources
+    // including the route line, and doing *that* per frame is what makes a head unit
+    // crawl — see MapOverlays.setPosition's own note.
+    LaunchedEffect(mapOverlays, haveFix) {
+        val overlays = mapOverlays ?: return@LaunchedEffect
+        var lastLat = Double.NaN
+        var lastLon = Double.NaN
+        while (true) {
+            withFrameNanos { it }
+            val f = liveFix ?: continue
+            val here = MapMotion.predict(
+                at = LatLon(f.lat, f.lon),
+                bearingDeg = f.bearingDeg,
+                speedMps = f.speedMps,
+                fixTimeMs = f.timeMs,
+                nowMs = System.currentTimeMillis(),
+                leadSeconds = 0.0,
+            )
+            if (here.lat != lastLat || here.lon != lastLon) {
+                overlays.setPosition(here, camTargetBearing?.toDouble())
+                lastLat = here.lat
+                lastLon = here.lon
             }
         }
     }
