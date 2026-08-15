@@ -324,6 +324,9 @@ file).
 .claude/skills/detour-staged-refactor/scripts/tier0-greps.sh <base> [changed files...]
 ```
 
+- `scripts/check-secret-fields.sh` — fails if a raw `OutlinedTextField`, `TextField` or
+  `BasicTextField` is given a secret-ish label (§7). Runs in CI, before the unit tests.
+
 One script, in the skill that defines the tiers, so there is no second copy to drift. It
 compares against `<base>` rather than reading the working tree, because every check here is a
 *delta*: the `rememberUpdatedState` count must not **drop** (§2), a newly added file must not
@@ -341,6 +344,35 @@ read.
 None of that proves behaviour. For anything in §1, §3 or §4, the only real evidence is a
 before/after GPS replay of the same route — see the `detour-gps-replay` skill. Report the two
 observations and the route file, not "behaviour looked unchanged".
+
+## 7. Credential fields need `keyboardOptions`, not just a mask
+
+`PasswordVisualTransformation` only changes what is *drawn*. Compose infers nothing about
+the IME from it, so a field with a mask and no `keyboardOptions` still ships as
+`KeyboardType.Text` with autocorrect on: predictive text runs over the value and it can
+land in the keyboard's personalised learning dictionary, which several third-party IMEs
+sync off-device. This is what #7 was.
+
+Do not hand-roll it. Use, from `app/src/main/java/com/jellemax/detour/ui/SecureFields.kt`:
+
+- **`SecretTextField`** — masked, `KeyboardType.Password`, a reveal toggle that re-hides on
+  focus loss, and autofill. It has no `visualTransformation` parameter on purpose: no
+  argument produces an unmasked field.
+- **`CredentialTextField`** — not masked, for a client id or a server URL, but with
+  autocorrect off and a caller-chosen keyboard type.
+
+Two things that are easy to get backwards:
+
+- **Auto-hide keys on `hasFocus`, not `isFocused`.** The reveal button is an `IconButton`
+  inside the field's own focus subtree, so tapping it moves focus off the text field.
+  Keyed on `isFocused`, the secret re-hides on the very tap meant to reveal it.
+- **Do not suppress autofill.** The instinct to opt a credential field out of everything is
+  right for autocorrect and capitalisation and wrong here: ASVS 5.0.0 V6.2.7 (L1) requires
+  that paste and external password managers work, and suppressing autofill is precisely
+  what breaks them.
+
+`scripts/check-secret-fields.sh` fails if a raw `OutlinedTextField`, `TextField` or
+`BasicTextField` is given a secret-ish label. It runs in CI, before the unit tests.
 
 ## Related
 

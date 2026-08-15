@@ -80,6 +80,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -1139,23 +1140,21 @@ private fun ServerSection() {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedTextField(
+        CredentialTextField(
             value = url, onValueChange = { url = it; saved = false },
-            label = { Text("Server URL") },
-            placeholder = { Text("https://…") },
-            singleLine = true,
+            label = "Server URL",
+            keyboardType = KeyboardType.Uri,
+            placeholder = "https://…",
             modifier = Modifier.fillMaxWidth(),
         )
-        OutlinedTextField(
+        CredentialTextField(
             value = clientId, onValueChange = { clientId = it; saved = false },
-            label = { Text("CF Access Client Id (optional)") },
-            singleLine = true,
+            label = "CF Access Client Id (optional)",
             modifier = Modifier.fillMaxWidth(),
         )
-        OutlinedTextField(
+        SecretTextField(
             value = clientSecret, onValueChange = { clientSecret = it; saved = false },
-            label = { Text("CF Access Client Secret (optional)") },
-            singleLine = true,
+            label = "CF Access Client Secret (optional)",
             modifier = Modifier.fillMaxWidth(),
         )
         Row(
