@@ -6,6 +6,55 @@ is the synthesis of a nine-agent investigation into how to split it. It is the d
 record; the underlying reports are kept alongside it so the reasoning stays checkable
 against whatever we actually build.
 
+## Status — the chain is complete, 2026-08-13
+
+**All four stages are done.** `MapScreen.kt` went from **3204 lines to 1666**, and the reduction is
+the least interesting part of it. What changed:
+
+| | Before | After |
+|---|---|---|
+| `MapScreen.kt` | 3204 lines | 1666 |
+| `ui/` files | 1 monolith | 31 |
+| Decisions with tests | 0 | 7 units, 166 tests |
+| Logic reachable by iOS | none of the three hazard features | all three, in commonMain |
+| `car/` duplication | arrival/reroute, camera-warn, speed-limit | none of the three |
+
+- **Stage 1** moved 1650 lines of presentational code into eleven same-package files, with zero
+  lines added to `MapScreen.kt` — a provably behaviour-free move.
+- **Stage 2** extracted four decisions that had no tests and one prose correctness argument into
+  `com.jellemax.detour.map`, and deleted the car's copy of the arrival/reroute policy.
+- **Stage 3** moved the three road-hazard machines into `shared/…/drive/`. This is the one that
+  changes what the product can do: `RoadRoulette.speedLimitWays`, `snapSpeedLimitKmh` and
+  `SpeedCameras.near` had been sitting in commonMain **unused**, because only the stateful wrapper
+  around them was welded into a composable. iOS can reach all three features now.
+- **Stage 4** gave the camera's follow/park/resume state one owner, using the reducer stage 2 built
+  unwired precisely so the choice could be made against real code.
+
+**What is not verified, and should not be reported as if it were.**
+
+- **No GPS replay ran for stages 3 or 4.** Both app mirrors refuse this host and the one healthy
+  public mirror is a Switzerland-only extract. That leaves the posted-limit ladder, the 3-fix clear
+  latency and the camera chime unmeasured. Stage 4 was desk-checked on device instead; stage 3 was
+  not.
+- **The camera chime cannot currently be observed at all.** `NavVoice.speak` logs only on
+  audio-focus failure, so a successful chime writes nothing. Observing it needs a call-site log
+  line — a code change, not a test change.
+- **`GroupSpinRules` is extracted and tested but its call site is unchanged**, because verifying a
+  convoy vote needs two devices transmitting to each other.
+- **Convergence 3's phone-audio items landed without their device session**, so register entries 12
+  and 15 are resolved in code and open on hardware.
+- **Stage 4 costs recomposition.** The three camera vars were independent snapshot states and
+  nothing in composition read `lastGestureMs`, so stamping it invalidated nothing. As one object,
+  every `ACTION_MOVE` past the touch slop recomposes MapScreen's scope for the duration of a drag.
+  No derived value changes and no effect re-keys, so it is composition cost rather than behaviour,
+  and it is inherent to having one owner. The desk check saw no smoothness problem but was not
+  measuring frame timing, so this is unmeasured rather than cleared. `derivedStateOf` around the two
+  reads is the fix if it ever shows.
+
+**maxke24/Detour#21 is untouched and now unblocked.** The collision this chain feared does not
+exist: the reducer owns *whether* to follow, #21 owns *how*, and the frame loop references none of
+the reducer's three variables.
+
 ## Status — stop-point C reached, 2026-08-13
 
 **Stage 3 is complete.** All three road-hazard machines now live in

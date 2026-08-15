@@ -6,7 +6,7 @@
 |---|---|
 | **Detail level** | Decision gate. **No work items by design** — they are the output of this stage's brainstorm, not its input. |
 | **Prerequisite** | [Stage 3](stage-3-hazard-machines-to-shared.md) complete |
-| **State** | not started · **optional** |
+| **State** | **done** 2026-08-13 — `CameraAuthority` wired (`3bae9e1`, `81f44e0`, `07a2e52`). The three `remember`ed camera vars became one `CameraAuthority.State` and ten write sites became reducer dispatches; the reducer itself was not modified. Desk-checked on device: all six transitions pass, no crashes. The spin-park asymmetry is preserved and **measured** — a spin park released at t+3740 ms against a drag park held 8.16–8.63 s by `CAM_RESUME_QUIET_MS`, which symmetrising would have made impossible. Verification: 166 unit tests, compile, R8, three gate scripts, and the desk check; **no GPS replay**, by an explicit decision to trade behaviour verification for completion. |
 | **Preconditions captured** | 2026-08-11 |
 | **Chain** | [design](00-chain-design.md) · [roadmap](../DECISION.md) · prev: [stage 3](stage-3-hazard-machines-to-shared.md) · next: none — this is the last stage |
 
