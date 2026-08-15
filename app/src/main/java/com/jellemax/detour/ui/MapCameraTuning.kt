@@ -36,6 +36,13 @@ internal const val CAM_POS_EPS_DEG = 2e-6
 internal const val CAM_ZOOM_EPS = 2e-3
 internal const val CAM_BEARING_EPS_DEG = 0.1f
 
+// Past this, a jump is not continuous motion and easing toward it would sweep the
+// camera — and MapLibre's tile requests — across everything in between. A frame can
+// legitimately move 3.3 m at most (120 km/h against the 0.1 s dt clamp), and GPS
+// scatter stays well under this, so anything above it is a resume from background, a
+// tunnel exit, or a first fix after an outage. Those all want a teleport.
+internal const val CAM_SNAP_METERS = 250.0
+
 // Padding kept around a fitted route/candidate spread so pins and the trip card
 // don't sit against the screen edge.
 internal const val FIT_PADDING_PX = 140
