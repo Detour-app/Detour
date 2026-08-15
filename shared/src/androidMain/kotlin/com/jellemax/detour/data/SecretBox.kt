@@ -4,6 +4,7 @@ import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import android.util.Log
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -30,16 +31,33 @@ internal object SecretBox {
     private const val TRANSFORM = "AES/GCM/NoPadding"
     private const val TAG_BITS = 128
     private const val IV_BYTES = 12
+    private const val TAG = "SecretBox"
 
-    /** Base64 of `IV || ciphertext`, or null if the key is unavailable. */
-    fun seal(plain: String): String? = runCatching {
+    /**
+     * Base64 of `IV || ciphertext`, or null if the key is unavailable.
+     *
+     * One-shot recovery only, on this path: if the existing alias cannot be used by this
+     * transformation — invalidated by a device-level event, or left by a future spec change
+     * — [key] throws, and a bare retry would throw again forever. Delete the alias and
+     * retry exactly once with a freshly generated key. Never do this from [open]: deleting
+     * the key on a decrypt failure would destroy the ability to read values a later attempt
+     * might still decrypt, and a corrupt blob is a per-value problem, not a key problem.
+     */
+    fun seal(plain: String): String? {
+        trySeal(plain)?.let { return it }
+        Log.w(TAG, "seal failed with the existing key; recreating it and retrying once")
+        deleteKey()
+        return trySeal(plain)
+    }
+
+    private fun trySeal(plain: String): String? = runCatching {
         val cipher = Cipher.getInstance(TRANSFORM)
         // No IV is supplied: Keystore keys default to setRandomizedEncryptionRequired(true),
         // which makes passing one throw. The cipher generates it and we read it back.
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val body = cipher.doFinal(plain.encodeToByteArray())
         Base64.encodeToString(cipher.iv + body, Base64.NO_WRAP)
-    }.getOrNull()
+    }.onFailure { Log.w(TAG, "seal failed", it) }.getOrNull()
 
     /** The plaintext, or null if the blob is corrupt or the key is gone. */
     fun open(blob: String): String? = runCatching {
@@ -52,7 +70,14 @@ internal object SecretBox {
             GCMParameterSpec(TAG_BITS, raw, 0, IV_BYTES),
         )
         cipher.doFinal(raw, IV_BYTES, raw.size - IV_BYTES).decodeToString()
-    }.getOrNull()
+    }.onFailure { Log.w(TAG, "open failed", it) }.getOrNull()
+
+    /** Removes the alias so the next [key] call generates fresh material. Best-effort. */
+    private fun deleteKey() {
+        runCatching {
+            KeyStore.getInstance(KEYSTORE).apply { load(null) }.deleteEntry(ALIAS)
+        }
+    }
 
     private fun key(): SecretKey {
         val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }

@@ -18,7 +18,14 @@ internal class KeystorePrefs(private val p: SharedPreferences) : Prefs {
         p.getString(key, null)?.let { SecretBox.open(it) }
 
     private fun write(key: String, value: String) {
-        val sealed = SecretBox.seal(value) ?: return
+        val sealed = SecretBox.seal(value)
+        if (sealed == null) {
+            // Degrade to absent, not to stale. Leaving the old ciphertext would keep
+            // serving a token that has just been refreshed or revoked, and the read path
+            // already treats "cannot decrypt" as "no value".
+            p.edit().remove(key).apply()
+            return
+        }
         p.edit().putString(key, sealed).apply()
     }
 

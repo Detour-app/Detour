@@ -110,10 +110,11 @@ existing key-value concern, not a fourth concern. Count concerns against that ru
 declarations, or the next credential store looks like a ceiling breach when it is not — and a
 genuinely new concern looks permissible when it is not.
 
-Four concerns: a key-value store (plain, and encrypted for credentials), an app-private
+Three concerns: a key-value store (plain, and encrypted for credentials), an app-private
 directory, a file system. That is the whole platform surface of the core. `Platform.kt:11-14`
-states the rule in the file itself, and `CONTRIBUTING.md:26-28` repeats it: **wanting a fifth
-expect is the signal to push the dependency in from the platform instead.**
+states the rule in the file itself, and `CONTRIBUTING.md:26-28` repeats it: **wanting to add a
+fourth concern is the signal to push the dependency in from the platform instead** — a new
+`expect` for an existing concern (another bag of key-value pairs, say) is not that signal.
 
 What "push it in" means concretely, with the pattern already in the tree:
 

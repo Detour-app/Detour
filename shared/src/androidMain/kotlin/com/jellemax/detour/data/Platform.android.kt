@@ -48,7 +48,9 @@ actual fun prefs(name: String): Prefs =
 actual fun securePrefs(): Prefs =
     KeystorePrefs(requireContext().getSharedPreferences(SECURE_STORE, Context.MODE_PRIVATE))
 
-/** The file name, also referenced by the backup rules that exclude it. */
+/** The file name. Excluded from backup by omission: `backup_rules.xml` and
+ *  `data_extraction_rules.xml` are include-only allowlists, so nothing named here is what
+ *  keeps this store out of a backup — never being listed is. */
 internal const val SECURE_STORE = "secure"
 
 actual fun appFilesDir(): Path = requireContext().filesDir.absolutePath.toPath()
