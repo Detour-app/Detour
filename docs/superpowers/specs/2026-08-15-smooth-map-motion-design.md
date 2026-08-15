@@ -190,12 +190,22 @@ The live fix is read through `rememberUpdatedState` (§2), never captured.
 
 ### 5. The snap guard — pre-existing, found here
 
-`camTarget` is `remember`ed and survives backgrounding; the fix collector is a raw `.collect`
-and `TripTrackingService` is a foreground service, so `camTarget` keeps tracking the real
-position while the app is away. The frame loop's `lat`/`lon` are coroutine locals, and none of
-its three keys change across a background/foreground cycle — so **it never re-anchors**.
+`camTarget`'s only writer is `LaunchedEffect(liveFix, defaultZoom)` (`:1046-1048`), and
+`liveFix` is `TripTrackingService.lastFix.collectAsStateWithLifecycle()` (`:209`) —
+lifecycle-aware, not a raw collector, so it stops collecting below `STARTED`. While the app is
+backgrounded, collection halts and `camTarget` freezes; Compose's frame clock pauses too, so
+the frame loop's `lat`/`lon` freeze right alongside it. Nothing tracks anything while the app
+is away.
 
-Travel 100 km with the app backgrounded and the ease then chases a target 100 km away. `dt` is
+The gap opens on **resume**, not during the absence. The collector re-subscribes, and the
+underlying `StateFlow` conflates: every fix that arrived while suspended is dropped except the
+last, so `camTarget` jumps straight to wherever the vehicle now is — potentially 100 km away —
+in one assignment, right as the frame clock restarts and the loop's frozen `lat`/`lon` see that
+target for the first time. The frame loop's `lat`/`lon` are coroutine locals, and none of its
+three keys change across a background/foreground cycle — so **it never re-anchors** on its own.
+
+Travel 100 km with the app backgrounded, then resume: the loop's `lat`/`lon` are still parked
+at the pre-background position, and the ease now chases a `camTarget` 100 km away. `dt` is
 clamped to 0.1 s, giving `a = 1 − exp(−0.1/0.35) ≈ 0.25`, so it closes ~25 % of the gap per
 frame: the camera sweeps the whole distance in roughly 15 frames, requesting tiles the entire
 way.

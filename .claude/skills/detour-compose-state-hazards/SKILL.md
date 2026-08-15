@@ -158,9 +158,20 @@ accumulator into one that resets** — and the compiler approves.
 
 Compose's frame clock also pauses entirely while the Activity is stopped — measured with a GPS
 replay running: 6 camera-loop samples in 5 s foregrounded, 0 in 18 s backgrounded, 5 in 5 s on
-return — while `camTarget` keeps tracking from a raw collector on a foreground service
-regardless. That gap between a frozen camera and a moving target is exactly what the snap
-guard (`MapMotion.shouldSnap`) exists to close on resume, rather than easing across it.
+return. `camTarget`'s only writer is `LaunchedEffect(liveFix, defaultZoom)`
+(`MapScreen.kt:1046, 1048`), and `liveFix` is
+`TripTrackingService.lastFix.collectAsStateWithLifecycle()` (`MapScreen.kt:209`) — a
+*lifecycle-aware* collector, not a raw one, and it stops below `STARTED`. So while the app is
+backgrounded, collection halts, `camTarget` freezes, and — since the frame clock is paused too
+— the loop's `lat`/`lon` freeze right alongside it. Nothing is tracking anything while the app
+is away.
+
+The jump happens on **resume**, not during the absence: the collector re-subscribes, and the
+underlying `StateFlow` conflates, so it delivers only the single latest fix in one step —
+`camTarget` snaps the whole distance at once, right as the frame clock restarts and the loop's
+frozen `lat`/`lon` see a target that may be hundreds of metres away for the first time. That is
+exactly what the snap guard (`MapMotion.shouldSnap`) exists to close, on resume rather than
+across the absence.
 
 **Check.** Before changing an effect's keys, read its body and list its locals. If there are
 any, the change is behavioural and earns a GPS replay A/B (see `detour-gps-replay`), not a

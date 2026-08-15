@@ -28,10 +28,14 @@ internal const val SPEED_TAU = 0.30
 // stop recomposing so a steady cruise doesn't repaint the HUD every frame.
 internal const val SPEED_EPS_KMH = 0.15
 
-// Below these, an eased camera step isn't worth a redraw: ~0.2 m of pan (well
-// sub-pixel at driving zooms), a hair of zoom, a tenth of a degree of rotation.
-// Once the ease settles inside all three, setCamera is skipped and the map —
-// and the fog view riding on its camera-move callback — goes quiet.
+// A standstill-only optimisation: these decide when a camera that has converged on a
+// target that is itself not moving may stop doing work — ~0.2 m of pan (well sub-pixel
+// at driving zooms), a hair of zoom, a tenth of a degree of rotation. They no longer gate
+// a moving camera — MapMotion.shouldPush also pushes whenever the target moved this
+// frame, so the camera is pushed on every frame while driving (measured pushes == frames
+// in 198/198 samples). Once the ease settles inside all three *and* the target is still,
+// setCamera is skipped and the map — and the fog view riding on its camera-move
+// callback — goes quiet.
 internal const val CAM_POS_EPS_DEG = 2e-6
 internal const val CAM_ZOOM_EPS = 2e-3
 internal const val CAM_BEARING_EPS_DEG = 0.1f

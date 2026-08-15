@@ -135,10 +135,20 @@ class MapMotionTest {
 
     @Test
     fun `bearing convergence wraps across north`() {
-        // 359.95 vs 0.05 is 0.1 apart, not 359.9 — inside CAM_BEARING_EPS_DEG.
+        // 359.97 vs 0.02 is 0.05 apart, not 359.95 — comfortably inside CAM_BEARING_EPS_DEG.
         assertFalse(MapMotion.shouldPush(
-            camLat = brussels.lat, camLon = brussels.lon, camZoom = 16.0, camBearing = 359.95f,
-            tgtLat = brussels.lat, tgtLon = brussels.lon, tgtZoom = 16.0, tgtBearing = 0.05f,
+            camLat = brussels.lat, camLon = brussels.lon, camZoom = 16.0, camBearing = 359.97f,
+            tgtLat = brussels.lat, tgtLon = brussels.lon, tgtZoom = 16.0, tgtBearing = 0.02f,
+            targetMoved = false, neverPushed = false))
+    }
+
+    @Test
+    fun `bearing convergence across north still pushes outside the epsilon`() {
+        // 359.5 vs 0.5 is 1.0 apart, not 359.0 — outside CAM_BEARING_EPS_DEG, so the wrap
+        // must not be mistaken for convergence.
+        assertTrue(MapMotion.shouldPush(
+            camLat = brussels.lat, camLon = brussels.lon, camZoom = 16.0, camBearing = 359.5f,
+            tgtLat = brussels.lat, tgtLon = brussels.lon, tgtZoom = 16.0, tgtBearing = 0.5f,
             targetMoved = false, neverPushed = false))
     }
 }

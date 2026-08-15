@@ -633,9 +633,12 @@ fun MapScreen(
             candidates = displayCandidates.mapIndexed { i, c ->
                 CandidatePin(c.destination, CANDIDATE_COLORS[i % CANDIDATE_COLORS.size])
             },
-            // The marker is interpolated per frame by its own loop below; this render
-            // only needs to place it when the overlay set is rebuilt.
-            showPosition = true,
+            // render() ends with its own setPosition() call (MapLibreMap.kt:413), and this
+            // effect is keyed on route, mode and candidates among others — so a route or
+            // spin result arriving mid-drive would otherwise re-place the dot at the raw
+            // fix for one frame, fighting the per-frame marker loop below. False keeps
+            // that loop the sole writer of SRC_POSITION.
+            showPosition = false,
             // Same bearing the camera is easing towards, which is already held
             // through a stop rather than following the noise below 2 m/s.
             positionBearingDeg = camTargetBearing?.toDouble(),
@@ -1092,14 +1095,12 @@ fun MapScreen(
         var lon = start.lon
         var bearing = camTargetBearing ?: 0f
         var zoom = map.cameraPosition.zoom.takeIf { it > 1.0 } ?: camTargetZoom
-        // Last values actually pushed to the map. Comparing against these lets us
-        // skip setCamera once the ease has settled: an unchanged camera keeps the
-        // map idle, which is what stops the per-frame GL redraw + fog invalidate
-        // from burning the whole frame budget while stationary or cruising steady.
-        var appliedLat = Double.NaN
-        var appliedLon = 0.0
-        var appliedZoom = 0.0
-        var appliedBearing = 0f
+        // Whether the camera has ever actually been pushed to the map. MapMotion.shouldPush
+        // needs only this as a "first frame" sentinel — it compares the eased lat/lon/zoom/
+        // bearing above against the target itself, not against a record of what was last
+        // applied — which is what stops the per-frame GL redraw + fog invalidate from
+        // running once the ease has settled and the target has stopped moving.
+        var neverPushed = true
         var lastTargetLat = Double.NaN
         var lastTargetLon = Double.NaN
         var lastNs = withFrameNanos { it }
@@ -1127,9 +1128,13 @@ fun MapScreen(
                     // Too far to be continuous motion — a resume from background, a
                     // tunnel exit, a first fix after an outage. Easing across it would
                     // sweep the camera, and MapLibre's tile requests, over everything
-                    // in between.
+                    // in between. Bearing and zoom re-anchor here too, so the whole
+                    // camera teleports as one instead of still rotating and zooming in
+                    // over their own time constants after a background-resume snap.
                     lat = target.lat
                     lon = target.lon
+                    bearing = camTargetBearing ?: bearing
+                    zoom = camTargetZoom
                 } else {
                     val a = 1.0 - exp(-dt / CAM_POS_TAU)
                     lat += (target.lat - lat) * a
@@ -1162,14 +1167,11 @@ fun MapScreen(
                 tgtLat = camTargetNow?.lat ?: lat, tgtLon = camTargetNow?.lon ?: lon,
                 tgtZoom = camTargetZoom, tgtBearing = camTargetBearing ?: bearing,
                 targetMoved = targetMoved,
-                neverPushed = appliedLat.isNaN(),
+                neverPushed = neverPushed,
             )
             if (moved) {
                 setCamera(map, lat, lon, zoom, bearing)
-                appliedLat = lat
-                appliedLon = lon
-                appliedZoom = zoom
-                appliedBearing = bearing
+                neverPushed = false
             }
         }
     }
