@@ -77,12 +77,14 @@ object RoutingServer {
     /** The user's own server settings, or null when using built-in defaults. */
     fun loadCustom(): ServerConfig? {
         val p = prefs(PREFS)
+        val s = securePrefs()
+        CredentialMigration.step(p, s, CredentialMigration.SERVER_KEYS)
         val url = p.string("url")
         if (!p.bool("saved", false) || url.isBlank()) return null
         return ServerConfig(
             url = url,
-            clientId = p.string("clientId"),
-            clientSecret = p.string("clientSecret"),
+            clientId = s.string("clientId"),
+            clientSecret = s.string("clientSecret"),
             enabled = true,
         )
     }
@@ -91,12 +93,21 @@ object RoutingServer {
         prefs(PREFS).apply {
             put("saved", true)
             put("url", config.url.trim())
+        }
+        securePrefs().apply {
             put("clientId", config.clientId.trim())
             put("clientSecret", config.clientSecret.trim())
         }
     }
 
-    fun clearCustom() = prefs(PREFS).clear()
+    /** Clearing the secure store wholesale would take the session with it, so the two
+     *  Cloudflare keys are removed by name. */
+    fun clearCustom() {
+        prefs(PREFS).clear()
+        securePrefs().apply {
+            CredentialMigration.SERVER_KEYS.forEach { remove(it.name) }
+        }
+    }
 
     /** Cloudflare Access service-token headers, absent when not behind Access. */
     private fun headers(config: ServerConfig): Map<String, String> = buildMap {
