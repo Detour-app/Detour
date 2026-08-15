@@ -43,6 +43,7 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.drive.CameraWarner
+import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CancellationException
@@ -123,10 +124,18 @@ class NavScreen(
     private var templateKey: String? = null
 
     private var speedCameras: List<SpeedCameras.Camera> = emptyList()
+    /** The trajectcontrole relations from the same Overpass answer as
+     *  [speedCameras] — one request has always returned both, and until now the
+     *  car read only the camera half of it. */
+    private var speedSections: List<SpeedCameras.Section> = emptyList()
     private var camerasCenter: LatLon? = null
     private var lastCameraFetchMs = 0L
     /** The one-chime-per-camera latch, CameraWarner's. */
     private var warnerState = CameraWarner.State()
+    /** The running average through a trajectcontrole, SectionAverageTracker's.
+     *  Per-screen, like the warner latch: a section you are inside of ends when
+     *  you leave this screen either way. */
+    private var sectionState = SectionAverageTracker.State()
     /** The in-flight Overpass fetch, so a slow mirror is waited on once rather
      *  than re-requested by every fix that lands while it is still running. */
     private var cameraFetchJob: Job? = null
@@ -225,7 +234,22 @@ class NavScreen(
             NavEngine.cameraZoom(
                 Settings.defaultZoom.value.toDouble(), speedMps, p.distanceToTurnMeters),
         )
-        renderer.updateHud(currentSpeedKmh, p.speedLimitKmh)
+        // The running trajectcontrole average, off the same fix stream and the
+        // same prefetch the camera warning uses. Stepped here rather than down
+        // in [checkCameras] so the HUD draws *this* fix's reading instead of the
+        // previous one; the section list itself being a fix behind costs
+        // nothing, since it is a 4 km prefetch either way.
+        sectionState = SectionAverageTracker.onFix(
+            state = sectionState,
+            sections = speedSections,
+            at = pos,
+            headingDeg = bearingDeg?.toDouble(),
+            speedMps = speedMps,
+            // nowMs() in :shared is internal to that module; the Android call
+            // sites pass the platform clock, same as MapScreen.kt does.
+            nowMs = System.currentTimeMillis(),
+        )
+        renderer.updateHud(currentSpeedKmh, p.speedLimitKmh, sectionState.reading)
         renderer.setPosition(pos, bearingDeg?.takeIf { speedMps > 2.0 })
         renderer.setDrivenFraction(p.drivenFraction)
 
@@ -349,7 +373,9 @@ class NavScreen(
 
     /**
      * Keeps the prefetched camera set current, and warns about the next one
-     * ahead.
+     * ahead. One Overpass answer carries both the camera nodes and the
+     * average-speed relations, so this is also where [speedSections] comes from
+     * — [onFix] is what steps the tracker over them.
      *
      * The Overpass fetch runs in its own coroutine rather than inline. This is
      * the whole fix loop's hot path: [TripTrackingService.lastFix] is a
@@ -374,6 +400,7 @@ class NavScreen(
                 }.onFailure { Log.w(TAG, "camera fetch failed", it) }.getOrNull()
                 if (result != null) {
                     speedCameras = result.cameras
+                    speedSections = result.sections
                     camerasCenter = pos
                     renderer.setCameras(speedCameras)
                 }
