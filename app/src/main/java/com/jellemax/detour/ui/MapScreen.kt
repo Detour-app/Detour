@@ -1125,9 +1125,18 @@ fun MapScreen(
                 leadSeconds = CAM_POS_TAU,
             ) else camTarget
             camTargetNow?.let { target ->
-                val a = 1.0 - exp(-dt / CAM_POS_TAU)
-                lat += (target.lat - lat) * a
-                lon += (target.lon - lon) * a
+                if (MapMotion.shouldSnap(LatLon(lat, lon), target)) {
+                    // Too far to be continuous motion — a resume from background, a
+                    // tunnel exit, a first fix after an outage. Easing across it would
+                    // sweep the camera, and MapLibre's tile requests, over everything
+                    // in between.
+                    lat = target.lat
+                    lon = target.lon
+                } else {
+                    val a = 1.0 - exp(-dt / CAM_POS_TAU)
+                    lat += (target.lat - lat) * a
+                    lon += (target.lon - lon) * a
+                }
             }
             camTargetBearing?.let { target ->
                 bearing = smoothBearing(
