@@ -3,13 +3,14 @@ package com.jellemax.detour.map
 /**
  * The camera's follow/park/resume machine as a pure reducer.
  *
- * **Nothing calls this.** It is written, tested and deliberately unwired: stage
- * 4 of the MapScreen refactor decides whether to adopt it, take the Compose
- * state-holder route instead, or discard it, and that decision is cheaper to
- * make against real code than against two proposals. `MapScreen.kt` still owns
- * `followMe`, `camSuspended` and `lastGestureMs` as three `remember`s with nine
- * `camSuspended` write sites between them; this is what those sites would
- * collapse into, and `CameraAuthorityTest` pins the behaviour they have today.
+ * **`MapScreen.kt` owns its camera through this.** It was written and tested
+ * unwired first, so stage 4 of the refactor could choose between adopting it and
+ * the Compose state-holder alternative against real code rather than two
+ * proposals; it was adopted, because the holder route would have had to
+ * reimplement six `rememberSaveable` values that survive a rotation the manifest
+ * does not handle, and because `car/` can consume a reducer and cannot consume a
+ * holder. The ten write sites that were three `remember`s now dispatch actions
+ * here, and `CameraAuthorityTest` pins the behaviour they had before the move.
  *
  * The actions are named after the call sites they came from so the mapping can
  * be checked by grep rather than by memory - the table is in the stage-2 plan.
@@ -68,7 +69,7 @@ internal object CameraAuthority {
     /**
      * **The `lastGestureMs` asymmetry is encoded here, not fixed.**
      * [Action.SpinStarted] parks without stamping the quiet window while every
-     * other park stamps both, which is what `MapScreen.kt:1118` does today. The
+     * other park stamps both, which is what `spin()` does today. The
      * consequence is that a spin-parked camera may resume on the next fix above
      * the speed threshold once the candidates are dismissed, where a pan-parked
      * one gets its eight seconds. Two earlier proposals quietly unified the two;
