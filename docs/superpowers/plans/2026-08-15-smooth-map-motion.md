@@ -802,8 +802,13 @@ Insert immediately after the camera loop's closing `}` (after what is currently 
         val overlays = mapOverlays ?: return@LaunchedEffect
         var lastLat = Double.NaN
         var lastLon = Double.NaN
+        // TEMPORARY (#21 measurement) — removed before merge. Counted and logged once a
+        // second rather than per push: a log line per frame is ~60/s, and that much
+        // logcat traffic would perturb the frame rate this run exists to measure.
+        var instPushes = 0
+        var instLastLogNs = 0L
         while (true) {
-            withFrameNanos { it }
+            val ns = withFrameNanos { it }
             val f = liveFix ?: continue
             val here = MapMotion.predict(
                 at = LatLon(f.lat, f.lon),
@@ -817,8 +822,14 @@ Insert immediately after the camera loop's closing `}` (after what is currently 
                 overlays.setPosition(here, camTargetBearing?.toDouble())
                 lastLat = here.lat
                 lastLon = here.lon
-                // TEMPORARY (#21 measurement) — removed before merge.
-                android.util.Log.d("DetourMapMotion", "marker push")
+                instPushes++   // TEMPORARY (#21 measurement)
+            }
+            // TEMPORARY (#21 measurement) — removed before merge.
+            if (instLastLogNs == 0L) instLastLogNs = ns
+            if (ns - instLastLogNs >= 1_000_000_000L) {
+                android.util.Log.d("DetourMapMotion", "marker pushes=$instPushes")
+                instPushes = 0
+                instLastLogNs = ns
             }
         }
     }
@@ -901,11 +912,17 @@ timeout 180 adb logcat -s DetourMapMotion > after.log
 .claude/skills/detour-gps-replay/scripts/stop-replay.sh
 ```
 
-Summarise with the **same** awk from Task 2 Step 3, and additionally count marker pushes:
+Summarise with the **same** awk from Task 2 Step 3, and additionally average the marker rate:
 
 ```bash
-grep -c 'marker push' after.log   # divide by 180 for pushes/sec
+awk '/marker pushes=/ { split($NF,a,"="); s+=a[2]; n++ }
+     END { if (n) printf "marker pushes/sec: %.1f over %d samples\n", s/n, n
+           else print "marker pushes/sec: NO SAMPLES — the loop never logged" }' after.log
 ```
+
+There is no "before" for this one: the marker loop does not exist until Task 6, and the old
+behaviour was one placement per fix — i.e. 1/sec by construction, at the replay's 1000 ms
+interval. Say that rather than inventing a measured baseline.
 
 - [ ] **Step 2: Answer the open question about the frame clock**
 
