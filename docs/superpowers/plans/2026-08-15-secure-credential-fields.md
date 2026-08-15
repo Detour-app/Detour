@@ -685,8 +685,11 @@ misbehaves for you, something in the surrounding code changed.
 Now prove it is not vacuous — a guard that cannot fail is decoration. Reintroduce #7
 temporarily and confirm it fires:
 
+The working tree is clean at this point (Task 3 committed), so this just restores the
+pre-fix file from the previous commit — `HEAD~1` here is Task 2's commit, where
+`SettingsScreen.kt` is still unconverted.
+
 ```bash
-git stash push app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt 2>/dev/null || true
 git checkout HEAD~1 -- app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt
 .claude/skills/detour-compose-state-hazards/scripts/check-secret-fields.sh; echo "exit=$?"
 ```
