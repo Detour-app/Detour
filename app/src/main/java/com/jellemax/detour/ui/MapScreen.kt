@@ -633,8 +633,8 @@ fun MapScreen(
             candidates = displayCandidates.mapIndexed { i, c ->
                 CandidatePin(c.destination, CANDIDATE_COLORS[i % CANDIDATE_COLORS.size])
             },
-            // Marker updates per fix (~1 Hz); the eased camera glides the map
-            // under it, so it stays smooth without a per-frame source rewrite.
+            // The marker is interpolated per frame by its own loop below; this render
+            // only needs to place it when the overlay set is rebuilt.
             showPosition = true,
             // Same bearing the camera is easing towards, which is already held
             // through a stop rather than following the noise below 2 m/s.
@@ -1190,6 +1190,51 @@ fun MapScreen(
                         "speedKmh=${"%.1f".format((f?.speedMps ?: 0.0) * 3.6)} " +
                         "gapM=${"%.1f".format(gapM)}")
                 instFrames = 0
+                instPushes = 0
+                instLastLogNs = ns
+            }
+        }
+    }
+
+    // The dot, interpolated per frame. It used to be re-placed only when a fix arrived,
+    // about once a second, at the raw fix position — so it stepped forward and the camera
+    // slid after it. Worst when the camera is parked (after a pan, with follow off, or
+    // with a spin result up), because then nothing is gliding underneath to mask it, which
+    // is why this loop is deliberately independent of cameraActive.
+    //
+    // setPosition writes one point into SRC_POSITION. render() rewrites eight sources
+    // including the route line, and doing *that* per frame is what makes a head unit
+    // crawl — see MapOverlays.setPosition's own note.
+    LaunchedEffect(mapOverlays, haveFix) {
+        val overlays = mapOverlays ?: return@LaunchedEffect
+        var lastLat = Double.NaN
+        var lastLon = Double.NaN
+        // TEMPORARY (#21 measurement) — removed before merge. Counted and logged once a
+        // second rather than per push: a log line per frame is ~60/s, and that much
+        // logcat traffic would perturb the frame rate this run exists to measure.
+        var instPushes = 0
+        var instLastLogNs = 0L
+        while (true) {
+            val ns = withFrameNanos { it }
+            val f = liveFix ?: continue
+            val here = MapMotion.predict(
+                at = LatLon(f.lat, f.lon),
+                bearingDeg = f.bearingDeg,
+                speedMps = f.speedMps,
+                fixTimeMs = f.timeMs,
+                nowMs = System.currentTimeMillis(),
+                leadSeconds = 0.0,
+            )
+            if (here.lat != lastLat || here.lon != lastLon) {
+                overlays.setPosition(here, camTargetBearing?.toDouble())
+                lastLat = here.lat
+                lastLon = here.lon
+                instPushes++   // TEMPORARY (#21 measurement)
+            }
+            // TEMPORARY (#21 measurement) — removed before merge.
+            if (instLastLogNs == 0L) instLastLogNs = ns
+            if (ns - instLastLogNs >= 1_000_000_000L) {
+                android.util.Log.d("DetourMapMotion", "marker pushes=$instPushes")
                 instPushes = 0
                 instLastLogNs = ns
             }
