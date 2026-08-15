@@ -59,8 +59,10 @@ lists it.
   one healthy public mirror is a Switzerland-only extract with no Belgian data. That leaves the
   posted-limit ladder, the 3-fix clear latency and the camera chime unmeasured. Stage 4 was
   desk-checked on device instead; stage 3 was not.
-- **The camera chime cannot be observed at all.** `NavVoice.speak` logs only on audio-focus
-  *failure*, so a successful chime writes nothing. Observing it needs a call-site log line.
+- **The camera chime is now observable but has still never been observed.** `6dcc779` added the
+  missing debug lines — `NavVoice` logs the text it spoke, and the phone logs the tone separately
+  because the spoken half is gated on the guidance setting. No replay has run since, so the
+  machine still has no recorded baseline; what changed is that one is now possible.
 - **`GroupSpinRules` is extracted and tested but its call site is unchanged** — verifying a
   convoy vote needs two devices transmitting to each other.
 - **The phone-audio convergence items landed without their device session**, so register
