@@ -100,6 +100,7 @@ import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.map.CameraAuthority
 import com.jellemax.detour.map.FollowCamera
+import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.leadingSpinIndex
 import com.jellemax.detour.tracking.TripTrackingService
@@ -1110,7 +1111,20 @@ fun MapScreen(
             val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.1)
             lastNs = ns
 
-            camTarget?.let { target ->
+            // Where the vehicle is now, plus CAM_POS_TAU of lead. The lead is what
+            // cancels the ease's own steady-state error: a first-order lag driven at
+            // constant velocity settles v*tau behind its input, so aiming tau ahead
+            // leaves the camera on the true position instead of behind it.
+            val f = liveFix
+            val camTargetNow = if (f != null) MapMotion.predict(
+                at = LatLon(f.lat, f.lon),
+                bearingDeg = f.bearingDeg,
+                speedMps = f.speedMps,
+                fixTimeMs = f.timeMs,
+                nowMs = System.currentTimeMillis(),
+                leadSeconds = CAM_POS_TAU,
+            ) else camTarget
+            camTargetNow?.let { target ->
                 val a = 1.0 - exp(-dt / CAM_POS_TAU)
                 lat += (target.lat - lat) * a
                 lon += (target.lon - lon) * a
