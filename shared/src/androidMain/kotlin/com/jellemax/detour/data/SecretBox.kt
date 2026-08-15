@@ -36,28 +36,38 @@ internal object SecretBox {
     /**
      * Base64 of `IV || ciphertext`, or null if the key is unavailable.
      *
-     * One-shot recovery only, on this path: if the existing alias cannot be used by this
+     * One-shot recovery only, and only where an unusable alias actually throws: acquiring
+     * the key and initialising the cipher. If the existing alias cannot be used by this
      * transformation — invalidated by a device-level event, or left by a future spec change
-     * — [key] throws, and a bare retry would throw again forever. Delete the alias and
-     * retry exactly once with a freshly generated key. Never do this from [open]: deleting
-     * the key on a decrypt failure would destroy the ability to read values a later attempt
-     * might still decrypt, and a corrupt blob is a per-value problem, not a key problem.
+     * — that throws, and a bare retry would throw again forever. Delete the alias and retry
+     * exactly once with a freshly generated key. A failure inside `doFinal` or the Base64
+     * encode is transient and is never a reason to delete the key: one alias covers every
+     * value in the store, so throwing it away to recover one write would destroy the rest.
+     * Never do this from [open] either: deleting the key on a decrypt failure would destroy
+     * the ability to read values a later attempt might still decrypt, and a corrupt blob is
+     * a per-value problem, not a key problem.
      */
     fun seal(plain: String): String? {
-        trySeal(plain)?.let { return it }
-        Log.w(TAG, "seal failed with the existing key; recreating it and retrying once")
-        deleteKey()
-        return trySeal(plain)
+        // Acquiring the key and initialising the cipher are the only places an
+        // existing-but-unusable alias throws, so they are the only failures worth
+        // deleting a key for. One retry, then give up.
+        val cipher = initSeal() ?: run { deleteKey(); initSeal() } ?: return null
+        return runCatching {
+            val body = cipher.doFinal(plain.encodeToByteArray())
+            Base64.encodeToString(cipher.iv + body, Base64.NO_WRAP)
+        }.onFailure {
+            // Deliberately NOT deleting the key here. A failure this late is transient,
+            // and the key is shared by every value in the store — throwing it away would
+            // destroy six unrelated credentials to recover one write.
+            Log.w(TAG, "sealing a credential failed", it)
+        }.getOrNull()
     }
 
-    private fun trySeal(plain: String): String? = runCatching {
-        val cipher = Cipher.getInstance(TRANSFORM)
+    private fun initSeal(): Cipher? = runCatching {
         // No IV is supplied: Keystore keys default to setRandomizedEncryptionRequired(true),
         // which makes passing one throw. The cipher generates it and we read it back.
-        cipher.init(Cipher.ENCRYPT_MODE, key())
-        val body = cipher.doFinal(plain.encodeToByteArray())
-        Base64.encodeToString(cipher.iv + body, Base64.NO_WRAP)
-    }.onFailure { Log.w(TAG, "seal failed", it) }.getOrNull()
+        Cipher.getInstance(TRANSFORM).apply { init(Cipher.ENCRYPT_MODE, key()) }
+    }.onFailure { Log.w(TAG, "credential key unusable", it) }.getOrNull()
 
     /** The plaintext, or null if the blob is corrupt or the key is gone. */
     fun open(blob: String): String? = runCatching {

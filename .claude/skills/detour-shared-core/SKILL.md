@@ -103,7 +103,7 @@ Measured today (whole-file line counts, `find … | xargs cat | wc -l`):
 - `expect val fileSystem: FileSystem` (`:64`)
 
 **Four declarations, still three concerns**, and the difference is what stops this reading as
-drift. `CONTRIBUTING.md:26-28` says `Platform.kt` "expects only three things — a key-value
+drift. `CONTRIBUTING.md:28-31` says `Platform.kt` "expects only three things — a key-value
 store, a files directory and a file system — so wanting to add a fourth is the signal to push
 the dependency in". That is still exactly true: `securePrefs` is a second *bag* of the
 existing key-value concern, not a fourth concern. Count concerns against that rule, not
@@ -112,7 +112,7 @@ genuinely new concern looks permissible when it is not.
 
 Three concerns: a key-value store (plain, and encrypted for credentials), an app-private
 directory, a file system. That is the whole platform surface of the core. `Platform.kt:11-14`
-states the rule in the file itself, and `CONTRIBUTING.md:26-28` repeats it: **wanting to add a
+states the rule in the file itself, and `CONTRIBUTING.md:28-31` repeats it: **wanting to add a
 fourth concern is the signal to push the dependency in from the platform instead** — a new
 `expect` for an existing concern (another bag of key-value pairs, say) is not that signal.
 

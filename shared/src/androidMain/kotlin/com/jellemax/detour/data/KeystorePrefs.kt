@@ -1,6 +1,7 @@
 package com.jellemax.detour.data
 
 import android.content.SharedPreferences
+import android.util.Log
 
 /**
  * A [Prefs] whose values are sealed by [SecretBox] before they reach disk.
@@ -23,6 +24,7 @@ internal class KeystorePrefs(private val p: SharedPreferences) : Prefs {
             // Degrade to absent, not to stale. Leaving the old ciphertext would keep
             // serving a token that has just been refreshed or revoked, and the read path
             // already treats "cannot decrypt" as "no value".
+            Log.w(TAG, "sealing failed for $key; removing it instead of writing stale ciphertext")
             p.edit().remove(key).apply()
             return
         }
@@ -41,4 +43,8 @@ internal class KeystorePrefs(private val p: SharedPreferences) : Prefs {
 
     override fun remove(key: String) { p.edit().remove(key).apply() }
     override fun clear() { p.edit().clear().apply() }
+
+    private companion object {
+        const val TAG = "KeystorePrefs"
+    }
 }
