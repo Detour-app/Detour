@@ -5,10 +5,10 @@
 | | |
 |---|---|
 | **Detail level** | **Intent + constraints.** The Work items section **requires a rewrite before use** — see the marker below. It cannot be written yet, and not for want of effort: the readouts consume a type that does not exist until stage 3 chooses it |
-| **Prerequisite** | [Stage 3](stage-3-hazard-machines-to-shared.md) complete — **this is the convergence axis' one dependency on the structure axis.** Convergence 1 is not a prerequisite |
-| **State** | not started · blocked on stage 3, which is itself blocked on replay route (i). **Preconditions re-run 2026-08-12 against `3928ce0`, after convergence 1 landed: the two stage-3 interlock assertions still fail (no `drive/` package in commonMain, zero `SectionAverageTracker`) and the other eight all pass unchanged.** That is the interlock working, not staleness — convergence 1 touched nothing this stage reads |
+| **Prerequisite** | Stage 3 (`stage-3-hazard-machines-to-shared.md`, in history at `b7f4c6f`) complete — **this is the convergence axis' one dependency on the structure axis.** Convergence 1 is not a prerequisite |
+| **State** | **not started — unblocked 2026-08-13.** Its blocker was stage 3's `SectionAverageTracker`, which now exists in `shared/src/commonMain/kotlin/com/jellemax/detour/drive/` with `commonTest` coverage, so the interlock this spec waited on is satisfied. Re-run the preconditions before planning: the two stage-3 assertions that used to fail should now pass, and everything they reference has moved at least twice. **This is the only unimplemented spec left**; the rest of the chain landed and was removed from the tree — see [`../DECISION.md`](../DECISION.md). |
 | **Preconditions captured** | 2026-08-12 against `5613e59`. Every assertion was executed; the first two **fail today by design** — they are the interlock, and they are what tells you stage 3 has actually landed the tracker rather than something adjacent to it |
-| **Chain** | [design](00-chain-design.md) · [register](../15-divergence-register.md) · prev: [convergence 1](convergence-1-cheap-fixes.md) · next: [convergence 3](convergence-3-voice-policy.md) |
+| **Chain** | [design](00-chain-design.md) · [register](../15-divergence-register.md) · prev: convergence 1 (`convergence-1-cheap-fixes.md`, in history at `b7f4c6f`) · next: convergence 3 (`convergence-3-voice-policy.md`, in history at `b7f4c6f`) |
 
 ## Preconditions
 
@@ -131,7 +131,7 @@ rather than implying the CI green covers the feature.
 
 ## Next stage
 
-→ [`convergence-3-voice-policy.md`](convergence-3-voice-policy.md)
+→ `convergence-3-voice-policy.md` (`convergence-3-voice-policy.md`, in history at `b7f4c6f`)
 
 Its preconditions do **not** depend on this spec or on stage 3 — only on convergence 1's
 microphone-permission item. If this spec is blocked, convergence 3 is still runnable.

@@ -1,7 +1,7 @@
 # Divergence register — which copy survives, and who decides
 
-Companion to [`13-surface-independence-audit.md`](13-surface-independence-audit.md), and an
-input to [`specs/stage-3-hazard-machines-to-shared.md`](specs/stage-3-hazard-machines-to-shared.md).
+Companion to `13-surface-independence-audit.md` (`13-surface-independence-audit.md`, in history at `b7f4c6f`), and an
+input to `specs/stage-3-hazard-machines-to-shared.md` (`stage-3-hazard-machines-to-shared.md`, in history at `b7f4c6f`).
 
 Read-only, no build. Every claim re-derived from the tree at **`a0f7f42`** on
 `refactor/mapscreen-split`. Where audit 13 cites a `MapScreen.kt` line number, that citation is
