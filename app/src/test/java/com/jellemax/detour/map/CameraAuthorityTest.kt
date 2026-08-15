@@ -11,13 +11,15 @@ import org.junit.Test
 
 /**
  * Covers [CameraAuthority.reduce] - the follow/park/resume machine that
- * `MapScreen.kt` currently spreads across nine write sites.
+ * `MapScreen.kt` used to spread across ten write sites and three `remember`s.
  *
- * **Nothing in the app calls this reducer**, deliberately: stage 4 of the
- * MapScreen refactor decides whether to adopt it. These tests therefore pin
- * the behaviour the nine write sites have *today*, so that whoever wires it can
- * tell an intended change from an accident - including the `lastGestureMs`
- * asymmetry at the bottom of this file, which is encoded, not fixed.
+ * Stage 4 of the MapScreen refactor wired it: those ten sites are now ten
+ * `reduce` dispatches against one `CameraAuthority.State`, so these tests are
+ * the camera's authority rules rather than a proposal for them. They were
+ * written before the wiring to pin the behaviour the ten sites had *then*,
+ * which is what let the wiring be checked for accidents - including the
+ * `lastGestureMs` asymmetry at the bottom of this file, which survived on
+ * purpose.
  *
  * No Android APIs involved, so no emulator/Robolectric needed.
  */
@@ -120,20 +122,40 @@ class CameraAuthorityTest {
     }
 
     /**
-     * **The asymmetry, named rather than fixed.** `spin()` (`MapScreen.kt:1118`)
-     * parks without stamping the quiet window, while all six other parks stamp
-     * both. The consequence is measurable: a spin-parked camera is already
-     * eligible to resume on the next fix above the speed threshold, where a
-     * pan-parked one has eight seconds of grace. That matters as soon as the
-     * candidates are dismissed (`:1238`, `:1436`), which is what unblocks
-     * `FollowCamera.shouldWatch`.
+     * **The asymmetry, kept rather than closed.** `spin()`
+     * (`MapScreen.kt:1221`) parks without stamping the quiet window, while all
+     * six other parks stamp both. The consequence is measurable: a spin-parked
+     * camera is already eligible to resume on the next fix above the speed
+     * threshold, where a pan-parked one has eight seconds of grace. That takes
+     * effect as soon as the candidates are dismissed (`:1341`, `:1547`), which
+     * is what unblocks `FollowCamera.shouldWatch`.
      *
-     * Two earlier refactor proposals quietly unified the two. Unifying them is a
-     * behaviour change and belongs to whoever wires this reducer - this test
-     * exists so that whoever does it has to delete an assertion on purpose.
+     * Stage 4 wired this reducer and left the asymmetry standing, so it is a
+     * decision now and not an open question. Both halves of it are true and
+     * both belong on the record:
+     *
+     * - **Why it is defensible.** A spin result is framed for you to *read* -
+     *   three candidates the app put on screen, not something you asked to see
+     *   - and the camera must not be snatched back while you are reading them.
+     *   `shouldWatch` already holds the park for exactly as long as the
+     *   candidates are up, however long a passenger at 120 km/h takes over
+     *   them, which is protection no timer could give. Once they are dismissed
+     *   the reading is over, and stamping would have left the camera parked for
+     *   another eight seconds after the user said they were done.
+     * - **Why it is still an inconsistency.** The same argument applies word for
+     *   word to a pan. Somebody who drags the map at speed is also looking at
+     *   something deliberately, yet they get eight seconds measured from the
+     *   finger lifting where the spin gets zero measured from the dismissal.
+     *   Two parks, two graces, one reason. Someone may well want to close that,
+     *   in either direction.
+     *
+     * Two earlier refactor proposals quietly unified the two. Unifying them is
+     * a behaviour change, it belongs to whoever decides it and not to whoever
+     * happens to be editing nearby - this test exists so that they have to
+     * delete an assertion on purpose.
      */
     @Test
-    fun aSpinParkIsEligibleToResumeImmediatelyWhereAPanIsNot() {
+    fun theSpinParkKeepsItsImmediateResumeWhereAPanWaitsOutTheQuietWindow() {
         val before = State(lastGestureMs = t0 - CAM_RESUME_QUIET_MS - 1)
         val spinParked = reduce(before, Action.SpinStarted)
         val panParked = reduce(before, Action.Gesture(atMs = t0))
