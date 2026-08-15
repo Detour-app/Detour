@@ -216,7 +216,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
             reachMeters = null,
             directionDeg = null,
             candidates = stops.map { CandidatePin(it.at, STOP_PIN_COLOR) },
-            showPosition = false,
+            positionMarker = PositionMarker.Hide,
         )
     }
 

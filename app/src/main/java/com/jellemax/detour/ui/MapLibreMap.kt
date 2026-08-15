@@ -370,7 +370,7 @@ class MapOverlays(
         reachMeters: Double?,
         directionDeg: Int?,
         candidates: List<CandidatePin>,
-        showPosition: Boolean,
+        positionMarker: PositionMarker,
         positionBearingDeg: Double? = null,
     ) {
         setData(SRC_REACH, if (myLocation != null && reachMeters != null)
@@ -410,12 +410,36 @@ class MapOverlays(
             FeatureCollection.fromFeature(Feature.fromGeometry(Point.fromLngLat(destination.lon, destination.lat)))
         else FeatureCollection.fromFeatures(emptyList()))
 
-        setPosition(myLocation.takeIf { showPosition }, positionBearingDeg)
+        when (positionMarker) {
+            PositionMarker.Draw -> setPosition(myLocation, positionBearingDeg)
+            PositionMarker.Hide -> setPosition(null, positionBearingDeg)
+            PositionMarker.CallerDraws -> Unit
+        }
     }
 }
 
 /** A spin candidate rendered as a colored map dot. */
 data class CandidatePin(val at: LatLon, val colorArgb: Int)
+
+/**
+ * What [MapOverlays.render] should do with the own-position marker.
+ *
+ * [CallerDraws] exists because "don't show it" and "don't touch it" are different
+ * instructions, and conflating them cost a visible bug: MapScreen interpolates the
+ * marker per frame and its render is keyed on the fix, so asking render to hide the
+ * dot cleared the source once a second and let the next frame draw it again — which
+ * reads as the marker flickering rather than as it being hidden.
+ */
+enum class PositionMarker {
+    /** Draw it at the location passed to [MapOverlays.render]. */
+    Draw,
+
+    /** Clear it. For a screen with no live position at all, such as a route editor. */
+    Hide,
+
+    /** Leave the source untouched — the caller writes [MapOverlays.setPosition] itself. */
+    CallerDraws,
+}
 
 /** Artwork for an own-position marker. Every vehicle is drawn nose-up, so the
  *  layer's heading rotation works out the same for all of them. */

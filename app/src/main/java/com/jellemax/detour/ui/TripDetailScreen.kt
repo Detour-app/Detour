@@ -293,7 +293,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
             reachMeters = null,
             directionDeg = null,
             candidates = emptyList(),
-            showPosition = false,
+            positionMarker = PositionMarker.Hide,
         )
         if (points.isNotEmpty()) cameraForPoints(map, points, fitPaddingPx, fitBottomPaddingPx)
     }
