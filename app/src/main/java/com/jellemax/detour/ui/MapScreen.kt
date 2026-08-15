@@ -97,6 +97,7 @@ import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
+import com.jellemax.detour.map.CameraAuthority
 import com.jellemax.detour.map.FollowCamera
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.leadingSpinIndex
@@ -240,6 +241,10 @@ fun MapScreen(
     var followMe by remember { mutableStateOf(true) }
     var camSuspended by remember { mutableStateOf(false) }
     var lastGestureMs by remember { mutableLongStateOf(0L) }
+    // The single owner the three above are collapsing into. Introduced unread so
+    // this step is provably inert; the write sites move onto it next.
+    // Its defaults - follow, unparked, 0L - are the three initialisers above.
+    var camAuthority by remember { mutableStateOf(CameraAuthority.State()) }
     // Dock (collapsed) is the resting state; the sheet only comes up when
     // tapped open, and folds back down on its own after a spin lands.
     var settingsCollapsed by rememberSaveable { mutableStateOf(true) }
