@@ -79,7 +79,7 @@ Measured today (whole-file line counts, `find … | xargs cat | wc -l`):
    implementation — but it is the state that *becomes* one, so count copies, not intentions.
 2. **Does the proposed abstraction have more than one implementation?** If not, do not create
    the interface or the `expect`. One implementation behind an interface is indirection, not a
-   boundary. `commonMain` has **one** interface (`Prefs`, CONTRIBUTING.md:39 — three
+   boundary. `commonMain` has **one** interface (`Prefs`, CONTRIBUTING.md:40 — three
    implementations) and 33 `object` singletons; that is the house pattern, and adding a second
    interface needs an argument of its own.
 3. **New logic with no second copy yet** — `CONTRIBUTING.md:31-32` sends it to `shared/`
@@ -131,7 +131,7 @@ change; `Platform.kt:11-14` is a documented decision and reversing it is its own
 | File I/O | okio, via `Files.kt` over `expect val fileSystem` | works; the strongest seam in the repo, and `Platform.kt:46` notes it takes a fake in tests |
 | HTTP | `internal object Http` — a concrete Ktor client, engine chosen per target in `shared/build.gradle.kts` | not injectable and not fakeable from `commonTest`; test the parsing, not the fetch |
 | Logging | **Zero.** No logger, no `println` | a move out of `app/` drops its `android.util.Log` calls; there is no port to keep them |
-| Interfaces / DI | **One interface (`Prefs`), 33 `object` singletons** | `Prefs` earned it under CONTRIBUTING.md:39 — three implementations (plain Android, Keystore-encrypted Android, plain iOS). Everything with one implementation is still an `object`; see §2 test 2 |
+| Interfaces / DI | **One interface (`Prefs`), 33 `object` singletons** | `Prefs` earned it under CONTRIBUTING.md:40 — three implementations (plain Android, Keystore-encrypted Android, plain iOS). Everything with one implementation is still an `object`; see §2 test 2 |
 | Frame clock | none, and none possible | `withFrameNanos` cannot move. Animation loops stay in Compose |
 | Android/Apple types | none | `Context`, `Intent`, `LatLng`, `MapLibreMap`, `ToneGenerator`, `AudioManager`, `MotionEvent`, `ViewConfiguration` are hard stops |
 

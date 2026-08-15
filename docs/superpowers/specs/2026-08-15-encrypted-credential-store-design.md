@@ -230,7 +230,7 @@ them, what remains is ordinary preferences and a server URL.
 its §4 table lists "Interfaces / DI — **Zero interfaces, 33 `object` singletons**" with the
 advice "match the pattern". That stops being true here.
 
-The change is licensed by the repo's own guide rather than by this spec. `CONTRIBUTING.md:39`:
+The change is licensed by the repo's own guide rather than by this spec. `CONTRIBUTING.md:40`:
 
 > A port earns an interface when it has more than one implementation.
 

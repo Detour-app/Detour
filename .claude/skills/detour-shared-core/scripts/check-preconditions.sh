@@ -57,7 +57,7 @@ check 'Platform.kt declares exactly 3 expects (a fourth is the signal to push th
     3 "$(count '^expect ' "$PLATFORM")"
 check 'commonMain has ZERO Dispatchers — make the function suspend and let the caller choose' \
     '' "$(files_with 'Dispatchers')"
-check 'commonMain has exactly ONE non-sealed interface (Prefs — three implementations, CONTRIBUTING.md:39)' \
+check 'commonMain has exactly ONE non-sealed interface (Prefs — three implementations, CONTRIBUTING.md:40)' \
     "$PLATFORM" "$(files_with_open_interface)"
 check 'wear/ does NOT depend on :shared (so "shared" does not reach the watch)' \
     0 "$(count 'project(":shared")' wear/build.gradle.kts)"

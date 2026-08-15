@@ -90,7 +90,7 @@ member signatures exactly as they are. Then extend the file's KDoc — the exist
  *
  * An interface rather than an `expect class` because there is now more than one
  * implementation per platform: Android has a plain store and a Keystore-encrypted
- * one, chosen by [prefs] versus [securePrefs]. CONTRIBUTING.md:39 — "a port earns
+ * one, chosen by [prefs] versus [securePrefs]. CONTRIBUTING.md:40 — "a port earns
  * an interface when it has more than one implementation" — is the bar, and this
  * clears it. It is the first interface in commonMain; the 33 `object` singletons
  * around it are still the right pattern for everything that has one implementation.
@@ -142,7 +142,7 @@ non-sealed interfaces in commonMain must now expect **one**, and its message mus
 Change the expected count and reword the label to something like:
 
 ```
-commonMain has exactly ONE non-sealed interface (Prefs — three implementations, CONTRIBUTING.md:39)
+commonMain has exactly ONE non-sealed interface (Prefs — three implementations, CONTRIBUTING.md:40)
 ```
 
 - [ ] **Step 6: Correct the skill's body**
@@ -156,7 +156,7 @@ In `.claude/skills/detour-shared-core/SKILL.md`, the §4 table row at line 131 c
 Replace it with a row that records the precedent and its reason:
 
 ```markdown
-| Interfaces / DI | **One interface (`Prefs`), 33 `object` singletons** | `Prefs` earned it under CONTRIBUTING.md:39 — three implementations (plain Android, Keystore-encrypted Android, plain iOS). Everything with one implementation is still an `object`; see §2 test 2 |
+| Interfaces / DI | **One interface (`Prefs`), 33 `object` singletons** | `Prefs` earned it under CONTRIBUTING.md:40 — three implementations (plain Android, Keystore-encrypted Android, plain iOS). Everything with one implementation is still an `object`; see §2 test 2 |
 ```
 
 Also check §2 test 2's prose ("`commonMain` has **zero** interfaces … adding the first
@@ -181,7 +181,7 @@ git add shared/src/commonMain/kotlin/com/jellemax/detour/data/Platform.kt \
 git commit -m "refactor(shared): make Prefs an interface
 
 The port needs two Android implementations - a plain store and a
-Keystore-encrypted one - and CONTRIBUTING.md:39 says a port earns an interface
+Keystore-encrypted one - and CONTRIBUTING.md:40 says a port earns an interface
 when it has more than one implementation. This is the first interface in
 commonMain; the 33 object singletons around it are still right for everything
 with a single implementation.

@@ -21,7 +21,7 @@ import okio.Path
  *
  * An interface rather than an `expect class` because there is now more than one
  * implementation per platform: Android has a plain store and a Keystore-encrypted
- * one, chosen by [prefs] versus [securePrefs]. CONTRIBUTING.md:39 — "a port earns
+ * one, chosen by [prefs] versus [securePrefs]. CONTRIBUTING.md:40 — "a port earns
  * an interface when it has more than one implementation" — is the bar, and this
  * clears it. It is the first interface in commonMain; the 33 `object` singletons
  * around it are still the right pattern for everything that has one implementation.
