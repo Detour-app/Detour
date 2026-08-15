@@ -62,7 +62,10 @@ data class ServerConfig(
  */
 object RoutingServer {
 
-    private const val PREFS = "routing_server"
+    // internal, not private: CredentialMigration.migrateOnce() needs the same bag
+    // name to migrate this group's plaintext, and a second string constant for the
+    // same value would just be a second way to get it wrong.
+    internal const val PREFS = "routing_server"
 
     fun bakedDefaults(): ServerConfig = ServerConfig(
         url = BuildDefaults.routingUrl,
@@ -76,13 +79,16 @@ object RoutingServer {
 
     /** The user's own server settings, or null when using built-in defaults. */
     fun loadCustom(): ServerConfig? {
+        // Guarded once-per-process, shared with Settings.init() — see migrateOnce().
+        CredentialMigration.migrateOnce()
         val p = prefs(PREFS)
+        val s = securePrefs()
         val url = p.string("url")
         if (!p.bool("saved", false) || url.isBlank()) return null
         return ServerConfig(
             url = url,
-            clientId = p.string("clientId"),
-            clientSecret = p.string("clientSecret"),
+            clientId = s.string("clientId"),
+            clientSecret = s.string("clientSecret"),
             enabled = true,
         )
     }
@@ -91,12 +97,21 @@ object RoutingServer {
         prefs(PREFS).apply {
             put("saved", true)
             put("url", config.url.trim())
+        }
+        securePrefs().apply {
             put("clientId", config.clientId.trim())
             put("clientSecret", config.clientSecret.trim())
         }
     }
 
-    fun clearCustom() = prefs(PREFS).clear()
+    /** Clearing the secure store wholesale would take the session with it, so the two
+     *  Cloudflare keys are removed by name. */
+    fun clearCustom() {
+        prefs(PREFS).clear()
+        securePrefs().apply {
+            CredentialMigration.SERVER_GROUP.keys.forEach { remove(it.name) }
+        }
+    }
 
     /** Cloudflare Access service-token headers, absent when not behind Access. */
     private fun headers(config: ServerConfig): Map<String, String> = buildMap {

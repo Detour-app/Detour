@@ -41,6 +41,9 @@ object Settings {
     private var store: Prefs? = null
     private val prefs: Prefs get() = store ?: error("Settings.init() not called")
 
+    private var secureStore: Prefs? = null
+    private val secure: Prefs get() = secureStore ?: error("Settings.init() not called")
+
     private val _theme = MutableStateFlow(Theme.AUTO)
     val theme: StateFlow<Theme> = _theme
 
@@ -154,7 +157,15 @@ object Settings {
 
     fun init() {
         if (store != null) return
+        // secureStore first: init() early-returns on `store != null`, so a concurrent
+        // setSession() between these two assignments must never see `store` set
+        // while `secureStore` is still null, which would crash on the `secure`
+        // accessor instead of on the intended `store != null` guard.
+        secureStore = securePrefs()
         store = prefs("settings")
+        // Guarded once-per-process, shared with RoutingServer.loadCustom() — see
+        // CredentialMigration.migrateOnce().
+        CredentialMigration.migrateOnce()
         _theme.value = runCatching {
             Theme.valueOf(prefs.string("theme", Theme.AUTO.name))
         }.getOrDefault(Theme.AUTO)
@@ -168,10 +179,10 @@ object Settings {
         _fogRadiusMeters.value = prefs.float("fog_radius_m", FOG_RADIUS_DEFAULT)
         _defaultZoom.value = prefs.float("default_zoom", DEFAULT_ZOOM_DEFAULT)
         _geocoderPublicFallback.value = prefs.bool("geocoder_public_fallback", true)
-        _accessToken.value = prefs.string("access_token")
-        _refreshToken.value = prefs.string("refresh_token")
-        _accessTokenExpiresAtMs.value = prefs.long("access_token_expires_at", 0L)
-        _authUsername.value = prefs.string("auth_username")
+        _accessToken.value = secure.string("access_token")
+        _refreshToken.value = secure.string("refresh_token")
+        _accessTokenExpiresAtMs.value = secure.long("access_token_expires_at", 0L)
+        _authUsername.value = secure.string("auth_username")
         _leanOffsetDeg.value = prefs.float("lean_offset_deg", 0f)
         _voiceGuidance.value = prefs.bool("voice_guidance", true)
         _mapIcon.value = runCatching {
@@ -241,10 +252,10 @@ object Settings {
         _refreshToken.value = refreshToken
         _accessTokenExpiresAtMs.value = expiresAtMs
         _authUsername.value = username
-        prefs.put("access_token", accessToken)
-        prefs.put("refresh_token", refreshToken)
-        prefs.put("access_token_expires_at", expiresAtMs)
-        prefs.put("auth_username", username)
+        secure.put("access_token", accessToken)
+        secure.put("refresh_token", refreshToken)
+        secure.put("access_token_expires_at", expiresAtMs)
+        secure.put("auth_username", username)
     }
 
     fun setTheme(value: Theme) {
