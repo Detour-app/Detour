@@ -27,23 +27,23 @@ fun initSharedCore(context: Context) {
 private fun requireContext(): Context = appContext
     ?: error("initSharedCore(context) has not been called")
 
-actual class Prefs(private val p: SharedPreferences) {
-    actual fun string(key: String, def: String): String = p.getString(key, def) ?: def
-    actual fun bool(key: String, def: Boolean): Boolean = p.getBoolean(key, def)
-    actual fun float(key: String, def: Float): Float = p.getFloat(key, def)
-    actual fun long(key: String, def: Long): Long = p.getLong(key, def)
+internal class SharedPrefsStore(private val p: SharedPreferences) : Prefs {
+    override fun string(key: String, def: String): String = p.getString(key, def) ?: def
+    override fun bool(key: String, def: Boolean): Boolean = p.getBoolean(key, def)
+    override fun float(key: String, def: Float): Float = p.getFloat(key, def)
+    override fun long(key: String, def: Long): Long = p.getLong(key, def)
 
-    actual fun put(key: String, value: String) { p.edit().putString(key, value).apply() }
-    actual fun put(key: String, value: Boolean) { p.edit().putBoolean(key, value).apply() }
-    actual fun put(key: String, value: Float) { p.edit().putFloat(key, value).apply() }
-    actual fun put(key: String, value: Long) { p.edit().putLong(key, value).apply() }
+    override fun put(key: String, value: String) { p.edit().putString(key, value).apply() }
+    override fun put(key: String, value: Boolean) { p.edit().putBoolean(key, value).apply() }
+    override fun put(key: String, value: Float) { p.edit().putFloat(key, value).apply() }
+    override fun put(key: String, value: Long) { p.edit().putLong(key, value).apply() }
 
-    actual fun remove(key: String) { p.edit().remove(key).apply() }
-    actual fun clear() { p.edit().clear().apply() }
+    override fun remove(key: String) { p.edit().remove(key).apply() }
+    override fun clear() { p.edit().clear().apply() }
 }
 
 actual fun prefs(name: String): Prefs =
-    Prefs(requireContext().getSharedPreferences(name, Context.MODE_PRIVATE))
+    SharedPrefsStore(requireContext().getSharedPreferences(name, Context.MODE_PRIVATE))
 
 actual fun appFilesDir(): Path = requireContext().filesDir.absolutePath.toPath()
 

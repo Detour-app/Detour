@@ -19,10 +19,17 @@ import okio.Path
  * iOS — both are already string-keyed with typed accessors, so this maps onto
  * them without either side emulating the other.
  *
+ * An interface rather than an `expect class` because there is now more than one
+ * implementation per platform: Android has a plain store and a Keystore-encrypted
+ * one, chosen by [prefs] versus [securePrefs]. CONTRIBUTING.md:39 — "a port earns
+ * an interface when it has more than one implementation" — is the bar, and this
+ * clears it. It is the first interface in commonMain; the 33 `object` singletons
+ * around it are still the right pattern for everything that has one implementation.
+ *
  * Writes are fire-and-forget on both platforms (Android `apply()`, iOS's own
  * lazy synchronisation), matching what the Android code already relied on.
  */
-expect class Prefs {
+interface Prefs {
     fun string(key: String, def: String = ""): String
     fun bool(key: String, def: Boolean): Boolean
     fun float(key: String, def: Float): Float

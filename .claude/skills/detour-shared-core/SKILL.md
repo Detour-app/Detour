@@ -28,10 +28,11 @@ re-derive it before trusting the body.
 .claude/skills/detour-shared-core/scripts/check-preconditions.sh
 ```
 
-Seven assertions, `PASS`/`FAIL` per line, non-zero exit if any failed: the four `expect`s all
-in `Platform.kt`, **zero** `Dispatchers` and **zero** `interface`s in `commonMain`, `wear/`
+Seven assertions, `PASS`/`FAIL` per line, non-zero exit if any failed: the three `expect`s all
+in `Platform.kt`, **zero** `Dispatchers` in `commonMain`, **exactly one** non-sealed
+`interface` there (`Prefs`, pinned to `Platform.kt` so a second one is still caught), `wear/`
 still **not** depending on `:shared`, `app/` still depending on it, and `nowMs()` still in
-`Angles.kt`. Three of those are inverted assertions, which is why they are worth running
+`Angles.kt`. Two of those are inverted-to-zero assertions, which is why they are worth running
 rather than eyeballing — a grep that prints nothing looks the same whether the claim holds or
 the path was mistyped. The script reports `nowMs()`'s current line rather than asserting it,
 because line drift is not staleness.
@@ -78,8 +79,9 @@ Measured today (whole-file line counts, `find … | xargs cat | wc -l`):
    implementation — but it is the state that *becomes* one, so count copies, not intentions.
 2. **Does the proposed abstraction have more than one implementation?** If not, do not create
    the interface or the `expect`. One implementation behind an interface is indirection, not a
-   boundary. `commonMain` has **zero** interfaces and 33 `object` singletons; that is the
-   house pattern, and adding the first interface needs an argument.
+   boundary. `commonMain` has **one** interface (`Prefs`, CONTRIBUTING.md:39 — three
+   implementations) and 33 `object` singletons; that is the house pattern, and adding a second
+   interface needs an argument of its own.
 3. **New logic with no second copy yet** — `CONTRIBUTING.md:31-32` sends it to `shared/`
    unless it genuinely cannot go there. §3 and §4 below are the "genuinely cannot" list.
 4. **If it cannot go in `shared/`, say so in a comment at the call site, naming what blocks
@@ -89,17 +91,18 @@ Measured today (whole-file line counts, `find … | xargs cat | wc -l`):
 
 ## 3. The `expect` ceiling
 
-`shared/src/commonMain/` contains **exactly four `expect` declarations, all in one file**,
+`shared/src/commonMain/` contains **exactly three `expect` declarations, all in one file**,
 `shared/src/commonMain/kotlin/com/jellemax/detour/data/Platform.kt`:
 
-- `expect class Prefs` (`:25`) — a named bag of primitives
-- `expect fun prefs(name: String): Prefs` (`:41`)
-- `expect fun appFilesDir(): Path` (`:44`)
-- `expect val fileSystem: FileSystem` (`:47`)
+- `expect fun prefs(name: String): Prefs` (`:48`) — opens the named bag of primitives; `Prefs`
+  itself is an `interface` (`:32`), not an `expect`, because it has more than one implementation
+  per platform — see §4's Interfaces / DI row
+- `expect fun appFilesDir(): Path` (`:51`)
+- `expect val fileSystem: FileSystem` (`:54`)
 
 Three concerns: a key-value store, an app-private directory, a file system. That is the whole
 platform surface of a 4,927-line core. `Platform.kt:11-14` states the rule in the file itself,
-and `CONTRIBUTING.md:26-28` repeats it: **wanting a fifth expect is the signal to push the
+and `CONTRIBUTING.md:26-28` repeats it: **wanting a fourth expect is the signal to push the
 dependency in from the platform instead.**
 
 What "push it in" means concretely, with the pattern already in the tree:
@@ -128,7 +131,7 @@ change; `Platform.kt:11-14` is a documented decision and reversing it is its own
 | File I/O | okio, via `Files.kt` over `expect val fileSystem` | works; the strongest seam in the repo, and `Platform.kt:46` notes it takes a fake in tests |
 | HTTP | `internal object Http` — a concrete Ktor client, engine chosen per target in `shared/build.gradle.kts` | not injectable and not fakeable from `commonTest`; test the parsing, not the fetch |
 | Logging | **Zero.** No logger, no `println` | a move out of `app/` drops its `android.util.Log` calls; there is no port to keep them |
-| Interfaces / DI | **Zero interfaces, 33 `object` singletons** | match the pattern; see §2 test 2 |
+| Interfaces / DI | **One interface (`Prefs`), 33 `object` singletons** | `Prefs` earned it under CONTRIBUTING.md:39 — three implementations (plain Android, Keystore-encrypted Android, plain iOS). Everything with one implementation is still an `object`; see §2 test 2 |
 | Frame clock | none, and none possible | `withFrameNanos` cannot move. Animation loops stay in Compose |
 | Android/Apple types | none | `Context`, `Intent`, `LatLng`, `MapLibreMap`, `ToneGenerator`, `AudioManager`, `MotionEvent`, `ViewConfiguration` are hard stops |
 

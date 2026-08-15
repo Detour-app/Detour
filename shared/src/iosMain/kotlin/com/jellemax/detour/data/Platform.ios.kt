@@ -14,7 +14,7 @@ import platform.Foundation.NSUserDomainMask
  * ("settings" and "routing_server") therefore cannot collide even where they
  * use the same key name.
  */
-actual class Prefs(private val bag: String) {
+internal class UserDefaultsPrefs(private val bag: String) : Prefs {
 
     private val defaults = NSUserDefaults.standardUserDefaults
 
@@ -25,27 +25,27 @@ actual class Prefs(private val bag: String) {
     // override a non-zero default such as fog radius or the default zoom.
     private fun has(key: String) = defaults.objectForKey(k(key)) != null
 
-    actual fun string(key: String, def: String): String =
+    override fun string(key: String, def: String): String =
         defaults.stringForKey(k(key)) ?: def
 
-    actual fun bool(key: String, def: Boolean): Boolean =
+    override fun bool(key: String, def: Boolean): Boolean =
         if (has(key)) defaults.boolForKey(k(key)) else def
 
-    actual fun float(key: String, def: Float): Float =
+    override fun float(key: String, def: Float): Float =
         if (has(key)) defaults.floatForKey(k(key)) else def
 
-    actual fun long(key: String, def: Long): Long =
+    override fun long(key: String, def: Long): Long =
         if (has(key)) defaults.integerForKey(k(key)) else def
 
-    actual fun put(key: String, value: String) = defaults.setObject(value, k(key))
-    actual fun put(key: String, value: Boolean) = defaults.setBool(value, k(key))
-    actual fun put(key: String, value: Float) = defaults.setFloat(value, k(key))
-    actual fun put(key: String, value: Long) = defaults.setInteger(value, k(key))
+    override fun put(key: String, value: String) = defaults.setObject(value, k(key))
+    override fun put(key: String, value: Boolean) = defaults.setBool(value, k(key))
+    override fun put(key: String, value: Float) = defaults.setFloat(value, k(key))
+    override fun put(key: String, value: Long) = defaults.setInteger(value, k(key))
 
-    actual fun remove(key: String) = defaults.removeObjectForKey(k(key))
+    override fun remove(key: String) = defaults.removeObjectForKey(k(key))
 
     /** Only the keys belonging to this bag, since the store is app-wide. */
-    actual fun clear() {
+    override fun clear() {
         val prefix = "$bag."
         defaults.dictionaryRepresentation().keys
             .filterIsInstance<String>()
@@ -54,7 +54,7 @@ actual class Prefs(private val bag: String) {
     }
 }
 
-actual fun prefs(name: String): Prefs = Prefs(name)
+actual fun prefs(name: String): Prefs = UserDefaultsPrefs(name)
 
 /**
  * Documents rather than Application Support: these are the user's own trips

@@ -2,11 +2,12 @@
 #
 # Assert the claims this skill makes about the module graph and commonMain's constraints.
 #
-# Why this exists: the skill's placement advice is only correct while these hold. Two of them
-# are inverted assertions — commonMain must contain ZERO Dispatchers and ZERO interfaces —
-# and an inverted assertion is exactly the kind a reader "checks" by glancing at a grep that
-# printed nothing, which is also what a mistyped path prints. Running them as pass/fail
-# removes that ambiguity.
+# Why this exists: the skill's placement advice is only correct while these hold. One of them
+# is an inverted assertion — commonMain must contain ZERO Dispatchers — and an inverted
+# assertion is exactly the kind a reader "checks" by glancing at a grep that printed nothing,
+# which is also what a mistyped path prints. Running them as pass/fail removes that ambiguity.
+# The interface count is no longer inverted-to-zero: commonMain has exactly one, Prefs, and the
+# check pins it to that one file so a second interface appearing anywhere is still caught.
 #
 # The wear/ edge is the one that changes decisions most often: "shared" here means phone +
 # Android Auto + iOS, NOT the watch. Putting logic in shared/ does not give wear/ access to
@@ -52,12 +53,12 @@ check() { # check <description> <expected> <actual>
 
 check 'the ONLY file with an expect declaration is Platform.kt' \
     "$PLATFORM" "$(files_with 'expect ')"
-check 'Platform.kt declares exactly 4 expects (a fifth is the signal to push the dependency in)' \
-    4 "$(count '^expect ' "$PLATFORM")"
+check 'Platform.kt declares exactly 3 expects (a fourth is the signal to push the dependency in)' \
+    3 "$(count '^expect ' "$PLATFORM")"
 check 'commonMain has ZERO Dispatchers — make the function suspend and let the caller choose' \
     '' "$(files_with 'Dispatchers')"
-check 'commonMain has ZERO non-sealed interfaces — a port earns one only with two implementations' \
-    '' "$(files_with_open_interface)"
+check 'commonMain has exactly ONE non-sealed interface (Prefs — three implementations, CONTRIBUTING.md:39)' \
+    "$PLATFORM" "$(files_with_open_interface)"
 check 'wear/ does NOT depend on :shared (so "shared" does not reach the watch)' \
     0 "$(count 'project(":shared")' wear/build.gradle.kts)"
 check 'app/ DOES depend on :shared' 1 "$(count 'project(":shared")' app/build.gradle.kts)"
