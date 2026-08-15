@@ -237,13 +237,11 @@ fun MapScreen(
     var lastRerouteMs by remember { mutableLongStateOf(0L) }
     // Following is the resting state of the map. `camSuspended` is what a pan,
     // a pinch or a spin result sets so you can look around; it does not switch
-    // following off, it parks it until you are moving again.
-    var followMe by remember { mutableStateOf(true) }
-    var camSuspended by remember { mutableStateOf(false) }
-    var lastGestureMs by remember { mutableLongStateOf(0L) }
-    // The single owner the three above are collapsing into. Introduced unread so
-    // this step is provably inert; the write sites move onto it next.
-    // Its defaults - follow, unparked, 0L - are the three initialisers above.
+    // following off, it parks it until you are moving again. All three - the
+    // intent, the park and the quiet-window stamp - have one owner: every
+    // transition is a CameraAuthority.reduce dispatch, and the rules (including
+    // the spin park that deliberately does not stamp) live there with their
+    // tests rather than being spread across ten call sites.
     var camAuthority by remember { mutableStateOf(CameraAuthority.State()) }
     // Dock (collapsed) is the resting state; the sheet only comes up when
     // tapped open, and folds back down on its own after a spin lands.
@@ -279,9 +277,9 @@ fun MapScreen(
     var camTargetBearing by remember { mutableStateOf<Float?>(null) }
     var camTargetZoom by remember { mutableDoubleStateOf(defaultZoom.toDouble()) }
     var displaySpeedKmh by remember { mutableDoubleStateOf(0.0) }
-    val cameraActive = (followMe || navigating) && !camSuspended
-    // What the follow button reflects: navigation drives the camera on its own.
-    val following = followMe && !camSuspended
+    // Same expression as before, now owned by the state: navigation drives the
+    // camera whether or not you are following, and a park still stops it.
+    val cameraActive = camAuthority.cameraActive(navigating)
 
     LaunchedEffect(liveFix) {
         liveFix?.takeIf { it.accuracyMeters <= 100f }?.let {
@@ -403,8 +401,10 @@ fun MapScreen(
         var downY = 0f
         mapView.setOnTouchListener { _, event ->
             fun park() {
-                camSuspended = true
-                lastGestureMs = System.currentTimeMillis()
+                camAuthority = CameraAuthority.reduce(
+                    camAuthority,
+                    CameraAuthority.Action.Gesture(System.currentTimeMillis()),
+                )
             }
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -416,8 +416,14 @@ fun MapScreen(
                 MotionEvent.ACTION_MOVE ->
                     if (abs(event.x - downX) > slop || abs(event.y - downY) > slop) park()
                 // A tap that never left the slop circle keeps following: it was
-                // a long-press pin drop or a marker tap, not a pan.
-                MotionEvent.ACTION_UP -> if (camSuspended) lastGestureMs = System.currentTimeMillis()
+                // a long-press pin drop or a marker tap, not a pan. That guard
+                // is GestureEnd's - it leaves an unparked camera alone.
+                MotionEvent.ACTION_UP -> {
+                    camAuthority = CameraAuthority.reduce(
+                        camAuthority,
+                        CameraAuthority.Action.GestureEnd(System.currentTimeMillis()),
+                    )
+                }
             }
             false
         }
@@ -427,9 +433,9 @@ fun MapScreen(
     // Driving off takes the camera back; the rule is FollowCamera's. The keys are
     // derived booleans on purpose - keying on the collections themselves would
     // restart this collector on every convoy vote.
-    LaunchedEffect(camSuspended, spinning, candidates.isEmpty(), spinOffer == null) {
+    LaunchedEffect(camAuthority.camSuspended, spinning, candidates.isEmpty(), spinOffer == null) {
         if (!FollowCamera.shouldWatch(
-                camSuspended = camSuspended,
+                camSuspended = camAuthority.camSuspended,
                 spinning = spinning,
                 hasCandidates = candidates.isNotEmpty(),
                 hasSpinOffer = spinOffer != null,
@@ -442,10 +448,13 @@ fun MapScreen(
             if (FollowCamera.shouldResume(
                     speedMps = fix.speedMps,
                     nowMs = System.currentTimeMillis(),
-                    lastGestureMs = lastGestureMs,
+                    lastGestureMs = camAuthority.lastGestureMs,
                 )
             ) {
-                camSuspended = false
+                camAuthority = CameraAuthority.reduce(
+                    camAuthority,
+                    CameraAuthority.Action.DriveOffResumed,
+                )
             }
         }
     }
@@ -546,10 +555,12 @@ fun MapScreen(
         route = c.route
         candidates = emptyList()
         val loc = myLocation ?: return
-        camSuspended = true
-        // Buy the same grace period a pan gets, so a pick made at speed isn't
-        // re-centered before you've seen the route you just chose.
-        lastGestureMs = System.currentTimeMillis()
+        // Parks and buys the same grace period a pan gets, so a pick made at
+        // speed isn't re-centered before you've seen the route you just chose.
+        camAuthority = CameraAuthority.reduce(
+            camAuthority,
+            CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
+        )
         mapLibreMap?.let { cameraForPoints(it, listOf(loc, c.destination), FIT_PADDING_PX, fitBottomPaddingPx) }
     }
 
@@ -573,8 +584,10 @@ fun MapScreen(
         candidates = emptyList()
         ConvoyLiveClient.clearSpinOffer()
         val loc = myLocation ?: return
-        camSuspended = true
-        lastGestureMs = System.currentTimeMillis()
+        camAuthority = CameraAuthority.reduce(
+            camAuthority,
+            CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
+        )
         mapLibreMap?.let { cameraForPoints(it, listOf(loc, LatLon(c.lat, c.lon)), FIT_PADDING_PX, fitBottomPaddingPx) }
     }
 
@@ -760,7 +773,7 @@ fun MapScreen(
             error = "Waiting for your location…"
             return
         }
-        camSuspended = false
+        camAuthority = CameraAuthority.reduce(camAuthority, CameraAuthority.Action.NavigationStarted)
         if (stats == null) {
             TripTrackingService.start(context, destination?.lat, destination?.lon)
         }
@@ -1202,8 +1215,10 @@ fun MapScreen(
             spinning = true
             error = null
             // The result gets framed on the map; a following camera would drag
-            // it straight back to you before you could look at it.
-            camSuspended = true
+            // it straight back to you before you could look at it. SpinStarted
+            // parks without stamping the quiet window - see CameraAuthority.reduce:
+            // that asymmetry is today's behaviour, kept deliberately.
+            camAuthority = CameraAuthority.reduce(camAuthority, CameraAuthority.Action.SpinStarted)
             var serverError: String? = null
             try {
                 // Bias destinations toward territory the fog hasn't uncovered.
@@ -1381,15 +1396,17 @@ fun MapScreen(
                     .fillMaxWidth(),
             ) {
                 MapTopChrome(
-                    followMe = following,
+                    followMe = camAuthority.following,
                     fogEnabled = fogEnabled,
                     username = accountUsername,
                     convoyName = if (convoyConnected) convoyName else null,
                     layersOpen = layersOpen,
                     onLayersOpenChange = { layersOpen = it },
                     onToggleFollow = {
-                        if (following) followMe = false
-                        else { followMe = true; camSuspended = false }
+                        camAuthority = CameraAuthority.reduce(
+                            camAuthority,
+                            CameraAuthority.Action.FollowToggled,
+                        )
                     },
                     onSearch = { searchOpen = true },
                     onToggleFog = { Settings.setFogEnabled(!fogEnabled) },
@@ -1482,8 +1499,10 @@ fun MapScreen(
                             destination = p.location
                             destinationName = p.name
                             route = null
-                            camSuspended = true
-                            lastGestureMs = System.currentTimeMillis()
+                            camAuthority = CameraAuthority.reduce(
+                                camAuthority,
+                                CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
+                            )
                             mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
                                 LatLng(p.location.lat, p.location.lon), 14.0), 600)
                         },
@@ -1634,8 +1653,10 @@ fun MapScreen(
                 destination = r.location
                 destinationName = r.name
                 route = null
-                camSuspended = true
-                lastGestureMs = System.currentTimeMillis()
+                camAuthority = CameraAuthority.reduce(
+                    camAuthority,
+                    CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
+                )
                 mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
                     LatLng(r.location.lat, r.location.lon), 14.0), 800)
             },
