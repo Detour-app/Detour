@@ -61,8 +61,14 @@ class CredentialMigrationTest {
         assertEquals(1234L, plain.long("access_token_expires_at", 0L))
     }
 
+    // Named for calls, not runs: step() only sees whether the marker is armed, not
+    // whether this is a second call in the same process or a call on a later run.
+    // Telling those apart — actually waiting for a later run — is the caller's job,
+    // enforced by the once-per-process guards at the two call sites, not by step()
+    // itself. Two calls in a row is exactly what the guards exist to prevent in
+    // production, but it is what this function does when nothing stops it.
     @Test
-    fun theSecondRunDeletesTheOriginalsOnceTheMarkerReadsBack() {
+    fun aLaterCallDeletesTheOriginalsOnceTheMarkerReadsBack() {
         val plain = plainWithSession()
         val secure = FakePrefs()
 

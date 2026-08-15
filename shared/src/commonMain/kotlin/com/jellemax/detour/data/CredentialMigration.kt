@@ -66,6 +66,22 @@ internal object CredentialMigration {
 
     enum class Outcome { Copied, Verified, NothingToDo }
 
+    /**
+     * Advances [group]'s migration by one phase: copies plaintext to [secure] and arms
+     * the marker if it isn't armed yet, or deletes the plaintext from [plain] if the
+     * marker already read back.
+     *
+     * Callers MUST invoke this at most once per process per [group]. The marker
+     * distinguishes an *earlier run* from *this run*, but a marker is just a value in
+     * [secure] — this function has no way to tell a second call in the same process
+     * from a call on a genuinely later run; it can only see whether the marker is
+     * there. Call it more than once per process (e.g. unguarded from a function invoked
+     * on every request) and the second call sees the first call's own marker and takes
+     * the delete branch immediately, destroying the plaintext fallback before the
+     * round-trip across a process restart it exists to prove ever happened. Guarding
+     * against that is the caller's job — see `Settings.init()`'s `store != null` guard
+     * and `RoutingServer`'s `migrated` flag for the two call sites.
+     */
     fun step(plain: Prefs, secure: Prefs, group: SecretGroup): Outcome {
         // Read before writing: "was the marker there when this run started".
         val armedEarlier = secure.string(group.marker, "") == MARKER_VALUE

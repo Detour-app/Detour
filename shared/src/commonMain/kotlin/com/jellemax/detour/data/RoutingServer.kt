@@ -64,6 +64,12 @@ object RoutingServer {
 
     private const val PREFS = "routing_server"
 
+    // step() must run at most once per process: the marker's whole meaning is "written
+    // during an EARLIER run", and loadCustom() is called on every API request. Without
+    // this guard the second call in a process sees its own first call's marker and
+    // deletes the plaintext fallback in the same run the copy happened.
+    private var migrated = false
+
     fun bakedDefaults(): ServerConfig = ServerConfig(
         url = BuildDefaults.routingUrl,
         clientId = BuildDefaults.routingCfId,
@@ -78,7 +84,12 @@ object RoutingServer {
     fun loadCustom(): ServerConfig? {
         val p = prefs(PREFS)
         val s = securePrefs()
-        CredentialMigration.step(p, s, CredentialMigration.SERVER_GROUP)
+        // Set before calling step(), not after: loadCustom() returns early below, and
+        // the guard must already be in force by the time that happens on any call.
+        if (!migrated) {
+            migrated = true
+            CredentialMigration.step(p, s, CredentialMigration.SERVER_GROUP)
+        }
         val url = p.string("url")
         if (!p.bool("saved", false) || url.isBlank()) return null
         return ServerConfig(
