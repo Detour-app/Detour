@@ -109,6 +109,14 @@ jobs:
           echo "VERSION_CODE=$base" >> "$GITHUB_ENV"
           echo "WEAR_VERSION_CODE=$(( base + 1 ))" >> "$GITHUB_ENV"
 
+      # #7 was one missing line on an OutlinedTextField, and nothing in the
+      # toolchain noticed: there is no Robolectric, no compose-ui-test and no
+      # androidTest source set here, so a credential field that leaks to the
+      # keyboard cache compiles clean and ships. Cheap grep, run before the
+      # tests so it fails in seconds.
+      - name: Check credential fields use the secure components
+        run: .claude/skills/detour-compose-state-hazards/scripts/check-secret-fields.sh
+
       # app/src/test and shared/ both hold unit tests that had never run in CI:
       # this job only ever assembled, and ios.yml — which does run the shared
       # tests — is path-gated on shared/** and iosApp/**, so a change under app/
