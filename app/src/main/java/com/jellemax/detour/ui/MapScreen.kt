@@ -1100,6 +1100,10 @@ fun MapScreen(
         var appliedZoom = 0.0
         var appliedBearing = 0f
         var lastNs = withFrameNanos { it }
+        // TEMPORARY (#21 measurement) — removed before merge.
+        var instFrames = 0
+        var instPushes = 0
+        var instLastLogNs = lastNs
         while (true) {
             val ns = withFrameNanos { it }
             // Clamp dt so a dropped frame or a stalled render doesn't teleport us.
@@ -1137,6 +1141,24 @@ fun MapScreen(
                 appliedLon = lon
                 appliedZoom = zoom
                 appliedBearing = bearing
+            }
+
+            // TEMPORARY (#21 measurement) — removed before merge.
+            instFrames++
+            if (moved) instPushes++
+            if (ns - instLastLogNs >= 1_000_000_000L) {
+                val f = liveFix
+                val gapM = if (f != null)
+                    RoadRoulette.distanceMeters(LatLon(lat, lon), LatLon(f.lat, f.lon))
+                else Double.NaN
+                android.util.Log.d(
+                    "DetourMapMotion",
+                    "cam frames=$instFrames pushes=$instPushes " +
+                        "speedKmh=${"%.1f".format((f?.speedMps ?: 0.0) * 3.6)} " +
+                        "gapM=${"%.1f".format(gapM)}")
+                instFrames = 0
+                instPushes = 0
+                instLastLogNs = ns
             }
         }
     }
