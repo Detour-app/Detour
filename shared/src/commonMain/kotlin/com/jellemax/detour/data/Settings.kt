@@ -157,11 +157,15 @@ object Settings {
 
     fun init() {
         if (store != null) return
-        store = prefs("settings")
+        // secureStore first: init() early-returns on `store != null`, so a concurrent
+        // setSession() between these two assignments must never see `store` set
+        // while `secureStore` is still null, which would crash on the `secure`
+        // accessor instead of on the intended `store != null` guard.
         secureStore = securePrefs()
-        // Two phases: this run copies and keeps, a later run deletes once the marker
-        // reads back. See CredentialMigration.
-        CredentialMigration.step(prefs, secure, CredentialMigration.SESSION_GROUP)
+        store = prefs("settings")
+        // Guarded once-per-process, shared with RoutingServer.loadCustom() — see
+        // CredentialMigration.migrateOnce().
+        CredentialMigration.migrateOnce()
         _theme.value = runCatching {
             Theme.valueOf(prefs.string("theme", Theme.AUTO.name))
         }.getOrDefault(Theme.AUTO)

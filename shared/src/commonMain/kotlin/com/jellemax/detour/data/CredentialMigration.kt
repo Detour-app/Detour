@@ -66,6 +66,33 @@ internal object CredentialMigration {
 
     enum class Outcome { Copied, Verified, NothingToDo }
 
+    // Plain var, not a lock: commonMain has no synchronisation primitive available
+    // (no java.*, no Dispatchers), so this cannot be made atomic here. A race
+    // between two threads both seeing `false` runs step() for a group twice in the
+    // same process, which step()'s own doc says is safe against — worst case it
+    // repeats a phase with correct, idempotent inputs.
+    private var migratedOnce = false
+
+    /**
+     * Runs both credential groups' migration exactly once per process, whichever of
+     * `Settings.init()` or `RoutingServer.loadCustom()` gets here first — the other
+     * call becomes a no-op. Replaces what used to be two separate once-per-process
+     * guards (one per call site) with a single one, since both call sites exist to
+     * protect the same invariant: see [step]'s doc for why calling it more than once
+     * per process per group is unsafe.
+     *
+     * Both call sites still have to call this rather than only one: `initSharedCore`
+     * documents that a Service may start the process without `Settings.init()` ever
+     * running first, so `RoutingServer` cannot rely on `Settings` having gone first,
+     * and vice versa.
+     */
+    fun migrateOnce() {
+        if (migratedOnce) return
+        migratedOnce = true
+        step(prefs("settings"), securePrefs(), SESSION_GROUP)
+        step(prefs(RoutingServer.PREFS), securePrefs(), SERVER_GROUP)
+    }
+
     /**
      * Advances [group]'s migration by one phase: copies plaintext to [secure] and arms
      * the marker if it isn't armed yet, or deletes the plaintext from [plain] if the
@@ -79,8 +106,8 @@ internal object CredentialMigration {
      * on every request) and the second call sees the first call's own marker and takes
      * the delete branch immediately, destroying the plaintext fallback before the
      * round-trip across a process restart it exists to prove ever happened. Guarding
-     * against that is the caller's job — see `Settings.init()`'s `store != null` guard
-     * and `RoutingServer`'s `migrated` flag for the two call sites.
+     * against that is the caller's job — see [migrateOnce], the single guarded entry
+     * point both real call sites go through.
      */
     fun step(plain: Prefs, secure: Prefs, group: SecretGroup): Outcome {
         // Read before writing: "was the marker there when this run started".
@@ -89,14 +116,23 @@ internal object CredentialMigration {
         if (!armedEarlier) {
             var copied = 0
             for (k in group.keys) {
+                // Copy only into an empty slot: if the marker write itself failed to
+                // seal on an earlier run, this phase runs again, and a slot that
+                // already holds a value is one the user set *after* that earlier run
+                // (a new sign-in, a saved Cloudflare token) — the stale plaintext
+                // must not clobber it.
                 when (k.type) {
                     SecretType.Text -> {
                         val v = plain.string(k.name, "")
-                        if (v.isNotEmpty()) { secure.put(k.name, v); copied++ }
+                        if (v.isNotEmpty() && secure.string(k.name, "").isEmpty()) {
+                            secure.put(k.name, v); copied++
+                        }
                     }
                     SecretType.Number -> {
                         val v = plain.long(k.name, 0L)
-                        if (v != 0L) { secure.put(k.name, v); copied++ }
+                        if (v != 0L && secure.long(k.name, 0L) == 0L) {
+                            secure.put(k.name, v); copied++
+                        }
                     }
                 }
             }
@@ -104,13 +140,29 @@ internal object CredentialMigration {
             return if (copied > 0) Outcome.Copied else Outcome.NothingToDo
         }
 
+        // Verify each value individually before deleting it: the marker reading back
+        // proves only that *the marker* round-tripped through the cipher, not that
+        // every key did. `KeystorePrefs.write` can drop a key on a sealing failure,
+        // and a mid-loop key regeneration can leave earlier keys in this same batch
+        // unreadable while the marker (written last) is fine. A key that does not
+        // read back the same value is re-copied instead of deleted; the next run
+        // checks again.
         var removed = 0
         for (k in group.keys) {
-            val present = when (k.type) {
-                SecretType.Text -> plain.string(k.name, "").isNotEmpty()
-                SecretType.Number -> plain.long(k.name, 0L) != 0L
+            when (k.type) {
+                SecretType.Text -> {
+                    val v = plain.string(k.name, "")
+                    if (v.isEmpty()) continue
+                    if (secure.string(k.name, "") == v) { plain.remove(k.name); removed++ }
+                    else secure.put(k.name, v)
+                }
+                SecretType.Number -> {
+                    val v = plain.long(k.name, 0L)
+                    if (v == 0L) continue
+                    if (secure.long(k.name, 0L) == v) { plain.remove(k.name); removed++ }
+                    else secure.put(k.name, v)
+                }
             }
-            if (present) { plain.remove(k.name); removed++ }
         }
         return if (removed > 0) Outcome.Verified else Outcome.NothingToDo
     }

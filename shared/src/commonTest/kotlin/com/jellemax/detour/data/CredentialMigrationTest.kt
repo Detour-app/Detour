@@ -15,17 +15,25 @@ import kotlin.test.assertTrue
  */
 class CredentialMigrationTest {
 
-    /** An in-memory [Prefs]. `failReads` models a Keystore that has lost its key. */
-    private class FakePrefs(var failReads: Boolean = false) : Prefs {
+    /**
+     * An in-memory [Prefs]. `failReads` models a Keystore that has lost its key
+     * entirely. `unreadableKeys` models the narrower case: the alias was
+     * regenerated *mid-loop*, so only the keys sealed before that point are
+     * unreadable — the marker and any keys sealed after it read back fine.
+     */
+    private class FakePrefs(
+        var failReads: Boolean = false,
+        val unreadableKeys: MutableSet<String> = mutableSetOf(),
+    ) : Prefs {
         val map = mutableMapOf<String, Any>()
         override fun string(key: String, def: String): String =
-            if (failReads) def else map[key] as? String ?: def
+            if (failReads || key in unreadableKeys) def else map[key] as? String ?: def
         override fun bool(key: String, def: Boolean): Boolean =
-            if (failReads) def else map[key] as? Boolean ?: def
+            if (failReads || key in unreadableKeys) def else map[key] as? Boolean ?: def
         override fun float(key: String, def: Float): Float =
-            if (failReads) def else map[key] as? Float ?: def
+            if (failReads || key in unreadableKeys) def else map[key] as? Float ?: def
         override fun long(key: String, def: Long): Long =
-            if (failReads) def else map[key] as? Long ?: def
+            if (failReads || key in unreadableKeys) def else map[key] as? Long ?: def
         override fun put(key: String, value: String) { map[key] = value }
         override fun put(key: String, value: Boolean) { map[key] = value }
         override fun put(key: String, value: Float) { map[key] = value }
@@ -130,6 +138,51 @@ class CredentialMigrationTest {
         CredentialMigration.step(plain, secure, CredentialMigration.SESSION_GROUP)
 
         assertEquals("already-here", secure.string("access_token", ""))
+    }
+
+    // The defect this guards against: the delete branch used to check only whether
+    // the marker read back, then delete every plaintext key on the strength of that
+    // one check. A key whose ciphertext failed to seal (or whose alias was
+    // regenerated mid-loop, after that key but before the marker) would still get
+    // deleted, because nothing ever asked whether *that key* read back from secure.
+    // The fix re-reads each key from secure before deleting it, and re-copies
+    // instead of deleting when it doesn't match.
+    @Test
+    fun aKeyThatDoesNotReadBackFromSecureIsKeptWhileTheOthersAreDeleted() {
+        val plain = plainWithSession()
+        val secure = FakePrefs()
+
+        CredentialMigration.step(plain, secure, CredentialMigration.SESSION_GROUP)
+        // access_token was sealed in the first run but cannot be read back now —
+        // the marker and every other key are unaffected.
+        secure.unreadableKeys += "access_token"
+        val second = CredentialMigration.step(plain, secure, CredentialMigration.SESSION_GROUP)
+
+        assertEquals(CredentialMigration.Outcome.Verified, second)
+        // The key that failed its round-trip is kept in plaintext...
+        assertEquals("at", plain.string("access_token", ""))
+        // ...while the keys that did verify are gone.
+        assertEquals("", plain.string("refresh_token", ""))
+        assertEquals("", plain.string("auth_username", ""))
+        assertEquals(0L, plain.long("access_token_expires_at", 0L))
+    }
+
+    // The defect this guards against: phase 1 copied plaintext into secure
+    // unconditionally. If the marker write itself failed to seal on an earlier
+    // run, a later run repeats phase 1 — and if the user had signed in again (or
+    // saved a new Cloudflare token) in the meantime, the stale plaintext would
+    // clobber the newer secure value. The fix only copies into a slot that is
+    // still empty.
+    @Test
+    fun phaseOneDoesNotOverwriteASecureValueThatIsNewerThanTheStalePlaintext() {
+        val plain = FakePrefs().apply { put("access_token", "stale-token") }
+        val secure = FakePrefs().apply { put("access_token", "newer-token") }
+        // No marker: as if the marker write itself never sealed on the run that
+        // produced "newer-token", so this run repeats phase 1 from scratch.
+
+        CredentialMigration.step(plain, secure, CredentialMigration.SESSION_GROUP)
+
+        assertEquals("newer-token", secure.string("access_token", ""))
     }
 
     @Test
