@@ -669,9 +669,18 @@ fun MapScreen(
         fogView.darkTheme = darkTheme
         fogView.invalidate()
     }
+    // The trace polyline genuinely changes once per fix, so it belongs here. The
+    // reveal centre does not: the marker loop sets it per frame from the same
+    // interpolated position the dot is drawn at, so the hole and the dot agree
+    // rather than the hole trailing by the prediction lead.
+    //
+    // It is still set here when there is no fix, because myLocation has a second
+    // writer — the one-shot last-known-location fetch at :474 that centres the map
+    // at startup — and the fog needs a centre in the window before the first fix
+    // arrives. Once fixes are flowing the loop owns it.
     LaunchedEffect(liveTrace, myLocation) {
         fogView.liveTrace = liveTrace
-        fogView.currentLocation = myLocation
+        if (liveFix == null) fogView.currentLocation = myLocation
         fogView.invalidate()
     }
 
@@ -1202,6 +1211,14 @@ fun MapScreen(
             )
             if (here.lat != lastLat || here.lon != lastLon) {
                 overlays.setPosition(here, camTargetBearing?.toDouble())
+                // The fog reveals around the same interpolated position, or its hole
+                // trails the dot by the prediction lead — about 14 m at 100 km/h,
+                // snapping forward once a second. The invalidate is for the parked
+                // camera: while following, the camera-move listener below already
+                // redraws every frame, but parked nothing else would, and that is
+                // exactly when a lagging fog is most visible.
+                fogView.currentLocation = here
+                fogView.invalidate()
                 lastLat = here.lat
                 lastLon = here.lon
             }
