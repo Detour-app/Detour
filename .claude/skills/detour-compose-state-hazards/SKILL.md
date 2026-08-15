@@ -299,6 +299,9 @@ file).
 .claude/skills/detour-staged-refactor/scripts/tier0-greps.sh <base> [changed files...]
 ```
 
+- `scripts/check-secret-fields.sh` — fails if a raw `OutlinedTextField`, `TextField` or
+  `BasicTextField` is given a secret-ish label (§7). Runs in CI, before the unit tests.
+
 One script, in the skill that defines the tiers, so there is no second copy to drift. It
 compares against `<base>` rather than reading the working tree, because every check here is a
 *delta*: the `rememberUpdatedState` count must not **drop** (§2), a newly added file must not

@@ -12,7 +12,14 @@
 # mention a secret-ish word. SecretTextField and CredentialTextField do not match the
 # constructor pattern, so a converted call site is silent.
 #
-# Read-only: greps the working tree. Exit 0 clean, 1 on a finding, 2 on misuse.
+# Known false negatives, so nobody over-trusts this guard:
+#   - a secret-ish label placed further than the 8-line window from the constructor is missed
+#   - a label built from a variable or constant rather than a string literal is invisible,
+#     since the regex only ever sees literal text
+#
+# Read-only: greps the working tree via `git ls-files`, so it scans tracked files only - a
+# newly written, not-yet-`git add`ed screen reports OK locally. CI is unaffected, since a
+# checkout tracks everything. Exit 0 clean, 1 on a finding, 2 on misuse.
 set -euo pipefail
 
 if [ "$#" -gt 0 ]; then
@@ -44,7 +51,7 @@ while IFS= read -r f; do
             }
         }
         END { if (collecting && tolower(buf) ~ re) printf "%s:%d\n", file, start }
-    ' "$f") || true
+    ' "$f")
     [ -n "$found" ] && hits="$hits$found"$'\n'
 done < <(git ls-files '*.kt')
 
