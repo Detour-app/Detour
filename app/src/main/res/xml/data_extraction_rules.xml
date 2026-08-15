@@ -8,7 +8,14 @@
      revoked. They stay in <device-transfer>, which is a direct phone-to-phone
      copy, not cloud storage, so the seamless new-phone experience survives.
      The config-file export (Settings -> Server config file) is the supported
-     way to carry credentials across a reinstall. -->
+     way to carry credentials across a reinstall.
+
+     secure.xml holds the same credentials now, encrypted. It is excluded from BOTH
+     cloud-backup and device-transfer, and unlike the other two that is not a policy
+     choice: its AES key lives in the Android Keystore, which never leaves the device,
+     so a restored or transferred copy is ciphertext nobody can open. It would degrade
+     to "not signed in" rather than crash — reads fail soft — but transferring bytes
+     that cannot be read is not a feature. -->
 <data-extraction-rules>
     <cloud-backup>
         <include domain="file" path="trips.json" />

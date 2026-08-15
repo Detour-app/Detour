@@ -7,7 +7,10 @@
      to the cloud (there is no on-device-transfer variant pre-12), and a
      bearer token or CF secret in a Google Drive backup outlives the user
      revoking it. The config-file export (Settings -> Server config file) is
-     the supported way to carry those credentials to a new install. -->
+     the supported way to carry those credentials to a new install.
+
+     secure.xml is excluded here too: its key is in the Keystore and does not travel,
+     so a restored copy cannot be decrypted. -->
 <full-backup-content>
     <include domain="file" path="trips.json" />
     <include domain="file" path="traces.jsonl" />
