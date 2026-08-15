@@ -12,6 +12,12 @@
 # be exactly right. Read what it says and decide. It exits non-zero only when something is
 # structurally missing, never on a phrasing hit alone.
 #
+# One caveat that will recur: a body that *discusses* narration trips the narration check,
+# because quoting a phrase and committing it look identical to a grep. This script's own PR
+# description did exactly that. Read the hit, see that the line is naming the anti-pattern
+# rather than performing it, and move on — rewriting good prose to please a regex is the
+# wrong direction.
+#
 # Read-only: reads one file, writes nothing.
 #
 # usage: check-pr-body.sh <body.md>

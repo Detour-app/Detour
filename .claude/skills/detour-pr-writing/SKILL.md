@@ -33,6 +33,11 @@ Flags process narration, self-congratulation and hedging, checks for a before/af
 and issue references, and prints the word count. It is a linter, not a judge — a flagged
 line may still be right. Read what it says and decide.
 
+It exits non-zero only on missing structure, never on a phrasing hit, because a check that
+fails on style gets suppressed rather than read. Its greps are a fixed list built from real
+examples, so narration phrased a new way passes clean — the check does not replace the
+question below, it just catches the forms that recur.
+
 ## The shape
 
 ```markdown
