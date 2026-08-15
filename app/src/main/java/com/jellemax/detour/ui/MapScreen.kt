@@ -1100,6 +1100,8 @@ fun MapScreen(
         var appliedLon = 0.0
         var appliedZoom = 0.0
         var appliedBearing = 0f
+        var lastTargetLat = Double.NaN
+        var lastTargetLon = Double.NaN
         var lastNs = withFrameNanos { it }
         // TEMPORARY (#21 measurement) — removed before merge.
         var instFrames = 0
@@ -1147,17 +1149,25 @@ fun MapScreen(
             // Heading-up while moving: MapLibre bearing points the camera along
             // travel, so the road you're on runs up the screen. The camera-move
             // listener redraws the fog; the position dot is world-fixed and rides
-            // along on its own. Only pushed when the change since the last push is
-            // visible (sub-pixel/sub-degree moves are dropped), so a settled camera
-            // does no work at all.
-            var dBearing = (bearing - appliedBearing) % 360f
-            if (dBearing > 180f) dBearing -= 360f
-            if (dBearing < -180f) dBearing += 360f
-            val moved = appliedLat.isNaN() ||
-                abs(lat - appliedLat) > CAM_POS_EPS_DEG ||
-                abs(lon - appliedLon) > CAM_POS_EPS_DEG ||
-                abs(zoom - appliedZoom) > CAM_ZOOM_EPS ||
-                abs(dBearing) > CAM_BEARING_EPS_DEG
+            // Push while the ease has not converged, or while the target itself is
+            // moving. The old test compared this frame's step against the last pushed
+            // value, which cannot tell a slow camera from a settled one: at 20 km/h a
+            // frame moves 0.09 m against a 0.14 m threshold, so the camera was pushed
+            // every third frame and stepped visibly. A parked map still does no work,
+            // because then the target is still and the camera has converged on it.
+            val targetMoved = camTargetNow != null &&
+                (camTargetNow.lat != lastTargetLat || camTargetNow.lon != lastTargetLon)
+            if (camTargetNow != null) {
+                lastTargetLat = camTargetNow.lat
+                lastTargetLon = camTargetNow.lon
+            }
+            val moved = MapMotion.shouldPush(
+                camLat = lat, camLon = lon, camZoom = zoom, camBearing = bearing,
+                tgtLat = camTargetNow?.lat ?: lat, tgtLon = camTargetNow?.lon ?: lon,
+                tgtZoom = camTargetZoom, tgtBearing = camTargetBearing ?: bearing,
+                targetMoved = targetMoved,
+                neverPushed = appliedLat.isNaN(),
+            )
             if (moved) {
                 setCamera(map, lat, lon, zoom, bearing)
                 appliedLat = lat
