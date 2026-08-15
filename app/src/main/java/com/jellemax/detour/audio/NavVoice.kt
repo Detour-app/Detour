@@ -1,4 +1,4 @@
-package com.jellemax.detour.car
+package com.jellemax.detour.audio
 
 import android.content.Context
 import android.media.AudioAttributes
@@ -8,12 +8,19 @@ import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.util.Log
 import java.util.Locale
 
 private const val UTTERANCE_ID = "detour-nav"
+private const val TAG = "DetourNavVoice"
 
 /**
- * Spoken turn instructions for the car screen.
+ * Spoken turn instructions, for any surface that navigates.
+ *
+ * Lived in `car/` until convergence 3, which is where the only voice in the app
+ * used to be. It never depended on a single `androidx.car` type, and the phone
+ * needs exactly the same audio bargain, so it moved here beside [PushToTalk] —
+ * the app's other audio client — rather than being written a second time.
  *
  * Android Auto has no voice API of its own: a projected app speaks through the
  * phone's audio stack, and the head unit routes it by *usage*. Hence
@@ -113,10 +120,27 @@ class NavVoice(context: Context) {
             pending = text
             return
         }
-        requestFocus()
+        // A refused request means somebody else owns the output and said no to
+        // sharing it: a phone call, an assistant, another navigation app.
+        // Speaking anyway put a guidance prompt on top of a conversation — and
+        // because abandonFocus() no-ops when the request failed, nothing was
+        // ever handed back either. A missed prompt is the better of the two.
+        if (!requestFocus()) {
+            Log.w(TAG, "audio focus refused; guidance prompt dropped")
+            return
+        }
         val result = runCatching {
             engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, UTTERANCE_ID)
         }.getOrDefault(TextToSpeech.ERROR)
+        // Debug-level, and it is the only record that a prompt was actually
+        // spoken. Until this existed the sole log line here was the refusal
+        // above, so a *successful* announcement wrote nothing at all: a replay
+        // looking for "did the camera warning fire" could grep the whole logcat
+        // and get a zero that meant nothing. Deliberately logs the text, since
+        // which prompt was spoken is the thing under test, and deliberately
+        // sits after the call so it records what happened rather than what was
+        // attempted.
+        if (result == TextToSpeech.SUCCESS) Log.d(TAG, "spoke: $text")
         // No utterance means no onDone, so nothing would hand the focus back.
         if (result != TextToSpeech.SUCCESS) abandonFocus()
     }
@@ -135,11 +159,15 @@ class NavVoice(context: Context) {
         ready = false
     }
 
-    private fun requestFocus() {
-        if (holdingFocus) return
+    /** True when the focus is ours. False means another client holds it and
+     *  will not share — telephony during a call, a voice assistant, another
+     *  turn-by-turn app. */
+    private fun requestFocus(): Boolean {
+        if (holdingFocus) return true
         holdingFocus = runCatching {
             audioManager?.requestAudioFocus(focusRequest)
         }.getOrNull() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        return holdingFocus
     }
 
     private fun abandonFocus() {

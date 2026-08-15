@@ -8,6 +8,11 @@ struct MapScreen: View {
     @EnvironmentObject private var recorder: TripRecorder
     @StateObject private var spin = SpinModel()
     @StateObject private var modes = TripModeModel()
+    /// The trajectcontrole average. Here and not in `NavScreen`, which is a
+    /// `fullScreenCover`: the phone shows this chip on its map screen whether
+    /// or not navigation is running, and a section is most likely to catch
+    /// someone on a free drive down a motorway they are not being routed along.
+    @StateObject private var sections = SectionAverageModel()
     @State private var showSearch = false
     @State private var navigating = false
     /// Last-known position per other member, across every circle you're in.
@@ -38,6 +43,15 @@ struct MapScreen: View {
             .ignoresSafeArea()
 
             VStack(spacing: 10) {
+                // Trailing, above everything else in the stack, which is where
+                // the phone puts it too — the chip sits at the end of the speed
+                // HUD row, above the trip card.
+                if let average = sections.averageKmh {
+                    HStack {
+                        Spacer()
+                        SectionAverageChip(averageKmh: average, limitKmh: sections.limitKmh)
+                    }
+                }
                 ConvoyBar()
                 if let stats = recorder.stats {
                     TripCard(stats: stats) { recorder.endTrip() }
@@ -48,6 +62,12 @@ struct MapScreen: View {
                 }
             }
             .padding()
+        }
+        // The section tracker's fix stream. Same source the map centre and the
+        // trip card read, so the readout cannot lag what is on screen.
+        .onChange(of: recorder.lastFix) { _, fix in
+            guard let fix else { return }
+            sections.update(with: fix)
         }
         // The three places a vote round can resolve from: a new offer landing
         // (which may itself be the closing one-candidate offer), a vote

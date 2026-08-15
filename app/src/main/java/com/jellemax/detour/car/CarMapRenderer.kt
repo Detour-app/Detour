@@ -22,6 +22,7 @@ import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MemberFix
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
+import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.net.FriendPosition
 import com.jellemax.detour.ui.MapOverlays
@@ -207,8 +208,16 @@ class CarMapRenderer(
         }
     }
 
-    /** Speed and posted-limit readouts. */
-    fun updateHud(speedKmh: Double, limitKmh: Double?) = hud.update(speedKmh, limitKmh)
+    /** Speed, posted-limit and trajectcontrole-average readouts.
+     *
+     *  [section] defaults to the tracker's own "not inside one" pair so free
+     *  drive keeps its two-argument call: [SpinScreen] prefetches posted limits
+     *  but never the enforcement relations, so it has no section to be in. */
+    fun updateHud(
+        speedKmh: Double,
+        limitKmh: Double?,
+        section: SectionAverageTracker.Reading = SectionAverageTracker.Reading(null, null),
+    ) = hud.update(speedKmh, limitKmh, section)
 
     /** The line to draw, and the pin at the end of it. Pushed once per route —
      *  on start and on each reroute — not per fix. */
@@ -487,8 +496,15 @@ private const val SIGN_MAX_DP = 108f
 private const val SIGN_RIM_RATIO = 0.12f
 private const val SIGN_DIGIT_RATIO = 0.54f
 
+// The trajectcontrole average sits a little smaller than the speed and the
+// posted limit — the phone chip's own 72dp against the speed dial's 80dp. It is
+// the reading you check, not the one you drive by, and entry 11's worry about a
+// fifth readout at arm's length is answered by drawing it as plainly secondary.
+private const val AVG_DISC_RATIO = 0.9f
+
 /**
- * Speed and posted-limit readouts, drawn over the map inside the Presentation.
+ * Speed, posted-limit and trajectcontrole-average readouts, drawn over the map
+ * inside the Presentation.
  *
  * Sized from the **car surface**, not from the phone. The two are unrelated:
  * [android.util.DisplayMetrics.density] here belongs to the CarContext, which a
@@ -512,6 +528,7 @@ private class HudOverlay(context: android.content.Context) : View(context) {
 
     private var speedKmh: Double? = null
     private var limitKmh: Double? = null
+    private var section = SectionAverageTracker.Reading(null, null)
     private val safeArea = Rect()
 
     /** The car surface's real pixel density. Different surface, different
@@ -523,13 +540,23 @@ private class HudOverlay(context: android.content.Context) : View(context) {
         postInvalidate()
     }
 
-    fun update(speed: Double, limit: Double?) {
+    /** Whole km/h, which is all any of the three discs ever shows. */
+    private fun whole(value: Double?) = value?.let { "%.0f".format(it) }
+
+    fun update(speed: Double, limit: Double?, section: SectionAverageTracker.Reading) {
         // Once a second, and only when the rounded readout actually changes:
         // an invalidate on the virtual display costs a full recomposite of the
         // car surface, which is the last thing the map needs competing with.
-        if (speedKmh?.let { "%.0f".format(it) } == "%.0f".format(speed) && limit == limitKmh) return
+        // The section average is compared rounded for the same reason the speed
+        // is — it creeps continuously and the disc shows whole km/h.
+        val unchanged = whole(speedKmh) == whole(speed) &&
+            limit == limitKmh &&
+            whole(section.averageKmh) == whole(this.section.averageKmh) &&
+            section.limitKmh == this.section.limitKmh
+        if (unchanged) return
         speedKmh = speed
         limitKmh = limit
+        this.section = section
         postInvalidate()
     }
 
@@ -556,6 +583,12 @@ private class HudOverlay(context: android.content.Context) : View(context) {
     // Lifted along with the rim: the over-limit disc is read at a glance too,
     // and #B3261E next to a bright sign looked like a dead pixel.
     private val speedOverBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#E6C62828") }
+    // The trajectcontrole average. Teal rather than the speed disc's near-black
+    // because at a glance the colour is the only thing distinguishing the two
+    // numbers — they are both white-on-dark km/h in the same row. It reuses
+    // speedOverBgPaint when the average is over the section limit, so "over" is
+    // the same red wherever it appears on this HUD.
+    private val avgBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#E6134E4A") }
 
     // sans-serif-black is the closest stock face to the heavy grotesque on a
     // real sign, and matches the phone HUD's FontWeight.Black.
@@ -658,6 +691,37 @@ private class HudOverlay(context: android.content.Context) : View(context) {
             val face = diameter * (1f - 2f * SIGN_RIM_RATIO)
             fitText(limitTextPaint, text, diameter * SIGN_DIGIT_RATIO, face * 0.82f)
             canvas.drawText(text, cx, cy + baselineOffset(limitTextPaint), limitTextPaint)
+            cx -= radius + gap
+        }
+
+        // Inside a trajectcontrole: the running average, furthest inboard, so
+        // right-to-left the row reads speed · posted limit · average — the same
+        // order as the phone's SpeedHud, where the chip is leftmost.
+        //
+        // Smaller than the other two on purpose, at the phone chip's own 72/80
+        // ratio. Register entry 11's objection to this readout is that a fifth
+        // thing at arm's length is too much; drawing it as plainly secondary is
+        // the answer to that, not dropping it — the average is the number the
+        // gantry pair is actually measuring.
+        val average = section.averageKmh
+        if (average != null) {
+            val avgRadius = radius * AVG_DISC_RATIO
+            val avgDiameter = avgRadius * 2f
+            cx -= avgRadius
+            val cy = bottom - avgRadius
+            val sectionLimit = section.limitKmh
+            val over = sectionLimit != null && average > sectionLimit
+            drawShadow(canvas, cx, cy, avgRadius)
+            canvas.drawCircle(cx, cy, avgRadius, if (over) speedOverBgPaint else avgBgPaint)
+            // Ø, the same glyph the phone chip uses, so the two surfaces label
+            // this number identically. Both strings are fitted rather than
+            // sized outright: "Ø 120" and "avg km/h" are both wider than the
+            // speed disc's "120"/"km/h" in a disc that is 10% smaller.
+            val text = "Ø %.0f".format(average)
+            fitText(speedTextPaint, text, avgDiameter * 0.34f, avgDiameter * 0.76f)
+            fitText(unitTextPaint, "avg km/h", avgDiameter * 0.15f, avgDiameter * 0.80f)
+            canvas.drawText(text, cx, cy + baselineOffset(speedTextPaint) - avgDiameter * 0.06f, speedTextPaint)
+            canvas.drawText("avg km/h", cx, cy + avgRadius * 0.62f, unitTextPaint)
         }
     }
 }

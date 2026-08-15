@@ -1,15 +1,12 @@
 package com.jellemax.detour.ui
 
 import android.Manifest
-import android.content.ActivityNotFoundException
-import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.RectF
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.util.Log
 import java.io.IOException
-import android.net.Uri
 import android.os.Build
 import android.view.MotionEvent
 import android.view.ViewConfiguration
@@ -17,7 +14,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -28,90 +24,27 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.DirectionsBike
-import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.outlined.Casino
-import androidx.compose.material.icons.outlined.Clear
-import androidx.compose.material.icons.outlined.DirectionsCar
-import androidx.compose.material.icons.outlined.ExpandLess
-import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.Groups
-import androidx.compose.material.icons.outlined.History
-import androidx.compose.material.icons.outlined.Layers
-import androidx.compose.material.icons.outlined.LocationSearching
-import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Navigation
-import androidx.compose.material.icons.outlined.Place
-import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Stop
-import androidx.compose.material.icons.outlined.TwoWheeler
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.VisibilityOff
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -122,50 +55,33 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.jellemax.detour.R
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.jellemax.detour.audio.NavVoice
 import com.jellemax.detour.audio.PushToTalk
 import com.jellemax.detour.data.Features
 import com.jellemax.detour.net.ConvoyLiveClient
-import com.jellemax.detour.net.GroupSpin
-import com.jellemax.detour.net.SpinCandidate
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleFixes
 import com.jellemax.detour.data.ExploredArea
 import com.jellemax.detour.data.FriendFog
-import com.jellemax.detour.data.GeocodeResult
-import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MemberFix
+import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.PoiKind
-import com.jellemax.detour.data.PoiRoulette
-import com.jellemax.detour.data.RecentSearchStore
 import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.Curviness
 import com.jellemax.detour.data.RouteCandidate
@@ -173,16 +89,19 @@ import com.jellemax.detour.data.RoundTripPlanner
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.pickCandidate
-import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.SavedPlaces
-import com.jellemax.detour.data.SavedRoute
-import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
-import com.jellemax.detour.tracking.TripStats
+import com.jellemax.detour.drive.CameraWarner
+import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.drive.SpeedLimitTracker
+import com.jellemax.detour.map.CameraAuthority
+import com.jellemax.detour.map.FollowCamera
+import com.jellemax.detour.map.NavPolicy
+import com.jellemax.detour.map.leadingSpinIndex
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.wear.NavRelay
@@ -194,7 +113,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -207,212 +125,6 @@ import org.maplibre.android.maps.Style
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.random.Random
-
-private val DIRECTION_NAMES = listOf("North", "North-east", "East", "South-east",
-    "South", "South-west", "West", "North-west")
-
-val TravelMode.icon: ImageVector
-    get() = when (this) {
-        TravelMode.WALK -> Icons.AutoMirrored.Outlined.DirectionsWalk
-        TravelMode.BIKE -> Icons.AutoMirrored.Outlined.DirectionsBike
-        TravelMode.MOTO -> Icons.Outlined.TwoWheeler
-        TravelMode.CAR -> Icons.Outlined.DirectionsCar
-    }
-
-/** Exponentially smooths a compass bearing toward [target], taking the
- *  shortest way round the 0/360 wrap, so heading-up rotation eases instead
- *  of snapping to each noisy raw GPS fix. */
-private fun smoothBearing(current: Float?, target: Float, alpha: Float = 0.3f): Float {
-    if (current == null) return target
-    var delta = (target - current) % 360f
-    if (delta > 180f) delta -= 360f
-    if (delta < -180f) delta += 360f
-    return (current + delta * alpha + 360f) % 360f
-}
-
-// Camera easing time constants, in seconds: each frame the camera closes the
-// same fraction of its gap to the latest fix, covering ~63% of it in one tau.
-// Small enough that the map never visibly lags the road, large enough that a
-// noisy fix can't yank it.
-private const val CAM_POS_TAU = 0.35
-private const val CAM_BEARING_TAU = 0.5
-private const val CAM_ZOOM_TAU = 1.2
-
-// The speed readout is eased the same way, per frame rather than per fix: GPS
-// speed arrives about once a second, and a number that jumps once a second
-// reads as a laggy app even when the fix behind it is current. Short tau — the
-// readout has to be honest about braking, not just smooth.
-private const val SPEED_TAU = 0.30
-// Below ~0.15 km/h of remaining gap the rounded number can't change; snap and
-// stop recomposing so a steady cruise doesn't repaint the HUD every frame.
-private const val SPEED_EPS_KMH = 0.15
-
-// Below these, an eased camera step isn't worth a redraw: ~0.2 m of pan (well
-// sub-pixel at driving zooms), a hair of zoom, a tenth of a degree of rotation.
-// Once the ease settles inside all three, setCamera is skipped and the map —
-// and the fog view riding on its camera-move callback — goes quiet.
-private const val CAM_POS_EPS_DEG = 2e-6
-private const val CAM_ZOOM_EPS = 2e-3
-private const val CAM_BEARING_EPS_DEG = 0.1f
-
-// Padding kept around a fitted route/candidate spread so pins and the trip card
-// don't sit against the screen edge.
-private const val FIT_PADDING_PX = 140
-
-// How many round trips to roll before picking one. GraphHopper's round_trip is
-// seed-driven and its curvature weighting only biases the search, so seeds
-// differ a lot in how much of the loop is actually bends — rolling a few and
-// keeping the curviest is what turns "avoids motorways" into a ride worth
-// taking. Three: the requests run in parallel, so this costs latency only when
-// the server is already saturated, and the gain flattens out after ~3 rolls.
-private const val CURVY_CANDIDATES = 3
-
-// Panning or pinching parks the camera instead of forcing you to hunt for the
-// follow button. Driving off takes it back: above this speed, this long after
-// you last touched the map. The quiet period is what stops a two-finger zoom at
-// 80 km/h from being yanked out from under you mid-gesture.
-private const val CAM_RESUME_SPEED_MPS = 3.0
-private const val CAM_RESUME_QUIET_MS = 8_000L
-
-// Circle members post a fix every CIRCLE_SYNC_INTERVAL_MS (TripTrackingService)
-// at most, so polling faster than that would just re-fetch the same row —
-// this matches that cadence rather than guessing a separate one.
-private const val CIRCLE_FIX_POLL_MS = 120_000L
-
-// How close to a section's device node counts as passing it, for entering and
-// leaving a trajectcontrole average-speed measurement.
-private const val SECTION_GATE_METERS = 60.0
-
-// How far off your heading the far end of a section may lie and still count as
-// driving into it. Wide, because a long section can curve away — it only has to
-// separate "the other end is ahead of me" from "behind me, I'm on my way out".
-private const val SECTION_WEDGE_DEG = 75.0
-
-/**
- * The far end of [section], if this fix is entering it: within the gate of one
- * end and heading towards the other. Null otherwise.
- *
- * The heading test is what makes the gate mean "driving the section". Passing a
- * device node says nothing on its own — you pass one on the way *out* too, and
- * on every side street that crosses one — and matching on that alone used to
- * start a measurement as you left a section, which is what put an average on
- * screen after the trajectcontrole instead of during it.
- */
-private fun sectionExitGate(
-    section: SpeedCameras.Section,
-    pos: LatLon,
-    headingDeg: Double,
-): List<LatLon>? {
-    fun atGate(end: List<LatLon>) =
-        end.any { RoadRoulette.distanceMeters(pos, it) < SECTION_GATE_METERS }
-    fun ahead(end: List<LatLon>) =
-        end.any { RoadRoulette.withinWedge(pos, it, headingDeg, SECTION_WEDGE_DEG) }
-    return when {
-        atGate(section.endA) && ahead(section.endB) -> section.endB
-        atGate(section.endB) && ahead(section.endA) -> section.endA
-        else -> null
-    }
-}
-
-/** One color per spin candidate, so the pin on the map and the row in the card
- *  are recognizably the same place. Kept clear of the blue radius circle, the
- *  orange direction wedge and the pink route line. */
-private val CANDIDATE_COLORS = listOf(0xFF7E57C2, 0xFF00897B, 0xFFF4511E)
-    .map { it.toInt() }
-
-/** A [GroupSpin]'s wire candidates, reshaped into the same [RouteCandidate]
- *  list a local spin produces, so the map pins and CandidatesCard don't need
- *  a second code path for "I received this" vs "I rolled this". [route] is
- *  a placeholder carrying only the numbers the sharer already had - a
- *  receiving member has no polyline for it, and doesn't need one: committing
- *  just sets `route = null` and lets startNavigation() fetch a real one, the
- *  same as tapping a long-pressed pin. */
-private fun GroupSpin.asRouteCandidates(): List<RouteCandidate> = candidates.map { sc ->
-    RouteCandidate(
-        destination = LatLon(sc.lat, sc.lon),
-        name = sc.name,
-        route = sc.distanceM?.let {
-            RouteResult(
-                polyline = emptyList(),
-                waypoints = emptyList(),
-                distanceMeters = it,
-                timeMs = sc.durationS?.let { s -> (s * 1000).toLong() },
-            )
-        },
-        straightLineMeters = sc.distanceM ?: 0.0,
-    )
-}
-
-/** Wire shape for sharing a local spin's results with the convoy - see
- *  ConvoyLiveClient.sendSpinOffer. */
-private fun List<RouteCandidate>.asSpinCandidates(): List<SpinCandidate> = map { c ->
-    SpinCandidate(
-        lat = c.destination.lat,
-        lon = c.destination.lon,
-        distanceM = c.route?.distanceMeters ?: c.straightLineMeters,
-        durationS = c.route?.timeMs?.let { it / 1000.0 },
-        name = c.name,
-    )
-}
-
-/** Tie-break rule for a group spin's leader: ties (including "nobody's voted
- *  yet", every count 0) go to the lowest index. `>` rather than `>=` is what
- *  makes that deterministic - every device tallying the same votes lands on
- *  the same leader without needing to compare who voted when. */
-private fun leadingSpinIndex(votes: Map<String, Int>, candidateCount: Int): Int {
-    val counts = IntArray(candidateCount)
-    votes.values.forEach { if (it in counts.indices) counts[it]++ }
-    var lead = 0
-    for (i in 1 until candidateCount) if (counts[i] > counts[lead]) lead = i
-    return lead
-}
-
-/** The last spin outcome, kept outside `remember` so it survives activity
- *  recreation (rotation, split-screen resize, a backgrounded process losing
- *  just the Activity) — process-scoped, not a substitute for the stores that
- *  already survive process death. MapScreen seeds its `remember`ed state from
- *  this on composition and writes back whenever the result changes. */
-// Not private: seedRouteNavigation() below (and RoutesScreen.kt, which calls
-// it) need to write into this holder from outside MapScreen's own composition.
-internal data class SpinResult(
-    val destination: LatLon? = null,
-    val destinationName: String? = null,
-    val route: RouteResult? = null,
-    val candidates: List<RouteCandidate> = emptyList(),
-)
-
-internal object SpinResultHolder {
-    val state = MutableStateFlow(SpinResult())
-}
-
-/**
- * Hands a saved route's final stop to the map as though it were a fresh spin
- * result, so the next time [MapScreen] composes it shows the same "Go"
- * affordances (SpinDock's nav button/menu) a spin result gets — the existing
- * in-app nav path, reused rather than duplicated.
- *
- * Only the destination carries over; [startNavigation] always re-fetches a
- * live two-point route from wherever the user actually is when they tap Go,
- * so a route with stops in between this one and the destination would have
- * them silently dropped. RoutesScreen.kt only calls this for two-stop routes
- * and instead hands longer routes to an external maps app, which can carry
- * real via points.
- */
-internal fun seedRouteNavigation(route: SavedRoute) {
-    Settings.setTripMode(route.mode)
-    val last = route.stops.last()
-    SpinResultHolder.state.value = SpinResult(
-        destination = last.at,
-        destinationName = last.name.ifBlank { route.name },
-        route = RouteResult(
-            polyline = route.polyline,
-            waypoints = emptyList(),
-            distanceMeters = route.distanceMeters,
-            timeMs = route.timeMs,
-        ),
-        candidates = emptyList(),
-    )
-}
 
 /** What currently occupies the bottom-card slot on the map. */
 private enum class BottomCard { NAV, CANDIDATES, COLLAPSED, EXPANDED }
@@ -459,6 +171,14 @@ fun MapScreen(
     var spinning by remember { mutableStateOf(false) }
     var spinJob by remember { mutableStateOf<Job?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    // `error` has a dozen writers and, until now, one reader — inside SpinSheet,
+    // which is collapsed by default. A denied location permission therefore
+    // reported itself to nobody. The snackbar shows it whatever the bottom card
+    // is doing; the sheet keeps its own copy for when it is open.
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(error) {
+        error?.let { snackbarHostState.showSnackbar(it) }
+    }
     val serverConfig = remember { RoutingServer.load() }
     var poiKind by rememberSaveable { mutableStateOf(PoiKind.ROAD) }
     var directionDeg by rememberSaveable { mutableStateOf<Float?>(null) }
@@ -518,20 +238,29 @@ fun MapScreen(
     var lastRerouteMs by remember { mutableLongStateOf(0L) }
     // Following is the resting state of the map. `camSuspended` is what a pan,
     // a pinch or a spin result sets so you can look around; it does not switch
-    // following off, it parks it until you are moving again.
-    var followMe by remember { mutableStateOf(true) }
-    var camSuspended by remember { mutableStateOf(false) }
-    var lastGestureMs by remember { mutableLongStateOf(0L) }
+    // following off, it parks it until you are moving again. All three - the
+    // intent, the park and the quiet-window stamp - have one owner: every
+    // transition is a CameraAuthority.reduce dispatch, and the rules (including
+    // the spin park that deliberately does not stamp) live there with their
+    // tests rather than being spread across ten call sites.
+    var camAuthority by remember { mutableStateOf(CameraAuthority.State()) }
     // Dock (collapsed) is the resting state; the sheet only comes up when
     // tapped open, and folds back down on its own after a spin lands.
     var settingsCollapsed by rememberSaveable { mutableStateOf(true) }
     var ambientSpeedLimitKmh by remember { mutableStateOf<Double?>(null) }
-    var speedLimitWays by remember {
-        mutableStateOf<List<RoadRoulette.SpeedLimitWay>>(emptyList())
-    }
-    var speedLimitWaysCenter by remember { mutableStateOf<LatLon?>(null) }
-    var speedLimitFetchMs by remember { mutableLongStateOf(0L) }
-    var speedLimitMisses by remember { mutableIntStateOf(0) }
+    // The prefetched way set, the fetch throttle, the miss counter and the
+    // snapped value: SpeedLimitTracker's, in shared/…/drive/, where the policy
+    // lives with its tests. ambientSpeedLimitKmh stays its own state because the
+    // camera chime snapshots it below and the HUD reads it; collapsing the two is
+    // the state layer's call, not this one's.
+    var limitState by remember { mutableStateOf(SpeedLimitTracker.State()) }
+    // Out here rather than inside the effect that uses it, for the same reason
+    // limitState is: that effect is keyed on `navigating` and restarts, and a
+    // holder that restarted with it would forget an in-flight fetch — so the
+    // guard would wave a second one through on the very next fix after a
+    // navigation toggle. The fetch itself runs on `scope`, which outlives the
+    // restart, so the two have to agree about what is running.
+    var speedLimitFetchJob by remember { mutableStateOf<Job?>(null) }
     var speedCameras by remember { mutableStateOf<List<SpeedCameras.Camera>>(emptyList()) }
     var speedSections by remember { mutableStateOf<List<SpeedCameras.Section>>(emptyList()) }
     // Non-null only while driving through a trajectcontrole: the running average
@@ -549,9 +278,9 @@ fun MapScreen(
     var camTargetBearing by remember { mutableStateOf<Float?>(null) }
     var camTargetZoom by remember { mutableDoubleStateOf(defaultZoom.toDouble()) }
     var displaySpeedKmh by remember { mutableDoubleStateOf(0.0) }
-    val cameraActive = (followMe || navigating) && !camSuspended
-    // What the follow button reflects: navigation drives the camera on its own.
-    val following = followMe && !camSuspended
+    // Same expression as before, now owned by the state: navigation drives the
+    // camera whether or not you are following, and a park still stops it.
+    val cameraActive = camAuthority.cameraActive(navigating)
 
     LaunchedEffect(liveFix) {
         liveFix?.takeIf { it.accuracyMeters <= 100f }?.let {
@@ -673,8 +402,10 @@ fun MapScreen(
         var downY = 0f
         mapView.setOnTouchListener { _, event ->
             fun park() {
-                camSuspended = true
-                lastGestureMs = System.currentTimeMillis()
+                camAuthority = CameraAuthority.reduce(
+                    camAuthority,
+                    CameraAuthority.Action.Gesture(System.currentTimeMillis()),
+                )
             }
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -686,28 +417,45 @@ fun MapScreen(
                 MotionEvent.ACTION_MOVE ->
                     if (abs(event.x - downX) > slop || abs(event.y - downY) > slop) park()
                 // A tap that never left the slop circle keeps following: it was
-                // a long-press pin drop or a marker tap, not a pan.
-                MotionEvent.ACTION_UP -> if (camSuspended) lastGestureMs = System.currentTimeMillis()
+                // a long-press pin drop or a marker tap, not a pan. That guard
+                // is GestureEnd's - it leaves an unparked camera alone.
+                MotionEvent.ACTION_UP -> {
+                    camAuthority = CameraAuthority.reduce(
+                        camAuthority,
+                        CameraAuthority.Action.GestureEnd(System.currentTimeMillis()),
+                    )
+                }
             }
             false
         }
         onDispose { mapView.setOnTouchListener(null) }
     }
 
-    // Driving off takes the camera back. Not while a spin is on screen (own
-    // or a convoy's, still being voted on): the candidates are the whole
-    // reason the map is parked where it is, and a passenger spinning at
-    // speed would otherwise never get to read them.
-    LaunchedEffect(camSuspended, spinning, candidates.isEmpty(), spinOffer == null) {
-        if (!camSuspended || spinning || candidates.isNotEmpty() || spinOffer != null) {
+    // Driving off takes the camera back; the rule is FollowCamera's. The keys are
+    // derived booleans on purpose - keying on the collections themselves would
+    // restart this collector on every convoy vote.
+    LaunchedEffect(camAuthority.camSuspended, spinning, candidates.isEmpty(), spinOffer == null) {
+        if (!FollowCamera.shouldWatch(
+                camSuspended = camAuthority.camSuspended,
+                spinning = spinning,
+                hasCandidates = candidates.isNotEmpty(),
+                hasSpinOffer = spinOffer != null,
+            )
+        ) {
             return@LaunchedEffect
         }
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
-            if (fix.speedMps >= CAM_RESUME_SPEED_MPS &&
-                System.currentTimeMillis() - lastGestureMs > CAM_RESUME_QUIET_MS
+            if (FollowCamera.shouldResume(
+                    speedMps = fix.speedMps,
+                    nowMs = System.currentTimeMillis(),
+                    lastGestureMs = camAuthority.lastGestureMs,
+                )
             ) {
-                camSuspended = false
+                camAuthority = CameraAuthority.reduce(
+                    camAuthority,
+                    CameraAuthority.Action.DriveOffResumed,
+                )
             }
         }
     }
@@ -808,10 +556,12 @@ fun MapScreen(
         route = c.route
         candidates = emptyList()
         val loc = myLocation ?: return
-        camSuspended = true
-        // Buy the same grace period a pan gets, so a pick made at speed isn't
-        // re-centered before you've seen the route you just chose.
-        lastGestureMs = System.currentTimeMillis()
+        // Parks and buys the same grace period a pan gets, so a pick made at
+        // speed isn't re-centered before you've seen the route you just chose.
+        camAuthority = CameraAuthority.reduce(
+            camAuthority,
+            CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
+        )
         mapLibreMap?.let { cameraForPoints(it, listOf(loc, c.destination), FIT_PADDING_PX, fitBottomPaddingPx) }
     }
 
@@ -835,27 +585,16 @@ fun MapScreen(
         candidates = emptyList()
         ConvoyLiveClient.clearSpinOffer()
         val loc = myLocation ?: return
-        camSuspended = true
-        lastGestureMs = System.currentTimeMillis()
+        camAuthority = CameraAuthority.reduce(
+            camAuthority,
+            CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
+        )
         mapLibreMap?.let { cameraForPoints(it, listOf(loc, LatLon(c.lat, c.lon)), FIT_PADDING_PX, fitBottomPaddingPx) }
     }
 
-    // How a vote round ends. Two halves, and which one runs depends on
-    // whether this device opened the round (see GroupSpin.fromMe):
-    //
-    //  - Anyone receiving a one-candidate offer commits it. That offer *is*
-    //    the decision, so every member lands on the same destination off the
-    //    same frame instead of each resolving the votes themselves.
-    //  - The sharer, once everyone currently live (convoyPeers plus itself)
-    //    has voted, sends the leader back out as exactly that one-candidate
-    //    offer — which then commits here too, through the branch above.
-    //
-    // Tallying independently on each device would have been simpler and
-    // wrong: convoyPeers prunes a member who's been quiet for 20s, so one
-    // phone can consider the round complete on two votes while another is
-    // still waiting for a third, and the two can resolve to different
-    // candidates. Splitting a convoy across two destinations is the exact
-    // failure this feature exists to prevent.
+    // How a vote round ends: the rule and its correctness argument are
+    // resolveSpinRound in map/GroupSpinRules.kt. Not wired to it yet -
+    // verifying the convoy path needs two devices transmitting to each other.
     LaunchedEffect(spinOffer, spinVotes, convoyPeers, accountUsername) {
         val offer = spinOffer ?: return@LaunchedEffect
         if (offer.candidates.size == 1) {
@@ -968,9 +707,59 @@ fun MapScreen(
         }
     }
 
+    // ---- spoken guidance ---------------------------------------------------
+    //
+    // The phone was the only navigating surface with no voice: the head unit and
+    // iOS have spoken turns since they shipped, while Settings.voiceGuidance had
+    // three consumers and two voices. Register decision 1, full parity.
+    //
+    // Declared up here rather than beside the nav loop because four call sites
+    // below need it — stopNavigation, startNavigation, the camera collector and
+    // the nav loop — and Kotlin resolves local declarations in order.
+    val navVoice = remember { NavVoice(context) }
+    DisposableEffect(Unit) {
+        onDispose {
+            // Not stop(): the engine connection and any held focus request
+            // outlive the composition otherwise. The car does the same in its
+            // onDestroy (car/NavScreen.kt:199-202).
+            navVoice.shutdown()
+        }
+    }
+    val announcer = remember { NavAnnouncer() }
+
+    // Muting has to cut the sentence already in flight, which is what the car's
+    // speaker button does (car/NavScreen.kt:479-480). A raw collect and not
+    // collectAsStateWithLifecycle: a mute has to land while the app is in the
+    // background, which is exactly where the lifecycle-aware copy stops
+    // updating.
+    LaunchedEffect(Unit) {
+        Settings.voiceGuidance.collect { on -> if (!on) navVoice.stop() }
+    }
+
+    fun announceAloud(text: String) {
+        // Read off the StateFlows rather than the composed state: the camera
+        // warning's collector runs while the app is backgrounded, and the
+        // composed copies do not update there.
+        if (!Settings.voiceGuidance.value) return
+        // A live convoy owns the output. ConvoyLiveService takes
+        // AUDIOFOCUS_GAIN_TRANSIENT for the whole convoy and registers no
+        // focus-change listener (convoy/ConvoyLiveService.kt:172-183), and puts
+        // the device into MODE_IN_COMMUNICATION routed to the speaker (:129,
+        // :149-161) — so a guidance prompt would not duck anything, it would
+        // talk over the riders you are talking to, through a route nobody has
+        // measured. activeConvoyId is the closest observable to "the service is
+        // running"; FriendsScreen.kt:681 records that the two are not exactly
+        // the same thing.
+        if (ConvoyLiveClient.activeConvoyId.value != null) return
+        navVoice.speak(text)
+    }
+
     fun stopNavigation() {
         navigating = false
         navProgress = null
+        // Arrival, or the Exit button. Either way stop mid-sentence rather than
+        // finishing a prompt for a turn that no longer matters.
+        navVoice.stop()
         camTargetBearing = null
         // The line stays on the map after arrival (and after a stop); without
         // this it would keep the driven part greyed out with nothing following
@@ -985,11 +774,16 @@ fun MapScreen(
             error = "Waiting for your location…"
             return
         }
-        camSuspended = false
+        camAuthority = CameraAuthority.reduce(camAuthority, CameraAuthority.Action.NavigationStarted)
         if (stats == null) {
             TripTrackingService.start(context, destination?.lat, destination?.lon)
         }
         error = null
+        // A fresh session hears its first turn immediately, whatever the
+        // distance — the same rule the car has, and the reason it exists is
+        // that silence after pressing Start is indistinguishable from a broken
+        // voice.
+        announcer.routeChanged()
         val dest = destination
         if (dest == null) {
             // Round trip: the spin already fetched the loop with instructions.
@@ -1016,43 +810,61 @@ fun MapScreen(
         }
     }
 
-    // Ambient speed-limit sign while just driving (not navigating). We prefetch
-    // every tagged way in a ~1.5km circle once, then snap locally against that
-    // set on every fix — so the sign flips the instant you cross onto a new
-    // road, instead of lagging a throttled Overpass round-trip behind you. The
-    // fetch refreshes only when you near the edge of what you have (throttled on
-    // failure so a network blip doesn't hammer the mirrors).
+    // Ambient speed-limit sign while just driving (not navigating). The whole
+    // policy — the prefetch throttle, the local snap and the three-miss clear —
+    // is SpeedLimitTracker's (shared/…/drive/), where it lives with its tests and
+    // is shared with the head unit. The I/O below is ours: commonMain has no
+    // Dispatchers, so the machine says a fetch is wanted and we perform it.
     LaunchedEffect(navigating) {
+        // Crossing into or out of navigation invalidates whatever sign we hold;
+        // reset() says why, and keeps the prefetched area. Clear it and let the
+        // next snap re-establish it, the way the car has since it shipped
+        // (car/SpinScreen.kt's onStart).
+        limitState = SpeedLimitTracker.reset(limitState)
+        ambientSpeedLimitKmh = null
         if (navigating) return@LaunchedEffect
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
-            if (fix.speedMps < 2.0) return@collect
+            // Not just the machine's own floor: returning here is what also keeps
+            // a parked phone from prefetching.
+            if (fix.speedMps < SpeedLimitTracker.MIN_MPS) return@collect
             val pos = LatLon(fix.lat, fix.lon)
-            val fromCenter = speedLimitWaysCenter?.let { RoadRoulette.distanceMeters(it, pos) }
-                ?: Double.MAX_VALUE
             val now = System.currentTimeMillis()
-            if (fromCenter > RoadRoulette.SPEED_PREFETCH_RADIUS_M - 500.0 &&
-                now - speedLimitFetchMs > 10_000
+            if (SpeedLimitTracker.needsWays(limitState, pos, now) &&
+                speedLimitFetchJob?.isActive != true
             ) {
-                speedLimitFetchMs = now
-                val ways = withContext(Dispatchers.IO) { RoadRoulette.speedLimitWays(pos) }
-                if (ways.isNotEmpty()) {
-                    speedLimitWays = ways
-                    speedLimitWaysCenter = pos
+                // The refresh runs in its own coroutine. lastFix is a StateFlow
+                // and this collector is sequential, so awaiting a mirror *here*
+                // suspended the collector — and every fix that landed meanwhile
+                // was conflated away, so the snap below, the miss counter and
+                // the sign all stopped tracking the road for as long as Overpass
+                // took. A mirror having a slow ten seconds is normal; a posted
+                // limit that stops following the road for ten seconds is not.
+                // The isActive guard is what now stops two fetches overlapping,
+                // which is the job the inline await used to do by accident.
+                // Same fix as car/SpinScreen.kt's updateSpeedLimit.
+                limitState = SpeedLimitTracker.fetchStarted(limitState, now)
+                speedLimitFetchJob = scope.launch {
+                    // runCatching because this no longer runs inside the
+                    // collector: an exception escaping here would cancel
+                    // `scope`, i.e. every coroutine this screen owns, where
+                    // inline it only killed this one collector. speedLimitWays
+                    // swallows IOException but not the SerializationException a
+                    // busy Overpass's HTML error page produces — the hazard
+                    // SpeedCameras.near:65-79 documents and catches.
+                    val ways = runCatching {
+                        withContext(Dispatchers.IO) { RoadRoulette.speedLimitWays(pos) }
+                    }.getOrDefault(emptyList())
+                    limitState = SpeedLimitTracker.withWays(limitState, ways, pos)
                 }
             }
-            // Heading lets the snap reject the cross street and the frontage
-            // road, which is most of why the sign used to show nonsense.
-            val result = RoadRoulette.snapSpeedLimitKmh(
-                pos, fix.bearingDeg?.toDouble(), speedLimitWays)
-            if (result != null) {
-                ambientSpeedLimitKmh = result
-                speedLimitMisses = 0
-            } else if (++speedLimitMisses >= 3) {
-                // A few misses in a row means the limit really ended (or the road
-                // isn't tagged), not a one-fix gap — only then clear the sign.
-                ambientSpeedLimitKmh = null
-            }
+            limitState = SpeedLimitTracker.onFix(
+                state = limitState,
+                at = pos,
+                headingDeg = fix.bearingDeg?.toDouble(),
+                speedMps = fix.speedMps,
+            )
+            ambientSpeedLimitKmh = limitState.limitKmh
         }
     }
 
@@ -1063,6 +875,10 @@ fun MapScreen(
     LaunchedEffect(Unit) {
         var center: LatLon? = null
         var lastFetchMs = 0L
+        // Coroutine-local, unlike the ambient limit's holder up in the body:
+        // this effect is keyed on Unit and never restarts, so a local has
+        // nothing to lose. Keeping it here is what says so.
+        var fetchJob: Job? = null
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
             val pos = LatLon(fix.lat, fix.lon)
@@ -1070,14 +886,24 @@ fun MapScreen(
                 ?: Double.MAX_VALUE
             val now = System.currentTimeMillis()
             if (fromCenter > SpeedCameras.PREFETCH_RADIUS_M - 1000.0 &&
-                now - lastFetchMs > 15_000
+                now - lastFetchMs > 15_000 &&
+                fetchJob?.isActive != true
             ) {
+                // Own coroutine, isActive guard, runCatching: same reasoning as
+                // the ambient limit above, and as car/NavScreen.kt:348-379,
+                // which is where this was diagnosed. This collector feeds the
+                // section machine, so suspending it also stalled the running
+                // average's own fix stream.
                 lastFetchMs = now
-                val result = withContext(Dispatchers.IO) { SpeedCameras.near(pos) }
-                if (result != null) {
-                    speedCameras = result.cameras
-                    speedSections = result.sections
-                    center = pos
+                fetchJob = scope.launch {
+                    val result = runCatching {
+                        withContext(Dispatchers.IO) { SpeedCameras.near(pos) }
+                    }.getOrNull()
+                    if (result != null) {
+                        speedCameras = result.cameras
+                        speedSections = result.sections
+                        center = pos
+                    }
                 }
             }
         }
@@ -1133,9 +959,9 @@ fun MapScreen(
     }
 
     // Chime when a camera lies ahead, close, and we're over the posted limit —
-    // the one case worth interrupting for. One chime per camera: warnedAt holds
-    // the camera we last sounded for and clears once it's behind us, re-arming
-    // for the next. Silent when the limit is unknown: we can't judge "too fast".
+    // the one case worth interrupting for. The rule, the one-chime-per-camera
+    // latch and the wording are CameraWarner's (shared/…/drive/), where they live
+    // with their tests; what to do about a warning is ours.
     val speedCamerasRef = rememberUpdatedState(speedCameras)
     val ambientLimitRef = rememberUpdatedState(ambientSpeedLimitKmh)
     val navProgressRef = rememberUpdatedState(navProgress)
@@ -1144,89 +970,71 @@ fun MapScreen(
     }
     DisposableEffect(Unit) { onDispose { toneGen?.release() } }
     LaunchedEffect(Unit) {
-        var warnedAt: LatLon? = null
+        var warnerState = CameraWarner.State()
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
-            val pos = LatLon(fix.lat, fix.lon)
-            val heading = fix.bearingDeg?.toDouble()
-            val ahead = speedCamerasRef.value.filter { cam ->
-                RoadRoulette.distanceMeters(pos, cam.at) <= SpeedCameras.WARN_METERS &&
-                    (heading == null ||
-                        RoadRoulette.withinWedge(pos, cam.at, heading, 45.0))
-            }.minByOrNull { RoadRoulette.distanceMeters(pos, it.at) }
-            if (ahead == null) {
-                warnedAt = null
-                return@collect
-            }
-            val limit = navProgressRef.value?.speedLimitKmh ?: ambientLimitRef.value
-            val tooFast = limit != null && fix.speedMps * 3.6 > limit + 3.0
-            if (tooFast && ahead.at != warnedAt) {
-                toneGen?.startTone(ToneGenerator.TONE_PROP_BEEP2, 400)
-                warnedAt = ahead.at
+            // The ambient sign is the free-drive source. While navigating, the
+            // route's own posted limit is the authority and the ambient tracker
+            // is stopped — and now cleared, see the producer above — so a route
+            // segment with no maxspeed judges you against nothing instead of
+            // against the sign from wherever you set off.
+            val step = CameraWarner.onFix(
+                state = warnerState,
+                cameras = speedCamerasRef.value,
+                at = LatLon(fix.lat, fix.lon),
+                headingDeg = fix.bearingDeg?.toDouble(),
+                speedKmh = fix.speedMps * 3.6,
+                limitKmh = navProgressRef.value?.speedLimitKmh ?: ambientLimitRef.value,
+            )
+            warnerState = step.state
+            when (val outcome = step.outcome) {
+                is CameraWarner.Outcome.Warn -> {
+                    toneGen?.startTone(ToneGenerator.TONE_PROP_BEEP2, 400)
+                    // The only trace that the chime fired. NavVoice logs the
+                    // spoken half, but that half is gated on the guidance
+                    // setting, so with speech off a replay had nothing at all to
+                    // grep for and a zero hit count meant "muted" and "never
+                    // warned" indistinguishably. Debug level: it is one line per
+                    // camera, latched to one per camera by CameraWarner itself.
+                    Log.d("DetourCameraWarn", "chime: ${outcome.text}")
+                    // A TONE_PROP_BEEP2 on the notification stream is inaudible on
+                    // a bar mount with earplugs in and wind noise — which is this
+                    // app's primary configuration. The head unit has spoken this
+                    // since it shipped and its comment says why
+                    // (car/NavScreen.kt's checkCameras). Register entry 15.
+                    //
+                    // No toast: the car's stands in for a visual the head unit has
+                    // no room for, and the phone's map already draws the camera
+                    // marker. The snackbarHostState this screen already owns is the
+                    // error channel; routing a routine hazard through it would
+                    // teach the rider to ignore errors.
+                    announceAloud(outcome.text)
+                }
+                CameraWarner.Outcome.Silent -> {}
             }
         }
     }
 
-    // Average speed through a trajectcontrole. Enter at one end heading for the
-    // other, then integrate GPS distance over elapsed time until we pass that
-    // far end (or overshoot / time out). The average is what the section
-    // actually measures, so it's the number worth seeing while inside one.
+    // Average speed through a trajectcontrole: SectionAverageTracker's call now
+    // (shared/…/drive/), where the gate rules, the eight thresholds and the
+    // reasoning behind each live with their tests.
     val speedSectionsRef = rememberUpdatedState(speedSections)
     LaunchedEffect(Unit) {
-        var active: SpeedCameras.Section? = null
-        var exitGate: List<LatLon> = emptyList()
-        var entryMs = 0L
-        var accMeters = 0.0
-        var last: LatLon? = null
+        var st = SectionAverageTracker.State()
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
-            val pos = LatLon(fix.lat, fix.lon)
-            val now = System.currentTimeMillis()
-            val current = active
-            if (current == null) {
-                // Below 2 m/s the bearing is noise, so a stopped phone can't
-                // heading-test its way into a section.
-                val heading = fix.bearingDeg?.toDouble()
-                    ?.takeIf { fix.speedMps > 2.0 } ?: return@collect
-                // Nearest match, not the first: the two directions of one
-                // trajectcontrole are separate relations sharing a location, and
-                // a short section can sit inside a longer one.
-                val entered = speedSectionsRef.value
-                    .mapNotNull { s -> sectionExitGate(s, pos, heading)?.let { s to it } }
-                    .minByOrNull { (s, _) ->
-                        (s.endA + s.endB).minOf { RoadRoulette.distanceMeters(pos, it) }
-                    }
-                if (entered != null) {
-                    active = entered.first
-                    exitGate = entered.second
-                    entryMs = now
-                    accMeters = 0.0
-                    last = pos
-                    sectionAvgKmh = null
-                    sectionLimitKmh = entered.first.maxspeedKmh
-                }
-            } else {
-                last?.let { accMeters += RoadRoulette.distanceMeters(it, pos) }
-                last = pos
-                val elapsedHours = (now - entryMs) / 3_600_000.0
-                if (elapsedHours > 0 && accMeters > 20.0) {
-                    sectionAvgKmh = (accMeters / 1000.0) / elapsedHours
-                }
-                // Only the end we drove in towards ends the measurement. The
-                // 150 m floor keeps the gate we entered through from counting as
-                // the exit on the fix right after entering.
-                val reachedEnd = accMeters > 150.0 &&
-                    exitGate.any { RoadRoulette.distanceMeters(pos, it) < SECTION_GATE_METERS }
-                val overshot = accMeters > current.spanMeters * 1.4 + 400.0
-                val timedOut = now - entryMs > 30 * 60_000L
-                if (reachedEnd || overshot || timedOut) {
-                    active = null
-                    exitGate = emptyList()
-                    last = null
-                    sectionAvgKmh = null
-                    sectionLimitKmh = null
-                }
-            }
+            st = SectionAverageTracker.onFix(
+                state = st,
+                sections = speedSectionsRef.value,
+                at = LatLon(fix.lat, fix.lon),
+                headingDeg = fix.bearingDeg?.toDouble(),
+                speedMps = fix.speedMps,
+                nowMs = System.currentTimeMillis(),
+            )
+            // Two states, one assignment source: they can no longer disagree
+            // across a recomposition. Collapsing them into one is stage 4's.
+            sectionAvgKmh = st.reading.averageKmh
+            sectionLimitKmh = st.reading.limitKmh
         }
     }
 
@@ -1357,36 +1165,51 @@ fun MapScreen(
         NavRelay.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
         BleNavServer.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
 
-        // Arrived (point-to-point; loops end back at the start on their own).
-        if (destination != null && progress.remainingMeters < 40 &&
-            progress.offRouteMeters < 60
-        ) {
-            stopNavigation()
-            return@LaunchedEffect
-        }
+        // Same policy the head unit and iOS read, so the three surfaces cannot
+        // word one maneuver three ways.
+        announcer.onProgress(progress.nextInstruction, progress.distanceToTurnMeters)
+            ?.let { announceAloud(it) }
 
-        // Off route → fresh route to the destination. Launched on the screen
-        // scope so the next GPS fix doesn't cancel the request; loops keep
-        // their drawn line (rerouting a loop would change the whole trip).
+        // Arrival and reroute are NavPolicy's call, shared with car/NavScreen.kt.
         val dest = destination
         val now = System.currentTimeMillis()
-        if (dest != null && progress.offRouteMeters > 60 &&
-            !rerouting && now - lastRerouteMs > 15_000
-        ) {
-            rerouting = true
-            lastRerouteMs = now
-            scope.launch {
-                try {
-                    route = withContext(Dispatchers.IO) {
-                        RoutingServer.route(serverConfig, pos, dest, mode.ghProfile,
-                            Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
+        when (NavPolicy.decide(
+            progress = progress,
+            hasDestination = dest != null,
+            rerouting = rerouting,
+            lastRerouteMs = lastRerouteMs,
+            nowMs = now,
+        )) {
+            // Point-to-point only; loops end back at the start on their own.
+            NavPolicy.Decision.Arrived -> {
+                stopNavigation()
+                return@LaunchedEffect
+            }
+            // Off route → fresh route to the destination. Launched on the screen
+            // scope so the next GPS fix doesn't cancel the request; loops keep
+            // their drawn line (rerouting a loop would change the whole trip).
+            NavPolicy.Decision.Reroute -> {
+                val target = dest ?: return@LaunchedEffect // Reroute implies a destination
+                rerouting = true
+                lastRerouteMs = now
+                announceAloud(announcer.rerouting())
+                scope.launch {
+                    try {
+                        route = withContext(Dispatchers.IO) {
+                            RoutingServer.route(serverConfig, pos, target, mode.ghProfile,
+                                Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
+                        }
+                        // Instruction indices belong to the old polyline; start
+                        // the new line's prompts from scratch.
+                        announcer.routeChanged()
+                    } catch (e: Exception) {
+                        // stay on the old line; retried after the cooldown
+                    } finally {
+                        rerouting = false
                     }
-                } catch (e: Exception) {
-                    // stay on the old line; retried after the cooldown
-                } finally {
-                    rerouting = false
                 }
             }
+            NavPolicy.Decision.Continue -> {}
         }
     }
 
@@ -1400,8 +1223,10 @@ fun MapScreen(
             spinning = true
             error = null
             // The result gets framed on the map; a following camera would drag
-            // it straight back to you before you could look at it.
-            camSuspended = true
+            // it straight back to you before you could look at it. SpinStarted
+            // parks without stamping the quiet window - see CameraAuthority.reduce:
+            // that asymmetry is today's behaviour, kept deliberately.
+            camAuthority = CameraAuthority.reduce(camAuthority, CameraAuthority.Action.SpinStarted)
             var serverError: String? = null
             try {
                 // Bias destinations toward territory the fog hasn't uncovered.
@@ -1538,6 +1363,7 @@ fun MapScreen(
                 exit = slideOutVertically { it } + fadeOut(),
             ) { ModeBar(mode, ::selectMode) }
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { scaffoldPadding ->
         Box(
@@ -1578,15 +1404,17 @@ fun MapScreen(
                     .fillMaxWidth(),
             ) {
                 MapTopChrome(
-                    followMe = following,
+                    followMe = camAuthority.following,
                     fogEnabled = fogEnabled,
                     username = accountUsername,
                     convoyName = if (convoyConnected) convoyName else null,
                     layersOpen = layersOpen,
                     onLayersOpenChange = { layersOpen = it },
                     onToggleFollow = {
-                        if (following) followMe = false
-                        else { followMe = true; camSuspended = false }
+                        camAuthority = CameraAuthority.reduce(
+                            camAuthority,
+                            CameraAuthority.Action.FollowToggled,
+                        )
                     },
                     onSearch = { searchOpen = true },
                     onToggleFog = { Settings.setFogEnabled(!fogEnabled) },
@@ -1679,8 +1507,10 @@ fun MapScreen(
                             destination = p.location
                             destinationName = p.name
                             route = null
-                            camSuspended = true
-                            lastGestureMs = System.currentTimeMillis()
+                            camAuthority = CameraAuthority.reduce(
+                                camAuthority,
+                                CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
+                            )
                             mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
                                 LatLng(p.location.lat, p.location.lon), 14.0), 600)
                         },
@@ -1711,7 +1541,8 @@ fun MapScreen(
                     when (card) {
                         BottomCard.NAV -> NavigationBottomBar(
                             progress = navProgress,
-                            offRoute = (navProgress?.offRouteMeters ?: 0.0) > 60,
+                            offRoute = (navProgress?.offRouteMeters ?: 0.0) >
+                                NavPolicy.OFF_ROUTE_METERS,
                             onExit = { stopNavigation() },
                         )
                         BottomCard.CANDIDATES -> CandidatesCard(
@@ -1830,1368 +1661,14 @@ fun MapScreen(
                 destination = r.location
                 destinationName = r.name
                 route = null
-                camSuspended = true
-                lastGestureMs = System.currentTimeMillis()
+                camAuthority = CameraAuthority.reduce(
+                    camAuthority,
+                    CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
+                )
                 mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
                     LatLng(r.location.lat, r.location.lon), 14.0), 800)
             },
             onDismiss = { searchOpen = false },
         )
     }
-}
-
-/** Full-screen place search: type to get live suggestions, tap one to make it the
- *  destination. Opens with the keyboard up, recents show first, and there is no
- *  Search button — results stream in as you type. */
-@Composable
-private fun SearchDialog(
-    near: LatLon?,
-    onPick: (GeocodeResult) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val context = LocalContext.current
-    var query by remember { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }
-    var searching by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val recents = remember { RecentSearchStore.load() }
-    val recentNames = remember(recents) { recents.map { it.name }.toSet() }
-    val focusRequester = remember { FocusRequester() }
-
-    fun pick(r: GeocodeResult) {
-        RecentSearchStore.save(r)
-        onPick(r)
-    }
-
-    // Start with the keyboard up so the user types straight away.
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
-
-    // Live, debounced suggestions. Matching recents show instantly, then a single
-    // Photon lookup runs — it already blends the query match with proximity to the
-    // user, so nearby streets and POIs rank first while a famous far place still
-    // surfaces where it belongs. Recents are kept on top, then deduped against hits.
-    LaunchedEffect(query) {
-        val q = query.trim()
-        error = null
-        if (q.length < 2) {
-            results = if (q.isEmpty()) recents
-                else recents.filter { it.name.contains(q, ignoreCase = true) }
-            searching = false
-            return@LaunchedEffect
-        }
-        val recentMatches = recents.filter { it.name.contains(q, ignoreCase = true) }
-        results = recentMatches
-        delay(300)
-        searching = true
-        try {
-            val hits = withContext(Dispatchers.IO) { Geocoder.search(q, near) }
-            val seen = HashSet(recentMatches.map { it.name })
-            val merged = ArrayList(recentMatches)
-            for (hit in hits) if (seen.add(hit.name)) merged.add(hit)
-            results = merged
-            error = if (merged.isEmpty()) "No results" else null
-        } catch (e: Exception) {
-            error = e.message ?: "Search failed"
-        }
-        searching = false
-    }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        Surface(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxSize().statusBarsPadding()) {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
-                    }
-                    OutlinedTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        placeholder = { Text("Search address or place") },
-                        singleLine = true,
-                        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                        trailingIcon = {
-                            if (searching) {
-                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                            } else if (query.isNotEmpty()) {
-                                IconButton(onClick = { query = "" }) {
-                                    Icon(Icons.Outlined.Clear, contentDescription = "Clear")
-                                }
-                            }
-                        },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        modifier = Modifier.weight(1f).focusRequester(focusRequester),
-                    )
-                }
-                error?.let {
-                    Text(
-                        it,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    )
-                }
-                LazyColumn(Modifier.fillMaxSize()) {
-                    items(results) { r ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { pick(r) }
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                if (r.name in recentNames) Icons.Outlined.History else Icons.Outlined.Place,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Spacer(Modifier.width(16.dp))
-                            Text(r.name, style = MaterialTheme.typography.bodyLarge)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** One-tap saved-place chips over the map, plus a "Save pin" chip when a
- *  destination pin is on screen. Scrolls horizontally when they overflow. */
-@Composable
-private fun ShortcutChips(
-    places: List<SavedPlace>,
-    canSavePin: Boolean,
-    onPick: (SavedPlace) -> Unit,
-    onSavePin: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        if (canSavePin) {
-            AssistChip(
-                onClick = onSavePin,
-                label = { Text("Save pin") },
-                leadingIcon = { Icon(Icons.Default.Add, contentDescription = null,
-                    Modifier.size(18.dp)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = glassContainerColor()),
-            )
-        }
-        places.forEach { p ->
-            AssistChip(
-                onClick = { onPick(p) },
-                label = { Text(p.name, maxLines = 1) },
-                leadingIcon = { Icon(Icons.Default.Place, contentDescription = null,
-                    Modifier.size(18.dp)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = glassContainerColor()),
-            )
-        }
-    }
-}
-
-/** Prominent disclosure for background location, required by Play policy to
- *  appear — and be accepted — before the system permission prompt is raised.
- *  The wording has to name the app, the data, the purpose and the fact that
- *  collection continues while the app is not in use; do not trim it. */
-@Composable
-private fun BackgroundLocationDisclosure(
-    onAllow: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Record rides in the background") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    "Detour collects location data to start, record and finish your " +
-                        "rides automatically, even when the app is closed or not in use.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    "Without this, a ride only records while Detour is open on screen. " +
-                        "Your routes stay on this device unless you turn on sync to your " +
-                        "own server.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-        },
-        confirmButton = { TextButton(onClick = onAllow) { Text("Allow") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Not now") } },
-    )
-}
-
-/** Name the current pin and save it as a shortcut. */
-@Composable
-private fun SavePinDialog(
-    suggestedName: String,
-    onSave: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var name by remember { mutableStateOf(suggestedName) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Save this place") },
-        text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Name (Home, Work…)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(name) }, enabled = name.isNotBlank()) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-/** One pill in a [PillRow]: rounded, filled when selected. No new dependency —
- *  built on Surface rather than SegmentedButton so it can scroll horizontally
- *  (the direction row) or fill the width evenly (the destination-type row). */
-@Composable
-private fun Pill(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        onClick = onClick,
-        modifier = modifier,
-        shape = CircleShape,
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer
-            else MaterialTheme.colorScheme.surfaceContainerHigh,
-    ) {
-        Text(
-            label,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-        )
-    }
-}
-
-/** A row of equal-width pill segments — the destination-type control. */
-@Composable
-private fun SegmentedPillRow(
-    options: List<String>,
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        options.forEachIndexed { i, label ->
-            Pill(label, i == selectedIndex, { onSelect(i) }, Modifier.weight(1f))
-        }
-    }
-}
-
-/** A horizontally scrolling row of pills — the direction picker, which has
- *  too many options (9) to fit evenly on a phone width. */
-@Composable
-private fun ScrollingPillRow(
-    options: List<String>,
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        options.forEachIndexed { i, label ->
-            Pill(label, i == selectedIndex, { onSelect(i) })
-        }
-    }
-}
-
-/** Launches navigation via [app] and remembers it as the default for next
- *  time — the single dispatch point behind the dropdown items in
- *  [NavMenuItems] and the direct-tap bypass on [NavButton]/[NavIconButton]. */
-private fun launchNav(
-    context: Context,
-    app: Settings.NavApp,
-    destination: LatLon?,
-    route: List<LatLon>?,
-    origin: LatLon?,
-    mode: TravelMode,
-    onNavigateInApp: () -> Unit,
-    onNavigate: () -> Unit,
-) {
-    when (app) {
-        Settings.NavApp.IN_APP -> onNavigateInApp()
-        Settings.NavApp.GOOGLE_MAPS -> {
-            onNavigate()
-            // Waze can't take multi-waypoint routes; Google Maps only.
-            if (route != null && origin != null) navigateRoundTrip(context, origin, route)
-            else destination?.let { navigateGoogleMaps(context, it, mode) }
-        }
-        Settings.NavApp.WAZE -> { onNavigate(); destination?.let { navigateWaze(context, it) } }
-        Settings.NavApp.OTHER -> { onNavigate(); destination?.let { navigateGeo(context, it) } }
-        Settings.NavApp.ASK -> return // unreachable — callers only pass a concrete app
-    }
-    Settings.setPreferredNavApp(app)
-}
-
-/** Whether [app] can be launched right now without opening the menu — false
- *  for ASK (nothing remembered yet), and false when a round-trip route is
- *  active but [app] can't take multi-waypoint routes (Waze/"Other app"). */
-private fun navAppUsableDirectly(
-    app: Settings.NavApp,
-    inAppAvailable: Boolean,
-    route: List<LatLon>?,
-    origin: LatLon?,
-): Boolean = when (app) {
-    Settings.NavApp.ASK -> false
-    Settings.NavApp.IN_APP -> inAppAvailable
-    Settings.NavApp.GOOGLE_MAPS -> true
-    Settings.NavApp.WAZE, Settings.NavApp.OTHER -> !(route != null && origin != null)
-}
-
-/** A tap on [NavButton]/[NavIconButton]: go straight to the remembered app
- *  when it's usable here, otherwise fall back to opening the menu — the
- *  same fallback a long-press always takes. */
-private fun handleGoTap(
-    context: Context,
-    preferred: Settings.NavApp,
-    inAppAvailable: Boolean,
-    destination: LatLon?,
-    route: List<LatLon>?,
-    origin: LatLon?,
-    mode: TravelMode,
-    onNavigateInApp: () -> Unit,
-    onNavigate: () -> Unit,
-    openMenu: () -> Unit,
-) {
-    if (navAppUsableDirectly(preferred, inAppAvailable, route, origin)) {
-        launchNav(context, preferred, destination, route, origin, mode, onNavigateInApp, onNavigate)
-    } else {
-        openMenu()
-    }
-}
-
-/** Shared "Go" menu items — in-app when reachable, otherwise the external-app
- *  chooser. Backs both the full-width [NavButton] and the dock's compact
- *  [NavIconButton] so the routing logic lives in exactly one place. */
-@Composable
-private fun NavMenuItems(
-    destination: LatLon?,
-    route: List<LatLon>?,
-    origin: LatLon?,
-    mode: TravelMode,
-    inAppAvailable: Boolean,
-    onNavigateInApp: () -> Unit,
-    onNavigate: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val context = LocalContext.current
-    fun pick(app: Settings.NavApp) {
-        onDismiss()
-        launchNav(context, app, destination, route, origin, mode, onNavigateInApp, onNavigate)
-    }
-    if (inAppAvailable) {
-        DropdownMenuItem(
-            text = { Text("Navigate in app") },
-            onClick = { pick(Settings.NavApp.IN_APP) },
-        )
-    }
-    if (route != null && origin != null) {
-        DropdownMenuItem(
-            text = { Text("Google Maps (round trip)") },
-            onClick = { pick(Settings.NavApp.GOOGLE_MAPS) },
-        )
-    } else {
-        DropdownMenuItem(
-            text = { Text("Google Maps") },
-            onClick = { pick(Settings.NavApp.GOOGLE_MAPS) },
-        )
-        DropdownMenuItem(
-            text = { Text("Waze") },
-            onClick = { pick(Settings.NavApp.WAZE) },
-        )
-        DropdownMenuItem(
-            text = { Text("Other app") },
-            onClick = { pick(Settings.NavApp.OTHER) },
-        )
-    }
-}
-
-/** Compact circular "Go" trigger for the dock — same menu as [NavButton],
- *  just a 40dp icon button instead of a labelled tonal one. */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun NavIconButton(
-    destination: LatLon?,
-    route: List<LatLon>?,
-    origin: LatLon?,
-    mode: TravelMode,
-    inAppAvailable: Boolean,
-    onNavigateInApp: () -> Unit,
-    onNavigate: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var menuOpen by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    val preferred by Settings.preferredNavApp.collectAsStateWithLifecycle()
-    val enabled = destination != null || (route != null && origin != null)
-    Box(modifier) {
-        Surface(
-            modifier = Modifier
-                .size(40.dp)
-                .combinedClickable(
-                    enabled = enabled,
-                    onClick = {
-                        handleGoTap(context, preferred, inAppAvailable, destination, route, origin,
-                            mode, onNavigateInApp, onNavigate) { menuOpen = true }
-                    },
-                    onLongClick = { menuOpen = true },
-                ),
-            shape = CircleShape,
-            color = if (enabled) MaterialTheme.colorScheme.secondaryContainer
-                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-            contentColor = if (enabled) MaterialTheme.colorScheme.onSecondaryContainer
-                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-        ) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                Icon(Icons.Outlined.Navigation, contentDescription = "Go")
-            }
-        }
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            NavMenuItems(destination, route, origin, mode, inAppAvailable,
-                onNavigateInApp, onNavigate) { menuOpen = false }
-        }
-    }
-}
-
-/** Persistent glass bar at the bottom of the map: the spin dock. Tapping the
- *  left cell opens the sheet; the dice FAB spins right away without needing
- *  the sheet open at all. */
-@Composable
-private fun SpinDock(
-    mode: TravelMode,
-    radiusKm: Float,
-    directionDeg: Float?,
-    spinning: Boolean,
-    destination: LatLon?,
-    route: RouteResult?,
-    origin: LatLon?,
-    inAppAvailable: Boolean,
-    onSpin: () -> Unit,
-    onExpand: () -> Unit,
-    onNavigateInApp: () -> Unit,
-    onNavigate: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .glassBorder(MaterialTheme.shapes.extraLarge),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = glassCardColors(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(
-                Modifier
-                    .weight(1f)
-                    .clickable(onClick = onExpand),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(mode.icon, contentDescription = null)
-                Column {
-                    Text(
-                        "${if (mode.maxKm <= 10f) "%.1f".format(radiusKm) else radiusKm.toInt()} km",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        "${mode.label} · " + (directionDeg?.let { DIRECTION_NAMES[(it / 45f).toInt()] }
-                            ?: "any direction"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
-                }
-                Icon(Icons.Outlined.ExpandLess, contentDescription = "Expand",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Button(
-                onClick = onSpin,
-                shape = CircleShape,
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.size(52.dp),
-            ) {
-                if (spinning) {
-                    CircularProgressIndicator(
-                        Modifier.size(22.dp), strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
-                } else {
-                    Icon(Icons.Outlined.Casino, contentDescription = "Spin")
-                }
-            }
-            NavIconButton(
-                destination = destination,
-                route = route?.waypoints,
-                origin = origin,
-                mode = mode,
-                inAppAvailable = inAppAvailable,
-                onNavigateInApp = onNavigateInApp,
-                onNavigate = onNavigate,
-            )
-        }
-    }
-}
-
-/** The spin sheet: everything the dock's left cell expands into. Same glass
- *  card the dock uses, just taller — a drag-handle bar stands in for an
- *  actual drag gesture, tap it (or the chevron) to fold back to the dock. */
-@Composable
-private fun SpinSheet(
-    mode: TravelMode,
-    radiusKm: Float,
-    onRadiusChange: (Float) -> Unit,
-    minRadiusKm: Float,
-    onMinRadiusChange: (Float) -> Unit,
-    poiKind: PoiKind,
-    onPoiKindChange: (PoiKind) -> Unit,
-    directionDeg: Float?,
-    onDirectionChange: (Float?) -> Unit,
-    spinning: Boolean,
-    error: String?,
-    route: RouteResult?,
-    destinationName: String?,
-    destination: LatLon?,
-    origin: LatLon?,
-    stats: TripStats?,
-    inAppAvailable: Boolean,
-    onSpin: () -> Unit,
-    onCollapse: () -> Unit,
-    onNavigateInApp: () -> Unit,
-    onNavigate: () -> Unit,
-    onTrack: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.glassBorder(MaterialTheme.shapes.extraLarge),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = glassCardColors(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onCollapse),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    Modifier
-                        .size(width = 34.dp, height = 4.dp)
-                        .background(
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                            CircleShape,
-                        ),
-                )
-            }
-
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "Spin a destination",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                )
-                IconButton(onClick = onCollapse, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Outlined.ExpandMore, contentDescription = "Collapse")
-                }
-            }
-
-            error?.let {
-                Text(it, color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall)
-            }
-
-            // roundTrip is a fixed property of the mode (only Moto has it), not
-            // a chooseable segment — so it gates the destination-type row the
-            // same way it always gated the old dropdown, rather than adding a
-            // "Loop" option to pick.
-            if (!mode.roundTrip) {
-                SegmentedPillRow(
-                    options = PoiKind.entries.map { it.label },
-                    selectedIndex = PoiKind.entries.indexOf(poiKind),
-                    onSelect = { onPoiKindChange(PoiKind.entries[it]) },
-                )
-            }
-
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    if (mode.roundTrip) "Trip length" else "Radius",
-                    style = MaterialTheme.typography.labelLarge,
-                )
-                Text(
-                    if (mode.maxKm <= 10f) "%.1f km".format(radiusKm)
-                    else "${radiusKm.toInt()} km",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-            route?.distanceMeters?.let {
-                Text("Loop found: ${formatDistanceKm(it)}", style = MaterialTheme.typography.bodySmall)
-            }
-            destinationName?.let {
-                Text("→ $it", style = MaterialTheme.typography.bodySmall)
-            }
-            Slider(
-                value = radiusKm,
-                onValueChange = onRadiusChange,
-                valueRange = mode.minKm..mode.maxKm,
-            )
-
-            if (!mode.roundTrip) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text("Min distance", style = MaterialTheme.typography.labelLarge)
-                    Text(
-                        if (minRadiusKm <= 0f) "Off"
-                        else if (mode.maxKm <= 10f) "%.1f km".format(minRadiusKm)
-                        else "${minRadiusKm.toInt()} km",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-                Slider(
-                    value = minRadiusKm,
-                    onValueChange = onMinRadiusChange,
-                    valueRange = 0f..radiusKm,
-                )
-            }
-
-            Text("Direction", style = MaterialTheme.typography.labelLarge)
-            ScrollingPillRow(
-                options = listOf("Any") + DIRECTION_NAMES,
-                selectedIndex = directionDeg?.let { (it / 45f).toInt() + 1 } ?: 0,
-                onSelect = { i -> onDirectionChange(if (i == 0) null else (i - 1) * 45f) },
-            )
-
-            Button(
-                onClick = onSpin,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-            ) {
-                if (spinning) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Outlined.Casino, contentDescription = null, Modifier.size(20.dp))
-                }
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    if (spinning) "Cancel" else "Spin",
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                )
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NavButton(
-                    destination = destination,
-                    route = route?.waypoints,
-                    origin = origin,
-                    mode = mode,
-                    inAppAvailable = inAppAvailable,
-                    onNavigateInApp = onNavigateInApp,
-                    onNavigate = onNavigate,
-                    modifier = Modifier.weight(1f),
-                )
-                if (stats == null) {
-                    OutlinedButton(onClick = onTrack, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Outlined.PlayArrow, contentDescription = null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Track ${mode.label.lowercase()}", maxLines = 1)
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** Spin results awaiting a pick: distance/ETA per candidate, tap one to commit
- *  to it - or, once [convoyVotes] is non-null, tap one to vote on it instead
- *  (see MapScreen's commit rule for how a vote round actually resolves). */
-@Composable
-private fun CandidatesCard(
-    candidates: List<RouteCandidate>,
-    onPick: (Int, RouteCandidate) -> Unit,
-    onReroll: () -> Unit,
-    onCancel: () -> Unit,
-    // Null = a solo spin, not shared with anyone. Non-null (even empty) =
-    // a convoy vote is in progress; the map holds username -> chosen index.
-    convoyVotes: Map<String, Int>? = null,
-    // Non-null only pre-share, in a convoy, with a spin actually on screen.
-    onShare: (() -> Unit)? = null,
-    onGoWithLead: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.glassBorder(MaterialTheme.shapes.extraLarge),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = glassCardColors(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                if (convoyVotes == null) "Pick a destination" else "Vote on a destination",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                if (convoyVotes == null) "All three are on the map — tap a pin or a row."
-                else "Everyone sees the same three — tap a pin or a row to vote.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            candidates.forEachIndexed { index, c ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { onPick(index, c) }
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        Modifier
-                            .size(26.dp)
-                            .background(
-                                Color(CANDIDATE_COLORS[index % CANDIDATE_COLORS.size]),
-                                RoundedCornerShape(8.dp),
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            ('A' + index).toString(),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold,
-                            // Fixed dark text: the candidate colours are chosen
-                            // deliberately (see CANDIDATE_COLORS) and are all
-                            // light enough that a themed on-color would clash.
-                            color = Color(0xFF1A1A1A),
-                        )
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            c.name ?: "Option ${index + 1}",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        val distanceMeters = c.route?.distanceMeters ?: c.straightLineMeters
-                        val prefix = if (c.route?.distanceMeters == null) "~ straight-line " else "via road "
-                        Text(
-                            prefix + formatDistanceKm(distanceMeters),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        if (convoyVotes != null) {
-                            val voters = convoyVotes.filterValues { it == index }.keys.sorted()
-                            Text(
-                                if (voters.isEmpty()) "No votes yet"
-                                else "${voters.size} vote${if (voters.size == 1) "" else "s"} · " +
-                                    voters.joinToString(),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    c.route?.timeMs?.let { timeMs ->
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceContainer,
-                        ) {
-                            Text(
-                                "%.0f min".format(timeMs / 60_000.0),
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelMedium,
-                            )
-                        }
-                    }
-                }
-            }
-            if (onShare != null) {
-                FilledTonalButton(onClick = onShare, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Outlined.Groups, contentDescription = null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Share with convoy")
-                }
-            }
-            if (onGoWithLead != null) {
-                // A silent member can't stall the ride - this commits the
-                // current leader immediately, without waiting for a vote
-                // from every currently-connected peer.
-                Button(onClick = onGoWithLead, modifier = Modifier.fillMaxWidth()) {
-                    Text("Go with the lead")
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) {
-                    Text("Cancel")
-                }
-                // Rerolling would only change this device's own list, not the
-                // sheet everyone else is voting on - hide it once shared.
-                if (convoyVotes == null) {
-                    Button(onClick = onReroll, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Outlined.Casino, contentDescription = null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Reroll")
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** The app's three places. Selecting one also tells the tracking service what
- *  you are riding, which decides the stats it bothers to record. */
-@Composable
-private fun ModeBar(selected: TravelMode, onSelect: (TravelMode) -> Unit) {
-    NavigationBar {
-        TravelMode.entries.forEach { m ->
-            NavigationBarItem(
-                selected = m == selected,
-                onClick = { onSelect(m) },
-                icon = { Icon(m.icon, contentDescription = null) },
-                label = { Text(m.label) },
-            )
-        }
-    }
-}
-
-/** Map top chrome: a full-width search pill with an avatar that opens the Hub,
- *  and a right-aligned rail of the two controls worth reaching for while
- *  driving (follow toggle, layers). Everything else moved to the Hub. */
-@Composable
-private fun MapTopChrome(
-    followMe: Boolean,
-    fogEnabled: Boolean,
-    username: String,
-    convoyName: String?,
-    // Hoisted to MapScreen so a tap on the map can close the panel — the job
-    // the Popup's dismissOnClickOutside used to do.
-    layersOpen: Boolean,
-    onLayersOpenChange: (Boolean) -> Unit,
-    onToggleFollow: () -> Unit,
-    onSearch: () -> Unit,
-    onToggleFog: () -> Unit,
-    onOpenHub: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SearchPill(username = username, onSearch = onSearch, onAvatarClick = onOpenHub)
-        AnimatedVisibility(visible = convoyName != null, enter = fadeIn(), exit = fadeOut()) {
-            ConvoyPill(name = convoyName ?: "")
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            // End-aligned because the layers panel below is wider than the 40.dp
-            // buttons: without this the column widens to the card and centres
-            // the buttons in it, shifting them off the rail.
-            Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                horizontalAlignment = Alignment.End,
-            ) {
-                GlassRailButton(
-                    icon = if (followMe) Icons.Outlined.MyLocation else Icons.Outlined.LocationSearching,
-                    contentDescription = if (followMe) "Stop following my location"
-                        else "Follow my location",
-                    tinted = followMe,
-                    onClick = onToggleFollow,
-                )
-                GlassRailButton(
-                    icon = Icons.Outlined.Layers,
-                    contentDescription = "Map layers",
-                    tinted = layersOpen,
-                    onClick = { onLayersOpenChange(!layersOpen) },
-                )
-                // Inline rather than a Popup on purpose. A Popup is its own
-                // window, so the button sitting outside it counted as an
-                // outside-click *and* still ran its own onClick: the panel
-                // closed and reopened on the same tap, and the button could
-                // never close it. One window, one handler, and the toggle is
-                // correct by construction.
-                AnimatedVisibility(visible = layersOpen, enter = fadeIn(), exit = fadeOut()) {
-                    Card(
-                        modifier = Modifier.glassBorder(MaterialTheme.shapes.large),
-                        shape = MaterialTheme.shapes.large,
-                        colors = glassCardColors(),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                    ) {
-                        Row(
-                            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                if (fogEnabled) Icons.Outlined.Visibility
-                                    else Icons.Outlined.VisibilityOff,
-                                contentDescription = null,
-                            )
-                            Text("Fog of war", modifier = Modifier.weight(1f))
-                            Switch(checked = fogEnabled, onCheckedChange = { onToggleFog() })
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** Full-width glass search pill: tapping the body opens search, tapping the
- *  avatar opens the Hub. */
-@Composable
-private fun SearchPill(
-    username: String,
-    onSearch: () -> Unit,
-    onAvatarClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth().glassBorder(CircleShape),
-        shape = CircleShape,
-        colors = CardDefaults.cardColors(containerColor = glassContainerColor()),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onSearch)
-                .padding(start = 16.dp, top = 6.dp, bottom = 6.dp, end = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Outlined.Search, contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(10.dp))
-            Text(
-                "Where to?",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
-            )
-            Box(
-                Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-                    .clickable(onClick = onAvatarClick),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                )
-            }
-        }
-    }
-}
-
-/** Small pill under [SearchPill] naming the convoy this device is currently
- *  live in, i.e. whenever [ConvoyLiveClient.connected] is true. */
-@Composable
-private fun ConvoyPill(name: String, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier.glassBorder(CircleShape),
-        shape = CircleShape,
-        colors = CardDefaults.cardColors(containerColor = glassContainerColor()),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Outlined.Groups,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(name, style = MaterialTheme.typography.bodyMedium)
-        }
-    }
-}
-
-/** One 40dp glass button in the top-right rail; tinted primary when its
- *  toggle is active (currently just the follow button). */
-@Composable
-private fun GlassRailButton(
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    tinted: Boolean = false,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        onClick = onClick,
-        modifier = modifier.size(40.dp).glassBorder(CircleShape),
-        shape = CircleShape,
-        colors = CardDefaults.cardColors(containerColor = glassContainerColor()),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Icon(
-                icon, contentDescription = contentDescription,
-                Modifier.size(20.dp),
-                tint = if (tinted) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurface,
-            )
-        }
-    }
-}
-
-/** Always on screen while a trip is running, in the corner your thumb rests in. */
-@Composable
-private fun EndTripButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Button(
-        onClick = onClick,
-        modifier = modifier.height(48.dp),
-        shape = CircleShape,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.error,
-            contentColor = MaterialTheme.colorScheme.onError,
-        ),
-    ) {
-        Icon(Icons.Outlined.Stop, contentDescription = null, Modifier.size(20.dp))
-        Spacer(Modifier.width(8.dp))
-        Text("End trip", maxLines = 1, fontWeight = FontWeight.Bold)
-    }
-}
-
-/** Hold to talk; only shown while a convoy's live relay is connected (see
- *  ConvoyLiveService). Solid red while you're pressing it; a primary-colored
- *  ring while [talking] — a friend currently transmitting — so incoming PTT
- *  audio isn't silent-and-invisible. */
-@Composable
-private fun PushToTalkButton(talking: Boolean, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var pressed by remember { mutableStateOf(false) }
-    val containerColor = when {
-        pressed -> MaterialTheme.colorScheme.error
-        talking -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.surfaceVariant
-    }
-    Surface(
-        modifier = modifier
-            .size(64.dp)
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = {
-                        if (ContextCompat.checkSelfPermission(
-                                context, Manifest.permission.RECORD_AUDIO,
-                            ) != PackageManager.PERMISSION_GRANTED
-                        ) {
-                            return@detectTapGestures
-                        }
-                        pressed = true
-                        // Off the main thread: AudioRecord construction and
-                        // stopTalking's join(500) can both take real time,
-                        // and this fires from a gesture handler on a screen
-                        // meant to be glanced at while riding.
-                        scope.launch(Dispatchers.IO) { PushToTalk.startTalking() }
-                        try {
-                            awaitRelease()
-                        } finally {
-                            pressed = false
-                            scope.launch(Dispatchers.IO) { PushToTalk.stopTalking() }
-                        }
-                    },
-                )
-            },
-        shape = CircleShape,
-        color = containerColor,
-        shadowElevation = 4.dp,
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                Icons.Filled.Mic,
-                contentDescription = "Push to talk",
-                tint = if (pressed) MaterialTheme.colorScheme.onError
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(28.dp),
-            )
-        }
-    }
-}
-
-/** Current speed next to the posted limit for the road we're on. Used both while
- *  cruising and while navigating; the whole dial turns red once we're more than
- *  5 km/h over. Sized to be read at a glance, not to dominate the map — the trip
- *  card no longer repeats the number underneath it. */
-@Composable
-private fun SpeedHud(
-    speedKmh: Double,
-    limitKmh: Double?,
-    averageKmh: Double? = null,
-    averageLimitKmh: Double? = null,
-    modifier: Modifier = Modifier,
-) {
-    val speeding = limitKmh != null && speedKmh > limitKmh + 5
-    Row(
-        modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Inside a trajectcontrole: the running average is what the section
-        // measures, so it sits front and centre and turns red once it's over.
-        averageKmh?.let { avg ->
-            SectionAverageChip(avg, averageLimitKmh)
-        }
-        Crossfade(targetState = limitKmh, animationSpec = tween(300), label = "speedLimit") {
-            SpeedLimitSign(it, size = 48.dp)
-        }
-        Card(
-            modifier = Modifier.glassBorder(CircleShape),
-            shape = CircleShape,
-            colors = if (speeding) CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-            ) else glassCardColors(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-        ) {
-            Column(
-                Modifier.size(80.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    "%.0f".format(speedKmh),
-                    fontSize = 32.sp,
-                    lineHeight = 34.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (speeding) MaterialTheme.colorScheme.onErrorContainer
-                        else MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    "km/h",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (speeding) MaterialTheme.colorScheme.onErrorContainer
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-/** Running average speed through a trajectcontrole, next to the live speed.
- *  Red once the average is over the section's posted limit — that's the number
- *  the camera pair is actually about to fine you on. */
-@Composable
-private fun SectionAverageChip(averageKmh: Double, limitKmh: Double?, modifier: Modifier = Modifier) {
-    val over = limitKmh != null && averageKmh > limitKmh
-    Card(
-        modifier = modifier,
-        shape = CircleShape,
-        colors = CardDefaults.cardColors(
-            containerColor = if (over) MaterialTheme.colorScheme.errorContainer
-                else MaterialTheme.colorScheme.tertiaryContainer,
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-    ) {
-        Column(
-            Modifier.size(72.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            val onColor = if (over) MaterialTheme.colorScheme.onErrorContainer
-                else MaterialTheme.colorScheme.onTertiaryContainer
-            Text(
-                "Ø %.0f".format(averageKmh),
-                fontSize = 26.sp,
-                lineHeight = 28.sp,
-                fontWeight = FontWeight.Bold,
-                color = onColor,
-            )
-            Text("avg km/h", style = MaterialTheme.typography.labelSmall, color = onColor)
-        }
-    }
-}
-
-/** "Go" button with a chooser for the navigation app. */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun NavButton(
-    destination: LatLon?,
-    route: List<LatLon>?,
-    origin: LatLon?,
-    mode: TravelMode,
-    inAppAvailable: Boolean,
-    onNavigateInApp: () -> Unit,
-    onNavigate: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var menuOpen by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    val preferred by Settings.preferredNavApp.collectAsStateWithLifecycle()
-    val enabled = destination != null || (route != null && origin != null)
-    Box(modifier) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(40.dp)
-                .combinedClickable(
-                    enabled = enabled,
-                    onClick = {
-                        handleGoTap(context, preferred, inAppAvailable, destination, route, origin,
-                            mode, onNavigateInApp, onNavigate) { menuOpen = true }
-                    },
-                    onLongClick = { menuOpen = true },
-                ),
-            shape = ButtonDefaults.shape,
-            color = if (enabled) MaterialTheme.colorScheme.secondaryContainer
-                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-            contentColor = if (enabled) MaterialTheme.colorScheme.onSecondaryContainer
-                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-        ) {
-            Row(
-                Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Outlined.Navigation, contentDescription = null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Go", maxLines = 1)
-            }
-        }
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            NavMenuItems(destination, route, origin, mode, inAppAvailable,
-                onNavigateInApp, onNavigate) { menuOpen = false }
-        }
-    }
-}
-
-/** Live trip numbers, minus the ones already on screen: current speed is the
- *  HUD, and a car has no lean angle worth printing. */
-@Composable
-private fun ActiveTripCard(stats: TripStats) {
-    // Tick every second so duration counts up even without GPS updates.
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(stats.startTimeMs) {
-        while (true) {
-            now = System.currentTimeMillis()
-            delay(1000)
-        }
-    }
-    Card(
-        modifier = Modifier.glassBorder(MaterialTheme.shapes.extraLarge),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.92f),
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            StatItem("Time", formatDuration(now - stats.startTimeMs))
-            StatItem("Distance", formatDistanceKm(stats.distanceMeters))
-            StatItem("Top", formatSpeedKmh(stats.topSpeedMps))
-            if (stats.mode.tracksLean) {
-                StatItem("Lean", formatLeanAngle(stats.currentLeanAngleDeg))
-                StatItem("Max lean", formatLeanAngle(stats.maxLeanAngleDeg))
-            }
-            if (stats.mode.tracksGForce) {
-                StatItem("Max G", formatGForce(stats.maxGForce))
-            }
-        }
-    }
-}
-
-@Composable
-private fun StatItem(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-    }
-}
-
-private fun navigateRoundTrip(context: Context, origin: LatLon, waypoints: List<LatLon>) {
-    // Directions URL: origin = destination = start, curvy roads as via points.
-    // Google Maps supports up to 9 waypoints in this form.
-    val wp = waypoints.joinToString("|") { "${it.lat},${it.lon}" }
-    val uri = Uri.parse(
-        "https://www.google.com/maps/dir/?api=1" +
-            "&origin=${origin.lat},${origin.lon}" +
-            "&destination=${origin.lat},${origin.lon}" +
-            "&travelmode=driving" +
-            "&waypoints=" + Uri.encode(wp)
-    )
-    context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-}
-
-private fun navigateGoogleMaps(context: Context, dest: LatLon, mode: TravelMode) {
-    val uri = Uri.parse("google.navigation:q=${dest.lat},${dest.lon}&mode=${mode.gmapsMode}")
-    val intent = Intent(Intent.ACTION_VIEW, uri).setPackage("com.google.android.apps.maps")
-    try {
-        context.startActivity(intent)
-    } catch (e: ActivityNotFoundException) {
-        navigateGeo(context, dest)
-    }
-}
-
-private fun navigateWaze(context: Context, dest: LatLon) {
-    try {
-        context.startActivity(
-            Intent(Intent.ACTION_VIEW, Uri.parse("waze://?ll=${dest.lat},${dest.lon}&navigate=yes"))
-        )
-    } catch (e: ActivityNotFoundException) {
-        // Waze not installed: universal link opens install page or web.
-        context.startActivity(
-            Intent(Intent.ACTION_VIEW,
-                Uri.parse("https://waze.com/ul?ll=${dest.lat},${dest.lon}&navigate=yes"))
-        )
-    }
-}
-
-private fun navigateGeo(context: Context, dest: LatLon) {
-    context.startActivity(
-        Intent(Intent.ACTION_VIEW,
-            Uri.parse("geo:${dest.lat},${dest.lon}?q=${dest.lat},${dest.lon}"))
-    )
 }

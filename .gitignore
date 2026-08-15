@@ -24,7 +24,10 @@ __pycache__/
 
 # Claude Code local state — permission settings (can contain secrets typed
 # into allowed commands) and worktrees (each its own nested git checkout).
-.claude/
+# Skills are the exception: they are project documentation that happens to be
+# machine-readable, they carry no secrets, and they are meant to be shared.
+.claude/*
+!.claude/skills/
 
 # Raw takes for the Play declaration videos. tools/render_play_videos.sh
 # turns these into the captioned finals next to them, which are what Play
@@ -39,8 +42,22 @@ iosApp/Config.xcconfig
 xcuserdata/
 DerivedData/
 
+# Raw GPX exports. tools/mocklocation/routes/ holds routes derived from real
+# drives, trimmed 1 km at each end so no endpoint is a home or a workplace
+# (tools/mocklocation/routes/README.md). A raw export carries the untrimmed
+# endpoints and per-point timestamps, which is exactly what the trim removes —
+# and the app writes them straight into the working tree on export. Ignored so
+# a stray `git add -A` cannot publish one.
+*.gpx
 # Compose secrets. docker/prod/.env holds real database and realm passwords; the
 # .env.example beside it is the versioned documentation instead.
 .env
 docker/*/.env
 !*.env.example
+
+# Replay baselines: keep the .tsv extracts, never the raw capture. A screenshot
+# or a 400k-line logcat cannot be diffed, goes stale the moment the route file
+# it was captured against changes, and cost 9.6 MB of this repo before being
+# purged from history. Record the observation in the baseline README instead.
+tools/mocklocation/baseline/*.png
+tools/mocklocation/baseline/*.log

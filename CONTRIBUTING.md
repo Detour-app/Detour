@@ -34,6 +34,29 @@ from the platform instead. See
 New logic goes in `shared/` unless it genuinely cannot — a change that lands
 only in `app/` silently makes iOS diverge.
 
+For code that already exists, two tests decide where it belongs:
+
+> A policy earns the core when it is written more than once.
+> A port earns an interface when it has more than one implementation.
+
+The first is why the arrival/reroute rule and the convoy vote rule belong in
+`shared/` — each is written exactly twice today, and the two copies stay
+aligned only by hand. `app/.../car/NavScreen.kt:242` notes the car screen
+runs the "Same arrival/reroute policy as MapScreen.kt's navigating
+LaunchedEffect," and `iosApp/Detour/MapScreen.swift:307` calls its vote rule
+"identical to Android's rule and deliberately so" — but a comment on one copy
+naming the other is a promise, not an enforcement mechanism, and nothing
+catches the day it stops being true. The GraphHopper maneuver sign table
+shows what that day looks like: the same sign-to-icon switch, written four
+times (`app/.../ui/Navigation.kt:57-71`, `wear/.../MainActivity.kt:53-67`,
+`app/.../car/NavScreen.kt:575-593`, `iosApp/Detour/NavScreen.swift`), and it
+diverged three ways on iOS — sharp turns drawn as U-turns, real U-turns and
+the motorway keep-left/right forks both silently falling back to "carry
+on" — until the fix in the immediately preceding commit (c7ef627).
+
+The second is why `Platform.kt` still expects only the three things named
+above: an interface with one implementation is indirection, not a boundary.
+
 ## Building
 
 All Gradle modules build from the repo root:

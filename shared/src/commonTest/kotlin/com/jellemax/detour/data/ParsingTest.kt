@@ -125,6 +125,127 @@ class MaxSpeedParsingTest {
     }
 }
 
+/**
+ * [SpeedCameras.parseSection] against the two E40 trajectcontrole relations the
+ * `trajectcontrole.txt` replay route drives, fed the JSON Overpass prints for
+ * `out geom` — node members with their coordinates inline.
+ *
+ * Written to settle maxke24/Detour#22, which reads the recorded early clear of
+ * the average-speed chip (306 m into a 3852 m section) as the parser mistaking
+ * a member list clipped by the fetch radius for a complete one, and returning a
+ * short section derived from the entry cluster alone. For these two relations it
+ * does not: see [aMemberListClippedShortOfTheFarGantryIsRejectedRatherThanReturnedShort].
+ *
+ * The refs, roles and coordinates are the real ones, read on 2026-08-12 from
+ * `api.openstreetmap.org/api/0.6/relation/<id>/full.json` — a different service
+ * from Overpass, which is refusing this IP — and they agree with the geometry
+ * table in `tools/mocklocation/baseline/README.md`. Deliberately no network:
+ * this is the parser fed a literal, like everything else in this file.
+ */
+class SpeedCameraSectionTest {
+
+    // Relation 15685856, "Trajectcontrole E40" Bertem-Leuven, 3852 m: a pair of
+    // device nodes 22 m apart at the Leuven gantry and one at the Bertem gantry.
+    private val leuvenAt = LatLon(50.8531975, 4.6581815)
+    private val leuvenPairAt = LatLon(50.8530078, 4.6580822)
+    private val bertemAt = LatLon(50.8618251, 4.6050292)
+    private val leuven = """{"type":"node","ref":10787072889,"role":"device","lat":50.8531975,"lon":4.6581815}"""
+    private val leuvenPair = """{"type":"node","ref":10787072890,"role":"device","lat":50.8530078,"lon":4.6580822}"""
+    private val bertem = """{"type":"node","ref":10784337380,"role":"device","lat":50.8618251,"lon":4.6050292}"""
+
+    // Relation 15682532, Zaventem-Bertem, 7936 m device to device: the Bertem
+    // node again — one node in both relations, which is what makes the route's
+    // back-to-back transition testable — plus a device and a `from` node 14 m
+    // apart at the Zaventem end.
+    private val zaventemAt = LatLon(50.869293, 4.4925685)
+    private val zaventemFromAt = LatLon(50.8692936, 4.4923710)
+    private val zaventem = """{"type":"node","ref":6763749685,"role":"device","lat":50.869293,"lon":4.4925685}"""
+    private val zaventemFrom = """{"type":"node","ref":10810676600,"role":"from","lat":50.8692936,"lon":4.492371}"""
+
+    /** Neither relation tags `maxspeed`; the 120 is on the device nodes. */
+    private fun relation(vararg members: String) = jsonObjectOf(
+        """{"type":"relation","id":15685856,"members":[${members.joinToString(",")}],""" +
+            """"tags":{"type":"enforcement","enforcement":"average_speed","name":"Trajectcontrole E40"}}""",
+    )
+
+    @Test
+    fun theWholeMemberListGivesTheTrueSpanAndOneClusterPerGantry() {
+        val s = SpeedCameras.parseSection(relation(leuven, leuvenPair, bertem))!!
+        assertEquals(3852.2, s.spanMeters, absoluteTolerance = 0.5)
+        // The 22 m pair is one end — one node per carriageway — and the lone
+        // node the other. Geometry decides that, not the roles: all three are
+        // tagged `device`.
+        assertEquals(listOf(leuvenAt, leuvenPairAt), s.endA)
+        assertEquals(listOf(bertemAt), s.endB)
+        // No limit for the average to be judged against, which is why the
+        // recorded run showed a bare average and not a red chip: the 120 sits
+        // on the device nodes, which parseSection never looks at.
+        assertNull(s.maxspeedKmh)
+    }
+
+    @Test
+    fun theOutermostNodeIsAnEndWhateverItsRoleSays() {
+        val s = SpeedCameras.parseSection(relation(bertem, zaventem, zaventemFrom))!!
+        // 7950, not the 7936 between the two `device` nodes: the `from` node is
+        // 14 m further out, so it is the end and the device joins its cluster.
+        // Worth pinning because it is the difference the roles would have made.
+        assertEquals(7949.8, s.spanMeters, absoluteTolerance = 0.5)
+        // Both Zaventem-end nodes are in the cluster, in member order — the
+        // span above is what says the `from` node is the outer one of the two.
+        assertEquals(listOf(zaventemAt, zaventemFromAt), s.endB)
+        assertEquals(listOf(bertemAt), s.endA)
+    }
+
+    @Test
+    fun aMemberListClippedShortOfTheFarGantryIsRejectedRatherThanReturnedShort() {
+        // #22 predicted the opposite: a plausible short section whose far end
+        // sits a few hundred metres past the entry, which the tracker would
+        // then terminate correctly on wrong data. Both relations refuse
+        // instead, because each end cluster is 22 m and 14 m across — an order
+        // of magnitude under MIN_SPAN_M — so clipping loses the readout rather
+        // than falsifying it, and cannot account for a clear 306 m in.
+        assertNull(SpeedCameras.parseSection(relation(leuven, leuvenPair)))
+        assertNull(SpeedCameras.parseSection(relation(zaventem, zaventemFrom)))
+        // Clipped to the shared gantry alone, from either relation.
+        assertNull(SpeedCameras.parseSection(relation(bertem)))
+    }
+
+    @Test
+    fun aMemberTheAreaDidNotReachReadsTheSameOmittedOrPrintedWithoutCoordinates() {
+        // Which shape a clipped answer takes is unverified — Overpass is
+        // refusing this IP — so both are pinned. A member with no lat/lon is
+        // the same as no member at all.
+        val bertemNoGeometry = """{"type":"node","ref":10784337380,"role":"device"}"""
+        assertNull(SpeedCameras.parseSection(relation(leuven, leuvenPair, bertemNoGeometry)))
+        // And a way member is never a node, even when `out geom` prints its
+        // whole geometry: the coordinates that would rescue the span above are
+        // ignored because they are not on a node member.
+        val carriageway = """{"type":"way","ref":1234,"role":"","geometry":""" +
+            """[{"lat":50.8531975,"lon":4.6581815},{"lat":50.8618251,"lon":4.6050292}]}"""
+        assertNull(SpeedCameras.parseSection(relation(leuven, leuvenPair, carriageway)))
+    }
+
+    @Test
+    fun aClippedListDoesSurviveWhenSomeNodeSitsMoreThanTheMinimumSpanInside() {
+        // The shape #22 describes is real, just not instantiated by either E40
+        // relation: parseSection cannot tell a clipped list from a complete
+        // one, so any surviving node past MIN_SPAN_M becomes the far end. A
+        // mid-section node 500 m in — the `force` node the KDoc says can sit
+        // there — is enough. Synthetic, and therefore not evidence of the
+        // recorded clear; it is what a clipping guard would have to catch.
+        val midSection = """{"type":"node","ref":1,"role":"force","lat":50.8543173,"lon":4.6512826}"""
+        val s = SpeedCameras.parseSection(relation(leuven, leuvenPair, midSection))!!
+        assertEquals(500.0, s.spanMeters, absoluteTolerance = 1.0)
+        assertEquals(1, s.endB.size)
+        // 3352 m short of where the section really ends, and spanMeters is
+        // understated by the same amount — which `overshot` also reads.
+        assertTrue(
+            RoadRoulette.distanceMeters(s.endB[0], bertemAt) > 3000.0,
+            "far end should be nowhere near the real gantry: got ${s.endB[0]}",
+        )
+    }
+}
+
 class NavEngineTest {
 
     /**

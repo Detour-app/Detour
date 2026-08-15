@@ -84,6 +84,12 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     /// updates, generous enough that a normal gap in GPS fixes doesn't flicker a
     /// marker, short enough that someone who dropped off stops being shown live.
     private static let fallbackPeerTtlMs: Int64 = 20_000
+    /// How often expiry is swept, matching the Android client's
+    /// `PEER_PRUNE_INTERVAL_MS` (`net/ConvoyLiveClient.kt:116`). A timer, not a
+    /// side effect of receiving someone else's frame: the case that matters is
+    /// the convoy where nobody is transmitting any more, where an inbound-only
+    /// sweep never runs and every peer sits frozen on the map.
+    private static let peerPruneInterval: Duration = .seconds(5)
 
     @Published private(set) var activeConvoyId: String?
     @Published private(set) var connected = false
@@ -206,6 +212,15 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     /// got as far as being joined — a connection that worked and then dropped
     /// should come back promptly, unlike one that never authenticated.
     private func connectionLoop() async {
+        // Runs for as long as anything wants a socket, across reconnects and
+        // backoff waits, the way Android launches `prunePeers()` alongside its
+        // connection job (`net/ConvoyLiveClient.kt:313-315`) rather than per
+        // attempt: peers held while a dropped connection is backing off go
+        // stale just the same. Every exit from this function — cancellation
+        // from `disconnect()`, or the self-clearing "nothing wants a socket"
+        // path below — runs the `defer`.
+        let pruner = Task { await self.prunePeersPeriodically() }
+        defer { pruner.cancel() }
         var backoff = Self.minBackoff
         while !Task.isCancelled {
             let everJoined = await connectAndAwaitClose()
@@ -430,6 +445,17 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
             }
             pruneStalePeers()
 
+        case "left":
+            // A rider who left the convoy — or was evicted, or whose socket
+            // dropped — is gone now, not in 20 s when the staleness sweep would
+            // have caught up. The relay emits this for every one of those cases
+            // (`server/sync/sync_server.py:2442`, `:2456`) and Android has
+            // always handled it (`net/ConvoyLiveClient.kt:573-576`); without the
+            // branch it fell through to `default` and the peer stayed on the map.
+            guard let user = msg["user"] as? String, !user.isEmpty else { break }
+            peers.removeValue(forKey: user)
+            talking.remove(user)
+
         case "ptt_start":
             if let user = msg["user"] as? String, !user.isEmpty { talking.insert(user) }
 
@@ -504,6 +530,20 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
             break
         }
         return false
+    }
+
+    /// Sweeps staleness on a timer for the life of the connection loop. The
+    /// inbound `location` branch also prunes, which keeps a busy convoy tidy
+    /// promptly, but on its own it never fired in the case that matters: a
+    /// convoy where everybody has gone quiet is never swept, and the last peer
+    /// to go quiet is the interesting one — that is the rider who lost signal or
+    /// came off.
+    private func prunePeersPeriodically() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: Self.peerPruneInterval)
+            guard !Task.isCancelled else { return }
+            pruneStalePeers()
+        }
     }
 
     private func pruneStalePeers() {

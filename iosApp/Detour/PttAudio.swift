@@ -28,6 +28,48 @@ final class PttAudio {
             interleaved: true)!
     }
 
+    // MARK: Permission
+
+    /// Whether capture may start right now.
+    enum CapturePermission {
+        /// The microphone is ours; start capturing.
+        case granted
+        /// The system alert has just gone up. It owns the touch, so this press
+        /// is spent answering it and the next one transmits.
+        case asking
+        /// Refused, and only Settings can undo that.
+        case denied
+    }
+
+    /// The record permission, asking for it the first time it is needed.
+    ///
+    /// Asked on the press rather than on convoy connect, which is where Android
+    /// asks it (`ui/MapScreen.kt:474-478`, then refuses the press again at
+    /// `ui/MapHud.kt:135-140`): a rider who never transmits is never prompted,
+    /// and on iOS the alert has to be answered before a `.playAndRecord`
+    /// session can be activated at all.
+    ///
+    /// Nothing may call [startCapture] without coming through here. Activating
+    /// that session with no answer on record is the documented condition for
+    /// iOS to terminate the app, and every failure path inside [startCapture]
+    /// returns silently, so a refusal that reaches it is a refusal nobody sees.
+    func capturePermission() -> CapturePermission {
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted:
+            return .granted
+        case .undetermined:
+            // Fire and forget: the answer arrives on another queue and this
+            // press is already lost to the alert. The next press reads the
+            // recorded answer instead of asking again.
+            AVAudioApplication.requestRecordPermission { _ in }
+            return .asking
+        case .denied:
+            return .denied
+        @unknown default:
+            return .denied
+        }
+    }
+
     // MARK: Capture
 
     /// Starts capture, handing each 40 ms chunk to [onChunk]. Playback stays

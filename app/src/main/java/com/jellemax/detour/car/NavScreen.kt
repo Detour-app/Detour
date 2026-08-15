@@ -9,7 +9,9 @@ import androidx.car.app.CarToast
 import androidx.car.app.Screen
 import androidx.car.app.model.Action
 import androidx.car.app.model.ActionStrip
+import androidx.car.app.model.CarColor
 import androidx.car.app.model.CarIcon
+import androidx.car.app.model.CarText
 import androidx.car.app.model.Distance
 import androidx.car.app.model.Template
 import androidx.car.app.navigation.NavigationManager
@@ -21,12 +23,15 @@ import androidx.car.app.navigation.model.RoutingInfo
 import androidx.car.app.navigation.model.Step
 import androidx.car.app.navigation.model.TravelEstimate
 import androidx.car.app.navigation.model.Trip
+import androidx.car.app.versioning.CarAppApiLevels
 import androidx.core.graphics.drawable.IconCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import com.jellemax.detour.R
+import com.jellemax.detour.audio.NavVoice
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.NavInstruction
 import com.jellemax.detour.data.RoadRoulette
@@ -37,6 +42,9 @@ import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.drive.CameraWarner
+import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -45,25 +53,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.ZonedDateTime
 import kotlin.math.max
-import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 private const val TAG = "DetourNav"
 
-private const val ARRIVE_METERS = 40.0
-private const val OFF_ROUTE_METERS = 60.0
-private const val REROUTE_COOLDOWN_MS = 15_000L
 private const val CAMERA_FETCH_MARGIN_M = 1000.0
 private const val CAMERA_FETCH_THROTTLE_MS = 15_000L
-
-// Where the spoken prompts land, in metres before the turn. Three of them: one
-// early enough to change lane on a fast road, one to commit, and one at the
-// turn itself. Each fires at most once per instruction, and a step that starts
-// closer than a threshold simply skips it — in town that usually means only the
-// last two are heard.
-private const val VOICE_FAR_M = 800.0
-private const val VOICE_NEAR_M = 300.0
-private const val VOICE_NOW_M = 80.0
 
 /** Fallback pace for the "time to the next turn" estimate when the router gave
  *  no travel time, ~50 km/h. Only feeds the cluster's step ETA. */
@@ -103,6 +98,12 @@ class NavScreen(
 
     private val navigationManager = carContext.getCarService(NavigationManager::class.java)
     private val voice = NavVoice(carContext)
+
+    /** The ladder, the latch and the wording: `:shared`'s, so the head unit,
+     *  the phone and iOS cannot word the same maneuver differently. One per
+     *  session — it holds per-instruction state. */
+    private val announcer = NavAnnouncer()
+
     private val toneGen = runCatching { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90) }.getOrNull()
 
     private var route = initialRoute
@@ -122,16 +123,19 @@ class NavScreen(
      *  re-sent over the projection link once a second. */
     private var templateKey: String? = null
 
-    // Voice bookkeeping: which instruction is being announced, and how far
-    // through its three prompts we are.
-    private var voiceStepKey = Int.MIN_VALUE
-    private var voicePhase = 0
-    private var startAnnounced = false
-
     private var speedCameras: List<SpeedCameras.Camera> = emptyList()
+    /** The trajectcontrole relations from the same Overpass answer as
+     *  [speedCameras] — one request has always returned both, and until now the
+     *  car read only the camera half of it. */
+    private var speedSections: List<SpeedCameras.Section> = emptyList()
     private var camerasCenter: LatLon? = null
     private var lastCameraFetchMs = 0L
-    private var warnedCameraAt: LatLon? = null
+    /** The one-chime-per-camera latch, CameraWarner's. */
+    private var warnerState = CameraWarner.State()
+    /** The running average through a trajectcontrole, SectionAverageTracker's.
+     *  Per-screen, like the warner latch: a section you are inside of ends when
+     *  you leave this screen either way. */
+    private var sectionState = SectionAverageTracker.State()
     /** The in-flight Overpass fetch, so a slow mirror is waited on once rather
      *  than re-requested by every fix that lands while it is still running. */
     private var cameraFetchJob: Job? = null
@@ -230,7 +234,22 @@ class NavScreen(
             NavEngine.cameraZoom(
                 Settings.defaultZoom.value.toDouble(), speedMps, p.distanceToTurnMeters),
         )
-        renderer.updateHud(currentSpeedKmh, p.speedLimitKmh)
+        // The running trajectcontrole average, off the same fix stream and the
+        // same prefetch the camera warning uses. Stepped here rather than down
+        // in [checkCameras] so the HUD draws *this* fix's reading instead of the
+        // previous one; the section list itself being a fix behind costs
+        // nothing, since it is a 4 km prefetch either way.
+        sectionState = SectionAverageTracker.onFix(
+            state = sectionState,
+            sections = speedSections,
+            at = pos,
+            headingDeg = bearingDeg?.toDouble(),
+            speedMps = speedMps,
+            // nowMs() in :shared is internal to that module; the Android call
+            // sites pass the platform clock, same as MapScreen.kt does.
+            nowMs = System.currentTimeMillis(),
+        )
+        renderer.updateHud(currentSpeedKmh, p.speedLimitKmh, sectionState.reading)
         renderer.setPosition(pos, bearingDeg?.takeIf { speedMps > 2.0 })
         renderer.setDrivenFraction(p.drivenFraction)
 
@@ -239,41 +258,49 @@ class NavScreen(
         refreshTemplate(p)
         checkCameras(pos, bearingDeg?.toDouble())
 
-        // Same arrival/reroute policy as MapScreen.kt's navigating LaunchedEffect.
-        if (!arrived && p.remainingMeters < ARRIVE_METERS && p.offRouteMeters < OFF_ROUTE_METERS) {
-            arrived = true
-            screenManager.pop()
-            return
-        }
+        // Arrival and reroute are NavPolicy's call, shared with MapScreen.kt's
+        // navigating LaunchedEffect. `arrived` stays here: it is this screen's
+        // own once-only latch on popping itself, not part of the policy.
         val now = System.currentTimeMillis()
-        if (p.offRouteMeters > OFF_ROUTE_METERS && !rerouting && now - lastRerouteMs > REROUTE_COOLDOWN_MS) {
-            rerouting = true
-            lastRerouteMs = now
-            speak("Rerouting")
-            lifecycleScope.launch {
-                try {
-                    val fresh = withContext(Dispatchers.IO) {
-                        RoutingServer.route(serverConfig, pos, destination, TravelMode.CAR.ghProfile,
-                            Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
+        when (NavPolicy.decide(
+            progress = p,
+            hasDestination = true, // a constructor parameter on this screen
+            rerouting = rerouting,
+            lastRerouteMs = lastRerouteMs,
+            nowMs = now,
+        )) {
+            NavPolicy.Decision.Arrived -> if (!arrived) {
+                arrived = true
+                screenManager.pop()
+            }
+            NavPolicy.Decision.Reroute -> {
+                rerouting = true
+                lastRerouteMs = now
+                speak(announcer.rerouting())
+                lifecycleScope.launch {
+                    try {
+                        val fresh = withContext(Dispatchers.IO) {
+                            RoutingServer.route(serverConfig, pos, destination, TravelMode.CAR.ghProfile,
+                                Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
+                        }
+                        route = fresh
+                        // The line on the map is only pushed when it changes, so a
+                        // reroute is the one moment it has to be pushed again.
+                        renderer.setRoute(fresh.polyline, destination)
+                        // Instruction indices belong to the old polyline; start the
+                        // prompts for the new one from scratch, "Rerouting" followed
+                        // by what the new line asks for next.
+                        announcer.routeChanged()
+                        templateKey = null
+                    } catch (e: Exception) {
+                        // stay on the old line; retried after the cooldown
+                        Log.w(TAG, "reroute failed", e)
+                    } finally {
+                        rerouting = false
                     }
-                    route = fresh
-                    // The line on the map is only pushed when it changes, so a
-                    // reroute is the one moment it has to be pushed again.
-                    renderer.setRoute(fresh.polyline, destination)
-                    // Instruction indices belong to the old polyline; start the
-                    // prompts for the new one from scratch, "Rerouting" followed
-                    // by what the new line asks for next.
-                    voiceStepKey = Int.MIN_VALUE
-                    voicePhase = 0
-                    startAnnounced = false
-                    templateKey = null
-                } catch (e: Exception) {
-                    // stay on the old line; retried after the cooldown
-                    Log.w(TAG, "reroute failed", e)
-                } finally {
-                    rerouting = false
                 }
             }
+            NavPolicy.Decision.Continue -> {}
         }
     }
 
@@ -283,33 +310,11 @@ class NavScreen(
         if (Settings.voiceGuidance.value) voice.speak(text)
     }
 
-    /** Announces the upcoming maneuver as it comes up, once per threshold. */
+    /** Speaks whatever [NavAnnouncer] says is due for this fix. The decision
+     *  and the words are the core's; this screen only decides that speech is
+     *  how the head unit delivers them. */
     private fun announce(p: NavEngine.Progress) {
-        val instruction = p.nextInstruction ?: return
-        if (instruction.startIndex != voiceStepKey) {
-            voiceStepKey = instruction.startIndex
-            voicePhase = 0
-        }
-        val distance = p.distanceToTurnMeters
-        val phase = when {
-            distance <= VOICE_NOW_M -> 3
-            distance <= VOICE_NEAR_M -> 2
-            distance <= VOICE_FAR_M -> 1
-            else -> 0
-        }
-        val cue = instruction.text.ifBlank { "Continue" }
-        // The first prompt of the drive ignores the thresholds: pressing Start
-        // and being told nothing for the next 3 km is indistinguishable from
-        // voice being broken.
-        if (!startAnnounced) {
-            startAnnounced = true
-            voicePhase = phase
-            speak(if (phase == 3) cue else "In ${spokenDistance(distance)}, $cue")
-            return
-        }
-        if (phase == 0 || phase <= voicePhase) return
-        voicePhase = phase
-        speak(if (phase == 3) cue else "In ${spokenDistance(distance)}, $cue")
+        announcer.onProgress(p.nextInstruction, p.distanceToTurnMeters)?.let { speak(it) }
     }
 
     // ---- host state -------------------------------------------------------
@@ -355,7 +360,11 @@ class NavScreen(
             append(p.nextInstruction?.text).append('|')
             append(displayMeters(p.distanceToTurnMeters)).append('|')
             append(displayMeters(p.remainingMeters)).append('|')
-            append((p.remainingTimeMs ?: 0L) / 60_000)
+            append((p.remainingTimeMs ?: 0L) / 60_000).append('|')
+            // Part of the key, not just of the template: leaving the route has
+            // to redraw even when nothing else moved, and a car stopped just
+            // off the line moves none of the five values above.
+            append(offRoute(p))
         }
         if (key == templateKey) return
         templateKey = key
@@ -364,7 +373,9 @@ class NavScreen(
 
     /**
      * Keeps the prefetched camera set current, and warns about the next one
-     * ahead.
+     * ahead. One Overpass answer carries both the camera nodes and the
+     * average-speed relations, so this is also where [speedSections] comes from
+     * — [onFix] is what steps the tracker over them.
      *
      * The Overpass fetch runs in its own coroutine rather than inline. This is
      * the whole fix loop's hot path: [TripTrackingService.lastFix] is a
@@ -389,30 +400,35 @@ class NavScreen(
                 }.onFailure { Log.w(TAG, "camera fetch failed", it) }.getOrNull()
                 if (result != null) {
                     speedCameras = result.cameras
+                    speedSections = result.sections
                     camerasCenter = pos
                     renderer.setCameras(speedCameras)
                 }
             }
         }
-        val ahead = speedCameras.filter { cam ->
-            RoadRoulette.distanceMeters(pos, cam.at) <= SpeedCameras.WARN_METERS &&
-                (headingDeg == null || RoadRoulette.withinWedge(pos, cam.at, headingDeg, 45.0))
-        }.minByOrNull { RoadRoulette.distanceMeters(pos, it.at) }
-        if (ahead == null) {
-            warnedCameraAt = null
-            return
-        }
-        val limit = progress?.speedLimitKmh
-        val tooFast = limit != null && currentSpeedKmh > limit + 3.0
-        if (tooFast && ahead.at != warnedCameraAt) {
-            toneGen?.startTone(ToneGenerator.TONE_PROP_BEEP2, 400)
-            // The toast is on the car screen and the tone is on the phone's
-            // notification stream; only the spoken one reaches a driver who is
-            // looking at the road with the radio on.
-            speak("Speed camera ahead")
-            carContext.getCarService(AppManager::class.java)
-                .showToast("Speed camera ahead", CarToast.LENGTH_SHORT)
-            warnedCameraAt = ahead.at
+        val step = CameraWarner.onFix(
+            state = warnerState,
+            cameras = speedCameras,
+            at = pos,
+            headingDeg = headingDeg,
+            speedKmh = currentSpeedKmh,
+            // No ambient sign on this screen to fall back on: NavScreen has no
+            // speed-limit tracker of its own, so an untagged route segment judges
+            // you against nothing. The phone falls back to its ambient sign.
+            limitKmh = progress?.speedLimitKmh,
+        )
+        warnerState = step.state
+        when (val outcome = step.outcome) {
+            is CameraWarner.Outcome.Warn -> {
+                toneGen?.startTone(ToneGenerator.TONE_PROP_BEEP2, 400)
+                // The toast is on the car screen and the tone is on the phone's
+                // notification stream; only the spoken one reaches a driver who is
+                // looking at the road with the radio on.
+                speak(outcome.text)
+                carContext.getCarService(AppManager::class.java)
+                    .showToast(outcome.text, CarToast.LENGTH_SHORT)
+            }
+            CameraWarner.Outcome.Silent -> {}
         }
     }
 
@@ -441,7 +457,8 @@ class NavScreen(
             builder.setNavigationInfo(info.build())
         }
         val remainingSec = ((p.remainingTimeMs ?: 0L) / 1000).coerceAtLeast(0)
-        builder.setDestinationTravelEstimate(travelEstimate(p.remainingMeters, remainingSec))
+        builder.setDestinationTravelEstimate(
+            travelEstimate(p.remainingMeters, remainingSec, offRoute = offRoute(p)))
         return builder.build()
     }
 
@@ -478,10 +495,48 @@ class NavScreen(
     private fun destinationLabel(): String =
         destinationName?.takeIf { it.isNotBlank() } ?: "Destination"
 
-    private fun travelEstimate(meters: Double, seconds: Long): TravelEstimate =
-        TravelEstimate.Builder(carDistance(meters), ZonedDateTime.now().plusSeconds(seconds))
+    /** Off the drawn line far enough that [NavPolicy] would ask for a fresh
+     *  route. The same bound the phone's nav bar reads
+     *  (`ui/MapScreen.kt:1426-1427`) and the same one [NavPolicy.decide]
+     *  reroutes on, so what the driver is told cannot disagree with what the
+     *  policy decided. Entry 8 of the divergence register is precisely that
+     *  this bound is named once. */
+    private fun offRoute(p: NavEngine.Progress): Boolean =
+        p.offRouteMeters > NavPolicy.OFF_ROUTE_METERS
+
+    /**
+     * [offRoute] defaults to false so [pushTrip]'s three call sites keep a
+     * zero-line diff: those estimates go to the instrument cluster through
+     * [NavigationManager.updateTrip], which is a fourth drawing surface and not
+     * part of this change.
+     */
+    private fun travelEstimate(
+        meters: Double,
+        seconds: Long,
+        offRoute: Boolean = false,
+    ): TravelEstimate {
+        val builder = TravelEstimate
+            .Builder(carDistance(meters), ZonedDateTime.now().plusSeconds(seconds))
             .setRemainingTimeSeconds(seconds)
-            .build()
+        if (offRoute) {
+            // Two signals, because the words need a newer host than the colour
+            // does: setTripText is @RequiresCarApi(5) while
+            // AndroidManifest.xml:56-57 declares minCarApiLevel 1, so on an
+            // older head unit the red readouts *are* the indicator. Colouring
+            // both matches the phone, which turns the same string
+            // error-coloured (`ui/Navigation.kt:195-200`).
+            //
+            // Persistent and not a toast on purpose: the defect being fixed is
+            // that the one spoken "Rerouting" at :258 leaves a driver who
+            // missed it with no way to tell.
+            builder.setRemainingDistanceColor(CarColor.RED)
+            builder.setRemainingTimeColor(CarColor.RED)
+            if (carContext.carAppApiLevel >= CarAppApiLevels.LEVEL_5) {
+                builder.setTripText(CarText.create("Off route"))
+            }
+        }
+        return builder.build()
+    }
 
     /** Travel time over [meters] of what's left, at the pace the router implied
      *  for the rest of the route (or [FALLBACK_MPS] when it gave no time). */
@@ -519,14 +574,6 @@ private fun carDistance(meters: Double): Distance {
 private fun displayMeters(meters: Double): Long =
     if (meters < 1000.0) (meters / 10.0).roundToLong() * 10
     else (meters / 100.0).roundToLong() * 100
-
-/** Distance as a driver would say it, for the spoken prompts. */
-private fun spokenDistance(meters: Double): String = when {
-    meters >= 1500.0 -> "${(meters / 1000.0).roundToInt()} kilometers"
-    meters >= 950.0 -> "1 kilometer"
-    meters >= 100.0 -> "${(meters / 100.0).roundToInt() * 100} meters"
-    else -> "${(meters / 10.0).roundToInt() * 10} meters"
-}
 
 /** A car [Step] for [instruction]: the spoken/written cue plus a maneuver icon.
  *  Null when there is no instruction to show. */
