@@ -1036,6 +1036,23 @@ deliberately left alone — a travel-mode fix is a different change from a setti
 
 ## 11. Trajectcontrole (average-speed sections) — one surface implements it, one fetches the data and throws it away
 
+**RESOLVED — all three surfaces, as decision 2 said.** The extraction is stage 3's
+`SectionAverageTracker` (`shared/…/drive/`, `commonTest`-covered). The readouts are convergence 2,
+`b655528` (car) and `79f20b7` + `e68c815` (iOS), one surface per commit and none of them sharing a
+commit with the extraction, per §C.1. The car keeps `result.sections` from the Overpass answer it
+already makes, steps the tracker in `onFix`, and draws a third disc inboard of the posted-limit
+sign at 0.9× its diameter — the layout answer to the "fifth readout at arm's length" objection
+below. It is silent: an average is a state, not an event. Free drive (`SpinScreen`) is unchanged
+and has no section data to be inside of. iOS gains the feature outright — a `SectionAverageHolder`
+in `iosMain` (Swift cannot construct the tracker's `State`; every one of its six constructor
+parameters is defaulted and Kotlin/Native exports no defaults), the tenth `FlowWatcher` subclass,
+and a chip on the map screen matching the phone's. Entry 18 was not decided by accident: the
+tracker still emits a reading at a standstill and each surface still chooses whether to draw it —
+the car draws it, as it draws its speed.
+
+**Unverified:** no replay and no device ran for either surface, and nothing at all compiles the
+Swift. See `DECISION.md` § *What is not verified*.
+
 **What.** Belgian and Dutch motorways measure your *average* speed between two gantries. The phone
 tracks that average and shows it. The car downloads the same section data and discards it.
 
@@ -1815,7 +1832,7 @@ items plus one open question plus a bug — so the buckets add to more than 22 b
 | 6 | Convoy relay: `left`, pruning, dead sockets | 5 bugs + 1 trade-off | iOS | no (out of scope) | survive: Android on 6a–6e; **6a + 6b RESOLVED `aff8407`**; 6c–6e open |
 | 15 | Camera warning: chime vs chime+speak+toast | **product decision** | phone | partly | **RESOLVED `ae32722`** — full parity: chime + speak, no toast; audibility still unheard |
 | 2 | Overpass prefetch on the fix collector | plain bug | phone | **yes (ordering)** | survive: car's structure (stage 0d) |
-| 11 | Trajectcontrole adoption on car / iOS | **product decision** | car, iOS | it *is* stage 3 | **needs-a-human** (§C2) |
+| 11 | Trajectcontrole adoption on car / iOS | **product decision** | car, iOS | it *is* stage 3 | **RESOLVED** — all three, §C2 |
 | 12 | Voice: phone silent, iOS mute doesn't cut | **product decision** + bug | phone, iOS | no | **RESOLVED — policy `c95b19d`, car `c9547ee`, iOS `fb59b8e` + `4e45f4a` + `04b0f98`, phone `e7cb39f`/`31b2ba5`/`d682603`**; turn prompts foregrounded-only (stage 4), and no audio verified |
 | 20 | Place search: length, debounce, proximity | drift | car, iOS | no | survive: the phone's parameters |
 | 9 | Three-candidate roll: phone's copy vs `shared/` | product decision | phone, iOS | no | survive: `shared/` + phone's timeout |
@@ -2049,6 +2066,7 @@ The two expensive decisions both expand scope, so the sequencing matters more th
 4. **Stage 3 as specified**, with `SectionAverageTracker` in commonMain and its output shaped
    for three consumers rather than one.
 5. **Then** the car and iOS section readouts — feature work consuming what stage 3 produced.
+   **Done**: `b655528` (car), `79f20b7` + `e68c815` (iOS). Entry 11 resolved.
 6. **Then** the announcement policy into `shared/`, and only after that the phone `NavVoice`.
 
 Nothing in 4–6 may share a commit with the extraction it depends on.

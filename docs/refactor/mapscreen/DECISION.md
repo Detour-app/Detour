@@ -35,6 +35,11 @@ posted-limit sign and the camera chime available to iOS at all.
    handed in and timestamps are injected.
 4. **One owner for the camera** — `followMe`, `camSuspended` and `lastGestureMs`, written from
    ten sites, became one `CameraAuthority.State`.
+5. **Convergence 2 — the section readouts** (`b655528`, `79f20b7`, `e68c815`). The feature work
+   stage 3's extraction existed for: the head unit stops discarding `result.sections` and draws
+   the running trajectcontrole average, and iOS gets the feature outright — a `SectionAverageHolder`
+   in `iosMain`, the tenth `FlowWatcher` subclass, and a chip on the map screen. All three surfaces
+   now read the same tracker. Register entry 11 resolved.
 
 The full investigation — six architecture proposals, three independent evaluations, the staged
 specs and every implementation plan — is in git history at **`b7f4c6f`**, the last commit
@@ -43,6 +48,13 @@ lists it.
 
 ## What is not verified
 
+- **Convergence 2's readouts were never run.** The `iosMain` Kotlin and the Swift were both
+  written on a Linux host: Kotlin/Native skips every Apple target there, so
+  `:shared:iosSimulatorArm64Test` and `:shared:compileIosMainKotlinMetadata` report `SKIPPED`
+  rather than pass, and there is no Swift compiler at all. `iosApp/` has no test target, so even
+  a green `ios.yml` covers the tracker underneath the chip and nothing about the chip. The car
+  half compiles and assembles but has had no replay and no head unit. Everything below about
+  stage 3's unverified replay applies to its consumer too.
 - **No GPS replay ran for stages 3 or 4.** Both mirrors the app uses refused this host, and the
   one healthy public mirror is a Switzerland-only extract with no Belgian data. That leaves the
   posted-limit ladder, the 3-fix clear latency and the camera chime unmeasured. Stage 4 was
@@ -62,9 +74,6 @@ lists it.
 
 ## What is left
 
-- **[Convergence 2 — section readouts](specs/convergence-2-section-readouts.md).** The only
-  unstarted spec. It was blocked on stage 3's `SectionAverageTracker`, which now exists, so it
-  is unblocked.
 - **[The divergence register](15-divergence-register.md).** Its §A entries needing a product
   answer — the watch's discarded instruction text, the HUD at a standstill, distance
   quantisation, catch-up order — and its remaining §B bugs.

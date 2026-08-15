@@ -1,10 +1,11 @@
 # How a spec in this directory works
 
 The MapScreen refactor ran as a chain of staged specs, each gating the next on executable
-preconditions. Four structure stages and three convergence specs have been implemented and
-removed; [`convergence-2-section-readouts.md`](convergence-2-section-readouts.md) is the one
-that remains. This file explains the machinery it runs on, so it can be executed without
-reconstructing the reasoning.
+preconditions. Four structure stages and three convergence specs were implemented and removed;
+[`convergence-2-section-readouts.md`](convergence-2-section-readouts.md), the last one, is kept
+in the tree because it is the only spec whose Work items were written *after* execution rather
+than before, and its Preconditions block is the chain's clearest worked example of the
+wrong-versus-stale distinction below. This file explains the machinery it ran on.
 
 The implemented specs are in git history at **`b7f4c6f`** —
 `git show b7f4c6f:docs/refactor/mapscreen/specs/` lists them — and they are worth reading as

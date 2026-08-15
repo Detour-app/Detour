@@ -6,7 +6,7 @@
 |---|---|
 | **Detail level** | **Intent + constraints.** The Work items section **requires a rewrite before use** — see the marker below. It cannot be written yet, and not for want of effort: the readouts consume a type that does not exist until stage 3 chooses it |
 | **Prerequisite** | Stage 3 (`stage-3-hazard-machines-to-shared.md`, in history at `b7f4c6f`) complete — **this is the convergence axis' one dependency on the structure axis.** Convergence 1 is not a prerequisite |
-| **State** | **not started — unblocked 2026-08-13.** Its blocker was stage 3's `SectionAverageTracker`, which now exists in `shared/src/commonMain/kotlin/com/jellemax/detour/drive/` with `commonTest` coverage, so the interlock this spec waited on is satisfied. Re-run the preconditions before planning: the two stage-3 assertions that used to fail should now pass, and everything they reference has moved at least twice. **This is the only unimplemented spec left**; the rest of the chain landed and was removed from the tree — see [`../DECISION.md`](../DECISION.md). |
+| **State** | **done 2026-08-15.** `b655528` (car) · `79f20b7` + `e68c815` (iOS), after `0b4cebf` rewrote the Work items against the landed tracker. Register entry 11 is resolved. Verified as far as this host allows and no further: `:app:` unit tests, `:app:assembleDebug`, `:shared:testDebugUnitTest`, `:shared:compileCommonMainKotlinMetadata` and the shared-core preconditions all pass; **nothing compiled the `iosMain` Kotlin or the Swift**, and no replay or device session ran. See § *Done criteria* and [`../DECISION.md`](../DECISION.md). |
 | **Preconditions captured** | Re-captured 2026-08-15 against `6dcc779`, executed. The interlock pair now passes — stage 3 landed the tracker. Two of the 2026-08-12 assertions did not survive: one was **wrong when written**, one merely **stale**; § *Preconditions* says which is which |
 | **Chain** | [design](00-chain-design.md) · [register](../15-divergence-register.md) · prev: convergence 1 (`convergence-1-cheap-fixes.md`, in history at `b7f4c6f`) · next: convergence 3 (`convergence-3-voice-policy.md`, in history at `b7f4c6f`) |
 
@@ -221,19 +221,44 @@ its own. None of them shares a commit with stage 3's extraction, which landed ea
 
 ## Done criteria and verification
 
-- [ ] The car keeps `result.sections`, drives the shared tracker, and shows the average.
-- [ ] iOS shows the average during a section, red over the section limit.
-- [ ] `grep -rl 'SpeedCameras' iosApp | wc -l` is no longer 0.
-- [ ] No new `expect` declaration in `Platform.kt`, and no `Dispatchers.*` in commonMain — both
-      are stage 3's constraints and this stage is their first real consumer test.
-- [ ] Entry 11 marked **resolved** in the register with the commits and which way it went.
+- [x] The car keeps `result.sections`, drives the shared tracker, and shows the average.
+- [x] iOS shows the average during a section, red over the section limit. *Written, not run.*
+- [x] `grep -rl 'SpeedCameras' iosApp | wc -l` is no longer 0 — it is 1.
+- [x] No new `expect` declaration in `Platform.kt`, and no `Dispatchers.*` in commonMain — the
+      shared-core precondition script reports 7/7 after this stage, and the constraint held
+      without argument: the holder iOS needed went in `iosMain`, and the fixes and the section
+      data are handed in from the platform, which is what the rule asks for.
+- [x] Entry 11 marked **resolved** in the register with the commits and which way it went.
 
-Verification: the car readout is a `lastFix` consumer on a nav screen — Tier 2, replay against
-the stage-0 baseline, which by then exists (stage 3 could not have landed otherwise). Route (i)
-is the one that enters and exits a gantry, so it is the only route that exercises this at all.
-iOS gets no Tier 2 equivalent: `ios.yml:58-68` type-checks commonMain and runs `commonTest` on
-JVM and Kotlin/Native, which covers the tracker but nothing about a SwiftUI readout. Say so
-rather than implying the CI green covers the feature.
+Verification, as run:
+
+| Check | Result |
+|---|---|
+| `:app:testDebugUnitTest`, `:shared:testDebugUnitTest` | pass |
+| `:app:compileDebugKotlin`, `:app:assembleDebug` | pass |
+| `:shared:compileCommonMainKotlinMetadata` | pass |
+| `check-preconditions.sh` | 7/7 |
+| `:shared:iosSimulatorArm64Test` | **SKIPPED**, not passed — see below |
+| Replay A/B, device desk check, Swift build | **not run** |
+
+**Three things this stage did not verify, and they should not be read as one.**
+
+1. **The `iosMain` Kotlin was never compiled.** Kotlin/Native cannot target Apple platforms from
+   Linux, so `:shared:iosSimulatorArm64Test` and even `:shared:compileIosMainKotlinMetadata`
+   report `SKIPPED` — a green Gradle run here says nothing about `SectionAverageHolder` or
+   `SectionReadingWatcher`. CI's `ios.yml` Native leg is the first thing that builds them, and it
+   is path-gated on `shared/**`, which this stage touched.
+2. **The Swift was never compiled either, and nothing in this repo can.** `iosApp/` has no test
+   target (`project.yml`), and `ios.yml` type-checks `commonMain` and runs `commonTest` — which
+   covers the tracker underneath the readout and nothing about the readout. A green iOS workflow
+   does not cover this feature; the simulator boot step is the closest thing to a check, and it
+   only proves the app launches.
+3. **No replay, no device.** The spec's original plan was Tier 2 against the stage-0 baseline
+   "which by then exists (stage 3 could not have landed otherwise)". **That premise is false** —
+   `../DECISION.md` § *What is not verified* records that stage 3 landed without a replay, both
+   Overpass mirrors having refused the host, and no baseline was ever recorded. Route (i), the
+   one that enters and exits a gantry, still does not exist. So the car readout is a `lastFix`
+   consumer that has earned a Tier 2 verification and has not had one.
 
 ## Next stage
 
