@@ -78,7 +78,7 @@ object RoutingServer {
     fun loadCustom(): ServerConfig? {
         val p = prefs(PREFS)
         val s = securePrefs()
-        CredentialMigration.step(p, s, CredentialMigration.SERVER_KEYS)
+        CredentialMigration.step(p, s, CredentialMigration.SERVER_GROUP)
         val url = p.string("url")
         if (!p.bool("saved", false) || url.isBlank()) return null
         return ServerConfig(
@@ -105,7 +105,7 @@ object RoutingServer {
     fun clearCustom() {
         prefs(PREFS).clear()
         securePrefs().apply {
-            CredentialMigration.SERVER_KEYS.forEach { remove(it.name) }
+            CredentialMigration.SERVER_GROUP.keys.forEach { remove(it.name) }
         }
     }
 

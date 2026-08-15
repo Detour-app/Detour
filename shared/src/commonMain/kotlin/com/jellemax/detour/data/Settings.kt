@@ -161,7 +161,7 @@ object Settings {
         secureStore = securePrefs()
         // Two phases: this run copies and keeps, a later run deletes once the marker
         // reads back. See CredentialMigration.
-        CredentialMigration.step(prefs, secure, CredentialMigration.SESSION_KEYS)
+        CredentialMigration.step(prefs, secure, CredentialMigration.SESSION_GROUP)
         _theme.value = runCatching {
             Theme.valueOf(prefs.string("theme", Theme.AUTO.name))
         }.getOrDefault(Theme.AUTO)

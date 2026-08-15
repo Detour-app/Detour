@@ -41,12 +41,17 @@ class CredentialMigrationTest {
         put("auth_username", "andre")
     }
 
+    private fun plainWithServer() = FakePrefs().apply {
+        put("clientId", "cid")
+        put("clientSecret", "csecret")
+    }
+
     @Test
     fun firstRunCopiesEverythingAndKeepsTheOriginals() {
         val plain = plainWithSession()
         val secure = FakePrefs()
 
-        val outcome = CredentialMigration.step(plain, secure, CredentialMigration.SESSION_KEYS)
+        val outcome = CredentialMigration.step(plain, secure, CredentialMigration.SESSION_GROUP)
 
         assertEquals(CredentialMigration.Outcome.Copied, outcome)
         assertEquals("at", secure.string("access_token", ""))
@@ -61,8 +66,8 @@ class CredentialMigrationTest {
         val plain = plainWithSession()
         val secure = FakePrefs()
 
-        CredentialMigration.step(plain, secure, CredentialMigration.SESSION_KEYS)
-        val second = CredentialMigration.step(plain, secure, CredentialMigration.SESSION_KEYS)
+        CredentialMigration.step(plain, secure, CredentialMigration.SESSION_GROUP)
+        val second = CredentialMigration.step(plain, secure, CredentialMigration.SESSION_GROUP)
 
         assertEquals(CredentialMigration.Outcome.Verified, second)
         assertEquals("", plain.string("access_token", ""))
@@ -76,11 +81,11 @@ class CredentialMigrationTest {
         val plain = plainWithSession()
         val secure = FakePrefs()
 
-        CredentialMigration.step(plain, secure, CredentialMigration.SESSION_KEYS)
+        CredentialMigration.step(plain, secure, CredentialMigration.SESSION_GROUP)
         // The Keystore key is gone: every read returns the default, so the marker
         // does not read back and nothing may be deleted.
         secure.failReads = true
-        val second = CredentialMigration.step(plain, secure, CredentialMigration.SESSION_KEYS)
+        val second = CredentialMigration.step(plain, secure, CredentialMigration.SESSION_GROUP)
 
         assertEquals(CredentialMigration.Outcome.Copied, second)
         assertEquals("at", plain.string("access_token", ""))
@@ -91,8 +96,8 @@ class CredentialMigrationTest {
         val plain = plainWithSession()
         val secure = FakePrefs()
 
-        repeat(4) { CredentialMigration.step(plain, secure, CredentialMigration.SESSION_KEYS) }
-        val settled = CredentialMigration.step(plain, secure, CredentialMigration.SESSION_KEYS)
+        repeat(4) { CredentialMigration.step(plain, secure, CredentialMigration.SESSION_GROUP) }
+        val settled = CredentialMigration.step(plain, secure, CredentialMigration.SESSION_GROUP)
 
         assertEquals(CredentialMigration.Outcome.NothingToDo, settled)
         assertEquals("at", secure.string("access_token", ""))
@@ -103,12 +108,12 @@ class CredentialMigrationTest {
         val plain = FakePrefs()
         val secure = FakePrefs()
 
-        val first = CredentialMigration.step(plain, secure, CredentialMigration.SESSION_KEYS)
+        val first = CredentialMigration.step(plain, secure, CredentialMigration.SESSION_GROUP)
 
         assertEquals(CredentialMigration.Outcome.NothingToDo, first)
         // Armed anyway, so a later run does not mistake a fresh install for an
         // interrupted migration and start copying blanks over real values.
-        assertTrue(secure.string(CredentialMigration.MARKER, "").isNotEmpty())
+        assertTrue(secure.string(CredentialMigration.SESSION_GROUP.marker, "").isNotEmpty())
     }
 
     @Test
@@ -116,7 +121,7 @@ class CredentialMigrationTest {
         val plain = FakePrefs().apply { put("access_token", "") }
         val secure = FakePrefs().apply { put("access_token", "already-here") }
 
-        CredentialMigration.step(plain, secure, CredentialMigration.SESSION_KEYS)
+        CredentialMigration.step(plain, secure, CredentialMigration.SESSION_GROUP)
 
         assertEquals("already-here", secure.string("access_token", ""))
     }
@@ -125,14 +130,46 @@ class CredentialMigrationTest {
     fun theServerKeysAreTheTwoCloudflareFields() {
         assertEquals(
             listOf("clientId", "clientSecret"),
-            CredentialMigration.SERVER_KEYS.map { it.name },
+            CredentialMigration.SERVER_GROUP.keys.map { it.name },
         )
     }
 
     @Test
     fun theExpiryIsTheOnlyNumericSecret() {
-        val numeric = (CredentialMigration.SESSION_KEYS + CredentialMigration.SERVER_KEYS)
+        val numeric = (CredentialMigration.SESSION_GROUP.keys + CredentialMigration.SERVER_GROUP.keys)
             .filter { it.type == SecretType.Number }
         assertEquals(listOf("access_token_expires_at"), numeric.map { it.name })
+    }
+
+    // The defect this guards against: both groups migrate into the same secure store, so
+    // a single shared marker would let the session group's first run arm it, and the
+    // server group's very next call would read that marker back as its own and delete
+    // plaintext it had never copied. Per-group markers ([SecretGroup.marker]) are what
+    // keeps one group's run from arming the other.
+    @Test
+    fun oneGroupsMigrationDoesNotArmAnothers() {
+        val sessionPlain = plainWithSession()
+        val serverPlain = plainWithServer()
+        val secure = FakePrefs() // one shared secure store, exactly as the real code uses
+
+        CredentialMigration.step(sessionPlain, secure, CredentialMigration.SESSION_GROUP)
+        CredentialMigration.step(serverPlain, secure, CredentialMigration.SERVER_GROUP)
+
+        // First pass: the server keys must have been copied, not deleted sight unseen.
+        assertEquals("cid", serverPlain.string("clientId", ""))
+        assertEquals("csecret", serverPlain.string("clientSecret", ""))
+        assertEquals("cid", secure.string("clientId", ""))
+        assertEquals("csecret", secure.string("clientSecret", ""))
+
+        CredentialMigration.step(sessionPlain, secure, CredentialMigration.SESSION_GROUP)
+        CredentialMigration.step(serverPlain, secure, CredentialMigration.SERVER_GROUP)
+
+        // Second pass: now both markers have genuinely read back, so both plaintexts go.
+        assertEquals("", sessionPlain.string("access_token", ""))
+        assertEquals("", serverPlain.string("clientId", ""))
+        assertEquals("", serverPlain.string("clientSecret", ""))
+        assertEquals("at", secure.string("access_token", ""))
+        assertEquals("cid", secure.string("clientId", ""))
+        assertEquals("csecret", secure.string("clientSecret", ""))
     }
 }

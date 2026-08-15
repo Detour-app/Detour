@@ -12,6 +12,19 @@ internal enum class SecretType { Text, Number }
 internal data class SecretKey(val name: String, val type: SecretType)
 
 /**
+ * A set of credentials that migrate together, and the marker that records whether *this*
+ * set has been copied and verified.
+ *
+ * The marker is per-group and not shared. Both groups migrate into the same secure store,
+ * so a single marker would let the first group to run arm the second — which would then
+ * take the delete branch and remove its plaintext without ever having copied it.
+ */
+internal data class SecretGroup(
+    val marker: String,
+    val keys: List<SecretKey>,
+)
+
+/**
  * Moves credentials from the plaintext stores into the encrypted one, in two phases,
  * so there is never a moment where they exist in neither.
  *
@@ -29,33 +42,37 @@ internal data class SecretKey(val name: String, val type: SecretType)
  */
 internal object CredentialMigration {
 
-    /** Written into the secure store, and read back later as proof it decrypts. */
-    const val MARKER = "__migration"
     const val MARKER_VALUE = "v1"
 
     /** The session, from the `settings` bag. */
-    val SESSION_KEYS = listOf(
-        SecretKey("access_token", SecretType.Text),
-        SecretKey("refresh_token", SecretType.Text),
-        SecretKey("access_token_expires_at", SecretType.Number),
-        SecretKey("auth_username", SecretType.Text),
+    val SESSION_GROUP = SecretGroup(
+        marker = "__migration_session",
+        keys = listOf(
+            SecretKey("access_token", SecretType.Text),
+            SecretKey("refresh_token", SecretType.Text),
+            SecretKey("access_token_expires_at", SecretType.Number),
+            SecretKey("auth_username", SecretType.Text),
+        ),
     )
 
     /** The Cloudflare Access service token, from the `routing_server` bag. */
-    val SERVER_KEYS = listOf(
-        SecretKey("clientId", SecretType.Text),
-        SecretKey("clientSecret", SecretType.Text),
+    val SERVER_GROUP = SecretGroup(
+        marker = "__migration_server",
+        keys = listOf(
+            SecretKey("clientId", SecretType.Text),
+            SecretKey("clientSecret", SecretType.Text),
+        ),
     )
 
     enum class Outcome { Copied, Verified, NothingToDo }
 
-    fun step(plain: Prefs, secure: Prefs, keys: List<SecretKey>): Outcome {
+    fun step(plain: Prefs, secure: Prefs, group: SecretGroup): Outcome {
         // Read before writing: "was the marker there when this run started".
-        val armedEarlier = secure.string(MARKER, "") == MARKER_VALUE
+        val armedEarlier = secure.string(group.marker, "") == MARKER_VALUE
 
         if (!armedEarlier) {
             var copied = 0
-            for (k in keys) {
+            for (k in group.keys) {
                 when (k.type) {
                     SecretType.Text -> {
                         val v = plain.string(k.name, "")
@@ -67,12 +84,12 @@ internal object CredentialMigration {
                     }
                 }
             }
-            secure.put(MARKER, MARKER_VALUE)
+            secure.put(group.marker, MARKER_VALUE)
             return if (copied > 0) Outcome.Copied else Outcome.NothingToDo
         }
 
         var removed = 0
-        for (k in keys) {
+        for (k in group.keys) {
             val present = when (k.type) {
                 SecretType.Text -> plain.string(k.name, "").isNotEmpty()
                 SecretType.Number -> plain.long(k.name, 0L) != 0L
