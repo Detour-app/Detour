@@ -132,6 +132,15 @@ class NavVoice(context: Context) {
         val result = runCatching {
             engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, UTTERANCE_ID)
         }.getOrDefault(TextToSpeech.ERROR)
+        // Debug-level, and it is the only record that a prompt was actually
+        // spoken. Until this existed the sole log line here was the refusal
+        // above, so a *successful* announcement wrote nothing at all: a replay
+        // looking for "did the camera warning fire" could grep the whole logcat
+        // and get a zero that meant nothing. Deliberately logs the text, since
+        // which prompt was spoken is the thing under test, and deliberately
+        // sits after the call so it records what happened rather than what was
+        // attempted.
+        if (result == TextToSpeech.SUCCESS) Log.d(TAG, "spoke: $text")
         // No utterance means no onDone, so nothing would hand the focus back.
         if (result != TextToSpeech.SUCCESS) abandonFocus()
     }

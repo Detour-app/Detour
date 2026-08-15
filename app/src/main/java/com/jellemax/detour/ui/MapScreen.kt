@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.graphics.RectF
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.util.Log
 import java.io.IOException
 import android.os.Build
 import android.view.MotionEvent
@@ -989,6 +990,13 @@ fun MapScreen(
             when (val outcome = step.outcome) {
                 is CameraWarner.Outcome.Warn -> {
                     toneGen?.startTone(ToneGenerator.TONE_PROP_BEEP2, 400)
+                    // The only trace that the chime fired. NavVoice logs the
+                    // spoken half, but that half is gated on the guidance
+                    // setting, so with speech off a replay had nothing at all to
+                    // grep for and a zero hit count meant "muted" and "never
+                    // warned" indistinguishably. Debug level: it is one line per
+                    // camera, latched to one per camera by CameraWarner itself.
+                    Log.d("DetourCameraWarn", "chime: ${outcome.text}")
                     // A TONE_PROP_BEEP2 on the notification stream is inaudible on
                     // a bar mount with earplugs in and wind noise — which is this
                     // app's primary configuration. The head unit has spoken this
