@@ -8,6 +8,7 @@ import android.media.ToneGenerator
 import android.util.Log
 import java.io.IOException
 import android.os.Build
+import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -1127,8 +1128,8 @@ fun MapScreen(
                 at = LatLon(f.lat, f.lon),
                 bearingDeg = f.bearingDeg,
                 speedMps = f.speedMps,
-                fixTimeMs = f.timeMs,
-                nowMs = System.currentTimeMillis(),
+                fixTimeMs = f.elapsedRealtimeMs,
+                nowMs = SystemClock.elapsedRealtime(),
                 leadSeconds = CAM_POS_TAU,
             ) else camTarget
             camTargetNow?.let { target ->
