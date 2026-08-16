@@ -28,16 +28,26 @@ object MapMotion {
     const val MIN_PREDICT_MPS = 2.0
 
     /**
-     * Longest gap worth extrapolating across. [com.jellemax.detour.tracking.Fix.timeMs] is
-     * `location.time` — wall-clock provider time, not monotonic — so without a ceiling a
-     * device clock a minute off would scale the prediction without bound. Also bounds a
-     * tunnel and a GPS dropout, with the same one mechanism: 1.5 s is 50 m at 120 km/h.
+     * Longest gap worth extrapolating across. Bounds a tunnel and a GPS dropout: past this
+     * the last bearing and speed are no longer evidence of where the vehicle is, and
+     * extrapolating further invents distance. 1.5 s is 50 m at 120 km/h.
+     *
+     * This used to also bound a skewed device clock, back when the age was a provider wall
+     * clock subtracted from ours. It no longer has to — [predict] takes a monotonic pair —
+     * but the tunnel and dropout cases are reason enough on their own.
      */
     const val MAX_PREDICT_MS = 1500L
 
     /**
      * [at] carried forward along [bearingDeg] by however far [speedMps] covers in the fix's
      * age plus [leadSeconds].
+     *
+     * Both timestamps must come from the **monotonic** clock —
+     * [android.os.SystemClock.elapsedRealtime] and the fix's own
+     * [android.location.Location.getElapsedRealtimeNanos], which is what
+     * [com.jellemax.detour.tracking.Fix.elapsedRealtimeMs] carries. Passing a wall clock
+     * compiles and is wrong: a device clock running persistently fast then biases every
+     * prediction forward by a constant, which does not average out.
      *
      * The lead is what cancels the ease's own lag. A first-order lag driven at constant
      * velocity settles `v * tau` behind its input, so a target that leads by exactly tau
@@ -50,12 +60,12 @@ object MapMotion {
         at: LatLon,
         bearingDeg: Float?,
         speedMps: Double,
-        fixTimeMs: Long,
-        nowMs: Long,
+        fixElapsedMs: Long,
+        nowElapsedMs: Long,
         leadSeconds: Double,
     ): LatLon {
         if (bearingDeg == null || speedMps < MIN_PREDICT_MPS) return at
-        val ageMs = (nowMs - fixTimeMs).coerceIn(0L, MAX_PREDICT_MS)
+        val ageMs = (nowElapsedMs - fixElapsedMs).coerceIn(0L, MAX_PREDICT_MS)
         val seconds = ageMs / 1000.0 + leadSeconds
         if (seconds <= 0.0) return at
         return RoadRoulette.offset(at, speedMps * seconds, bearingDeg * PI / 180.0)
