@@ -79,15 +79,32 @@ with the phone confirming *"Android Auto — Connected to your vehicle"*. It the
 hangs without projecting, and the ADB-tunnel transport (`adb forward tcp:5277`)
 never establishes a session at all.
 
-The reason a script would not help yet is structural: **the container's `/dev`
-is a tmpfs populated at container start**, so USB hotplug never reaches it. A
-phone plugged in after the container started does not exist in the container's
-device tree, and every AOAP mode switch re-enumerates it to a new device number
-that likewise does not appear. `--privileged` does not fix this — it grants
-access to nodes that exist, not nodes that appear later. The fix is a bind mount
-of `/dev/bus/usb`, which is a `devcontainer.json` change and the only one this
-whole investigation actually justified.
+Getting that far took the `/dev/bus/usb` bind mount now in `devcontainer.json`.
+Before it, the container's `/dev` was a tmpfs frozen at container start, so a
+phone plugged in afterwards did not exist in the container's device tree and DHU
+reported `Couldn't find/access compatible USB device` while the phone was
+plainly present on the host. With the mount, hotplug is live: DHU discovers the
+phone, switches it into accessory mode itself (`supports AOAPv2, starting
+accessory mode…`), and attaches. That part is solved and stays solved.
 
-Until that mount exists and the hang after `Attached!` is understood, a
-`setup-dhu.sh` would be a script that cannot do its job. See
-maxke24/Detour#37, which is blocked on exactly this.
+**What is not solved is what happens next.** After `Attached!` the DHU prints its
+banner — its shutdown path — and exits, with no window and no projection on the
+phone. Measured with the mount in place, DHU left running with no timeout, on a
+verified display (Xwayland up, `glxinfo` reporting direct rendering, and the
+earlier `SDL_CreateWindowRenderer failed` gone once GLX was installed).
+
+Everything environmental has been eliminated: transport, device visibility,
+display, GLX, `glibc` 2.39 ≥ the required 2.32, `libc++`, `libusb` beside the
+binary, "Add new vehicles to Android Auto" enabled, head unit server running,
+both USB and ADB transports. What remains is the DHU itself: **2.0 is the only
+version Google ships, it is a 2022-03-30 build negotiating protocol 1.7, and the
+phone runs Android Auto 17.3**. The phone's own logs would say more, but this
+OPLUS build suppresses gearhead logging entirely — zero lines across all logcat
+buffers even with Android Auto's "force debug logging" on.
+
+So a `setup-dhu.sh` would install a tool that cannot currently project, and
+maxke24/Detour#37 stays blocked on verification. The more promising route for
+that issue is **Android Automotive OS**: Detour's `car/` code uses the Car App
+Library, whose apps run natively on AAOS as well as over projection, and the SDK
+ships `system-images;android-3x;android-automotive*`. That needs no phone, no
+DHU and no USB at all. Whether Detour's manifest can target it is unchecked.
