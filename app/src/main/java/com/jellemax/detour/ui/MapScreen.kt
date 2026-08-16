@@ -1191,6 +1191,15 @@ fun MapScreen(
     // with a spin result up), because then nothing is gliding underneath to mask it, which
     // is why this loop is deliberately independent of cameraActive.
     //
+    // The heading is eased here too, on its own accumulator rather than the camera loop's
+    // eased bearing — sharing would guarantee the two never diverge, but the camera loop
+    // returns early when !cameraActive, and a parked camera is exactly the case this loop
+    // exists to serve, so a shared bearing would freeze right when the marker still needs
+    // to turn. Measured on a constant-radius turn at 45 km/h (11.9 deg/s): without this,
+    // the icon's screen angle held for ~1 s then jumped 18-43 deg and decayed back over
+    // ~3 frames — 83% of frame deltas were either under 1 deg or over 6 deg, i.e. stepping
+    // rather than gliding.
+    //
     // setPosition writes one point into SRC_POSITION. render() rewrites eight sources
     // including the route line, and doing *that* per frame is what makes a head unit
     // crawl — see MapOverlays.setPosition's own note.
@@ -1198,8 +1207,15 @@ fun MapScreen(
         val overlays = mapOverlays ?: return@LaunchedEffect
         var lastLat = Double.NaN
         var lastLon = Double.NaN
+        var pushedBearing: Float? = null
+        var markerBearing: Float? = null
+        var lastNs = withFrameNanos { it }
         while (true) {
-            withFrameNanos { it }
+            val ns = withFrameNanos { it }
+            // Same clamp as the camera loop: a dropped frame or a stalled render must not
+            // let one frame close the whole gap.
+            val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.1)
+            lastNs = ns
             val f = liveFix ?: continue
             val here = MapMotion.predict(
                 at = LatLon(f.lat, f.lon),
@@ -1209,8 +1225,23 @@ fun MapScreen(
                 nowElapsedMs = SystemClock.elapsedRealtime(),
                 leadSeconds = 0.0,
             )
-            if (here.lat != lastLat || here.lon != lastLon) {
-                overlays.setPosition(here, camTargetBearing?.toDouble())
+            camTargetBearing?.let { target ->
+                markerBearing = smoothBearing(
+                    markerBearing, target, (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat())
+            }
+            val bearing = markerBearing
+            val moved = here.lat != lastLat || here.lon != lastLon
+            // The gate covers the bearing as well as the position, or a vehicle stopped
+            // mid-rotation would ease its nose and never push it. CAM_BEARING_EPS_DEG keeps
+            // the standstill optimisation the position half already had: once the marker
+            // has settled, this loop goes quiet again.
+            val turned = bearing != null &&
+                (pushedBearing == null || bearingDelta(pushedBearing, bearing) > CAM_BEARING_EPS_DEG)
+            if (moved || turned) {
+                overlays.setPosition(here, bearing?.toDouble())
+                if (turned) pushedBearing = bearing
+            }
+            if (moved) {
                 // The fog reveals around the same interpolated position, or its hole
                 // trails the dot by the prediction lead — about 14 m at 100 km/h,
                 // snapping forward once a second. The invalidate is for the parked
