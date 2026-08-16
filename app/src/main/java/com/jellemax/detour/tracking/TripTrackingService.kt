@@ -1213,7 +1213,11 @@ class TripTrackingService : Service() {
             // phone can go a long time between fixes. That is fine for a
             // position nobody has moved, but a fix old enough that the phone
             // could be anywhere by now must not drive a geofence decision.
-            val fixAgeMs = System.currentTimeMillis() - fix.timeMs
+            // Monotonic, not wall clock: this asks how old the fix is, and a
+            // device clock that drifts or is corrected mid-drive would answer
+            // it wrong in whichever direction the correction went. The stamp
+            // posted below is the opposite question and stays on location.time.
+            val fixAgeMs = SystemClock.elapsedRealtime() - fix.elapsedRealtimeMs
             for (circle in sharing) {
                 try {
                     CircleFixes.postFix(
