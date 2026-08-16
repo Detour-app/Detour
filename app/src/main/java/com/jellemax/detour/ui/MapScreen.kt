@@ -1205,8 +1205,8 @@ fun MapScreen(
                 at = LatLon(f.lat, f.lon),
                 bearingDeg = f.bearingDeg,
                 speedMps = f.speedMps,
-                fixTimeMs = f.timeMs,
-                nowMs = System.currentTimeMillis(),
+                fixTimeMs = f.elapsedRealtimeMs,
+                nowMs = SystemClock.elapsedRealtime(),
                 leadSeconds = 0.0,
             )
             if (here.lat != lastLat || here.lon != lastLon) {
