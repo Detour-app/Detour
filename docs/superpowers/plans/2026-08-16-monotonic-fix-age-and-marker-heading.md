@@ -28,6 +28,18 @@ Do not re-derive these; do re-check them if a step behaves unexpectedly.
 
 ---
 
+## Corrections made during execution
+
+Four things this plan asserted turned out to be wrong or incomplete once the work started. They are recorded here rather than silently fixed, because each one changes what the PR can claim.
+
+1. **The branch was based on stale `main`.** Our fork was two commits behind `maxke24/Detour`: `fd517e2` (#46, fog revealed at the interpolated position) and `18123c6` (#49, stop `render()` erasing the position marker once a second). Both land in the marker loop this plan edits. The branch was rebased onto `18123c6`; all seven commits replayed cleanly. **Task 7's code block was written against the pre-#46 loop and has been rewritten** — the current loop also writes `fogView.currentLocation` and invalidates inside the push gate, so the position and bearing gates must be separated rather than merged.
+
+2. **#38 is invisible on the default configuration.** The default map icon is `DOT`, a rotationally symmetric circle; `Settings.kt:148` says "DOT until the user picks a vehicle from Settings", and the Settings screen's own copy reads "Vehicles turn to face the way you're heading." So a stepping heading cannot be seen at all unless the user has chosen one of the six directional vehicle icons. This materially narrows who #38 affects and must be stated in the PR and on the issue.
+
+3. **The planned A/B quantities are not measurable on this device.** Two full replays of `stop-start.txt` recorded 589.2 km and 231.6 km against a true 9.69 km, and fragmented the trace into 32 segments instead of ~1 — the #47 GNSS bleed, at far higher severity than the 28% of samples that issue records. **Airplane mode with location on does not help** (231.6 km was measured with it enabled), which settles a question #47 lists as untested and predicts negatively; the reason is structural, in that Play Services' fused provider reads the GNSS HAL directly and no `LocationManager` test provider can mask it. Raw `distanceMeters` / `topSpeedMps` / trace-point counts are therefore unusable, and the A/B uses bleed-filtered quantities instead: hops ≤ 200 m only, which cleanly separates legitimate hops (25 m decimation floor up to 37 m at the route's 132 km/h peak) from bleed hops measured in kilometres.
+
+4. **`screenrecord` does not work on this device** — it fails with `Permission denied` on `/sdcard` and on `/data/local/tmp`, and returns 0 bytes with no error when told to write to stdout. The marker evidence is a timestamped screenshot burst at ~2.16 fps instead, measured rather than eyeballed: `marker_angle.py` in the session scratchpad isolates the sprite and reports its principal-axis angle per frame. Against `stop-start.txt` the stimulus was too weak to conclude anything (the replayed stretch was near-straight, angle held 87–96°, deltas at the ~0.6° noise floor), so a purpose-built fixture was added — `tools/mocklocation/routes/turn-circle.txt`, a constant-radius turn at 45 km/h giving a **11.9°/s heading rate**, i.e. a ~12° per-fix step against that noise floor.
+
 ## Commit structure, and why it is six commits rather than the spec's three
 
 The spec proposed three commits. Writing the steps out surfaced a problem with that split: renaming `MapMotion.predict`'s parameters to `fixElapsedMs`/`nowElapsedMs` while the call sites still pass `f.timeMs` produces a commit whose code actively lies about itself. Reordering fixes it — **the rename lands last, after every call site is already on the monotonic field** — at the cost of splitting the middle commit per call site.
@@ -535,6 +547,10 @@ Leave `MapMotion.shouldPush`'s inline copy alone. Converging the two is a worthw
 Replace `MapScreen.kt:1179-1209` with:
 
 ```kotlin
+    // NOTE: this block must be merged into the CURRENT marker loop, which since #46 also
+    // writes fogView.currentLocation and invalidates inside the push gate. Do not paste
+    // over those lines — read the loop in the tree first and keep them.
+    //
     // The dot, interpolated per frame. It used to be re-placed only when a fix arrived,
     // about once a second, at the raw fix position — so it stepped forward and the camera
     // slid after it. Worst when the camera is parked (after a pan, with follow off, or
@@ -583,13 +599,22 @@ Replace `MapScreen.kt:1179-1209` with:
             // the standstill optimisation the position half already had: once the marker has
             // settled, this loop goes quiet again.
             val bearing = markerBearing
+            val moved = here.lat != lastLat || here.lon != lastLon
             val turned = bearing != null &&
                 (pushedBearing == null || bearingDelta(pushedBearing, bearing) > CAM_BEARING_EPS_DEG)
-            if (here.lat != lastLat || here.lon != lastLon || turned) {
+            if (moved || turned) {
                 overlays.setPosition(here, bearing?.toDouble())
+                if (turned) pushedBearing = bearing
+            }
+            // The fog is deliberately NOT invalidated on a bearing-only frame: its hole is
+            // a circle around the position, so rotating in place changes nothing it draws,
+            // and #46 put this behind the position gate precisely to keep it off the
+            // per-frame path.
+            if (moved) {
+                fogView.currentLocation = here
+                fogView.invalidate()
                 lastLat = here.lat
                 lastLon = here.lon
-                if (turned) pushedBearing = bearing
             }
         }
     }

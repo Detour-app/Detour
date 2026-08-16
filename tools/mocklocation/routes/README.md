@@ -5,7 +5,7 @@ the tracking service and the Android Auto surface. They exist so a change can be
 A/B'd against a recorded baseline in [`../baseline/`](../baseline/) instead of
 against someone's memory of a drive.
 
-There are two families, and the filename says which:
+There are three families, and the filename says which:
 
 - **No prefix** — `trajectcontrole.txt`, `urban-limits.txt`, `stop-start.txt`.
   The maintainer's own recorded drives. These are the ones with baselines in
@@ -15,6 +15,10 @@ There are two families, and the filename says which:
   [`ATTRIBUTION.md`](ATTRIBUTION.md) — **read it before redistributing any of
   them**, they are ODbL and the unprefixed three are not. Added 2026-08-13 to
   prove the personal drives can be retired; see "Coverage: public vs personal".
+- **Synthetic instruments** — `turn-circle.txt`. Not a drive at all and not
+  derived from one: pure geometry, generated to isolate a single variable. See
+  "The synthetic instruments" below. Nobody's location data, no licence
+  question.
 
 The unprefixed three are derived from **real recorded drives**, exported from
 the app as GPX and converted with
@@ -159,6 +163,51 @@ So the file is still worth keeping, as the thing it actually is: a pinned record
 that a reverse transit currently starts a measurement, and the fixture that would
 prove a future direction test works. Do not describe it as a passing negative
 case.
+
+## The synthetic instruments
+
+### `turn-circle.txt`
+
+A constant-radius left turn: 150 lines, 60 m radius, 12.5 m per line, so **45 km/h
+held exactly and a heading rate of 11.9°/s** — one lap every 30 s, two and a half
+laps in the file. Generated 2026-08-16, centred on `stop-start.txt`'s first
+coordinate so the basemap tiles are already cached and the fixture inherits that
+file's `--trim`.
+
+**It exists because the recorded drives cannot answer a question about rotation.**
+maxke24/Detour#38 is about the position marker's heading stepping once per fix
+instead of gliding, and the visible artefact is the icon's bearing against the
+map's. Measuring that needs a sustained, known heading rate. `stop-start.txt` has
+the most turning of the personal three (337°/km), but it is turning distributed
+across a 12-minute urban drive: sampling it during the #38 work gave a marker
+angle that sat between 87° and 96° for 110 consecutive frames, with
+frame-to-frame deltas at the ~0.6° noise floor of the measurement. A near-straight
+stimulus cannot distinguish a stepped heading from an eased one, and no amount of
+replaying it would have.
+
+At 11.9°/s each 1 Hz fix carries a ~12° heading change — twenty times that noise
+floor, and two orders above `CAM_BEARING_EPS_DEG` (0.1°). That is what made the
+before/after on #38 a measurement rather than an impression: peak excursion of the
+icon's screen angle from its resting value fell from **43.09° to 12.84°**, p90 from
+8.72° to 2.76°, frame-delta sd from 7.69° to 2.32°.
+
+It clears the auto-start gate comfortably — every step is exactly 12.5 m/s, well
+above the 7.0 m/s bar, sustained for 150 s and 1.86 km against the required 8 s and
+120 m.
+
+Three limits, stated so it is not mistaken for a drive:
+
+- **No vehicle drives like this.** Constant radius, constant speed, no
+  acceleration, no GPS noise, perfectly regular sampling. It is an instrument for
+  one variable, not a scenario. Anything about how the app behaves on *real*
+  cornering still needs a real trace.
+- **It never leaves a 120 m circle**, so it exercises no posted limit, no camera,
+  no section, and its fog reveal is one blob. Do not reach for it as a general
+  regression route.
+- **The heading rate is a property of the radius and speed together.** Regenerating
+  at a different speed without changing the radius changes the rate, and with it
+  the per-fix step the fixture exists to deliver — so re-derive it rather than
+  assuming 11.9°/s survives an edit.
 
 ### Coverage: public vs personal
 
