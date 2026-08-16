@@ -20,6 +20,15 @@ SYSTEM_IMAGE="system-images;android-35;google_apis;x86_64"
 # Matches compileSdk 35 in app/build.gradle.kts. If that moves, move this.
 PLATFORM="platforms;android-35"
 
+echo "== Installing emulator runtime dependencies =="
+# libpulse0 is not optional and `-no-audio` does not avoid it: the emulator's
+# qemu binary links libpulse.so.0 and dies at startup without it, with
+# "error while loading shared libraries" and no other clue. Not part of
+# setup-gui.sh because it is audio, not display — an emulator needs it even
+# headless.
+sudo apt-get update -qq
+sudo apt-get install -y -qq --no-install-recommends libpulse0
+
 echo "== Checking KVM =="
 # The emulator runs unaccelerated without this and is unusable. /dev/kvm is
 # passed through by the container's --privileged, so the check is about the host.
