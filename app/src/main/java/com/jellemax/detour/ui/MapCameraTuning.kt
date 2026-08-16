@@ -1,5 +1,7 @@
 package com.jellemax.detour.ui
 
+import kotlin.math.abs
+
 /** Exponentially smooths a compass bearing toward [target], taking the
  *  shortest way round the 0/360 wrap, so heading-up rotation eases instead
  *  of snapping to each noisy raw GPS fix. */
@@ -9,6 +11,15 @@ internal fun smoothBearing(current: Float?, target: Float, alpha: Float = 0.3f):
     if (delta > 180f) delta -= 360f
     if (delta < -180f) delta += 360f
     return (current + delta * alpha + 360f) % 360f
+}
+
+/** Shortest angular distance between two bearings, 0..180 — so a 359 to 1 turn
+ *  reads as 2 degrees rather than 358. */
+internal fun bearingDelta(a: Float, b: Float): Float {
+    var d = (a - b) % 360f
+    if (d > 180f) d -= 360f
+    if (d < -180f) d += 360f
+    return abs(d)
 }
 
 // Camera easing time constants, in seconds: each frame the camera closes the
