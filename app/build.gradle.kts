@@ -129,6 +129,26 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
+        // A test harness for the car/ screens, never shipped. On a phone the
+        // CarAppService is driven by the Android Auto host on the head unit, so
+        // none of car/ can run without one — which is why #37's defects in
+        // CarMapRenderer have gone unverified through two pull requests. On
+        // Android Automotive OS the same CarAppService is hosted on-device by
+        // CarAppActivity, from androidx.car.app:app-automotive, so an AAOS
+        // emulator runs those screens with no head unit at all.
+        //
+        // A build type rather than a product flavor deliberately: a flavor
+        // dimension renames every existing variant task (assembleDebug becomes
+        // assemblePhoneDebug), which would break .github/workflows/build.yml and
+        // a dozen references across .claude/skills. A build type only adds
+        // assembleAutomotive and leaves the existing names alone.
+        create("automotive") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".automotive"
+            // Nothing depends on this build type's output, but AGP needs a
+            // fallback for any dependency that publishes debug/release only.
+            matchingFallbacks += listOf("debug")
+        }
     }
 
     compileOptions {
@@ -167,6 +187,11 @@ dependencies {
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
     // Android Auto: projects a car-screen "Spin" flow onto the head unit.
     implementation("androidx.car.app:app:1.7.0")
+    // Only for the `automotive` build type: app-automotive adds CarAppActivity,
+    // the on-device host that renders the same CarAppService's templates on
+    // Android Automotive OS. Same version as :app above, so this pulls no new
+    // transitive graph — it is the host half of a library the app already uses.
+    "automotiveImplementation"("androidx.car.app:app-automotive:1.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
     // WebSocket client for the convoy live-location/PTT relay - Android has
     // no built-in WS client and hand-rolling RFC 6455 framing isn't worth it.

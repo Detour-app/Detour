@@ -32,10 +32,27 @@
         // fights the host's over lock files. NuGet gets the same treatment so a
         // restore survives a container rebuild.
         "source=detour-gradle-cache,target=/home/vscode/.gradle,type=volume",
-        "source=detour-nuget-cache,target=/home/vscode/.nuget,type=volume"
+        "source=detour-nuget-cache,target=/home/vscode/.nuget,type=volume",
+        // Live USB device nodes. Without this the container's /dev is a tmpfs
+        // populated once at container start, so a phone plugged in afterwards
+        // never appears in it and every USB re-enumeration — which an Android
+        // Auto accessory-mode switch performs — lands on a device number that
+        // does not exist here. --privileged does not cover this: it grants
+        // access to nodes that exist, not nodes that appear later.
+        //
+        // Only the Desktop Head Unit needs it. adb does not: it talks to the
+        // host's ADB server over --network=host, which is why phones have
+        // worked all along without this mount.
+        //
+        // Linux-only, like --network=host below.
+        "source=/dev/bus/usb,target=/dev/bus/usb,type=bind"
     ],
     "runArgs": [
-        "--privileged", // USB access for a phone plugged into the host
+        // Device access (/dev/kvm for the emulator, /dev/dri for GPU
+        // rendering) and the capabilities libusb needs to claim an interface.
+        // Note it does NOT deliver USB hotplug on its own — see the
+        // /dev/bus/usb mount above.
+        "--privileged",
         "--network=host" // reach the ADB server running on the host
     ],
     // Make sure the host's ADB server is up before the container starts, so

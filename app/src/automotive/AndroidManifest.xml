@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Merged into the `automotive` build type only — a test harness for the car/
+    screens, never shipped. See the build type's comment in app/build.gradle.kts
+    for why it exists and why it is a build type rather than a flavor.
+
+    Two entries are all Android Automotive OS needs on top of the main manifest,
+    which already declares DetourCarAppService with the NAVIGATION category and
+    points at @xml/automotive_app_desc. Verified on a stock AAOS emulator: the
+    unmodified phone APK installs there and the system resolves
+    DetourCarAppService on androidx.car.app.CarAppService already. What it lacks
+    is a way to *launch* it, which is CarAppActivity from app-automotive.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        app-automotive declares minSdk 29 and the app is minSdk 26, which fails
+        the manifest merger. AGP cannot vary minSdk per build type, so the choice
+        is to raise it for everyone or override it here.
+
+        Overriding is safe *for this variant specifically*, and only because of
+        the uses-feature below: an automotive-only APK installs nowhere but
+        Android Automotive OS, which has never shipped below API 28. The phone
+        and release builds do not include this file and keep minSdk 26 intact.
+
+        This is the kind of override that is wrong by default — it can produce
+        runtime failures when a library really does call newer APIs — so it is
+        justified by the install target being bounded, not by convenience.
+    -->
+    <uses-sdk tools:overrideLibrary="androidx.car.app.automotive" />
+
+    <!--
+        Marks the APK as automotive-only. required="true" is what makes AAOS
+        offer the car app host at all, and it is also why this cannot live in the
+        main manifest: it would make the phone APK uninstallable on a phone.
+    -->
+    <uses-feature
+        android:name="android.hardware.type.automotive"
+        android:required="true" />
+
+    <!--
+        The AAOS-side counterpart to the main manifest's
+        com.google.android.gms.car.application meta-data, which is the
+        projection-side one. Same descriptor resource: <uses name="template"/>
+        declares a Car App Library template app, which is true on both hosts.
+    -->
+    <application>
+        <meta-data
+            android:name="com.android.automotive"
+            android:resource="@xml/automotive_app_desc"
+            tools:node="merge" />
+
+        <!--
+            The on-device host. app-automotive ships this class but declares no
+            launcher entry for it — verified by grepping the merged manifest,
+            which contained no androidx.car.app.activity.* at all — so without
+            this block the APK installs and DetourCarAppService resolves, but
+            nothing can start it.
+
+            distractionOptimized=true is what lets AAOS show the activity while
+            the car is notionally moving; without it the system blocks it behind
+            a "not available while driving" screen, which on an emulator that
+            believes it is in motion means a blank harness.
+        -->
+        <activity
+            android:name="androidx.car.app.activity.CarAppActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <meta-data
+                android:name="distractionOptimized"
+                android:value="true" />
+        </activity>
+    </application>
+</manifest>
