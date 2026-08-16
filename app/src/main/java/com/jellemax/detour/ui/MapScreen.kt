@@ -1195,10 +1195,12 @@ fun MapScreen(
     // eased bearing — sharing would guarantee the two never diverge, but the camera loop
     // returns early when !cameraActive, and a parked camera is exactly the case this loop
     // exists to serve, so a shared bearing would freeze right when the marker still needs
-    // to turn. Measured on a constant-radius turn at 45 km/h (11.9 deg/s): without this,
-    // the icon's screen angle held for ~1 s then jumped 18-43 deg and decayed back over
-    // ~3 frames — 83% of frame deltas were either under 1 deg or over 6 deg, i.e. stepping
-    // rather than gliding.
+    // to turn. Measured on tools/mocklocation/routes/turn-circle.txt (45 km/h, 11.9 deg/s),
+    // sampling the icon's on-screen angle at 2.16 fps: its peak excursion from the resting
+    // angle fell from 43.1 to 12.8 deg, p90 from 8.7 to 2.8, and the standard deviation of
+    // the frame-to-frame change from 7.7 to 2.3. Excursion is the quantity that separates
+    // the two — the share of near-zero frame deltas does not, because a heading that tracks
+    // the map well is just as flat between samples as one that is held.
     //
     // setPosition writes one point into SRC_POSITION. render() rewrites eight sources
     // including the route line, and doing *that* per frame is what makes a head unit
@@ -1229,17 +1231,24 @@ fun MapScreen(
                 markerBearing = smoothBearing(
                     markerBearing, target, (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat())
             }
-            val bearing = markerBearing
+            // Named apart from the camera loop's own `bearing`, which is that loop's mutable
+            // accumulator rather than a snapshot — the two effects sit a screen apart in this
+            // file and reusing the name invites conflating them.
+            val easedBearing = markerBearing
             val moved = here.lat != lastLat || here.lon != lastLon
             // The gate covers the bearing as well as the position, or a vehicle stopped
             // mid-rotation would ease its nose and never push it. CAM_BEARING_EPS_DEG keeps
             // the standstill optimisation the position half already had: once the marker
             // has settled, this loop goes quiet again.
-            val turned = bearing != null &&
-                (pushedBearing == null || bearingDelta(pushedBearing, bearing) > CAM_BEARING_EPS_DEG)
+            val turned = easedBearing != null && (pushedBearing == null ||
+                bearingDelta(pushedBearing, easedBearing) > CAM_BEARING_EPS_DEG)
             if (moved || turned) {
-                overlays.setPosition(here, bearing?.toDouble())
-                if (turned) pushedBearing = bearing
+                overlays.setPosition(here, easedBearing?.toDouble())
+                // Whatever the reason for the push, the bearing just drawn is this one, so
+                // that is what the next frame must compare against. Advancing it only on a
+                // `turned` push would leave the reference describing something no longer on
+                // screen, and cost a redundant push cycle the moment the vehicle stops.
+                pushedBearing = easedBearing
             }
             if (moved) {
                 // The fog reveals around the same interpolated position, or its hole
