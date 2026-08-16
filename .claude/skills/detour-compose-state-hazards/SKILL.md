@@ -33,9 +33,13 @@ If these disagree with what the body says, the body is stale. Re-derive before t
 
 Five assertions, `PASS`/`FAIL` per line, non-zero exit if any failed: 9 `rememberUpdatedState`
 lines (1 import + 8 uses), 6 `lastFix` subscriptions (5 raw collectors + 1
-`collectAsStateWithLifecycle`) and 6 `withFrameNanos` lines in `MapScreen.kt` (1 import + 2
-each for the speed and camera loops' `lastNs` seed-and-read + 1 for the position-marker loop,
-which needs no `dt` and so seeds no `lastNs`), plus the two inverted ones.
+`collectAsStateWithLifecycle`) and 7 `withFrameNanos` lines in `MapScreen.kt` (1 import + 2
+each for the speed, camera and position-marker loops' `lastNs` seed-and-read), plus the two
+inverted ones.
+
+The marker loop gained its `dt` in maxke24/Detour#38: it eases the marker's *heading* as well
+as interpolating its position, so it now needs the frame delta the other two always did. This
+paragraph said the opposite until that change, which is the drift the note above is about.
 
 The last two matter as much as the first three: this app uses **no** `derivedStateOf` and
 **no** `snapshotFlow` anywhere, and `MainActivity` handles **no** configuration changes
@@ -142,6 +146,7 @@ Verified instances in `MapScreen.kt`:
 | `active`, `exitGate`, `entryMs`, `accMeters`, `last` | `886-890` | An in-progress trajectcontrole measurement is abandoned mid-section: the Ø chip vanishes or shows a wrong average next to a real fine |
 | `lastNs` | `963` | The speed easing restarts its clock; one long frame |
 | `lat`, `lon`, `bearing`, `zoom`, `appliedLat`… | `992-1002` | The ease restarts from `camTarget` (a visible camera jump), and the epsilon gate stops suppressing redraws — `appliedLat` starts `Double.NaN` as a never-pushed sentinel (`:1000`, tested `:1031`), so a reset means per-frame `setCamera` + fog invalidate returns |
+| `lastLat`, `lastLon`, `pushedBearing`, `markerBearing`, `lastNs` | position-marker loop | `markerBearing` reseeds from the next `camTargetBearing`, so the marker's nose snaps once to the current heading instead of easing to it — the very stepping #38 removed, for one frame. `lastLat`/`lastLon`/`pushedBearing` reset to their never-pushed sentinels, so the next frame pushes unconditionally, which is harmless. Keyed `(mapOverlays, haveFix)`, so this happens on the first fix and on a style reload, not routinely |
 
 `TripDetailScreen.kt:369` has the same shape (`var lastNs` in the replay frame loop).
 
