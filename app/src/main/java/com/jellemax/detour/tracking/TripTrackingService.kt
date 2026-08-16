@@ -97,7 +97,15 @@ data class Fix(
     val speedMps: Double,
     val bearingDeg: Float?,
     val accuracyMeters: Float,
+    /** Provider wall-clock UTC ([android.location.Location.getTime]). For anything that
+     *  leaves this device: a peer reading a convoy or circle position has no way to
+     *  interpret our uptime. */
     val timeMs: Long,
+    /** Monotonic, on [android.os.SystemClock.elapsedRealtime]'s basis. For measuring this
+     *  fix's *own age*, which is the only thing [timeMs] was ever wrong for: subtracting
+     *  a provider wall clock from ours compares two clocks that only usually agree, so a
+     *  device clock running persistently fast biases every answer in one direction. */
+    val elapsedRealtimeMs: Long,
 )
 
 /**
@@ -973,6 +981,7 @@ class TripTrackingService : Service() {
             bearingDeg = if (location.hasBearing()) location.bearing else null,
             accuracyMeters = location.accuracy,
             timeMs = location.time,
+            elapsedRealtimeMs = location.elapsedRealtimeNanos / 1_000_000L,
         )
         val stats = _stats.value
         if (stats == null) {
