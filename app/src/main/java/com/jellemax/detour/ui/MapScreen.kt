@@ -633,12 +633,11 @@ fun MapScreen(
             candidates = displayCandidates.mapIndexed { i, c ->
                 CandidatePin(c.destination, CANDIDATE_COLORS[i % CANDIDATE_COLORS.size])
             },
-            // render() ends with its own setPosition() call (MapLibreMap.kt:413), and this
-            // effect is keyed on route, mode and candidates among others — so a route or
-            // spin result arriving mid-drive would otherwise re-place the dot at the raw
-            // fix for one frame, fighting the per-frame marker loop below. False keeps
-            // that loop the sole writer of SRC_POSITION.
-            showPosition = false,
+            // The marker loop below owns SRC_POSITION and writes it every frame, so this
+            // render must not touch it. Hide would not mean "leave it alone" — it clears
+            // the source, and this effect is keyed on myLocation, so the dot would be
+            // erased once a second and redrawn by the next frame.
+            positionMarker = PositionMarker.CallerDraws,
             // Same bearing the camera is easing towards, which is already held
             // through a stop rather than following the noise below 2 m/s.
             positionBearingDeg = camTargetBearing?.toDouble(),

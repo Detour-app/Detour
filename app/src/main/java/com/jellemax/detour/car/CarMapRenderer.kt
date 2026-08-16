@@ -26,6 +26,7 @@ import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.net.FriendPosition
 import com.jellemax.detour.ui.MapOverlays
+import com.jellemax.detour.ui.PositionMarker
 import com.jellemax.detour.ui.openFreeMapStyleUrl
 import com.jellemax.detour.ui.setCamera
 import kotlinx.coroutines.CoroutineScope
@@ -375,7 +376,7 @@ class CarMapRenderer(
             reachMeters = null,
             directionDeg = null,
             candidates = emptyList(),
-            showPosition = position != null,
+            positionMarker = if (position != null) PositionMarker.Draw else PositionMarker.Hide,
             positionBearingDeg = positionBearing,
         )
         // render() starts the line off undriven, so how far along it we are has
