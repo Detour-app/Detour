@@ -23,9 +23,7 @@ object SyncClient {
      *  baked default. The custom address still wins, which is what lets someone
      *  point a release APK at their own server. */
     fun url(): String? =
-        (RoutingServer.loadCustom()?.url ?: "")
-            .ifBlank { BuildDefaults.apiUrl }
-            .ifBlank { null }
+        RoutingServer.apiBase(RoutingServer.loadCustom()).ifBlank { null }
 
     fun configured(): Boolean = url() != null
 

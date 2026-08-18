@@ -46,13 +46,32 @@ data class NavInstruction(
     val exitNumber: Int = 0,
 )
 
+/**
+ * One rider's self-hosted addresses.
+ *
+ * [url] is the original single address, and still means "everything is here":
+ * the three service overrides below fall back to it, so an install that only
+ * ever filled that one field keeps behaving exactly as it did. The overrides
+ * exist because a split deployment cannot be expressed as one address — the
+ * sync API answers `/api/trips` and Photon answers `/api/?q=`, so no path
+ * routing in front of them separates the two cleanly.
+ *
+ * [idpIssuer] is the exception that does *not* fall back to [url]: see
+ * [RoutingServer.issuer].
+ */
 data class ServerConfig(
     val url: String = "",
+    val apiUrl: String = "",
+    val routingUrl: String = "",
+    val geocoderUrl: String = "",
+    val idpIssuer: String = "",
     val clientId: String = "",
     val clientSecret: String = "",
     val enabled: Boolean = false,
 ) {
-    val usable: Boolean get() = enabled && url.isNotBlank()
+    /** Whether routing can be attempted — which is the only thing every caller
+     *  of this ever meant by it. */
+    val usable: Boolean get() = enabled && (routingUrl.isNotBlank() || url.isNotBlank())
 }
 
 /**
@@ -69,6 +88,10 @@ object RoutingServer {
 
     fun bakedDefaults(): ServerConfig = ServerConfig(
         url = BuildDefaults.routingUrl,
+        apiUrl = BuildDefaults.apiUrl,
+        routingUrl = BuildDefaults.routingUrl,
+        geocoderUrl = BuildDefaults.geocoderUrl,
+        idpIssuer = BuildDefaults.idpIssuer,
         clientId = BuildDefaults.routingCfId,
         clientSecret = BuildDefaults.routingCfSecret,
         enabled = BuildDefaults.routingUrl.isNotBlank(),
@@ -77,26 +100,82 @@ object RoutingServer {
     /** Effective config: user's custom server if set, else baked defaults. */
     fun load(): ServerConfig = loadCustom() ?: bakedDefaults()
 
+    /**
+     * First non-blank candidate, trimmed and without its trailing slash.
+     *
+     * Every caller appends a path that already begins with `/`, and Photon's
+     * begins `/api/?q=` — a base left as `https://x/` builds `https://x//api/?q=`,
+     * which answers 404 rather than a search result.
+     */
+    private fun pick(vararg candidates: String): String =
+        candidates.firstOrNull { it.isNotBlank() }?.trim()?.trimEnd('/') ?: ""
+
+    /** Base of the sync + social API, which serves everything under `/api`. */
+    fun apiBase(custom: ServerConfig?): String =
+        pick(custom?.apiUrl ?: "", custom?.url ?: "", BuildDefaults.apiUrl)
+
+    /** Base of the GraphHopper instance, which serves `/route`. */
+    fun routingBase(custom: ServerConfig?): String =
+        pick(custom?.routingUrl ?: "", custom?.url ?: "", BuildDefaults.routingUrl)
+
+    /** Base of the Photon instance, which serves `/api/?q=`. */
+    fun geocoderBase(custom: ServerConfig?): String =
+        pick(custom?.geocoderUrl ?: "", custom?.url ?: "", BuildDefaults.geocoderUrl)
+
+    /**
+     * The realm that issues rider tokens.
+     *
+     * Note what is missing: [ServerConfig.url] is not a candidate. A realm URL
+     * is never the API base, and letting it fall through would aim the token
+     * exchange at a host with no discovery document — which surfaces as sign-in
+     * appearing to work and the app landing back on "not signed in".
+     */
+    fun issuer(custom: ServerConfig?): String =
+        pick(custom?.idpIssuer ?: "", BuildDefaults.idpIssuer)
+
     /** The user's own server settings, or null when using built-in defaults. */
     fun loadCustom(): ServerConfig? {
         // Guarded once-per-process, shared with Settings.init() — see migrateOnce().
         CredentialMigration.migrateOnce()
         val p = prefs(PREFS)
         val s = securePrefs()
-        val url = p.string("url")
-        if (!p.bool("saved", false) || url.isBlank()) return null
-        return ServerConfig(
-            url = url,
+        if (!p.bool("saved", false)) return null
+        val config = ServerConfig(
+            url = p.string("url"),
+            apiUrl = p.string("api_url"),
+            routingUrl = p.string("routing_url"),
+            geocoderUrl = p.string("geocoder_url"),
+            idpIssuer = p.string("idp_issuer"),
             clientId = s.string("clientId"),
             clientSecret = s.string("clientSecret"),
             enabled = true,
         )
+        // Saved-but-empty is the same as never saved. Checked across every
+        // address rather than `url` alone: a split deployment may fill only the
+        // per-service fields, and testing `url` would discard the whole config.
+        val anyAddress = listOf(
+            config.url, config.apiUrl, config.routingUrl,
+            config.geocoderUrl, config.idpIssuer,
+        ).any { it.isNotBlank() }
+        return config.takeIf { anyAddress }
     }
 
     fun save(config: ServerConfig) {
+        // Tokens are minted by one realm and meaningless to another, and a
+        // refresh presented to the wrong realm reads as a replay rather than as
+        // a mistake. Dropping the session here rather than in each platform's
+        // settings screen keeps the rule in one place — Auth.clear() is local
+        // only, which is what this needs: the old realm is already unreachable
+        // by the time the new issuer is saved.
+        if (issuer(config) != issuer(loadCustom())) Auth.clear()
+
         prefs(PREFS).apply {
             put("saved", true)
             put("url", config.url.trim())
+            put("api_url", config.apiUrl.trim())
+            put("routing_url", config.routingUrl.trim())
+            put("geocoder_url", config.geocoderUrl.trim())
+            put("idp_issuer", config.idpIssuer.trim())
         }
         securePrefs().apply {
             put("clientId", config.clientId.trim())
@@ -159,7 +238,7 @@ object RoutingServer {
         if (!avoidSmallRoads) {
             return fetchRoute(
                 config,
-                config.url.trimEnd('/') +
+                routingBase(config) +
                     "/route?profile=moto" +
                     "&point=${start.lat},${start.lon}" +
                     "&algorithm=round_trip" +
@@ -190,7 +269,7 @@ object RoutingServer {
             }
             headingDeg?.let { h -> putJsonArray("heading") { add(h.toInt()) } }
         }
-        return fetchRoute(config, config.url.trimEnd('/') + "/route", body.string())
+        return fetchRoute(config, routingBase(config) + "/route", body.string())
     }
 
     /**
@@ -265,7 +344,7 @@ object RoutingServer {
         val rules = preferenceRules(avoidHighways, avoidSmallRoads)
         if (rules.isEmpty()) {
             val query = buildString {
-                append(config.url.trimEnd('/'))
+                append(routingBase(config))
                 append("/route?profile=").append(profile)
                 for (p in points) append("&point=${p.lat},${p.lon}")
                 append("&points_encoded=false&details=max_speed")
@@ -282,7 +361,7 @@ object RoutingServer {
             put("ch.disable", true)
             putJsonObject("custom_model") { put("priority", rules) }
         }
-        return fetchRoute(config, config.url.trimEnd('/') + "/route", body.string())
+        return fetchRoute(config, routingBase(config) + "/route", body.string())
     }
 
     private suspend fun fetchRoute(
@@ -390,7 +469,7 @@ object RoutingServer {
         to: LatLon,
         profile: String,
     ): LatLon? {
-        val url = config.url.trimEnd('/') +
+        val url = routingBase(config) +
             "/route?profile=$profile" +
             "&point=${from.lat},${from.lon}" +
             "&point=${to.lat},${to.lon}" +

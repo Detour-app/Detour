@@ -12,6 +12,13 @@ struct SettingsScreen: View {
     @State private var serverURL = ""
     @State private var clientId = ""
     @State private var clientSecret = ""
+    // Carried through load/save untouched: this screen has no editors for the
+    // per-service addresses or the sign-in realm yet, and saving defaults over
+    // values set elsewhere would silently unconfigure them.
+    @State private var apiURL = ""
+    @State private var routingURL = ""
+    @State private var geocoderURL = ""
+    @State private var idpIssuer = ""
 
     var body: some View {
         NavigationStack {
@@ -178,11 +185,19 @@ struct SettingsScreen: View {
         serverURL = config.url
         clientId = config.clientId
         clientSecret = config.clientSecret
+        apiURL = config.apiUrl
+        routingURL = config.routingUrl
+        geocoderURL = config.geocoderUrl
+        idpIssuer = config.idpIssuer
     }
 
     private func saveServer() {
         RoutingServer.shared.save(config: ServerConfig(
             url: serverURL,
+            apiUrl: apiURL,
+            routingUrl: routingURL,
+            geocoderUrl: geocoderURL,
+            idpIssuer: idpIssuer,
             clientId: clientId,
             clientSecret: clientSecret,
             enabled: true

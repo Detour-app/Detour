@@ -5,7 +5,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
 import com.jellemax.detour.data.Auth
-import com.jellemax.detour.data.BuildDefaults
+import com.jellemax.detour.data.RoutingServer
 import java.security.MessageDigest
 import java.security.SecureRandom
 import android.util.Base64
@@ -36,8 +36,12 @@ object Oidc {
     private var pendingState: String? = null
 
     /** Whether signing in is possible at all — false when no realm is
-     *  configured, which is how a build with no secrets behaves. */
-    val configured: Boolean get() = BuildDefaults.idpIssuer.isNotBlank()
+     *  configured, which is how a build with no secrets behaves until the rider
+     *  sets one under Settings. Resolved rather than read off BuildDefaults: a
+     *  store build ships no baked issuer, so the saved one is the only one. */
+    val configured: Boolean get() = issuer().isNotBlank()
+
+    private fun issuer(): String = RoutingServer.issuer(RoutingServer.loadCustom())
 
     /**
      * Opens the realm's login page. Returns false when there is no realm
@@ -52,7 +56,7 @@ object Oidc {
         pendingVerifier = verifier
         pendingState = state
 
-        val authorize = Uri.parse("${BuildDefaults.idpIssuer.trimEnd('/')}/protocol/openid-connect/auth")
+        val authorize = Uri.parse("${issuer()}/protocol/openid-connect/auth")
             .buildUpon()
             .appendQueryParameter("client_id", Auth.CLIENT_ID)
             .appendQueryParameter("response_type", "code")
