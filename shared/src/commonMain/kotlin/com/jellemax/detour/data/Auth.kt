@@ -52,7 +52,10 @@ object Auth {
     val signedIn: Boolean get() = Settings.refreshToken.value.isNotBlank()
 
     private fun endpoint(name: String): String {
-        val issuer = BuildDefaults.idpIssuer.trimEnd('/')
+        // Read through RoutingServer rather than BuildDefaults directly: a build
+        // published to a store ships no baked issuer, so the rider's own value is
+        // the only one there will ever be.
+        val issuer = RoutingServer.issuer(RoutingServer.loadCustom())
         if (issuer.isBlank()) throw AuthException("No identity provider configured")
         return "$issuer/protocol/openid-connect/$name"
     }

@@ -149,8 +149,8 @@ private fun SignInSection() {
     )
     if (!Oidc.configured) {
         Text(
-            "This build has no identity provider configured, so there is nobody " +
-                "to sign in to. Set one on your server first.",
+            "No identity provider is configured, so there is nobody to sign " +
+                "in to. Set the sign-in realm URL under Settings → Servers & sync.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

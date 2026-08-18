@@ -23,11 +23,8 @@ object Geocoder {
     private const val PUBLIC = "https://photon.komoot.io"
 
     /** Effective Photon base URL: the one server address (Settings) → baked → public. */
-    private fun baseUrl(): String {
-        RoutingServer.loadCustom()?.url?.takeIf { it.isNotBlank() }?.let { return it }
-        BuildDefaults.geocoderUrl.takeIf { it.isNotBlank() }?.let { return it }
-        return PUBLIC
-    }
+    private fun baseUrl(): String =
+        RoutingServer.geocoderBase(RoutingServer.loadCustom()).ifBlank { PUBLIC }
 
     suspend fun search(query: String, near: LatLon?, limit: Int = 8): List<GeocodeResult> {
         val primary = baseUrl().trimEnd('/')

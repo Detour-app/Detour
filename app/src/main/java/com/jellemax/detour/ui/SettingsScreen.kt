@@ -1117,8 +1117,21 @@ private fun ServerSection() {
     val custom = remember { RoutingServer.loadCustom() }
     val builtInAvailable = remember { RoutingServer.bakedDefaults().usable }
     var url by remember { mutableStateOf(custom?.url ?: "") }
+    var apiUrl by remember { mutableStateOf(custom?.apiUrl ?: "") }
+    var routingUrl by remember { mutableStateOf(custom?.routingUrl ?: "") }
+    var geocoderUrl by remember { mutableStateOf(custom?.geocoderUrl ?: "") }
+    var idpIssuer by remember { mutableStateOf(custom?.idpIssuer ?: "") }
     var clientId by remember { mutableStateOf(custom?.clientId ?: "") }
     var clientSecret by remember { mutableStateOf(custom?.clientSecret ?: "") }
+    // Only the general address is shown by default: a rider on a one-hostname
+    // deployment never needs the rest, and four more URL boxes read as four more
+    // things that must be filled in. Opens already expanded when any of them is
+    // set, so a split deployment does not look unconfigured on the way back in.
+    var showPerService by remember {
+        mutableStateOf(
+            listOf(apiUrl, routingUrl, geocoderUrl).any { it.isNotBlank() },
+        )
+    }
     val geocoderPublicFallback by Settings.geocoderPublicFallback.collectAsStateWithLifecycle()
     var saved by remember { mutableStateOf(false) }
 
@@ -1147,6 +1160,57 @@ private fun ServerSection() {
             placeholder = "https://…",
             modifier = Modifier.fillMaxWidth(),
         )
+        CredentialTextField(
+            value = idpIssuer, onValueChange = { idpIssuer = it; saved = false },
+            label = "Sign-in realm URL",
+            keyboardType = KeyboardType.Uri,
+            placeholder = "https://idp.example.com/realms/detour",
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            "Your identity provider's realm, which issues the tokens the API " +
+                "trusts. It has no default from the server address above — a realm " +
+                "URL is never the same host — so signing in stays off until it is " +
+                "filled in. Changing it signs this device out: tokens from one " +
+                "realm mean nothing to another.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextButton(onClick = { showPerService = !showPerService }) {
+            Text(if (showPerService) "Hide per-service addresses" else "Different address per service")
+        }
+        if (showPerService) {
+            Text(
+                "For a deployment split across hostnames. Anything left empty " +
+                    "uses the server address above. Routing and search cannot " +
+                    "share one host with sync, because the API answers /api/trips " +
+                    "and the search server answers /api/ — so one address cannot " +
+                    "serve both.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            CredentialTextField(
+                value = apiUrl, onValueChange = { apiUrl = it; saved = false },
+                label = "Sync & social API (optional)",
+                keyboardType = KeyboardType.Uri,
+                placeholder = "https://api.example.com",
+                modifier = Modifier.fillMaxWidth(),
+            )
+            CredentialTextField(
+                value = routingUrl, onValueChange = { routingUrl = it; saved = false },
+                label = "Routing server (optional)",
+                keyboardType = KeyboardType.Uri,
+                placeholder = "https://route.example.com",
+                modifier = Modifier.fillMaxWidth(),
+            )
+            CredentialTextField(
+                value = geocoderUrl, onValueChange = { geocoderUrl = it; saved = false },
+                label = "Search server (optional)",
+                keyboardType = KeyboardType.Uri,
+                placeholder = "https://search.example.com",
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         CredentialTextField(
             value = clientId, onValueChange = { clientId = it; saved = false },
             label = "CF Access Client Id (optional)",
@@ -1179,17 +1243,34 @@ private fun ServerSection() {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = {
-                if (url.isBlank()) {
+                // Named arguments, not positional: ServerConfig's address fields
+                // are all String and sit next to each other, so a positional call
+                // that drifts out of order still compiles and quietly saves the
+                // client id as an API address.
+                val addresses = listOf(url, apiUrl, routingUrl, geocoderUrl, idpIssuer)
+                if (addresses.all { it.isBlank() }) {
                     RoutingServer.clearCustom()
                 } else {
-                    RoutingServer.save(ServerConfig(url, clientId, clientSecret, enabled = true))
+                    RoutingServer.save(
+                        ServerConfig(
+                            url = url,
+                            apiUrl = apiUrl,
+                            routingUrl = routingUrl,
+                            geocoderUrl = geocoderUrl,
+                            idpIssuer = idpIssuer,
+                            clientId = clientId,
+                            clientSecret = clientSecret,
+                            enabled = true,
+                        ),
+                    )
                 }
                 saved = true
             }) { Text(if (saved) "Saved ✓" else "Save server") }
             if (custom != null) {
                 TextButton(onClick = {
                     RoutingServer.clearCustom()
-                    url = ""; clientId = ""; clientSecret = ""
+                    url = ""; apiUrl = ""; routingUrl = ""; geocoderUrl = ""
+                    idpIssuer = ""; clientId = ""; clientSecret = ""
                     saved = true
                 }) { Text("Remove custom server") }
             }

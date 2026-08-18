@@ -72,8 +72,8 @@ android {
         // they also need codes distinct from each other. CI stamps both from
         // the run number (see .github/workflows/build.yml); a local build
         // keeps the literal.
-        versionCode = System.getenv("VERSION_CODE")?.toInt() ?: 80
-        versionName = "1.74"
+        versionCode = System.getenv("VERSION_CODE")?.toInt() ?: 81
+        versionName = "1.75"
 
         buildConfigField("String", "ROUTING_URL",
             "\"${serviceUrl("routing.url", "ROUTING_SERVER_URL")}\"")
