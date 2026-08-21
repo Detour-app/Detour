@@ -178,7 +178,7 @@ class TripCardTest {
     }
 
     @Test
-    fun moduTripExposesBothPeakLeanAndPeakG() {
+    fun motoTripExposesBothPeakLeanAndPeakG() {
         val card = TripCardGeometry.build(trip(TravelMode.MOTO), straightLinePoints())
         assertEquals(42.0, card.peakLeanDeg)
         assertEquals(0.8, card.peakGForce)
@@ -475,8 +475,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
@@ -639,7 +641,12 @@ private fun TripCardContent(cardData: CardData, routeColorHex: String) {
             .padding(48.dp),
     ) {
         if (cardData.points.isNotEmpty()) {
-            Box(Modifier.fillMaxSize().padding(bottom = 24.dp)) {
+            // weight(1f), not fillMaxSize(): a fillMaxSize() child inside this
+            // Column would claim the Column's entire measured height for
+            // itself, since Column gives an unweighted child loose (not
+            // shrink-to-fit) constraints — pushing the stat rows below fully
+            // off the bottom of the fixed-height card.
+            Box(Modifier.weight(1f).fillMaxWidth().padding(bottom = 24.dp)) {
                 Canvas(Modifier.fillMaxSize()) {
                     val path = androidx.compose.ui.graphics.Path()
                     cardData.points.forEachIndexed { i, p ->
