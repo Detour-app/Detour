@@ -63,7 +63,7 @@ key, so it can't be updated by a GitHub APK either.
    want trips to keep recording with the screen off.
 2. **Allow notifications** if you want the ride-tracking notification and the
    speed-camera chime.
-3. **Pick a mode** in the bar at the bottom — walk, bike, moto or car. It sets
+3. **Pick a mode** in the bar at the bottom — moto or car. It sets
    the radius range and which roads a spin is allowed to land on.
 4. **Spin.** The dice button picks a random point within your radius and offers
    three routed candidates.
@@ -93,7 +93,7 @@ See [Pointing the app at it](#pointing-the-app-at-it).
 - **Spin dock** (bottom) — current mode, radius and direction; the dice button;
   and the navigate button. Tap the left half to expand it into the full spin
   sheet.
-- **Mode bar** — walk, bike, moto, car.
+- **Mode bar** — moto, car.
 
 While you are moving, a speed dial appears above the dock, with the posted limit
 next to it when the road has one.
@@ -120,8 +120,6 @@ and picks road types to match:
 
 | Mode | Radius | Default | Roads it uses |
 | --- | --- | --- | --- |
-| Walk | 1–15 km | 3 km | Footways, paths, pedestrian and quiet residential streets |
-| Bike | 1–30 km | 10 km | Cycleways and quiet roads |
 | Moto | 30–400 km | 120 km | The rural network — see round trips below |
 | Car | 5–100 km | 25 km | Everything up to and including motorways |
 
@@ -220,21 +218,19 @@ Two ways in:
   really began. It ends itself when you stop for good, or when you come back to
   where you started after a real ride. A brief stop — traffic light, fuel — does
   not end it.
-- **Manually.** *Track walk / bike / moto / car* in the spin sheet starts one
-  immediately. The red **End trip** button on the map ends whichever trip is
-  running.
+- **Manually.** *Track moto / car* in the spin sheet starts one immediately.
+  The red **End trip** button on the map ends whichever trip is running.
 
 A live card shows elapsed time, distance, top speed and — depending on the
 vehicle — max lean angle and cornering g. On a moto both are recorded; in a car
-only g. A bike and a walk get neither: from a rigid mount a lean angle means
-something, from a jacket pocket it's the phone sliding around.
+only g.
 
 **Vehicle auto-detect**: assign paired Bluetooth devices to a vehicle (an
-intercom to the moto, the car's infotainment to the car, earbuds to walking) and
-a trip logs under that vehicle whenever the device is connected. With nothing
-connected, a sustained walking pace logs as a walk. These are Bluetooth Classic
-bonds, so there's no scanning and no location permission involved — only
-connect/disconnect.
+intercom to the moto, the car's infotainment to the car) and a trip logs under
+that vehicle whenever the device is connected. With nothing connected, a trip
+that never picks up real driving pace is dropped rather than saved. These are
+Bluetooth Classic bonds, so there's no scanning and no location permission
+involved — only connect/disconnect.
 
 If a trip is filed under the wrong vehicle, fix it afterwards from the history
 list; false-positive detections can be deleted outright.

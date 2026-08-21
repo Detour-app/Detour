@@ -48,8 +48,8 @@ stay on this device unless you turn on sync to your own server.
 ### Which feature requires background location?
 
 ```
-Automatic trip tracking. Detour detects when the user starts driving, riding a
-motorcycle, cycling or walking and records the route, distance, duration,
+Automatic trip tracking. Detour detects when the user starts driving or riding
+a motorcycle and records the route, distance, duration,
 average and top speed, and — on a motorcycle — lean angle and cornering g. The
 trip ends by itself when the user stops. The recorded route also permanently
 uncovers that area on the app's fog-of-war map and counts toward the

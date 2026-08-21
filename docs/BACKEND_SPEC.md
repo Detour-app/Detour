@@ -445,7 +445,7 @@ this backend**. The app calls them directly.
 
 | Service | Function |
 |---|---|
-| Routing engine (GraphHopper) | Curvy motorcycle round trips, plus car and bike routes, from an offline map extract |
+| Routing engine (GraphHopper) | Curvy motorcycle round trips, plus car routes, from an offline map extract |
 | Geocoder (Photon) | Address and place search, self-hosted so it is fast, private and not rate-limited |
 
 Also deliberately absent, and a **new** decision rather than a port if it is ever

@@ -112,8 +112,8 @@ adb shell am force-stop io.github.maxke24.detour.debug
 adb shell "run-as io.github.maxke24.detour.debug sh -c 'cat > files/trips.json'" < /tmp/trips.json
 ```
 
-The shape is whatever `TripStore.encode` writes; `mode` is one of `WALK`, `BIKE`,
-`MOTO`, `CAR`. Seeded trips have no GPS trace, so a detail screen's map is empty
+The shape is whatever `TripStore.encode` writes; `mode` is one of `MOTO`, `CAR`.
+Seeded trips have no GPS trace, so a detail screen's map is empty
 — that is the seed, not a bug.
 
 Two things to know before doing this on a signed-in build: `endTrip()` calls
