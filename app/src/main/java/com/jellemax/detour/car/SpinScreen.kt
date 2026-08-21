@@ -170,6 +170,28 @@ class SpinScreen(
             errorText != null -> pane.addRow(
                 Row.Builder().setTitle("Couldn't find a destination").addText(errorText!!).build()
             )
+            candidate == null -> {
+                // Reviewers (and first-time drivers) land here with nothing on
+                // screen but the radius row, and the only way to start
+                // turn-by-turn is the icon-strip "Spin" button up top — easy to
+                // miss next to the search icon. Google's Auto App Quality review
+                // flagged exactly this ("wasn't clear how to start turn-by-turn
+                // directions"), so the same action also gets a labelled,
+                // full-width button in the pane, where "Start Navigation" already
+                // lives once a candidate exists.
+                pane.addRow(
+                    Row.Builder()
+                        .setTitle("No destination yet")
+                        .addText("Spin for a random destination, then start turn-by-turn directions")
+                        .build()
+                )
+                pane.addAction(
+                    Action.Builder()
+                        .setTitle("Spin for a Destination")
+                        .setOnClickListener { spin() }
+                        .build()
+                )
+            }
             candidate != null -> {
                 val c = candidate!!
                 val meters = c.route?.distanceMeters ?: c.straightLineMeters
