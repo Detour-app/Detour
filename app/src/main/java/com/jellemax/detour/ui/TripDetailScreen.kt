@@ -427,14 +427,18 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
     // screen has no other error surface.
     var exportError by remember { mutableStateOf<String?>(null) }
 
+    // Disabled until the trace is loaded: a trip with no recorded points has
+    // nothing to put in a track or a card. Hoisted above the top bar so both
+    // toolbar buttons and the card dialog (rendered below, outside the top
+    // bar's own lambda scope) share the one value.
+    val points = trace.orEmpty()
+    var cardDialogOpen by remember { mutableStateOf(false) }
+
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             SubScreenTopBar(formatDate(trip.startTimeMs), onBack, scrollBehavior) {
-                // Disabled until the trace is loaded: a trip with no recorded
-                // points has nothing to put in a track.
-                val points = trace.orEmpty()
                 IconButton(
                     enabled = points.isNotEmpty(),
                     onClick = {
@@ -455,6 +459,12 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                     },
                 ) {
                     Icon(Icons.Filled.Share, contentDescription = "Export GPX")
+                }
+                IconButton(
+                    enabled = points.isNotEmpty(),
+                    onClick = { cardDialogOpen = true },
+                ) {
+                    Icon(Icons.Filled.Share, contentDescription = "Share trip card")
                 }
             }
         },
@@ -556,5 +566,9 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                 }
             }
         }
+    }
+
+    if (cardDialogOpen) {
+        TripCardShareDialog(trip, points.map { it.at }, onDismiss = { cardDialogOpen = false })
     }
 }
