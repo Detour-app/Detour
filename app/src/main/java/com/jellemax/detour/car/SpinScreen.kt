@@ -154,8 +154,6 @@ class SpinScreen(
                 .addText("Tap the radius button below to change it")
                 .build()
         )
-        // Lives in the pane, not the action strip: a strip allows only one
-        // action with a custom title, and that slot goes to Spin.
         pane.addAction(
             Action.Builder()
                 .setTitle("Radius: ${radiusPresetsKm[radiusIndex].toInt()} km")
@@ -215,9 +213,12 @@ class SpinScreen(
             .build()
     }
 
+    // Just the search icon: Spin used to sit here too, but a title action next
+    // to the map read as clutter and reviewers missed it as the way to start
+    // turn-by-turn (Google's Auto App Quality review flagged exactly that).
+    // It now lives inside the search screen instead, as the first thing you
+    // see there — one obvious door into "pick a destination", typed or spun.
     private fun actionStrip(): ActionStrip = ActionStrip.Builder()
-        // Icon-only: a strip allows just one action with a custom title, and
-        // that is Spin.
         .addAction(
             Action.Builder()
                 .setIcon(
@@ -225,13 +226,9 @@ class SpinScreen(
                         IconCompat.createWithResource(carContext, R.drawable.ic_car_search),
                     ).build(),
                 )
-                .setOnClickListener { screenManager.push(SearchScreen(carContext, renderer)) }
-                .build(),
-        )
-        .addAction(
-            Action.Builder()
-                .setTitle("Spin")
-                .setOnClickListener { spin() }
+                .setOnClickListener {
+                    screenManager.push(SearchScreen(carContext, renderer, onSpin = { spin() }))
+                }
                 .build(),
         )
         .build()

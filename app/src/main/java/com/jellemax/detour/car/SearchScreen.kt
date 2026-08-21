@@ -31,14 +31,24 @@ import kotlinx.coroutines.withContext
 private const val SEARCH_DEBOUNCE_MS = 350L
 
 /**
- * Pick a destination by name from the car screen, rather than taking whatever
- * [SpinScreen] rolled. Same Photon backend as the phone's search, and the same
- * [RecentSearchStore] — so a place searched on the phone is one tap away here,
- * which matters when typing on a head unit is the slowest thing in the car.
+ * Pick a destination by name from the car screen, or hand off to
+ * [SpinScreen]'s roulette instead. Same Photon backend as the phone's search,
+ * and the same [RecentSearchStore] — so a place searched on the phone is one
+ * tap away here, which matters when typing on a head unit is the slowest
+ * thing in the car.
+ *
+ * This is also where Spin lives now — as the first row, before any recents —
+ * rather than as a second, title-bearing action strip button crowding the map
+ * screen. One door into "pick a destination", typed or spun, is the layout
+ * Google's Auto App Quality review expected.
  */
 class SearchScreen(
     carContext: CarContext,
     private val renderer: CarMapRenderer,
+    /** Runs [SpinScreen]'s spin and pops back to it to show the pick. Owned by
+     *  that screen, not duplicated here, since it already holds the location,
+     *  radius and preview state a spin needs. */
+    private val onSpin: () -> Unit,
 ) : Screen(carContext) {
 
     private var results: List<GeocodeResult> = emptyList()
@@ -72,15 +82,34 @@ class SearchScreen(
 
         if (searching) return builder.setLoading(true).build()
 
-        // With nothing typed yet the recents are the useful list; they are also
-        // what makes this usable at all without a keyboard.
-        val shown = if (query.isBlank()) recents else results
         val list = ItemList.Builder()
-        when {
+        if (query.isBlank()) {
+            // Spin only makes sense before you've typed anything — once
+            // there's a query the list is search results, not destination
+            // pickers. Always present even with no recents yet, so the list
+            // is never empty here and "type to search" never has to be said.
+            list.addItem(
+                Row.Builder()
+                    .setTitle("Spin for a Destination")
+                    .addText("Pick a random road nearby")
+                    .setOnClickListener {
+                        onSpin()
+                        screenManager.pop()
+                    }
+                    .build(),
+            )
+            recents.forEach { result ->
+                list.addItem(
+                    Row.Builder()
+                        .setTitle(result.name)
+                        .setOnClickListener { navigateTo(result) }
+                        .build(),
+                )
+            }
+        } else when {
             errorText != null -> list.setNoItemsMessage(errorText!!)
-            shown.isEmpty() && query.isBlank() -> list.setNoItemsMessage("Type to search for a place")
-            shown.isEmpty() -> list.setNoItemsMessage("Nothing found")
-            else -> shown.forEach { result ->
+            results.isEmpty() -> list.setNoItemsMessage("Nothing found")
+            else -> results.forEach { result ->
                 list.addItem(
                     Row.Builder()
                         .setTitle(result.name)
