@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -37,6 +38,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -72,28 +74,41 @@ fun rememberTripCardBitmap(cardData: CardData, routeColorHex: String): State<Ima
     // Zero-size, clipped parent: the child below is still placed and drawn
     // (which is what lets graphicsLayer.record capture it) but nothing of it
     // is visible on screen, since the parent clips to an empty box.
-    Box(Modifier.size(0.dp).clipToBounds()) {
-        Box(
-            Modifier
-                // requiredSize, not size: the outer Box above forces this
-                // subtree's *incoming* constraints to a fixed 0x0 (that's how
-                // it reports zero footprint to its own parent). A plain
-                // size() coerces its target into whatever incoming range it's
-                // given, which would collapse this box to 0x0 right along
-                // with its parent. requiredSize() ignores the incoming
-                // constraints and forces the real 1080x1350 card size on the
-                // content below regardless — the overflow beyond the outer
-                // Box's 0x0 bounds is exactly what clipToBounds() above hides
-                // from the real screen, while the graphicsLayer capture below
-                // (which runs in this box's own draw phase, before that outer
-                // clip is applied) still sees the full-size content.
-                .requiredSize(with(density) { CARD_WIDTH_PX.toDp() }, with(density) { CARD_HEIGHT_PX.toDp() })
-                .drawWithContent {
-                    graphicsLayer.record { this@drawWithContent.drawContent() }
-                    drawLayer(graphicsLayer)
-                },
-        ) {
-            TripCardContent(cardData, routeColorHex)
+    //
+    // CompositionLocalProvider(LocalDensity provides density) below is what
+    // actually makes the export density-independent: a Dp value doesn't
+    // carry the density it was computed with, so the with(density){...toDp()}
+    // conversions above would otherwise be resolved against the real
+    // LocalDensity.current (the device's own screen density) once measured
+    // — silently exporting a 3x/2x-scaled bitmap on a real phone instead of
+    // the fixed 1080x1350px card this whole function promises. Installing
+    // `density` as the ambient LocalDensity for this subtree makes both the
+    // Dp *computation* and its later *measurement* use the same density=1f,
+    // so 1dp really does measure out to 1px here.
+    CompositionLocalProvider(LocalDensity provides density) {
+        Box(Modifier.size(0.dp).clipToBounds()) {
+            Box(
+                Modifier
+                    // requiredSize, not size: the outer Box above forces this
+                    // subtree's *incoming* constraints to a fixed 0x0 (that's how
+                    // it reports zero footprint to its own parent). A plain
+                    // size() coerces its target into whatever incoming range it's
+                    // given, which would collapse this box to 0x0 right along
+                    // with its parent. requiredSize() ignores the incoming
+                    // constraints and forces the real 1080x1350 card size on the
+                    // content below regardless — the overflow beyond the outer
+                    // Box's 0x0 bounds is exactly what clipToBounds() above hides
+                    // from the real screen, while the graphicsLayer capture below
+                    // (which runs in this box's own draw phase, before that outer
+                    // clip is applied) still sees the full-size content.
+                    .requiredSize(with(density) { CARD_WIDTH_PX.toDp() }, with(density) { CARD_HEIGHT_PX.toDp() })
+                    .drawWithContent {
+                        graphicsLayer.record { this@drawWithContent.drawContent() }
+                        drawLayer(graphicsLayer)
+                    },
+            ) {
+                TripCardContent(cardData, routeColorHex)
+            }
         }
     }
 
