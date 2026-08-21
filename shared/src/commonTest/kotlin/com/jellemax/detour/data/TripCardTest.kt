@@ -99,4 +99,21 @@ class TripCardTest {
         assertNull(card.peakLeanDeg)
         assertEquals(0.8, card.peakGForce)
     }
+
+    @Test
+    fun destinationOutsideBboxIsClampedNotTrimmed() {
+        // Place destination far beyond the end of the trace line, ensuring it
+        // falls outside the natural bounding box of the polyline.
+        val points = straightLinePoints()
+        val farBeyond = LatLon(50.8 + 41 * 0.00045 + 0.05, 3.2) // way past the last point
+        val card = TripCardGeometry.build(
+            trip(TravelMode.CAR).copy(destinationLat = farBeyond.lat, destinationLon = farBeyond.lon),
+            points,
+            full = true,
+        )
+        // Destination is present (not trimmed away) but must stay within [0, 1].
+        assertNotNull(card.destination)
+        assertTrue(card.destination.x in 0f..1f)
+        assertTrue(card.destination.y in 0f..1f)
+    }
 }

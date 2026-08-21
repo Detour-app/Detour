@@ -61,13 +61,13 @@ object TripCardGeometry {
         // running mostly east-west would look stretched. Cheap enough for a
         // card-sized box that a full projection isn't worth it.
         val latSpan = (maxLat - minLat).coerceAtLeast(1e-9)
-        val lonSpan = ((maxLon - minLon) * cos(Math.toRadians((minLat + maxLat) / 2))).coerceAtLeast(1e-9)
+        val lonSpan = ((maxLon - minLon) * cos(toRadians((minLat + maxLat) / 2))).coerceAtLeast(1e-9)
         val span = maxOf(latSpan, lonSpan)
 
         fun normalize(p: LatLon): CardPoint {
-            val nx = ((p.lon - minLon) * cos(Math.toRadians((minLat + maxLat) / 2))) / span
+            val nx = ((p.lon - minLon) * cos(toRadians((minLat + maxLat) / 2))) / span
             val ny = 1f - ((p.lat - minLat) / span).toFloat() // screen y grows downward
-            return CardPoint(nx.toFloat(), ny)
+            return CardPoint(nx.toFloat().coerceIn(0f, 1f), ny.coerceIn(0f, 1f))
         }
 
         val normalizedPoints = keptPoints.map(::normalize)
@@ -108,10 +108,10 @@ object TripCardGeometry {
 
     private fun haversineMeters(a: LatLon, b: LatLon): Double {
         val r = 6_371_000.0
-        val dLat = Math.toRadians(b.lat - a.lat)
-        val dLon = Math.toRadians(b.lon - a.lon)
-        val la1 = Math.toRadians(a.lat)
-        val la2 = Math.toRadians(b.lat)
+        val dLat = toRadians(b.lat - a.lat)
+        val dLon = toRadians(b.lon - a.lon)
+        val la1 = toRadians(a.lat)
+        val la2 = toRadians(b.lat)
         val h = sinSq(dLat / 2) + cos(la1) * cos(la2) * sinSq(dLon / 2)
         return 2 * r * kotlin.math.asin(sqrt(h))
     }
