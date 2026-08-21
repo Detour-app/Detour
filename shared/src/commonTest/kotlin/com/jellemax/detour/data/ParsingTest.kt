@@ -177,9 +177,10 @@ class SpeedCameraSectionTest {
         // tagged `device`.
         assertEquals(listOf(leuvenAt, leuvenPairAt), s.endA)
         assertEquals(listOf(bertemAt), s.endB)
-        // No limit for the average to be judged against, which is why the
-        // recorded run showed a bare average and not a red chip: the 120 sits
-        // on the device nodes, which parseSection never looks at.
+        // No limit from the relation alone - it tags none. The 120 sits on the
+        // device nodes, and with no camera nodes handed in there is nowhere for
+        // it to come from; see
+        // [theSectionLimitFallsBackToTheOneTaggedOnItsGantryNodes].
         assertNull(s.maxspeedKmh)
     }
 
@@ -194,6 +195,61 @@ class SpeedCameraSectionTest {
         // span above is what says the `from` node is the outer one of the two.
         assertEquals(listOf(zaventemAt, zaventemFromAt), s.endB)
         assertEquals(listOf(bertemAt), s.endA)
+    }
+
+    /** A camera node at [at] carrying `maxspeed`, as `out geom` prints one. */
+    private fun cameraNode(at: LatLon, maxspeed: String) = SpeedCameras.Camera(at, RoadRoulette.parseMaxSpeed(maxspeed))
+
+    /**
+     * The limit the running average is judged against, when the relation does
+     * not tag one - which neither real E40 relation does.
+     *
+     * This is the whole reason the average rendered as a bare number instead of
+     * a limit-relative one on the road the feature was developed on: the 120 was
+     * in the same Overpass answer the entire time, on the gantry nodes, and was
+     * read off the relation only.
+     */
+    @Test
+    fun theSectionLimitFallsBackToTheOneTaggedOnItsGantryNodes() {
+        val cameras = listOf(
+            cameraNode(leuvenAt, "120"),
+            cameraNode(bertemAt, "120"),
+        )
+        val s = SpeedCameras.parseSection(relation(leuven, leuvenPair, bertem), cameras)!!
+        assertEquals(120.0, s.maxspeedKmh!!, absoluteTolerance = 1e-9)
+    }
+
+    /** The relation's own tag wins. A mapper who put a section limit on the
+     *  relation meant the section, and a gantry node can carry the limit of the
+     *  road it stands over instead. */
+    @Test
+    fun theRelationsOwnMaxspeedBeatsTheOneOnItsGantryNodes() {
+        val tagged = jsonObjectOf(
+            """{"type":"relation","id":15685856,"members":[$leuven,$leuvenPair,$bertem],""" +
+                """"tags":{"type":"enforcement","enforcement":"average_speed","maxspeed":"90"}}""",
+        )
+        val s = SpeedCameras.parseSection(tagged, listOf(cameraNode(leuvenAt, "120")))!!
+        assertEquals(90.0, s.maxspeedKmh!!, absoluteTolerance = 1e-9)
+    }
+
+    /**
+     * Only a camera standing *at* an end donates its limit. The prefetch returns
+     * every camera within 4 km, so without this a spot camera on a 50 road a
+     * kilometre off the motorway would set the limit a 120 trajectcontrole is
+     * judged against - and the average would read red for the whole section.
+     *
+     * The Zaventem end is the fixture because it is the one with two nodes 14 m
+     * apart: 14 m is inside the end cluster and outside the same-node tolerance,
+     * so this also pins that the two are different distances.
+     */
+    @Test
+    fun aCameraThatIsNotOneOfTheGantriesDonatesNothing() {
+        val elsewhere = RoadRoulette.offset(leuvenAt, 1_000.0, 0.0)
+        val s = SpeedCameras.parseSection(
+            relation(leuven, leuvenPair, bertem),
+            listOf(cameraNode(elsewhere, "50")),
+        )!!
+        assertNull(s.maxspeedKmh)
     }
 
     @Test

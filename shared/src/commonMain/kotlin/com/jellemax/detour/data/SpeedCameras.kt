@@ -24,8 +24,16 @@ import okio.IOException
  */
 object SpeedCameras {
 
-    /** One camera to draw on the map. */
-    data class Camera(val at: LatLon)
+    /**
+     * One camera to draw on the map.
+     *
+     * [maxspeedKmh] is the limit tagged on the camera node itself, when it has
+     * one. Mappers put it there far more often than on the enforcement relation
+     * — both real E40 trajectcontrole relations tag no `maxspeed` at all and
+     * carry the 120 on their device nodes — so a section that reads its limit
+     * only off the relation gets nothing to judge its average against.
+     */
+    data class Camera(val at: LatLon, val maxspeedKmh: Double? = null)
 
     /**
      * An average-speed section, as the two ends you can pass it through.
@@ -34,7 +42,8 @@ object SpeedCameras {
      * carriageway, a few metres apart — and [spanMeters] is the distance
      * between them. Which end is the entry depends on which way you drive, so
      * they are not labelled start/end here. [maxspeedKmh] is the posted limit
-     * the average is judged against, when the relation tags one.
+     * the average is judged against, from the relation's own `maxspeed` tag or,
+     * failing that, from the gantry nodes at its ends.
      */
     data class Section(
         val endA: List<LatLon>,
@@ -78,17 +87,23 @@ object SpeedCameras {
             return null
         }
         val cameras = ArrayList<Camera>()
-        val sections = ArrayList<Section>()
+        val relations = ArrayList<JsonObject>()
+        // Two passes, deliberately: [parseSection] resolves a section's limit off
+        // its device nodes when the relation doesn't tag one, and the answer is
+        // not ordered, so every node has to be read before the first relation is.
         for (el in elements.objects()) {
             when (el.optString("type")) {
                 "node" -> {
                     val lat = el.optDouble("lat", Double.NaN)
                     val lon = el.optDouble("lon", Double.NaN)
-                    if (!lat.isNaN() && !lon.isNaN()) cameras.add(Camera(LatLon(lat, lon)))
+                    if (!lat.isNaN() && !lon.isNaN()) {
+                        cameras.add(Camera(LatLon(lat, lon), maxspeedOf(el)))
+                    }
                 }
-                "relation" -> parseSection(el)?.let { sections.add(it) }
+                "relation" -> relations.add(el)
             }
         }
+        val sections = relations.mapNotNull { parseSection(it, cameras) }
         return Result(cameras, sections)
     }
 
@@ -106,7 +121,10 @@ object SpeedCameras {
      */
     // internal, not private, so commonTest can feed it a relation literal:
     // [near] is the only caller and it cannot be tested without Overpass.
-    internal fun parseSection(relation: JsonObject): Section? {
+    internal fun parseSection(
+        relation: JsonObject,
+        cameras: List<Camera> = emptyList(),
+    ): Section? {
         val members = relation.optArray("members") ?: return null
         val nodes = ArrayList<LatLon>()
         for (m in members.objects()) {
@@ -126,10 +144,34 @@ object SpeedCameras {
         if (span < MIN_SPAN_M) return null
         val endA = nodes.filter { RoadRoulette.distanceMeters(it, a) <= END_CLUSTER_M }
         val endB = nodes.filter { RoadRoulette.distanceMeters(it, b) <= END_CLUSTER_M }
-        val maxspeed = relation.optObject("tags")?.optString("maxspeed")
-            ?.takeIf { it.isNotBlank() }?.let { RoadRoulette.parseMaxSpeed(it) }
+        // The relation's own tag first, then the gantry nodes'. Neither real E40
+        // relation tags one, so relation-only is what left the running average
+        // with nothing to judge against on the road it was developed on.
+        val maxspeed = maxspeedOf(relation) ?: deviceMaxspeed(endA + endB, cameras)
         return Section(endA, endB, span, maxspeed)
     }
+
+    /** The `maxspeed` tag on an element, in km/h, or null when it has none we
+     *  can read. Shared by camera nodes and enforcement relations — the tag is
+     *  the same tag and [RoadRoulette.parseMaxSpeed] handles both spellings. */
+    private fun maxspeedOf(el: JsonObject): Double? =
+        el.optObject("tags")?.optString("maxspeed")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { RoadRoulette.parseMaxSpeed(it) }
+
+    /** The limit tagged on the section's own gantry nodes, if any of them carry
+     *  one. The two ends of a trajectcontrole post the same limit, so the first
+     *  one found is the answer rather than something to reconcile. */
+    private fun deviceMaxspeed(ends: List<LatLon>, cameras: List<Camera>): Double? =
+        cameras.firstOrNull { cam ->
+            cam.maxspeedKmh != null &&
+                ends.any { RoadRoulette.distanceMeters(it, cam.at) <= SAME_NODE_M }
+        }?.maxspeedKmh
+
+    /** A relation member and the node element it refers to are the same OSM node
+     *  printed twice, so this only has to absorb float formatting — not a
+     *  neighbouring camera, which at a gantry can be 14 m away. */
+    private const val SAME_NODE_M = 5.0
 
     /** How far from the outermost node another node still counts as the same
      *  end of the section — the per-carriageway pairs sit metres apart. */

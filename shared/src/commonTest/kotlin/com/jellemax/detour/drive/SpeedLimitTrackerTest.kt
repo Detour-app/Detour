@@ -296,16 +296,80 @@ class SpeedLimitTrackerTest {
         assertFalse(SpeedLimitTracker.needsWays(started, at(here, 9_000.0, 90.0), t0 + 5_000L))
     }
 
-    /** An empty result is a network blip: keep what we hold rather than
-     *  flickering the sign off, and do **not** move the centre - moving it would
-     *  claim we hold an area we do not. */
+    /** An empty result is the area really having no tagged road: keep what we
+     *  hold rather than flickering the sign off, and do **not** move the centre -
+     *  moving it would claim we hold an area we do not. Unchanged from before
+     *  the null case below existed; what changed is that it is no longer *also*
+     *  what a refusal looks like. */
     @Test
-    fun anEmptyFetchResultIsANoOpOnBothWaysAndCentre() {
+    fun anEmptyFetchResultIsANoOpOnWaysButMovesTheCentre() {
         val held = holding()
-        val after = SpeedLimitTracker.withWays(held, emptyList(), at(here, 2_000.0, 90.0))
+        val newCenter = at(here, 2_000.0, 90.0)
+        val after = SpeedLimitTracker.withWays(held, emptyList(), newCenter)
+        assertSame(held.ways, after.ways)
+        // Moves like a non-empty answer's does: a genuinely untagged stretch is
+        // exactly where CameraPrefetch's sibling fix applies too — otherwise the
+        // distance trigger in needsWays stays true forever over it.
+        assertEquals(newCenter, after.waysCenter)
+        assertEquals(0, after.failures)
+    }
+
+    /**
+     * A **null** result is `RoadRoulette.speedLimitWays` refusing or failing to
+     * parse. Same no-op on the ways and the centre as an empty one, and one more
+     * failure on the count - which is the only difference, and the whole reason
+     * the two are now distinguishable at all.
+     *
+     * They used to be the same value: `speedLimitWays` returned an empty list for
+     * a refused mirror and for an untagged area alike, so nothing downstream
+     * could tell "no answer" from "no roads" and the throttle retried a refusal
+     * every ten seconds for the rest of the drive.
+     */
+    @Test
+    fun aRefusedFetchKeepsWhatWeHoldAndCostsOneFailure() {
+        val held = holding()
+        val after = SpeedLimitTracker.withWays(held, null, at(here, 2_000.0, 90.0))
         assertSame(held.ways, after.ways)
         assertEquals(here, after.waysCenter)
-        assertEquals(held, after)
+        assertEquals(held.copy(failures = 1), after)
+    }
+
+    /** Doubling from the throttle, capped at a minute. Spelled out rather than
+     *  derived, so a change to either constant has to come and edit the number it
+     *  changed. The cap is far below [CameraPrefetch.MAX_BACKOFF_MS] on purpose:
+     *  the sign is on screen the whole drive, a camera you miss is one camera. */
+    @Test
+    fun theRetryDelayDoublesPerConsecutiveFailureAndThenStops() {
+        assertEquals(10_000L, SpeedLimitTracker.retryDelayMs(0))
+        assertEquals(20_000L, SpeedLimitTracker.retryDelayMs(1))
+        assertEquals(40_000L, SpeedLimitTracker.retryDelayMs(2))
+        // 10 s << 3 would be 80 s; the cap is what it actually gets.
+        assertEquals(SpeedLimitTracker.MAX_BACKOFF_MS, SpeedLimitTracker.retryDelayMs(3))
+        assertEquals(SpeedLimitTracker.MAX_BACKOFF_MS, SpeedLimitTracker.retryDelayMs(50))
+        assertEquals(10_000L, SpeedLimitTracker.retryDelayMs(-1))
+    }
+
+    /** The backoff is what `needsWays` actually consults, not just a number the
+     *  state carries: three refusals and a fix 5 km away still waits. */
+    @Test
+    fun theBackoffHoldsTheFetchOffHoweverFarYouHaveMoved() {
+        val burned = holding().copy(failures = 3)
+        val faraway = at(here, 5_000.0, 90.0)
+        assertFalse(
+            SpeedLimitTracker.needsWays(burned, faraway, t0 + SpeedLimitTracker.FETCH_THROTTLE_MS + 1),
+        )
+        assertTrue(
+            SpeedLimitTracker.needsWays(burned, faraway, t0 + SpeedLimitTracker.MAX_BACKOFF_MS + 1),
+        )
+    }
+
+    /** One answer is enough, empty or not: a tunnel does not cost you the rest
+     *  of the drive. */
+    @Test
+    fun anyAnswerAtAllClearsTheBackoff() {
+        val burned = holding().copy(failures = 4)
+        assertEquals(0, SpeedLimitTracker.withWays(burned, emptyList(), here).failures)
+        assertEquals(0, SpeedLimitTracker.withWays(burned, listOf(crossingWay), here).failures)
     }
 
     /** A non-empty result replaces both, and touches neither the sign nor the

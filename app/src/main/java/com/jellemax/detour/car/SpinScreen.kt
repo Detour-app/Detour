@@ -250,14 +250,20 @@ class SpinScreen(
         if (SpeedLimitTracker.needsWays(limitState, pos, now) &&
             limitFetchJob?.isActive != true
         ) {
-            // Throttled on failure too: an empty result is a network blip, and
-            // hammering the Overpass mirrors from a moving car fixes nothing.
+            // Throttled on failure too, and backed off after a run of them:
+            // hammering the Overpass mirrors from a moving car fixes nothing and
+            // gets the IP refused, which takes the sign down for hours.
             limitState = SpeedLimitTracker.fetchStarted(limitState, now)
             limitFetchJob = lifecycleScope.launch {
+                // getOrNull, not getOrDefault(emptyList()): speedLimitWays now
+                // returns null on a refused or unparseable answer and an empty
+                // list only for an area with no tagged road. The tracker backs
+                // off on the first and not on the second (SpeedLimitTracker's
+                // withWays says why), and collapsing them here would give that
+                // distinction away.
                 val ways = runCatching {
                     withContext(Dispatchers.IO) { RoadRoulette.speedLimitWays(pos) }
-                }.onFailure { Log.w(TAG, "speed limit lookup failed", it) }
-                    .getOrDefault(emptyList())
+                }.onFailure { Log.w(TAG, "speed limit lookup failed", it) }.getOrNull()
                 limitState = SpeedLimitTracker.withWays(limitState, ways, pos)
             }
         }

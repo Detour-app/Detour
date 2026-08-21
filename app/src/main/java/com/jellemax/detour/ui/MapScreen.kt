@@ -96,6 +96,7 @@ import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.drive.CameraPrefetch
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
@@ -296,12 +297,14 @@ fun MapScreen(
     }
 
     // Pull from the sync server on launch: restores everything after a
-    // reinstall and picks up trips recorded while the app was closed.
+    // reinstall and picks up trips recorded while the app was closed. Gated
+    // by SyncClient.syncIfDue() so relaunching soon after a sync (the common
+    // case) doesn't re-pay the full-history round trip every time.
     LaunchedEffect(Unit) {
         if (SyncClient.configured() && Account.signedIn) {
             withContext(Dispatchers.IO) {
                 try {
-                    SyncClient.sync()
+                    SyncClient.syncIfDue()
                 } catch (e: Exception) {
                     // offline, server down, or signed out; next launch catches up
                 }
@@ -862,12 +865,19 @@ fun MapScreen(
                     // collector: an exception escaping here would cancel
                     // `scope`, i.e. every coroutine this screen owns, where
                     // inline it only killed this one collector. speedLimitWays
-                    // swallows IOException but not the SerializationException a
-                    // busy Overpass's HTML error page produces — the hazard
-                    // SpeedCameras.near:65-79 documents and catches.
+                    // now catches the SerializationException a busy Overpass's
+                    // HTML error page produces as well as the IOException — the
+                    // hazard SpeedCameras.near documents — so the runCatching is
+                    // belt and braces rather than the only guard it used to be.
+                    //
+                    // getOrNull, not getOrDefault(emptyList()): speedLimitWays
+                    // returns null for both of those and an empty list only for
+                    // an area with no tagged road. The tracker backs off on the
+                    // first and not on the second, and collapsing them here
+                    // would give that distinction away.
                     val ways = runCatching {
                         withContext(Dispatchers.IO) { RoadRoulette.speedLimitWays(pos) }
-                    }.getOrDefault(emptyList())
+                    }.getOrNull()
                     limitState = SpeedLimitTracker.withWays(limitState, ways, pos)
                 }
             }
@@ -884,22 +894,22 @@ fun MapScreen(
     // Speed cameras + trajectcontrole sections from Overpass (OSM). Prefetched
     // for a wide circle, refreshed only as you near the edge of what you hold,
     // so there's no request per fix. A null result is a network blip: keep the
-    // markers we have and let the throttle retry, instead of flickering them off.
+    // markers we have and let CameraPrefetch's backoff decide when to try again,
+    // instead of flickering them off.
     LaunchedEffect(Unit) {
-        var center: LatLon? = null
-        var lastFetchMs = 0L
-        // Coroutine-local, unlike the ambient limit's holder up in the body:
-        // this effect is keyed on Unit and never restarts, so a local has
+        // The cadence — the margin, the throttle and the backoff after a run of
+        // refusals — is CameraPrefetch's (shared/…/drive/), so the head unit
+        // keeps the same one. What stays here is the I/O and the two holders it
+        // fills. Coroutine-local, unlike the ambient limit's holder up in the
+        // body: this effect is keyed on Unit and never restarts, so a local has
         // nothing to lose. Keeping it here is what says so.
+        var prefetch = CameraPrefetch.State()
         var fetchJob: Job? = null
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
             val pos = LatLon(fix.lat, fix.lon)
-            val fromCenter = center?.let { RoadRoulette.distanceMeters(it, pos) }
-                ?: Double.MAX_VALUE
             val now = System.currentTimeMillis()
-            if (fromCenter > SpeedCameras.PREFETCH_RADIUS_M - 1000.0 &&
-                now - lastFetchMs > 15_000 &&
+            if (CameraPrefetch.needsFetch(prefetch, pos, now) &&
                 fetchJob?.isActive != true
             ) {
                 // Own coroutine, isActive guard, runCatching: same reasoning as
@@ -907,15 +917,17 @@ fun MapScreen(
                 // which is where this was diagnosed. This collector feeds the
                 // section machine, so suspending it also stalled the running
                 // average's own fix stream.
-                lastFetchMs = now
+                prefetch = CameraPrefetch.fetchStarted(prefetch, now)
                 fetchJob = scope.launch {
                     val result = runCatching {
                         withContext(Dispatchers.IO) { SpeedCameras.near(pos) }
                     }.getOrNull()
+                    prefetch = CameraPrefetch.fetched(prefetch, result, pos)
+                    // Only the markers are ours to fold in; a null result keeps
+                    // the ones we hold rather than flickering them off.
                     if (result != null) {
                         speedCameras = result.cameras
                         speedSections = result.sections
-                        center = pos
                     }
                 }
             }

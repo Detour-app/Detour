@@ -351,6 +351,15 @@ object Settings {
         prefs.put("place_event_last_seen_$circleId", tsMs)
     }
 
+    /** Wall-clock time of the last successful [SyncClient.sync], any trigger.
+     *  Lets [SyncClient.syncIfDue] skip the launch-time full-history round
+     *  trip when one just happened. */
+    fun lastSyncMs(): Long = prefs.long("last_sync_ms", 0L)
+
+    fun setLastSyncMs(tsMs: Long) {
+        prefs.put("last_sync_ms", tsMs)
+    }
+
     /** Whether arrive/depart notifications are raised for circle [circleId].
      *  Device-local, unlike the circle's `sharing` flag (real server state,
      *  see `Groups.setSharing`) — muting a circle on the phone says nothing
