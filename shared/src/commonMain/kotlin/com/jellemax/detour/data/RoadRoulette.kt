@@ -259,7 +259,9 @@ object RoadRoulette {
      * Every drivable way with a parseable `maxspeed` within [radiusMeters] of
      * [center]. Fetched once for an area, then handed to [snapSpeedLimitKmh]
      * per GPS fix so the posted sign changes the instant you cross onto a new
-     * road — no network round-trip in the loop. Empty on any network error.
+     * road — no network round-trip in the loop. Null on any failure, empty only
+     * when the area really has no tagged road — see the null-vs-empty comment
+     * just below.
      */
     suspend fun speedLimitWays(
         center: LatLon,

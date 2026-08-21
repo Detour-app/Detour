@@ -87,6 +87,7 @@ import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.Curviness
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RoundTripPlanner
+import com.jellemax.detour.ColdStartTiming
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.pickCandidate
@@ -324,7 +325,7 @@ fun MapScreen(
     val darkTheme = isAppDarkTheme(themePref)
     val fogRadius by Settings.fogRadiusMeters.collectAsStateWithLifecycle()
 
-    val mapView = remember { MapView(context) }
+    val mapView = remember { ColdStartTiming.timed("MapView(context)") { MapView(context) } }
     val fogView = remember { FogView(context) }
     var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
     var mapOverlays by remember { mutableStateOf<MapOverlays?>(null) }
@@ -366,6 +367,7 @@ fun MapScreen(
         mapView.onStart()
         mapView.onResume()
         mapView.getMapAsync { map ->
+            ColdStartTiming.mark("getMapAsync ready")
             map.uiSettings.isCompassEnabled = false
             map.uiSettings.isRotateGesturesEnabled = true
             // Keep OSM/OpenFreeMap attribution above the collapsed spin bar
@@ -387,6 +389,7 @@ fun MapScreen(
     LaunchedEffect(darkTheme, mapLibreMap) {
         val map = mapLibreMap ?: return@LaunchedEffect
         map.setStyle(Style.Builder().fromUri(openFreeMapStyleUrl(darkTheme))) { style ->
+            ColdStartTiming.mark("style loaded")
             mapOverlays = MapOverlays(style, context, darkTheme)
             fogView.map = map
             if (mapView.indexOfChild(fogView) < 0) {

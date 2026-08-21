@@ -19,16 +19,18 @@ class DetourApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        initSharedCore(this)
-        BuildDefaults.configure(
-            routingUrl = BuildConfig.ROUTING_URL,
-            routingCfId = BuildConfig.ROUTING_CF_ID,
-            routingCfSecret = BuildConfig.ROUTING_CF_SECRET,
-            apiUrl = BuildConfig.API_URL,
-            idpIssuer = BuildConfig.IDP_ISSUER,
-            geocoderUrl = BuildConfig.GEOCODER_URL,
-            liveUrl = BuildConfig.LIVE_URL,
-            versionName = BuildConfig.VERSION_NAME,
-        )
+        ColdStartTiming.timed("initSharedCore") { initSharedCore(this) }
+        ColdStartTiming.timed("BuildDefaults.configure") {
+            BuildDefaults.configure(
+                routingUrl = BuildConfig.ROUTING_URL,
+                routingCfId = BuildConfig.ROUTING_CF_ID,
+                routingCfSecret = BuildConfig.ROUTING_CF_SECRET,
+                apiUrl = BuildConfig.API_URL,
+                idpIssuer = BuildConfig.IDP_ISSUER,
+                geocoderUrl = BuildConfig.GEOCODER_URL,
+                liveUrl = BuildConfig.LIVE_URL,
+                versionName = BuildConfig.VERSION_NAME,
+            )
+        }
     }
 }
