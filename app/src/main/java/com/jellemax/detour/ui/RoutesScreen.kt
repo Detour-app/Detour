@@ -81,8 +81,6 @@ private fun shareRouteGpxIntent(uri: Uri): Intent = Intent(Intent.ACTION_SEND).a
  * schemes' spellings don't get conflated by a future "simplification".
  */
 private fun gmapsDirectionsTravelMode(mode: TravelMode): String = when (mode) {
-    TravelMode.WALK -> "walking"
-    TravelMode.BIKE -> "bicycling"
     TravelMode.MOTO -> "two-wheeler"
     TravelMode.CAR -> "driving"
 }
