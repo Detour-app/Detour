@@ -161,18 +161,19 @@ class TripTrackingService : Service() {
         private const val STATIONARY_END_MS = 5 * 60_000L
         private const val MIN_AUTO_TRIP_METERS = 500.0
         // A trip whose average pace stays under this, with no mapped vehicle
-        // connected, is a walk. Judged on average (not top) speed so one GPS
-        // spike can't upgrade a stroll, and only after enough of the trip to
-        // tell a real walk from the first slow seconds of a drive.
-        private const val WALK_AVG_MAX_MPS = 2.5           // ~9 km/h
-        private const val WALK_MIN_JUDGE_MS = 90_000L
-        /** ...but average pace alone calls a car stuck in town traffic a walk.
-         *  Nothing that has ever hit this speed is one, whatever its average. */
-        private const val WALK_TOP_MAX_MPS = 6.0           // ~22 km/h
+        // connected, was never a drive — a walk, a jog, pushing a bike. Judged
+        // on average (not top) speed so one GPS spike can't rescue it, and
+        // only after enough of the trip to tell a real walk from the first
+        // slow seconds of a drive. Dropped at endTrip() rather than saved
+        // under a mode that doesn't fit it.
+        private const val SLOW_NO_VEHICLE_AVG_MAX_MPS = 2.5    // ~9 km/h
+        private const val SLOW_NO_VEHICLE_MIN_JUDGE_MS = 90_000L
+        /** ...but average pace alone calls a car stuck in town traffic slow.
+         *  Nothing that has ever hit this speed gets dropped, whatever its average. */
+        private const val SLOW_NO_VEHICLE_TOP_MAX_MPS = 6.0    // ~22 km/h
         /** Which vehicle wins when several mapped devices are connected at
          *  once, weakest first. */
-        private val MODE_PRIORITY =
-            listOf(TravelMode.WALK, TravelMode.BIKE, TravelMode.CAR, TravelMode.MOTO)
+        private val MODE_PRIORITY = listOf(TravelMode.CAR, TravelMode.MOTO)
         /** Motion sensors fire ~60x/s; publish stats at 5 Hz. */
         private const val SENSOR_EMIT_INTERVAL_MS = 200L
         /** Past this the phone is being picked up or repositioned, not leaning
@@ -669,25 +670,20 @@ class TripTrackingService : Service() {
     }
 
     /**
-     * What this trip should be logged as. Priority: a connected mapped device
-     * decides (Cardo → moto, infotainment → car, walking earbuds → walk); else,
-     * once we have enough of the trip to judge, a sustained walking pace with
-     * nothing mapped connected means a walk; else the spin tab's mode. The tab
-     * itself is never changed here — classification is the trip's, not the UI's.
+     * What this trip should be logged as. A connected mapped device decides
+     * (Cardo → moto, infotainment → car); else the spin tab's mode. The tab
+     * itself is never changed here — classification is the trip's, not the
+     * UI's. Whether the trip is worth keeping at all is decided separately,
+     * in [endTrip].
      */
     private fun resolvedMode(): TravelMode {
         val map = Settings.vehicleDevices.value
-        // The heaviest vehicle connected wins, not the last to connect: earbuds
-        // paired for a walk stay linked in the car, and the helmet intercom and
-        // the car radio can both be up while the bike sits in the garage.
+        // The heaviest vehicle connected wins, not the last to connect: the
+        // helmet intercom and the car radio can both be up while the bike
+        // sits in the garage.
         connectedVehicles.mapNotNull { map[it]?.mode }
             .maxByOrNull { MODE_PRIORITY.indexOf(it) }
             ?.let { return it }
-        val s = _stats.value
-        if (s != null && s.durationMs > WALK_MIN_JUDGE_MS) {
-            val avg = if (s.durationMs > 0) s.distanceMeters / (s.durationMs / 1000.0) else 0.0
-            if (avg < WALK_AVG_MAX_MPS && s.topSpeedMps < WALK_TOP_MAX_MPS) return TravelMode.WALK
-        }
         return Settings.tripMode.value
     }
 
@@ -800,8 +796,17 @@ class TripTrackingService : Service() {
         val wasAuto = autoStarted
         stopMotionSensors()
         flushTrace()
+        // An auto trip with no mapped vehicle that never left walking pace
+        // wasn't a drive; don't save it under whatever mode the tab happened
+        // to have selected. Judged the same way MIN_AUTO_TRIP_METERS judges
+        // "never went anywhere" — a second false-positive filter, not a
+        // classification.
+        val looksLikeAWalk = stats.durationMs > SLOW_NO_VEHICLE_MIN_JUDGE_MS &&
+            connectedVehicles.mapNotNull { Settings.vehicleDevices.value[it]?.mode }.isEmpty() &&
+            (stats.distanceMeters / (stats.durationMs / 1000.0)) < SLOW_NO_VEHICLE_AVG_MAX_MPS &&
+            stats.topSpeedMps < SLOW_NO_VEHICLE_TOP_MAX_MPS
         val worthSaving =
-            if (wasAuto) stats.distanceMeters >= MIN_AUTO_TRIP_METERS
+            if (wasAuto) stats.distanceMeters >= MIN_AUTO_TRIP_METERS && !looksLikeAWalk
             else stats.durationMs > 0
         if (worthSaving) {
             TripStore.save(Trip(
