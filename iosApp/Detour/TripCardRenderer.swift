@@ -9,10 +9,19 @@ private let cardHeight: CGFloat = 1350
 /// Renders [cardData] to a PNG-ready UIImage using ImageRenderer, SwiftUI's
 /// counterpart to Android's GraphicsLayer capture — same technique, same
 /// output size, so the two renderers stay easy to compare side by side.
+///
+/// [darkTheme] picks the card's background explicitly rather than leaving it to
+/// SwiftUI's `colorScheme` environment: `ImageRenderer`'s content is rendered
+/// off-screen, disconnected from any real window/trait collection, so a
+/// dynamic system color like `.systemBackground` would resolve against
+/// whatever `colorScheme` defaults to off-screen (light) rather than the
+/// user's actual setting. `routeColorHex` already avoids this same trap by
+/// being resolved by the caller and passed in as a plain value instead of
+/// read from environment — this does the same for the background.
 @MainActor
-func renderTripCardImage(cardData: CardData, routeColorHex: String) -> UIImage? {
+func renderTripCardImage(cardData: CardData, routeColorHex: String, darkTheme: Bool) -> UIImage? {
     let renderer = ImageRenderer(content:
-        TripCardContent(cardData: cardData, routeColorHex: routeColorHex)
+        TripCardContent(cardData: cardData, routeColorHex: routeColorHex, darkTheme: darkTheme)
             .frame(width: cardWidth, height: cardHeight)
     )
     renderer.scale = 1 // fixed pixel size, not device-scaled — matches Android's density(1f).
@@ -33,6 +42,7 @@ func writeTripCardForShare(trip: Trip, image: UIImage) -> URL {
 private struct TripCardContent: View {
     let cardData: CardData
     let routeColorHex: String
+    let darkTheme: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -71,7 +81,12 @@ private struct TripCardContent: View {
         }
         .padding(48)
         .frame(width: cardWidth, height: cardHeight, alignment: .topLeading)
-        .background(Color(.systemBackground))
+        // Explicit, not `Color(.systemBackground)`: see renderTripCardImage's
+        // doc comment. #0B1220 is RouteColors.kt's DRIVEN_TOWARDS_DARK — the
+        // same dark casing tone this app already uses elsewhere for "dark
+        // background under the night basemap" — reused here rather than
+        // inventing a new dark tone for this one screen.
+        .background(darkTheme ? Color(hex: "#0B1220") : Color.white)
     }
 
     private func statRow(_ label: String, _ value: String) -> some View {
