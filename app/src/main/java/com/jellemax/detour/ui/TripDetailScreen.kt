@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
@@ -464,7 +465,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                     enabled = points.isNotEmpty(),
                     onClick = { cardDialogOpen = true },
                 ) {
-                    Icon(Icons.Filled.Share, contentDescription = "Share trip card")
+                    Icon(Icons.Filled.Image, contentDescription = "Share trip card")
                 }
             }
         },
