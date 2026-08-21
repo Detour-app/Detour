@@ -3,6 +3,7 @@ package com.jellemax.detour.ui
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,8 +43,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.CardData
+import com.jellemax.detour.data.CardPoint
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RouteColors
 import com.jellemax.detour.data.Settings
@@ -66,8 +70,13 @@ private const val CARD_HEIGHT_PX = 1350
  * share on this becoming non-null.
  */
 @Composable
-fun rememberTripCardBitmap(cardData: CardData, routeColorHex: String): State<ImageBitmap?> {
-    val bitmapState = remember(cardData, routeColorHex) { mutableStateOf<ImageBitmap?>(null) }
+fun rememberTripCardBitmap(
+    cardData: CardData,
+    routeColorHex: String,
+    dark: Boolean,
+    trimmed: Boolean,
+): State<ImageBitmap?> {
+    val bitmapState = remember(cardData, routeColorHex, dark, trimmed) { mutableStateOf<ImageBitmap?>(null) }
     val graphicsLayer = rememberGraphicsLayer()
     val density = Density(density = 1f) // 1px == 1px: the card is exported at a fixed pixel size.
 
@@ -107,12 +116,12 @@ fun rememberTripCardBitmap(cardData: CardData, routeColorHex: String): State<Ima
                         drawLayer(graphicsLayer)
                     },
             ) {
-                TripCardContent(cardData, routeColorHex)
+                TripCardContent(cardData, routeColorHex, dark, trimmed)
             }
         }
     }
 
-    LaunchedEffect(cardData, routeColorHex) {
+    LaunchedEffect(cardData, routeColorHex, dark, trimmed) {
         // The draw phase above needs at least one composition/layout/draw
         // pass to have run before the layer holds anything; a single
         // withFrameNanos wait is enough since the Box is already in the tree.
@@ -142,10 +151,11 @@ fun TripCardShareDialog(trip: Trip, points: List<LatLon>?, onDismiss: () -> Unit
     // which is what makes the card's "amber at night, blue at day" match
     // what TripDetailScreen/MapScreen/etc already show, per the spec.
     val themePref by Settings.theme.collectAsStateWithLifecycle()
-    val routeColorHex = RouteColors.hex(routeColor, isAppDarkTheme(themePref))
+    val dark = isAppDarkTheme(themePref)
+    val routeColorHex = RouteColors.hex(routeColor, dark)
 
     val cardData = points?.let { pts -> remember(pts, fullRoute) { TripCardGeometry.build(trip, pts, full = fullRoute) } }
-    val bitmap = cardData?.let { rememberTripCardBitmap(it, routeColorHex).value }
+    val bitmap = cardData?.let { rememberTripCardBitmap(it, routeColorHex, dark = dark, trimmed = !fullRoute).value }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -191,48 +201,97 @@ fun TripCardShareDialog(trip: Trip, points: List<LatLon>?, onDismiss: () -> Unit
     )
 }
 
+/** Matches iOS's `#0B1220` dark / white light pair (`TripCardRenderer.swift`),
+ *  itself `RouteColors.DRIVEN_TOWARDS_DARK`/`DRIVEN_TOWARDS_LIGHT` — reused
+ *  here for consistency rather than inventing a new pair for this screen. */
+private val CARD_BACKGROUND_DARK = Color(0xFF0B1220)
+private val CARD_BACKGROUND_LIGHT = Color.White
+private val CARD_TEXT_DARK = Color.White
+private val CARD_TEXT_LIGHT = Color.Black
+
 @Composable
-private fun TripCardContent(cardData: CardData, routeColorHex: String) {
+private fun TripCardContent(cardData: CardData, routeColorHex: String, dark: Boolean, trimmed: Boolean) {
     val trip = cardData.trip
     val routeColor = Color(android.graphics.Color.parseColor(routeColorHex))
-    Column(
-        Modifier
-            .fillMaxSize()
-            .padding(48.dp),
-    ) {
-        if (cardData.points.isNotEmpty()) {
-            // weight(1f), not fillMaxSize(): a fillMaxSize() child inside this
-            // Column would claim the Column's entire measured height for
-            // itself, since Column gives an unweighted child loose (not
-            // shrink-to-fit) constraints — pushing the stat rows below fully
-            // off the bottom of the fixed-height card.
-            Box(Modifier.weight(1f).fillMaxWidth().padding(bottom = 24.dp)) {
-                Canvas(Modifier.fillMaxSize()) {
-                    val path = androidx.compose.ui.graphics.Path()
-                    cardData.points.forEachIndexed { i, p ->
-                        val offset = Offset(p.x * size.width, p.y * size.height)
-                        if (i == 0) path.moveTo(offset.x, offset.y) else path.lineTo(offset.x, offset.y)
-                    }
-                    drawPath(path, routeColor, style = Stroke(width = 10f, cap = StrokeCap.Round))
-                    cardData.destination?.let { d ->
-                        drawCircle(routeColor, radius = 14f, center = Offset(d.x * size.width, d.y * size.height))
+    val backgroundColor = if (dark) CARD_BACKGROUND_DARK else CARD_BACKGROUND_LIGHT
+    val textColor = if (dark) CARD_TEXT_DARK else CARD_TEXT_LIGHT
+    // Pin the text color explicitly rather than letting Text() inherit
+    // ambient LocalContentColor: MainActivity wraps the whole app in a
+    // Surface{}, so without this the captured subtree would pick up
+    // onSurface (near-white in the app's dark theme) regardless of what
+    // background this card itself decided to paint.
+    CompositionLocalProvider(LocalContentColor provides textColor) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .background(backgroundColor)
+                .padding(48.dp),
+        ) {
+            if (cardData.points.isNotEmpty()) {
+                // weight(1f), not fillMaxSize(): a fillMaxSize() child inside this
+                // Column would claim the Column's entire measured height for
+                // itself, since Column gives an unweighted child loose (not
+                // shrink-to-fit) constraints — pushing the stat rows below fully
+                // off the bottom of the fixed-height card.
+                Box(Modifier.weight(1f).fillMaxWidth().padding(bottom = 24.dp)) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        // cardData.points are already normalized to preserve
+                        // aspect ratio (shared TripCardGeometry divides both
+                        // axes by the same larger span). Mapping them onto the
+                        // full (non-square) measured box here would re-stretch
+                        // that aspect-corrected shape, so map into a centered
+                        // *square* sub-region instead.
+                        val s = minOf(size.width, size.height)
+                        val offsetX = (size.width - s) / 2f
+                        val offsetY = (size.height - s) / 2f
+                        fun toOffset(p: CardPoint) = Offset(offsetX + p.x * s, offsetY + p.y * s)
+
+                        val path = androidx.compose.ui.graphics.Path()
+                        cardData.points.forEachIndexed { i, p ->
+                            val offset = toOffset(p)
+                            if (i == 0) path.moveTo(offset.x, offset.y) else path.lineTo(offset.x, offset.y)
+                        }
+                        drawPath(path, routeColor, style = Stroke(width = 10f, cap = StrokeCap.Round))
+                        cardData.destination?.let { d ->
+                            drawCircle(routeColor, radius = 14f, center = toOffset(d))
+                        }
                     }
                 }
             }
-        }
-        Text(trip.mode.label + " · " + formatDate(trip.startTimeMs), style = MaterialTheme.typography.titleLarge)
-        Column(Modifier.padding(top = 16.dp)) {
-            statRow("Distance", formatDistanceKm(trip.distanceMeters))
-            statRow("Duration", formatDurationHistory(trip.durationMs))
-            statRow("Avg speed", formatSpeedKmh(trip.avgSpeedMps))
-            statRow("Top speed", formatSpeedKmh(trip.topSpeedMps))
-            cardData.peakLeanDeg?.let { statRow("Peak lean", formatLeanAngle(it)) }
-            cardData.peakGForce?.let { statRow("Peak g", formatGForce(it)) }
+            if (trimmed) {
+                // Design spec: "a small caption under the route" — this is
+                // what actually lands in the exported PNG, distinct from the
+                // dialog's own (pre-share) caption above the Share button.
+                Text(
+                    "Route trimmed near start/end for privacy.",
+                    fontSize = 22.sp,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
+            // Explicit fontSize, not the bare Material type scale: this
+            // subtree is pinned to density=1f for a fixed-pixel export (see
+            // rememberTripCardBitmap), which makes sp resolve 1:1 to px —
+            // MaterialTheme.typography's ~22sp/~16sp values were calibrated
+            // for real screen density and render far too small on a
+            // 1080px-wide image at density 1.
+            Text(
+                trip.mode.label + " · " + formatDate(trip.startTimeMs),
+                style = MaterialTheme.typography.titleLarge,
+                fontSize = 44.sp,
+            )
+            Column(Modifier.padding(top = 16.dp)) {
+                statRow("Distance", formatDistanceKm(trip.distanceMeters))
+                statRow("Duration", formatDurationHistory(trip.durationMs))
+                statRow("Avg speed", formatSpeedKmh(trip.avgSpeedMps))
+                statRow("Top speed", formatSpeedKmh(trip.topSpeedMps))
+                cardData.peakLeanDeg?.let { statRow("Peak lean", formatLeanAngle(it)) }
+                cardData.peakGForce?.let { statRow("Peak g", formatGForce(it)) }
+            }
         }
     }
 }
 
 @Composable
 private fun statRow(label: String, value: String) {
-    Text("$label: $value", style = MaterialTheme.typography.bodyLarge)
+    Text("$label: $value", style = MaterialTheme.typography.bodyLarge, fontSize = 28.sp)
 }
