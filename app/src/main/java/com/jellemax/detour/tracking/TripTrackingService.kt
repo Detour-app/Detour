@@ -687,8 +687,8 @@ class TripTrackingService : Service() {
         return Settings.tripMode.value
     }
 
-    /** Retag the running trip if its mode should change (device connected/left,
-     *  or a walk revealed itself by pace). Restarts motion sensors to match. */
+    /** Retag the running trip if its mode should change (a mapped device
+     *  connected or left). Restarts motion sensors to match. */
     private fun refreshTripMode() {
         val mode = resolvedMode()
         if (_stats.value != null && _stats.value?.mode != mode) {
@@ -1116,7 +1116,7 @@ class TripTrackingService : Service() {
                 topSpeedMps = maxOf(it.topSpeedMps, effectiveSpeedMps),
             )
         }
-        // Now that pace is updated, a slow trip may reveal itself as a walk.
+        // Pick up a mode-bar change made while the trip is running.
         refreshTripMode()
     }
 

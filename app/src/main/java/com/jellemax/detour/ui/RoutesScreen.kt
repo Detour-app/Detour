@@ -75,7 +75,7 @@ private fun shareRouteGpxIntent(uri: Uri): Intent = Intent(Intent.ACTION_SEND).a
 
 /**
  * Google Maps' `maps/dir/` directions URL takes the long-form travel modes
- * below — NOT [TravelMode.gmapsMode]'s single-letter codes ("w"/"b"/"d"),
+ * below — NOT [TravelMode.gmapsMode]'s single-letter codes ("d"),
  * which only mean anything to the `google.navigation:q=` scheme
  * navigateGoogleMaps (MapScreen.kt) uses. Mapped explicitly so the two URL
  * schemes' spellings don't get conflated by a future "simplification".

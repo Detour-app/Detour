@@ -12,8 +12,8 @@ enum class TravelMode(
     val defaultKm: Float,
     val highwayRegex: String,
     /** Google Maps navigation mode: d=drive. Both remaining modes route by
-     *  car; kept as a field rather than inlined because [gmapsDirectionsTravelMode]
-     *  and `navigateGoogleMaps` read it per-mode. */
+     *  car; kept as a field rather than inlined because `navigateGoogleMaps`
+     *  reads it per-mode. */
     val gmapsMode: String,
     /** Profile name on the self-hosted GraphHopper server. */
     val ghProfile: String,
