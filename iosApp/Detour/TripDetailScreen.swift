@@ -102,7 +102,9 @@ struct TripDetailScreen: View {
         let cardData = TripCardGeometry.shared.build(trip: trip, points: routeLatLon, full: full)
         let routeColorHex = RouteColors.shared.hex(
             color: SettingsValues.shared.routeColor, darkTheme: false)
-        guard let image = renderTripCardImage(cardData: cardData, routeColorHex: routeColorHex, darkTheme: false) else { return }
+        guard let image = renderTripCardImage(
+            cardData: cardData, routeColorHex: routeColorHex, darkTheme: false, trimmed: !full
+        ) else { return }
         cardShareURL = writeTripCardForShare(trip: trip, image: image)
         cardShareSheetOpen = true
     }

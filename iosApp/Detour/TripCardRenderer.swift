@@ -19,9 +19,9 @@ private let cardHeight: CGFloat = 1350
 /// being resolved by the caller and passed in as a plain value instead of
 /// read from environment — this does the same for the background.
 @MainActor
-func renderTripCardImage(cardData: CardData, routeColorHex: String, darkTheme: Bool) -> UIImage? {
+func renderTripCardImage(cardData: CardData, routeColorHex: String, darkTheme: Bool, trimmed: Bool) -> UIImage? {
     let renderer = ImageRenderer(content:
-        TripCardContent(cardData: cardData, routeColorHex: routeColorHex, darkTheme: darkTheme)
+        TripCardContent(cardData: cardData, routeColorHex: routeColorHex, darkTheme: darkTheme, trimmed: trimmed)
             .frame(width: cardWidth, height: cardHeight)
     )
     renderer.scale = 1 // fixed pixel size, not device-scaled — matches Android's density(1f).
@@ -43,14 +43,24 @@ private struct TripCardContent: View {
     let cardData: CardData
     let routeColorHex: String
     let darkTheme: Bool
+    let trimmed: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             if !cardData.points.isEmpty {
                 GeometryReader { geo in
+                    // cardData.points are already normalized to preserve
+                    // aspect ratio (shared TripCardGeometry divides both axes
+                    // by the same larger span). Mapping them onto the full
+                    // (non-square) geo.size here would re-stretch that
+                    // aspect-corrected shape, so map into a centered *square*
+                    // sub-region of geo.size instead.
+                    let s = min(geo.size.width, geo.size.height)
+                    let offsetX = (geo.size.width - s) / 2
+                    let offsetY = (geo.size.height - s) / 2
                     Path { path in
                         for (i, p) in cardData.points.enumerated() {
-                            let point = CGPoint(x: CGFloat(p.x) * geo.size.width, y: CGFloat(p.y) * geo.size.height)
+                            let point = CGPoint(x: offsetX + CGFloat(p.x) * s, y: offsetY + CGFloat(p.y) * s)
                             if i == 0 { path.move(to: point) } else { path.addLine(to: point) }
                         }
                     }
@@ -59,13 +69,27 @@ private struct TripCardContent: View {
                         Circle()
                             .fill(Color(hex: routeColorHex))
                             .frame(width: 28, height: 28)
-                            .position(x: CGFloat(d.x) * geo.size.width, y: CGFloat(d.y) * geo.size.height)
+                            .position(x: offsetX + CGFloat(d.x) * s, y: offsetY + CGFloat(d.y) * s)
                     }
                 }
                 .frame(maxHeight: .infinity)
             }
+            if trimmed {
+                // Design spec: "a small caption under the route" — this is
+                // what actually lands in the exported PNG, distinct from the
+                // confirmationDialog's own (pre-share) message in
+                // TripDetailScreen.
+                Text("Route trimmed near start/end for privacy.")
+                    .font(.system(size: 22))
+            }
+            // Explicit point sizes, not `.title`/`.body`: renderTripCardImage
+            // sets `renderer.scale = 1` for a fixed 1080x1350 export, which
+            // (like Android's density(1f) pin) means these render at their
+            // literal point size rather than being scaled up for a real
+            // device — the system text styles are calibrated for on-screen
+            // reading distance, not a fixed-pixel exported image.
             Text("\(cardData.trip.mode.label) · \(formatDate(cardData.trip.startTimeMs))")
-                .font(.title)
+                .font(.system(size: 44))
             VStack(alignment: .leading, spacing: 6) {
                 statRow("Distance", formatDistanceKm(cardData.trip.distanceMeters))
                 statRow("Duration", formatDurationHistory(cardData.trip.durationMs))
@@ -90,7 +114,7 @@ private struct TripCardContent: View {
     }
 
     private func statRow(_ label: String, _ value: String) -> some View {
-        Text("\(label): \(value)").font(.body)
+        Text("\(label): \(value)").font(.system(size: 28))
     }
 }
 
