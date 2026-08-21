@@ -34,7 +34,6 @@ import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.NavInstruction
-import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.RoutingServer
@@ -42,6 +41,7 @@ import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.drive.CameraPrefetch
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.map.NavPolicy
@@ -56,9 +56,6 @@ import kotlin.math.max
 import kotlin.math.roundToLong
 
 private const val TAG = "DetourNav"
-
-private const val CAMERA_FETCH_MARGIN_M = 1000.0
-private const val CAMERA_FETCH_THROTTLE_MS = 15_000L
 
 /** Fallback pace for the "time to the next turn" estimate when the router gave
  *  no travel time, ~50 km/h. Only feeds the cluster's step ETA. */
@@ -128,8 +125,9 @@ class NavScreen(
      *  [speedCameras] — one request has always returned both, and until now the
      *  car read only the camera half of it. */
     private var speedSections: List<SpeedCameras.Section> = emptyList()
-    private var camerasCenter: LatLon? = null
-    private var lastCameraFetchMs = 0L
+    /** The prefetch cadence — where we last fetched, when, and how many refusals
+     *  in a row — CameraPrefetch's. The phone runs the same one. */
+    private var cameraPrefetch = CameraPrefetch.State()
     /** The one-chime-per-camera latch, CameraWarner's. */
     private var warnerState = CameraWarner.State()
     /** The running average through a trajectcontrole, SectionAverageTracker's.
@@ -377,6 +375,10 @@ class NavScreen(
      * average-speed relations, so this is also where [speedSections] comes from
      * — [onFix] is what steps the tracker over them.
      *
+     * The cadence — the margin, the throttle and the backoff after a run of
+     * refusals — is [CameraPrefetch]'s, so the phone keeps the same one. What
+     * stays here is the I/O and the two holders it fills.
+     *
      * The Overpass fetch runs in its own coroutine rather than inline. This is
      * the whole fix loop's hot path: [TripTrackingService.lastFix] is a
      * StateFlow and its collector is sequential, so awaiting a mirror *here*
@@ -387,21 +389,21 @@ class NavScreen(
      * that is what made it look like the map had simply stopped updating.
      */
     private fun checkCameras(pos: LatLon, headingDeg: Double?) {
-        val fromCenter = camerasCenter?.let { RoadRoulette.distanceMeters(it, pos) } ?: Double.MAX_VALUE
         val now = System.currentTimeMillis()
-        if (fromCenter > SpeedCameras.PREFETCH_RADIUS_M - CAMERA_FETCH_MARGIN_M &&
-            now - lastCameraFetchMs > CAMERA_FETCH_THROTTLE_MS &&
+        if (CameraPrefetch.needsFetch(cameraPrefetch, pos, now) &&
             cameraFetchJob?.isActive != true
         ) {
-            lastCameraFetchMs = now
+            cameraPrefetch = CameraPrefetch.fetchStarted(cameraPrefetch, now)
             cameraFetchJob = lifecycleScope.launch {
                 val result = runCatching {
                     withContext(Dispatchers.IO) { SpeedCameras.near(pos) }
                 }.onFailure { Log.w(TAG, "camera fetch failed", it) }.getOrNull()
+                cameraPrefetch = CameraPrefetch.fetched(cameraPrefetch, result, pos)
+                // Only the markers are ours to fold in; a null result keeps the
+                // ones we hold rather than flickering them off.
                 if (result != null) {
                     speedCameras = result.cameras
                     speedSections = result.sections
-                    camerasCenter = pos
                     renderer.setCameras(speedCameras)
                 }
             }

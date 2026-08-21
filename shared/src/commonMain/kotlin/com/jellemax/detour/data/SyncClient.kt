@@ -19,6 +19,12 @@ object SyncClient {
 
     data class SyncResult(val trips: Int, val traces: Int, val badges: Int)
 
+    /** Below this age, [syncIfDue] treats the last sync as still fresh and
+     *  skips the round trip — the launch-time auto-sync is the only caller
+     *  gated this way; manual "sync now" and the post-toggle/post-trip syncs
+     *  call [sync] directly. */
+    private const val AUTO_SYNC_MIN_INTERVAL_MS = 5 * 60_000L
+
     /** Effective API base: the one server address the user set (Settings) →
      *  baked default. The custom address still wins, which is what lets someone
      *  point a release APK at their own server. */
@@ -26,6 +32,17 @@ object SyncClient {
         RoutingServer.apiBase(RoutingServer.loadCustom()).ifBlank { null }
 
     fun configured(): Boolean = url() != null
+
+    /** Same as [sync], but skipped if a sync succeeded within the last five
+     *  minutes — the launch-time auto-sync is a full-history round trip
+     *  ([sync]'s doc comment), and re-paying that on every cold start when
+     *  nothing has changed is exactly the unconditional cost this exists to
+     *  avoid. Returns null when skipped. */
+    suspend fun syncIfDue(): SyncResult? {
+        Settings.init()
+        if (nowMs() - Settings.lastSyncMs() < AUTO_SYNC_MIN_INTERVAL_MS) return null
+        return sync()
+    }
 
     suspend fun sync(): SyncResult {
         Settings.init()
@@ -59,6 +76,7 @@ object SyncClient {
         merged.optArray("savedPlaces")?.let {
             SavedPlaces.replaceFromServer(it.string())
         }
+        Settings.setLastSyncMs(nowMs())
         return SyncResult(trips.size, traces.size, badges.size)
     }
 

@@ -89,9 +89,41 @@ internal object CredentialMigration {
     fun migrateOnce() {
         if (migratedOnce) return
         migratedOnce = true
-        step(prefs("settings"), securePrefs(), SESSION_GROUP)
-        step(prefs(RoutingServer.PREFS), securePrefs(), SERVER_GROUP)
+        migrateGroup(prefs("settings"), SESSION_GROUP)
+        migrateGroup(prefs(RoutingServer.PREFS), SERVER_GROUP)
     }
+
+    /**
+     * Calls [step] only if [group] still has plaintext worth copying or verifying.
+     * [step] itself has to touch the Keystore-backed [securePrefs] even when there
+     * is nothing to do — reading the marker back is how it tells "nothing to
+     * migrate" from "verification pending" apart. That read measured 1.6-1.8s on
+     * a Galaxy S928B (issue #54 §1's own cold-start numbers), on every single
+     * cold start, forever, for both groups — because nothing ever stopped calling
+     * [step] once a group's migration was actually done.
+     *
+     * [plain] not having any of [group]'s keys is that done state, checkable
+     * without touching Keystore at all: either this install never had legacy
+     * plaintext credentials, or an earlier run already deleted them after they
+     * verified. Either way [step] would do nothing this call — the copy phase has
+     * nothing to copy, and the delete phase has nothing left to delete — so
+     * skipping it costs nothing.
+     */
+    private fun migrateGroup(plain: Prefs, group: SecretGroup) {
+        if (groupHasPlaintext(plain, group)) step(plain, securePrefs(), group)
+    }
+
+    /** Whether any of [group]'s keys still has a plaintext value in [plain]. Pure
+     *  and Keystore-free, unlike [step] — see [migrateGroup]'s doc for why that
+     *  matters. Internal, not private, so it is testable against [Prefs] fakes
+     *  the same way [step] is. */
+    internal fun groupHasPlaintext(plain: Prefs, group: SecretGroup): Boolean =
+        group.keys.any { k ->
+            when (k.type) {
+                SecretType.Text -> plain.string(k.name, "").isNotEmpty()
+                SecretType.Number -> plain.long(k.name, 0L) != 0L
+            }
+        }
 
     /**
      * Advances [group]'s migration by one phase: copies plaintext to [secure] and arms
