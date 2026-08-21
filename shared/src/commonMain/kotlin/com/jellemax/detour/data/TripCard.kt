@@ -65,8 +65,15 @@ object TripCardGeometry {
         val span = maxOf(latSpan, lonSpan)
 
         fun normalize(p: LatLon): CardPoint {
-            val nx = ((p.lon - minLon) * cos(toRadians((minLat + maxLat) / 2))) / span
-            val ny = 1f - ((p.lat - minLat) / span).toFloat() // screen y grows downward
+            val lonOffset = (p.lon - minLon) * cos(toRadians((minLat + maxLat) / 2))
+            val latOffset = p.lat - minLat
+            // Both axes are divided by the same (larger) `span` to preserve
+            // shape, which leaves slack on the shorter axis — without the
+            // `(span - axisSpan) / 2` term below that slack all lands on one
+            // side, anchoring the content to the box's top/left edge instead
+            // of centering it.
+            val nx = (lonOffset + (span - lonSpan) / 2) / span
+            val ny = 1f - ((latOffset + (span - latSpan) / 2) / span).toFloat() // screen y grows downward
             return CardPoint(nx.toFloat().coerceIn(0f, 1f), ny.coerceIn(0f, 1f))
         }
 

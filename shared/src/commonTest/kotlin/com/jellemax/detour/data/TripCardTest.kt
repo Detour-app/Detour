@@ -27,6 +27,16 @@ class TripCardTest {
     private fun straightLinePoints(count: Int = 41): List<LatLon> =
         (0 until count).map { LatLon(50.8 + it * 0.00045, 3.2) }
 
+    // An "L"-shaped route with real extent on *both* axes, but lopsided —
+    // much more north-south distance than east-west. Unlike straightLinePoints
+    // (constant longitude) this can't be centered "by accident": it exercises
+    // the actual (lon, lat) -> (x, y) mapping on both axes at once.
+    private fun lShapedPoints(): List<LatLon> {
+        val east = (0 until 20).map { LatLon(50.8, 3.2 + it * 0.0002) }
+        val north = (1..20).map { LatLon(50.8 + it * 0.00045, east.last().lon) }
+        return east + north
+    }
+
     @Test
     fun emptyPointsProduceEmptyCardWithoutThrowing() {
         val card = TripCardGeometry.build(trip(TravelMode.CAR), emptyList())
@@ -55,6 +65,25 @@ class TripCardTest {
             assertTrue(p.x in 0f..1f)
             assertTrue(p.y in 0f..1f)
         }
+    }
+
+    @Test
+    fun normalizedBoundingBoxIsCenteredNotEdgeAnchored() {
+        // normalizedPointsStayWithinUnitBox (above) only asserts points fall
+        // in [0,1] — a route anchored to a box edge on its shorter axis
+        // still satisfies that, so it can't catch the "not centered" bug.
+        // This test checks where the content's bounding box actually sits:
+        // both axes' content should be centered in the 0..1 box, i.e. the
+        // bbox center should be close to (0.5, 0.5), not sitting on an edge.
+        val card = TripCardGeometry.build(trip(TravelMode.CAR), lShapedPoints(), full = true)
+        val minX = card.points.minOf { it.x }
+        val maxX = card.points.maxOf { it.x }
+        val minY = card.points.minOf { it.y }
+        val maxY = card.points.maxOf { it.y }
+        val centerX = (minX + maxX) / 2f
+        val centerY = (minY + maxY) / 2f
+        assertTrue(centerX in 0.49f..0.51f, "expected centerX close to 0.5, was $centerX")
+        assertTrue(centerY in 0.49f..0.51f, "expected centerY close to 0.5, was $centerY")
     }
 
     @Test
