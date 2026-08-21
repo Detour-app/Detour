@@ -11,7 +11,9 @@ enum class TravelMode(
     val maxKm: Float,
     val defaultKm: Float,
     val highwayRegex: String,
-    /** Google Maps navigation mode: w=walk, b=bike, d=drive. */
+    /** Google Maps navigation mode: d=drive. Both remaining modes route by
+     *  car; kept as a field rather than inlined because [gmapsDirectionsTravelMode]
+     *  and `navigateGoogleMaps` read it per-mode. */
     val gmapsMode: String,
     /** Profile name on the self-hosted GraphHopper server. */
     val ghProfile: String,
@@ -23,22 +25,6 @@ enum class TravelMode(
     /** Cornering and braking g. Meaningful under an engine, noise on a bicycle. */
     val tracksGForce: Boolean = false,
 ) {
-    WALK(
-        label = "Walk",
-        minKm = 1f, maxKm = 15f, defaultKm = 3f,
-        highwayRegex = "^(footway|pedestrian|path|living_street|residential|" +
-            "unclassified|track|steps)$",
-        gmapsMode = "w",
-        ghProfile = "foot",
-    ),
-    BIKE(
-        label = "Bike",
-        minKm = 1f, maxKm = 30f, defaultKm = 10f,
-        highwayRegex = "^(cycleway|living_street|residential|unclassified|" +
-            "tertiary|secondary|track|path)$",
-        gmapsMode = "b",
-        ghProfile = "bike",
-    ),
     MOTO(
         // For round trips the slider means total trip length, not radius.
         label = "Moto",
@@ -61,7 +47,7 @@ enum class TravelMode(
         tracksGForce = true,
     );
 
-    /** Any motion sensor at all — nothing to register for BIKE. */
+    /** Any motion sensor at all: lean, g-force, or both. */
     val tracksMotion: Boolean get() = tracksLean || tracksGForce
 
     companion object {
