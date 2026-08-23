@@ -843,8 +843,15 @@ class TripTrackingService : Service() {
         updateNotification()
     }
 
-    private fun endTrip() {
-        val stats = _stats.value ?: return
+    /**
+     * Returns the [kotlinx.coroutines.Job] doing the trip's save-and-notify tail
+     * (null when nothing was worth saving), so [onDestroy] — the one caller that
+     * cannot let this outlive its own teardown — can join it before tearing down
+     * [serviceScope]. Every other call site discards the return value; that
+     * remains source-compatible since none of them assigned or returned it.
+     */
+    private fun endTrip(): kotlinx.coroutines.Job? {
+        val stats = _stats.value ?: return null
         val wasAuto = autoStarted
         stopMotionSensors()
         tripLimitFetchJob?.cancel()
@@ -855,6 +862,7 @@ class TripTrackingService : Service() {
         val worthSaving =
             if (wasAuto) stats.distanceMeters >= MIN_AUTO_TRIP_METERS
             else stats.durationMs > 0
+        var saveJob: kotlinx.coroutines.Job? = null
         if (worthSaving) {
             val durationSec = stats.durationMs / 1000.0
             val trip = Trip(
@@ -889,7 +897,7 @@ class TripTrackingService : Service() {
             // Dispatchers.IO) rather than blocking it. `trip` above is already
             // fully built from this-instant state, so nothing here needs to run
             // before the field resets below.
-            serviceScope.launch {
+            saveJob = serviceScope.launch {
                 val twistiness = runCatching {
                     Curviness.traceScore(loadTripPoints(this@TripTrackingService, trip).map { it.at })
                 }.getOrDefault(0.0)
@@ -907,6 +915,7 @@ class TripTrackingService : Service() {
         pendingStopAtMs = null
         ensureLocationUpdates()
         updateNotification()
+        return saveJob
     }
 
     private fun currentMode(): LocationMode = when {
@@ -1415,7 +1424,6 @@ class TripTrackingService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onDestroy() {
-        serviceScope.cancel()
         if (::fusedClient.isInitialized) {
             fusedClient.removeLocationUpdates(locationCallback)
         }
@@ -1424,7 +1432,17 @@ class TripTrackingService : Service() {
             runCatching { unregisterReceiver(btStateReceiver) }
             btRegistered = false
         }
-        endTrip()
+        // endTrip()'s save-and-notify tail runs on serviceScope (round-1 fix,
+        // off the main thread on every other call site) — but the service is
+        // dying right here, so cancelling that scope before the tail runs would
+        // silently drop an in-flight trip. Join it before cancelling: a brief
+        // main-thread block in this one terminal-teardown path beats losing the
+        // trip. Every other endTrip() call site keeps running fully async.
+        val saveJob = endTrip()
+        if (saveJob != null) {
+            kotlinx.coroutines.runBlocking { saveJob.join() }
+        }
+        serviceScope.cancel()
         flushTrace()
         super.onDestroy()
     }
