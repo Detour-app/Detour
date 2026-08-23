@@ -68,6 +68,7 @@ import com.jellemax.detour.drive.RoadTypeTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.drive.StopDetector
 import com.jellemax.detour.notif.TripEndedNotification
+import com.jellemax.detour.obd2.Obd2Connection
 import com.jellemax.detour.ui.loadTripPoints
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -597,14 +598,22 @@ class TripTrackingService : Service() {
             val device = deviceFrom(intent) ?: return
             val address = try { device.address } catch (e: SecurityException) { return } ?: return
             when (intent.action) {
-                BluetoothDevice.ACTION_ACL_CONNECTED ->
+                BluetoothDevice.ACTION_ACL_CONNECTED -> {
                     if (Settings.vehicleDevices.value.containsKey(address)) {
                         connectedVehicles.remove(address) // move to newest
                         connectedVehicles.add(address)
                         refreshTripMode()
                     }
-                BluetoothDevice.ACTION_ACL_DISCONNECTED ->
+                    Settings.vehicleDevices.value.values
+                        .firstOrNull { it.obd2Address == address }
+                        ?.let { Obd2Connection.connect(context, address) }
+                }
+                BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
                     if (connectedVehicles.remove(address)) refreshTripMode()
+                    if (Settings.vehicleDevices.value.values.any { it.obd2Address == address }) {
+                        Obd2Connection.disconnect()
+                    }
+                }
             }
         }
     }
@@ -615,11 +624,13 @@ class TripTrackingService : Service() {
     private val btStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)) {
-                BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF ->
+                BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF -> {
                     if (connectedVehicles.isNotEmpty()) {
                         connectedVehicles.clear()
                         refreshTripMode()
                     }
+                    Obd2Connection.disconnect()
+                }
                 BluetoothAdapter.STATE_ON -> seedConnectedVehicles()
             }
         }
