@@ -62,6 +62,7 @@ import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
 import com.jellemax.detour.drive.HardEventDetector
+import com.jellemax.detour.drive.RoadTypeTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.drive.StopDetector
 import com.jellemax.detour.notif.TripEndedNotification
@@ -422,6 +423,9 @@ class TripTrackingService : Service() {
     @Volatile private var tripLimitFetchJob: kotlinx.coroutines.Job? = null
     @Volatile private var secondsOverLimit = 0.0
     @Volatile private var lastLimitFixMs = 0L
+    @Volatile private var roadTypeState = RoadTypeTracker.State()
+    @Volatile private var roadTypeFetchJob: kotlinx.coroutines.Job? = null
+    @Volatile private var lastRoadTypeFixLocation: Location? = null
 
     /**
      * The board's own GPS and IMU, treated as truth over the phone's
@@ -821,6 +825,10 @@ class TripTrackingService : Service() {
         tripLimitFetchJob = null
         secondsOverLimit = 0.0
         lastLimitFixMs = startTimeMs
+        roadTypeState = RoadTypeTracker.State()
+        roadTypeFetchJob?.cancel()
+        roadTypeFetchJob = null
+        lastRoadTypeFixLocation = null
         lastMovingMs = System.currentTimeMillis()
         // Re-check what's actually linked: the set may have gone stale since the
         // last trip. Answers async, retagging through refreshTripMode.
@@ -840,6 +848,8 @@ class TripTrackingService : Service() {
         stopMotionSensors()
         tripLimitFetchJob?.cancel()
         tripLimitFetchJob = null
+        roadTypeFetchJob?.cancel()
+        roadTypeFetchJob = null
         flushTrace()
         val worthSaving =
             if (wasAuto) stats.distanceMeters >= MIN_AUTO_TRIP_METERS
@@ -1179,6 +1189,31 @@ class TripTrackingService : Service() {
             secondsOverLimit += overLimitDtMs / 1000.0
         }
         lastLimitFixMs = location.time
+
+        if (RoadTypeTracker.needsWays(roadTypeState, here, now) &&
+            roadTypeFetchJob?.isActive != true
+        ) {
+            roadTypeState = RoadTypeTracker.fetchStarted(roadTypeState, now)
+            // serviceScope is already Dispatchers.IO (`:1358`), so no withContext needed here.
+            // Rethrow cancellation rather than let runCatching swallow it — this is the
+            // pattern Task 4's review found missing for SpeedLimitTracker's fetch; applying it
+            // here too even though RoadTypeTracker.withWays' empty-is-a-no-op shape (unlike
+            // SpeedLimitTracker's null-vs-empty split) means a swallowed cancellation can't
+            // corrupt state the same way — it would still complete the coroutine with a
+            // meaningless "fetched nothing" after being told to stop.
+            roadTypeFetchJob = serviceScope.launch {
+                val ways = runCatching { RoadTypeTracker.fetchWays(here) }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                    .getOrDefault(emptyList())
+                roadTypeState = RoadTypeTracker.withWays(roadTypeState, ways, here)
+            }
+        }
+        val prevRoadTypeLoc = lastRoadTypeFixLocation
+        if (prevRoadTypeLoc != null && location.accuracy <= 50f) {
+            val hop = prevRoadTypeLoc.distanceTo(location).toDouble()
+            roadTypeState = RoadTypeTracker.onFix(roadTypeState, here, bearing, hop)
+        }
+        lastRoadTypeFixLocation = location
 
         // update (not value =) so the 5 Hz sensor writes aren't clobbered here.
         _stats.update {
