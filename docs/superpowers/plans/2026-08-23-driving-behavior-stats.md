@@ -738,7 +738,7 @@ git commit -m "feat(trip): wire HardEventDetector into the live trip pipeline"
 - Modify: `app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt`
 
 **Interfaces:**
-- Produces: `StopDetector.State(candidateSince: Long?, stopCount: Int, idleMs: Long)`,
+- Produces: `StopDetector.State(candidateSince: Long?, stopCount: Int, idleMs: Long, hasMoved: Boolean)`,
   `fun onFix(state: State, speedMps: Double, fixMs: Long): State`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -759,11 +759,26 @@ class StopDetectorTest {
     private val t0 = 1_700_000_000_000L
 
     @Test
+    fun aDwellBeforeTheTripHasEverMovedIsNeverCountedNoMatterHowLong() {
+        // A manually-started trip begun while parked (rider taps Go, sits for a
+        // minute, then rides off) must not count that pre-departure dwell as a
+        // stop — the trip hasn't gone anywhere yet, so there is nothing to have
+        // paused. `beginTrip` resets to a fresh State() every trip, so this is
+        // the state every trip actually starts in.
+        var state = StopDetector.State()
+        state = StopDetector.onFix(state, 0.0, t0) // parked at trip start
+        state = StopDetector.onFix(state, 10.0, t0 + 60_000) // finally pulls away
+        assertEquals(0, state.stopCount)
+        assertEquals(0L, state.idleMs)
+    }
+
+    @Test
     fun briefDwellUnderTheMinimumIsNotCountedAsAStop() {
         var state = StopDetector.State()
-        state = StopDetector.onFix(state, 0.0, t0) // stopped
+        state = StopDetector.onFix(state, 10.0, t0) // trip is already moving
+        state = StopDetector.onFix(state, 0.0, t0 + 5_000) // stopped
         // Resumes after 10s, under MIN_STOP_DWELL_MS (20s) — a traffic light.
-        state = StopDetector.onFix(state, 10.0, t0 + 10_000)
+        state = StopDetector.onFix(state, 10.0, t0 + 15_000)
         assertEquals(0, state.stopCount)
         assertEquals(0L, state.idleMs)
     }
@@ -771,9 +786,10 @@ class StopDetectorTest {
     @Test
     fun dwellPastTheMinimumCountsAsAStopAndAccumulatesIdleTime() {
         var state = StopDetector.State()
-        state = StopDetector.onFix(state, 0.0, t0)
+        state = StopDetector.onFix(state, 10.0, t0) // trip is already moving
+        state = StopDetector.onFix(state, 0.0, t0 + 5_000)
         // Resumes after 45s, past MIN_STOP_DWELL_MS (20s) — a real stop.
-        state = StopDetector.onFix(state, 10.0, t0 + 45_000)
+        state = StopDetector.onFix(state, 10.0, t0 + 50_000)
         assertEquals(1, state.stopCount)
         assertEquals(45_000L, state.idleMs)
     }
@@ -784,8 +800,9 @@ class StopDetectorTest {
         // owns that boundary, not this detector. Documented limitation: a stop
         // is only counted once motion resumes within the same trip.
         var state = StopDetector.State()
-        state = StopDetector.onFix(state, 0.0, t0)
-        state = StopDetector.onFix(state, 0.0, t0 + 60_000)
+        state = StopDetector.onFix(state, 10.0, t0) // trip is already moving
+        state = StopDetector.onFix(state, 0.0, t0 + 5_000)
+        state = StopDetector.onFix(state, 0.0, t0 + 65_000)
         assertEquals(0, state.stopCount)
         assertEquals(0L, state.idleMs)
     }
@@ -793,10 +810,11 @@ class StopDetectorTest {
     @Test
     fun multipleStopsAccumulateIndependently() {
         var state = StopDetector.State()
-        state = StopDetector.onFix(state, 0.0, t0)
-        state = StopDetector.onFix(state, 10.0, t0 + 30_000) // stop 1: 30s
-        state = StopDetector.onFix(state, 0.0, t0 + 40_000)
-        state = StopDetector.onFix(state, 10.0, t0 + 100_000) // stop 2: 60s
+        state = StopDetector.onFix(state, 10.0, t0) // trip is already moving
+        state = StopDetector.onFix(state, 0.0, t0 + 5_000)
+        state = StopDetector.onFix(state, 10.0, t0 + 35_000) // stop 1: 30s
+        state = StopDetector.onFix(state, 0.0, t0 + 45_000)
+        state = StopDetector.onFix(state, 10.0, t0 + 105_000) // stop 2: 60s
         assertEquals(2, state.stopCount)
         assertEquals(90_000L, state.idleMs)
     }
@@ -824,24 +842,37 @@ package com.jellemax.detour.drive
  */
 object StopDetector {
     const val STOP_SPEED_FLOOR_MPS = 2.0   // matches onTripLocation's own moving floor
+                                            // (note: that floor tests raw `speed`, not
+                                            // effectiveSpeedMps, and is a `>` gate where
+                                            // this is `<`, so exactly 2.0 classifies
+                                            // oppositely in the two places — harmless)
     const val MIN_STOP_DWELL_MS = 20_000L  // provisional — filters a traffic light
 
     data class State(
         val candidateSince: Long? = null,
         val stopCount: Int = 0,
         val idleMs: Long = 0,
+        /** True once this trip has recorded at least one above-floor fix. A
+         *  manually-started trip begins parked (`beginTrip` resets to a fresh
+         *  [State]), and the pre-departure dwell before the rider pulls away
+         *  is not a stop — there is nothing to have paused yet. Without this
+         *  guard the very first fix (parked, speed 0) opens a candidate and
+         *  the first fix on pulling away resolves it as a real stop. */
+        val hasMoved: Boolean = false,
     )
 
     fun onFix(state: State, speedMps: Double, fixMs: Long): State {
         if (speedMps < STOP_SPEED_FLOOR_MPS) {
+            if (!state.hasMoved) return state // parked before the trip has moved at all
             return state.copy(candidateSince = state.candidateSince ?: fixMs)
         }
-        val since = state.candidateSince ?: return state
+        val moved = if (state.hasMoved) state else state.copy(hasMoved = true)
+        val since = moved.candidateSince ?: return moved
         val dwell = fixMs - since
         return if (dwell >= MIN_STOP_DWELL_MS) {
-            state.copy(candidateSince = null, stopCount = state.stopCount + 1, idleMs = state.idleMs + dwell)
+            moved.copy(candidateSince = null, stopCount = moved.stopCount + 1, idleMs = moved.idleMs + dwell)
         } else {
-            state.copy(candidateSince = null)
+            moved.copy(candidateSince = null)
         }
     }
 }
@@ -850,7 +881,7 @@ object StopDetector {
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `./gradlew :shared:testDebugUnitTest --tests "com.jellemax.detour.drive.StopDetectorTest"`
-Expected: PASS, 4 tests green.
+Expected: PASS, 5 tests green.
 
 - [ ] **Step 5: Run the shared metadata check**
 
