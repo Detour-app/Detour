@@ -1109,8 +1109,10 @@ git commit -m "feat(trip): accumulate time-over-limit via a trip-scoped SpeedLim
   `.DRIVABLE_HIGHWAYS`, `.MAX_SNAP_METERS`, `.HEADING_TOLERANCE_DEG`, `.alignsWith` (promoted to
   `internal` in Step 1 below). `HighwayClass.of` (Task 1).
 - Produces: `RoadTypeTracker.State(ways, waysCenter, lastFetchMs, meters: Map<HighwayClass, Double>)`,
-  `.needsWays`, `.fetchStarted`, `suspend fun fetchWays(center: LatLon): List<ClassifiedWay>`,
-  `.withWays`, `fun onFix(state, at, headingDeg, distanceSinceLastFixMeters): State`.
+  `.needsWays`, `.fetchStarted`, `suspend fun fetchWays(center: LatLon): List<ClassifiedWay>?`
+  (nullable — null on failure, empty when the area genuinely has no drivable way, same contract
+  as `RoadRoulette.speedLimitWays`), `.withWays`,
+  `fun onFix(state, at, headingDeg, distanceSinceLastFixMeters): State`.
 
 - [ ] **Step 1: Promote four `RoadRoulette` members to `internal` (pure visibility, no behavior change)**
 
@@ -1174,17 +1176,38 @@ class RoadTypeTrackerTest {
         highwayClass = HighwayClass.MOTORWAY,
         points = listOf(at(400.0, 180.0), at(400.0, 0.0)), // north-south through `here`
     )
-    private val local = RoadTypeTracker.ClassifiedWay(
+    // Also close enough to snap (within MAX_SNAP_METERS), but running east-west — so a
+    // heading of 0deg (north) aligns with `motorway`, not this one, even though both are
+    // within range. This is what actually discriminates `aligned` from `nearest`, unlike
+    // the old fixture where the second way was 1000m away and never entered the candidate
+    // set at all.
+    private val misalignedLocal = RoadTypeTracker.ClassifiedWay(
         highwayClass = HighwayClass.LOCAL,
-        points = listOf(at(1000.0, 90.0), at(1000.0, 270.0)), // east-west, far away
+        points = listOf(at(10.0, 90.0), at(10.0, 270.0)), // east-west, ~10m away
+    )
+    // Genuinely out of snap range, for the "no nearby way" case.
+    private val farAway = RoadTypeTracker.ClassifiedWay(
+        highwayClass = HighwayClass.LOCAL,
+        points = listOf(at(1000.0, 90.0), at(1000.0, 270.0)),
     )
 
     @Test
-    fun snapsToTheAlignedNearbyWayOverAFarAwayOne() {
-        val state = RoadTypeTracker.State(ways = listOf(motorway, local))
+    fun snapsToTheAlignedNearbyWayOverAMisalignedOneEvenCloser() {
+        val state = RoadTypeTracker.State(ways = listOf(motorway, misalignedLocal))
+        // Heading 0 (north) aligns with `motorway` (runs north-south), not `misalignedLocal`
+        // (runs east-west) — even though both are within MAX_SNAP_METERS.
         val next = RoadTypeTracker.onFix(state, here, headingDeg = 0.0, distanceSinceLastFixMeters = 25.0)
         assertEquals(25.0, next.meters[HighwayClass.MOTORWAY])
         assertNull(next.meters[HighwayClass.LOCAL])
+    }
+
+    @Test
+    fun fallsBackToNearestWhenHeadingIsUnknown() {
+        val state = RoadTypeTracker.State(ways = listOf(motorway, misalignedLocal))
+        // No heading to align against — falls back to whichever way is nearest.
+        // `misalignedLocal` is ~10m away, `motorway` is ~0m away (runs through `here`).
+        val next = RoadTypeTracker.onFix(state, here, headingDeg = null, distanceSinceLastFixMeters = 25.0)
+        assertEquals(25.0, next.meters[HighwayClass.MOTORWAY])
     }
 
     @Test
@@ -1196,8 +1219,10 @@ class RoadTypeTrackerTest {
     }
 
     @Test
-    fun aFixWithNoNearbyWayLeavesMetersUnchanged() {
-        val state = RoadTypeTracker.State(ways = emptyList())
+    fun aFixWithNoWayWithinSnapRangeLeavesMetersUnchanged() {
+        // A way exists but is 1000m away — genuinely out of MAX_SNAP_METERS range, not the
+        // trivial "the ways list is empty" case.
+        val state = RoadTypeTracker.State(ways = listOf(farAway))
         val next = RoadTypeTracker.onFix(state, here, 0.0, 25.0)
         assertEquals(emptyMap(), next.meters)
     }
@@ -1225,6 +1250,7 @@ import com.jellemax.detour.data.optArray
 import com.jellemax.detour.data.optDouble
 import com.jellemax.detour.data.optObject
 import com.jellemax.detour.data.optString
+import kotlinx.serialization.SerializationException
 import okio.IOException
 
 /**
@@ -1257,7 +1283,12 @@ object RoadTypeTracker {
 
     fun fetchStarted(state: State, nowMs: Long): State = state.copy(lastFetchMs = nowMs)
 
-    suspend fun fetchWays(center: LatLon, radiusMeters: Double = FETCH_RADIUS_M): List<ClassifiedWay> {
+    /** Null on any failure, empty only when the area really has no drivable way — same
+     *  null-vs-empty contract `RoadRoulette.speedLimitWays` documents, and for the same
+     *  reason: collapsing the two into one `emptyList()` would make [withWays] treat a
+     *  failed fetch as "confirmed no roads here", which moves [State.waysCenter] and stops
+     *  ever retrying near this position. */
+    suspend fun fetchWays(center: LatLon, radiusMeters: Double = FETCH_RADIUS_M): List<ClassifiedWay>? {
         val query = "[out:json][timeout:15];" +
             "way(around:${radiusMeters.toInt()},${center.lat},${center.lon})" +
             "[\"highway\"~\"^(${RoadRoulette.DRIVABLE_HIGHWAYS})$\"];" +
@@ -1265,9 +1296,18 @@ object RoadTypeTracker {
         val json = try {
             RoadRoulette.rawQuery(query)
         } catch (e: IOException) {
-            return emptyList()
+            return null
         }
-        val elements = jsonObjectOf(json).optArray("elements") ?: return emptyList()
+        // A busy Overpass mirror answers 200 with an HTML "runtime error" page, so parsing
+        // fails on a perfectly good HTTP response — the same two catches
+        // RoadRoulette.speedLimitWays needs for the same reason (RoadRoulette.kt:285-291).
+        val elements = try {
+            jsonObjectOf(json).optArray("elements")
+        } catch (e: SerializationException) {
+            return null
+        } catch (e: IllegalArgumentException) {
+            return null
+        } ?: return null
         val ways = ArrayList<ClassifiedWay>(elements.size)
         for (el in elements.objects()) {
             val tag = el.optObject("tags")?.optString("highway")?.takeIf { it.isNotBlank() } ?: continue
@@ -1279,8 +1319,19 @@ object RoadTypeTracker {
         return ways
     }
 
-    fun withWays(state: State, ways: List<ClassifiedWay>, center: LatLon): State =
-        if (ways.isEmpty()) state else state.copy(ways = ways, waysCenter = center)
+    /** A **null** [ways] is a failed fetch: keep everything as-is (the existing
+     *  `FETCH_THROTTLE_MS` gap in [needsWays] already rate-limits the next attempt — no
+     *  separate backoff counter, unlike `SpeedLimitTracker`, since a wrong/stale road-mix
+     *  bucket for a few seconds is a much smaller cost than a wrong speed-limit sign). An
+     *  **empty** [ways] is the area genuinely having no drivable way: [State.ways] is a
+     *  no-op, but [State.waysCenter] still moves to [center] — otherwise [needsWays] stays
+     *  true forever over a real untagged stretch and re-queries every throttle window for
+     *  as long as you're on it. */
+    fun withWays(state: State, ways: List<ClassifiedWay>?, center: LatLon): State = when {
+        ways == null -> state
+        ways.isEmpty() -> state.copy(waysCenter = center)
+        else -> state.copy(ways = ways, waysCenter = center)
+    }
 
     /** Snaps [at] to the nearest/aligned classified way (same two-pass logic as
      *  `RoadRoulette.snapSpeedLimitKmh`) and attributes [distanceSinceLastFixMeters]
@@ -1318,7 +1369,7 @@ object RoadTypeTracker {
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `./gradlew :shared:testDebugUnitTest --tests "com.jellemax.detour.drive.RoadTypeTrackerTest"`
-Expected: PASS, 3 tests green.
+Expected: PASS, 4 tests green.
 
 - [ ] **Step 8: Run the shared metadata check**
 
@@ -1343,14 +1394,14 @@ Add import:
 import com.jellemax.detour.drive.RoadTypeTracker
 ```
 
-Add fields alongside `tripLimitState` (Task 4 Step 2), same `@Volatile` reasoning — all three,
+Add fields alongside `tripLimitState` (Task 4 Step 2), same `@Volatile` reasoning — both,
 including the `Job` field (Task 4's review found the earlier "Job doesn't need it" exemption wrong;
-see Task 4 Step 2's corrected text):
+see Task 4 Step 2's corrected text). **No separate `lastRoadTypeFixLocation` anchor** — see Step
+10's tick below for why one isn't needed:
 
 ```kotlin
     @Volatile private var roadTypeState = RoadTypeTracker.State()
     @Volatile private var roadTypeFetchJob: kotlinx.coroutines.Job? = null
-    @Volatile private var lastRoadTypeFixLocation: Location? = null
 ```
 
 Reset in `beginTrip`, alongside Task 4 Step 3:
@@ -1359,36 +1410,58 @@ Reset in `beginTrip`, alongside Task 4 Step 3:
         roadTypeState = RoadTypeTracker.State()
         roadTypeFetchJob?.cancel()
         roadTypeFetchJob = null
-        lastRoadTypeFixLocation = null
 ```
 
-Tick it in `onTripLocation`, right after Task 4 Step 4's block (reusing the same `here`/`now` locals):
+Tick it in `onTripLocation`, right after Task 4 Step 4's block (reusing the same `here`/`now` locals).
+
+**Do not track a third `lastRoadTypeFixLocation` anchor, and do not gate only on
+`location.accuracy` — reuse the hop the existing distance accumulator already computed under
+both its guards.** The distance accumulator earlier in this function (`:1096-1099` in the
+original file) is:
+
+```kotlin
+        var distance = stats.distanceMeters
+        val last = lastLocation
+        if (last != null && location.accuracy <= 50f &&
+            location.time - last.time in 1..15_000
+        ) {
+            distance += last.distanceTo(location).toDouble()
+        }
+```
+
+By the time execution reaches this task's tick, `distance` already equals
+`stats.distanceMeters + hop` if that guard passed, or `stats.distanceMeters` unchanged if it
+didn't — so `distance - stats.distanceMeters` recovers the same accurate, recency-checked hop
+with no new field, no new reset, and no separate accuracy-only guard that would (as an earlier
+draft of this task did) let a post-tunnel or post-parking-garage GPS re-acquire — fully accurate,
+but far from the last real fix — attribute several kilometres to whatever class the reacquire fix
+snaps to:
+
+```kotlin
+        val roadTypeHop = distance - stats.distanceMeters
+        if (RoadTypeTracker.needsWays(roadTypeState, here, now) &&
 
 ```kotlin
         if (RoadTypeTracker.needsWays(roadTypeState, here, now) &&
             roadTypeFetchJob?.isActive != true
         ) {
             roadTypeState = RoadTypeTracker.fetchStarted(roadTypeState, now)
-            // serviceScope is already Dispatchers.IO (`:1266`), so no withContext needed here.
-            // Rethrow cancellation rather than let runCatching swallow it — this is the
-            // pattern Task 4's review found missing for SpeedLimitTracker's fetch; applying it
-            // here too even though RoadTypeTracker.withWays' empty-is-a-no-op shape (unlike
-            // SpeedLimitTracker's null-vs-empty split) means a swallowed cancellation can't
-            // corrupt state the same way — it would still complete the coroutine with a
-            // meaningless "fetched nothing" after being told to stop.
+            // serviceScope is already Dispatchers.IO, so no withContext needed here.
+            // Rethrow cancellation rather than let runCatching swallow it (same pattern
+            // Task 4 established for SpeedLimitTracker's fetch) — RoadTypeTracker.fetchWays
+            // is nullable with the identical null-vs-empty contract, so getOrNull, not
+            // getOrDefault(emptyList()): collapsing a cancelled/failed fetch to emptyList()
+            // would make withWays treat it as "confirmed no roads here."
             roadTypeFetchJob = serviceScope.launch {
                 val ways = runCatching { RoadTypeTracker.fetchWays(here) }
                     .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
-                    .getOrDefault(emptyList())
+                    .getOrNull()
                 roadTypeState = RoadTypeTracker.withWays(roadTypeState, ways, here)
             }
         }
-        val prevRoadTypeLoc = lastRoadTypeFixLocation
-        if (prevRoadTypeLoc != null && location.accuracy <= 50f) {
-            val hop = prevRoadTypeLoc.distanceTo(location).toDouble()
-            roadTypeState = RoadTypeTracker.onFix(roadTypeState, here, bearing, hop)
+        if (roadTypeHop > 0.0) {
+            roadTypeState = RoadTypeTracker.onFix(roadTypeState, here, bearing, roadTypeHop)
         }
-        lastRoadTypeFixLocation = location
 ```
 
 Cancel the job in `endTrip`, alongside Task 4 Step 5:
