@@ -876,19 +876,29 @@ class TripTrackingService : Service() {
                     roadTypeMeters = roadTypeState.meters,
                     // Post-hoc, over the trace this trip just flushed above — see
                     // Curviness.traceScore's KDoc for why this can't run live.
-                    twistinessScore = 0.0, // placeholder, replaced two lines below
+                    twistinessScore = 0.0, // placeholder, replaced inside the launch below
                     stopCount = stopState.stopCount,
                     idleMs = stopState.idleMs,
                 ),
             )
-            val twistiness = runCatching {
-                Curviness.traceScore(loadTripPoints(this, trip).map { it.at })
-            }.getOrDefault(0.0)
-            TripStore.save(trip.copy(drivingStats = trip.drivingStats.copy(twistinessScore = twistiness)))
-            SyncClient.syncQuietly()
-            checkBadges()
-            // Only tell the user about trips they didn't end themselves.
-            if (wasAuto) TripEndedNotification.show(this, stats.startTimeMs)
+            // loadTripPoints reads the whole traces.jsonl back and parses every
+            // line before filtering to this trip's window (same class of cost
+            // HistoryScreen.kt's own Dispatchers.IO comment documents for the
+            // smaller trips.json) — every endTrip() call site runs on the main
+            // thread, so the save-and-notify tail moves to serviceScope (already
+            // Dispatchers.IO) rather than blocking it. `trip` above is already
+            // fully built from this-instant state, so nothing here needs to run
+            // before the field resets below.
+            serviceScope.launch {
+                val twistiness = runCatching {
+                    Curviness.traceScore(loadTripPoints(this@TripTrackingService, trip).map { it.at })
+                }.getOrDefault(0.0)
+                TripStore.save(trip.copy(drivingStats = trip.drivingStats.copy(twistinessScore = twistiness)))
+                SyncClient.syncQuietly()
+                checkBadges()
+                // Only tell the user about trips they didn't end themselves.
+                if (wasAuto) TripEndedNotification.show(this@TripTrackingService, stats.startTimeMs)
+            }
         }
         _stats.value = null
         destLat = null
