@@ -425,7 +425,6 @@ class TripTrackingService : Service() {
     @Volatile private var lastLimitFixMs = 0L
     @Volatile private var roadTypeState = RoadTypeTracker.State()
     @Volatile private var roadTypeFetchJob: kotlinx.coroutines.Job? = null
-    @Volatile private var lastRoadTypeFixLocation: Location? = null
 
     /**
      * The board's own GPS and IMU, treated as truth over the phone's
@@ -828,7 +827,6 @@ class TripTrackingService : Service() {
         roadTypeState = RoadTypeTracker.State()
         roadTypeFetchJob?.cancel()
         roadTypeFetchJob = null
-        lastRoadTypeFixLocation = null
         lastMovingMs = System.currentTimeMillis()
         // Re-check what's actually linked: the set may have gone stale since the
         // last trip. Answers async, retagging through refreshTripMode.
@@ -1190,30 +1188,34 @@ class TripTrackingService : Service() {
         }
         lastLimitFixMs = location.time
 
+        // Reuses the hop the distance accumulator above already computed under both its
+        // guards (accuracy AND recency) rather than tracking a third `lastFixLocation`
+        // anchor with only the accuracy half of that gate — an accuracy-only guard would
+        // let a post-tunnel/post-parking-garage GPS re-acquire, fully accurate but far from
+        // the last real fix, attribute several kilometres to whatever class the reacquire
+        // fix snaps to. `distance` already equals `stats.distanceMeters + hop` if the
+        // accumulator's guard passed, or is unchanged if it didn't.
+        val roadTypeHop = distance - stats.distanceMeters
         if (RoadTypeTracker.needsWays(roadTypeState, here, now) &&
             roadTypeFetchJob?.isActive != true
         ) {
             roadTypeState = RoadTypeTracker.fetchStarted(roadTypeState, now)
             // serviceScope is already Dispatchers.IO (`:1358`), so no withContext needed here.
-            // Rethrow cancellation rather than let runCatching swallow it — this is the
-            // pattern Task 4's review found missing for SpeedLimitTracker's fetch; applying it
-            // here too even though RoadTypeTracker.withWays' empty-is-a-no-op shape (unlike
-            // SpeedLimitTracker's null-vs-empty split) means a swallowed cancellation can't
-            // corrupt state the same way — it would still complete the coroutine with a
-            // meaningless "fetched nothing" after being told to stop.
+            // Rethrow cancellation rather than let runCatching swallow it (same pattern
+            // Task 4 established for SpeedLimitTracker's fetch) — RoadTypeTracker.fetchWays
+            // is nullable with the identical null-vs-empty contract, so getOrNull, not
+            // getOrDefault(emptyList()): collapsing a cancelled/failed fetch to emptyList()
+            // would make withWays treat it as "confirmed no roads here."
             roadTypeFetchJob = serviceScope.launch {
                 val ways = runCatching { RoadTypeTracker.fetchWays(here) }
                     .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
-                    .getOrDefault(emptyList())
+                    .getOrNull()
                 roadTypeState = RoadTypeTracker.withWays(roadTypeState, ways, here)
             }
         }
-        val prevRoadTypeLoc = lastRoadTypeFixLocation
-        if (prevRoadTypeLoc != null && location.accuracy <= 50f) {
-            val hop = prevRoadTypeLoc.distanceTo(location).toDouble()
-            roadTypeState = RoadTypeTracker.onFix(roadTypeState, here, bearing, hop)
+        if (roadTypeHop > 0.0) {
+            roadTypeState = RoadTypeTracker.onFix(roadTypeState, here, bearing, roadTypeHop)
         }
-        lastRoadTypeFixLocation = location
 
         // update (not value =) so the 5 Hz sensor writes aren't clobbered here.
         _stats.update {
