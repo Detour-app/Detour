@@ -61,6 +61,7 @@ import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
+import com.jellemax.detour.drive.HardEventDetector
 import com.jellemax.detour.notif.TripEndedNotification
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -88,6 +89,9 @@ data class TripStats(
     val maxLeanAngleDeg: Double = 0.0,
     val currentGForce: Double = 0.0,
     val maxGForce: Double = 0.0,
+    val hardBrakeCount: Int = 0,
+    val hardAccelCount: Int = 0,
+    val hardCornerCount: Int = 0,
 )
 
 /** Latest GPS fix, published live for the map (fog, navigation). */
@@ -399,6 +403,15 @@ class TripTrackingService : Service() {
      *  from the settings screen, never mid-trip. */
     private var leanOffsetDeg = 0.0
 
+    private var speedEventState = HardEventDetector.SpeedState()
+    private var headingEventState = HardEventDetector.HeadingState()
+    /** Threaded into [HardEventDetector.onLeanSample] from [recordLean] — a
+     *  car trip never calls it, so it only ever moves for a moto trip. */
+    private var leanCorneringNow = false
+    private var hardCornerCount = 0
+    private var hardBrakeCount = 0
+    private var hardAccelCount = 0
+
     /**
      * The board's own GPS and IMU, treated as truth over the phone's
      * FusedLocationProvider/rotation-vector sensor when both are present:
@@ -436,6 +449,9 @@ class TripTrackingService : Service() {
         if ((_stats.value?.currentSpeedMps ?: 0.0) < MIN_LEAN_SPEED_MPS) return
         maxLeanDeg = maxOf(maxLeanDeg, abs(deg))
         if (abs(deg) > abs(segmentPeakLeanDeg)) segmentPeakLeanDeg = deg
+        val (cornering, newEvent) = HardEventDetector.onLeanSample(leanCorneringNow, deg)
+        leanCorneringNow = cornering
+        if (newEvent) hardCornerCount++
     }
 
     /**
@@ -782,6 +798,12 @@ class TripTrackingService : Service() {
         currentLeanDeg = 0.0; maxLeanDeg = 0.0
         // 1.0, not 0: the resting magnitude is 1 g — see the field declaration.
         currentG = 1.0; maxG = 0.0
+        speedEventState = HardEventDetector.SpeedState()
+        headingEventState = HardEventDetector.HeadingState()
+        leanCorneringNow = false
+        hardCornerCount = 0
+        hardBrakeCount = 0
+        hardAccelCount = 0
         lastMovingMs = System.currentTimeMillis()
         // Re-check what's actually linked: the set may have gone stale since the
         // last trip. Answers async, retagging through refreshTripMode.
@@ -1102,6 +1124,17 @@ class TripTrackingService : Service() {
             ?.let { it.speedKmh / 3.6 }
             ?: speed
 
+        val speedResult = HardEventDetector.onSpeedFix(speedEventState, effectiveSpeedMps, now)
+        speedEventState = speedResult.state
+        if (speedResult.hardBrake) hardBrakeCount++
+        if (speedResult.hardAccel) hardAccelCount++
+        if (stats.mode == TravelMode.CAR && location.hasBearing()) {
+            val (nextHeadingState, cornerEvent) = HardEventDetector.onHeadingFix(
+                headingEventState, location.bearing.toDouble(), effectiveSpeedMps, now)
+            headingEventState = nextHeadingState
+            if (cornerEvent) hardCornerCount++
+        }
+
         // update (not value =) so the 5 Hz sensor writes aren't clobbered here.
         _stats.update {
             it?.copy(
@@ -1109,6 +1142,9 @@ class TripTrackingService : Service() {
                 distanceMeters = distance,
                 currentSpeedMps = effectiveSpeedMps,
                 topSpeedMps = maxOf(it.topSpeedMps, effectiveSpeedMps),
+                hardBrakeCount = hardBrakeCount,
+                hardAccelCount = hardAccelCount,
+                hardCornerCount = hardCornerCount,
             )
         }
         // Now that pace is updated, a slow trip may reveal itself as a walk.
