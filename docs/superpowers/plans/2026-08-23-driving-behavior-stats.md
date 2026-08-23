@@ -337,7 +337,6 @@ Create `shared/src/commonTest/kotlin/com/jellemax/detour/drive/HardEventDetector
 package com.jellemax.detour.drive
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -382,12 +381,21 @@ class HardEventDetectorTest {
     }
 
     @Test
-    fun aBatchedFixPairWithATooLargeGapIsIgnored() {
+    fun aFixPairFasterThanTheDtFloorIsIgnoredEvenThoughTheRateWouldFire() {
         val state = HardEventDetector.onSpeedFix(HardEventDetector.SpeedState(), 20.0, t0).state
-        // Same delta as the hard-brake case, but over 20s (a batched idle fix
-        // pair): 20 -> 0 m/s over 20s is -1 m/s^2, gentle, but this also
-        // guards the case where dtSec is implausible on its own.
-        val result = HardEventDetector.onSpeedFix(state, 0.0, t0 + 20_000)
+        // 20 -> 0 m/s over 0.1s is -200 m/s^2 — would fire many times over on rate
+        // alone, but 0.1s is under MIN_DT_SEC (0.2), so the pair is rejected.
+        val result = HardEventDetector.onSpeedFix(state, 0.0, t0 + 100)
+        assertFalse(result.hardBrake)
+    }
+
+    @Test
+    fun aBatchedFixPairSlowerThanTheDtCeilingIsIgnoredEvenThoughTheRateWouldFire() {
+        val state = HardEventDetector.onSpeedFix(HardEventDetector.SpeedState(), 60.0, t0).state
+        // 60 -> 0 m/s over 16s is -3.75 m/s^2, past HARD_BRAKE_MPS2 (-3.4) on rate
+        // alone, but 16s is over MAX_DT_SEC (15) — a batched idle fix pair, not a
+        // real brake.
+        val result = HardEventDetector.onSpeedFix(state, 0.0, t0 + 16_000)
         assertFalse(result.hardBrake)
     }
 
@@ -412,6 +420,38 @@ class HardEventDetectorTest {
         // A 90 deg swing at 2 m/s (parking maneuver), below MIN_CORNER_SPEED_MPS (5.0).
         val (_, fired) = HardEventDetector.onHeadingFix(state, 90.0, 2.0, t0 + 1000)
         assertFalse(fired)
+    }
+
+    @Test
+    fun anUnmeasurableFixMidCornerDoesNotResetTheLatchToDoubleCount() {
+        // Speed dips below MIN_CORNER_SPEED_MPS for one fix in the middle of a
+        // sustained corner (e.g. flapping around the gate), then recovers. The
+        // dip must NOT clear corneringNow, or the recovery re-fires as a "new"
+        // corner that is really the same one.
+        var state = HardEventDetector.HeadingState()
+        val (s1, _) = HardEventDetector.onHeadingFix(state, 0.0, 10.0, t0)
+        state = s1
+        val (s2, fired2) = HardEventDetector.onHeadingFix(state, 30.0, 10.0, t0 + 1000) // fires
+        state = s2
+        assertTrue(fired2)
+        // Slow fix: below MIN_CORNER_SPEED_MPS, unmeasurable — must not clear the latch.
+        val (s3, fired3) = HardEventDetector.onHeadingFix(state, 45.0, 2.0, t0 + 1500)
+        state = s3
+        assertFalse(fired3)
+        // Back above speed, still turning fast: same corner, must not re-fire.
+        val (_, fired4) = HardEventDetector.onHeadingFix(state, 75.0, 10.0, t0 + 2000)
+        assertFalse(fired4)
+    }
+
+    @Test
+    fun headingWraparoundIsTheShortWayRoundNotTheLongWay() {
+        // 359 -> 5 deg is a 6 deg swing the short way, not 354 the long way.
+        // Over 0.1s that is 60 deg/s either way, so use 1s: 6 deg/s (below
+        // threshold) versus 354 deg/s (grossly above) — the two readings this
+        // bug would conflate.
+        val state = HardEventDetector.HeadingState(lastHeadingDeg = 359.0, lastFixMs = t0)
+        val (_, fired) = HardEventDetector.onHeadingFix(state, 5.0, 10.0, t0 + 1000)
+        assertFalse(fired) // 6 deg/s, well under HARD_CORNER_DEG_PER_SEC (25)
     }
 
     @Test
@@ -461,9 +501,9 @@ object HardEventDetector {
     const val HARD_ACCEL_MPS2 = 2.9  // ~0.30g, provisional
     const val HARD_CORNER_DEG_PER_SEC = 25.0 // car heading-rate, provisional
     const val HARD_CORNER_LEAN_DEG = 40.0    // moto, provisional
-    const val MIN_CORNER_SPEED_MPS = 5.0     // below this a heading swing is a
-                                              // parking maneuver, mirrors
-                                              // TripTrackingService's MIN_LEAN_SPEED_MPS
+    const val MIN_CORNER_SPEED_MPS = 5.0     // provisional — below this a heading
+                                              // swing is a parking maneuver, not a
+                                              // corner
     private const val MIN_DT_SEC = 0.2
     private const val MAX_DT_SEC = 15.0 // a batched/stale fix pair, not a real delta
 
@@ -488,7 +528,12 @@ object HardEventDetector {
     )
 
     /** Heading-rate corner detection (car). [corneringNow] gives hysteresis so a
-     *  sustained turn counts as one corner, not one event per fix inside it. */
+     *  sustained turn counts as one corner, not one event per fix inside it. An
+     *  unmeasurable fix (too slow, no prior heading, or a dt outside the guard
+     *  band) must NOT clear the latch — only update [HeadingState.lastHeadingDeg]/
+     *  [HeadingState.lastFixMs] and leave [HeadingState.corneringNow] as it was,
+     *  otherwise a corner that dips through the guard mid-turn (e.g. speed
+     *  flapping around [MIN_CORNER_SPEED_MPS]) re-fires as a second event. */
     fun onHeadingFix(
         state: HeadingState,
         headingDeg: Double,
@@ -497,11 +542,11 @@ object HardEventDetector {
     ): Pair<HeadingState, Boolean> {
         val prevHeading = state.lastHeadingDeg
         if (speedMps < MIN_CORNER_SPEED_MPS || prevHeading == null) {
-            return HeadingState(headingDeg, fixMs, false) to false
+            return state.copy(lastHeadingDeg = headingDeg, lastFixMs = fixMs) to false
         }
         val dtSec = (fixMs - state.lastFixMs) / 1000.0
         if (dtSec < MIN_DT_SEC || dtSec > MAX_DT_SEC) {
-            return HeadingState(headingDeg, fixMs, false) to false
+            return state.copy(lastHeadingDeg = headingDeg, lastFixMs = fixMs) to false
         }
         var diff = abs(headingDeg - prevHeading) % 360.0
         if (diff > 180.0) diff = 360.0 - diff
@@ -548,14 +593,17 @@ Modify `app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt`. 
 import com.jellemax.detour.drive.HardEventDetector
 ```
 
-Add new private fields after `leanOffsetDeg` (line 400), before `freshBoardTelemetry` (line 414):
+Add new private fields after `leanOffsetDeg` (line 400), before `freshBoardTelemetry` (line 414).
+`@Volatile`, matching every neighboring field this file already marks that way
+(`currentLeanDeg`, `maxLeanDeg`, `currentG`, `maxG`, `segmentPeakLeanDeg`, `leanTracked`) because
+they cross the same sensor-thread/location-thread boundary these do:
 
 ```kotlin
-    private var speedEventState = HardEventDetector.SpeedState()
-    private var headingEventState = HardEventDetector.HeadingState()
+    @Volatile private var speedEventState = HardEventDetector.SpeedState()
+    @Volatile private var headingEventState = HardEventDetector.HeadingState()
     /** Threaded into [HardEventDetector.onLeanSample] from [recordLean] — a
      *  car trip never calls it, so it only ever moves for a moto trip. */
-    private var leanCorneringNow = false
+    @Volatile private var leanCorneringNow = false
 ```
 
 - [ ] **Step 8: Reset the new state in `beginTrip`**
@@ -588,12 +636,14 @@ Modify `recordLean` (lines 432-439) to also count corner events:
 
 Add all three counters as new private fields next to the ones from Step 7 — declare them here,
 once, even though `hardBrakeCount`/`hardAccelCount` aren't incremented until Step 10, so there is
-exactly one declaration site for each:
+exactly one declaration site for each. `@Volatile` for the same cross-thread reason as Step 7's
+fields — `hardCornerCount` is incremented from both the sensor thread (via `recordLean`, this
+step) and the location thread (via `onTripLocation`, Step 10):
 
 ```kotlin
-    private var hardCornerCount = 0
-    private var hardBrakeCount = 0
-    private var hardAccelCount = 0
+    @Volatile private var hardCornerCount = 0
+    @Volatile private var hardBrakeCount = 0
+    @Volatile private var hardAccelCount = 0
 ```
 
 Reset all three in `beginTrip` alongside Step 8's additions:
@@ -609,16 +659,26 @@ All three are finalized into `DrivingStats` in `endTrip` — see Task 6, Step 7.
 - [ ] **Step 10: Count brake/accel events and car corner events in `onTripLocation`**
 
 Modify `onTripLocation` (`:1048-1116`) — insert after `effectiveSpeedMps` is computed
-(after line 1103, before the `_stats.update { ... }` block):
+(after line 1103, before the `_stats.update { ... }` block).
+
+**Use `location.time`, not `now`, as the timestamp passed to `HardEventDetector`.** `now =
+System.currentTimeMillis()` (declared at the top of this function) is when this callback was
+*delivered*; `location.time` is when the fix was actually *taken*. A Δv/Δt calculation is a
+physical rate over the interval between two fixes, so it must use fix time — delivery jitter
+between two fixes (which is real: fused-provider callbacks don't arrive at perfectly even
+intervals) directly scales the computed acceleration and can push a gentle real deceleration over
+the hard-brake threshold or vice versa. This matches the house pattern already in this function:
+the distance-accumulation gate a few lines above uses `location.time - last.time`, not a wall-clock
+delta, for exactly this reason:
 
 ```kotlin
-        val speedResult = HardEventDetector.onSpeedFix(speedEventState, effectiveSpeedMps, now)
+        val speedResult = HardEventDetector.onSpeedFix(speedEventState, effectiveSpeedMps, location.time)
         speedEventState = speedResult.state
         if (speedResult.hardBrake) hardBrakeCount++
         if (speedResult.hardAccel) hardAccelCount++
         if (stats.mode == TravelMode.CAR && location.hasBearing()) {
             val (nextHeadingState, cornerEvent) = HardEventDetector.onHeadingFix(
-                headingEventState, location.bearing.toDouble(), effectiveSpeedMps, now)
+                headingEventState, location.bearing.toDouble(), effectiveSpeedMps, location.time)
             headingEventState = nextHeadingState
             if (cornerEvent) hardCornerCount++
         }
@@ -813,10 +873,13 @@ Add import:
 import com.jellemax.detour.drive.StopDetector
 ```
 
-Add a new private field alongside Task 2's additions (after line 400):
+Add a new private field alongside Task 2's additions (after line 400). `@Volatile`, same
+cross-thread reasoning as Task 2's fields — read from the location thread in `onTripLocation` and
+published into `_stats` from there, but this file's convention marks every field crossing that
+boundary regardless of which specific threads are provably involved:
 
 ```kotlin
-    private var stopState = StopDetector.State()
+    @Volatile private var stopState = StopDetector.State()
 ```
 
 Reset in `beginTrip`, alongside the other resets:
@@ -825,10 +888,12 @@ Reset in `beginTrip`, alongside the other resets:
         stopState = StopDetector.State()
 ```
 
-Tick it in `onTripLocation`, right after the hard-event block from Task 2 Step 10:
+Tick it in `onTripLocation`, right after the hard-event block from Task 2 Step 10. Use
+`location.time`, not `now` — same reasoning as Task 2's `HardEventDetector` calls: a dwell
+*duration* is a physical time interval, not a delivery-time bookkeeping value:
 
 ```kotlin
-        stopState = StopDetector.onFix(stopState, effectiveSpeedMps, now)
+        stopState = StopDetector.onFix(stopState, effectiveSpeedMps, location.time)
 ```
 
 Extend the `_stats.update { }` block (already touched in Task 2 Step 10) with one more field:
@@ -880,13 +945,16 @@ import com.jellemax.detour.drive.SpeedLimitTracker
 
 - [ ] **Step 2: Add trip-scoped state, a fetch job, and the accumulator**
 
-Add after `stopState` (from Task 3 Step 7):
+Add after `stopState` (from Task 3 Step 7). `@Volatile` on the data fields, matching this file's
+convention for anything read from the location thread and published into `_stats` — the `Job`
+reference doesn't need it (coroutine `Job` cancellation/`isActive` already handle their own
+visibility):
 
 ```kotlin
-    private var tripLimitState = SpeedLimitTracker.State()
+    @Volatile private var tripLimitState = SpeedLimitTracker.State()
     private var tripLimitFetchJob: kotlinx.coroutines.Job? = null
-    private var secondsOverLimit = 0.0
-    private var lastLimitFixMs = 0L
+    @Volatile private var secondsOverLimit = 0.0
+    @Volatile private var lastLimitFixMs = 0L
 ```
 
 `OVER_LIMIT_MARGIN` goes with the other tuning constants in the companion object
@@ -1221,12 +1289,12 @@ Add import:
 import com.jellemax.detour.drive.RoadTypeTracker
 ```
 
-Add fields alongside `tripLimitState` (Task 4 Step 2):
+Add fields alongside `tripLimitState` (Task 4 Step 2), same `@Volatile` reasoning:
 
 ```kotlin
-    private var roadTypeState = RoadTypeTracker.State()
+    @Volatile private var roadTypeState = RoadTypeTracker.State()
     private var roadTypeFetchJob: kotlinx.coroutines.Job? = null
-    private var lastRoadTypeFixLocation: Location? = null
+    @Volatile private var lastRoadTypeFixLocation: Location? = null
 ```
 
 Reset in `beginTrip`, alongside Task 4 Step 3:
