@@ -298,6 +298,26 @@ internal fun ActiveTripCard(stats: TripStats) {
                 StatItem("Max G", formatGForce(stats.maxGForce))
             }
         }
+        val hardEvents = stats.hardBrakeCount + stats.hardAccelCount + stats.hardCornerCount
+        if (hardEvents > 0 || stats.stopCount > 0) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                if (stats.hardBrakeCount > 0) StatItem("Hard brakes", "${stats.hardBrakeCount}")
+                if (stats.hardAccelCount > 0) StatItem("Hard accel", "${stats.hardAccelCount}")
+                if (stats.hardCornerCount > 0) StatItem("Hard corners", "${stats.hardCornerCount}")
+                if (stats.stopCount > 0) StatItem("Stops", "${stats.stopCount}")
+            }
+            Text(
+                "Not a score to chase — these numbers are informational only.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
     }
 }
 
