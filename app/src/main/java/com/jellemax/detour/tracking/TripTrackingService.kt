@@ -419,7 +419,7 @@ class TripTrackingService : Service() {
     @Volatile private var hardAccelCount = 0
     @Volatile private var stopState = StopDetector.State()
     @Volatile private var tripLimitState = SpeedLimitTracker.State()
-    private var tripLimitFetchJob: kotlinx.coroutines.Job? = null
+    @Volatile private var tripLimitFetchJob: kotlinx.coroutines.Job? = null
     @Volatile private var secondsOverLimit = 0.0
     @Volatile private var lastLimitFixMs = 0L
 
@@ -1164,14 +1164,19 @@ class TripTrackingService : Service() {
             tripLimitState = SpeedLimitTracker.fetchStarted(tripLimitState, now)
             // serviceScope is already Dispatchers.IO (`:1343`), so no withContext needed here.
             tripLimitFetchJob = serviceScope.launch {
-                val ways = runCatching { RoadRoulette.speedLimitWays(here) }.getOrDefault(emptyList())
+                val ways = runCatching { RoadRoulette.speedLimitWays(here) }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                    .getOrNull()
                 tripLimitState = SpeedLimitTracker.withWays(tripLimitState, ways, here)
             }
         }
         tripLimitState = SpeedLimitTracker.onFix(tripLimitState, here, bearing, effectiveSpeedMps)
         val limitKmh = tripLimitState.limitKmh
-        if (limitKmh != null && effectiveSpeedMps * 3.6 > limitKmh * OVER_LIMIT_MARGIN) {
-            secondsOverLimit += (location.time - lastLimitFixMs) / 1000.0
+        val overLimitDtMs = location.time - lastLimitFixMs
+        if (limitKmh != null && overLimitDtMs in 1..15_000 &&
+            effectiveSpeedMps * 3.6 > limitKmh * OVER_LIMIT_MARGIN
+        ) {
+            secondsOverLimit += overLimitDtMs / 1000.0
         }
         lastLimitFixMs = location.time
 
