@@ -69,6 +69,7 @@ import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.drive.StopDetector
 import com.jellemax.detour.notif.TripEndedNotification
 import com.jellemax.detour.obd2.Obd2Connection
+import com.jellemax.detour.obd2.ObdTelemetry
 import com.jellemax.detour.ui.loadTripPoints
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -230,6 +231,11 @@ class TripTrackingService : Service() {
          *  multiple of that rather than matching it 1:1. Past this, fall back to
          *  the phone's own sensors rather than freezing on a stale board number. */
         private const val BOARD_TELEMETRY_STALE_MS = 2_000L
+        /** Same reasoning as [BOARD_TELEMETRY_STALE_MS]: a disconnected/stalled
+         *  OBD2 adapter must read as stale, not freeze on its last speed. The
+         *  poll loop ticks every ~1s (see Obd2Connection.POLL_INTERVAL_MS); 3s
+         *  tolerates one or two missed polls before falling back to GPS. */
+        private const val OBD_TELEMETRY_STALE_MS = 3_000L
         /** Floor between boundary lookups, so a drive along a coastline (where
          *  every point misses) can't turn into a stream of Overpass queries. */
         private const val MUNICIPALITY_LOOKUP_COOLDOWN_MS = 60_000L
@@ -451,6 +457,15 @@ class TripTrackingService : Service() {
         val telemetry = BleNavServer.boardTelemetry.value ?: return null
         val age = System.currentTimeMillis() - telemetry.receivedAtMs
         return if (age in 0..BOARD_TELEMETRY_STALE_MS) telemetry else null
+    }
+
+    /** Mirrors [freshBoardTelemetry] exactly — see its own KDoc for why
+     *  staleness is gated on arrival time rather than trusting the source to
+     *  say when it disconnected. */
+    private fun freshObdTelemetry(): ObdTelemetry? {
+        val telemetry = Obd2Connection.telemetry.value ?: return null
+        val age = System.currentTimeMillis() - telemetry.receivedAtMs
+        return if (age in 0..OBD_TELEMETRY_STALE_MS) telemetry else null
     }
 
     /** Board lean is only trusted for a vehicle whose mode tracks lean at all
@@ -1225,13 +1240,17 @@ class TripTrackingService : Service() {
             return
         }
 
-        // Board GPS over the phone's when it's fresh — see freshBoardTelemetry().
-        // Deliberately scoped to just the two fields below: `speed` above still
-        // drives auto-start/stop and the fog trace, which stay on the phone's
-        // own consistent GPS pipeline regardless of whether a board is paired.
-        val effectiveSpeedMps = freshBoardTelemetry()
+        // OBD2 over board telemetry over the phone's, in that order, when fresh —
+        // see freshObdTelemetry()/freshBoardTelemetry(). Deliberately scoped to
+        // just the two fields below: `speed` above still drives auto-start/stop
+        // and the fog trace, which stay on the phone's own consistent GPS
+        // pipeline regardless of whether an OBD2 adapter or board is paired.
+        val effectiveSpeedMps = freshObdTelemetry()
             ?.takeIf { it.hasSpeed }
             ?.let { it.speedKmh / 3.6 }
+            ?: freshBoardTelemetry()
+                ?.takeIf { it.hasSpeed }
+                ?.let { it.speedKmh / 3.6 }
             ?: speed
 
         // speedOf() hands back a fabricated 0.0 sentinel for a coarse/no-speed fix
@@ -1239,9 +1258,10 @@ class TripTrackingService : Service() {
         // that into the physics-based detectors below as if it were real reads a
         // tunnel/parking-garage GPS gap as "suddenly stopped": a false hard brake,
         // and potentially a false stop. Real iff this fix's own hasSpeed() is set,
-        // or fresh board telemetry supplied the number effectiveSpeedMps is using.
+        // or fresh OBD2/board telemetry supplied the number effectiveSpeedMps is using.
         val speedIsReal = location.hasSpeed() ||
-            freshBoardTelemetry()?.takeIf { it.hasSpeed } != null
+            freshBoardTelemetry()?.takeIf { it.hasSpeed } != null ||
+            freshObdTelemetry()?.takeIf { it.hasSpeed } != null
 
         // Thresholds here are scoped to car/moto (tracksGForce) — a bike or walk
         // decelerating normally must not print a "hard brake" meant for a vehicle.
