@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -37,7 +36,6 @@ import com.jellemax.detour.obd2.Obd2ConnectionState
  * dedicated page rather than folded into [VehicleSection] since a vehicle's
  * OBD2 adapter is a distinct device from its auto-detect [Settings.VehicleDevice.address].
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun Obd2PairingScreen() {
     val context = LocalContext.current
@@ -81,6 +79,34 @@ fun Obd2PairingScreen() {
                 emptyList()
             }
         }
+        // Obd2Connection tracks a single process-wide link with no per-vehicle
+        // identity, so its status/telemetry can't honestly be attributed to any
+        // one vehicle below — render it once, here, rather than duplicating an
+        // identical (and for all-but-one vehicle, wrong) readout per row.
+        Text(
+            "Adapter link: " +
+                connectionState.name.lowercase().replaceFirstChar { it.uppercase() },
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        if (connectionState == Obd2ConnectionState.CONNECTED) {
+            telemetry?.let { t ->
+                Text(
+                    buildString {
+                        if (t.hasSpeed) append("Speed: ${t.speedKmh.toInt()} km/h  ")
+                        if (t.hasThrottle) append("Throttle: ${t.throttlePct.toInt()}%  ")
+                        if (t.hasRpm) append("RPM: ${t.rpmValue.toInt()}")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        // Every address already spoken for — as some vehicle's own auto-detect
+        // device, or as any vehicle's paired OBD2 adapter — is off-limits here.
+        // Otherwise picking one (e.g. another vehicle's Cardo/infotainment unit)
+        // wires an OBD2 connection loop onto a device that's also driving trip
+        // auto-detection for its real vehicle.
+        val taken = mapping.keys + mapping.values.mapNotNull { it.obd2Address }
         mapping.values.sortedBy { it.name }.forEach { vehicle ->
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(vehicle.name, style = MaterialTheme.typography.bodyLarge)
@@ -89,7 +115,7 @@ fun Obd2PairingScreen() {
                         ?.let { runCatching { it.name }.getOrNull() } ?: addr
                 }
                 if (pairedName == null) {
-                    val unassigned = bonded.filter { it.address != vehicle.address }
+                    val unassigned = bonded.filter { it.address !in taken }
                     if (unassigned.isEmpty()) {
                         Text(
                             "No other paired devices to use as an OBD2 adapter.",
@@ -101,11 +127,12 @@ fun Obd2PairingScreen() {
                             val name = runCatching { device.name }.getOrNull() ?: device.address
                             OutlinedButton(onClick = {
                                 Settings.setObd2Address(vehicle.address, device.address)
-                                // Without this, nothing attempts to connect until the next
-                                // ACL event or service restart — TripTrackingService's
-                                // eager per-vehicle connect only runs on its first
-                                // Bluetooth-watch registration, not when a device is
-                                // newly paired here while the service is already running.
+                                // Obd2Connection.connect() no-ops while a job is already
+                                // active, so a second pairing while a prior device's
+                                // connection loop is still running would otherwise
+                                // silently do nothing. Force a fresh attempt for the
+                                // newly-selected device.
+                                Obd2Connection.disconnect()
                                 Obd2Connection.connect(context.applicationContext, device.address)
                             }) { Text("Use $name") }
                         }
@@ -124,23 +151,6 @@ fun Obd2PairingScreen() {
                             Obd2Connection.disconnect()
                         }) {
                             Text("Forget")
-                        }
-                    }
-                    Text(
-                        "Status: ${connectionState.name.lowercase().replaceFirstChar { it.uppercase() }}",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    if (connectionState == Obd2ConnectionState.CONNECTED) {
-                        telemetry?.let { t ->
-                            Text(
-                                buildString {
-                                    if (t.hasSpeed) append("Speed: ${t.speedKmh.toInt()} km/h  ")
-                                    if (t.hasThrottle) append("Throttle: ${t.throttlePct.toInt()}%  ")
-                                    if (t.hasRpm) append("RPM: ${t.rpmValue.toInt()}")
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                         }
                     }
                 }
