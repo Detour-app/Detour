@@ -508,6 +508,15 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (trip.drivingStats.hardBrakeCount + trip.drivingStats.hardAccelCount +
+                        trip.drivingStats.hardCornerCount > 0
+                    ) {
+                        Text(
+                            "Not a score to chase — informational only.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     exportError?.let {
                         Text(
                             it,
