@@ -19,7 +19,13 @@ class CurvinessTest {
 
     @Test
     fun aStraightLineScoresZero() {
-        val points = (0..20).map { at(it * 25.0, 90.0) } // due east, 25m apart
+        // 41 points, ~1023m nominal total: RoadRoulette.offset's flat-degree
+        // projection vs. distanceMeters's haversine means each "25m" step is
+        // actually ~24.97m (same discrepancy SpeedLimitTrackerTest documents),
+        // so a (0..20) range's ~499.4m real length would trip the <500m floor
+        // below for the wrong reason instead of exercising the collinear-guard
+        // path in circumradiusMeters this test is named for.
+        val points = (0..40).map { at(it * 25.0, 90.0) } // due east, 25m apart
         assertEquals(0.0, Curviness.traceScore(points), absoluteTolerance = 1e-9)
     }
 
