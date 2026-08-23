@@ -2,9 +2,10 @@ package com.jellemax.detour.data
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonObject
 
 /**
  * App settings backed by the platform key-value store, exposed as StateFlows
@@ -86,8 +87,17 @@ object Settings {
     val tripMode: StateFlow<TravelMode> = _tripMode
 
     /** A Bluetooth device the user assigned to a vehicle. [name] is kept so the
-     *  Settings list can show it even when the device isn't currently reachable. */
-    data class VehicleDevice(val address: String, val name: String, val mode: TravelMode)
+     *  Settings list can show it even when the device isn't currently reachable.
+     *  [obd2Address] is a *separate* paired device — the OBD2 dongle plugged into
+     *  the port, independent of [address] (the car's stereo/headunit, or a moto
+     *  intercom) that this same vehicle is auto-detected by; a vehicle can have
+     *  one, the other, both, or neither. */
+    data class VehicleDevice(
+        val address: String,
+        val name: String,
+        val mode: TravelMode,
+        val obd2Address: String? = null,
+    )
 
     /** Bluetooth devices mapped to a vehicle, keyed by address. When a mapped
      *  device connects, the tracking service logs the trip under its [mode], so a
@@ -200,17 +210,28 @@ object Settings {
     private fun readVehicleDevices(): Map<String, VehicleDevice> {
         val raw = prefs.string("vehicle_devices").takeIf { it.isNotEmpty() } ?: return emptyMap()
         return runCatching {
-            jsonObjectOf(raw).mapValues { (addr, v) ->
-                // New format: {address: {mode, name}}. Old format (v1.24):
-                // {address: "MODE"} with no name — fall back to the address.
-                when (v) {
-                    is kotlinx.serialization.json.JsonObject -> VehicleDevice(
-                        addr, v.optString("name", addr), TravelMode.of(v.optString("mode")))
-                    else -> VehicleDevice(
-                        addr, addr, TravelMode.of(v.toString().trim('"')))
-                }
-            }
+            jsonObjectOf(raw).mapValues { (addr, v) -> decodeVehicleDevice(addr, v) }
         }.getOrDefault(emptyMap())
+    }
+
+    /** New format: `{address: {mode, name, obd2Address?}}`. Old format (v1.28,
+     *  pre-OBD2): `{address: {mode, name}}`, no `obd2Address` key — decodes to
+     *  `null`. Oldest format (v1.24): `{address: "MODE"}` as a bare JSON string,
+     *  no name — falls back to the address as the display name. */
+    internal fun decodeVehicleDevice(address: String, v: JsonElement): VehicleDevice = when (v) {
+        is JsonObject -> VehicleDevice(
+            address,
+            v.optString("name", address),
+            TravelMode.of(v.optString("mode")),
+            v.optString("obd2Address").takeIf { it.isNotBlank() },
+        )
+        else -> VehicleDevice(address, address, TravelMode.of(v.toString().trim('"')), null)
+    }
+
+    internal fun encodeVehicleDevice(d: VehicleDevice): JsonObject = buildJsonObject {
+        put("mode", d.mode.name)
+        put("name", d.name)
+        d.obd2Address?.let { put("obd2Address", it) }
     }
 
     /** Assign [address] ([name]) to [mode]. */
@@ -226,15 +247,19 @@ object Settings {
         if (next.remove(address) != null) writeVehicleDevices(next)
     }
 
+    /** Assign or clear [address]'s OBD2 adapter. `null` un-pairs it — the
+     *  vehicle keeps its auto-detect [VehicleDevice.address] either way. */
+    fun setObd2Address(address: String, obd2Address: String?) {
+        val current = _vehicleDevices.value[address] ?: return
+        val next = _vehicleDevices.value.toMutableMap()
+        next[address] = current.copy(obd2Address = obd2Address)
+        writeVehicleDevices(next)
+    }
+
     private fun writeVehicleDevices(map: Map<String, VehicleDevice>) {
         _vehicleDevices.value = map
         val json = buildJsonObject {
-            map.forEach { (addr, d) ->
-                putJsonObject(addr) {
-                    put("mode", d.mode.name)
-                    put("name", d.name)
-                }
-            }
+            map.forEach { (addr, d) -> put(addr, encodeVehicleDevice(d)) }
         }
         prefs.put("vehicle_devices", json.string())
     }
