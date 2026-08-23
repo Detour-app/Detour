@@ -9,6 +9,7 @@ import com.jellemax.detour.data.optArray
 import com.jellemax.detour.data.optDouble
 import com.jellemax.detour.data.optObject
 import com.jellemax.detour.data.optString
+import kotlinx.serialization.SerializationException
 import okio.IOException
 
 /**
@@ -41,7 +42,12 @@ object RoadTypeTracker {
 
     fun fetchStarted(state: State, nowMs: Long): State = state.copy(lastFetchMs = nowMs)
 
-    suspend fun fetchWays(center: LatLon, radiusMeters: Double = FETCH_RADIUS_M): List<ClassifiedWay> {
+    /** Null on any failure, empty only when the area really has no drivable way — same
+     *  null-vs-empty contract `RoadRoulette.speedLimitWays` documents, and for the same
+     *  reason: collapsing the two into one `emptyList()` would make [withWays] treat a
+     *  failed fetch as "confirmed no roads here", which moves [State.waysCenter] and stops
+     *  ever retrying near this position. */
+    suspend fun fetchWays(center: LatLon, radiusMeters: Double = FETCH_RADIUS_M): List<ClassifiedWay>? {
         val query = "[out:json][timeout:15];" +
             "way(around:${radiusMeters.toInt()},${center.lat},${center.lon})" +
             "[\"highway\"~\"^(${RoadRoulette.DRIVABLE_HIGHWAYS})$\"];" +
@@ -49,9 +55,18 @@ object RoadTypeTracker {
         val json = try {
             RoadRoulette.rawQuery(query)
         } catch (e: IOException) {
-            return emptyList()
+            return null
         }
-        val elements = jsonObjectOf(json).optArray("elements") ?: return emptyList()
+        // A busy Overpass mirror answers 200 with an HTML "runtime error" page, so parsing
+        // fails on a perfectly good HTTP response — the same two catches
+        // RoadRoulette.speedLimitWays needs for the same reason (RoadRoulette.kt:285-291).
+        val elements = try {
+            jsonObjectOf(json).optArray("elements")
+        } catch (e: SerializationException) {
+            return null
+        } catch (e: IllegalArgumentException) {
+            return null
+        } ?: return null
         val ways = ArrayList<ClassifiedWay>(elements.size)
         for (el in elements.objects()) {
             val tag = el.optObject("tags")?.optString("highway")?.takeIf { it.isNotBlank() } ?: continue
@@ -63,8 +78,19 @@ object RoadTypeTracker {
         return ways
     }
 
-    fun withWays(state: State, ways: List<ClassifiedWay>, center: LatLon): State =
-        if (ways.isEmpty()) state else state.copy(ways = ways, waysCenter = center)
+    /** A **null** [ways] is a failed fetch: keep everything as-is (the existing
+     *  `FETCH_THROTTLE_MS` gap in [needsWays] already rate-limits the next attempt — no
+     *  separate backoff counter, unlike `SpeedLimitTracker`, since a wrong/stale road-mix
+     *  bucket for a few seconds is a much smaller cost than a wrong speed-limit sign). An
+     *  **empty** [ways] is the area genuinely having no drivable way: [State.ways] is a
+     *  no-op, but [State.waysCenter] still moves to [center] — otherwise [needsWays] stays
+     *  true forever over a real untagged stretch and re-queries every throttle window for
+     *  as long as you're on it. */
+    fun withWays(state: State, ways: List<ClassifiedWay>?, center: LatLon): State = when {
+        ways == null -> state
+        ways.isEmpty() -> state.copy(waysCenter = center)
+        else -> state.copy(ways = ways, waysCenter = center)
+    }
 
     /** Snaps [at] to the nearest/aligned classified way (same two-pass logic as
      *  `RoadRoulette.snapSpeedLimitKmh`) and attributes [distanceSinceLastFixMeters]
