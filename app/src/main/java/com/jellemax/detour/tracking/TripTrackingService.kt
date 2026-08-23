@@ -604,9 +604,14 @@ class TripTrackingService : Service() {
                         connectedVehicles.add(address)
                         refreshTripMode()
                     }
-                    Settings.vehicleDevices.value.values
-                        .firstOrNull { it.obd2Address == address }
-                        ?.let { Obd2Connection.connect(context, address) }
+                    // Obd2Connection tracks only "an" OBD2 link, not which vehicle it
+                    // belongs to; with two configured vehicles both nearby this can
+                    // mis-attribute connect/disconnect. Known v1 limitation (Task 4
+                    // review, finding 3) — not fixed here since it needs a public API
+                    // change in Obd2Connection.
+                    if (Settings.vehicleDevices.value.values.any { it.obd2Address == address }) {
+                        Obd2Connection.connect(context.applicationContext, address)
+                    }
                 }
                 BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
                     if (connectedVehicles.remove(address)) refreshTripMode()
@@ -667,6 +672,15 @@ class TripTrackingService : Service() {
         )
         btRegistered = true
         seedConnectedVehicles()
+        // No ACL_CONNECTED-equivalent seed exists for OBD2: an ELM327 SPP device
+        // shows up in neither the HEADSET nor A2DP profiles seedConnectedVehicles()
+        // queries, so "already connected before the service started" can't be
+        // detected directly. Attempt every configured adapter unconditionally
+        // instead — Obd2Connection's own backoff/retry loop already handles an
+        // adapter that isn't actually there yet.
+        Settings.vehicleDevices.value.values.forEach { vehicle ->
+            vehicle.obd2Address?.let { Obd2Connection.connect(applicationContext, it) }
+        }
     }
 
     /**
@@ -1505,6 +1519,7 @@ class TripTrackingService : Service() {
             runCatching { unregisterReceiver(btStateReceiver) }
             btRegistered = false
         }
+        Obd2Connection.disconnect()
         // endTrip()'s save-and-notify tail runs on serviceScope (round-1 fix,
         // off the main thread on every other call site) — but the service is
         // dying right here, so cancelling that scope before the tail runs would
