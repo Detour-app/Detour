@@ -132,11 +132,11 @@ class SettingsVehicleDeviceTest {
     fun anEntrySavedBeforeObd2ExistedDecodesWithNullObd2Address() {
         // New-format entry from before this field existed: {mode, name}, no obd2Address key.
         val old: JsonObject = buildJsonObject {
-            put("mode", TravelMode.MOTORCYCLE.name)
+            put("mode", TravelMode.MOTO.name)
             put("name", "My Bike")
         }
         val decoded = Settings.decodeVehicleDevice("11:22:33", old)
-        assertEquals(Settings.VehicleDevice("11:22:33", "My Bike", TravelMode.MOTORCYCLE, null), decoded)
+        assertEquals(Settings.VehicleDevice("11:22:33", "My Bike", TravelMode.MOTO, null), decoded)
     }
 
     @Test
