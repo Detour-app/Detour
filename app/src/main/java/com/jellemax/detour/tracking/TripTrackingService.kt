@@ -403,14 +403,14 @@ class TripTrackingService : Service() {
      *  from the settings screen, never mid-trip. */
     private var leanOffsetDeg = 0.0
 
-    private var speedEventState = HardEventDetector.SpeedState()
-    private var headingEventState = HardEventDetector.HeadingState()
+    @Volatile private var speedEventState = HardEventDetector.SpeedState()
+    @Volatile private var headingEventState = HardEventDetector.HeadingState()
     /** Threaded into [HardEventDetector.onLeanSample] from [recordLean] — a
      *  car trip never calls it, so it only ever moves for a moto trip. */
-    private var leanCorneringNow = false
-    private var hardCornerCount = 0
-    private var hardBrakeCount = 0
-    private var hardAccelCount = 0
+    @Volatile private var leanCorneringNow = false
+    @Volatile private var hardCornerCount = 0
+    @Volatile private var hardBrakeCount = 0
+    @Volatile private var hardAccelCount = 0
 
     /**
      * The board's own GPS and IMU, treated as truth over the phone's
@@ -1124,13 +1124,13 @@ class TripTrackingService : Service() {
             ?.let { it.speedKmh / 3.6 }
             ?: speed
 
-        val speedResult = HardEventDetector.onSpeedFix(speedEventState, effectiveSpeedMps, now)
+        val speedResult = HardEventDetector.onSpeedFix(speedEventState, effectiveSpeedMps, location.time)
         speedEventState = speedResult.state
         if (speedResult.hardBrake) hardBrakeCount++
         if (speedResult.hardAccel) hardAccelCount++
         if (stats.mode == TravelMode.CAR && location.hasBearing()) {
             val (nextHeadingState, cornerEvent) = HardEventDetector.onHeadingFix(
-                headingEventState, location.bearing.toDouble(), effectiveSpeedMps, now)
+                headingEventState, location.bearing.toDouble(), effectiveSpeedMps, location.time)
             headingEventState = nextHeadingState
             if (cornerEvent) hardCornerCount++
         }
