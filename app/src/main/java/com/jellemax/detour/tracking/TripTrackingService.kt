@@ -62,6 +62,7 @@ import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
 import com.jellemax.detour.drive.HardEventDetector
+import com.jellemax.detour.drive.StopDetector
 import com.jellemax.detour.notif.TripEndedNotification
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -92,6 +93,7 @@ data class TripStats(
     val hardBrakeCount: Int = 0,
     val hardAccelCount: Int = 0,
     val hardCornerCount: Int = 0,
+    val stopCount: Int = 0,
 )
 
 /** Latest GPS fix, published live for the map (fog, navigation). */
@@ -411,6 +413,7 @@ class TripTrackingService : Service() {
     @Volatile private var hardCornerCount = 0
     @Volatile private var hardBrakeCount = 0
     @Volatile private var hardAccelCount = 0
+    @Volatile private var stopState = StopDetector.State()
 
     /**
      * The board's own GPS and IMU, treated as truth over the phone's
@@ -804,6 +807,7 @@ class TripTrackingService : Service() {
         hardCornerCount = 0
         hardBrakeCount = 0
         hardAccelCount = 0
+        stopState = StopDetector.State()
         lastMovingMs = System.currentTimeMillis()
         // Re-check what's actually linked: the set may have gone stale since the
         // last trip. Answers async, retagging through refreshTripMode.
@@ -1134,6 +1138,7 @@ class TripTrackingService : Service() {
             headingEventState = nextHeadingState
             if (cornerEvent) hardCornerCount++
         }
+        stopState = StopDetector.onFix(stopState, effectiveSpeedMps, location.time)
 
         // update (not value =) so the 5 Hz sensor writes aren't clobbered here.
         _stats.update {
@@ -1145,6 +1150,7 @@ class TripTrackingService : Service() {
                 hardBrakeCount = hardBrakeCount,
                 hardAccelCount = hardAccelCount,
                 hardCornerCount = hardCornerCount,
+                stopCount = stopState.stopCount,
             )
         }
         // Now that pace is updated, a slow trip may reveal itself as a walk.
