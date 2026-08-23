@@ -53,12 +53,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.Gpx
+import com.jellemax.detour.data.HighwayClass
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.Trip
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -508,6 +510,37 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    // Road-type mix: share of this trip's distance on each highway
+                    // class, skipping classes with nothing recorded. Empty entirely
+                    // for an old trip, or one where the fetch never resolved.
+                    if (trip.drivingStats.roadTypeMeters.isNotEmpty() && trip.distanceMeters > 0) {
+                        Text(
+                            HighwayClass.entries.mapNotNull { cls ->
+                                val meters = trip.drivingStats.roadTypeMeters[cls] ?: return@mapNotNull null
+                                val pct = (meters / trip.distanceMeters * 100.0).roundToInt()
+                                "${cls.name.lowercase().replaceFirstChar { it.uppercase() }}: $pct%"
+                            }.joinToString(" · "),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    // 0.0 is indistinguishable from "not measured" — same
+                    // convention as maxGForce/maxLeanAngleDeg elsewhere on this
+                    // screen — so only show a nonzero score.
+                    if (trip.drivingStats.twistinessScore > 0.0) {
+                        Text(
+                            "Twistiness: ${(trip.drivingStats.twistinessScore * 100).roundToInt()}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (trip.drivingStats.pctOverLimit > 0.0) {
+                        Text(
+                            "${trip.drivingStats.pctOverLimit.roundToInt()}% over the limit",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     if (trip.drivingStats.hardBrakeCount + trip.drivingStats.hardAccelCount +
                         trip.drivingStats.hardCornerCount > 0
                     ) {

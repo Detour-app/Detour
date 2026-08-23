@@ -19,7 +19,9 @@ import okio.IOException
  * residential street. This queries `["highway"]` alone.
  *
  * Same `State`/`needsWays`/`fetchStarted`/`withWays`/`onFix` shape as
- * `SpeedLimitTracker`, clock-free.
+ * `SpeedLimitTracker`, clock-free — including the failure-backoff counter,
+ * since a persistently refused Overpass mirror is exactly as expensive to
+ * retry every [FETCH_THROTTLE_MS] here as it is there.
  */
 object RoadTypeTracker {
     const val FETCH_RADIUS_M = 1500.0
@@ -33,11 +35,22 @@ object RoadTypeTracker {
         val waysCenter: LatLon? = null,
         val lastFetchMs: Long = 0L,
         val meters: Map<HighwayClass, Double> = emptyMap(),
+        /** Consecutive failed fetches. Any answer at all resets it, including an
+         *  empty one — an area with no tagged road is a success, not a blip.
+         *  Same field/semantics as [SpeedLimitTracker.State.failures]. */
+        val failures: Int = 0,
     )
+
+    /** Ceiling on the backed-off gap, shared with [SpeedLimitTracker] — a
+     *  persistently refused Overpass mirror must not turn this fetch into a
+     *  10-second retry timer for the rest of the trip, the exact failure mode
+     *  [SpeedLimitTracker]'s own KDoc names as already paid for once. */
+    private val MAX_BACKOFF_MS = SpeedLimitTracker.MAX_BACKOFF_MS
 
     fun needsWays(state: State, at: LatLon, nowMs: Long): Boolean {
         val fromCenter = state.waysCenter?.let { RoadRoulette.distanceMeters(it, at) } ?: Double.MAX_VALUE
-        return fromCenter > FETCH_RADIUS_M - FETCH_MARGIN_M && nowMs - state.lastFetchMs > FETCH_THROTTLE_MS
+        return fromCenter > FETCH_RADIUS_M - FETCH_MARGIN_M &&
+            nowMs - state.lastFetchMs > backoffDelayMs(FETCH_THROTTLE_MS, MAX_BACKOFF_MS, state.failures)
     }
 
     fun fetchStarted(state: State, nowMs: Long): State = state.copy(lastFetchMs = nowMs)
@@ -78,18 +91,18 @@ object RoadTypeTracker {
         return ways
     }
 
-    /** A **null** [ways] is a failed fetch: keep everything as-is (the existing
-     *  `FETCH_THROTTLE_MS` gap in [needsWays] already rate-limits the next attempt — no
-     *  separate backoff counter, unlike `SpeedLimitTracker`, since a wrong/stale road-mix
-     *  bucket for a few seconds is a much smaller cost than a wrong speed-limit sign). An
-     *  **empty** [ways] is the area genuinely having no drivable way: [State.ways] is a
-     *  no-op, but [State.waysCenter] still moves to [center] — otherwise [needsWays] stays
-     *  true forever over a real untagged stretch and re-queries every throttle window for
-     *  as long as you're on it. */
+    /** A **null** [ways] is a failed fetch: keep everything as-is but count the failure,
+     *  which backs [needsWays] off — same shape as `SpeedLimitTracker.withWays`, and for
+     *  the same reason: a flat [FETCH_THROTTLE_MS] retry against a persistently refused
+     *  Overpass mirror is up to ~720 attempts on a 2h drive against a shared public
+     *  budget. An **empty** [ways] is the area genuinely having no drivable way: [State.ways]
+     *  is a no-op, but [State.waysCenter] still moves to [center] and [State.failures] still
+     *  resets — any real answer, even an empty one, means the mirror is working, and
+     *  otherwise [needsWays] would stay true forever over a real untagged stretch. */
     fun withWays(state: State, ways: List<ClassifiedWay>?, center: LatLon): State = when {
-        ways == null -> state
-        ways.isEmpty() -> state.copy(waysCenter = center)
-        else -> state.copy(ways = ways, waysCenter = center)
+        ways == null -> state.copy(failures = state.failures + 1)
+        ways.isEmpty() -> state.copy(waysCenter = center, failures = 0)
+        else -> state.copy(ways = ways, waysCenter = center, failures = 0)
     }
 
     /** Snaps [at] to the nearest/aligned classified way (same two-pass logic as

@@ -73,6 +73,24 @@ object TripStore {
     }
 
     /**
+     * Fold a post-hoc [DrivingStats] update into an already-saved trip (keyed by
+     * unique start time) — e.g. the twistiness score, computed after [save] so
+     * the trip itself isn't held hostage to an unbounded trace parse. A no-op if
+     * the trip isn't found (deleted, or the save that should have preceded this
+     * lost a race — either way there's nothing to update).
+     *
+     * Deliberately NOT a second [save] call: [save] has no dedup
+     * (`writeAll(listOf(trip) + load())`), so calling it again here would add a
+     * duplicate entry with the same startTimeMs rather than update the existing
+     * one.
+     */
+    fun updateDrivingStats(startTimeMs: Long, drivingStats: DrivingStats) {
+        val trips = load()
+        if (trips.none { it.startTimeMs == startTimeMs }) return
+        writeAll(trips.map { if (it.startTimeMs == startTimeMs) it.copy(drivingStats = drivingStats) else it })
+    }
+
+    /**
      * Delete a trip (e.g. a false-positive auto-detection). The start time is
      * also tombstoned, so the server's copy — the /sync merge returns the union
      * and replaces the local store — can't quietly bring it back on the next

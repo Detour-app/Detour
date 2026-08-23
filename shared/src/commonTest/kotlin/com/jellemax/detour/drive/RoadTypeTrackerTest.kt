@@ -87,4 +87,17 @@ class RoadTypeTrackerTest {
         val next = RoadTypeTracker.onFix(state, here, 0.0, 25.0)
         assertEquals(emptyMap(), next.meters)
     }
+
+    @Test
+    fun aFailedFetchIncrementsFailuresAndASubsequentSuccessResetsIt() {
+        var state = RoadTypeTracker.State()
+        state = RoadTypeTracker.withWays(state, null, here)
+        assertEquals(1, state.failures)
+        state = RoadTypeTracker.withWays(state, null, here)
+        assertEquals(2, state.failures)
+        // A real answer, even from a different fetch, means the mirror is
+        // working again — resets the count, same as SpeedLimitTracker.
+        state = RoadTypeTracker.withWays(state, listOf(motorway), here)
+        assertEquals(0, state.failures)
+    }
 }

@@ -299,7 +299,7 @@ internal fun ActiveTripCard(stats: TripStats) {
             }
         }
         val hardEvents = stats.hardBrakeCount + stats.hardAccelCount + stats.hardCornerCount
-        if (hardEvents > 0 || stats.stopCount > 0) {
+        if (hardEvents > 0 || stats.stopCount > 0 || stats.currentlyOverLimit) {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -310,6 +310,19 @@ internal fun ActiveTripCard(stats: TripStats) {
                 if (stats.hardAccelCount > 0) StatItem("Hard accel", "${stats.hardAccelCount}")
                 if (stats.hardCornerCount > 0) StatItem("Hard corners", "${stats.hardCornerCount}")
                 if (stats.stopCount > 0) StatItem("Stops", "${stats.stopCount}")
+                if (stats.currentlyOverLimit) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "Speed", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            "Over limit", style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
             }
             Text(
                 "Not a score to chase — these numbers are informational only.",
