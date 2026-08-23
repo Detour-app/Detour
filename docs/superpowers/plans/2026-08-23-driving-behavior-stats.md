@@ -976,14 +976,16 @@ import com.jellemax.detour.drive.SpeedLimitTracker
 
 - [ ] **Step 2: Add trip-scoped state, a fetch job, and the accumulator**
 
-Add after `stopState` (from Task 3 Step 7). `@Volatile` on the data fields, matching this file's
-convention for anything read from the location thread and published into `_stats` — the `Job`
-reference doesn't need it (coroutine `Job` cancellation/`isActive` already handle their own
-visibility):
+Add after `stopState` (from Task 3 Step 7). `@Volatile` on **all four**, including
+`tripLimitFetchJob` — an earlier draft of this plan exempted the `Job` field on the theory that
+`Job`'s own cancellation/`isActive` handle their visibility, but that reasoning only covers the
+`Job` object's *internal* state, not the visibility of the *reference* held in this field: it is
+written on the location thread (Step 4) and read/written from `beginTrip`/`endTrip` on the service
+thread, the same cross-thread shape as every other field here:
 
 ```kotlin
     @Volatile private var tripLimitState = SpeedLimitTracker.State()
-    private var tripLimitFetchJob: kotlinx.coroutines.Job? = null
+    @Volatile private var tripLimitFetchJob: kotlinx.coroutines.Job? = null
     @Volatile private var secondsOverLimit = 0.0
     @Volatile private var lastLimitFixMs = 0L
 ```
@@ -1013,6 +1015,19 @@ Insert after the `StopDetector` line from Task 3 Step 7, following the same "spl
 ordering `SpeedLimitTracker.kt`'s KDoc prescribes and the shape `SpinScreen.kt:263-273` already
 uses (fetch off the collector, in-flight guard on the `Job`):
 
+**`RoadRoulette.speedLimitWays` returns `List<SpeedLimitWay>?` — nullable.** Null means the fetch
+failed (network error, unparseable response); an empty list means the fetch succeeded and the area
+genuinely has no tagged road. `SpeedLimitTracker.withWays` already takes this nullable type and
+tells the two apart itself (`SpeedLimitTracker.kt:110-118`) — do **not** collapse null to
+`emptyList()` before calling it, and do **not** let cancellation masquerade as either: this task
+adds this file's first explicit `tripLimitFetchJob?.cancel()` calls (Step 3, Step 5), and a
+`runCatching { ... }.getOrDefault(emptyList())` around the fetch would catch the
+`CancellationException` a mid-flight cancel throws and hand `withWays` a false "fetched, area has
+no roads" answer — which corrupts `waysCenter` (stamps it early, right after a trip reset) and
+resets the failure-backoff counter, exactly backwards. Match the house pattern
+(`SpinScreen.kt:264-266`, `getOrNull`, not `getOrDefault(emptyList())`), and additionally rethrow
+cancellation rather than let `runCatching` swallow it:
+
 ```kotlin
         val here = LatLon(location.latitude, location.longitude)
         val bearing = if (location.hasBearing()) location.bearing.toDouble() else null
@@ -1023,16 +1038,24 @@ uses (fetch off the collector, in-flight guard on the `Job`):
             tripLimitState = SpeedLimitTracker.fetchStarted(tripLimitState, now)
             // serviceScope is already Dispatchers.IO (`:1266`), so no withContext needed here.
             tripLimitFetchJob = serviceScope.launch {
-                val ways = runCatching { RoadRoulette.speedLimitWays(here) }.getOrDefault(emptyList())
+                val ways = runCatching { RoadRoulette.speedLimitWays(here) }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                    .getOrNull()
                 tripLimitState = SpeedLimitTracker.withWays(tripLimitState, ways, here)
             }
         }
         tripLimitState = SpeedLimitTracker.onFix(tripLimitState, here, bearing, effectiveSpeedMps)
         val limitKmh = tripLimitState.limitKmh
-        if (limitKmh != null && effectiveSpeedMps * 3.6 > limitKmh * OVER_LIMIT_MARGIN) {
-            secondsOverLimit += (now - lastLimitFixMs) / 1000.0
+        // Same 1..15_000 ms sanity window the distance accumulator above already applies
+        // (`:1096`) — an unclamped delta would attribute a whole GPS outage (tunnel, car park)
+        // to over-limit driving if the first fix back happens to read over the posted limit.
+        val overLimitDtMs = location.time - lastLimitFixMs
+        if (limitKmh != null && overLimitDtMs in 1..15_000 &&
+            effectiveSpeedMps * 3.6 > limitKmh * OVER_LIMIT_MARGIN
+        ) {
+            secondsOverLimit += overLimitDtMs / 1000.0
         }
-        lastLimitFixMs = now
+        lastLimitFixMs = location.time
 ```
 
 `here` may already exist as a local in this function under a different name — if so, reuse the
@@ -1320,11 +1343,13 @@ Add import:
 import com.jellemax.detour.drive.RoadTypeTracker
 ```
 
-Add fields alongside `tripLimitState` (Task 4 Step 2), same `@Volatile` reasoning:
+Add fields alongside `tripLimitState` (Task 4 Step 2), same `@Volatile` reasoning — all three,
+including the `Job` field (Task 4's review found the earlier "Job doesn't need it" exemption wrong;
+see Task 4 Step 2's corrected text):
 
 ```kotlin
     @Volatile private var roadTypeState = RoadTypeTracker.State()
-    private var roadTypeFetchJob: kotlinx.coroutines.Job? = null
+    @Volatile private var roadTypeFetchJob: kotlinx.coroutines.Job? = null
     @Volatile private var lastRoadTypeFixLocation: Location? = null
 ```
 
@@ -1345,8 +1370,16 @@ Tick it in `onTripLocation`, right after Task 4 Step 4's block (reusing the same
         ) {
             roadTypeState = RoadTypeTracker.fetchStarted(roadTypeState, now)
             // serviceScope is already Dispatchers.IO (`:1266`), so no withContext needed here.
+            // Rethrow cancellation rather than let runCatching swallow it — this is the
+            // pattern Task 4's review found missing for SpeedLimitTracker's fetch; applying it
+            // here too even though RoadTypeTracker.withWays' empty-is-a-no-op shape (unlike
+            // SpeedLimitTracker's null-vs-empty split) means a swallowed cancellation can't
+            // corrupt state the same way — it would still complete the coroutine with a
+            // meaningless "fetched nothing" after being told to stop.
             roadTypeFetchJob = serviceScope.launch {
-                val ways = runCatching { RoadTypeTracker.fetchWays(here) }.getOrDefault(emptyList())
+                val ways = runCatching { RoadTypeTracker.fetchWays(here) }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                    .getOrDefault(emptyList())
                 roadTypeState = RoadTypeTracker.withWays(roadTypeState, ways, here)
             }
         }
