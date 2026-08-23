@@ -904,7 +904,6 @@ class TripTrackingService : Service() {
             // nothing here needs to run before the field resets below.
             saveJob = serviceScope.launch {
                 TripStore.save(trip)
-                SyncClient.syncQuietly()
                 checkBadges()
                 // Only tell the user about trips they didn't end themselves.
                 if (wasAuto) TripEndedNotification.show(this@TripTrackingService, stats.startTimeMs)
@@ -915,11 +914,17 @@ class TripTrackingService : Service() {
             // expensive post-hoc score is lost, not the whole trip. Updates the
             // already-saved trip via updateDrivingStats rather than a second
             // TripStore.save call, which has no dedup and would duplicate the entry.
+            // syncQuietly() runs AFTER this update, not in saveJob above: a sync
+            // response applies via TripStore.replaceRaw (SyncClient.kt), which
+            // overwrites the local trips file wholesale — syncing before the
+            // twistiness write would let that response clobber it straight back
+            // to its placeholder on a signed-in device.
             serviceScope.launch {
                 val twistiness = runCatching {
                     Curviness.traceScore(loadTripPoints(this@TripTrackingService, trip).map { it.at })
                 }.getOrDefault(0.0)
                 TripStore.updateDrivingStats(trip.startTimeMs, trip.drivingStats.copy(twistinessScore = twistiness))
+                SyncClient.syncQuietly()
             }
         }
         _stats.value = null
