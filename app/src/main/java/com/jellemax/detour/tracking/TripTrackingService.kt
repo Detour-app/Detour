@@ -62,6 +62,7 @@ import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
 import com.jellemax.detour.drive.HardEventDetector
+import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.drive.StopDetector
 import com.jellemax.detour.notif.TripEndedNotification
 import kotlinx.coroutines.CoroutineScope
@@ -222,6 +223,9 @@ class TripTrackingService : Service() {
         /** Floor between boundary lookups, so a drive along a coastline (where
          *  every point misses) can't turn into a stream of Overpass queries. */
         private const val MUNICIPALITY_LOOKUP_COOLDOWN_MS = 60_000L
+        /** 10% over the posted limit, provisional — a floor against GPS/rounding
+         *  noise reading a steady legal speed as a violation. */
+        private const val OVER_LIMIT_MARGIN = 1.10
 
         /** Circles' position/geofence cadence (docs/CIRCLES_AND_CONVOYS.md
          *  section 10): a circle is Life360-style presence, not a live ride
@@ -414,6 +418,10 @@ class TripTrackingService : Service() {
     @Volatile private var hardBrakeCount = 0
     @Volatile private var hardAccelCount = 0
     @Volatile private var stopState = StopDetector.State()
+    @Volatile private var tripLimitState = SpeedLimitTracker.State()
+    private var tripLimitFetchJob: kotlinx.coroutines.Job? = null
+    @Volatile private var secondsOverLimit = 0.0
+    @Volatile private var lastLimitFixMs = 0L
 
     /**
      * The board's own GPS and IMU, treated as truth over the phone's
@@ -808,6 +816,11 @@ class TripTrackingService : Service() {
         hardBrakeCount = 0
         hardAccelCount = 0
         stopState = StopDetector.State()
+        tripLimitState = SpeedLimitTracker.State()
+        tripLimitFetchJob?.cancel()
+        tripLimitFetchJob = null
+        secondsOverLimit = 0.0
+        lastLimitFixMs = startTimeMs
         lastMovingMs = System.currentTimeMillis()
         // Re-check what's actually linked: the set may have gone stale since the
         // last trip. Answers async, retagging through refreshTripMode.
@@ -825,6 +838,8 @@ class TripTrackingService : Service() {
         val stats = _stats.value ?: return
         val wasAuto = autoStarted
         stopMotionSensors()
+        tripLimitFetchJob?.cancel()
+        tripLimitFetchJob = null
         flushTrace()
         val worthSaving =
             if (wasAuto) stats.distanceMeters >= MIN_AUTO_TRIP_METERS
@@ -1139,6 +1154,26 @@ class TripTrackingService : Service() {
             if (cornerEvent) hardCornerCount++
         }
         stopState = StopDetector.onFix(stopState, effectiveSpeedMps, location.time)
+
+        val here = LatLon(location.latitude, location.longitude)
+        val bearing = if (location.hasBearing()) location.bearing.toDouble() else null
+        if (effectiveSpeedMps >= SpeedLimitTracker.MIN_MPS &&
+            SpeedLimitTracker.needsWays(tripLimitState, here, now) &&
+            tripLimitFetchJob?.isActive != true
+        ) {
+            tripLimitState = SpeedLimitTracker.fetchStarted(tripLimitState, now)
+            // serviceScope is already Dispatchers.IO (`:1343`), so no withContext needed here.
+            tripLimitFetchJob = serviceScope.launch {
+                val ways = runCatching { RoadRoulette.speedLimitWays(here) }.getOrDefault(emptyList())
+                tripLimitState = SpeedLimitTracker.withWays(tripLimitState, ways, here)
+            }
+        }
+        tripLimitState = SpeedLimitTracker.onFix(tripLimitState, here, bearing, effectiveSpeedMps)
+        val limitKmh = tripLimitState.limitKmh
+        if (limitKmh != null && effectiveSpeedMps * 3.6 > limitKmh * OVER_LIMIT_MARGIN) {
+            secondsOverLimit += (location.time - lastLimitFixMs) / 1000.0
+        }
+        lastLimitFixMs = location.time
 
         // update (not value =) so the 5 Hz sensor writes aren't clobbered here.
         _stats.update {
