@@ -50,6 +50,8 @@ import com.jellemax.detour.data.CircleEvents
 import com.jellemax.detour.data.CircleFixes
 import com.jellemax.detour.data.CirclePlaces
 import com.jellemax.detour.data.Coverage
+import com.jellemax.detour.data.Curviness
+import com.jellemax.detour.data.DrivingStats
 import com.jellemax.detour.data.GeofenceEvaluator
 import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.LatLon
@@ -66,6 +68,7 @@ import com.jellemax.detour.drive.RoadTypeTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.drive.StopDetector
 import com.jellemax.detour.notif.TripEndedNotification
+import com.jellemax.detour.ui.loadTripPoints
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -853,18 +856,35 @@ class TripTrackingService : Service() {
             if (wasAuto) stats.distanceMeters >= MIN_AUTO_TRIP_METERS
             else stats.durationMs > 0
         if (worthSaving) {
-            TripStore.save(Trip(
-                    startTimeMs = stats.startTimeMs,
-                    endTimeMs = System.currentTimeMillis(),
-                    distanceMeters = stats.distanceMeters,
-                    topSpeedMps = stats.topSpeedMps,
-                    maxLeanAngleDeg = maxLeanDeg,
-                    maxGForce = maxG,
-                    destinationLat = destLat,
-                    destinationLon = destLon,
-                    mode = stats.mode,
+            val durationSec = stats.durationMs / 1000.0
+            val trip = Trip(
+                startTimeMs = stats.startTimeMs,
+                endTimeMs = System.currentTimeMillis(),
+                distanceMeters = stats.distanceMeters,
+                topSpeedMps = stats.topSpeedMps,
+                maxLeanAngleDeg = maxLeanDeg,
+                maxGForce = maxG,
+                destinationLat = destLat,
+                destinationLon = destLon,
+                mode = stats.mode,
+                drivingStats = DrivingStats(
+                    hardBrakeCount = hardBrakeCount,
+                    hardAccelCount = hardAccelCount,
+                    hardCornerCount = hardCornerCount,
+                    secondsOverLimit = secondsOverLimit.toLong(),
+                    pctOverLimit = if (durationSec > 0) secondsOverLimit / durationSec * 100.0 else 0.0,
+                    roadTypeMeters = roadTypeState.meters,
+                    // Post-hoc, over the trace this trip just flushed above — see
+                    // Curviness.traceScore's KDoc for why this can't run live.
+                    twistinessScore = 0.0, // placeholder, replaced two lines below
+                    stopCount = stopState.stopCount,
+                    idleMs = stopState.idleMs,
                 ),
             )
+            val twistiness = runCatching {
+                Curviness.traceScore(loadTripPoints(this, trip).map { it.at })
+            }.getOrDefault(0.0)
+            TripStore.save(trip.copy(drivingStats = trip.drivingStats.copy(twistinessScore = twistiness)))
             SyncClient.syncQuietly()
             checkBadges()
             // Only tell the user about trips they didn't end themselves.
