@@ -586,13 +586,17 @@ Modify `recordLean` (lines 432-439) to also count corner events:
     }
 ```
 
-Add the counter as a new private field next to the ones from Step 7:
+Add all three counters as new private fields next to the ones from Step 7 — declare them here,
+once, even though `hardBrakeCount`/`hardAccelCount` aren't incremented until Step 10, so there is
+exactly one declaration site for each:
 
 ```kotlin
     private var hardCornerCount = 0
+    private var hardBrakeCount = 0
+    private var hardAccelCount = 0
 ```
 
-Reset it in `beginTrip` alongside Step 8's additions:
+Reset all three in `beginTrip` alongside Step 8's additions:
 
 ```kotlin
         hardCornerCount = 0
@@ -600,8 +604,7 @@ Reset it in `beginTrip` alongside Step 8's additions:
         hardAccelCount = 0
 ```
 
-(declare `hardBrakeCount`/`hardAccelCount` as private `Int` fields next to `hardCornerCount` too —
-all three are finalized into `DrivingStats` in `endTrip`, see Task 5).
+All three are finalized into `DrivingStats` in `endTrip` — see Task 6, Step 7.
 
 - [ ] **Step 10: Count brake/accel events and car corner events in `onTripLocation`**
 
@@ -621,12 +624,7 @@ Modify `onTripLocation` (`:1048-1116`) — insert after `effectiveSpeedMps` is c
         }
 ```
 
-Add the two counter fields declared in Step 9 formally here if not already present:
-
-```kotlin
-    private var hardBrakeCount = 0
-    private var hardAccelCount = 0
-```
+`hardBrakeCount`/`hardAccelCount` are already declared in Step 9 — no new field here.
 
 Extend the `_stats.update { }` block (lines 1106-1113) to publish the running counts:
 
