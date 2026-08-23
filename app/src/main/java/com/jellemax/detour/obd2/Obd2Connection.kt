@@ -4,12 +4,14 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
 import android.content.Context
+import android.util.Log
 import com.jellemax.detour.drive.Obd2Pids
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.UUID
 import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,13 +46,24 @@ enum class Obd2ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, FAILED }
  */
 @SuppressLint("MissingPermission") // caller (TripTrackingService) already gates on hasBtPermission()
 object Obd2Connection {
+    private const val TAG = "Obd2Connection"
     private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
     private const val HANDSHAKE_TIMEOUT_MS = 2_000L
+    // ATZ triggers a full ELM327 reset; cheap clones commonly take 3-5s to
+    // complete it and emit their banner, well past HANDSHAKE_TIMEOUT_MS.
+    private const val RESET_TIMEOUT_MS = 5_000L
     private const val POLL_TIMEOUT_MS = 1_000L
     private const val POLL_INTERVAL_MS = 1_000L
     private const val BASE_RETRY_MS = 5_000L
     private const val MAX_RETRY_MS = 60_000L
     private const val MAX_DOUBLINGS = 5
+    // Consecutive poll cycles where all three PIDs came back null before we
+    // give up on the connection and fall through to the failure/backoff path.
+    private const val MAX_CONSECUTIVE_EMPTY_POLLS = 5
+    // Bounds on draining a desynced adapter's already-buffered stale responses
+    // back to a clean stream — see [drainStalePrompts].
+    private const val DRAIN_TIMEOUT_MS = 200L
+    private const val MAX_DRAIN_ITERATIONS = 3
 
     private val _telemetry = MutableStateFlow<ObdTelemetry?>(null)
     val telemetry: StateFlow<ObdTelemetry?> = _telemetry
@@ -59,7 +72,7 @@ object Obd2Connection {
     val connectionState: StateFlow<Obd2ConnectionState> = _connectionState
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var job: Job? = null
+    @Volatile private var job: Job? = null
 
     /** The socket currently owned by the running connection loop, if any.
      *  [disconnect] closes it directly rather than only cancelling [job]:
@@ -81,11 +94,18 @@ object Obd2Connection {
         return minOf(doubled, MAX_RETRY_MS)
     }
 
+    // Synchronized so two concurrent connect() calls (or a connect() racing a
+    // disconnect()) can't both pass the isActive check and each launch their
+    // own loop — `job` only ever holds the most recent one, so a second loop
+    // launched underneath it would never get cancelled by disconnect() and
+    // would leak its socket and coroutine.
+    @Synchronized
     fun connect(context: Context, address: String) {
         if (job?.isActive == true) return
         job = scope.launch { runConnectionLoop(context, address) }
     }
 
+    @Synchronized
     fun disconnect() {
         job?.cancel()
         job = null
@@ -118,8 +138,23 @@ object Obd2Connection {
                 _connectionState.value = Obd2ConnectionState.CONNECTED
                 failures = 0
                 pollLoop(input, output)
-            } catch (e: IOException) {
+            } catch (e: CancellationException) {
+                // Let cancellation propagate — it's not a connection failure, and
+                // swallowing it here would keep this SupervisorJob-launched loop
+                // alive (and retrying) past the point disconnect()/scope teardown
+                // meant to stop it.
+                throw e
+            } catch (e: Exception) {
+                // Broadened beyond IOException: getRemoteDevice() throws
+                // IllegalArgumentException on a malformed (e.g. lowercase) MAC
+                // address, and a Bluetooth permission revoked mid-connection
+                // throws SecurityException from createRfcommSocketToServiceRecord
+                // or socket.connect(). Neither is an IOException, and since this
+                // coroutine runs under a SupervisorJob, leaving either uncaught
+                // would reach the thread's default handler and could crash the
+                // process instead of falling through to the backoff/retry path.
                 failures++
+                Log.w(TAG, "OBD2 connection attempt failed", e)
                 // Same race as above: a disconnect()-triggered close() surfaces here
                 // as an IOException. If we've already been cancelled, disconnect()
                 // owns the terminal state — don't clobber DISCONNECTED with FAILED.
@@ -136,20 +171,43 @@ object Obd2Connection {
         }
     }
 
+    /** Runs the ATZ/ATE0/ATSP0 handshake. [readUntilPrompt] signals a timeout
+     *  by returning null rather than throwing, so each call's result must be
+     *  checked explicitly here — a silently-discarded null would otherwise
+     *  let a non-responding adapter reach CONNECTED and poll forever. */
     private fun handshake(input: InputStream, output: OutputStream) {
         sendCommand(output, "ATZ")
-        readUntilPrompt(input, HANDSHAKE_TIMEOUT_MS)
+        readUntilPrompt(input, RESET_TIMEOUT_MS)
+            ?: throw IOException("Handshake timed out waiting for ATZ response")
         sendCommand(output, "ATE0")
         readUntilPrompt(input, HANDSHAKE_TIMEOUT_MS)
+            ?: throw IOException("Handshake timed out waiting for ATE0 response")
         sendCommand(output, "ATSP0")
         readUntilPrompt(input, HANDSHAKE_TIMEOUT_MS)
+            ?: throw IOException("Handshake timed out waiting for ATSP0 response")
     }
 
     private suspend fun pollLoop(input: InputStream, output: OutputStream) {
+        // Counts consecutive cycles where all three PIDs came back null (timeout,
+        // malformed response, or header mismatch). Without this, a soft-wedged or
+        // desynced adapter publishes an all-false ObdTelemetry forever: no failure
+        // is ever surfaced, so the backoff/reconnect path in runConnectionLoop
+        // never triggers.
+        var consecutiveEmptyPolls = 0
         while (coroutineContext.isActive) {
             val speed = pollPid(input, output, Obd2Pids.PID_SPEED)?.let { Obd2Pids.parseSpeedKmh(it) }
             val throttle = pollPid(input, output, Obd2Pids.PID_THROTTLE)?.let { Obd2Pids.parseThrottlePct(it) }
             val rpm = pollPid(input, output, Obd2Pids.PID_RPM)?.let { Obd2Pids.parseRpm(it) }
+            if (speed == null && throttle == null && rpm == null) {
+                consecutiveEmptyPolls++
+                if (consecutiveEmptyPolls >= MAX_CONSECUTIVE_EMPTY_POLLS) {
+                    throw IOException(
+                        "Adapter unresponsive: $MAX_CONSECUTIVE_EMPTY_POLLS consecutive empty poll cycles"
+                    )
+                }
+            } else {
+                consecutiveEmptyPolls = 0
+            }
             _telemetry.value = ObdTelemetry(
                 hasSpeed = speed != null, speedKmh = speed ?: 0.0,
                 hasThrottle = throttle != null, throttlePct = throttle ?: 0.0,
@@ -171,8 +229,27 @@ object Obd2Connection {
             .mapNotNull { it.toIntOrNull(16) }
         val modeByte = ("4" + pid[1]).toIntOrNull(16) // request "010D" -> response mode byte 0x41
         val pidByte = pid.substring(2).toIntOrNull(16)
-        if (tokens.size < 2 || tokens[0] != modeByte || tokens[1] != pidByte) return null
+        if (tokens.size < 2 || tokens[0] != modeByte || tokens[1] != pidByte) {
+            // This chunk didn't answer the PID we just asked for — almost certainly
+            // a previous cycle's late response that was still sitting in the
+            // socket's read buffer after a prior timeout, with our actual answer
+            // queued behind it. Drain any further already-buffered chunks now so
+            // the next request starts from a clean stream instead of perpetually
+            // reading one cycle behind (which would reject every response forever).
+            drainStalePrompts(input)
+            return null
+        }
         return tokens.drop(2)
+    }
+
+    /** Discards any additional `>`-terminated chunks already sitting in the
+     *  socket's read buffer, bounded so a persistently chatty or garbled
+     *  adapter can't stall a poll cycle indefinitely. See [pollPid]. */
+    private fun drainStalePrompts(input: InputStream) {
+        repeat(MAX_DRAIN_ITERATIONS) {
+            if (input.available() <= 0) return
+            if (readUntilPrompt(input, DRAIN_TIMEOUT_MS) == null) return
+        }
     }
 
     private fun sendCommand(output: OutputStream, command: String) {
