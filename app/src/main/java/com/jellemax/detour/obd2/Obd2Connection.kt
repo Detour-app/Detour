@@ -64,6 +64,11 @@ object Obd2Connection {
     // back to a clean stream — see [drainStalePrompts].
     private const val DRAIN_TIMEOUT_MS = 200L
     private const val MAX_DRAIN_ITERATIONS = 3
+    // Above any real posted speed limit or plausible driving speed, but well
+    // below what a single garbled byte from a cheap clone could produce (a raw
+    // 0xFF reads as 255 km/h) — caps what can become the recorded topSpeedMps
+    // the same way MAX_PLAUSIBLE_G/MAX_PLAUSIBLE_LEAN_DEG cap those maxes.
+    private const val MAX_PLAUSIBLE_SPEED_KMH = 300.0
 
     private val _telemetry = MutableStateFlow<ObdTelemetry?>(null)
     val telemetry: StateFlow<ObdTelemetry?> = _telemetry
@@ -175,7 +180,7 @@ object Obd2Connection {
      *  by returning null rather than throwing, so each call's result must be
      *  checked explicitly here — a silently-discarded null would otherwise
      *  let a non-responding adapter reach CONNECTED and poll forever. */
-    private fun handshake(input: InputStream, output: OutputStream) {
+    internal fun handshake(input: InputStream, output: OutputStream) {
         sendCommand(output, "ATZ")
         readUntilPrompt(input, RESET_TIMEOUT_MS)
             ?: throw IOException("Handshake timed out waiting for ATZ response")
@@ -187,18 +192,38 @@ object Obd2Connection {
             ?: throw IOException("Handshake timed out waiting for ATSP0 response")
     }
 
+    /** Result of one PID poll: [bytes] is the parsed data bytes (null if the
+     *  response wasn't a valid frame for the requested PID — a header mismatch,
+     *  garbage, or a real-but-non-frame answer like "NO DATA"). [answered] is
+     *  true whenever the adapter produced ANY `>`-terminated response at all —
+     *  even an unparseable one — as opposed to a genuine read timeout. Only a
+     *  cycle where every PID's [answered] is false means the adapter has gone
+     *  silent; a cycle full of "NO DATA" answers means it's alive and correctly
+     *  reporting unsupported PIDs. */
+    internal data class PollResult(val bytes: List<Int>?, val answered: Boolean)
+
     private suspend fun pollLoop(input: InputStream, output: OutputStream) {
-        // Counts consecutive cycles where all three PIDs came back null (timeout,
-        // malformed response, or header mismatch). Without this, a soft-wedged or
-        // desynced adapter publishes an all-false ObdTelemetry forever: no failure
-        // is ever surfaced, so the backoff/reconnect path in runConnectionLoop
-        // never triggers.
+        // Counts consecutive cycles where all three PIDs went entirely unanswered
+        // (genuine timeouts, not "NO DATA" or other unparseable-but-real answers).
+        // Without this, a soft-wedged or desynced adapter publishes an all-false
+        // ObdTelemetry forever: no failure is ever surfaced, so the
+        // backoff/reconnect path in runConnectionLoop never triggers. A vehicle
+        // that genuinely answers "NO DATA" to every PID (e.g. parked, ignition
+        // off) must NOT trip this — the adapter is proven alive that cycle.
         var consecutiveEmptyPolls = 0
         while (coroutineContext.isActive) {
-            val speed = pollPid(input, output, Obd2Pids.PID_SPEED)?.let { Obd2Pids.parseSpeedKmh(it) }
-            val throttle = pollPid(input, output, Obd2Pids.PID_THROTTLE)?.let { Obd2Pids.parseThrottlePct(it) }
-            val rpm = pollPid(input, output, Obd2Pids.PID_RPM)?.let { Obd2Pids.parseRpm(it) }
-            if (speed == null && throttle == null && rpm == null) {
+            val speedResult = pollPid(input, output, Obd2Pids.PID_SPEED)
+            val throttleResult = pollPid(input, output, Obd2Pids.PID_THROTTLE)
+            val rpmResult = pollPid(input, output, Obd2Pids.PID_RPM)
+            val speed = speedResult.bytes?.let { Obd2Pids.parseSpeedKmh(it) }
+                // A single garbled byte can decode to a plausible-looking but
+                // impossible value (e.g. 0xFF -> 255 km/h); reject it the same
+                // as any other unparseable reading rather than let it become
+                // the trip's recorded topSpeedMps.
+                ?.takeIf { it <= MAX_PLAUSIBLE_SPEED_KMH }
+            val throttle = throttleResult.bytes?.let { Obd2Pids.parseThrottlePct(it) }
+            val rpm = rpmResult.bytes?.let { Obd2Pids.parseRpm(it) }
+            if (!speedResult.answered && !throttleResult.answered && !rpmResult.answered) {
                 consecutiveEmptyPolls++
                 if (consecutiveEmptyPolls >= MAX_CONSECUTIVE_EMPTY_POLLS) {
                     throw IOException(
@@ -218,13 +243,15 @@ object Obd2Connection {
         }
     }
 
-    /** Sends [pid], reads the response, and returns its data bytes with the
-     *  `41 <pid>` echo header stripped — null on a timeout, a malformed
-     *  response, or a header that doesn't match the PID just requested (a
-     *  desynced clone answering the previous command late). */
-    private fun pollPid(input: InputStream, output: OutputStream, pid: String): List<Int>? {
+    /** Sends [pid] and reads the response. [PollResult.bytes] is the data bytes
+     *  with the `41 <pid>` echo header stripped — null on a malformed response
+     *  or a header that doesn't match the PID just requested (a desynced clone
+     *  answering the previous command late, or a real "NO DATA" answer).
+     *  [PollResult.answered] is true whenever the adapter produced any
+     *  `>`-terminated response at all, regardless of whether it parsed. */
+    internal fun pollPid(input: InputStream, output: OutputStream, pid: String): PollResult {
         sendCommand(output, pid)
-        val raw = readUntilPrompt(input, POLL_TIMEOUT_MS) ?: return null
+        val raw = readUntilPrompt(input, POLL_TIMEOUT_MS) ?: return PollResult(bytes = null, answered = false)
         val tokens = raw.trim().split(Regex("\\s+"))
             .mapNotNull { it.toIntOrNull(16) }
         val modeByte = ("4" + pid[1]).toIntOrNull(16) // request "010D" -> response mode byte 0x41
@@ -233,13 +260,14 @@ object Obd2Connection {
             // This chunk didn't answer the PID we just asked for — almost certainly
             // a previous cycle's late response that was still sitting in the
             // socket's read buffer after a prior timeout, with our actual answer
-            // queued behind it. Drain any further already-buffered chunks now so
-            // the next request starts from a clean stream instead of perpetually
-            // reading one cycle behind (which would reject every response forever).
+            // queued behind it, or a real "NO DATA" answer. Drain any further
+            // already-buffered chunks now so the next request starts from a clean
+            // stream instead of perpetually reading one cycle behind (which would
+            // reject every response forever).
             drainStalePrompts(input)
-            return null
+            return PollResult(bytes = null, answered = true)
         }
-        return tokens.drop(2)
+        return PollResult(bytes = tokens.drop(2), answered = true)
     }
 
     /** Discards any additional `>`-terminated chunks already sitting in the
@@ -260,7 +288,7 @@ object Obd2Connection {
     /** Reads bytes until the `>` prompt ELM327 terminates every response
      *  with, or [timeoutMs] elapses — never a newline, which some firmwares
      *  omit. Null on timeout with nothing usable read. */
-    private fun readUntilPrompt(input: InputStream, timeoutMs: Long): String? {
+    internal fun readUntilPrompt(input: InputStream, timeoutMs: Long): String? {
         val deadline = System.currentTimeMillis() + timeoutMs
         val buffer = StringBuilder()
         while (System.currentTimeMillis() < deadline) {
