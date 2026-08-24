@@ -263,7 +263,7 @@ private struct RouteRow: View {
 /// `UIActivityViewController` is used here instead so the same sheet can
 /// later grow a custom "send to a friend" activity without changing how it's
 /// presented.
-private struct ActivityView: UIViewControllerRepresentable {
+struct ActivityView: UIViewControllerRepresentable {
     let activityItems: [Any]
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
