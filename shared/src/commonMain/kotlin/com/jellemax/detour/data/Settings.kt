@@ -200,16 +200,21 @@ object Settings {
     private fun readVehicleDevices(): Map<String, VehicleDevice> {
         val raw = prefs.string("vehicle_devices").takeIf { it.isNotEmpty() } ?: return emptyMap()
         return runCatching {
-            jsonObjectOf(raw).mapValues { (addr, v) ->
+            jsonObjectOf(raw).mapNotNull { (addr, v) ->
                 // New format: {address: {mode, name}}. Old format (v1.24):
                 // {address: "MODE"} with no name — fall back to the address.
-                when (v) {
-                    is kotlinx.serialization.json.JsonObject -> VehicleDevice(
-                        addr, v.optString("name", addr), TravelMode.of(v.optString("mode")))
-                    else -> VehicleDevice(
-                        addr, addr, TravelMode.of(v.toString().trim('"')))
+                // A mode name that no longer exists (e.g. a device mapped to
+                // the removed WALK/BIKE modes) is dropped rather than
+                // silently reassigned — a stale mapping to CAR would both
+                // mistag trips and defeat the slow-trip drop gate.
+                val modeName = when (v) {
+                    is kotlinx.serialization.json.JsonObject -> v.optString("mode")
+                    else -> v.toString().trim('"')
                 }
-            }
+                val mode = TravelMode.entries.firstOrNull { it.name == modeName } ?: return@mapNotNull null
+                val name = (v as? kotlinx.serialization.json.JsonObject)?.optString("name", addr) ?: addr
+                addr to VehicleDevice(addr, name, mode)
+            }.toMap()
         }.getOrDefault(emptyMap())
     }
 

@@ -327,8 +327,8 @@ object RoutingServer {
     /**
      * Turn-by-turn route through an ordered list of stops (a saved multi-point
      * route, or the plain two-point case via [route]). [avoidHighways]
-     * downgrades motorways/trunks (only matters for the car profile; moto and
-     * bike never use them anyway); [avoidSmallRoads] pushes the route onto
+     * downgrades motorways/trunks (only matters for the car profile; moto
+     * never uses them anyway); [avoidSmallRoads] pushes the route onto
      * roads worth driving instead of the nearest lane through a field. Either
      * one switches to a POST with a custom model, which needs flexible
      * routing — hence `ch.disable`.

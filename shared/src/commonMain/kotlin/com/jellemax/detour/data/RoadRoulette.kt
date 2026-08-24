@@ -177,7 +177,7 @@ object RoadRoulette {
         return parseWays(rawQuery(query, endpointOffset))
     }
 
-    /** Road classes a car/moto/bike can legally be on; excludes the footways,
+    /** Road classes a car/moto can legally be on; excludes the footways,
      *  cycleways, service roads and tracks that used to hijack the badge. */
     private const val DRIVABLE_HIGHWAYS = "motorway|trunk|primary|secondary|tertiary|" +
         "unclassified|residential|living_street|" +
