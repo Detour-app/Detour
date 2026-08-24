@@ -187,6 +187,35 @@ are fine — delete them once they're merged rather than leaving them on origin.
   credential storage, the keychain), say so explicitly — those get a closer
   look.
 
+## Versioning
+
+`versionName` in `app/build.gradle.kts` is semver — `MAJOR.MINOR.PATCH` — and the
+bump is tied to the commit type already used across this repo's history
+(`feat:`, `fix:`, `chore:`, ...):
+
+| Change | Bump | Example |
+| --- | --- | --- |
+| Bug fix, no API/behaviour break | Patch | `1.76.0` -> `1.76.1` |
+| New feature, backward compatible | Minor | `1.76.1` -> `1.77.0` |
+| Breaking change (data format, wire protocol, min OS) | Major | `1.77.0` -> `2.0.0` |
+| Docs, refactor, chore, test-only | No bump | — |
+
+A PR that mixes a feature and a fix bumps for the higher of the two (minor),
+same as it always has here.
+
+**This isn't cosmetic — `versionName` is the git tag and the GitHub release
+name** (`.github/workflows/build.yml`). Pushing to `main` twice without
+bumping it overwrites that version's release instead of creating a new one.
+Bump it in the same commit/PR that lands the change, not as an afterthought.
+
+`versionCode` is unrelated and untouched by this: CI stamps it from the run
+number on every build (`VERSION_CODE` in `build.yml`), so it always increases
+regardless of what `versionName` says. Only `versionName` is yours to bump.
+
+The watch app (`wear/build.gradle.kts`) and the mock-location harness
+(`tools/mocklocation/build.gradle.kts`) version independently — this rule is
+about `app/build.gradle.kts`, the phone app people actually install.
+
 ## Documentation
 
 [`docs/`](docs/README.md) has an index; start there rather than guessing at

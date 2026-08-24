@@ -185,6 +185,42 @@ class CredentialMigrationTest {
         assertEquals("newer-token", secure.string("access_token", ""))
     }
 
+    // The regression this guards against: step() always touches the
+    // Keystore-backed secure store, even to discover there is nothing to do —
+    // reading the marker back is how it tells "nothing to migrate" from
+    // "verification pending" apart. groupHasPlaintext is what lets migrateGroup
+    // skip that call, and skip the Keystore round trip with it, once a group's
+    // migration is actually done (see CredentialMigration.kt's migrateGroup doc
+    // for the measured cost that motivated this).
+    @Test
+    fun groupHasPlaintextIsFalseOnceEveryKeyIsEmpty() {
+        val plain = plainWithSession()
+        val secure = FakePrefs()
+
+        assertTrue(CredentialMigration.groupHasPlaintext(plain, CredentialMigration.SESSION_GROUP))
+        repeat(2) { CredentialMigration.step(plain, secure, CredentialMigration.SESSION_GROUP) }
+
+        assertEquals(
+            false,
+            CredentialMigration.groupHasPlaintext(plain, CredentialMigration.SESSION_GROUP),
+        )
+    }
+
+    @Test
+    fun groupHasPlaintextIsFalseOnAFreshInstallThatNeverHadLegacyCredentials() {
+        assertEquals(
+            false,
+            CredentialMigration.groupHasPlaintext(FakePrefs(), CredentialMigration.SESSION_GROUP),
+        )
+    }
+
+    @Test
+    fun groupHasPlaintextCatchesTheNumericKeyEvenWhenEveryTextKeyIsEmpty() {
+        val plain = FakePrefs().apply { put("access_token_expires_at", 1234L) }
+
+        assertTrue(CredentialMigration.groupHasPlaintext(plain, CredentialMigration.SESSION_GROUP))
+    }
+
     @Test
     fun theServerKeysAreTheTwoCloudflareFields() {
         assertEquals(

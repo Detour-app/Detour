@@ -65,16 +65,16 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         // A map app is glanced at while driving: keep the screen awake while visible.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        Settings.init()
+        ColdStartTiming.timed("Settings.init") { Settings.init() }
         if (Settings.externalDisplayEnabled.value) BleNavServer.start(this)
         // Cheap, synchronous no-op unless signed in with a server configured
         // (see the function's own doc) - safe to call unconditionally on
         // every app start, same as TripTrackingService.startMonitoring's own
         // call site would be if MapScreen didn't already own that one.
-        CircleNotifyService.refresh(this)
+        ColdStartTiming.timed("CircleNotifyService.refresh") { CircleNotifyService.refresh(this) }
         // MapLibre must be initialised before any MapView is created. No API key:
         // OpenFreeMap tiles are keyless, so no token provider is needed.
-        MapLibre.getInstance(this)
+        ColdStartTiming.timed("MapLibre.getInstance") { MapLibre.getInstance(this) }
         setContent {
             val theme by Settings.theme.collectAsStateWithLifecycle()
             val dark = isAppDarkTheme(theme)

@@ -1,6 +1,7 @@
 package com.jellemax.detour.data
 
 import io.ktor.http.encodeURLParameter
+import kotlinx.serialization.SerializationException
 import okio.IOException
 import kotlin.math.PI
 import kotlin.math.abs
@@ -258,22 +259,36 @@ object RoadRoulette {
      * Every drivable way with a parseable `maxspeed` within [radiusMeters] of
      * [center]. Fetched once for an area, then handed to [snapSpeedLimitKmh]
      * per GPS fix so the posted sign changes the instant you cross onto a new
-     * road — no network round-trip in the loop. Empty on any network error.
+     * road — no network round-trip in the loop. Null on any failure, empty only
+     * when the area really has no tagged road — see the null-vs-empty comment
+     * just below.
      */
     suspend fun speedLimitWays(
         center: LatLon,
         radiusMeters: Double = SPEED_PREFETCH_RADIUS_M,
-    ): List<SpeedLimitWay> {
+    ): List<SpeedLimitWay>? {
         val query = "[out:json][timeout:15];" +
             "way(around:${radiusMeters.toInt()},${center.lat},${center.lon})" +
             "[\"maxspeed\"][\"highway\"~\"^($DRIVABLE_HIGHWAYS)$\"];" +
             "out tags geom;"
+        // Null on any failure, empty only when the area really has no tagged
+        // road: [SpeedCameras.near]'s contract, and what lets the caller back off
+        // after a refusal instead of retrying on the throttle forever. A busy
+        // Overpass answers 200 with an HTML "runtime error" page, so the parse
+        // fails on a perfectly good HTTP response - the same three catches
+        // SpeedCameras.near documents, which this used to let escape.
         val json = try {
             rawQuery(query)
         } catch (e: IOException) {
-            return emptyList()
+            return null
         }
-        val elements = jsonObjectOf(json).optArray("elements") ?: return emptyList()
+        val elements = try {
+            jsonObjectOf(json).optArray("elements")
+        } catch (e: SerializationException) {
+            return null
+        } catch (e: IllegalArgumentException) {
+            return null
+        } ?: return emptyList()
         val ways = ArrayList<SpeedLimitWay>(elements.size)
         for (el in elements.objects()) {
             val kmh = el.optObject("tags")?.optString("maxspeed")
