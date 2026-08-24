@@ -57,17 +57,20 @@ object Obd2Connection {
     private const val BASE_RETRY_MS = 5_000L
     private const val MAX_RETRY_MS = 60_000L
     private const val MAX_DOUBLINGS = 5
-    // Consecutive poll cycles where all three PIDs came back null before we
-    // give up on the connection and fall through to the failure/backoff path.
+    // Consecutive poll cycles where all three PIDs went entirely unanswered
+    // (see PollResult.answered) before we give up on the connection and fall
+    // through to the failure/backoff path.
     private const val MAX_CONSECUTIVE_EMPTY_POLLS = 5
     // Bounds on draining a desynced adapter's already-buffered stale responses
     // back to a clean stream — see [drainStalePrompts].
     private const val DRAIN_TIMEOUT_MS = 200L
     private const val MAX_DRAIN_ITERATIONS = 3
-    // Above any real posted speed limit or plausible driving speed, but well
-    // below what a single garbled byte from a cheap clone could produce (a raw
-    // 0xFF reads as 255 km/h) — caps what can become the recorded topSpeedMps
-    // the same way MAX_PLAUSIBLE_G/MAX_PLAUSIBLE_LEAN_DEG cap those maxes.
+    // Above any real posted speed limit or plausible driving speed. PID 0D is
+    // one byte (0..255), so this can't catch every garbled single-byte value —
+    // 0xFF (255) is a legal-looking reading and passes through — but it does
+    // catch a run-together/garbled multi-token response parsing to something
+    // physically impossible. Caps what can become the recorded topSpeedMps the
+    // same way MAX_PLAUSIBLE_G/MAX_PLAUSIBLE_LEAN_DEG cap those maxes.
     private const val MAX_PLAUSIBLE_SPEED_KMH = 300.0
 
     private val _telemetry = MutableStateFlow<ObdTelemetry?>(null)
@@ -205,11 +208,12 @@ object Obd2Connection {
     private suspend fun pollLoop(input: InputStream, output: OutputStream) {
         // Counts consecutive cycles where all three PIDs went entirely unanswered
         // (genuine timeouts, not "NO DATA" or other unparseable-but-real answers).
-        // Without this, a soft-wedged or desynced adapter publishes an all-false
-        // ObdTelemetry forever: no failure is ever surfaced, so the
-        // backoff/reconnect path in runConnectionLoop never triggers. A vehicle
-        // that genuinely answers "NO DATA" to every PID (e.g. parked, ignition
-        // off) must NOT trip this — the adapter is proven alive that cycle.
+        // Catches an adapter that's gone silent (out of range, powered off) —
+        // NOT a permanently-desynced-but-still-answering one, which always
+        // reports answered=true and so never trips this; drainStalePrompts is
+        // the primary recovery for that case instead. A vehicle that genuinely
+        // answers "NO DATA" to every PID (e.g. parked, ignition off) must NOT
+        // trip this either — the adapter is proven alive that cycle.
         var consecutiveEmptyPolls = 0
         while (coroutineContext.isActive) {
             val speedResult = pollPid(input, output, Obd2Pids.PID_SPEED)
