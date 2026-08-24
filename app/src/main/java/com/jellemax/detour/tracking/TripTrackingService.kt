@@ -630,9 +630,6 @@ class TripTrackingService : Service() {
                 }
                 BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
                     if (connectedVehicles.remove(address)) refreshTripMode()
-                    if (Settings.vehicleDevices.value.values.any { it.obd2Address == address }) {
-                        Obd2Connection.disconnect()
-                    }
                 }
             }
         }
@@ -1240,13 +1237,21 @@ class TripTrackingService : Service() {
             return
         }
 
-        // OBD2 over board telemetry over the phone's, in that order, when fresh —
-        // see freshObdTelemetry()/freshBoardTelemetry(). Deliberately scoped to
-        // just the two fields below: `speed` above still drives auto-start/stop
-        // and the fog trace, which stay on the phone's own consistent GPS
-        // pipeline regardless of whether an OBD2 adapter or board is paired.
+        // Single speed value the rest of this pipeline reads: the hard-event/stop
+        // detectors, SpeedLimitTracker's fetch gate and onFix, secondsOverLimit,
+        // RoadTypeTracker's fetch gate, and the HUD/car-screen/wear currentSpeedMps
+        // and persisted topSpeedMps below all consume effectiveSpeedMps, not the
+        // phone's own `speed` — so a bad reading from any source has broad reach.
+        // Priority is OBD2 over board telemetry over the phone's, when fresh — see
+        // freshObdTelemetry()/freshBoardTelemetry(). OBD2 is only trusted for a
+        // vehicle whose mode tracks g-force (car/moto): an always-hot OBD2 dongle
+        // can stay linked to a parked car while the rider starts a bike/walk trip
+        // within Bluetooth range, and its "stopped" reading must not leak in as a
+        // false real zero. `speed` above still drives auto-start/stop and the fog
+        // trace, which stay on the phone's own consistent GPS pipeline regardless
+        // of whether an OBD2 adapter or board is paired.
         val effectiveSpeedMps = freshObdTelemetry()
-            ?.takeIf { it.hasSpeed }
+            ?.takeIf { stats.mode.tracksGForce && it.hasSpeed }
             ?.let { it.speedKmh / 3.6 }
             ?: freshBoardTelemetry()
                 ?.takeIf { it.hasSpeed }
@@ -1261,7 +1266,7 @@ class TripTrackingService : Service() {
         // or fresh OBD2/board telemetry supplied the number effectiveSpeedMps is using.
         val speedIsReal = location.hasSpeed() ||
             freshBoardTelemetry()?.takeIf { it.hasSpeed } != null ||
-            freshObdTelemetry()?.takeIf { it.hasSpeed } != null
+            (stats.mode.tracksGForce && freshObdTelemetry()?.takeIf { it.hasSpeed } != null)
 
         // Thresholds here are scoped to car/moto (tracksGForce) — a bike or walk
         // decelerating normally must not print a "hard brake" meant for a vehicle.
