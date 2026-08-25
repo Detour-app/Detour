@@ -85,6 +85,21 @@ object Settings {
     private val _tripMode = MutableStateFlow(TravelMode.CAR)
     val tripMode: StateFlow<TravelMode> = _tripMode
 
+    /** How many times the spin dock's mode swipe has been used successfully.
+     *  Drives the discoverability hint, which retires after
+     *  `ModeSwipePolicy.HINT_AFTER_USES` successful swipes (in the app module).
+     *  Long rather than Int because [Prefs] has no Int overload. */
+    private val _modeSwipesUsed = MutableStateFlow(0L)
+    val modeSwipesUsed: StateFlow<Long> = _modeSwipesUsed
+
+    /** Which mode-swipe hint animation plays: "nudge" or "arrows". A raw String
+     *  rather than an enum because this is a temporary A/B knob - it is deleted
+     *  along with the losing variant. Parsed by
+     *  `ModeSwipePolicy.HintVariant.of` (in the app module), which is
+     *  tolerant of anything. */
+    private val _swipeHintVariant = MutableStateFlow("nudge")
+    val swipeHintVariant: StateFlow<String> = _swipeHintVariant
+
     /** A Bluetooth device the user assigned to a vehicle. [name] is kept so the
      *  Settings list can show it even when the device isn't currently reachable. */
     data class VehicleDevice(val address: String, val name: String, val mode: TravelMode)
@@ -174,6 +189,8 @@ object Settings {
         _avoidSmallRoads.value = prefs.bool("avoid_small_roads", false)
         _externalDisplayEnabled.value = prefs.bool("external_display_enabled", false)
         _tripMode.value = TravelMode.of(prefs.string("trip_mode").takeIf { it.isNotEmpty() })
+        _modeSwipesUsed.value = prefs.long("mode_swipes_used", 0L)
+        _swipeHintVariant.value = prefs.string("swipe_hint_variant", "nudge")
         _shareFog.value = prefs.bool("share_fog", false)
         _fogEnabled.value = prefs.bool("fog_enabled", true)
         _fogRadiusMeters.value = prefs.float("fog_radius_m", FOG_RADIUS_DEFAULT)
@@ -291,6 +308,16 @@ object Settings {
     fun setTripMode(value: TravelMode) {
         _tripMode.value = value
         prefs.put("trip_mode", value.name)
+    }
+
+    fun setModeSwipesUsed(value: Long) {
+        _modeSwipesUsed.value = value
+        prefs.put("mode_swipes_used", value)
+    }
+
+    fun setSwipeHintVariant(value: String) {
+        _swipeHintVariant.value = value
+        prefs.put("swipe_hint_variant", value)
     }
 
     fun setShareFog(value: Boolean) {
