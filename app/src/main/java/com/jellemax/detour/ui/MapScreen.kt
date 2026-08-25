@@ -92,6 +92,7 @@ import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.pickCandidate
 import com.jellemax.detour.data.SavedPlaces
+import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.SyncClient
@@ -182,6 +183,21 @@ fun MapScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(error) {
         error?.let { snackbarHostState.showSnackbar(it) }
+    }
+    // A sign-in that fails on the way back from the browser had exactly one
+    // reader — FriendsScreen, the screen with the button on it — and `screen` in
+    // AppRoot is a plain `remember`. So whenever Android restarted the app behind
+    // the browser, the redirect landed on a fresh process that composes the map,
+    // and the reason went nowhere at all. That is the case most likely to fail,
+    // which made it the case least likely to be explained.
+    //
+    // Its own effect rather than a write into `error` above: that var has a dozen
+    // writers already, and a sign-in failure is not a spin failure. Repeats are
+    // not a concern here — every Sign in tap clears this first, so a second
+    // identical failure still re-keys from null.
+    val signInError by PendingSignIn.error.collectAsStateWithLifecycle()
+    LaunchedEffect(signInError) {
+        signInError?.let { snackbarHostState.showSnackbar(it) }
     }
     val serverConfig = remember { RoutingServer.load() }
     var poiKind by rememberSaveable { mutableStateOf(PoiKind.ROAD) }

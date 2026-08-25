@@ -97,10 +97,27 @@ object Oidc {
         pendingState = null
 
         uri.getQueryParameter("error")?.let { error ->
-            throw IllegalStateException(uri.getQueryParameter("error_description") ?: error)
+            // The code in parentheses is what a realm's own logs and docs call
+            // this, so it is worth keeping even when a description is present.
+            val described = uri.getQueryParameter("error_description")
+            throw IllegalStateException(
+                if (described.isNullOrBlank()) "The realm refused the sign-in ($error)"
+                else "$described ($error)"
+            )
         }
         if (verifier == null || expectedState == null) {
-            throw IllegalStateException("No sign-in is in progress on this device")
+            // Not "nothing is in progress" — something plainly is, the rider just
+            // came back from it. The verifier is held in memory on purpose (see
+            // this file's header, and ASVS 5.0.0 V10.1.2: it has to stay bound to
+            // the transaction and the user agent that started it), so the honest
+            // reading of its absence is that this process is not the one that
+            // started the sign-in. Android restarting the app behind the browser
+            // is by far the likeliest way that happens, and the old wording sent
+            // people looking for a broken realm instead.
+            throw IllegalStateException(
+                "The app restarted while the browser was open, so this sign-in " +
+                    "could not be finished. Tap Sign in to start again."
+            )
         }
         // A callback whose state is not the one we sent did not come from the
         // request we made, so the code in it is not ours to spend.
