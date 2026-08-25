@@ -118,4 +118,44 @@ class ModeSwipePolicyTest {
         assertFalse(ModeSwipePolicy.commits(offsetDp = 50f, velocityDpPerS = 399f, blocked = false))
         assertTrue(ModeSwipePolicy.commits(offsetDp = 50f, velocityDpPerS = 400f, blocked = false))
     }
+
+    @Test
+    fun `a first-time user with an idle dock is due the hint`() {
+        assertTrue(ModeSwipePolicy.hintDue(alreadyShown = false, swipesUsed = 0L, blocked = false))
+    }
+
+    @Test
+    fun `the hint fires at most once per map visit`() {
+        assertFalse(ModeSwipePolicy.hintDue(alreadyShown = true, swipesUsed = 0L, blocked = false))
+    }
+
+    @Test
+    fun `the hint retires once the gesture has been used three times`() {
+        assertTrue(ModeSwipePolicy.hintDue(alreadyShown = false, swipesUsed = 2L, blocked = false))
+        assertFalse(ModeSwipePolicy.hintDue(alreadyShown = false, swipesUsed = 3L, blocked = false))
+        assertFalse(ModeSwipePolicy.hintDue(alreadyShown = false, swipesUsed = 9L, blocked = false))
+    }
+
+    /** Demonstrating a gesture the user is not allowed to make right now is
+     *  worse than not demonstrating it. */
+    @Test
+    fun `a blocked swipe suppresses the hint`() {
+        assertFalse(ModeSwipePolicy.hintDue(alreadyShown = false, swipesUsed = 0L, blocked = true))
+    }
+
+    @Test
+    fun `the hint variant is read from its stored name`() {
+        assertEquals(ModeSwipePolicy.HintVariant.NUDGE, ModeSwipePolicy.HintVariant.of("nudge"))
+        assertEquals(ModeSwipePolicy.HintVariant.ARROWS, ModeSwipePolicy.HintVariant.of("arrows"))
+        assertEquals(ModeSwipePolicy.HintVariant.ARROWS, ModeSwipePolicy.HintVariant.of("ARROWS"))
+    }
+
+    /** The value is written by a debug broadcast, so a typo must not crash the
+     *  map screen - and the whole variant disappears once one of them wins. */
+    @Test
+    fun `an unknown or missing variant falls back to the nudge`() {
+        assertEquals(ModeSwipePolicy.HintVariant.NUDGE, ModeSwipePolicy.HintVariant.of(null))
+        assertEquals(ModeSwipePolicy.HintVariant.NUDGE, ModeSwipePolicy.HintVariant.of(""))
+        assertEquals(ModeSwipePolicy.HintVariant.NUDGE, ModeSwipePolicy.HintVariant.of("wiggle"))
+    }
 }

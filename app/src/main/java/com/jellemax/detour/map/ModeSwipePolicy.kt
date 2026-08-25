@@ -36,6 +36,16 @@ internal object ModeSwipePolicy {
      *  arithmetic rather than the slop threshold itself. */
     const val MIN_INTENT_DP = 1f
 
+    /** Successful swipes after which the hint stops for good. */
+    const val HINT_AFTER_USES = 3L
+
+    /** How long the dock sits still before the hint plays. Long enough that it
+     *  reads as an offer rather than as part of the screen arriving. */
+    const val HINT_DELAY_MS = 4_000L
+
+    /** How far the nudge variant throws the cell. */
+    const val HINT_NUDGE_DP = 16f
+
     fun blockedReason(spinning: Boolean, tracking: Boolean): String? = when {
         // The dice button cancels a spin, so name the one with a visible exit
         // first when both are true.
@@ -76,4 +86,33 @@ internal object ModeSwipePolicy {
         if (abs(offsetDp) < MIN_INTENT_DP) return false
         return abs(offsetDp) >= COMMIT_DP || abs(velocityDpPerS) >= FLING_DP_PER_S
     }
+
+    /**
+     * Which hint animation plays. Both ship at once behind a debug-only
+     * broadcast so they can be compared by hand - this app has no analytics,
+     * no telemetry and no remote config, so a measured A/B is not available.
+     * The loser gets deleted along with this enum.
+     */
+    enum class HintVariant {
+        /** The cell throws itself sideways and springs back: the motion shown
+         *  is the motion required. */
+        NUDGE,
+
+        /** A faint double-headed arrow fades over the card. */
+        ARROWS;
+
+        companion object {
+            /** Tolerant of anything: the stored name comes from a debug
+             *  broadcast, and a typo must not take the map screen down. */
+            fun of(name: String?): HintVariant =
+                entries.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: NUDGE
+        }
+    }
+
+    /**
+     * Whether to schedule the hint. [alreadyShown] is per map visit;
+     * [swipesUsed] is persisted and outlives the process.
+     */
+    fun hintDue(alreadyShown: Boolean, swipesUsed: Long, blocked: Boolean): Boolean =
+        !alreadyShown && swipesUsed < HINT_AFTER_USES && !blocked
 }
