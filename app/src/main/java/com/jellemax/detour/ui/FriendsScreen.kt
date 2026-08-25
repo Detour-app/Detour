@@ -87,6 +87,14 @@ fun FriendsScreen(onBack: () -> Unit) {
     val username by Account.username.collectAsStateWithLifecycle()
     var addOpen by remember { mutableStateOf(false) }
 
+    // Signing in from here announces itself by this screen swapping its own
+    // contents — the button becomes the friends list. Consuming the one-shot
+    // stops the map from announcing the same sign-in a second time whenever
+    // the rider next navigates back to it.
+    LaunchedEffect(username) {
+        if (username.isNotBlank()) PendingSignIn.clearSignedIn()
+    }
+
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),

@@ -22,14 +22,38 @@ object PendingSignIn {
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    /**
+     * The handle a sign-in just completed as, until someone reports it.
+     *
+     * A one-shot in the same shape as [com.jellemax.detour.notif.PendingTripOpen]:
+     * set once, read by whichever screen is composed, cleared by that reader so
+     * a later recomposition does not announce a week-old sign-in a second time.
+     *
+     * Success needed saying out loud as much as failure did. The only thing that
+     * marked it was the avatar in the top corner turning from a question mark
+     * into a letter — which nobody watching the middle of the screen sees, and
+     * which looks identical to a sign-in that did nothing at all.
+     */
+    private val _signedInAs = MutableStateFlow<String?>(null)
+    val signedInAs: StateFlow<String?> = _signedInAs.asStateFlow()
+
     fun begin() {
         _busy.value = true
         _error.value = null
+        _signedInAs.value = null
     }
 
-    fun succeed() {
+    /** [username] may be blank: the realm is not obliged to put a
+     *  `preferred_username` in the token, and the reader says so differently. */
+    fun succeed(username: String) {
         _busy.value = false
         _error.value = null
+        _signedInAs.value = username
+    }
+
+    /** Called by whoever reported the success, so it is reported once. */
+    fun clearSignedIn() {
+        _signedInAs.value = null
     }
 
     fun fail(message: String) {

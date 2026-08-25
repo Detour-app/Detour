@@ -2,6 +2,7 @@ package com.jellemax.detour
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -28,6 +29,7 @@ import androidx.lifecycle.lifecycleScope
 import com.jellemax.detour.auth.Oidc
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.ble.BleNavServer
+import com.jellemax.detour.data.Auth
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
@@ -117,13 +119,30 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             try {
                 Oidc.complete(data)
-                PendingSignIn.succeed()
+                // Read after complete(), never before: the handle is decoded out
+                // of the access token by Auth.store(), so it does not exist until
+                // the exchange has happened.
+                PendingSignIn.succeed(Auth.username.value)
             } catch (e: Exception) {
-                PendingSignIn.fail(e.message ?: "Sign-in failed")
+                val reason = e.message ?: "Sign-in failed"
+                // A failed sign-in leaves no other trace: there is no crash, the
+                // browser has closed, and the screen it used to report to may not
+                // be composed (see PendingSignIn). Logged so `adb logcat -s
+                // DetourAuth` answers "why" without a rebuild — ASVS 5.0.0
+                // V16.3.2 asks for failed authorization attempts to be logged.
+                //
+                // `reason` and the throwable, never `data`: the redirect URI is
+                // the one string here that carries the authorization code, and
+                // logging a credential is what V16.2.5 forbids. Oidc.complete's
+                // messages are written to be safe to print for the same reason.
+                Log.w(TAG, "sign-in redirect did not become a session: $reason", e)
+                PendingSignIn.fail(reason)
             }
         }
     }
 }
+
+private const val TAG = "DetourAuth"
 
 private enum class Screen {
     MAP, HUB, HISTORY, TRIP_DETAIL, BADGES, FRIENDS, CIRCLES, SETTINGS, SAVED, ROUTES,
