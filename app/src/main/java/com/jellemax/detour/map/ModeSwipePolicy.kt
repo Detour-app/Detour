@@ -31,6 +31,11 @@ internal object ModeSwipePolicy {
     /** How much of the finger's travel past the limit still reaches the card. */
     const val RESISTANCE = 0.35f
 
+    /** Below this, a release is a tap that jittered, not a swipe. The gesture
+     *  detector only fires past touch slop, so this is a floor under the
+     *  arithmetic rather than the slop threshold itself. */
+    const val MIN_INTENT_DP = 1f
+
     fun blockedReason(spinning: Boolean, tracking: Boolean): String? = when {
         // The dice button cancels a spin, so name the one with a visible exit
         // first when both are true.
@@ -68,7 +73,7 @@ internal object ModeSwipePolicy {
      */
     fun commits(offsetDp: Float, velocityDpPerS: Float, blocked: Boolean): Boolean {
         if (blocked) return false
-        if (abs(offsetDp) < 1f) return false
+        if (abs(offsetDp) < MIN_INTENT_DP) return false
         return abs(offsetDp) >= COMMIT_DP || abs(velocityDpPerS) >= FLING_DP_PER_S
     }
 }

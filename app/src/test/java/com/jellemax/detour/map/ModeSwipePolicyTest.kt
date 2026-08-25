@@ -74,6 +74,7 @@ class ModeSwipePolicyTest {
         // 8 + (108 - 8) * 0.35 = 43 ... a long blocked pull still moves, but the
         // first 8dp is the only part that tracks the finger.
         assertEquals(43f, ModeSwipePolicy.dragOffsetDp(108f, blocked = true), 0.01f)
+        assertEquals(-43f, ModeSwipePolicy.dragOffsetDp(-108f, blocked = true), 0.01f)
     }
 
     @Test
@@ -102,5 +103,19 @@ class ModeSwipePolicyTest {
     @Test
     fun `a drag of essentially nothing does not commit`() {
         assertFalse(ModeSwipePolicy.commits(offsetDp = 0.4f, velocityDpPerS = 0f, blocked = false))
+    }
+
+    @Test
+    fun `no travel means no offset`() {
+        assertEquals(0f, ModeSwipePolicy.dragOffsetDp(0f, blocked = false), 0.01f)
+        assertEquals(0f, ModeSwipePolicy.dragOffsetDp(0f, blocked = true), 0.01f)
+    }
+
+    /** The offset arm is pinned at its exact threshold; this does the same for
+     *  the velocity arm, so a `>=` quietly becoming `>` fails here. */
+    @Test
+    fun `the fling threshold is inclusive`() {
+        assertFalse(ModeSwipePolicy.commits(offsetDp = 50f, velocityDpPerS = 399f, blocked = false))
+        assertTrue(ModeSwipePolicy.commits(offsetDp = 50f, velocityDpPerS = 400f, blocked = false))
     }
 }
