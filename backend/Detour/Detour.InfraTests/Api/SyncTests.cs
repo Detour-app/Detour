@@ -165,6 +165,59 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Two_new_lines_meeting_at_a_flush_boundary_sync_once()
+    {
+        // The device's tracker flushes its buffer every 200 points with keepLast = true
+        // (TripTrackingService), so the last sample of one line is deliberately re-emitted as
+        // the first sample of the next — without it the drawn trace would break every 200
+        // samples. TrackPoint's key is (UserId, TimestampMs), so those two lines carry one
+        // instant twice, and adding them per line made EF's change tracker throw and took the
+        // whole sync down with a 500. A first full sync of a real history hits this on every
+        // flush boundary it contains.
+        var client = NewRider();
+
+        var merged = await Sync(client, new
+        {
+            traces = new[] { Segment(1_000, 2_000), Segment(2_000, 3_000) },
+        });
+
+        merged.Traces.Should().HaveCount(2);
+
+        await using var db = postgres.CreateContext();
+        var user = await db.Users.OrderByDescending(u => u.CreatedAt).FirstAsync();
+        var stored = await db.TrackPoints
+            .Where(p => p.UserId == user.Id)
+            .Select(p => p.TimestampMs)
+            .ToListAsync();
+        stored.Should().BeEquivalentTo([1_000L, 2_000L, 3_000L],
+            "the shared instant is one sample, not two");
+    }
+
+    [Fact]
+    public async Task A_line_whose_boundary_sample_is_already_stored_still_syncs()
+    {
+        // The same overlap across two syncs rather than within one: the earlier line is skipped
+        // by the hash check, so its stored sample is invisible to the merge — and re-inserting
+        // that instant violates the primary key at commit instead of tripping the tracker. This
+        // is the steady-state shape of the failure, when a sync lands mid-drive and the next
+        // segment arrives later.
+        var client = NewRider();
+
+        await Sync(client, new { traces = new[] { Segment(4_000, 5_000) } });
+        var merged = await Sync(client, new { traces = new[] { Segment(5_000, 6_000) } });
+
+        merged.Traces.Should().HaveCount(2);
+
+        await using var db = postgres.CreateContext();
+        var user = await db.Users.OrderByDescending(u => u.CreatedAt).FirstAsync();
+        var stored = await db.TrackPoints
+            .Where(p => p.UserId == user.Id)
+            .Select(p => p.TimestampMs)
+            .ToListAsync();
+        stored.Should().BeEquivalentTo([4_000L, 5_000L, 6_000L]);
+    }
+
+    [Fact]
     public async Task A_point_with_no_instant_draws_fog_but_stores_no_sample()
     {
         // Two-element points predate timestamps. They are skipped rather than stored with a
@@ -250,6 +303,13 @@ public class SyncTests(PostgresFixture postgres) : IAsyncLifetime
 
     private static string Line(long startMs) =>
         $"[[51.05,3.72,{startMs},50.0,12.5],[51.06,3.73,{startMs + 1000},55.0,18.0]]";
+
+    /// <summary>
+    /// A two-sample line with both instants named. [Line] derives its second one, which cannot
+    /// express two consecutive segments sharing a boundary the way a real flush does.
+    /// </summary>
+    private static string Segment(long firstMs, long lastMs) =>
+        $"[[51.05,3.72,{firstMs},50.0,12.5],[51.06,3.73,{lastMs},55.0,18.0]]";
 
     private sealed record SyncPayload(
         IReadOnlyList<JsonElement> Trips,
