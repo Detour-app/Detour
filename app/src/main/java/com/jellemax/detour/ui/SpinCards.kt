@@ -34,7 +34,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,6 +61,7 @@ import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.map.ModeSwipePolicy
 import com.jellemax.detour.tracking.TripStats
 import kotlin.math.abs
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 private val DIRECTION_NAMES = listOf("North", "North-east", "East", "South-east",
@@ -66,6 +70,115 @@ private val DIRECTION_NAMES = listOf("North", "North-east", "East", "South-east"
 /** How much of its opacity the dock's left cell loses at full drag. Stops short
  *  of invisible: the mode you are dragging away from stays readable. */
 private const val DRAG_FADE = 0.55f
+
+/**
+ * The dock's swipe offset, in px, from two sources that never both drive it.
+ *
+ * The drag phase writes a plain float state synchronously on every pointer
+ * move; the settle phase is an [Animatable] that springs the card home on
+ * release. Splitting them is what keeps the per-event path free of a
+ * `launch` - `Animatable.snapTo` is a suspend function, so writing the drag
+ * through it means a coroutine per pointer event, and a settle still running
+ * from a previous release is only preempted once the first one lands.
+ *
+ * [dragging] selects which source [offsetPx] reads, so the handover is a
+ * single state flip rather than a cancellation race.
+ */
+@Stable
+private class ModeSwipeState(private val scope: CoroutineScope) {
+
+    /** Live finger offset while [dragging]. Written synchronously, no coroutine. */
+    var dragPx by mutableFloatStateOf(0f)
+        private set
+
+    /** Carries the card home after a release. Never snapped per pointer event. */
+    val settle = Animatable(0f)
+
+    var dragging by mutableStateOf(false)
+        private set
+
+    /** What the card should be offset by right now, whichever phase owns it. */
+    val offsetPx: Float get() = if (dragging) dragPx else settle.value
+
+    /** A new drag takes over immediately: flipping [dragging] switches
+     *  [offsetPx]'s source, so any settle still animating stops being read
+     *  without needing to be cancelled first. */
+    fun begin() {
+        dragPx = 0f
+        dragging = true
+    }
+
+    fun drag(px: Float) {
+        dragPx = px
+    }
+
+    /** Hands the drag's final offset to the spring. `snapTo` runs before
+     *  [dragging] flips back, so [offsetPx] never reads a stale [settle]
+     *  value for a frame. A settle still running from an earlier release is
+     *  cancelled by this `snapTo` through Animatable's own mutex. */
+    fun release() {
+        val from = dragPx
+        scope.launch {
+            settle.snapTo(from)
+            dragging = false
+            settle.animateTo(0f, SETTLE_SPEC)
+        }
+    }
+}
+
+private val SETTLE_SPEC = spring<Float>(
+    dampingRatio = Spring.DampingRatioLowBouncy,
+    stiffness = Spring.StiffnessMediumLow,
+)
+
+/**
+ * The mode swipe. Not a composable: everything it reads is passed in already
+ * remembered, because `pointerInput(Unit)` captures its arguments as plain
+ * values frozen at first composition. Reading a parameter directly in here
+ * instead of through its [State] wrapper is a silent bug with no compiler
+ * signal - the gate stops gating and the target mode freezes at whatever it
+ * was when the screen opened.
+ */
+private fun Modifier.modeSwipeGesture(
+    state: ModeSwipeState,
+    blocked: State<String?>,
+    other: State<TravelMode>,
+    onSwitch: State<(TravelMode) -> Unit>,
+    onBlocked: State<(String) -> Unit>,
+): Modifier = pointerInput(Unit) {
+    val tracker = VelocityTracker()
+    var rawPx = 0f
+    detectHorizontalDragGestures(
+        onDragStart = {
+            rawPx = 0f
+            tracker.resetTracking()
+            state.begin()
+        },
+        onDragCancel = { state.release() },
+        onDragEnd = {
+            val blockedNow = blocked.value
+            // px/s -> dp/s: toDp() divides by density, which is the same
+            // conversion a velocity needs. ModeSwipePolicy's fling threshold
+            // is in dp/s so the units must match.
+            val velocityDp = tracker.calculateVelocity().x.toDp().value
+            val offsetDp = state.offsetPx.toDp().value
+            if (ModeSwipePolicy.commits(offsetDp, velocityDp, blockedNow != null)) {
+                onSwitch.value(other.value)
+            } else if (blockedNow != null && abs(offsetDp) >= ModeSwipePolicy.MIN_INTENT_DP) {
+                onBlocked.value(blockedNow)
+            }
+            state.release()
+        },
+    ) { change, dragAmount ->
+        rawPx += dragAmount
+        tracker.addPosition(change.uptimeMillis, change.position)
+        val targetDp = ModeSwipePolicy.dragOffsetDp(
+            rawPx.toDp().value,
+            blocked = blocked.value != null,
+        )
+        state.drag(targetDp.dp.toPx())
+    }
+}
 
 /** Persistent glass bar at the bottom of the map: the spin dock. Tapping the
  *  left cell opens the sheet; the dice FAB spins right away without needing
@@ -89,36 +202,18 @@ internal fun SpinDock(
     onNavigate: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val density = LocalDensity.current
     val scope = rememberCoroutineScope()
-
-    /** Px. Remembered *here* and not in MapScreen on purpose: a per-frame
-     *  snapshot read invalidates its nearest restartable scope, and MapScreen's
-     *  Scaffold content lambda is reached through only inline Box/Column/Row
-     *  wrappers - a read there would invalidate the whole lambda every frame of
-     *  the drag. */
-    val offsetX = remember { Animatable(0f) }
-    /** Read by the hint animation in the next commit, which must not fight a
-     *  finger that is already on the card. */
-    var dragging by remember { mutableStateOf(false) }
-
-    val commitPx = with(density) { ModeSwipePolicy.COMMIT_DP.dp.toPx() }
+    val swipe = remember(scope) { ModeSwipeState(scope) }
+    val commitPx = with(LocalDensity.current) { ModeSwipePolicy.COMMIT_DP.dp.toPx() }
     val other = ModeSwipePolicy.other(mode)
 
     // pointerInput(Unit) captures its parameters as plain values, frozen at
-    // first composition. Everything the gesture callbacks read goes through
-    // rememberUpdatedState or the gate silently stops gating, the callbacks
-    // fire into a stale lambda, and `other` switches to whatever the mode was
-    // when the screen opened. None of that has a compiler signal.
+    // first composition, so everything the gesture reads goes through
+    // rememberUpdatedState. None of that has a compiler signal.
     val blockedRef = rememberUpdatedState(switchBlockedReason)
     val otherRef = rememberUpdatedState(other)
     val onSwitchRef = rememberUpdatedState(onSwitchMode)
     val onBlockedRef = rememberUpdatedState(onSwitchBlocked)
-
-    val settle = spring<Float>(
-        dampingRatio = Spring.DampingRatioLowBouncy,
-        stiffness = Spring.StiffnessMediumLow,
-    )
 
     Card(
         modifier = modifier
@@ -141,45 +236,7 @@ internal fun SpinDock(
                     },
                 )
             }
-            .pointerInput(Unit) {
-                val tracker = VelocityTracker()
-                var rawPx = 0f
-                detectHorizontalDragGestures(
-                    onDragStart = {
-                        rawPx = 0f
-                        dragging = true
-                        tracker.resetTracking()
-                    },
-                    onDragCancel = {
-                        dragging = false
-                        scope.launch { offsetX.animateTo(0f, settle) }
-                    },
-                    onDragEnd = {
-                        dragging = false
-                        val blocked = blockedRef.value
-                        // px/s -> dp/s: toDp() divides by density, which is the
-                        // same conversion a velocity needs. ModeSwipePolicy's
-                        // fling threshold is in dp/s so the units must match.
-                        val velocityDp = tracker.calculateVelocity().x.toDp().value
-                        val offsetDp = offsetX.value.toDp().value
-                        if (ModeSwipePolicy.commits(offsetDp, velocityDp, blocked != null)) {
-                            onSwitchRef.value(otherRef.value)
-                        } else if (blocked != null && abs(offsetDp) >= ModeSwipePolicy.MIN_INTENT_DP) {
-                            onBlockedRef.value(blocked)
-                        }
-                        scope.launch { offsetX.animateTo(0f, settle) }
-                    },
-                ) { change, dragAmount ->
-                    rawPx += dragAmount
-                    tracker.addPosition(change.uptimeMillis, change.position)
-                    val targetDp = ModeSwipePolicy.dragOffsetDp(
-                        rawPx.toDp().value,
-                        blocked = blockedRef.value != null,
-                    )
-                    val targetPx = targetDp.dp.toPx()
-                    scope.launch { offsetX.snapTo(targetPx) }
-                }
-            },
+            .modeSwipeGesture(swipe, blockedRef, otherRef, onSwitchRef, onBlockedRef),
         shape = MaterialTheme.shapes.extraLarge,
         colors = glassCardColors(),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -198,8 +255,8 @@ internal fun SpinDock(
                     // in the draw phase, so the per-frame read never triggers a
                     // recomposition at all.
                     .graphicsLayer {
-                        translationX = offsetX.value
-                        alpha = 1f - (abs(offsetX.value) / commitPx).coerceIn(0f, 1f) * DRAG_FADE
+                        translationX = swipe.offsetPx
+                        alpha = 1f - (abs(swipe.offsetPx) / commitPx).coerceIn(0f, 1f) * DRAG_FADE
                     }
                     .clickable(onClick = onExpand),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
