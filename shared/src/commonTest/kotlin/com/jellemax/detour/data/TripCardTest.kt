@@ -59,6 +59,24 @@ class TripCardTest {
     }
 
     @Test
+    fun trimmedLatLonMatchesThePolylinePointCount() {
+        val points = straightLinePoints()
+        val full = TripCardGeometry.build(trip(TravelMode.CAR), points, full = true)
+        val trimmed = TripCardGeometry.build(trip(TravelMode.CAR), points, full = false)
+        assertEquals(full.points.size, full.trimmedLatLon.size)
+        assertEquals(trimmed.points.size, trimmed.trimmedLatLon.size)
+        assertTrue(trimmed.trimmedLatLon.size < full.trimmedLatLon.size)
+    }
+
+    @Test
+    fun trimmedLatLonHoldsTheActualKeptCoordinates() {
+        val points = straightLinePoints()
+        val full = TripCardGeometry.build(trip(TravelMode.CAR), points, full = true)
+        assertEquals(points.first(), full.trimmedLatLon.first())
+        assertEquals(points.last(), full.trimmedLatLon.last())
+    }
+
+    @Test
     fun normalizedPointsStayWithinUnitBox() {
         val card = TripCardGeometry.build(trip(TravelMode.CAR), straightLinePoints(), full = true)
         for (p in card.points) {
