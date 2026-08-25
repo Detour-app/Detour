@@ -91,8 +91,11 @@ private class ModeSwipeState(private val scope: CoroutineScope) {
     var dragPx by mutableFloatStateOf(0f)
         private set
 
-    /** Carries the card home after a release. Never snapped per pointer event. */
-    val settle = Animatable(0f)
+    /** Carries the card home after a release. Never snapped per pointer event,
+     *  and private so the phase machine above stays the only way to move the
+     *  card - a caller reaching in here directly would desync [dragging] from
+     *  what is actually on screen, which no test here can catch. */
+    private val settle = Animatable(0f)
 
     var dragging by mutableStateOf(false)
         private set
