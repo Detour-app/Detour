@@ -8,12 +8,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -45,6 +39,7 @@ import com.jellemax.detour.ui.FriendsScreen
 import com.jellemax.detour.ui.HistoryScreen
 import com.jellemax.detour.ui.HubScreen
 import com.jellemax.detour.ui.MapScreen
+import com.jellemax.detour.ui.PushPopContent
 import com.jellemax.detour.ui.GraphiteDark
 import com.jellemax.detour.ui.GraphiteLight
 import com.jellemax.detour.ui.RouteEditorScreen
@@ -144,9 +139,24 @@ class MainActivity : ComponentActivity() {
 
 private const val TAG = "DetourAuth"
 
-private enum class Screen {
-    MAP, HUB, HISTORY, TRIP_DETAIL, BADGES, FRIENDS, CIRCLES, SETTINGS, SAVED, ROUTES,
-    ROUTE_EDITOR, COVERAGE_MAP,
+/**
+ * The screens, each carrying how deep it sits in the navigation this app
+ * actually performs — the map, the hub over it, the destinations off the hub,
+ * and the three screens pushed from one of those.
+ *
+ * [depth] exists so an animation can tell a push from a pop. There is no back
+ * stack here (`screen` is a single value), so the direction of a transition is
+ * not otherwise recoverable: `SETTINGS -> HUB` and `HUB -> SETTINGS` are the
+ * same pair of values in the opposite order, and only the depths say which way
+ * the rider is travelling. It mirrors the BackHandler below, which is the other
+ * place this shape is written down; change one and change both.
+ *
+ * Declaration order is left alone deliberately — nothing reads `ordinal`, but
+ * reordering an enum to group it by depth would be a bigger diff than the fix.
+ */
+private enum class Screen(val depth: Int) {
+    MAP(0), HUB(1), HISTORY(2), TRIP_DETAIL(3), BADGES(2), FRIENDS(2), CIRCLES(2),
+    SETTINGS(2), SAVED(2), ROUTES(2), ROUTE_EDITOR(3), COVERAGE_MAP(3),
 }
 
 @Composable
@@ -199,19 +209,15 @@ private fun AppRoot() {
     }
     // Sub-screens slide in over the map from the right and slide back out the
     // same way, so opening/closing feels like a push/pop instead of a hard swap.
-    AnimatedContent(
-        targetState = screen,
-        transitionSpec = {
-            if (targetState == Screen.MAP) {
-                (slideInHorizontally { -it / 4 } + fadeIn()) togetherWith
-                    (slideOutHorizontally { it } + fadeOut())
-            } else {
-                (slideInHorizontally { it } + fadeIn()) togetherWith
-                    (slideOutHorizontally { -it / 4 } + fadeOut())
-            }
-        },
-        label = "screen",
-    ) { current ->
+    //
+    // Which of the two it is comes from the depths, not from the destination's
+    // identity. This used to ask `targetState == Screen.MAP`, which is true for
+    // exactly one of the five pops this app performs: every other one — Settings
+    // back to Hub, a trip back to History, the editor back to Routes, the
+    // coverage map back to Badges — took the push branch and slid in from the
+    // right, as though the rider were going somewhere new rather than returning.
+    // The business logic was right the whole time; only the direction was wrong.
+    PushPopContent(target = screen, depthOf = { it.depth }, label = "screen") { current ->
         when (current) {
             Screen.HUB -> HubScreen(
                 onBack = { screen = Screen.MAP },
