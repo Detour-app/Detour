@@ -1,13 +1,16 @@
 package com.jellemax.detour.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -23,6 +26,7 @@ import androidx.compose.material.icons.outlined.Casino
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -34,6 +38,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -50,6 +55,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -124,6 +130,24 @@ private class ModeSwipeState(private val scope: CoroutineScope) {
         scope.launch {
             settle.snapTo(from)
             dragging = false
+            settle.animateTo(0f, SETTLE_SPEC)
+        }
+    }
+
+    /**
+     * Throws the cell sideways and lets it spring back, twice. Deliberately
+     * drives the same offset the real drag does, so the motion demonstrated is
+     * the motion required rather than a description of it.
+     *
+     * Returns early rather than fighting a finger already on the card. If a
+     * drag starts mid-nudge, [begin] flips the read source to [dragPx] and
+     * this animation stops being rendered even though it is still running -
+     * the next [release] cancels it through Animatable's own mutex.
+     */
+    suspend fun nudge(px: Float) {
+        if (dragging) return
+        repeat(2) {
+            settle.animateTo(px, tween(durationMillis = 150, easing = LinearEasing))
             settle.animateTo(0f, SETTLE_SPEC)
         }
     }
@@ -244,6 +268,56 @@ private fun ModeCell(
     }
 }
 
+/**
+ * The swipe's discoverability affordance. Two variants ship at once so they can
+ * be compared by hand - this app has no analytics, so a measured A/B is not on
+ * the table. The loser is deleted along with [ModeSwipePolicy.HintVariant].
+ *
+ * Calls [onPlayed] whichever variant ran, and whether or not it actually
+ * animated: the caller's "already shown this visit" flag must clear either way,
+ * or a hint suppressed by a finger on the card would re-fire forever.
+ */
+@Composable
+private fun BoxScope.ModeSwipeHint(
+    request: Boolean,
+    variant: ModeSwipePolicy.HintVariant,
+    swipe: ModeSwipeState,
+    onPlayed: () -> Unit,
+) {
+    val arrowsAlpha = remember { Animatable(0f) }
+    val nudgePx = with(LocalDensity.current) { ModeSwipePolicy.HINT_NUDGE_DP.dp.toPx() }
+    val onPlayedRef = rememberUpdatedState(onPlayed)
+
+    LaunchedEffect(request) {
+        if (!request) return@LaunchedEffect
+        when (variant) {
+            ModeSwipePolicy.HintVariant.NUDGE -> swipe.nudge(nudgePx)
+            ModeSwipePolicy.HintVariant.ARROWS -> {
+                if (!swipe.dragging) {
+                    arrowsAlpha.animateTo(0.35f, tween(450, easing = LinearEasing))
+                    arrowsAlpha.animateTo(0.35f, tween(500, easing = LinearEasing))
+                    arrowsAlpha.animateTo(0f, tween(650, easing = LinearEasing))
+                }
+            }
+        }
+        onPlayedRef.value()
+    }
+
+    // Non-interactive by construction: no pointerInput, so it cannot swallow a
+    // touch, and cleared semantics so TalkBack never announces a decoration as
+    // a control. The real switch is on the card's own custom action.
+    Icon(
+        Icons.Outlined.SwapHoriz,
+        contentDescription = null,
+        modifier = Modifier
+            .align(Alignment.Center)
+            .size(28.dp)
+            .graphicsLayer { alpha = arrowsAlpha.value }
+            .clearAndSetSemantics { },
+        tint = MaterialTheme.colorScheme.primary,
+    )
+}
+
 /** Persistent glass bar at the bottom of the map: the spin dock. Tapping the
  *  left cell opens the sheet; the dice FAB spins right away without needing
  *  the sheet open at all. */
@@ -260,6 +334,9 @@ internal fun SpinDock(
     onSwitchMode: (TravelMode) -> Unit,
     switchBlockedReason: String?,
     onSwitchBlocked: (String) -> Unit,
+    hintRequest: Boolean,
+    hintVariant: ModeSwipePolicy.HintVariant,
+    onHintPlayed: () -> Unit,
     onSpin: () -> Unit,
     onExpand: () -> Unit,
     onNavigateInApp: () -> Unit,
@@ -289,51 +366,59 @@ internal fun SpinDock(
         colors = glassCardColors(),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ModeCell(
-                mode = mode,
-                radiusKm = radiusKm,
-                directionDeg = directionDeg,
-                modifier = Modifier
-                    .weight(1f)
-                    // graphicsLayer, not offset/alpha modifiers: the lambda runs
-                    // in the draw phase, so the per-frame read never triggers a
-                    // recomposition at all.
-                    .graphicsLayer {
-                        translationX = swipe.offsetPx
-                        alpha = 1f - (abs(swipe.offsetPx) / commitPx).coerceIn(0f, 1f) * DRAG_FADE
-                    }
-                    .clickable(onClick = onExpand),
-            )
-            Button(
-                onClick = onSpin,
-                shape = CircleShape,
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.size(52.dp),
+        Box {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (spinning) {
-                    CircularProgressIndicator(
-                        Modifier.size(22.dp), strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
-                } else {
-                    Icon(Icons.Outlined.Casino, contentDescription = "Spin")
+                ModeCell(
+                    mode = mode,
+                    radiusKm = radiusKm,
+                    directionDeg = directionDeg,
+                    modifier = Modifier
+                        .weight(1f)
+                        // graphicsLayer, not offset/alpha modifiers: the lambda runs
+                        // in the draw phase, so the per-frame read never triggers a
+                        // recomposition at all.
+                        .graphicsLayer {
+                            translationX = swipe.offsetPx
+                            alpha = 1f - (abs(swipe.offsetPx) / commitPx).coerceIn(0f, 1f) * DRAG_FADE
+                        }
+                        .clickable(onClick = onExpand),
+                )
+                Button(
+                    onClick = onSpin,
+                    shape = CircleShape,
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.size(52.dp),
+                ) {
+                    if (spinning) {
+                        CircularProgressIndicator(
+                            Modifier.size(22.dp), strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    } else {
+                        Icon(Icons.Outlined.Casino, contentDescription = "Spin")
+                    }
                 }
+                NavIconButton(
+                    destination = destination,
+                    route = route?.waypoints,
+                    origin = origin,
+                    mode = mode,
+                    inAppAvailable = inAppAvailable,
+                    onNavigateInApp = onNavigateInApp,
+                    onNavigate = onNavigate,
+                )
             }
-            NavIconButton(
-                destination = destination,
-                route = route?.waypoints,
-                origin = origin,
-                mode = mode,
-                inAppAvailable = inAppAvailable,
-                onNavigateInApp = onNavigateInApp,
-                onNavigate = onNavigate,
+            ModeSwipeHint(
+                request = hintRequest,
+                variant = hintVariant,
+                swipe = swipe,
+                onPlayed = onHintPlayed,
             )
         }
     }
