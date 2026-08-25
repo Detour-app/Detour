@@ -180,6 +180,67 @@ private fun Modifier.modeSwipeGesture(
     }
 }
 
+/**
+ * The mode switch as a TalkBack action. A swipe is invisible to a screen
+ * reader, and the bar this replaced was a plain focusable control.
+ *
+ * Unlike [modeSwipeGesture] this reads its arguments directly and must: it is
+ * rebuilt on every composition, so there is nothing stale to capture. Wrapping
+ * these in [rememberUpdatedState] would be cargo-culting the gesture's fix onto
+ * a case that does not have the problem.
+ */
+private fun Modifier.modeSwitchAction(
+    other: TravelMode,
+    blockedReason: String?,
+    onSwitch: (TravelMode) -> Unit,
+): Modifier = semantics {
+    customActions = listOf(
+        CustomAccessibilityAction("Switch to ${other.label}") {
+            if (blockedReason == null) {
+                onSwitch(other)
+                true
+            } else {
+                false
+            }
+        },
+    )
+}
+
+/** The dock's left cell: what mode you are in and how far you are asking for.
+ *  Takes its modifier from the caller, which owns the drag transform and the
+ *  tap that expands the sheet. */
+@Composable
+private fun ModeCell(
+    mode: TravelMode,
+    radiusKm: Float,
+    directionDeg: Float?,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(mode.icon, contentDescription = null)
+        Column {
+            Text(
+                "${if (mode.maxKm <= 10f) "%.1f".format(radiusKm) else radiusKm.toInt()} km",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                "${mode.label} · " + (directionDeg?.let { DIRECTION_NAMES[(it / 45f).toInt()] }
+                    ?: "any direction"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+        Icon(Icons.Outlined.ExpandLess, contentDescription = "Expand",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
 /** Persistent glass bar at the bottom of the map: the spin dock. Tapping the
  *  left cell opens the sheet; the dice FAB spins right away without needing
  *  the sheet open at all. */
@@ -219,23 +280,7 @@ internal fun SpinDock(
         modifier = modifier
             .fillMaxWidth()
             .glassBorder(MaterialTheme.shapes.extraLarge)
-            // The non-gesture equivalent. A swipe is invisible to TalkBack, and
-            // the mode bar this replaced was a plain, focusable control.
-            // Read directly rather than through the refs above: this lambda is
-            // rebuilt on every composition, so it is never stale.
-            .semantics {
-                customActions = listOf(
-                    CustomAccessibilityAction("Switch to ${other.label}") {
-                        val blocked = switchBlockedReason
-                        if (blocked == null) {
-                            onSwitchMode(other)
-                            true
-                        } else {
-                            false
-                        }
-                    },
-                )
-            }
+            .modeSwitchAction(other, switchBlockedReason, onSwitchMode)
             .modeSwipeGesture(swipe, blockedRef, otherRef, onSwitchRef, onBlockedRef),
         shape = MaterialTheme.shapes.extraLarge,
         colors = glassCardColors(),
@@ -248,8 +293,11 @@ internal fun SpinDock(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                Modifier
+            ModeCell(
+                mode = mode,
+                radiusKm = radiusKm,
+                directionDeg = directionDeg,
+                modifier = Modifier
                     .weight(1f)
                     // graphicsLayer, not offset/alpha modifiers: the lambda runs
                     // in the draw phase, so the per-frame read never triggers a
@@ -259,27 +307,7 @@ internal fun SpinDock(
                         alpha = 1f - (abs(swipe.offsetPx) / commitPx).coerceIn(0f, 1f) * DRAG_FADE
                     }
                     .clickable(onClick = onExpand),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(mode.icon, contentDescription = null)
-                Column {
-                    Text(
-                        "${if (mode.maxKm <= 10f) "%.1f".format(radiusKm) else radiusKm.toInt()} km",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        "${mode.label} · " + (directionDeg?.let { DIRECTION_NAMES[(it / 45f).toInt()] }
-                            ?: "any direction"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
-                }
-                Icon(Icons.Outlined.ExpandLess, contentDescription = "Expand",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            )
             Button(
                 onClick = onSpin,
                 shape = CircleShape,
