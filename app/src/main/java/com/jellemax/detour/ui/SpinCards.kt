@@ -63,6 +63,10 @@ import kotlinx.coroutines.launch
 private val DIRECTION_NAMES = listOf("North", "North-east", "East", "South-east",
     "South", "South-west", "West", "North-west")
 
+/** How much of its opacity the dock's left cell loses at full drag. Stops short
+ *  of invisible: the mode you are dragging away from stays readable. */
+private const val DRAG_FADE = 0.55f
+
 /** Persistent glass bar at the bottom of the map: the spin dock. Tapping the
  *  left cell opens the sheet; the dice FAB spins right away without needing
  *  the sheet open at all. */
@@ -94,6 +98,8 @@ internal fun SpinDock(
      *  wrappers - a read there would invalidate the whole lambda every frame of
      *  the drag. */
     val offsetX = remember { Animatable(0f) }
+    /** Read by the hint animation in the next commit, which must not fight a
+     *  finger that is already on the card. */
     var dragging by remember { mutableStateOf(false) }
 
     val commitPx = with(density) { ModeSwipePolicy.COMMIT_DP.dp.toPx() }
@@ -151,11 +157,14 @@ internal fun SpinDock(
                     onDragEnd = {
                         dragging = false
                         val blocked = blockedRef.value
+                        // px/s -> dp/s: toDp() divides by density, which is the
+                        // same conversion a velocity needs. ModeSwipePolicy's
+                        // fling threshold is in dp/s so the units must match.
                         val velocityDp = tracker.calculateVelocity().x.toDp().value
                         val offsetDp = offsetX.value.toDp().value
                         if (ModeSwipePolicy.commits(offsetDp, velocityDp, blocked != null)) {
                             onSwitchRef.value(otherRef.value)
-                        } else if (blocked != null && abs(offsetDp) > 1f) {
+                        } else if (blocked != null && abs(offsetDp) >= ModeSwipePolicy.MIN_INTENT_DP) {
                             onBlockedRef.value(blocked)
                         }
                         scope.launch { offsetX.animateTo(0f, settle) }
@@ -190,7 +199,7 @@ internal fun SpinDock(
                     // recomposition at all.
                     .graphicsLayer {
                         translationX = offsetX.value
-                        alpha = 1f - (abs(offsetX.value) / commitPx).coerceIn(0f, 1f) * 0.55f
+                        alpha = 1f - (abs(offsetX.value) / commitPx).coerceIn(0f, 1f) * DRAG_FADE
                     }
                     .clickable(onClick = onExpand),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
