@@ -2,6 +2,7 @@ package com.jellemax.detour.ui
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -34,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -49,12 +51,16 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -71,8 +77,20 @@ import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripCardFile
 import com.jellemax.detour.data.TripCardGeometry
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.Style
+import org.maplibre.android.snapshotter.MapSnapshot
+import org.maplibre.android.snapshotter.MapSnapshotter
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.LineString
+import org.maplibre.geojson.Point
 import java.io.IOException
 
 /** The card's fixed pixel size — see the design spec's "one 1080x1350 portrait
@@ -89,6 +107,104 @@ enum class CardLayout(val label: String) {
     MINIMAL("Minimal"),
     POSTER("Poster"),
 }
+
+private const val ROUTE_SNAPSHOT_SOURCE_ID = "trip-card-route"
+private const val ROUTE_SNAPSHOT_LAYER_ID = "trip-card-route-line"
+
+/** A completed [MapSnapshotter] result: the bitmap ready to draw, plus the
+ *  raw [MapSnapshot] for [MapSnapshot.pixelForLatLng] (placing the
+ *  destination dot in exact alignment with the rendered streets) and
+ *  [MapSnapshot.attributions] (the required OSM credit text). */
+data class TripCardMapSnapshot(val image: ImageBitmap, val raw: MapSnapshot)
+
+/** Strips the HTML the style's TileJSON attribution strings carry (e.g. an
+ *  `<a href=...>` wrapper) down to plain text for the card's footer. */
+private fun plainAttribution(snapshot: MapSnapshot): String =
+    snapshot.attributions.joinToString(" · ") { it.replace(Regex("<[^>]*>"), "") }
+
+/**
+ * Renders a real basemap snapshot for [cardData]'s trimmed route at
+ * [widthPx]x[heightPx], with the route drawn as a native GeoJSON line layer
+ * inside the style (so it's pixel-aligned to the real streets MapLibre
+ * renders, not drawn separately against a possibly-different projection).
+ * `null` while loading or on error — callers fall back to a flat
+ * placeholder, same as [rememberTripCardBitmap] gates the Share button on
+ * its own bitmap being non-null.
+ */
+@Composable
+fun rememberTripCardMapSnapshot(
+    cardData: CardData,
+    dark: Boolean,
+    routeColorHex: String,
+    widthPx: Int,
+    heightPx: Int,
+): State<TripCardMapSnapshot?> {
+    val context = LocalContext.current
+    val state = remember(cardData, dark, routeColorHex, widthPx, heightPx) {
+        mutableStateOf<TripCardMapSnapshot?>(null)
+    }
+
+    DisposableEffect(cardData, dark, routeColorHex, widthPx, heightPx) {
+        val points = cardData.trimmedLatLon
+        if (points.isEmpty()) {
+            // No trace to show a map for — same "stats-only" case the
+            // abstract-line renderer already handled; leave state null.
+            return@DisposableEffect onDispose {}
+        }
+
+        val lats = points.map { it.lat }
+        val lons = points.map { it.lon }
+        // 20% padding on each side so the snapshot shows surrounding
+        // streets, not just a tight crop of the route itself.
+        val latSpan = (lats.max() - lats.min()).coerceAtLeast(0.0005)
+        val lonSpan = (lons.max() - lons.min()).coerceAtLeast(0.0005)
+        // LatLngBounds's own primary constructor is `internal`; `.from(...)`
+        // is the public factory (confirmed by decompiling the SDK jar —
+        // `world()` calls `from(90.0, 180.0, -90.0, -180.0)`), same
+        // (latNorth, lonEast, latSouth, lonWest) field order.
+        val bounds = LatLngBounds.from(
+            lats.max() + latSpan * 0.2, lons.max() + lonSpan * 0.2,
+            lats.min() - latSpan * 0.2, lons.min() - lonSpan * 0.2,
+        )
+
+        val routeLine = LineString.fromLngLats(points.map { Point.fromLngLat(it.lon, it.lat) })
+        val styleBuilder = Style.Builder()
+            .fromUri(openFreeMapStyleUrl(dark))
+            .withSource(GeoJsonSource(ROUTE_SNAPSHOT_SOURCE_ID, routeLine))
+            .withLayer(
+                LineLayer(ROUTE_SNAPSHOT_LAYER_ID, ROUTE_SNAPSHOT_SOURCE_ID).withProperties(
+                    PropertyFactory.lineColor(AndroidColor.parseColor(routeColorHex)),
+                    PropertyFactory.lineWidth(4f),
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+                ),
+            )
+        val options = MapSnapshotter.Options(widthPx, heightPx)
+            .withStyleBuilder(styleBuilder)
+            .withRegion(bounds)
+            .withPixelRatio(1f) // exact widthPx/heightPx output, not device-density-scaled
+        val snapshotter = MapSnapshotter(context, options)
+        snapshotter.start(
+            object : MapSnapshotter.SnapshotReadyCallback {
+                override fun onSnapshotReady(snapshot: MapSnapshot) {
+                    state.value = TripCardMapSnapshot(snapshot.bitmap.asImageBitmap(), snapshot)
+                }
+            },
+            object : MapSnapshotter.ErrorHandler {
+                override fun onError(error: String) {
+                    state.value = null // falls back to the loading/flat placeholder
+                }
+            },
+        )
+        onDispose { snapshotter.cancel() }
+    }
+
+    return state
+}
+
+/** Desaturated + slightly darkened so the route color (and any card text
+ *  drawn over it) stays the focal element against real map imagery. */
+private val mapMutedFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.4f) })
 
 /**
  * Renders [cardData] offscreen and returns the captured bitmap once ready.
@@ -151,9 +267,25 @@ fun rememberTripCardBitmap(
     LaunchedEffect(cardData, routeColorHex, dark, trimmed, layout) {
         // The draw phase above needs at least one composition/layout/draw
         // pass to have run before the layer holds anything; a single
-        // withFrameNanos wait is enough since the Box is already in the tree.
+        // withFrameNanos wait is enough for that first capture. But
+        // StandardCardContent's map (rememberTripCardMapSnapshot) loads
+        // asynchronously — a MapSnapshotter fetch that's usually near-instant
+        // since TripDetailScreen's own map already warmed this route's tile
+        // cache before the share dialog can even be opened, but is never
+        // guaranteed to land inside that single frame. A one-shot capture
+        // would freeze the preview/export on the loading placeholder forever
+        // once the real map arrives a frame or two later, since nothing
+        // triggers a second capture. Re-poll for a few seconds instead: each
+        // recapture just reads whatever the draw phase most recently
+        // recorded (a no-op if nothing changed), so this is cheap and picks
+        // up the map the moment it's ready.
         androidx.compose.runtime.withFrameNanos { }
         bitmapState.value = graphicsLayer.toImageBitmap()
+        val deadlineNanos = System.nanoTime() + 3_000_000_000L
+        while (System.nanoTime() < deadlineNanos) {
+            delay(200)
+            bitmapState.value = graphicsLayer.toImageBitmap()
+        }
     }
 
     return bitmapState
@@ -299,7 +431,7 @@ private fun TripCardContent(cardData: CardData, routeColorHex: String, dark: Boo
                 .background(Brush.verticalGradient(listOf(backgroundTop, backgroundBottom))),
         ) {
             when (layout) {
-                CardLayout.STANDARD -> StandardCardContent(cardData, routeColor, backgroundTop, textColor, mutedColor, trimmed)
+                CardLayout.STANDARD -> StandardCardContent(cardData, routeColor, routeColorHex, backgroundTop, textColor, mutedColor, trimmed)
                 CardLayout.MINIMAL -> MinimalCardContent(cardData, routeColor, textColor, mutedColor)
                 CardLayout.POSTER -> PosterCardContent(cardData, routeColor, backgroundTop, textColor, mutedColor, trimmed)
             }
@@ -318,19 +450,41 @@ private fun TripCardContent(cardData: CardData, routeColorHex: String, dark: Boo
  *  the map's weight(1f). */
 @Composable
 private fun StandardCardContent(
-    cardData: CardData, routeColor: Color, backgroundTop: Color, textColor: Color, mutedColor: Color, trimmed: Boolean,
+    cardData: CardData, routeColor: Color, routeColorHex: String, backgroundTop: Color, textColor: Color, mutedColor: Color, trimmed: Boolean,
 ) {
     val trip = cardData.trip
+    val dark = textColor == CARD_TEXT_DARK
     Column(Modifier.fillMaxSize().padding(48.dp)) {
         CardEyebrow(trip, routeColor, mutedColor)
+        // Declared unconditionally (not inside the `if` below) so the
+        // footer at the bottom of this function can also read its
+        // attribution — rememberTripCardMapSnapshot itself no-ops (state
+        // stays null forever, no fetch) when cardData.trimmedLatLon is
+        // empty, so this is cheap even for a trip with no trace.
+        val mapSnapshot = rememberTripCardMapSnapshot(
+            cardData, dark = dark, routeColorHex = routeColorHex,
+            widthPx = 1080 - 96, heightPx = 700,
+        ).value
         if (cardData.points.isNotEmpty()) {
-            // weight(1f), not a fixed height: the map is the card's
-            // dominant visual, and giving it the leftover height keeps the
-            // stats/footer stack pinned to the bottom regardless of how tall
-            // that stack ends up being (trim caption present or not, 1-3
-            // secondary stats).
-            Box(Modifier.weight(1f).fillMaxWidth().padding(top = 20.dp, bottom = 28.dp)) {
-                RouteCanvas(cardData, routeColor, backgroundTop, textColor, Modifier.fillMaxSize())
+            // Fixed height, not weight(1f): the map snapshot is an async
+            // network fetch that needs a known pixel size *before* layout
+            // runs. 700dp is generous (Standard's text stack below — hero
+            // row, secondary row, footer — sums to well under the
+            // remaining ~650px on a 1350px card even with the trim
+            // caption present) — tune this on-device if the real render
+            // clips or leaves excess slack.
+            Box(Modifier.fillMaxWidth().height(700.dp).padding(top = 20.dp, bottom = 28.dp)) {
+                if (mapSnapshot != null) {
+                    Image(
+                        bitmap = mapSnapshot.image, contentDescription = null,
+                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+                        colorFilter = mapMutedFilter,
+                    )
+                    Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = if (dark) 0.25f else 0.10f)))
+                    MapSnapshotDestinationDot(cardData, mapSnapshot, routeColor, backgroundTop, Modifier.matchParentSize())
+                } else {
+                    Box(Modifier.matchParentSize().background(textColor.copy(alpha = 0.06f)))
+                }
             }
         }
         if (trimmed) TrimmedCaption(mutedColor, Modifier.padding(bottom = 20.dp))
@@ -342,7 +496,7 @@ private fun StandardCardContent(
             heroStat("TOP SPEED", formatSpeedKmh(trip.topSpeedMps), mutedColor, Modifier.weight(1f))
         }
         SecondaryStatsRow(cardData, textColor, mutedColor, Modifier.padding(top = 24.dp))
-        CardFooter(routeColor, textColor, Modifier.padding(top = 28.dp))
+        CardFooter(routeColor, textColor, mapSnapshot?.let { plainAttribution(it.raw) }, Modifier.padding(top = 28.dp))
     }
 }
 
@@ -396,7 +550,7 @@ private fun PosterCardContent(
             formatSpeedKmh(trip.topSpeedMps),
         ).joinToString(" · ")
         Text(line, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, color = mutedColor)
-        CardFooter(routeColor, textColor, Modifier.padding(top = 24.dp))
+        CardFooter(routeColor, textColor, modifier = Modifier.padding(top = 24.dp))
     }
 }
 
@@ -442,14 +596,38 @@ private fun SecondaryStatsRow(cardData: CardData, textColor: Color, mutedColor: 
 }
 
 @Composable
-private fun CardFooter(routeColor: Color, textColor: Color, modifier: Modifier = Modifier) {
+private fun CardFooter(routeColor: Color, textColor: Color, attribution: String? = null, modifier: Modifier = Modifier) {
     Row(
         modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text("DETOUR", fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp, color = textColor.copy(alpha = 0.45f))
+        Column {
+            Text("DETOUR", fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp, color = textColor.copy(alpha = 0.45f))
+            if (attribution != null) {
+                Text(attribution, fontSize = 12.sp, color = textColor.copy(alpha = 0.35f))
+            }
+        }
         Box(Modifier.width(48.dp).height(4.dp).background(routeColor))
+    }
+}
+
+/** The destination halo+dot, positioned via [MapSnapshot.pixelForLatLng] —
+ *  the snapshot's own projection, so it lines up with the real streets
+ *  MapLibre rendered rather than a separately-computed pixel position. */
+@Composable
+private fun MapSnapshotDestinationDot(
+    cardData: CardData, snapshot: TripCardMapSnapshot, routeColor: Color, backgroundTop: Color, modifier: Modifier = Modifier,
+) {
+    val trip = cardData.trip
+    val destLat = trip.destinationLat
+    val destLon = trip.destinationLon
+    if (cardData.destination == null || destLat == null || destLon == null) return
+    Canvas(modifier) {
+        val pixel = snapshot.raw.pixelForLatLng(LatLng(destLat, destLon))
+        val center = Offset(pixel.x, pixel.y)
+        drawCircle(backgroundTop, radius = 20f, center = center)
+        drawCircle(routeColor, radius = 14f, center = center)
     }
 }
 
