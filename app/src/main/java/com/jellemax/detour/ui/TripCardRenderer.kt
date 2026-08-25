@@ -118,8 +118,15 @@ private const val ROUTE_SNAPSHOT_LAYER_ID = "trip-card-route-line"
 data class TripCardMapSnapshot(val image: ImageBitmap, val raw: MapSnapshot)
 
 /** Strips the HTML the style's TileJSON attribution strings carry (e.g. an
- *  `<a href=...>` wrapper) down to plain text for the card's footer. */
-private fun plainAttribution(snapshot: MapSnapshot): String =
+ *  `<a href=...>` wrapper) down to plain text. Not called from this file's
+ *  own card footer — `MapSnapshotter` already bakes a plain-text attribution
+ *  directly into the returned bitmap unconditionally (`drawAttribution()`
+ *  isn't gated by `withLogo(false)` the way the logo bitmap is; confirmed by
+ *  decompiling the SDK jar), so rendering this text a second time in the
+ *  footer would show the same credit twice. Kept as a public helper for a
+ *  future caller (e.g. a layout that crops the baked-in credit out and wants
+ *  to render its own instead). */
+fun plainAttribution(snapshot: MapSnapshot): String =
     snapshot.attributions.joinToString(" · ") { it.replace(Regex("<[^>]*>"), "") }
 
 /**
@@ -183,6 +190,15 @@ fun rememberTripCardMapSnapshot(
             .withStyleBuilder(styleBuilder)
             .withRegion(bounds)
             .withPixelRatio(1f) // exact widthPx/heightPx output, not device-density-scaled
+            // Suppresses only the MapLibre wordmark bitmap that
+            // MapSnapshotter.addOverlay() would otherwise bake into the
+            // returned bitmap (drawLogo() gates on MapSnapshot.isShowLogo(),
+            // confirmed by decompiling the SDK jar). Its attribution text is
+            // NOT gated by this flag — drawAttribution() bakes it in
+            // unconditionally — so it's still the sole visible credit; the
+            // card deliberately doesn't also render plainAttribution() in
+            // its own footer, to avoid showing that credit twice.
+            .withLogo(false)
         val snapshotter = MapSnapshotter(context, options)
         snapshotter.start(
             object : MapSnapshotter.SnapshotReadyCallback {
@@ -206,6 +222,21 @@ fun rememberTripCardMapSnapshot(
  *  drawn over it) stays the focal element against real map imagery. */
 private val mapMutedFilter = ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0.4f) })
 
+/** Standard layout's map box, in the same fixed pixel space the whole card is
+ *  exported at (density=1f, so 1dp==1px). The *requested* snapshot size and
+ *  the box it's displayed in must match exactly: [StandardCardContent] sizes
+ *  its map `Box` to [STANDARD_MAP_HEIGHT_PX].dp precisely so `ContentScale.Crop`
+ *  performs zero cropping, which is what lets `MapSnapshotDestinationDot`
+ *  draw at the raw `pixelForLatLng()` coordinates with no offset correction. */
+private const val STANDARD_MAP_WIDTH_PX = CARD_WIDTH_PX - 96 // 48dp padding each side
+private const val STANDARD_MAP_HEIGHT_PX = 700
+
+/** Last-resort wait in [rememberTripCardBitmap] for a pending map fetch
+ *  before giving up on it — see the comment on that function's
+ *  `LaunchedEffect` for why this exists and why it's a single bounded wait,
+ *  not a retry loop. */
+private const val MAP_SNAPSHOT_GRACE_MS = 4_000L
+
 /**
  * Renders [cardData] offscreen and returns the captured bitmap once ready.
  * `null` on the first frame (nothing captured yet) — callers gate the actual
@@ -222,6 +253,22 @@ fun rememberTripCardBitmap(
     val bitmapState = remember(cardData, routeColorHex, dark, trimmed, layout) { mutableStateOf<ImageBitmap?>(null) }
     val graphicsLayer = rememberGraphicsLayer()
     val density = Density(density = 1f) // 1px == 1px: the card is exported at a fixed pixel size.
+
+    // Hoisted up here — rather than fetched independently inside
+    // StandardCardContent — so the LaunchedEffect below can key off the
+    // resolved snapshot directly and recapture exactly once when it lands,
+    // instead of racing an async fetch with a blind polling loop (see this
+    // task's fix report for what that looked like and why it was wrong).
+    // Only Standard shows a map today; Poster/Minimal don't call this, so
+    // they don't pay for a fetch their own layout never displays.
+    val mapSnapshot = if (layout == CardLayout.STANDARD) {
+        rememberTripCardMapSnapshot(
+            cardData, dark = dark, routeColorHex = routeColorHex,
+            widthPx = STANDARD_MAP_WIDTH_PX, heightPx = STANDARD_MAP_HEIGHT_PX,
+        ).value
+    } else {
+        null
+    }
 
     // Zero-size, clipped parent: the child below is still placed and drawn
     // (which is what lets graphicsLayer.record capture it) but nothing of it
@@ -259,33 +306,52 @@ fun rememberTripCardBitmap(
                         drawLayer(graphicsLayer)
                     },
             ) {
-                TripCardContent(cardData, routeColorHex, dark, trimmed, layout)
+                TripCardContent(cardData, routeColorHex, dark, trimmed, layout, mapSnapshot)
             }
         }
     }
 
-    LaunchedEffect(cardData, routeColorHex, dark, trimmed, layout) {
+    // True exactly while Standard's map (rememberTripCardMapSnapshot, hoisted
+    // above) has a real fetch in flight that this capture should wait for —
+    // computed synchronously from cardData/layout, not from mapSnapshot
+    // itself, so it's known immediately rather than only once the fetch
+    // eventually settles.
+    val mapPending = layout == CardLayout.STANDARD && cardData.trimmedLatLon.isNotEmpty() && mapSnapshot == null
+
+    // mapSnapshot is part of the key list: when the async fetch resolves,
+    // its value changes, which recomposes this function (its value is read
+    // above) and, because it's a LaunchedEffect key, cancels and restarts
+    // this coroutine — capturing again, now that composition/layout/draw for
+    // the new Image have had a chance to run.
+    //
+    // Critically, this does NOT publish a capture while mapPending is true:
+    // an earlier version captured unconditionally after one frame, which
+    // gated the Share button open on a bitmap that was really just the
+    // loading placeholder (Share is enabled by `bitmap != null`, and a
+    // placeholder capture is non-null) — a user tapping Share during that
+    // window would silently export/send a card with a gray box where the
+    // map should be, no error, no indication anything was wrong. Skipping
+    // the capture here means `bitmapState` (and so the Share button) simply
+    // stays exactly as it was — null on first open, unchanged on a
+    // dark/trim/layout toggle since `remember(...)` above resets it to null
+    // whenever any of those keys change — until either the real map lands
+    // (the common case: this task's on-device testing measured ~250ms,
+    // since TripDetailScreen's own map always warms this route's tile cache
+    // before the share dialog is even reachable) or MAP_SNAPSHOT_GRACE_MS
+    // passes without it, at which point this gives up waiting so a
+    // persistent failure can't leave the dialog stuck with Share disabled
+    // forever. That grace fallback is a single bounded wait, not a poll: if
+    // the real snapshot lands before it elapses, this coroutine is cancelled
+    // and restarted (mapSnapshot changed) well before reaching it.
+    LaunchedEffect(cardData, routeColorHex, dark, trimmed, layout, mapSnapshot) {
         // The draw phase above needs at least one composition/layout/draw
         // pass to have run before the layer holds anything; a single
-        // withFrameNanos wait is enough for that first capture. But
-        // StandardCardContent's map (rememberTripCardMapSnapshot) loads
-        // asynchronously — a MapSnapshotter fetch that's usually near-instant
-        // since TripDetailScreen's own map already warmed this route's tile
-        // cache before the share dialog can even be opened, but is never
-        // guaranteed to land inside that single frame. A one-shot capture
-        // would freeze the preview/export on the loading placeholder forever
-        // once the real map arrives a frame or two later, since nothing
-        // triggers a second capture. Re-poll for a few seconds instead: each
-        // recapture just reads whatever the draw phase most recently
-        // recorded (a no-op if nothing changed), so this is cheap and picks
-        // up the map the moment it's ready.
+        // withFrameNanos wait is enough since the Box is already in the tree.
         androidx.compose.runtime.withFrameNanos { }
-        bitmapState.value = graphicsLayer.toImageBitmap()
-        val deadlineNanos = System.nanoTime() + 3_000_000_000L
-        while (System.nanoTime() < deadlineNanos) {
-            delay(200)
-            bitmapState.value = graphicsLayer.toImageBitmap()
+        if (mapPending) {
+            delay(MAP_SNAPSHOT_GRACE_MS)
         }
+        bitmapState.value = graphicsLayer.toImageBitmap()
     }
 
     return bitmapState
@@ -412,7 +478,9 @@ private val CARD_TEXT_DARK = Color.White
 private val CARD_TEXT_LIGHT = Color.Black
 
 @Composable
-private fun TripCardContent(cardData: CardData, routeColorHex: String, dark: Boolean, trimmed: Boolean, layout: CardLayout) {
+private fun TripCardContent(
+    cardData: CardData, routeColorHex: String, dark: Boolean, trimmed: Boolean, layout: CardLayout, mapSnapshot: TripCardMapSnapshot?,
+) {
     val trip = cardData.trip
     val routeColor = Color(android.graphics.Color.parseColor(routeColorHex))
     val backgroundTop = if (dark) CARD_BACKGROUND_DARK else CARD_BACKGROUND_LIGHT
@@ -431,7 +499,7 @@ private fun TripCardContent(cardData: CardData, routeColorHex: String, dark: Boo
                 .background(Brush.verticalGradient(listOf(backgroundTop, backgroundBottom))),
         ) {
             when (layout) {
-                CardLayout.STANDARD -> StandardCardContent(cardData, routeColor, routeColorHex, backgroundTop, textColor, mutedColor, trimmed)
+                CardLayout.STANDARD -> StandardCardContent(cardData, routeColor, backgroundTop, textColor, mutedColor, trimmed, mapSnapshot)
                 CardLayout.MINIMAL -> MinimalCardContent(cardData, routeColor, textColor, mutedColor)
                 CardLayout.POSTER -> PosterCardContent(cardData, routeColor, backgroundTop, textColor, mutedColor, trimmed)
             }
@@ -450,40 +518,42 @@ private fun TripCardContent(cardData: CardData, routeColorHex: String, dark: Boo
  *  the map's weight(1f). */
 @Composable
 private fun StandardCardContent(
-    cardData: CardData, routeColor: Color, routeColorHex: String, backgroundTop: Color, textColor: Color, mutedColor: Color, trimmed: Boolean,
+    cardData: CardData, routeColor: Color, backgroundTop: Color, textColor: Color, mutedColor: Color, trimmed: Boolean,
+    mapSnapshot: TripCardMapSnapshot?,
 ) {
     val trip = cardData.trip
     val dark = textColor == CARD_TEXT_DARK
     Column(Modifier.fillMaxSize().padding(48.dp)) {
         CardEyebrow(trip, routeColor, mutedColor)
-        // Declared unconditionally (not inside the `if` below) so the
-        // footer at the bottom of this function can also read its
-        // attribution — rememberTripCardMapSnapshot itself no-ops (state
-        // stays null forever, no fetch) when cardData.trimmedLatLon is
-        // empty, so this is cheap even for a trip with no trace.
-        val mapSnapshot = rememberTripCardMapSnapshot(
-            cardData, dark = dark, routeColorHex = routeColorHex,
-            widthPx = 1080 - 96, heightPx = 700,
-        ).value
         if (cardData.points.isNotEmpty()) {
-            // Fixed height, not weight(1f): the map snapshot is an async
-            // network fetch that needs a known pixel size *before* layout
-            // runs. 700dp is generous (Standard's text stack below — hero
-            // row, secondary row, footer — sums to well under the
-            // remaining ~650px on a 1350px card even with the trim
-            // caption present) — tune this on-device if the real render
-            // clips or leaves excess slack.
-            Box(Modifier.fillMaxWidth().height(700.dp).padding(top = 20.dp, bottom = 28.dp)) {
-                if (mapSnapshot != null) {
-                    Image(
-                        bitmap = mapSnapshot.image, contentDescription = null,
-                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
-                        colorFilter = mapMutedFilter,
-                    )
-                    Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = if (dark) 0.25f else 0.10f)))
-                    MapSnapshotDestinationDot(cardData, mapSnapshot, routeColor, backgroundTop, Modifier.matchParentSize())
-                } else {
-                    Box(Modifier.matchParentSize().background(textColor.copy(alpha = 0.06f)))
+            // Padding sits on this outer Box, *outside* the fixed-size inner
+            // Box below, rather than on the sized Box itself: a
+            // `.height(x.dp).padding(top, bottom)` chain applies the padding
+            // *inside* the sized node, so the content area actually measured
+            // (984 x (700-20-28)) would end up smaller than the requested
+            // STANDARD_MAP_WIDTH_PX x STANDARD_MAP_HEIGHT_PX snapshot —
+            // `ContentScale.Crop` would then crop ~24dp off the top and
+            // bottom of the bitmap to fit, but `MapSnapshotDestinationDot`
+            // draws at the raw (uncropped) `pixelForLatLng()` coordinates,
+            // so the dot would land ~24px off from the streets under it.
+            // Keeping the padding outside means the inner Box — where the
+            // Image and the dot's Canvas both measure — is exactly
+            // STANDARD_MAP_WIDTH_PX x STANDARD_MAP_HEIGHT_PX, matching the
+            // requested snapshot 1:1, so Crop performs zero cropping and the
+            // dot's raw pixel coordinates line up exactly.
+            Box(Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 28.dp)) {
+                Box(Modifier.fillMaxWidth().height(STANDARD_MAP_HEIGHT_PX.dp)) {
+                    if (mapSnapshot != null) {
+                        Image(
+                            bitmap = mapSnapshot.image, contentDescription = null,
+                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+                            colorFilter = mapMutedFilter,
+                        )
+                        Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = if (dark) 0.25f else 0.10f)))
+                        MapSnapshotDestinationDot(cardData, mapSnapshot, routeColor, backgroundTop, Modifier.matchParentSize())
+                    } else {
+                        Box(Modifier.matchParentSize().background(textColor.copy(alpha = 0.06f)))
+                    }
                 }
             }
         }
@@ -496,7 +566,12 @@ private fun StandardCardContent(
             heroStat("TOP SPEED", formatSpeedKmh(trip.topSpeedMps), mutedColor, Modifier.weight(1f))
         }
         SecondaryStatsRow(cardData, textColor, mutedColor, Modifier.padding(top = 24.dp))
-        CardFooter(routeColor, textColor, mapSnapshot?.let { plainAttribution(it.raw) }, Modifier.padding(top = 28.dp))
+        // No attribution text here: MapSnapshotter already bakes a plain-text
+        // OSM/OpenFreeMap credit directly into mapSnapshot's own bitmap,
+        // unconditionally (see the withLogo(false) comment on
+        // rememberTripCardMapSnapshot) — showing plainAttribution(...) here
+        // too would duplicate that credit.
+        CardFooter(routeColor, textColor, modifier = Modifier.padding(top = 28.dp))
     }
 }
 
