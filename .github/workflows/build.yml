@@ -149,6 +149,28 @@ jobs:
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "code=${VERSION_CODE:-local}" >> "$GITHUB_OUTPUT"
 
+      # Play takes "what's new" text from a file, not an inline string:
+      # whatsnew/<locale>/whatsnew, one release note per locale. Pulled from
+      # CHANGELOG.md's section for this versionName, so the note a PR writes
+      # there is what testers see on Play, not just in git history.
+      #
+      # Fails the build (PR and push alike) rather than warning: a warning is
+      # easy to miss and still leaves main mergeable with an undocumented
+      # bump. Runs on every build, not just push, so a PR is blocked before
+      # merge — the same point CLAUDE.md's Versioning section says the
+      # section should be added.
+      - name: Extract changelog for this release
+        run: |
+          mkdir -p whatsnew/en-US
+          awk -v ver="${{ steps.version.outputs.name }}" '
+            /^## / { if (found) exit; found = ($2 == ver) }
+            found && !/^## / { print }
+          ' CHANGELOG.md | sed '/./,$!d' | head -c 500 > whatsnew/en-US/whatsnew
+          if [ ! -s whatsnew/en-US/whatsnew ]; then
+            echo "::error::No CHANGELOG.md section for ${{ steps.version.outputs.name }} — add one (see CLAUDE.md → Versioning) before this can merge."
+            exit 1
+          fi
+
       # Glob because the artifact name depends on signing: app-release.apk
       # when signed (always, on push — see the decode step), or
       # app-release-unsigned.apk on an unsigned PR build.
@@ -226,6 +248,7 @@ jobs:
           track: internal
           status: completed
           mappingFile: app/build/outputs/mapping/release/mapping.txt
+          whatsNewDirectory: whatsnew
 
       # Tagged per version, so old builds stay downloadable instead of being
       # overwritten. Pushing twice without bumping versionName in
@@ -283,3 +306,4 @@ jobs:
           releaseFiles: wear/build/outputs/bundle/release/wear-release.aab
           track: wear:internal
           status: completed
+          whatsNewDirectory: whatsnew
