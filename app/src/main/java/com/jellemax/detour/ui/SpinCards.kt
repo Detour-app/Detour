@@ -268,6 +268,31 @@ private fun ModeCell(
     }
 }
 
+/** The dice. Spins on tap; while a spin is in flight it becomes its own
+ *  progress indicator and the same tap cancels it. */
+@Composable
+private fun SpinButton(
+    spinning: Boolean,
+    onSpin: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Button(
+        onClick = onSpin,
+        shape = CircleShape,
+        contentPadding = PaddingValues(0.dp),
+        modifier = modifier.size(52.dp),
+    ) {
+        if (spinning) {
+            CircularProgressIndicator(
+                Modifier.size(22.dp), strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
+        } else {
+            Icon(Icons.Outlined.Casino, contentDescription = "Spin")
+        }
+    }
+}
+
 /**
  * The swipe's discoverability affordance. Two variants ship at once so they can
  * be compared by hand - this app has no analytics, so a measured A/B is not on
@@ -389,21 +414,7 @@ internal fun SpinDock(
                         }
                         .clickable(onClick = onExpand),
                 )
-                Button(
-                    onClick = onSpin,
-                    shape = CircleShape,
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.size(52.dp),
-                ) {
-                    if (spinning) {
-                        CircularProgressIndicator(
-                            Modifier.size(22.dp), strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                        )
-                    } else {
-                        Icon(Icons.Outlined.Casino, contentDescription = "Spin")
-                    }
-                }
+                SpinButton(spinning = spinning, onSpin = onSpin)
                 NavIconButton(
                     destination = destination,
                     route = route?.waypoints,
