@@ -17,6 +17,9 @@ data class CardData(
     val trip: Trip,
     val points: List<CardPoint>,
     val destination: CardPoint?,
+    /** Raw coordinates for the same privacy-trimmed span as [points], used
+     *  to fit a real map snapshot without duplicating trim logic. */
+    val trimmedLatLon: List<LatLon>,
 ) {
     /** Non-null only for a mode that actually records lean — a car's number
      *  would be the phone sliding in its cradle, not the vehicle. */
@@ -37,7 +40,7 @@ object TripCardGeometry {
     const val TRIM_METERS: Double = 500.0
 
     fun build(trip: Trip, points: List<LatLon>, full: Boolean = false): CardData {
-        if (points.isEmpty()) return CardData(trip, emptyList(), null)
+        if (points.isEmpty()) return CardData(trip, emptyList(), null, emptyList())
 
         val cumulative = cumulativeDistances(points)
         val total = cumulative.last()
@@ -46,10 +49,10 @@ object TripCardGeometry {
 
         // A trip shorter than 2x the trim distance has no untrimmed middle
         // left — draw nothing rather than a negative-length span.
-        if (!full && trimEnd <= trimStart) return CardData(trip, emptyList(), null)
+        if (!full && trimEnd <= trimStart) return CardData(trip, emptyList(), null, emptyList())
 
         val kept = points.indices.filter { cumulative[it] in trimStart..trimEnd }
-        if (kept.isEmpty()) return CardData(trip, emptyList(), null)
+        if (kept.isEmpty()) return CardData(trip, emptyList(), null, emptyList())
 
         val keptPoints = kept.map { points[it] }
         val minLat = keptPoints.minOf { it.lat }
@@ -85,7 +88,7 @@ object TripCardGeometry {
             if (destCumulative in trimStart..trimEnd) normalize(LatLon(destLat, destLon)) else null
         } else null
 
-        return CardData(trip, normalizedPoints, destination)
+        return CardData(trip, normalizedPoints, destination, keptPoints)
     }
 
     /** Running distance (meters) at each point, index-aligned with [points]. */
