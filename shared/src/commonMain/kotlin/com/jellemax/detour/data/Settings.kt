@@ -37,6 +37,8 @@ object Settings {
     const val DEFAULT_ZOOM_DEFAULT = 16f
     const val DEFAULT_ZOOM_MIN = 12f
     const val DEFAULT_ZOOM_MAX = 19f
+    /** The hint variant a fresh install gets. See `Settings.swipeHintVariant`. */
+    const val SWIPE_HINT_VARIANT_DEFAULT = "nudge"
 
     private var store: Prefs? = null
     private val prefs: Prefs get() = store ?: error("Settings.init() not called")
@@ -88,16 +90,24 @@ object Settings {
     /** How many times the spin dock's mode swipe has been used successfully.
      *  Drives the discoverability hint, which retires after
      *  `ModeSwipePolicy.HINT_AFTER_USES` successful swipes (in the app module).
+     *
+     *  Persisted rather than remembered because `AppRoot` swaps screens with a
+     *  bare `AnimatedContent` and no `rememberSaveableStateHolder`: leaving the
+     *  map for the Hub disposes MapScreen's whole composition, so even
+     *  `rememberSaveable` would reset and a user who had already learned the
+     *  gesture would be taught it again on every visit.
+     *
      *  Long rather than Int because [Prefs] has no Int overload. */
     private val _modeSwipesUsed = MutableStateFlow(0L)
     val modeSwipesUsed: StateFlow<Long> = _modeSwipesUsed
 
-    /** Which mode-swipe hint animation plays: "nudge" or "arrows". A raw String
-     *  rather than an enum because this is a temporary A/B knob - it is deleted
-     *  along with the losing variant. Parsed by
-     *  `ModeSwipePolicy.HintVariant.of` (in the app module), which is
-     *  tolerant of anything. */
-    private val _swipeHintVariant = MutableStateFlow("nudge")
+    /** Which mode-swipe hint animation plays: "nudge" or "arrows". Deliberately
+     *  a raw String and not an enum like [Theme] or [MapIcon] beside it: this is
+     *  a temporary A/B knob, deleted along with the losing variant, and the enum
+     *  it maps to lives in the app module where it can be parsed tolerantly.
+     *  Parsed by `ModeSwipePolicy.HintVariant.of` (in the app module), which
+     *  falls back to the default rather than throwing on an unknown name. */
+    private val _swipeHintVariant = MutableStateFlow(SWIPE_HINT_VARIANT_DEFAULT)
     val swipeHintVariant: StateFlow<String> = _swipeHintVariant
 
     /** A Bluetooth device the user assigned to a vehicle. [name] is kept so the
@@ -190,7 +200,7 @@ object Settings {
         _externalDisplayEnabled.value = prefs.bool("external_display_enabled", false)
         _tripMode.value = TravelMode.of(prefs.string("trip_mode").takeIf { it.isNotEmpty() })
         _modeSwipesUsed.value = prefs.long("mode_swipes_used", 0L)
-        _swipeHintVariant.value = prefs.string("swipe_hint_variant", "nudge")
+        _swipeHintVariant.value = prefs.string("swipe_hint_variant", SWIPE_HINT_VARIANT_DEFAULT)
         _shareFog.value = prefs.bool("share_fog", false)
         _fogEnabled.value = prefs.bool("fog_enabled", true)
         _fogRadiusMeters.value = prefs.float("fog_radius_m", FOG_RADIUS_DEFAULT)
