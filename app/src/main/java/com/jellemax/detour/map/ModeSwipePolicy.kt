@@ -1,6 +1,7 @@
 package com.jellemax.detour.map
 
 import com.jellemax.detour.data.TravelMode
+import kotlin.math.abs
 
 /**
  * Every decision the spin dock's mode swipe makes. Pure: values in, one answer
@@ -42,4 +43,32 @@ internal object ModeSwipePolicy {
      *  direction means "the other one". */
     fun other(mode: TravelMode): TravelMode =
         if (mode == TravelMode.MOTO) TravelMode.CAR else TravelMode.MOTO
+
+    /**
+     * How far the card's left cell should sit for a raw finger travel of
+     * [rawDp]. Linear up to the limit, then compressed by [RESISTANCE], so the
+     * card never runs away from the finger and the threshold is felt.
+     *
+     * [blocked] only changes where the compression starts: a refused swipe still
+     * moves, it just stops tracking almost immediately.
+     */
+    fun dragOffsetDp(rawDp: Float, blocked: Boolean): Float {
+        val limit = if (blocked) BLOCKED_CLAMP_DP else COMMIT_DP
+        val magnitude = abs(rawDp)
+        if (magnitude <= limit) return rawDp
+        val sign = if (rawDp < 0f) -1f else 1f
+        return sign * (limit + (magnitude - limit) * RESISTANCE)
+    }
+
+    /**
+     * Whether releasing here switches the mode. [offsetDp] is the *resisted*
+     * offset the card is actually showing, not the raw finger travel.
+     *
+     * The velocity arm is what makes a quick flick work without a long pull.
+     */
+    fun commits(offsetDp: Float, velocityDpPerS: Float, blocked: Boolean): Boolean {
+        if (blocked) return false
+        if (abs(offsetDp) < 1f) return false
+        return abs(offsetDp) >= COMMIT_DP || abs(velocityDpPerS) >= FLING_DP_PER_S
+    }
 }

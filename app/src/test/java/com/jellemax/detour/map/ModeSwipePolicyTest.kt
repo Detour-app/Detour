@@ -2,7 +2,9 @@ package com.jellemax.detour.map
 
 import com.jellemax.detour.data.TravelMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -48,5 +50,57 @@ class ModeSwipePolicyTest {
     fun `each mode pairs with the other one`() {
         assertEquals(TravelMode.CAR, ModeSwipePolicy.other(TravelMode.MOTO))
         assertEquals(TravelMode.MOTO, ModeSwipePolicy.other(TravelMode.CAR))
+    }
+
+    @Test
+    fun `travel inside the commit distance follows the finger exactly`() {
+        assertEquals(40f, ModeSwipePolicy.dragOffsetDp(40f, blocked = false), 0.01f)
+        assertEquals(-40f, ModeSwipePolicy.dragOffsetDp(-40f, blocked = false), 0.01f)
+        assertEquals(84f, ModeSwipePolicy.dragOffsetDp(84f, blocked = false), 0.01f)
+    }
+
+    /** Past the commit point the card keeps moving, but slower than the finger,
+     *  so the threshold is felt rather than read. */
+    @Test
+    fun `travel past the commit distance is resisted`() {
+        // 84 + (184 - 84) * 0.35 = 119
+        assertEquals(119f, ModeSwipePolicy.dragOffsetDp(184f, blocked = false), 0.01f)
+        assertEquals(-119f, ModeSwipePolicy.dragOffsetDp(-184f, blocked = false), 0.01f)
+    }
+
+    @Test
+    fun `a blocked drag resists from a far shorter limit`() {
+        assertEquals(6f, ModeSwipePolicy.dragOffsetDp(6f, blocked = true), 0.01f)
+        // 8 + (108 - 8) * 0.35 = 43 ... a long blocked pull still moves, but the
+        // first 8dp is the only part that tracks the finger.
+        assertEquals(43f, ModeSwipePolicy.dragOffsetDp(108f, blocked = true), 0.01f)
+    }
+
+    @Test
+    fun `a short slow drag does not commit`() {
+        assertFalse(ModeSwipePolicy.commits(offsetDp = 30f, velocityDpPerS = 50f, blocked = false))
+    }
+
+    @Test
+    fun `travel past the commit distance commits`() {
+        assertTrue(ModeSwipePolicy.commits(offsetDp = 84f, velocityDpPerS = 0f, blocked = false))
+        assertTrue(ModeSwipePolicy.commits(offsetDp = -90f, velocityDpPerS = 0f, blocked = false))
+    }
+
+    @Test
+    fun `a fling commits even when the travel is short`() {
+        assertTrue(ModeSwipePolicy.commits(offsetDp = 20f, velocityDpPerS = 600f, blocked = false))
+        assertTrue(ModeSwipePolicy.commits(offsetDp = -20f, velocityDpPerS = -600f, blocked = false))
+    }
+
+    @Test
+    fun `a blocked drag never commits, however far or fast`() {
+        assertFalse(ModeSwipePolicy.commits(offsetDp = 200f, velocityDpPerS = 900f, blocked = true))
+    }
+
+    /** A tap that jitters a pixel is not a swipe. */
+    @Test
+    fun `a drag of essentially nothing does not commit`() {
+        assertFalse(ModeSwipePolicy.commits(offsetDp = 0.4f, velocityDpPerS = 0f, blocked = false))
     }
 }
