@@ -47,7 +47,7 @@ The whole protocol, TDD, with no platform code involved. Deliverable: `:shared` 
   - `suspend Oidc.complete(url: String)` — throws `AuthException`
   - `Oidc.abandon()`
   - `Enums.oidcEntropyBytes: Int` (iosMain only, for Swift)
-  - `internal Oidc.begin(entropy: ByteArray, issuer: String): String` and `internal Oidc.spend(url: String): SpentCallback` — test seams, not for platform code
+  - `internal Oidc.begin(entropy: ByteArray, issuer: String): String`, `internal Oidc.spend(url: String): SpentCallback`, `internal Oidc.challengeFor(verifier: String): String` — test seams, not for platform code
 
 - [ ] **Step 1: Write the failing test**
 
@@ -61,7 +61,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import okio.ByteString.Companion.encodeUtf8
 
 /**
  * Covers the authorization-code flow's shared half in Oidc.kt: the authorize
@@ -112,22 +111,26 @@ class OidcTest {
     }
 
     @Test
-    fun challengeIsTheUnpaddedBase64UrlSha256OfTheVerifier() {
-        // RFC 7636 appendix B's own pair. Using the published vector rather
-        // than a round-trip proves the encoding — unpadded, URL alphabet —
-        // and not merely that this file agrees with itself.
-        val url = Oidc.begin(entropy(), issuer)
-        val verifier = Oidc.spend("${Auth.REDIRECT_URI}?code=c&state=${params(url)["state"]}").verifier
-        assertEquals(
-            verifier.encodeUtf8().sha256().base64Url().trimEnd('='),
-            params(url)["code_challenge"],
-        )
-
-        val known = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+    fun theChallengeMatchesRfc7636sOwnVector() {
+        // RFC 7636 appendix B's published pair, asserted against our own
+        // encoder. A round-trip through okio here would only prove this file
+        // agrees with itself; the vector proves the encoding — SHA-256, URL
+        // alphabet, no padding — is the one a realm will recompute.
         assertEquals(
             "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
-            known.encodeUtf8().sha256().base64Url().trimEnd('='),
+            Oidc.challengeFor("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
         )
+    }
+
+    @Test
+    fun theChallengeInTheUrlIsTheOneTheVerifierWillAnswer() {
+        // The invariant the whole flow turns on, and the one no device test
+        // catches early: a mismatched pair is refused as invalid_grant at the
+        // very end of a sign-in that looked like it was working.
+        val url = Oidc.begin(entropy(), issuer)
+        val state = params(url)["state"]
+        val verifier = Oidc.spend("${Auth.REDIRECT_URI}?code=c&state=$state").verifier
+        assertEquals(Oidc.challengeFor(verifier), params(url)["code_challenge"])
     }
 
     @Test
@@ -468,9 +471,15 @@ object Oidc {
         return SpentCallback(code, verifier)
     }
 
-    /** okio rather than a platform base64: this runs on Kotlin/Native too, and
-     *  RFC 7636 §4.2 forbids the padding okio emits. */
-    private fun challengeFor(verifier: String): String =
+    /**
+     * okio rather than a platform base64: this runs on Kotlin/Native too, and
+     * RFC 7636 §4.2 forbids the padding okio emits.
+     *
+     * `internal` so the test can assert it against RFC 7636's published vector
+     * directly. Round-tripping it through okio in the test would only prove the
+     * test agrees with itself.
+     */
+    internal fun challengeFor(verifier: String): String =
         verifier.encodeUtf8().sha256().base64Url().trimEnd('=')
 
     private fun urlSafe(raw: ByteArray): String =
@@ -484,7 +493,7 @@ object Oidc {
 devcontainer-exec ./gradlew :shared:testDebugUnitTest --tests '*OidcTest*'
 ```
 
-Expected: PASS, 14 tests.
+Expected: PASS, 15 tests.
 
 If `parametersOf(mapOf(...))` does not resolve, use the vararg-pair form instead —
 `parametersOf("client_id" to listOf(Auth.CLIENT_ID), …)` — which `Auth.kt:262` reaches
@@ -530,7 +539,7 @@ Entropy is pushed in as a parameter instead of becoming a fourth Platform.kt
 expect, and begin() returns \"\" rather than throwing because a throw out of a
 non-suspend exported function terminates the Swift process.
 
-Fourteen tests, including RFC 7636's own challenge vector: the challenge sent to
+Fifteen tests, including RFC 7636's own challenge vector: the challenge sent to
 the realm has to be the SHA-256 of the verifier the exchange later presents, and
 getting that pair wrong surfaces as invalid_grant at the end of a flow that
 looked like it was working."
