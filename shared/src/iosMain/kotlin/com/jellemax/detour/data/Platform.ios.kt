@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import kotlin.concurrent.AtomicInt
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
@@ -75,3 +76,16 @@ actual fun appFilesDir(): Path =
     ).first() as String).toPath()
 
 actual val fileSystem: FileSystem get() = FileSystem.SYSTEM
+
+// kotlin.concurrent.AtomicInt is Kotlin/Native's own atomics API — stable at this
+// project's Kotlin version (2.0.20), no opt-in required — unlike
+// java.util.concurrent.atomic on the Android side. There is no AtomicBoolean in
+// this package at 2.0.20 (kotlin.concurrent.atomics.AtomicBoolean only arrived in
+// 2.1, behind @ExperimentalAtomicApi), so an Int standing in for the flag — 0
+// unclaimed, 1 claimed — is the stable equivalent. Same contract as the Android
+// actual: compareAndSet claims the flip for exactly one caller. Not verified from
+// this repo's CI (Native compilations only link on macOS; see shared/build.gradle.kts),
+// so treat this alongside the other iOS-only code here.
+private val migrationClaimed = AtomicInt(0)
+
+actual fun tryClaimMigration(): Boolean = migrationClaimed.compareAndSet(0, 1)

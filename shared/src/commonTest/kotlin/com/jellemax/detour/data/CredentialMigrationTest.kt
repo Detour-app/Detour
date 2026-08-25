@@ -2,6 +2,7 @@ package com.jellemax.detour.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -266,5 +267,50 @@ class CredentialMigrationTest {
         assertEquals("at", secure.string("access_token", ""))
         assertEquals("cid", secure.string("clientId", ""))
         assertEquals("csecret", secure.string("clientSecret", ""))
+    }
+
+    // The marker is derived from the group's name rather than hand-typed, so a group
+    // added later can only collide with an existing one by reusing the same name.
+    @Test
+    fun theMarkerIsDerivedFromTheGroupsName() {
+        assertEquals("__migration_session", CredentialMigration.SESSION_GROUP.marker)
+        assertEquals("__migration_server", CredentialMigration.SERVER_GROUP.marker)
+    }
+
+    @Test
+    fun distinctGroupNamesPassTheUniquenessCheck() {
+        // Should not throw.
+        CredentialMigration.requireUniqueMarkers(
+            listOf(
+                SecretGroup(name = "a", keys = emptyList()),
+                SecretGroup(name = "b", keys = emptyList()),
+            ),
+        )
+    }
+
+    // The defect #43 is guarding against: a third group added by copy-pasting an
+    // existing one, with its name left unedited, would arm the same marker as the
+    // group it was copied from — and the second group to run would take the delete
+    // branch on plaintext it never copied. Deriving the marker from the name doesn't
+    // remove that possibility on its own (two groups can still share a name), so this
+    // check is what actually closes it, by construction, at declaration time.
+    @Test
+    fun twoGroupsWithTheSameNameFailTheUniquenessCheck() {
+        assertFailsWith<IllegalStateException> {
+            CredentialMigration.requireUniqueMarkers(
+                listOf(
+                    SecretGroup(name = "dup", keys = emptyList()),
+                    SecretGroup(name = "dup", keys = emptyList()),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun theRealDeclaredGroupsHaveDistinctMarkers() {
+        // Exercises the same check init() runs, against the actual production groups.
+        CredentialMigration.requireUniqueMarkers(
+            listOf(CredentialMigration.SESSION_GROUP, CredentialMigration.SERVER_GROUP),
+        )
     }
 }

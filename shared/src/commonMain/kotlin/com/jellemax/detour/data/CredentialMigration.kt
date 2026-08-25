@@ -18,11 +18,18 @@ internal data class SecretKey(val name: String, val type: SecretType)
  * The marker is per-group and not shared. Both groups migrate into the same secure store,
  * so a single marker would let the first group to run arm the second — which would then
  * take the delete branch and remove its plaintext without ever having copied it.
+ *
+ * [marker] is derived from [name] rather than passed in directly, so a group added later
+ * can only collide with an existing one by reusing its [name] verbatim — copy-pasting a
+ * `SecretGroup(...)` block and forgetting to edit a hand-typed marker string can no longer
+ * silently reproduce that defect. [CredentialMigration]'s init check catches even that.
  */
 internal data class SecretGroup(
-    val marker: String,
+    val name: String,
     val keys: List<SecretKey>,
-)
+) {
+    val marker: String get() = "__migration_$name"
+}
 
 /**
  * Moves credentials from the plaintext stores into the encrypted one, in two phases,
@@ -46,7 +53,7 @@ internal object CredentialMigration {
 
     /** The session, from the `settings` bag. */
     val SESSION_GROUP = SecretGroup(
-        marker = "__migration_session",
+        name = "session",
         keys = listOf(
             SecretKey("access_token", SecretType.Text),
             SecretKey("refresh_token", SecretType.Text),
@@ -57,21 +64,32 @@ internal object CredentialMigration {
 
     /** The Cloudflare Access service token, from the `routing_server` bag. */
     val SERVER_GROUP = SecretGroup(
-        marker = "__migration_server",
+        name = "server",
         keys = listOf(
             SecretKey("clientId", SecretType.Text),
             SecretKey("clientSecret", SecretType.Text),
         ),
     )
 
-    enum class Outcome { Copied, Verified, NothingToDo }
+    /** Every declared group. Extend this when adding one — it is what [init] checks
+     *  for marker collisions. */
+    private val ALL_GROUPS = listOf(SESSION_GROUP, SERVER_GROUP)
 
-    // Plain var, not a lock: commonMain has no synchronisation primitive available
-    // (no java.*, no Dispatchers), so this cannot be made atomic here. A race
-    // between two threads both seeing `false` runs step() for a group twice in the
-    // same process, which step()'s own doc says is safe against — worst case it
-    // repeats a phase with correct, idempotent inputs.
-    private var migratedOnce = false
+    init {
+        requireUniqueMarkers(ALL_GROUPS)
+    }
+
+    /** Extracted from [init] so the collision it guards against — two groups landing on
+     *  the same marker — is exercisable from a test without redeclaring the real groups. */
+    internal fun requireUniqueMarkers(groups: List<SecretGroup>) {
+        val duplicates = groups.map { it.marker }.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
+        check(duplicates.isEmpty()) {
+            "CredentialMigration: two SecretGroups share a marker: $duplicates. " +
+                "Each group's name (SecretGroup.name) must be unique."
+        }
+    }
+
+    enum class Outcome { Copied, Verified, NothingToDo }
 
     /**
      * Runs both credential groups' migration exactly once per process, whichever of
@@ -85,10 +103,12 @@ internal object CredentialMigration {
      * documents that a Service may start the process without `Settings.init()` ever
      * running first, so `RoutingServer` cannot rely on `Settings` having gone first,
      * and vice versa.
+     *
+     * The guard itself is [tryClaimMigration], a platform atomic — see its doc for
+     * why a plain `var` here was not enough.
      */
     fun migrateOnce() {
-        if (migratedOnce) return
-        migratedOnce = true
+        if (!tryClaimMigration()) return
         migrateGroup(prefs("settings"), SESSION_GROUP)
         migrateGroup(prefs(RoutingServer.PREFS), SERVER_GROUP)
     }

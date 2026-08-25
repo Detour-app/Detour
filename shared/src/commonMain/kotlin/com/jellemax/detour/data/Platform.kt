@@ -62,3 +62,16 @@ expect fun appFilesDir(): Path
 
 /** The real file system on both platforms; a fake in tests. */
 expect val fileSystem: FileSystem
+
+/**
+ * Atomically claims [CredentialMigration]'s once-per-process migration run: returns
+ * `true` to exactly one caller per process, `false` to every other. Backed by a
+ * platform atomic rather than a plain `var` — `commonMain` has no synchronisation
+ * primitive or `Dispatchers` of its own, so this is the one piece of that migration
+ * that has to live per-platform.
+ *
+ * Without it, two coroutines entering `migrateOnce()` at cold start could both read an
+ * unclaimed guard and both run [CredentialMigration.step] for the same group. The worst
+ * case was mild — `step` is idempotent — but advisory rather than enforced.
+ */
+internal expect fun tryClaimMigration(): Boolean

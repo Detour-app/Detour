@@ -3,6 +3,7 @@ package com.jellemax.detour.data
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
+import java.util.concurrent.atomic.AtomicBoolean
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
@@ -56,3 +57,7 @@ internal const val SECURE_STORE = "secure"
 actual fun appFilesDir(): Path = requireContext().filesDir.absolutePath.toPath()
 
 actual val fileSystem: FileSystem get() = FileSystem.SYSTEM
+
+private val migrationClaimed = AtomicBoolean(false)
+
+actual fun tryClaimMigration(): Boolean = migrationClaimed.compareAndSet(false, true)
