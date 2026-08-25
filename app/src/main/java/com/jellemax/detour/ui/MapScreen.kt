@@ -269,33 +269,6 @@ fun MapScreen(
     var navigating by remember { mutableStateOf(false) }
     val modeSwipesUsed by Settings.modeSwipesUsed.collectAsStateWithLifecycle()
     val swipeHintVariantName by Settings.swipeHintVariant.collectAsStateWithLifecycle()
-
-    /** Non-null while something in flight makes a mode change wrong to allow.
-     *  Navigation and an open candidate round need no entry here: both replace
-     *  the dock with a different card in the same slot. */
-    val switchBlockedReason = ModeSwipePolicy.blockedReason(
-        spinning = spinning,
-        tracking = stats != null,
-    )
-
-    // Scheduled here rather than inside SpinDock because SpinDock is disposed
-    // every time the sheet expands or a candidate round opens - a guard in there
-    // would replay the hint on every collapse. MapScreen's composition is the
-    // map visit: AppRoot has no rememberSaveableStateHolder, so leaving for the
-    // Hub disposes this whole screen.
-    var hintShown by remember { mutableStateOf(false) }
-    var hintRequest by remember { mutableStateOf(false) }
-    val hintDue = ModeSwipePolicy.hintDue(
-        alreadyShown = hintShown,
-        swipesUsed = modeSwipesUsed,
-        blocked = switchBlockedReason != null,
-    )
-    LaunchedEffect(hintDue) {
-        if (!hintDue) return@LaunchedEffect
-        delay(ModeSwipePolicy.HINT_DELAY_MS)
-        hintShown = true
-        hintRequest = true
-    }
     var navProgress by remember { mutableStateOf<NavEngine.Progress?>(null) }
     var rerouting by remember { mutableStateOf(false) }
     var lastRerouteMs by remember { mutableLongStateOf(0L) }
@@ -639,6 +612,41 @@ fun MapScreen(
     // the same coordinates on every device even when they came from a
     // spin nobody on this phone actually rolled.
     val displayCandidates = spinOffer?.asRouteCandidates() ?: candidates
+
+    /** Non-null while something in flight makes a mode change wrong to allow.
+     *  Navigation and an open candidate round need no entry here: both replace
+     *  the dock with a different card in the same slot. */
+    val switchBlockedReason = ModeSwipePolicy.blockedReason(
+        spinning = spinning,
+        tracking = stats != null,
+    )
+
+    // The same three tests as the bottomCard when-chain below, in the same
+    // order. The countdown has to know whether the dock is actually on screen:
+    // it is absent while navigating, while a candidate round is open and while
+    // the sheet is expanded, and a hint armed during any of those would fire on
+    // the dock's very next composition - as part of the screen arriving, which
+    // is the one thing HINT_DELAY_MS exists to prevent.
+    val dockShown = !navigating && displayCandidates.isEmpty() && settingsCollapsed
+
+    // Scheduled here rather than inside SpinDock because SpinDock is disposed
+    // every time the sheet expands or a candidate round opens - a guard in there
+    // would replay the hint on every collapse. MapScreen's composition is the
+    // map visit: AppRoot has no rememberSaveableStateHolder, so leaving for the
+    // Hub disposes this whole screen.
+    var hintShown by rememberSaveable { mutableStateOf(false) }
+    var hintRequest by remember { mutableStateOf(false) }
+    val hintDue = dockShown && ModeSwipePolicy.hintDue(
+        alreadyShown = hintShown,
+        swipesUsed = modeSwipesUsed,
+        blocked = switchBlockedReason != null,
+    )
+    LaunchedEffect(hintDue) {
+        if (!hintDue) return@LaunchedEffect
+        delay(ModeSwipePolicy.HINT_DELAY_MS)
+        hintShown = true
+        hintRequest = true
+    }
 
     /** Commits a convoy spin's leading (or explicitly chosen) candidate,
      *  same as [choose] but sourced from [spinOffer] and clearing it after -
@@ -1633,7 +1641,8 @@ fun MapScreen(
                     // Unconditional since the mode bar left: nothing else in this
                     // Scaffold consumes the gesture inset any more. Correct for all
                     // three occupants of this Column - the nav bar always wanted it,
-                    // and the candidates card and the dock were relying on ModeBar.
+                    // and the candidates card and the dock were relying on the mode
+                    // bar this change removed (#70).
                     .navigationBarsPadding()
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1789,7 +1798,13 @@ fun MapScreen(
                             // raise no snackbar at all. It also renders as a red
                             // error line inside SpinSheet, which a refusal is not.
                             onSwitchBlocked = { reason ->
-                                scope.launch { snackbarHostState.showSnackbar(reason) }
+                                scope.launch {
+                                    // Replace rather than queue: several refused
+                                    // swipes in a row are one situation, not a
+                                    // backlog of messages to sit through.
+                                    snackbarHostState.currentSnackbarData?.dismiss()
+                                    snackbarHostState.showSnackbar(reason)
+                                }
                             },
                             hintRequest = hintRequest,
                             hintVariant = ModeSwipePolicy.HintVariant.of(swipeHintVariantName),
