@@ -199,6 +199,19 @@ fun MapScreen(
     LaunchedEffect(signInError) {
         signInError?.let { snackbarHostState.showSnackbar(it) }
     }
+    // And the same for a sign-in that worked, which said even less: the avatar in
+    // the top corner turned from a question mark into a letter, and that was the
+    // whole announcement. Cleared once shown so returning to the map later does
+    // not re-announce it — the failure above needs no such call, because every
+    // Sign in tap clears it on the way out.
+    val signedInAs by PendingSignIn.signedInAs.collectAsStateWithLifecycle()
+    LaunchedEffect(signedInAs) {
+        val handle = signedInAs ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(
+            if (handle.isBlank()) "Signed in" else "Signed in as $handle"
+        )
+        PendingSignIn.clearSignedIn()
+    }
     val serverConfig = remember { RoutingServer.load() }
     var poiKind by rememberSaveable { mutableStateOf(PoiKind.ROAD) }
     var directionDeg by rememberSaveable { mutableStateOf<Float?>(null) }

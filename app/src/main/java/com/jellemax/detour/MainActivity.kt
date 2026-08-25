@@ -29,6 +29,7 @@ import androidx.lifecycle.lifecycleScope
 import com.jellemax.detour.auth.Oidc
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.ble.BleNavServer
+import com.jellemax.detour.data.Auth
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
@@ -118,7 +119,10 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             try {
                 Oidc.complete(data)
-                PendingSignIn.succeed()
+                // Read after complete(), never before: the handle is decoded out
+                // of the access token by Auth.store(), so it does not exist until
+                // the exchange has happened.
+                PendingSignIn.succeed(Auth.username.value)
             } catch (e: Exception) {
                 val reason = e.message ?: "Sign-in failed"
                 // A failed sign-in leaves no other trace: there is no crash, the
