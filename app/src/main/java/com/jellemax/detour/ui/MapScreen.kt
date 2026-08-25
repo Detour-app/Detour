@@ -105,6 +105,7 @@ import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.map.CameraAuthority
 import com.jellemax.detour.map.FollowCamera
 import com.jellemax.detour.map.MapMotion
+import com.jellemax.detour.map.ModeSwipePolicy
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.leadingSpinIndex
 import com.jellemax.detour.tracking.TripTrackingService
@@ -266,6 +267,35 @@ fun MapScreen(
     }
 
     var navigating by remember { mutableStateOf(false) }
+    val modeSwipesUsed by Settings.modeSwipesUsed.collectAsStateWithLifecycle()
+    val swipeHintVariantName by Settings.swipeHintVariant.collectAsStateWithLifecycle()
+
+    /** Non-null while something in flight makes a mode change wrong to allow.
+     *  Navigation and an open candidate round need no entry here: both replace
+     *  the dock with a different card in the same slot. */
+    val switchBlockedReason = ModeSwipePolicy.blockedReason(
+        spinning = spinning,
+        tracking = stats != null,
+    )
+
+    // Scheduled here rather than inside SpinDock because SpinDock is disposed
+    // every time the sheet expands or a candidate round opens - a guard in there
+    // would replay the hint on every collapse. MapScreen's composition is the
+    // map visit: AppRoot has no rememberSaveableStateHolder, so leaving for the
+    // Hub disposes this whole screen.
+    var hintShown by remember { mutableStateOf(false) }
+    var hintRequest by remember { mutableStateOf(false) }
+    val hintDue = ModeSwipePolicy.hintDue(
+        alreadyShown = hintShown,
+        swipesUsed = modeSwipesUsed,
+        blocked = switchBlockedReason != null,
+    )
+    LaunchedEffect(hintDue) {
+        if (!hintDue) return@LaunchedEffect
+        delay(ModeSwipePolicy.HINT_DELAY_MS)
+        hintShown = true
+        hintRequest = true
+    }
     var navProgress by remember { mutableStateOf<NavEngine.Progress?>(null) }
     var rerouting by remember { mutableStateOf(false) }
     var lastRerouteMs by remember { mutableLongStateOf(0L) }
@@ -1521,24 +1551,10 @@ fun MapScreen(
     }
 
     Scaffold(
-        // Modes are the app's top-level places, so they live in the one bar that
-        // is always in reach of a thumb. Navigation hides it: nothing to switch
-        // to mid-route, and the map wants the pixels.
-        bottomBar = {
-            AnimatedVisibility(
-                visible = !navigating,
-                enter = slideInVertically { it } + fadeIn(),
-                exit = slideOutVertically { it } + fadeOut(),
-            ) { ModeBar(mode, ::selectMode) }
-        },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-    ) { scaffoldPadding ->
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(bottom = scaffoldPadding.calculateBottomPadding()),
-        ) {
+    ) { _ ->
+        Box(Modifier.fillMaxSize()) {
             AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
 
             // The banner drops in from the top edge when navigation starts; the
@@ -1614,7 +1630,11 @@ fun MapScreen(
                 Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .then(if (navigating) Modifier.navigationBarsPadding() else Modifier)
+                    // Unconditional since the mode bar left: nothing else in this
+                    // Scaffold consumes the gesture inset any more. Correct for all
+                    // three occupants of this Column - the nav bar always wanted it,
+                    // and the candidates card and the dock were relying on ModeBar.
+                    .navigationBarsPadding()
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -1759,6 +1779,21 @@ fun MapScreen(
                                     TripTrackingService.start(context, destination?.lat, destination?.lon)
                                 }
                             },
+                            onSwitchMode = { m ->
+                                selectMode(m)
+                                Settings.setModeSwipesUsed(modeSwipesUsed + 1)
+                            },
+                            switchBlockedReason = switchBlockedReason,
+                            // Not via `error`: LaunchedEffect(error) re-keys on
+                            // value, so a second identical refusal in a row would
+                            // raise no snackbar at all. It also renders as a red
+                            // error line inside SpinSheet, which a refusal is not.
+                            onSwitchBlocked = { reason ->
+                                scope.launch { snackbarHostState.showSnackbar(reason) }
+                            },
+                            hintRequest = hintRequest,
+                            hintVariant = ModeSwipePolicy.HintVariant.of(swipeHintVariantName),
+                            onHintPlayed = { hintRequest = false },
                         )
                         BottomCard.EXPANDED -> SpinSheet(
                             mode = mode,

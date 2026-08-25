@@ -28,8 +28,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,23 +37,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.jellemax.detour.data.TravelMode
-
-/** The app's three places. Selecting one also tells the tracking service what
- *  you are riding, which decides the stats it bothers to record. */
-@Composable
-internal fun ModeBar(selected: TravelMode, onSelect: (TravelMode) -> Unit) {
-    NavigationBar {
-        TravelMode.entries.forEach { m ->
-            NavigationBarItem(
-                selected = m == selected,
-                onClick = { onSelect(m) },
-                icon = { Icon(m.icon, contentDescription = null) },
-                label = { Text(m.label) },
-            )
-        }
-    }
-}
 
 /** Map top chrome: a full-width search pill with an avatar that opens the Hub,
  *  and a right-aligned rail of the two controls worth reaching for while
