@@ -315,17 +315,32 @@ private fun BoxScope.ModeSwipeHint(
 
     LaunchedEffect(request) {
         if (!request) return@LaunchedEffect
-        when (variant) {
-            ModeSwipePolicy.HintVariant.NUDGE -> swipe.nudge(nudgePx)
-            ModeSwipePolicy.HintVariant.ARROWS -> {
-                if (!swipe.dragging) {
-                    arrowsAlpha.animateTo(0.35f, tween(450, easing = LinearEasing))
-                    arrowsAlpha.animateTo(0.35f, tween(500, easing = LinearEasing))
-                    arrowsAlpha.animateTo(0f, tween(650, easing = LinearEasing))
+        try {
+            when (variant) {
+                ModeSwipePolicy.HintVariant.NUDGE -> swipe.nudge(nudgePx)
+                ModeSwipePolicy.HintVariant.ARROWS -> {
+                    if (!swipe.dragging) {
+                        arrowsAlpha.animateTo(0.35f, tween(450, easing = LinearEasing))
+                        // A hold, expressed as an animation to the current
+                        // value on purpose. delay() would ignore the system's
+                        // animator duration scale, so with animations turned
+                        // off this pause would outlast the fades either side
+                        // of it.
+                        arrowsAlpha.animateTo(0.35f, tween(500, easing = LinearEasing))
+                        arrowsAlpha.animateTo(0f, tween(650, easing = LinearEasing))
+                    }
                 }
             }
+        } finally {
+            // Fires however this exits, and being interrupted is the likely
+            // exit: nudge() animates the same Animatable the drag does, so a
+            // user reacting to the hint by grabbing the card cancels it
+            // through Animatable's mutex. Leaving the caller's request flag
+            // set would replay the hint on the next time this composable is
+            // recreated - which happens every time the sheet opens - at the
+            // one user who has definitely already learned the gesture.
+            onPlayedRef.value()
         }
-        onPlayedRef.value()
     }
 
     // Non-interactive by construction: no pointerInput, so it cannot swallow a
