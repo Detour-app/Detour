@@ -1,7 +1,11 @@
 package com.jellemax.detour.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,15 +34,31 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.PoiKind
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.map.ModeSwipePolicy
 import com.jellemax.detour.tracking.TripStats
+import kotlin.math.abs
+import kotlinx.coroutines.launch
 
 private val DIRECTION_NAMES = listOf("North", "North-east", "East", "South-east",
     "South", "South-west", "West", "North-west")
@@ -56,16 +76,101 @@ internal fun SpinDock(
     route: RouteResult?,
     origin: LatLon?,
     inAppAvailable: Boolean,
+    onSwitchMode: (TravelMode) -> Unit,
+    switchBlockedReason: String?,
+    onSwitchBlocked: (String) -> Unit,
     onSpin: () -> Unit,
     onExpand: () -> Unit,
     onNavigateInApp: () -> Unit,
     onNavigate: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+
+    /** Px. Remembered *here* and not in MapScreen on purpose: a per-frame
+     *  snapshot read invalidates its nearest restartable scope, and MapScreen's
+     *  Scaffold content lambda is reached through only inline Box/Column/Row
+     *  wrappers - a read there would invalidate the whole lambda every frame of
+     *  the drag. */
+    val offsetX = remember { Animatable(0f) }
+    var dragging by remember { mutableStateOf(false) }
+
+    val commitPx = with(density) { ModeSwipePolicy.COMMIT_DP.dp.toPx() }
+    val other = ModeSwipePolicy.other(mode)
+
+    // pointerInput(Unit) captures its parameters as plain values, frozen at
+    // first composition. Everything the gesture callbacks read goes through
+    // rememberUpdatedState or the gate silently stops gating, the callbacks
+    // fire into a stale lambda, and `other` switches to whatever the mode was
+    // when the screen opened. None of that has a compiler signal.
+    val blockedRef = rememberUpdatedState(switchBlockedReason)
+    val otherRef = rememberUpdatedState(other)
+    val onSwitchRef = rememberUpdatedState(onSwitchMode)
+    val onBlockedRef = rememberUpdatedState(onSwitchBlocked)
+
+    val settle = spring<Float>(
+        dampingRatio = Spring.DampingRatioLowBouncy,
+        stiffness = Spring.StiffnessMediumLow,
+    )
+
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .glassBorder(MaterialTheme.shapes.extraLarge),
+            .glassBorder(MaterialTheme.shapes.extraLarge)
+            // The non-gesture equivalent. A swipe is invisible to TalkBack, and
+            // the mode bar this replaced was a plain, focusable control.
+            // Read directly rather than through the refs above: this lambda is
+            // rebuilt on every composition, so it is never stale.
+            .semantics {
+                customActions = listOf(
+                    CustomAccessibilityAction("Switch to ${other.label}") {
+                        val blocked = switchBlockedReason
+                        if (blocked == null) {
+                            onSwitchMode(other)
+                            true
+                        } else {
+                            false
+                        }
+                    },
+                )
+            }
+            .pointerInput(Unit) {
+                val tracker = VelocityTracker()
+                var rawPx = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = {
+                        rawPx = 0f
+                        dragging = true
+                        tracker.resetTracking()
+                    },
+                    onDragCancel = {
+                        dragging = false
+                        scope.launch { offsetX.animateTo(0f, settle) }
+                    },
+                    onDragEnd = {
+                        dragging = false
+                        val blocked = blockedRef.value
+                        val velocityDp = tracker.calculateVelocity().x.toDp().value
+                        val offsetDp = offsetX.value.toDp().value
+                        if (ModeSwipePolicy.commits(offsetDp, velocityDp, blocked != null)) {
+                            onSwitchRef.value(otherRef.value)
+                        } else if (blocked != null && abs(offsetDp) > 1f) {
+                            onBlockedRef.value(blocked)
+                        }
+                        scope.launch { offsetX.animateTo(0f, settle) }
+                    },
+                ) { change, dragAmount ->
+                    rawPx += dragAmount
+                    tracker.addPosition(change.uptimeMillis, change.position)
+                    val targetDp = ModeSwipePolicy.dragOffsetDp(
+                        rawPx.toDp().value,
+                        blocked = blockedRef.value != null,
+                    )
+                    val targetPx = targetDp.dp.toPx()
+                    scope.launch { offsetX.snapTo(targetPx) }
+                }
+            },
         shape = MaterialTheme.shapes.extraLarge,
         colors = glassCardColors(),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -80,6 +185,13 @@ internal fun SpinDock(
             Row(
                 Modifier
                     .weight(1f)
+                    // graphicsLayer, not offset/alpha modifiers: the lambda runs
+                    // in the draw phase, so the per-frame read never triggers a
+                    // recomposition at all.
+                    .graphicsLayer {
+                        translationX = offsetX.value
+                        alpha = 1f - (abs(offsetX.value) / commitPx).coerceIn(0f, 1f) * 0.55f
+                    }
                     .clickable(onClick = onExpand),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
