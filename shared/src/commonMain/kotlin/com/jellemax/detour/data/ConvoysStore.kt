@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,7 +21,9 @@ data class ConvoysState(
  * honest about whether the service is actually running.
  *
  * Same no-scope rule as [FriendsStore]: actions are `suspend`, the caller
- * supplies the coroutine.
+ * supplies the coroutine. Same never-throws-for-an-ordinary-failure contract
+ * too — see `FriendsStore`'s private `act` for the full reasoning, since its
+ * own `act` below is not part of this store's public surface either.
  */
 object ConvoysStore {
 
@@ -34,39 +37,45 @@ object ConvoysStore {
         _state.value = _state.value.starting()
         _state.value = try {
             _state.value.loaded(Groups.list(KIND))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             _state.value.failed(e)
         }
     }
 
+    /** True on success; false leaves the failure in [state]'s `error`. */
     @Throws(Exception::class)
-    suspend fun create(name: String) {
-        act { Groups.create(KIND, name) }
-    }
+    suspend fun create(name: String): Boolean =
+        act { Groups.create(KIND, name) } != null
 
-    /** Returns the resulting status, e.g. "invited". Only accepted friends can
-     *  be invited; the server enforces that and this surfaces its refusal. */
+    /** Returns the resulting status, e.g. "invited" — or null if the invite
+     *  failed, with the failure left in [state]'s `error`. Only accepted
+     *  friends can be invited; the server enforces that and this surfaces
+     *  its refusal. */
     @Throws(Exception::class)
-    suspend fun invite(groupId: String, username: String): String =
+    suspend fun invite(groupId: String, username: String): String? =
         act { Groups.invite(groupId, username) }
 
+    /** True on success; false leaves the failure in [state]'s `error`. */
     @Throws(Exception::class)
-    suspend fun respond(groupId: String, accept: Boolean) {
-        act { Groups.respond(groupId, accept) }
-    }
+    suspend fun respond(groupId: String, accept: Boolean): Boolean =
+        act { Groups.respond(groupId, accept) } != null
 
+    /** True on success; false leaves the failure in [state]'s `error`. */
     @Throws(Exception::class)
-    suspend fun leave(groupId: String) {
-        act { Groups.leave(groupId) }
-    }
+    suspend fun leave(groupId: String): Boolean =
+        act { Groups.leave(groupId) } != null
 
-    private suspend fun <T> act(block: suspend () -> T): T {
+    private suspend fun <T> act(block: suspend () -> T): T? {
         _state.value = _state.value.starting()
         val result = try {
             block()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             _state.value = _state.value.failed(e)
-            throw e
+            return null
         }
         reload()
         return result

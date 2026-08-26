@@ -101,12 +101,46 @@ class StoresTest {
     // --- ConvoysStore -----------------------------------------------------
 
     @Test
+    fun aStartedConvoyActionIsBusyAndHasNoStaleErrorOnIt() {
+        val before = ConvoysState(error = "the last attempt failed")
+        val started = before.starting()
+        assertTrue(started.busy)
+        assertNull(started.error)
+    }
+
+    @Test
     fun aFailedConvoyActionKeepsTheConvoyList() {
         val loaded = ConvoysState(convoys = listOf(convoy("c1", "Sunday run")))
         val failed = loaded.starting().failed(RuntimeException("500"))
         assertEquals(loaded.convoys, failed.convoys)
         assertEquals("500", failed.error)
         assertTrue(!failed.busy)
+    }
+
+    @Test
+    fun aSuccessfulConvoyLoadClearsBusyAndError() {
+        val loaded = ConvoysState(error = "stale")
+            .starting()
+            .loaded(listOf(convoy("c1", "Sunday run")))
+        assertTrue(!loaded.busy)
+        assertNull(loaded.error)
+        assertEquals(1, loaded.convoys.size)
+    }
+
+    @Test
+    fun anActionsTwoOutcomesAreTheReducerHalfOfItsReturnValue() {
+        // An action never throws for an ordinary failure any more — it
+        // reports through `error` and returns null/false instead, so a
+        // caller branches on the return value rather than racing to read
+        // `state` back after an `await`. `act()`'s failure half is exactly
+        // `starting().failed(e)` below, which is what makes it return null.
+        // Its success half also calls through to `reload()` — a real
+        // network round trip — so it isn't reachable here; `loaded()`
+        // stands in for the transition that lets it return the value.
+        val failure = ConvoysState().starting().failed(RuntimeException("no route to host"))
+        assertEquals("no route to host", failure.error)
+        val success = ConvoysState(error = "stale").starting().loaded(emptyList())
+        assertNull(success.error)
     }
 
     private fun convoy(id: String, name: String) = Group(

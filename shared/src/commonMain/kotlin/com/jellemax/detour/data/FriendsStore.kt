@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -53,6 +54,14 @@ object FriendsStore {
         _state.value = _state.value.starting()
         _state.value = try {
             _state.value.loaded(Friends.lists(), Friends.stats())
+        } catch (e: CancellationException) {
+            // A cancellation is the caller's own doing (a `.task`/
+            // `LaunchedEffect` torn down by, say, a sign-out mid-request),
+            // not a load failure — and unlike a composable-local
+            // `mutableStateOf`, `state` here is a singleton other observers
+            // may be watching. Swallowing this would leave a phantom error
+            // banner sitting in shared state with nothing left to clear it.
+            throw e
         } catch (e: Exception) {
             _state.value.failed(e)
         }
@@ -71,6 +80,8 @@ object FriendsStore {
             val badgeIds = BadgeStore.refresh(riderStats).states
                 .filter { it.earned }.map { it.def.id }
             FriendStats(username, riderStats, badgeIds)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             // A missing own row is worth strictly less than the friend list it
             // sits above, so this failure is not allowed to put an error over
@@ -81,27 +92,37 @@ object FriendsStore {
     }
 
     /** Returns the resulting status — "pending", or "accepted" when they had
-     *  already asked us and this answered theirs. */
+     *  already asked us and this answered theirs — or null if the request
+     *  failed, with the failure left in [state]'s `error` for the screen to
+     *  show. */
     @Throws(Exception::class)
-    suspend fun request(username: String): String = act { Friends.request(username) }
+    suspend fun request(username: String): String? = act { Friends.request(username) }
 
+    /** True on success; false leaves the failure in [state]'s `error`. */
     @Throws(Exception::class)
-    suspend fun respond(username: String, accept: Boolean) {
-        act { Friends.respond(username, accept) }
-    }
-
+    suspend fun respond(username: String, accept: Boolean): Boolean =
+        act { Friends.respond(username, accept) } != null
 
     /**
-     * Runs a mutation, then reloads. Rethrows so a caller that wants to react
-     * to the failure itself still can, while the banner is set either way.
+     * Runs a mutation, then reloads. Never throws for an ordinary failure:
+     * the per-platform helpers this replaces never rethrew to their callers
+     * either, and every Android call site is a `scope.launch { }` with no
+     * handler, where an escaping exception crashes the app. Instead this
+     * reports through `state.error` — the whole reason the store exists —
+     * and returns null so a caller that needs to react locally (e.g. not
+     * clearing a text field on failure) still can, without racing a read of
+     * `state` back after the `await`. A [CancellationException] is not an
+     * ordinary failure and still propagates, per [reload]'s comment above.
      */
-    private suspend fun <T> act(block: suspend () -> T): T {
+    private suspend fun <T> act(block: suspend () -> T): T? {
         _state.value = _state.value.starting()
         val result = try {
             block()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             _state.value = _state.value.failed(e)
-            throw e
+            return null
         }
         reload()
         return result
