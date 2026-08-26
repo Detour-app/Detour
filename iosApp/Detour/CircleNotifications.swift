@@ -17,22 +17,6 @@ final class CircleNotifications: NSObject {
     static let shared = CircleNotifications()
     private override init() { super.init() }
 
-    /// A sweep after a long gap notifies for at most this many events — an
-    /// offline week must not detonate into a wall of notifications the
-    /// moment the app reopens. Matches `CircleNotifyPolicy.NOTIFY_CAP`
-    /// (shared/); kept as a local `Int32` literal rather than read off the
-    /// shared object because `planCatchUp`'s Kotlin default arguments don't
-    /// cross the Swift boundary, so every call has to supply it anyway.
-    private static let catchUpCap: Int32 = 5
-    /// Events older than this, measured from *now* rather than from the
-    /// last sweep, are caught up on silently — they say where someone was,
-    /// not where they are, and a transition from hours ago is not worth a
-    /// push. `lastSeenEventTsMs` still advances past them either way (see
-    /// `runCatchUpSweep`), so they are never re-fetched, just never shown.
-    /// Matches `CircleNotifyPolicy.STALE_AFTER_MS`, same reason as
-    /// `catchUpCap` above for not reading it off the shared object.
-    private static let catchUpMaxAgeMs: Int64 = 3 * 60 * 60_000
-
     /// Mirrors the OS's actual authorization state, refreshed on every
     /// foreground sweep (`syncAuthorizationStatus`) rather than trusted from
     /// whenever it was last asked — the user can revoke it from iOS Settings
@@ -152,8 +136,8 @@ final class CircleNotifications: NSObject {
                 events: events,
                 myUsername: username,
                 nowMs: nowMs(),
-                staleAfterMs: Self.catchUpMaxAgeMs,
-                cap: Self.catchUpCap
+                staleAfterMs: Enums.shared.circleStaleAfterMs,
+                cap: Enums.shared.circleCatchUpCap
             )
             for event in plan.individual {
                 raise(event: event, circleId: circle.id)
