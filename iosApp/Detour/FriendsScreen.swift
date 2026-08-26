@@ -164,8 +164,11 @@ private struct SignInForm: View {
 
     @StateObject private var signIn = SignIn()
     // Set by DetourApp's onOpenURL when a redirect arrives with no session
-    // waiting for it — the app was killed behind the browser. Shown once,
-    // then cleared, the same shape as CircleNotifications.PendingCircleOpen.
+    // waiting for it — the app was killed behind the browser. NOT the same
+    // one-shot shape as CircleNotifications.PendingCircleOpen any more,
+    // despite reading like it at a glance — see the comment on
+    // `orphanedMessage` just below for why a local copy replaced clearing the
+    // singleton straight from `.onAppear`.
     @ObservedObject private var orphaned = OrphanedSignIn.shared
     // A local copy of `orphaned.message`, captured the moment it arrives.
     // This is what the view renders, not `orphaned.message` directly.
@@ -242,7 +245,20 @@ private struct SignInForm: View {
     }
 
     private func captureOrphanedMessage() {
-        guard let message = orphaned.message else { return }
+        // Guarded on `signIn.configured`, matching the `Text` above that
+        // renders `orphanedMessage` from inside the same `if signIn.configured`
+        // branch. Without this, a `detour://auth/callback` deep link — which
+        // `Oidc.isCallback` matches regardless of whether a realm is
+        // configured — would capture and clear the singleton here with
+        // nothing on screen to show for it: a silent swallow rather than a
+        // decision. Chose "guard the capture" over "render outside the
+        // branch" because there's nothing actionable to tell a rider about a
+        // sign-in realm that isn't even set up; leaving the message parked
+        // keeps it available for a later capture, if a realm gets configured
+        // and this view reappears before the singleton is otherwise cleared
+        // (see `OrphanedSignIn`'s doc and the sign-in-success clear in
+        // `SignIn.start()`).
+        guard signIn.configured, let message = orphaned.message else { return }
         orphanedMessage = message
         orphaned.message = nil
     }
@@ -297,6 +313,18 @@ final class FriendsModel: ObservableObject {
             leaderboard = try await Friends.shared.stats()
             convoys = try await Groups.shared.list(kind: "convoy")
         } catch {
+            // This runs inside `.task(id: model.signedIn)`, so signing out
+            // mid-reload cancels it — e.g. one of the three awaits above is
+            // still in flight when the token flow flips `signedIn` to false.
+            // Kotlin/Native surfaces that cancellation as an ordinary
+            // `NSError`, not a Swift `CancellationError`: every exported
+            // `suspend` function here is `@Throws(Exception::class)`
+            // (`SyncClient.kt` carries the canonical comment), which also
+            // covers `CancellationException`. Without this guard, a
+            // successful sign-out pops "Something went wrong" for no reason
+            // — the rider's own action caused the cancellation, there's
+            // nothing to tell them.
+            guard !Task.isCancelled else { return }
             report(error)
         }
     }
@@ -304,6 +332,11 @@ final class FriendsModel: ObservableObject {
     // Every action follows the same shape: run it, then re-read the server's
     // view rather than patching the local copy, so a request that crossed with
     // someone else's can't leave the two disagreeing.
+    //
+    // Not cancellable the same way `reload()` above is: this `Task {}` is a
+    // plain unstructured task kicked off from a button action, not attached
+    // to any `.task(id:)` — nothing in this view cancels it when `signedIn`
+    // flips, so it has no `Task.isCancelled` path worth guarding.
     private func act(_ block: @escaping () async throws -> Void) {
         busy = true
         Task {

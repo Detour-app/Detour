@@ -48,8 +48,15 @@ final class SignIn: NSObject, ObservableObject {
             return
         }
 
+        // Runs on every path below, including the one where `session.start()`
+        // returns false — on the MainActor, after `present(_:)`'s completion
+        // handler (if it ran at all) has already returned. Deliberately not
+        // done from inside that handler: see the comment there. Do not move
+        // this back into the handler.
+        defer { session = nil }
+
         let authorize = Oidc.shared.begin(entropy: secureEntropy)
-        guard !authorize.isEmpty, let url = URL(string: authorize) else {
+        guard !authorize.isEmpty else {
             // begin() returns blank rather than throwing: it is not a suspend
             // function, and a throw out of one of those terminates this process
             // instead of arriving as an error. secureEntropy is always full
@@ -58,6 +65,20 @@ final class SignIn: NSObject, ObservableObject {
             // realm configured.
             error = "No identity provider is configured, so there is nobody to "
                 + "sign in to. Set the sign-in realm under Settings → Own server."
+            return
+        }
+        guard let url = URL(string: authorize) else {
+            // Non-blank but not a valid URL: RoutingServer.pick only trims and
+            // strips a trailing slash, it does not validate, so a malformed
+            // realm address (e.g. an unescaped space) reaches here as a
+            // non-blank string URL(string:) rejects. That is a different
+            // failure from "no realm configured" and deserves its own
+            // message — and by this point begin() has already parked a fresh
+            // verifier and state, so abandon() must run before returning or
+            // that verifier is left spendable by nothing.
+            Oidc.shared.abandon()
+            error = "The sign-in realm address is not a valid URL. Check it "
+                + "under Settings → Own server."
             return
         }
 
@@ -80,6 +101,14 @@ final class SignIn: NSObject, ObservableObject {
             // verifier so a later stale callback cannot be spent.
             Oidc.shared.abandon()
             return
+        } catch is SignInCouldNotStart {
+            // Distinct from a dismissal: the rider tapped Sign in and nothing
+            // happened — `session.start()` returned false before the browser
+            // ever opened. Silence here would be exactly the "Sign in button
+            // that silently did nothing" failure this feature exists to fix.
+            Oidc.shared.abandon()
+            self.error = "Could not open the sign-in browser. Please try again."
+            return
         } catch let presentFailure {
             Oidc.shared.abandon()
             self.error = (presentFailure as NSError).localizedDescription
@@ -88,6 +117,13 @@ final class SignIn: NSObject, ObservableObject {
 
         do {
             try await Oidc.shared.complete(url: callback.absoluteString)
+            // A pending orphaned-callback message, if any, is now stale: this
+            // session has since signed in successfully, so whatever that
+            // earlier refusal was about is no longer relevant. Left
+            // uncleared it would sit until the rider next signs out and
+            // render then as an unrelated refusal from days ago — see
+            // `OrphanedSignIn`'s doc.
+            OrphanedSignIn.shared.message = nil
         } catch let completeFailure {
             self.error = (completeFailure as NSError).localizedDescription
         }
@@ -121,40 +157,61 @@ final class SignIn: NSObject, ObservableObject {
 
     private func present(_ url: URL) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
+            // `session.start()` returning false and the completion handler
+            // firing are documented by Apple to be mutually exclusive, so in
+            // principle only one of the `resume` calls below ever runs. The
+            // cost of that documentation being wrong is a `fatalError` on a
+            // double-resumed continuation, not merely a wrong error — cheap
+            // enough to guard against directly rather than trust. Do not
+            // remove: `resumed` and the two lines that check it are the whole
+            // guard.
+            var resumed = false
+            func resume(_ result: Result<URL, Error>) {
+                guard !resumed else { return }
+                resumed = true
+                continuation.resume(with: result)
+            }
+
             // The scheme only, no "://" — and it is already registered in
             // Info.plist, though this API intercepts the redirect itself and
             // does not need it to be.
             let session = ASWebAuthenticationSession(
                 url: url,
                 callbackURLScheme: "detour"
-            ) { [weak self] callback, failure in
-                // The flow is over, one way or another, the moment this runs —
-                // release the session here rather than holding it until the
-                // next sign-in attempt overwrites `self.session`. Weak self,
-                // not strong: a strong capture here would hold `self` (via
-                // `self.session` below holding this very session, which holds
-                // this closure) in a retain cycle for as long as the flow is
-                // in flight.
-                self?.session = nil
+            ) { callback, failure in
+                // Do NOT clear `self?.session` here. By the time this handler
+                // runs, `self.session` is the only strong reference to the
+                // session that is currently executing this very closure — the
+                // local `session` above is about to go out of scope, and
+                // `presentationContextProvider` holds it weakly. Nilling it
+                // out here would drop the last strong reference to an object
+                // while one of its own methods is still on the stack, which
+                // tears down the closure (and the continuation it captures)
+                // out from under itself: a `CheckedContinuation` destroyed
+                // without being resumed is a `fatalError`, not a catchable
+                // error. `start()` clears `session` in a `defer` instead,
+                // after this closure has returned — see there. (No `self`
+                // capture needed any more: nothing else in this closure
+                // touches `self` either.)
                 if let callback {
-                    continuation.resume(returning: callback)
+                    resume(.success(callback))
                     return
                 }
                 if (failure as? ASWebAuthenticationSessionError)?.code == .canceledLogin {
-                    continuation.resume(throwing: SignInDismissed())
+                    resume(.failure(SignInDismissed()))
                     return
                 }
-                continuation.resume(throwing: failure ?? SignInDismissed())
+                resume(.failure(failure ?? SignInDismissed()))
             }
             session.presentationContextProvider = self
             self.session = session
-            // A session that will not start never calls back, so resuming here
-            // cannot double-resume — and its completion handler above never
-            // runs to release `self.session`, so this branch clears it
-            // directly instead.
             if !session.start() {
-                self.session = nil
-                continuation.resume(throwing: SignInDismissed())
+                // Its own error type, not `SignInDismissed`: `start()`
+                // treats a dismissal as the rider's own doing and stays
+                // silent, but a browser that never opened is the "Sign in
+                // button that silently did nothing" failure this feature
+                // exists to remove, and deserves its own message.
+                resume(.failure(SignInCouldNotStart()))
             }
         }
     }
@@ -173,6 +230,12 @@ final class SignIn: NSObject, ObservableObject {
 /// The rider closed the sheet. Its own type so `start()` can tell a dismissal
 /// from a refusal and stay silent about the former.
 private struct SignInDismissed: Error {}
+
+/// `session.start()` returned false: the browser never opened. Its own type,
+/// distinct from `SignInDismissed`, so `start()` can tell "the rider closed
+/// this" from "this never opened" and report the latter instead of staying
+/// silent about it too.
+private struct SignInCouldNotStart: Error {}
 
 extension SignIn: ASWebAuthenticationPresentationContextProviding {
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {

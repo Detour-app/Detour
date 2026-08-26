@@ -428,10 +428,27 @@ private struct CircleDetailView: View {
             events = try await e.sorted { $0.tsMs > $1.tsMs }
             placesError = nil
         } catch {
+            // This runs inside `.task(id: dataReloads)` below, so it can be
+            // cancelled mid-flight the same way FriendsScreen.reload() can:
+            // the refresh button and `act(_:)` below both bump `dataReloads`,
+            // and a bump while a load is still in flight cancels this one.
+            // Kotlin cancellation crosses as an ordinary `NSError` here too
+            // (see the comment on FriendsModel.reload()), so without this
+            // guard, tapping refresh twice in a row — or sharing/deleting a
+            // place while a load is still running — pops a spurious "went
+            // wrong" banner for what the rider just did successfully.
+            guard !Task.isCancelled else { return }
             placesError = (error as NSError).localizedDescription
         }
     }
 
+    // Not cancellable the same way `loadPlacesAndEvents()` above is: this
+    // `Task {}` is a plain unstructured task kicked off from a button action
+    // (share/delete/leave/invite), not attached to any `.task(id:)` — nothing
+    // here cancels it when `dataReloads` changes, so there's no
+    // `Task.isCancelled` path worth guarding. Same conclusion applies to
+    // `CirclesModel.act(_:)` above and to `CirclesScreen`'s own
+    // `.task { await model.reload() }`, which isn't keyed on an `id:` at all.
     private func act(_ block: @escaping () async throws -> Void) {
         placesBusy = true
         Task {

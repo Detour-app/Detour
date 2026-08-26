@@ -68,6 +68,26 @@ object SyncClient {
      * phone beats an aborted process. A no-op on Android/JVM, where
      * `@Throws` has nothing to attach to.
      *
+     * Two more things this choice accepts, worth recording since that's this
+     * comment's whole job:
+     *
+     * `Exception` also covers `CancellationException` (it's an
+     * `IllegalStateException`), which is not a gap — it's why a coroutine
+     * cancelled out from under a Swift caller (a `.task(id:)` whose key
+     * changed mid-await, say) now arrives there as an ordinary `NSError`
+     * instead of as Swift's own `CancellationError`. A `catch` on the Swift
+     * side that doesn't check `Task.isCancelled` before reporting will treat
+     * the rider's own cancellation as a failure worth an alert. See
+     * `FriendsScreen.swift`'s `reload()` for where that actually bit, and
+     * its comment for the fix; the two comments should be read together.
+     *
+     * It does **not** cover `Error`/`Throwable` subclasses — only
+     * `Exception` and below. `OutOfMemoryError`, `AssertionError`, and the
+     * `NotImplementedError` a bare `TODO()` throws all still abort the
+     * process before reaching Swift. Deliberate: those are conditions a
+     * `catch` reporting "something went wrong" to the rider would only
+     * mislabel, not meaningfully recover from.
+     *
      * Not repeated at every other site this reasoning applies to — read it
      * here.
      */
