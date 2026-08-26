@@ -84,8 +84,9 @@ private data class ScreenData(
 @Composable
 fun BadgesScreen(onBack: () -> Unit, onOpenCoverageMap: () -> Unit) {
     val context = LocalContext.current
-    // Coverage walks every trace point against every boundary; keep it off the
-    // main thread, and off the composition's hot path.
+    // Coverage walks every trace point against every boundary, but caches the
+    // result — keep the first call off the main thread and off the
+    // composition's hot path; later calls just read the cache.
     val data by produceState<ScreenData?>(initialValue = null) {
         value = withContext(Dispatchers.IO) {
             val coverage = Coverage.compute()
