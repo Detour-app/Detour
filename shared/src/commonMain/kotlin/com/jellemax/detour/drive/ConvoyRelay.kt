@@ -53,6 +53,39 @@ sealed interface SpinRoundOutcome {
 }
 
 /**
+ * Supplies a fresh bearer token to [ConvoyRelay.run] on every (re)connect
+ * attempt - a `fun interface` rather than the bare `bearer: suspend () ->
+ * String` function-type parameter this replaced, for two reasons that only
+ * matter once Swift is the one implementing it.
+ *
+ * **A bare suspend function type has no Objective-C block to lower to.**
+ * Kotlin/Native does not - cannot - compile an exported suspend function
+ * type to a block, since a block cannot suspend; it generates a
+ * `KotlinSuspendFunction0` protocol instead, whose sole requirement is
+ * `invokeWithCompletionHandler:`. A Swift **closure literal** cannot
+ * conform to a protocol existential, so a call site handing `run` a
+ * `bearer: { ... }` closure directly does not compile. A `fun interface`
+ * lowers to an ordinary Objective-C protocol with one plain method, which a
+ * small Swift type - a struct or a class, not a closure - genuinely can
+ * implement.
+ *
+ * **A bare function-type parameter has nowhere for `@Throws` to attach.**
+ * That annotation targets a declared function; it cannot land on a
+ * parameter whose type merely happens to be a suspend function. That is
+ * exactly why `Auth.bearer` reached Swift unannotated for as long as it
+ * did - there was no annotation site on this side of the call even after
+ * `Auth.bearer` itself was fixed - and an unmarked suspend function
+ * propagates only `CancellationException`, terminating the process on
+ * anything else. [bearer] gives that annotation a home, so a caller-side
+ * `try?`/`signedIn` workaround is no longer what stands between an expired
+ * refresh token and a crash.
+ */
+fun interface BearerSource {
+    @Throws(Exception::class)
+    suspend fun bearer(): String
+}
+
+/**
  * The convoy live-relay's state machine: peers, push-to-talk membership, the
  * group spin vote, and the connect/backoff/reconnect loop that feeds them -
  * one implementation of what `app/.../net/ConvoyLiveClient.kt` (693 lines)
@@ -132,28 +165,32 @@ sealed interface SpinRoundOutcome {
  * doc - so a [RelaySocket] arrives here already pointed at the right place,
  * and [run] only ever hands it a bearer token.
  *
- * **`bearer` is a supplier, not a resolved string**, for two reasons at once.
- * First, fidelity: both existing clients call `Auth.bearer()` fresh inside
- * their own per-attempt connect function, not once for the whole reconnect
- * loop, so a socket that comes back after an access token's 15-minute
- * lifetime presents a current one rather than a stale one - a supplier
- * preserves that, a resolved string would not. Second, testability: calling
- * `Auth.bearer()` directly from here would make every test in this file
- * depend on `Settings.init()`, which needs a real platform `Context` this
- * module's tests do not have (see `FriendsStore`'s own doc for the same
- * constraint) - `Auth.signedIn` reads a safe default and never crashes, but
- * `Auth.bearer()` would then just throw `AuthException` on every call,
- * closing off the very connect-flow tests this class exists to make
- * possible. The real call site (a later task) passes `Auth::bearer`.
+ * **`bearer` is a [BearerSource] supplier, not a resolved string**, for two
+ * reasons at once. First, fidelity: both existing clients call
+ * `Auth.bearer()` fresh inside their own per-attempt connect function, not
+ * once for the whole reconnect loop, so a socket that comes back after an
+ * access token's 15-minute lifetime presents a current one rather than a
+ * stale one - a supplier preserves that, a resolved string would not.
+ * Second, testability: calling `Auth.bearer()` directly from here would make
+ * every test in this file depend on `Settings.init()`, which needs a real
+ * platform `Context` this module's tests do not have (see `FriendsStore`'s
+ * own doc for the same constraint) - `Auth.signedIn` reads a safe default
+ * and never crashes, but `Auth.bearer()` would then just throw
+ * `AuthException` on every call, closing off the very connect-flow tests
+ * this class exists to make possible. The real call site passes
+ * `BearerSource(Auth::bearer)` - see [BearerSource]'s own doc for why a
+ * `fun interface`, not the bare function type this parameter started as:
+ * that type could not cross to Swift at all, and gave `Auth.bearer`'s
+ * `@Throws` nowhere to attach on this side of the call either.
  *
  * Plainly, since the design brief's own shorthand can read otherwise: **this
  * class never calls `Auth.bearer()` or `RoutingServer` itself.** Every access
  * token crosses [run]'s boundary already resolved, via [bearer]; every URL
  * crosses [RelaySocket]'s boundary already resolved, per the paragraph
  * above. That is this implementation's own interpretive call rather than the
- * brief's literal text - Tasks 3 and 4, wiring the real `Auth::bearer` and a
- * platform [RelaySocket] at the actual call site, should read this
- * signature rather than assume it matches the brief verbatim.
+ * brief's literal text - the platform call sites wiring the real
+ * `Auth::bearer` and a platform [RelaySocket] should read this signature
+ * rather than assume it matches the brief verbatim.
  *
  * **`stop()` is a flag, not a cancellation - deliberately.** Cancelling a
  * Swift `Task` does not cancel the Kotlin coroutine behind an exported
@@ -331,7 +368,7 @@ class ConvoyRelay {
      * paper over the way a silent no-op would.
      */
     @Throws(Exception::class)
-    suspend fun run(socket: RelaySocket, bearer: suspend () -> String): Unit = coroutineScope {
+    suspend fun run(socket: RelaySocket, bearer: BearerSource): Unit = coroutineScope {
         check(!running) {
             "ConvoyRelay.run() called while already running - exactly one live run() " +
                 "per instance is required, see the class doc"
@@ -603,10 +640,10 @@ class ConvoyRelay {
      * (Android's case, not Swift's - see the class doc) - via the outer
      * `finally`, rather than repeating a close call on each of those paths.
      */
-    private suspend fun attempt(socket: RelaySocket, bearer: suspend () -> String): Boolean {
+    private suspend fun attempt(socket: RelaySocket, bearer: BearerSource): Boolean {
         try {
             val token = try {
-                bearer()
+                bearer.bearer()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -618,7 +655,7 @@ class ConvoyRelay {
                 return false
             }
             if (token.isBlank()) {
-                // bearer() didn't throw but handed back nothing - matches
+                // bearer.bearer() didn't throw but handed back nothing - matches
                 // Android's own treatment of a blank token as "Not signed
                 // in" (net/ConvoyLiveClient.kt:488-491). Without this check a
                 // supplier returning "" connects with `Authorization: Bearer `

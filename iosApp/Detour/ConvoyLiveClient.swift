@@ -243,35 +243,19 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     /// `running`'s own doc for why `@MainActor` needs no lock here, unlike
     /// Android's `ensureRunning`.
     ///
-    /// The `bearer` supplier must never let a throw cross back into Kotlin:
-    /// `ConvoyRelay.run`'s `bearer: suspend () -> String` parameter carries no
-    /// `@Throws` (that annotation applies to a declared function, not a bare
-    /// function-type parameter), so an unmarked throw here would be the same
-    /// hazard `RelaySocket`'s own doc warns terminates the process — and
-    /// `Auth.bearer` is explicitly one of the eighteen still-unannotated
-    /// suspend functions `docs/IOS_PORT.md`'s "Not done" section lists as
-    /// able to "take the app down". The old client never called it at all
-    /// (it read `SettingsValues.shared.authToken` directly); this is the
-    /// first call site that does, per `ConvoyRelay`'s own class doc ("the
-    /// real call site... passes `Auth::bearer`"). `signedIn` closes the one
-    /// throw this path hits on *every* signed-out attempt — `ConvoyRelay`'s
-    /// own doc says a blank return is already treated as "not signed in",
-    /// which is exactly what this guard, and the `try?` below for a signed-in
-    /// refresh failing for some other reason, both turn a throw into. The
-    /// residual risk of `bearer()`'s own `refresh()` throwing for a different
-    /// reason while signed in is the same pre-existing, documented gap every
-    /// other unannotated suspend call in this app already carries — fixing it
-    /// means annotating `Auth.kt` itself, outside this task's `shared/`
-    /// boundary.
+    /// `bearer` is `AuthBearerSource()`, not a closure — `ConvoyRelay.run`'s
+    /// `bearer` parameter is a `BearerSource`, a `fun interface` rather than
+    /// the bare `suspend () -> String` function type it used to be, which
+    /// could not be implemented from Swift at all (see `BearerSource`'s own
+    /// doc). `AuthBearerSource` below is what actually calls `Auth.bearer`;
+    /// see its own doc for why it can let a throw cross straight through
+    /// rather than swallowing one to a blank string the way this used to.
     private func ensureRunning() {
         guard !running else { return }
         running = true
         Task { [weak self] in
             guard let self else { return }
-            _ = try? await self.relay.run(socket: self.socket, bearer: {
-                guard Auth.shared.signedIn else { return "" }
-                return (try? await Auth.shared.bearer()) ?? ""
-            })
+            _ = try? await self.relay.run(socket: self.socket, bearer: AuthBearerSource())
             self.running = false
         }
     }
@@ -287,6 +271,27 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     private func sessionEnded() {
         activeConvoyId = nil
         wantedCircleIds = []
+    }
+}
+
+/// Conforms to the generated `BearerSource` protocol — `ConvoyRelay.kt`'s
+/// `fun interface BearerSource`, whose one method carries its own
+/// `@Throws` — the same shape `UrlSessionRelaySocket` already conforms to
+/// `RelaySocket` with: Kotlin/Native lowers a `fun interface` to an
+/// ordinary protocol with a real `async throws` method, not the
+/// completion-handler-only `KotlinSuspendFunction0` a bare `suspend () ->
+/// String` function type used to generate — see `BearerSource`'s own doc
+/// for why only the interface shape can be implemented from Swift at all.
+///
+/// Because `bearer()` really can throw across this boundary now,
+/// `ConvoyRelay.attempt` catching it is what actually turns a failure into
+/// `lastError` — see its own comment — so there is nothing left for this
+/// type to swallow itself: no `signedIn` guard, no `try?`. The one that
+/// used to be here worked around the missing annotation slot on the old
+/// function-type parameter, not around anything about `Auth.bearer` itself.
+private final class AuthBearerSource: BearerSource {
+    func bearer() async throws -> String {
+        try await Auth.shared.bearer()
     }
 }
 

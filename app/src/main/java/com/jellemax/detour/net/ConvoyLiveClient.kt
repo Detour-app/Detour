@@ -4,6 +4,7 @@ import com.jellemax.detour.data.Auth
 import com.jellemax.detour.data.Features
 import com.jellemax.detour.data.RelayPlaceEvent
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.drive.BearerSource
 import com.jellemax.detour.drive.ConvoyRelay
 import com.jellemax.detour.drive.FriendPosition
 import com.jellemax.detour.drive.GroupSpin
@@ -212,13 +213,16 @@ object ConvoyLiveClient {
 
     /** Launches [ConvoyRelay.run] if it is not already running - see
      *  [runJob] and [runLock]'s own docs for why more than one caller needs
-     *  to be able to trigger this safely. [Auth.bearer] is passed as a
-     *  supplier, not called here - [ConvoyRelay] resolves it fresh on every
-     *  (re)connect attempt, see its class doc for why. */
+     *  to be able to trigger this safely. [Auth.bearer] is wrapped in a
+     *  [BearerSource], not called here - [ConvoyRelay] resolves it fresh on
+     *  every (re)connect attempt, see its class doc for why, and
+     *  [BearerSource]'s own doc for why a `fun interface` rather than
+     *  `Auth::bearer` passed directly (which this still reads as, on the
+     *  Kotlin side - the wrapping only matters to the Swift caller). */
     private fun ensureRunning() {
         synchronized(runLock) {
             if (runJob?.isActive == true) return
-            runJob = scope.launch { relay.run(socket, Auth::bearer) }
+            runJob = scope.launch { relay.run(socket, BearerSource(Auth::bearer)) }
         }
     }
 }

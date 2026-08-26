@@ -117,7 +117,7 @@ class ConvoyRelayTest {
         expiresAtMs = expiresAtMs,
     )
 
-    private fun tokenSupplier(token: String = "test-token"): suspend () -> String = { token }
+    private fun tokenSupplier(token: String = "test-token") = BearerSource { token }
 
     // --- connection lifecycle, against the fake socket ---------------------
 
