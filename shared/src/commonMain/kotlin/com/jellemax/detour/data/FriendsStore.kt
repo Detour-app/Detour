@@ -91,14 +91,13 @@ object FriendsStore {
         _state.value = _state.value.copy(own = own)
     }
 
-    /** Returns the resulting status — "pending", or "accepted" when they had
-     *  already asked us and this answered theirs — or null if the request
-     *  failed, with the failure left in [state]'s `error` for the screen to
-     *  show. */
-    @Throws(Exception::class)
-    suspend fun request(username: String): String? = act { Friends.request(username) }
-
     /** True on success; false leaves the failure in [state]'s `error`. */
+    // No `request` action here on purpose. Both platforms' add-friend dialogs
+    // call `Friends.request` directly, so that a refused handle reports inside
+    // the dialog the rider is looking at rather than also lighting the banner
+    // over the list behind it. Routing it through this store would set both.
+    // The cost is that a sent request does not appear under Outgoing until the
+    // next reload, which is how both screens already behaved.
     @Throws(Exception::class)
     suspend fun respond(username: String, accept: Boolean): Boolean =
         act { Friends.respond(username, accept) } != null
