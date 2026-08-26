@@ -103,10 +103,18 @@ struct MapScreen: View {
         // is already keyed on a collected StateFlow.
         .task(id: circleFixUsername.username) {
             let me = circleFixUsername.username
-            guard !me.isEmpty else {
-                circleFixes = []  // signed out: nothing to ask the server for
-                return
-            }
+            // Cleared unconditionally, not only on the empty branch below.
+            // Sign-in and sign-out both happen on the Friends tab, so this
+            // `.task` can be torn down without ever running for the `""`
+            // transition in between — the Map tab was simply not selected
+            // for it. `circleFixes` is `@State`, which survives a TabView
+            // switch, so without this the new rider's first visit to the Map
+            // tab would start this loop with the previous rider's positions
+            // still drawn until the first round trip returns — or
+            // indefinitely if it fails, since the `catch` below deliberately
+            // keeps the last known positions.
+            circleFixes = []
+            guard !me.isEmpty else { return }  // signed out: nothing to ask the server for
             while !Task.isCancelled {
                 do {
                     let fixes = try await CircleFixes.shared.othersFixes(selfUsername: me)
