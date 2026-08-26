@@ -524,6 +524,15 @@ class ConvoyRelayTest {
     // and `aPrunedPeerCannotCompleteTheRoundEarly` are not ported - each pins
     // a property already covered above, most thoroughly by
     // `aReceiverWithADifferentPeerSetNeverResolvesAMultiCandidateOfferItDidNotSendThenCommitsTheSharersClosingOne`.
+    // `anEmptyExpectedSetNeverClosesARound` *is* ported, as
+    // `anEmptyExpectedSetNeverClosesARoundEvenForTheSharer` just below - a
+    // previous accounting of this file named four ported cases and six
+    // already-covered ones, ten of this file's eleven, and left this
+    // eleventh in neither list. Nothing above exercises `expected.isEmpty()`
+    // on `resolveSpinRound`'s own guard: every other test that reaches
+    // `CloseRound` does so with at least one live peer or a non-blank
+    // `myUsername` in `expected`. Deleting that guard alone still leaves all
+    // 293 other shared tests green - this is the one that catches it.
 
     @Test
     fun noVotesAtAllLeadsWithTheFirstCandidate() {
@@ -572,6 +581,37 @@ class ConvoyRelayTest {
         relay.applyEvent(RelayEvent.SpinVote("alice", 1))
 
         assertEquals(SpinRoundOutcome.CloseRound(leadIndex = 1), relay.spinRoundOutcome(myUsername = ""))
+    }
+
+    /**
+     * No known live voter at all - no peers, and a blank (signed-out)
+     * `myUsername` - is not a complete round. Without `resolveSpinRound`'s
+     * `expected.isEmpty() ||` guard, an empty `expected` vacuously satisfies
+     * `votes.keys.containsAll(expected)` (every element of the empty set is
+     * trivially "contained"), so a sharer with nobody around it yet would
+     * close its own round on zero votes - `CloseRound(0)`, an arbitrary
+     * candidate committed for the whole convoy, instead of `Wait`. Ported
+     * from the deleted `GroupSpinRulesTest.kt`'s `anEmptyExpectedSetNeverClosesARound` -
+     * see this section's own header comment for why it was missing from both
+     * of that porting task's accounting lists.
+     */
+    @Test
+    fun anEmptyExpectedSetNeverClosesARoundEvenForTheSharer() {
+        val relay = ConvoyRelay()
+        // No peers ever seen, and sendSpinOffer opens the round as this
+        // device itself (fromMe = true) - the sharer's own case, since a
+        // receiver already never closes anything regardless of expected
+        // (see aReceivingDeviceNeverClosesARound's note above).
+        relay.sendSpinOffer(
+            listOf(
+                SpinCandidate(51.0, 4.0, null, null, "A"),
+                SpinCandidate(52.0, 5.0, null, null, "B"),
+            ),
+        )
+
+        // myUsername blank too, so expected = _peers.value.keys (empty) +
+        // nothing = the empty set this guard exists for.
+        assertEquals(SpinRoundOutcome.Wait, relay.spinRoundOutcome(myUsername = ""))
     }
 
     /** [ConvoyRelay.spinRoundIsReadyToClose] is a `Boolean`-only projection of
