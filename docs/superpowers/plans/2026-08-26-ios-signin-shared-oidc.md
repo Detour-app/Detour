@@ -493,7 +493,7 @@ object Oidc {
 devcontainer-exec ./gradlew :shared:testDebugUnitTest --tests '*OidcTest*'
 ```
 
-Expected: PASS, 15 tests.
+Expected: PASS, 16 tests.
 
 If `parametersOf(mapOf(...))` does not resolve, use the vararg-pair form instead —
 `parametersOf("client_id" to listOf(Auth.CLIENT_ID), …)` — which `Auth.kt:262` reaches
@@ -539,7 +539,7 @@ Entropy is pushed in as a parameter instead of becoming a fourth Platform.kt
 expect, and begin() returns \"\" rather than throwing because a throw out of a
 non-suspend exported function terminates the Swift process.
 
-Fifteen tests, including RFC 7636's own challenge vector: the challenge sent to
+Sixteen tests, including RFC 7636's own challenge vector: the challenge sent to
 the realm has to be the SHA-256 of the verifier the exchange later presents, and
 getting that pair wrong surfaces as invalid_grant at the end of a flow that
 looked like it was working."
@@ -1023,14 +1023,25 @@ The Swift changes compile only on macOS. `ios.yml` is path-gated on `shared/**` 
 `iosApp/**`, so it will run `xcodegen`, build for the simulator, boot it and screenshot.
 **Do not claim the Swift side compiles** — say it is pending CI.
 
-- [ ] **Step 5: Re-read the Swift for the two mistakes that only fail at compile time**
+- [ ] **Step 5: Re-read the Swift for the mistakes that only fail at compile or run time**
 
-Neither is checkable on Linux, so read for them deliberately:
+None of these is checkable on Linux, so read for them deliberately:
 
 1. `DetourShared.Group` collides with SwiftUI's `Group`. `SignIn.swift` does not name
    `Group`, but confirm no added line does.
 2. Exported Kotlin names: the object is `Oidc.shared`, the suspend function is
    `complete(url:)`, and `begin` takes a `KotlinByteArray`, not `Data` or `[UInt8]`.
+3. **The entropy really comes from `SecRandomCopyBytes`, and the `KotlinByteArray` it is
+   copied into is fully populated.** Shared `Oidc.begin` only checks the array's *length*,
+   not its content — a zero-filled 80-byte array produces a completely predictable PKCE
+   verifier and OAuth state and returns a normal-looking URL, and nothing in `commonMain`
+   can catch that. Confirm the `SecRandomCopyBytes` return value is checked against
+   `errSecSuccess`, that the loop copies all `count` bytes, and that no path reaches
+   `begin` with a partially-filled array.
+4. `Enums.oidcEntropyBytes` was never type-checked when it was added: the Apple metadata
+   compilations are `SKIPPED` on this Linux devcontainer. `ios.yml` building under Xcode is
+   the first real check of that line — so a failure there is expected to be this, and is not
+   a mystery.
 
 - [ ] **Step 6: Commit**
 
