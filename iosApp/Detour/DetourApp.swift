@@ -28,6 +28,17 @@ struct DetourApp: App {
         WindowGroup {
             RootView()
                 .onOpenURL { url in
+                    // A redirect arriving here rather than in the sign-in
+                    // session's completion handler means the session is gone —
+                    // the app was killed behind the browser. Shared Oidc has
+                    // nothing parked, so complete() will refuse it with the
+                    // "app restarted" message, which is the thing worth saying:
+                    // silently dropping it reads as a Sign in button that did
+                    // nothing. Same case Android reports from MainActivity.
+                    if Oidc.shared.isCallback(url: url.absoluteString) {
+                        Task { await SignIn.reportOrphanedCallback(url) }
+                        return
+                    }
                     // detour://reset?token=… from the sync server's mails.
                     guard url.scheme == "detour", url.host == "reset",
                           let token = URLComponents(url: url, resolvingAgainstBaseURL: false)?

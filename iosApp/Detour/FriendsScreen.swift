@@ -16,7 +16,7 @@ struct FriendsScreen: View {
                 if model.signedIn {
                     signedInList
                 } else {
-                    SignInForm(model: model)
+                    SignInForm()
                 }
             }
             .navigationTitle(model.signedIn ? model.username : "Friends")
@@ -146,28 +146,64 @@ struct FriendsScreen: View {
     }
 }
 
-/// Signing in moved to the identity provider, which means a browser trip
-/// (authorization code with PKCE). Android does that in a Custom Tab; the iOS
-/// side needs an `ASWebAuthenticationSession` and has not been written yet, so
-/// this states it rather than offering a password form the server would refuse.
+/// Signing in is a trip out to the realm's own page and back — authorization
+/// code with PKCE, in an `ASWebAuthenticationSession`. Creating an account,
+/// changing a password and recovering one all happen on the realm's pages,
+/// which is why none of them is offered here. Same copy as the Android
+/// screen's, deliberately: one feature described two ways reads as two.
 private struct SignInForm: View {
-    @ObservedObject var model: FriendsModel
+
+    @StateObject private var signIn = SignIn()
+    // Set by DetourApp's onOpenURL when a redirect arrives with no session
+    // waiting for it — the app was killed behind the browser. Shown once,
+    // then cleared, the same shape as CircleNotifications.PendingCircleOpen.
+    @ObservedObject private var orphaned = OrphanedSignIn.shared
 
     var body: some View {
         Form {
             Section {
-                Text(Features.shared.liveRelayNotice)
-                    .font(.headline)
                 Text("""
-                    Signing in now happens on your server's own sign-in page, in a \
-                    browser. The iOS app has not been ported to that yet — the Android \
-                    app has. Everything on this device that does not need an account \
-                    keeps working: recording rides, the map, roulette and routes.
+                    Sign in to sync your rides and compare stats with friends. \
+                    Your trips and explored map stay private — friends only ever \
+                    see totals and badges.
                     """)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+
+                if signIn.configured {
+                    if let message = orphaned.message {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .onAppear { orphaned.message = nil }
+                    }
+                    if let error = signIn.error {
+                        Text(error)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                    Button {
+                        Task { await signIn.start() }
+                    } label: {
+                        if signIn.busy {
+                            ProgressView()
+                        } else {
+                            Text("Sign in")
+                        }
+                    }
+                    .disabled(signIn.busy)
+                } else {
+                    Text("""
+                        No identity provider is configured, so there is nobody to \
+                        sign in to. Set the sign-in realm under Settings → Own server.
+                        """)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             } header: {
                 Text("Account")
+            } footer: {
+                Text("Opens a browser. New accounts and password changes happen there too.")
             }
         }
     }
