@@ -116,15 +116,27 @@ Not gaps — decisions, and the places to look first if behaviour diverges.
 - **Guidance audio.** Android takes transient-may-duck focus per prompt;
   iOS uses `.duckOthers` + `.voicePrompt` and deactivates the session when the
   utterance ends, so music comes back between prompts.
-- **Convoy keep-alive** — and, since the relay was shared, the *only* thing
-  about a convoy that still differs. OkHttp has `pingInterval`, which stops NAT
-  and the Cloudflare tunnel idling a quiet socket closed.
-  `URLSessionWebSocketTask` has no such setting, so the ping is scheduled by
-  hand in `UrlSessionRelaySocket.swift`. Everything above the socket — the
+- **Convoy keep-alive.** OkHttp has `pingInterval`, which stops NAT and the
+  Cloudflare tunnel idling a quiet socket closed. `URLSessionWebSocketTask` has
+  no such setting, so the ping is scheduled by hand in
+  `UrlSessionRelaySocket.swift`. Everything above the socket — the
   sixteen-frame protocol, peers, TTL pruning, reconnect backoff, push-to-talk
   membership and the spin vote — is one implementation now, so this is a
   difference in how the connection is kept alive rather than in what either
   platform does with it.
+- **Convoy live-URL resolution — not collapsed by the shared relay, and not
+  new either.** `OkHttpRelaySocket.liveUrl()` checks a baked-in
+  `BuildConfig.LIVE_URL` first, then derives `wss://<host>/api/live` from
+  `RoutingServer.loadCustom()` — a rider's own self-hosted server URL.
+  `UrlSessionRelaySocket.swift` reads only the baked-in
+  `BuildDefaults.shared.liveUrl` and refuses outright if that is empty; it has
+  no equivalent derivation. `RelaySocket`'s own doc says URL resolution is
+  deliberately a platform concern, not something the shared relay decides, so
+  this is not a gap the relay port left open - it is one that was never
+  closed, the same divergence register entry 6c described before the relay
+  moved: an iOS install pointed at a self-hosted server with no baked-in live
+  URL can never join a convoy, where Android derives one from the same
+  `server.url` every other service reads.
 
   Ktor's WebSockets plugin would close even this, since its `pingInterval` is
   common code. It was not used because the `ktor-client-darwin` engine's

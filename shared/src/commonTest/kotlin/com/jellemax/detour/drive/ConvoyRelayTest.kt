@@ -1,17 +1,39 @@
 package com.jellemax.detour.drive
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlin.system.measureTimeMillis
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+
+/** What every test below actually runs under, in place of a bare
+ *  `runBlocking` - generous next to the one legitimate real-time wait in
+ *  this file (a single backoff step, MIN_BACKOFF_MS = 1s, in
+ *  `aSocketThatClosesUnexpectedlyReconnectsWithBackoffAndConnectedReflectsIt`),
+ *  but bounded. Every test here waits on a `StateFlow`/`Channel` reaching a
+ *  particular state via `first { }` - correct exactly because it suspends
+ *  rather than racing a `.value` read (see the class doc above), but that
+ *  same suspend never returns on its own if a regression means the state it
+ *  is waiting for never arrives. A bare `runBlocking` then hangs forever:
+ *  not a red test, a stuck CI job someone has to notice and kill by hand.
+ *  `switchingConvoysReopensTheSocketAndJoinsOnlyTheNewOne` did exactly that
+ *  when `setConvoy`'s removal close briefly regressed during this task - see
+ *  the task report. `withTimeout` turns that hang into an ordinary failing
+ *  assertion instead. */
+private const val TEST_TIMEOUT_MS = 10_000L
+
+private fun testBody(block: suspend CoroutineScope.() -> Unit) = runBlocking {
+    withTimeout(TEST_TIMEOUT_MS, block)
+}
 
 /**
  * Covers ConvoyRelay.kt: the convoy live-relay's state machine, ported from
@@ -129,7 +151,7 @@ class ConvoyRelayTest {
     // --- connection lifecycle, against the fake socket ---------------------
 
     @Test
-    fun joiningEmitsAJoinFrameCarryingTheGroupId() = runBlocking {
+    fun joiningEmitsAJoinFrameCarryingTheGroupId() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -148,7 +170,7 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun positionsFramePopulatesPeersAndALaterOneForTheSamePeerReplaces() = runBlocking {
+    fun positionsFramePopulatesPeersAndALaterOneForTheSamePeerReplaces() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -171,7 +193,7 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun stopEndsRunWithoutCancellingItsCoroutine() = runBlocking {
+    fun stopEndsRunWithoutCancellingItsCoroutine() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -200,7 +222,7 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun aSocketThatClosesUnexpectedlyReconnectsWithBackoffAndConnectedReflectsIt() = runBlocking {
+    fun aSocketThatClosesUnexpectedlyReconnectsWithBackoffAndConnectedReflectsIt() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -230,7 +252,7 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun stopPublishesTheDisconnectAndNotJustTheClosedSocket() = runBlocking {
+    fun stopPublishesTheDisconnectAndNotJustTheClosedSocket() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -250,7 +272,7 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun lastErrorReportsWhenTheRelayCannotBeReached() = runBlocking {
+    fun lastErrorReportsWhenTheRelayCannotBeReached() = testBody {
         val socket = FakeRelaySocket()
         // A socket words its own failures - see RelaySocket.connect. This one
         // stands in for a refused upgrade, whose status code the rider needs
@@ -268,7 +290,7 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun lastErrorFallsBackToItsOwnWordingWhenTheSocketGivesNone() = runBlocking {
+    fun lastErrorFallsBackToItsOwnWordingWhenTheSocketGivesNone() = testBody {
         val socket = FakeRelaySocket()
         socket.connectFailsWith = Exception()
         val relay = ConvoyRelay()
@@ -282,7 +304,7 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun lastErrorStaysNullWhenJoinedButNobodyIsSendingAnything() = runBlocking {
+    fun lastErrorStaysNullWhenJoinedButNobodyIsSendingAnything() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -302,7 +324,7 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun anErrorFrameSetsLastErrorAndEndsTheAttemptWithoutCrashing() = runBlocking {
+    fun anErrorFrameSetsLastErrorAndEndsTheAttemptWithoutCrashing() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -647,7 +669,7 @@ class ConvoyRelayTest {
     // MapScreen each do today) or changed while it is live.
 
     @Test
-    fun circlesAloneKeepTheSocketConnectedWithNoConvoyJoined() = runBlocking {
+    fun circlesAloneKeepTheSocketConnectedWithNoConvoyJoined() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         // The CircleNotifyService case: no convoy at all, ever - exactly
@@ -666,7 +688,7 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun aConvoyAndCirclesEachJoinAsTheirOwnFrameOnConnect() = runBlocking {
+    fun aConvoyAndCirclesEachJoinAsTheirOwnFrameOnConnect() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -691,7 +713,7 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun addingACircleWhileConnectedJoinsOnTheLiveSocketWithoutReopening() = runBlocking {
+    fun addingACircleWhileConnectedJoinsOnTheLiveSocketWithoutReopening() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -715,7 +737,7 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun addingAConvoyWhileConnectedForCirclesJoinsOnTheLiveSocketWithoutReopening() = runBlocking {
+    fun addingAConvoyWhileConnectedForCirclesJoinsOnTheLiveSocketWithoutReopening() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setNotifyingCircles(setOf("circle-1"))
@@ -740,7 +762,7 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun anAdditionBeforeTheJoinedReplyArrivesIsSentRatherThanLost() = runBlocking {
+    fun anAdditionBeforeTheJoinedReplyArrivesIsSentRatherThanLost() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -788,7 +810,7 @@ class ConvoyRelayTest {
     // task exists to correct.
 
     @Test
-    fun removingACircleWhileConnectedReopensTheSocketAndRejoinsExactlyTheRemainder() = runBlocking {
+    fun removingACircleWhileConnectedReopensTheSocketAndRejoinsExactlyTheRemainder() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -820,7 +842,7 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun switchingConvoysReopensTheSocketAndJoinsOnlyTheNewOne() = runBlocking {
+    fun switchingConvoysReopensTheSocketAndJoinsOnlyTheNewOne() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -853,7 +875,7 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun leavingTheConvoyWhileCirclesRemainReopensTheSocketAndClearingBothLetsRunFinish() = runBlocking {
+    fun leavingTheConvoyWhileCirclesRemainReopensTheSocketAndClearingBothLetsRunFinish() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -897,6 +919,41 @@ class ConvoyRelayTest {
         assertTrue(returnedNormally, "run() should return once nothing wants the socket, without needing stop()")
     }
 
+    /**
+     * The last notifying circle dropping with no convoy ever joined is the
+     * one reachable case where [run] itself - not [stop] - decides nothing
+     * is wanted any more (see the test just above). The pruner that would
+     * otherwise age [peers] out over [RelayProtocol.FALLBACK_PEER_TTL_MS]
+     * dies with this same coroutine at that exact moment, so without
+     * clearing them directly here, a departed circle's members - and
+     * whoever was mid-transmission - would sit in [peers]/[talking] until
+     * the next [run], long after there is any membership left for them to
+     * belong to. Distinct from a plain [stop] with membership still wanted,
+     * which must not touch either - see [run]'s own doc for where this is
+     * gated.
+     */
+    @Test
+    fun theLastNotifyingCircleDroppingWithNoConvoyJoinedClearsPeersAndTalkingNotJustTheSocket() = testBody {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        relay.setNotifyingCircles(setOf("circle-1"))
+        val job = launch { relay.run(socket, tokenSupplier()) }
+
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        socket.push(positionsFrame("bob", lat = 51.0, lon = 4.0))
+        relay.peers.first { it.containsKey("bob") }
+        relay.applyEvent(RelayEvent.PttStart("bob"))
+
+        relay.setNotifyingCircles(emptySet())
+        job.join()
+
+        assertTrue(relay.peers.value.isEmpty(), "a departed circle's members must not survive the exit that dropped them")
+        assertTrue(relay.talking.value.isEmpty())
+    }
+
     // --- session change clears membership: the point of *this* task's fix --
     //
     // stop() is deliberately not this: a plain stop() (a button press, or
@@ -914,7 +971,7 @@ class ConvoyRelayTest {
     // directly here rather than by actually bumping Auth.sessionEpoch.
 
     @Test
-    fun aSessionChangeClearsConvoyScopedDisplayStateAndStopsTheRelay() = runBlocking {
+    fun aSessionChangeClearsConvoyScopedDisplayStateAndStopsTheRelay() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -955,7 +1012,7 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun aSessionChangeClearsMembershipSoALaterRunNeverRejoinsTheDepartedConvoy() = runBlocking {
+    fun aSessionChangeClearsMembershipSoALaterRunNeverRejoinsTheDepartedConvoy() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -1006,7 +1063,7 @@ class ConvoyRelayTest {
     // for why setConvoy/setNotifyingCircles close that window themselves.
 
     @Test
-    fun aSessionChangeWhileRunIsNotLiveIsCaughtByTheNextMembershipCallRatherThanRejoiningTheDepartedConvoy() = runBlocking {
+    fun aSessionChangeWhileRunIsNotLiveIsCaughtByTheNextMembershipCallRatherThanRejoiningTheDepartedConvoy() = testBody {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")

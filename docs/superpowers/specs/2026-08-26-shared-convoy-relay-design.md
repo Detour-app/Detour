@@ -129,6 +129,43 @@ been called. Each platform launches it from whatever already keeps it alive: And
 > non-empty and re-joins on change rather than reopening. `shouldStayConnected()` in the Android
 > client is the existing expression of that rule and is what the shared version reproduces.
 
+> **Correction, after the final review.** Three shapes above stopped matching the code somewhere
+> along the way, and a reader taking this spec as the contract would be wrong about all three. Each
+> is explained in the code's own KDoc, which is the right home for it — this note exists so the
+> spec stops disagreeing with that KDoc rather than to repeat it.
+>
+> **`RelaySocket` is `connect(bearer)` / `receive()` / `send` / `close`, not
+> `open(url, headers, onText)`.** The code has no `open` at all: `connect(bearer: String)` opens
+> the connection, presenting the bearer however the transport needs to; `receive()` suspends for
+> the next frame instead of an `onText` callback, so a caller can `await` it in a loop the way
+> `ConvoyRelay.attempt` does, rather than inverting control through a lambda. Neither takes a
+> `url` or `headers` parameter — `RelaySocket`'s own doc says resolving those is deliberately left
+> to whoever constructs the implementation, differing enough by platform (Android's needs a
+> `Context`; iOS's does not) that `commonMain` must stay free of it entirely, per `Platform.kt`'s
+> module-boundary rules. `OkHttpRelaySocket`/`UrlSessionRelaySocket` resolve their own URL before
+> `ConvoyRelay.run` is ever called, not when told to open one.
+>
+> **`ConvoyRelay` is a `class`, not the `object` shown above.** `ConvoyRelayTest` is exactly why:
+> its convergence test needs two relays live at once, with genuinely different peer sets, to prove
+> a receiver and a sharer resolve the same spin round to the same destination — an `object` cannot
+> do that, there is only ever the one. The trade this makes is stated in the class's own doc:
+> holding one instance where both platform services can reach it — Android's `net/ConvoyLiveClient.kt`
+> is an `object` again, one `ConvoyRelay` instance held as its own private property — becomes a
+> call-site discipline the class cannot enforce on itself, unlike the single-`run()`-at-a-time guard
+> it does enforce.
+>
+> **`bearer` is a `BearerSource`, not the bare `suspend () -> String` shown above** — the type that
+> caused two real defects, not a style preference. First, Kotlin/Native lowers an exported bare
+> suspend function type to a `KotlinSuspendFunction0` protocol a Swift closure literal cannot
+> conform to, so a call site handing `run` a `bearer: { ... }` closure directly did not compile at
+> all. Second, `@Throws` has nowhere to attach to a parameter whose type merely happens to be a
+> suspend function, so `Auth.bearer` reached Swift unannotated even after `Auth.bearer` itself was
+> fixed to carry the annotation — there was no annotation site on this side of the call for it to
+> reach. An unmarked exported suspend function propagates only `CancellationException` across the
+> boundary, terminating the process on anything else. A `fun interface` gives `@Throws` a declared
+> function to land on and lowers to an ordinary Swift-implementable protocol instead — see
+> `BearerSource`'s own doc for both defects in full.
+
 ### Adding is cheap, removing needs a reconnect
 
 The protocol has **seven** outbound frames — `join`, `location`, `ptt_start`, `ptt_end`,

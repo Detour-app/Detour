@@ -518,6 +518,24 @@ class ConvoyRelay {
                     // instead of reconnecting - after a sign-out, a 401, or a
                     // server switch, none of which the rider asked for.
                     _connected.value = false
+                    if (!shouldStayConnected()) {
+                        // Nothing is wanted any more - distinct from a plain
+                        // stop() that leaves membership intact for a later
+                        // reconnect (see stop()'s own doc, which this must
+                        // not disturb): here there is no membership left for
+                        // a stale peer to belong to. Without this, the
+                        // pruner (launched above, cancelled in this same
+                        // run()'s own `finally` right after this returns) -
+                        // the self-healing sweep `setNotifyingCircles`'s own
+                        // doc leans on - dies at the exact moment it stops
+                        // mattering: the last notifying circle dropping with
+                        // no convoy joined leaves [_peers]/[_talking] frozen
+                        // with the departed rider's circle-mates until the
+                        // next [run], and both Android map surfaces draw
+                        // them ungated.
+                        _peers.value = emptyMap()
+                        _talking.value = emptySet()
+                    }
                     return@coroutineScope
                 }
                 _connected.value = false
@@ -1016,12 +1034,27 @@ class ConvoyRelay {
      * unscoped (no `groupId`): a fix belongs to whoever sent it, and the
      * relay resolves who may see it from that rider's memberships, exactly
      * as `RelayProtocol.buildLocation`'s own doc explains.
+     *
+     * [tsMs] is the fix's own timestamp, not the moment this call happens to
+     * run - both existing clients sent the fix's own time, and a caller
+     * should keep doing that (Android's `TripTrackingService.lastFix` and
+     * iOS's `LocationBroadcast` fixes both already carry one). The throttle
+     * above still measures against [nowMs] regardless - it is about send
+     * cadence, not about what the wire payload claims - but [tsMs] is what
+     * reaches a peer as `FriendPosition.tsMs` and gets rendered as that
+     * peer's fix age, and what `CircleFixes.postFix`'s own real fix time
+     * needs to agree with rather than a re-stamped arrival time. Peer
+     * expiry itself does not depend on this - [RelayProtocol.decode] anchors
+     * [FriendPosition.expiresAtMs] to arrival, not to [tsMs] - so a caller
+     * that has no fix time handy may still pass [nowMs] and nothing about
+     * staleness detection breaks; only the displayed age would read
+     * slightly optimistic.
      */
-    fun sendLocation(lat: Double, lon: Double, headingDeg: Double?, speedKmh: Double) {
+    fun sendLocation(lat: Double, lon: Double, headingDeg: Double?, speedKmh: Double, tsMs: Long) {
         val now = nowMs()
         if (now - lastLocationSentMs < LOCATION_SEND_INTERVAL_MS) return
         lastLocationSentMs = now
-        send(RelayProtocol.buildLocation(LatLon(lat, lon), headingDeg, speedKmh, now))
+        send(RelayProtocol.buildLocation(LatLon(lat, lon), headingDeg, speedKmh, tsMs))
     }
 
     private fun send(text: String) {

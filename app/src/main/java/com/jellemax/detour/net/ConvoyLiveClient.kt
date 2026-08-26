@@ -63,8 +63,13 @@ import kotlinx.coroutines.launch
 object ConvoyLiveClient {
 
     /** The one [ConvoyRelay] every convoy/circle caller shares - see the
-     *  class doc. */
-    val relay = ConvoyRelay()
+     *  class doc. `private`: every property/function below is this object's
+     *  own wrapper around it, and a second, uncoordinated [ConvoyRelay.run]
+     *  call on it throws out of [scope]'s `SupervisorJob` with no handler -
+     *  a process crash, not a caught exception - so nothing outside this
+     *  object should ever reach it directly, contradicting this class's own
+     *  doc had it stayed public with zero actual external references. */
+    private val relay = ConvoyRelay()
 
     /** The one [OkHttpRelaySocket] [relay] runs against, for the same "one
      *  socket, many groups" reason there is only one [relay] - two sockets
@@ -89,19 +94,6 @@ object ConvoyLiveClient {
      *  second concurrent call. */
     private val runLock = Any()
 
-
-
-    /** The convoy this device is currently trying to stay connected to, or
-     *  null when not joined. UI (FriendsScreen) should derive its "am I
-     *  live" state from this, not from its own local toggle state - a
-     *  screen that's been left and come back must show what's actually
-     *  running, not what a `remember{}` last thought it set.
-     *
-     *  [ConvoyRelay] tracks the same thing internally but [ConvoyRelay.setConvoy]
-     *  is write-only by design (no matching getter - see its own doc), so
-     *  this is this object's own record of what it last asked for, kept in
-     *  step with every [join]/[leave] call rather than read back from
-     *  [relay]. */
     /** Delegated to [ConvoyRelay.convoyId] rather than mirrored. The mirror
      *  this replaced went stale on a session change: the relay cleared its own
      *  membership and this kept naming the departed rider's convoy, which
@@ -143,7 +135,10 @@ object ConvoyLiveClient {
     private val locationForwarder: Job = scope.launch {
         TripTrackingService.lastFix.collect { fix ->
             if (fix == null) return@collect
-            relay.sendLocation(fix.lat, fix.lon, fix.bearingDeg?.toDouble(), fix.speedMps * 3.6)
+            // timeMs, not elapsedRealtimeMs - Fix's own doc: elapsedRealtimeMs
+            // is this device's uptime basis, meaningless to a peer reading it
+            // off the wire as FriendPosition.tsMs.
+            relay.sendLocation(fix.lat, fix.lon, fix.bearingDeg?.toDouble(), fix.speedMps * 3.6, fix.timeMs)
         }
     }
 

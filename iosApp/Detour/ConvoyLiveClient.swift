@@ -180,7 +180,11 @@ final class ConvoyLiveClient: ObservableObject {
                     lat: fix.coordinate.latitude,
                     lon: fix.coordinate.longitude,
                     headingDeg: fix.course >= 0 ? KotlinDouble(value: fix.course) : nil,
-                    speedKmh: max(0, fix.speed) * 3.6)
+                    speedKmh: max(0, fix.speed) * 3.6,
+                    // The fix's own time, not the moment this loop iteration
+                    // runs - same conversion CircleSync.swift's fixTsMs
+                    // already uses for the same CLLocation.timestamp.
+                    tsMs: Int64(fix.timestamp.timeIntervalSince1970 * 1000))
             }
         }
     }
