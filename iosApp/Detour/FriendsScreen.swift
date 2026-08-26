@@ -9,6 +9,15 @@ import DetourShared
 struct FriendsScreen: View {
 
     @StateObject private var model = FriendsModel()
+    // Convoys section reads ConvoyLiveClient's own @Published state
+    // (connected/lastError/activeConvoyId) directly below — @ObservedObject
+    // here is what actually subscribes this view to those, the same pattern
+    // ConvoyBar.swift and MapScreen.swift already use. Without it, SwiftUI
+    // never re-renders on its own when they change; the caption only moved
+    // when some unrelated @Published (model.convoysState) happened to fire
+    // too, which is why a sign-out or a 401 used to leave a stale label and
+    // caption on screen.
+    @ObservedObject private var live = ConvoyLiveClient.shared
 
     // Not in FriendsStore: signing out is Account's business, not the friend
     // list's, so there is no store `busy` slot it could occupy. It still has
@@ -255,7 +264,7 @@ struct FriendsScreen: View {
                             .buttonStyle(.borderless)
                             .tint(.secondary)
                             .disabled(model.convoysState.busy)
-                        } else if ConvoyLiveClient.shared.activeConvoyId == convoy.id {
+                        } else if live.activeConvoyId == convoy.id {
                             Button("Go offline") { ConvoyLiveClient.shared.leave() }
                                 .buttonStyle(.borderless)
                         } else {
@@ -278,15 +287,15 @@ struct FriendsScreen: View {
                         Text(Features.shared.liveRelayNotice)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                    } else if ConvoyLiveClient.shared.activeConvoyId == convoy.id, !ConvoyLiveClient.shared.connected {
+                    } else if live.activeConvoyId == convoy.id, !live.connected {
                         // Mirrors Android's FriendsScreen.kt liveStatus: only
                         // shown for the convoy actually being connected to,
                         // and only until connected flips true - lastError is
                         // cleared the moment a "joined" reply arrives (see
                         // ConvoyRelay.applyEvent), so this never lingers.
-                        Text(ConvoyLiveClient.shared.lastError ?? "Connecting…")
+                        Text(live.lastError ?? "Connecting…")
                             .font(.caption)
-                            .foregroundStyle(ConvoyLiveClient.shared.lastError != nil ? .red : .secondary)
+                            .foregroundStyle(live.lastError != nil ? .red : .secondary)
                     }
                 }
             }
