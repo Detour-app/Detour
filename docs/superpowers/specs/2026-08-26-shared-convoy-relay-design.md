@@ -112,6 +112,31 @@ been called. Each platform launches it from whatever already keeps it alive: And
 > non-empty and re-joins on change rather than reopening. `shouldStayConnected()` in the Android
 > client is the existing expression of that rule and is what the shared version reproduces.
 
+### Adding is cheap, removing needs a reconnect
+
+The protocol has **seven** outbound frames — `join`, `location`, `ptt_start`, `ptt_end`,
+`ptt_audio`, `spin_offer`, `spin_vote` — and no `leave`. The only way to stop being joined to a
+group is to close the whole socket. `ConvoyLiveClient.swift` says so at its convoy-switch path:
+joining a new id on top of an old one "would leave this device receiving both convoys' traffic".
+
+So membership changes are not symmetric:
+
+- **An addition** sends a `join` on the live socket. No reconnect. Both clients already do this.
+- **Any removal** — leaving a convoy, switching convoys (a removal plus an addition), dropping a
+  circle — closes and reopens the socket, then re-joins whatever is still wanted.
+- **Nothing wanted** closes the socket and lets `run()` return.
+
+The reason removal cannot be fudged is `forwardLocation()`: it publishes this device's position for
+the life of the connection, so a device still joined to a convoy it has left **keeps broadcasting
+its location to people it is no longer riding with**. That is the same shape as the defect where a
+socket outlived a sign-out and published the next rider's position to the previous rider's convoy,
+and it is why "just don't render the stale group" is not an adequate answer.
+
+The shared rule is stricter than either client: Android reconnects on every membership change
+(correct, coarse), iOS reconnects for convoy changes but drops removed circles client-side, leaving
+the device joined server-side. Tasks 3 and 4 are therefore taking a behaviour change, not a
+transcription.
+
 ### `stop()` is a flag, not a cancellation, and that is load-bearing
 
 `run()` must observe an explicit stop signal rather than relying on its coroutine being cancelled,
