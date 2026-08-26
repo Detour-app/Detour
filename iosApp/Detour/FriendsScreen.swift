@@ -445,8 +445,16 @@ final class FriendsModel: ObservableObject {
             self?.signedIn = !(self?.token.value.isEmpty ?? true)
         }
         name.watch { [weak self] in
-            guard let self, self.signedIn else { return }
-            self.username = self.name.value
+            // Clears rather than freezes when the session goes away: this
+            // used to bail out of the assignment entirely while signed out,
+            // which left `username` parked on the departed rider's handle
+            // indefinitely — and `reload()` below reads this field straight
+            // into `refreshOwn(username:)`, which has no signedIn guard of
+            // its own on the Kotlin side (see FriendsStore.kt), so a stale
+            // handle here was a rider's own row committed under someone
+            // else's name.
+            guard let self else { return }
+            self.username = self.signedIn ? self.name.value : ""
         }
         fogSharing.watch { [weak self] in self?.shareFog = self?.fogSharing.value ?? false }
         friendsFlow.watch { [weak self] in

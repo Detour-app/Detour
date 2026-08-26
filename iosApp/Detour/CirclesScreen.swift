@@ -244,8 +244,13 @@ final class CirclesModel: ObservableObject {
             self?.signedIn = !(self?.token.value.isEmpty ?? true)
         }
         name.watch { [weak self] in
-            guard let self, self.signedIn else { return }
-            self.username = self.name.value
+            // Clears rather than freezes when the session goes away — same
+            // fix as FriendsModel's matching watcher, and just as needed
+            // here: a frozen `username` left `place.owner == username` below
+            // showing the previous rider's unshare affordance over a place
+            // that was never theirs to remove.
+            guard let self else { return }
+            self.username = self.signedIn ? self.name.value : ""
         }
         circlesFlow.watch { [weak self] in
             guard let self else { return }
