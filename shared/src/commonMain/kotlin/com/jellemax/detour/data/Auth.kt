@@ -62,10 +62,13 @@ object Auth {
      * capture this at the start of an action and check it again before
      * committing a result that took a round trip to produce — if it has moved
      * on, the session that started the action is not the one this store holds
-     * any more, whether because it signed out, was 401'd, switched servers,
-     * signed back in as the same rider, or — the reason the establish side of
-     * this exists — a different rider signed in while the action was still
-     * running.
+     * any more, whether because it signed out, was 401'd, switched identity
+     * providers, signed back in as the same rider, or — the reason the
+     * establish side of this exists — a different rider signed in while the
+     * action was still running. (A server switch that keeps the same issuer
+     * does *not* bump this — [RoutingServer.save] only calls [clear] on an
+     * issuer change, see its own doc — but that is still the same rider, so
+     * it is not a case this guard needs to catch.)
      *
      * That last case is what a bump on [clear] alone cannot catch: without it,
      * one epoch value spans "rider A signed out" through the whole of rider
@@ -261,8 +264,12 @@ object Auth {
      *  that forgets to reset on any one of them is a screen that leaks
      *  another rider's data. */
     fun clear() {
-        Settings.setSession("", "", 0L, "")
+        // Bumped before the write, the same discipline [store] uses for the
+        // establish side of this same guard (see its own doc) — kept
+        // consistent rather than opposite disciplines on the two sides of
+        // one mechanism.
         _sessionEpoch.update { it + 1 }
+        Settings.setSession("", "", 0L, "")
         FriendsStore.reset()
         ConvoysStore.reset()
         CirclesStore.reset()

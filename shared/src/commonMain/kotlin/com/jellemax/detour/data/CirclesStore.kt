@@ -181,6 +181,15 @@ object CirclesStore {
      *  never disables Invite, Leave or the sharing switch, which read the
      *  list pair. */
     private suspend fun loadDetail(groupId: String) {
+        // Captured for the same reason [reload]'s commit is guarded on it:
+        // [commitIfViewing] alone is currently safe (a stale commit landing
+        // here means the new rider selected the very same circle id, which
+        // means they are a member and the content is theirs to see either
+        // way) but it is a proxy, not the session itself, and this is the
+        // last commit in this module that rested on one instead of on
+        // [Auth.sessionEpoch] — see [act]/[actDetail] for the guard this
+        // brings it in line with.
+        val epoch = Auth.sessionEpoch.value
         _state.update { it.detailStarting() }
         val result = try {
             val places = CirclePlaces.places(groupId)
@@ -233,7 +242,14 @@ object CirclesStore {
         // `detailStarting()` exists — it would also fire when `selectedId`
         // moved to a *different* circle, wiping out that circle's own
         // genuine spinner mid-load.
-        _state.update { it.commitIfViewing(groupId, result) }
+        //
+        // Both guards apply, viewing first: [commitIfViewing] decides
+        // whether this response still belongs on screen at all, and
+        // [commitIfCurrent] then decides whether the session that asked for
+        // it is still the one this store holds — a sign-out-then-sign-back-
+        // in-as-yourself that happens to land on the same circle id passes
+        // the first guard and must still be caught by the second.
+        _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.commitIfViewing(groupId, result)) }
     }
 
     /** Runs a circle-list mutation, then reloads the whole list — same

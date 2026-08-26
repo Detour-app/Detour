@@ -3,6 +3,7 @@ package com.jellemax.detour.data
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
 /**
@@ -17,7 +18,7 @@ import kotlinx.coroutines.flow.update
 object FriendFog {
 
     private val _traces = MutableStateFlow<List<List<LatLon>>>(emptyList())
-    val traces: StateFlow<List<List<LatLon>>> = _traces
+    val traces: StateFlow<List<List<LatLon>>> = _traces.asStateFlow()
 
     /**
      * Never throws for the reason its own doc says — the network/parse leg

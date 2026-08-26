@@ -55,6 +55,27 @@ class AuthEpochTest {
         assertEquals(before, Auth.sessionEpoch.value)
     }
 
+    /**
+     * The other side of the same discipline: [Auth.clear] used to bump the
+     * epoch *after* writing [Settings] — the opposite order from [store]'s
+     * establish path above. Reusing this file's own technique proves the fix
+     * the same way: [Settings.setSession] throws for lack of a Context in
+     * this test target, so if the bump happened first (as it now does) it
+     * survives that throw; if it happened last (the old order) the throw
+     * would have pre-empted it and this assertion would see the epoch
+     * unmoved.
+     */
+    @Test
+    fun clearingASessionBumpsTheEpochEvenThoughSettingsThenFails() {
+        val before = Auth.sessionEpoch.value
+
+        assertFailsWith<IllegalStateException> {
+            Auth.clear()
+        }
+
+        assertEquals(before + 1, Auth.sessionEpoch.value)
+    }
+
     @Test
     fun aStoreActionCapturedBeforeANewSessionIsEstablishedDoesNotCommitUnderIt() {
         // The reachable instance from the spec: an action with no `signedIn`

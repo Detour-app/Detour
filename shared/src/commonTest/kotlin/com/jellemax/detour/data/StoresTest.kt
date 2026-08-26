@@ -322,6 +322,30 @@ class StoresTest {
     }
 
     @Test
+    fun aDetailResponseForTheSameCircleFromAStaleSessionIsStillDiscarded() {
+        // loadDetail's actual guard, composed: commitIfViewing first, then
+        // commitIfCurrent — see loadDetail's own doc for why a proxy alone
+        // was not enough. The scenario this pins is exactly what
+        // commitIfViewing alone cannot catch: a rider signs out and back in
+        // as themselves and happens to land on the very same circle id, so
+        // the proxy (selectedId == groupId) matches even though the session
+        // that started this load is no longer the one the store holds.
+        val postReset = CirclesState(circles = listOf(circle("c1", "Family")), selectedId = "c1")
+        val staleResult = postReset.copy(places = listOf(place("p1", "c1")))
+
+        // The viewing guard alone would let this through — proving the
+        // epoch guard is what actually has to stop it.
+        assertSame(staleResult, postReset.commitIfViewing("c1", staleResult))
+
+        val guarded = postReset.commitIfCurrent(
+            epoch = 1,
+            currentEpoch = 2,
+            result = postReset.commitIfViewing("c1", staleResult),
+        )
+        assertSame(postReset, guarded)
+    }
+
+    @Test
     fun aStartedDetailActionDoesNotSetTheListBusyFlag() {
         // Opening a circle or refreshing its detail must not disable
         // Invite, Leave or the sharing switch — those read the list `busy`,

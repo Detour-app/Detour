@@ -254,6 +254,14 @@ object Settings {
         username: String,
     ) {
         _accessToken.value = accessToken
+        // `_refreshToken` before `_authUsername` is load-bearing: each
+        // `Watcher` (FlowWatcher.kt, iOS only) runs its own
+        // `Dispatchers.Main` collector, so the token watcher's callback is
+        // scheduled — and observes `signedIn` as already true — before the
+        // name watcher's runs. `FriendsModel.name.watch` in
+        // FriendsScreen.swift depends on that to tell "cleared" apart from
+        // "not yet caught up". Reordering these two silently reintroduces
+        // that bug.
         _refreshToken.value = refreshToken
         _accessTokenExpiresAtMs.value = expiresAtMs
         _authUsername.value = username
