@@ -146,6 +146,36 @@ class SectionReadingWatcher internal constructor(
         flow.collect { value = it; onChange() }
 }
 
+class FriendsStateWatcher internal constructor(
+    private val flow: StateFlow<FriendsState>,
+) : Watcher() {
+    var value: FriendsState = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+class ConvoysStateWatcher internal constructor(
+    private val flow: StateFlow<ConvoysState>,
+) : Watcher() {
+    var value: ConvoysState = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+class CirclesStateWatcher internal constructor(
+    private val flow: StateFlow<CirclesState>,
+) : Watcher() {
+    var value: CirclesState = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
 /** The settings a SwiftUI screen binds to. */
 object SettingsFlows {
     fun tripMode() = TravelModeWatcher(Settings.tripMode)
@@ -174,6 +204,19 @@ object StoreFlows {
     fun traceVersion() = IntWatcher(TraceStore.version)
     fun friendFog() = TracesWatcher(FriendFog.traces)
     fun pendingResetToken() = StringWatcher(PendingReset.token)
+}
+
+/**
+ * The feature stores a SwiftUI screen binds to.
+ *
+ * One watcher per store rather than one per field: each distinct element type
+ * costs a subclass above (see this file's header), and a coarse state object
+ * keeps that at three classes instead of a dozen.
+ */
+object FeatureFlows {
+    fun friends() = FriendsStateWatcher(FriendsStore.state)
+    fun convoys() = ConvoysStateWatcher(ConvoysStore.state)
+    fun circles() = CirclesStateWatcher(CirclesStore.state)
 }
 
 /**
