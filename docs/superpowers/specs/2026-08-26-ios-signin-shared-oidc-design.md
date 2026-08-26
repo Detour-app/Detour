@@ -218,16 +218,46 @@ Android call sites bought for an iOS screen that will not read them.
 current Android code throws `IllegalStateException`, so both platforms surface one type carrying
 the realm's own wording. Five refusals, each keeping today's message verbatim:
 
-| Condition | Message |
-|---|---|
-| Callback carries `error` | the realm's `error_description`, with the bare code in parentheses |
-| No sign-in parked | "The app restarted while the browser was open, so this sign-in could not be finished. Tap Sign in to start again." |
-| State mismatch | "Sign-in could not be verified — start again" |
-| No `code` param | "The identity provider returned no code" |
-| Exchange refused | whatever `Auth.exchangeCode` raises, already translated by `Auth.tokenFailureMessage` |
+| Checked | Condition | Message |
+|---|---|---|
+| 1st | No sign-in parked | "The app restarted while the browser was open, so this sign-in could not be finished. Tap Sign in to start again." |
+| 2nd | State mismatch | "Sign-in could not be verified — start again" |
+| 3rd | Callback carries `error` | the realm's `error_description`, with the bare code in parentheses |
+| 4th | No `code` param | "The identity provider returned no code" |
+| — | Exchange refused | whatever `Auth.exchangeCode` raises, already translated by `Auth.tokenFailureMessage` |
 
 The "app restarted" wording is kept deliberately: `app/auth/Oidc.kt:109-119` records that the
 previous phrasing ("nothing is in progress") sent people looking for a broken realm.
+
+### The order is not the Android original's, and that is the point
+
+The Android code checks `error` **first** and clears the parked verifier and state before
+parsing anything. Review of the extraction found what that costs: `detour://auth/callback` is an
+exported deep link, so any app on the device can fire
+
+```
+detour://auth/callback?error=access_denied&error_description=<attacker's sentence>
+```
+
+while the rider is on the realm's page. Detour foregrounds, the parked PKCE verifier is
+discarded, the attacker's sentence is shown verbatim as the reason sign-in failed, and the
+genuine callback arriving afterwards then fails with "The app restarted while the browser was
+open" — a denial of service plus unauthenticated text on screen, from an unprivileged app.
+
+So the shared version reorders, and the reorder is the reason it is worth having this in one
+place rather than two:
+
+1. **Nothing parked** is checked first, not the state, so the documented "app restarted" wording
+   survives. A state-first fix would answer that case with the generic "could not be verified",
+   which is exactly the message `auth/Oidc.kt:109-119` records as having sent people looking for
+   a broken realm.
+2. **The state check throws without clearing.** A callback that does not carry this device's own
+   state is not ours, so it must not consume our sign-in. This is the half that closes the denial
+   of service.
+3. **Only then are the secrets cleared**, and only then is the realm's `error_description`
+   trusted — an unsolicited callback can no longer put its own text in front of the rider.
+
+Android inherits the fix by moving onto the shared object; it is not a separate Android change.
 
 iOS additionally swallows `ASWebAuthenticationSessionError.canceledLogin` — the rider dismissed
 the sheet — into `Oidc.abandon()` with no error shown. A cancel is not a failure.
