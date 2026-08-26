@@ -232,6 +232,62 @@ class StoresTest {
         assertSame(fresh, viewingC2.commitIfViewing("c2", fresh))
     }
 
+    @Test
+    fun aStartedDetailActionDoesNotSetTheListBusyFlag() {
+        // Opening a circle or refreshing its detail must not disable
+        // Invite, Leave or the sharing switch — those read the list `busy`,
+        // not this one.
+        val started = CirclesState().detailStarting()
+        assertTrue(started.detailBusy)
+        assertTrue(!started.busy)
+    }
+
+    @Test
+    fun aStartedListActionDoesNotSetTheDetailBusyFlag() {
+        // The other direction: a list mutation (invite, leave, sharing)
+        // must not disable detail-pane controls like unshare.
+        val started = CirclesState().starting()
+        assertTrue(started.busy)
+        assertTrue(!started.detailBusy)
+    }
+
+    @Test
+    fun reselectingTheSameCircleLeavesPlacesAndEventsInPlace() {
+        // Refresh calls select() with the circle already open. The old
+        // detail must stay on screen while the refetch is in flight, not
+        // flash the empty state.
+        val viewing = CirclesState(
+            circles = listOf(circle("c1", "Family")),
+            selectedId = "c1",
+            places = listOf(place("p1", "c1")),
+            events = listOf(event("e1")),
+        )
+        val reselected = viewing.selecting("c1")
+        assertEquals(viewing.places, reselected.places)
+        assertEquals(viewing.events, reselected.events)
+        assertEquals("c1", reselected.selectedId)
+    }
+
+    @Test
+    fun aDetailFailureSetsDetailErrorAndLeavesTheListErrorAlone() {
+        val failed = CirclesState(circles = listOf(circle("c1", "Family")))
+            .detailStarting()
+            .detailFailed(RuntimeException("no route to host"))
+        assertEquals("no route to host", failed.detailError)
+        assertNull(failed.error)
+        assertTrue(!failed.detailBusy)
+    }
+
+    @Test
+    fun aListFailureSetsErrorAndLeavesTheDetailErrorAlone() {
+        val failed = CirclesState(circles = listOf(circle("c1", "Family")))
+            .starting()
+            .failed(RuntimeException("403"))
+        assertEquals("403", failed.error)
+        assertNull(failed.detailError)
+        assertTrue(!failed.busy)
+    }
+
     private fun place(serverId: String, groupId: String) = CirclePlace(
         serverId = serverId,
         groupId = groupId,

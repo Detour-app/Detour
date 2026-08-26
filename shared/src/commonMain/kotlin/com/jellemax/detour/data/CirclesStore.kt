@@ -9,12 +9,22 @@ import kotlinx.coroutines.flow.asStateFlow
  * Everything the Circles screen and its detail pane show: the list plus the
  * one circle currently open in it.
  *
+ * Two independent busy/error pairs, not one. [busy]/[error] cover list
+ * operations — create, invite, respond, leave, toggle sharing.
+ * [detailBusy]/[detailError] cover the detail pane — opening a circle,
+ * refreshing it, sharing or unsharing a place. They used to be one pair,
+ * which meant merely opening a circle disabled Invite/Leave/sharing while
+ * its detail loaded, and a list mutation's failure could show twice (once
+ * per error render site) because both sites read the same field.
+ *
  * [places] and [events] belong to [selectedId], not to every circle at
- * once — they are cleared the instant the selection changes (see
- * [selecting]) so a slow detail load can never surface under the wrong
- * circle's heading. Selection lives in this same state rather than a
- * fourth store precisely so the two cannot disagree about which circle is
- * open.
+ * once — they are cleared on a *change* of the selection, including to
+ * null, but not on a reselect of the same circle, which is what a refresh
+ * is (see [selecting]). Clearing on change stops a slow detail load from
+ * surfacing under the wrong circle's heading; keeping on reselect stops a
+ * refresh from flashing the empty state while it refetches. Selection
+ * lives in this same state rather than a fourth store precisely so the two
+ * cannot disagree about which circle is open.
  *
  * Not here, on purpose (spec, "Where the boundary falls"): `notifyEnabled`
  * is already shared through `Settings.notifyArrivals`; `showBatteryPrompt`
@@ -29,6 +39,8 @@ data class CirclesState(
     val events: List<PlaceEvent> = emptyList(),
     val busy: Boolean = false,
     val error: String? = null,
+    val detailBusy: Boolean = false,
+    val detailError: String? = null,
 )
 
 /**
@@ -64,9 +76,10 @@ object CirclesStore {
         }
     }
 
-    /** Opens [groupId]'s detail pane, or closes it for null. Always clears
-     *  the previous circle's [CirclesState.places]/[CirclesState.events]
-     *  first (see [selecting]), then loads the new one's. */
+    /** Opens [groupId]'s detail pane, or closes it for null. Clears the
+     *  previous circle's [CirclesState.places]/[CirclesState.events] first
+     *  if this is an actual change of circle (see [selecting]), then loads
+     *  the new one's. */
     @Throws(Exception::class)
     suspend fun select(groupId: String?) {
         _state.value = _state.value.selecting(groupId)
@@ -104,7 +117,7 @@ object CirclesStore {
     suspend fun setSharing(groupId: String, sharing: Boolean): Boolean =
         act { Groups.setSharing(groupId, sharing) } != null
 
-    /** True on success; false leaves the failure in [state]'s `error`.
+    /** True on success; false leaves the failure in [state]'s `detailError`.
      *  Reloads the open circle's detail afterwards, same as [unsharePlace]. */
     @Throws(Exception::class)
     suspend fun sharePlace(groupId: String, place: SavedPlace, radiusM: Double): Boolean =
@@ -113,17 +126,20 @@ object CirclesStore {
     /** Removes a shared place by its own server identifier — [CirclePlace.serverId],
      *  not the circle it was shared into, because that is what
      *  [CirclePlaces.delete] takes. True on success; false leaves the failure
-     *  in [state]'s `error`. */
+     *  in [state]'s `detailError`. */
     @Throws(Exception::class)
     suspend fun unsharePlace(serverId: String): Boolean =
         actDetail { CirclePlaces.delete(serverId) } != null
 
     /** Loads [CirclesState.places] and [CirclesState.events] for [groupId],
      *  newest event first — the order both platforms' screens already show
-     *  them in. A detail failure sets the same single [CirclesState.error]
-     *  a list failure would. */
+     *  them in. Busy and failure go through [CirclesState.detailBusy]/
+     *  [CirclesState.detailError], not the list's [CirclesState.busy]/
+     *  [CirclesState.error] — so opening a circle or refreshing its detail
+     *  never disables Invite, Leave or the sharing switch, which read the
+     *  list pair. */
     private suspend fun loadDetail(groupId: String) {
-        _state.value = _state.value.starting()
+        _state.value = _state.value.detailStarting()
         val result = try {
             val places = CirclePlaces.places(groupId)
             val events = CircleEvents.events(groupId, sinceMs = 0L).sortedByDescending { it.tsMs }
@@ -131,7 +147,7 @@ object CirclesStore {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.value.failed(e)
+            _state.value.detailFailed(e)
         }
         // Only commit if this is still the circle being viewed. Two selections
         // can be in flight at once — tap one circle, then another before the
@@ -169,17 +185,20 @@ object CirclesStore {
 
     /** Same shape as [act], but for a detail mutation: reloads the open
      *  circle's places/events afterwards instead of the circle list, since
-     *  that is the only part a place share or removal can have changed. A
-     *  null [CirclesState.selectedId] (nothing open any more) just skips the
-     *  reload rather than loading a circle that isn't there. */
+     *  that is the only part a place share or removal can have changed.
+     *  Busy and failure go through [CirclesState.detailBusy]/
+     *  [CirclesState.detailError] rather than [act]'s list pair, for the
+     *  same reason [loadDetail] does. A null [CirclesState.selectedId]
+     *  (nothing open any more) just skips the reload rather than loading a
+     *  circle that isn't there. */
     private suspend fun <T> actDetail(block: suspend () -> T): T? {
-        _state.value = _state.value.starting()
+        _state.value = _state.value.detailStarting()
         val result = try {
             block()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.value = _state.value.failed(e)
+            _state.value = _state.value.detailFailed(e)
             return null
         }
         _state.value.selectedId?.let { loadDetail(it) }
@@ -205,6 +224,11 @@ internal fun CirclesState.commitIfViewing(groupId: String, result: CirclesState)
 
 internal fun CirclesState.starting() = copy(busy = true, error = null)
 
+/** Same as [starting], for the detail pair — kept separate so a detail
+ *  load or mutation never disables the list-scoped controls (Invite,
+ *  Leave, the sharing switch) that read [CirclesState.busy]. */
+internal fun CirclesState.detailStarting() = copy(detailBusy = true, detailError = null)
+
 /** Drops [CirclesState.selectedId] if it names a circle no longer in
  *  [circles] — a circle can vanish between the list load and the tap
  *  (someone removed you, or you left it on another device), and a detail
@@ -219,13 +243,23 @@ internal fun CirclesState.loaded(circles: List<Group>) = copy(
 internal fun CirclesState.failed(e: Exception) =
     copy(busy = false, error = e.message?.ifBlank { null } ?: CirclesStore.FALLBACK_ERROR)
 
+/** Same as [failed], for the detail pair. */
+internal fun CirclesState.detailFailed(e: Exception) =
+    copy(detailBusy = false, detailError = e.message?.ifBlank { null } ?: CirclesStore.FALLBACK_ERROR)
+
 /** Opens (or closes, for null) [groupId]'s detail pane. Clears
- *  [CirclesState.places] and [CirclesState.events] unconditionally,
- *  including when [groupId] equals the current selection, because the
- *  alternative — showing the previous circle's places for as long as the
- *  new load takes — is someone else's addresses under the wrong heading. */
-internal fun CirclesState.selecting(groupId: String?) =
-    copy(selectedId = groupId, places = emptyList(), events = emptyList(), error = null)
+ *  [CirclesState.places] and [CirclesState.events] on an actual change of
+ *  selection, including to null, because the alternative — showing the
+ *  previous circle's places for as long as the new load takes — is someone
+ *  else's addresses under the wrong heading. Leaves them untouched on a
+ *  reselect of the *same* circle, which is what a refresh does, so a
+ *  refresh keeps showing the stale detail instead of flashing the empty
+ *  state while it refetches. Either way only [CirclesState.detailError] is
+ *  cleared — the list's own [CirclesState.error] is not this transition's
+ *  business. */
+internal fun CirclesState.selecting(groupId: String?): CirclesState =
+    if (groupId == selectedId) copy(selectedId = groupId, detailError = null)
+    else copy(selectedId = groupId, places = emptyList(), events = emptyList(), detailError = null)
 
 internal fun CirclesState.detailLoaded(places: List<CirclePlace>, events: List<PlaceEvent>) =
-    copy(places = places, events = events, busy = false, error = null)
+    copy(places = places, events = events, detailBusy = false, detailError = null)

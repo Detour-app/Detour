@@ -451,7 +451,7 @@ private fun CircleDetailSection(
             }
         }
     }
-    state.error?.let {
+    state.detailError?.let {
         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
     if (state.places.isEmpty()) {
@@ -481,7 +481,7 @@ private fun CircleDetailSection(
                     }
                     if (place.owner == username) {
                         IconButton(
-                            enabled = !state.busy,
+                            enabled = !state.detailBusy,
                             onClick = { scope.launch { CirclesStore.unsharePlace(place.serverId) } },
                         ) {
                             Icon(Icons.Outlined.Delete, contentDescription = "Remove ${place.place.name}",
