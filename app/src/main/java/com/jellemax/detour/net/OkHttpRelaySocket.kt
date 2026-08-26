@@ -6,6 +6,7 @@ import com.jellemax.detour.drive.RelaySocket
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
+import kotlin.concurrent.Volatile
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -68,6 +69,22 @@ class OkHttpRelaySocket : RelaySocket {
      *  [connect] - so a frame or a close arriving for a *previous*, already-
      *  superseded attempt can never be mistaken for this one's. */
     private class Session {
+        /**
+         * Set by [close] so a [connect] still in flight does not hand back a
+         * live socket nobody wants.
+         *
+         * `close()` can land between `session = s` and the `newWebSocket` call
+         * below, where there is no socket yet to close - and
+         * [com.jellemax.detour.drive.ConvoyRelay] calls it from whichever
+         * thread ran `stop()` or a membership change, so that window is
+         * reachable. Without this, that `close()` shut only the frame channel
+         * and the socket opening a moment later survived it. The relay's own
+         * retry structure happens to close it again immediately, but a socket
+         * should honour its own contract rather than lean on its caller's.
+         */
+        @Volatile
+        var closed = false
+
         /** Completed once (successfully or not) by the first of [onOpen]/
          *  [onClosed]/[onFailure] to fire - what [connect] suspends on to
          *  know the upgrade itself succeeded, before ever returning control
@@ -140,6 +157,12 @@ class OkHttpRelaySocket : RelaySocket {
         }
 
         s.webSocket = client.newWebSocket(requestBuilder.build(), listener)
+        // A close() during the upgrade set the flag but had no socket to act
+        // on; honour it now rather than returning a live connection.
+        if (s.closed) {
+            s.webSocket?.close(1000, "leaving")
+            s.frames.close()
+        }
         s.opened.await()
     }
 
@@ -160,6 +183,7 @@ class OkHttpRelaySocket : RelaySocket {
 
     override fun close() {
         val s = session ?: return
+        s.closed = true
         s.webSocket?.close(1000, "leaving")
         s.frames.close()
     }

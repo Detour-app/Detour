@@ -35,21 +35,17 @@ interface RelaySocket {
      * at all - unreachable host, TLS, a non-101 response - rather than
      * leaving [receive] to report it once a loop is already spinning on it.
      *
-     * A non-101 response should fold its status code into the thrown
-     * exception's message - Android's own wording is
-     * `"Live server refused the connection (${response.code})"`. [ConvoyRelay]'s
-     * `lastError` surfaces `e.message` more or less verbatim (see
-     * `unreachableMessage`), so an implementation that omits the code makes a
-     * 401 read identically to a host that could not be reached at all.
+     * **The exception's message reaches the rider as `lastError` verbatim**, so
+     * an implementation words its own failures rather than leaving that to
+     * [ConvoyRelay], which knows only that the connection did not come up.
+     * Name the status code on a refused upgrade - Android's wording is
+     * `"Live server refused the connection (${response.code})"` - say so
+     * plainly when no server is configured, which is not a network problem at
+     * all, and give a transport failure a sentence of its own rather than
+     * letting the platform's own text through. An implementation that omits
+     * the code makes a 401 read identically to a host that was never reachable.
      */
     @Throws(Exception::class)
-    /**
-     * An implementation's exception message reaches the rider as `lastError`
-     * verbatim, so it words the failure itself: name the status code on a
-     * refused upgrade, say so plainly when no server is configured, and give a
-     * transport failure a sentence rather than passing the platform's own
-     * wording through. The relay adds nothing.
-     */
     suspend fun connect(bearer: String)
 
     /**

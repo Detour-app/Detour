@@ -223,6 +223,26 @@ class ConvoyRelayTest {
     }
 
     @Test
+    fun stopPublishesTheDisconnectAndNotJustTheClosedSocket() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        val job = launch { relay.run(socket, tokenSupplier()) }
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        relay.stop()
+        job.join()
+
+        // A screen reads `connected`, not the socket. Leaving this true on a
+        // terminal exit had FriendsScreen still showing "Connected" after a
+        // sign-out or a 401, with the convoy notification up and the toggle
+        // button's first tap calling stop() again instead of reconnecting.
+        assertFalse(relay.connected.value)
+    }
+
+    @Test
     fun lastErrorReportsWhenTheRelayCannotBeReached() = runBlocking {
         val socket = FakeRelaySocket()
         // A socket words its own failures - see RelaySocket.connect. This one

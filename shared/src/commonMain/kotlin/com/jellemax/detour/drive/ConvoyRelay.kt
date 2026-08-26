@@ -366,7 +366,19 @@ class ConvoyRelay {
             var failures = 0
             while (!_stopped.value && shouldStayConnected()) {
                 val everJoined = attempt(socket, bearer)
-                if (_stopped.value || !shouldStayConnected()) return@coroutineScope
+                if (_stopped.value || !shouldStayConnected()) {
+                    // Publish the disconnect before leaving, not only on the
+                    // reconnect path below. The socket is shut either way, but
+                    // a screen reads `connected` rather than the socket: a
+                    // terminal exit that left it true had FriendsScreen still
+                    // showing "Connected", the convoy notification still up,
+                    // and the toggle button's first tap calling stop() again
+                    // instead of reconnecting - after a sign-out, a 401, or a
+                    // server switch, none of which the rider asked for.
+                    _connected.value = false
+                    return@coroutineScope
+                }
+                _connected.value = false
                 _connected.value = false
                 // A vote tallied against a socket that is no longer relaying
                 // anyone's frames is wrong by the time it reconnects - drop
