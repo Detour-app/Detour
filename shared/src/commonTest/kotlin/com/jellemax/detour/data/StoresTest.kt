@@ -146,4 +146,83 @@ class StoresTest {
     private fun convoy(id: String, name: String) = Group(
         id = id, name = name, kind = "convoy", status = "accepted", members = emptyList(),
     )
+
+    // --- CirclesStore -----------------------------------------------------
+
+    private fun circle(id: String, name: String) = Group(
+        id = id, name = name, kind = "circle", status = "accepted", members = emptyList(),
+    )
+
+    @Test
+    fun selectingACircleThatIsNoLongerInTheListClearsTheSelection() {
+        // A circle can vanish between the list load and the tap — someone
+        // removed you, or you left it on another device. A detail pane
+        // pointed at nothing is worse than no detail pane.
+        val state = CirclesState(circles = listOf(circle("c1", "Family")), selectedId = "c1")
+        val afterReload = state.loaded(listOf(circle("c2", "Riders")))
+        assertNull(afterReload.selectedId)
+    }
+
+    @Test
+    fun aStillPresentSelectionSurvivesAReload() {
+        val state = CirclesState(circles = listOf(circle("c1", "Family")), selectedId = "c1")
+        val afterReload = state.loaded(listOf(circle("c1", "Family"), circle("c2", "Riders")))
+        assertEquals("c1", afterReload.selectedId)
+    }
+
+    @Test
+    fun clearingTheSelectionDropsThePreviousCirclesPlacesAndEvents() {
+        // Otherwise the next circle opened shows the last one's places for as
+        // long as its own load takes — someone else's addresses under the
+        // wrong heading.
+        val viewing = CirclesState(
+            circles = listOf(circle("c1", "Family")),
+            selectedId = "c1",
+            places = listOf(place("p1", "c1")),
+            events = listOf(event("e1")),
+        )
+        val cleared = viewing.selecting(null)
+        assertTrue(cleared.places.isEmpty())
+        assertTrue(cleared.events.isEmpty())
+        assertNull(cleared.selectedId)
+    }
+
+    @Test
+    fun switchingCirclesDropsThePreviousCirclesDetail() {
+        val viewing = CirclesState(
+            circles = listOf(circle("c1", "Family"), circle("c2", "Riders")),
+            selectedId = "c1",
+            places = listOf(place("p1", "c1")),
+        )
+        val switched = viewing.selecting("c2")
+        assertEquals("c2", switched.selectedId)
+        assertTrue(switched.places.isEmpty())
+    }
+
+    @Test
+    fun aFailedCircleActionKeepsTheCircleList() {
+        val loaded = CirclesState(circles = listOf(circle("c1", "Family")))
+        val failed = loaded.starting().failed(RuntimeException("403"))
+        assertEquals(loaded.circles, failed.circles)
+        assertEquals("403", failed.error)
+        assertTrue(!failed.busy)
+    }
+
+    private fun place(serverId: String, groupId: String) = CirclePlace(
+        serverId = serverId,
+        groupId = groupId,
+        owner = "ada",
+        radiusM = 150.0,
+        createdMs = 1_700_000_000_000L,
+        place = SavedPlace(id = 1L, name = "Home", location = LatLon(51.0, 4.0)),
+    )
+
+    private fun event(id: String) = PlaceEvent(
+        id = id,
+        placeId = 1L,
+        placeName = "Home",
+        username = "ada",
+        kind = "arrive",
+        tsMs = 1_700_000_000_000L,
+    )
 }
