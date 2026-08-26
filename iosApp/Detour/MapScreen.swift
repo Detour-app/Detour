@@ -247,8 +247,13 @@ struct MapScreen: View {
                     id: index,
                     location: LatLon(lat: c.lat, lon: c.lon),
                     name: c.name,
-                    distanceM: c.distanceM,
-                    durationS: c.durationS)
+                    // c.distanceM/durationS are Kotlin Double? properties on
+                    // DetourShared.SpinCandidate, which arrive boxed
+                    // (KotlinDouble?) rather than as native Swift Double? —
+                    // .doubleValue is what actually unwraps one, same as
+                    // RouteResult.timeMs below.
+                    distanceM: c.distanceM?.doubleValue,
+                    durationS: c.durationS?.doubleValue)
             }
         }
         return spin.candidates.enumerated().map { index, c in
@@ -347,11 +352,19 @@ struct MapScreen: View {
 
     private func shareWithConvoy() {
         live.sendSpinOffer(spin.candidates.map { c in
-            SpinCandidate(
+            let distanceM = c.route?.distanceMeters?.doubleValue ?? c.straightLineMeters
+            let durationS = durationSeconds(c.route)
+            // DetourShared.SpinCandidate's distanceM/durationS are Kotlin
+            // Double? constructor parameters — passing a native Swift
+            // Double? does not bridge automatically (only String? does);
+            // a nullable Kotlin primitive needs its boxed wrapper explicitly,
+            // same as SectionAverage.swift's headingDeg: KotlinDouble(value:)
+            // call into SectionAverageHolder.onFix.
+            return SpinCandidate(
                 lat: c.destination.lat,
                 lon: c.destination.lon,
-                distanceM: c.route?.distanceMeters?.doubleValue ?? c.straightLineMeters,
-                durationS: durationSeconds(c.route),
+                distanceM: distanceM.map { KotlinDouble(value: $0) },
+                durationS: durationS.map { KotlinDouble(value: $0) },
                 name: c.name)
         })
     }

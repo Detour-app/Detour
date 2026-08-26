@@ -1,10 +1,14 @@
 package com.jellemax.detour.data
 
+import com.jellemax.detour.drive.FriendPosition
+import com.jellemax.detour.drive.GroupSpin
+import com.jellemax.detour.drive.IncomingAudioChunk
 import com.jellemax.detour.drive.SectionAverageTracker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -170,6 +174,95 @@ class CirclesStateWatcher internal constructor(
     private val flow: StateFlow<CirclesState>,
 ) : Watcher() {
     var value: CirclesState = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+// --- ConvoyRelay's own flows ---------------------------------------------
+//
+// One subclass per element type, same rule as everything above - added for
+// `iosApp/Detour/ConvoyLiveClient.swift`'s move onto the shared
+// `com.jellemax.detour.drive.ConvoyRelay`. Handed out by
+// `com.jellemax.detour.drive.ConvoyRelayWatchers`, not by a factory object
+// here: `ConvoyRelay` is constructed by Swift (there is no commonMain
+// singleton the way `Settings`/`Auth`/the `*Store`s are), so the wrapping
+// class has to live next to `ConvoyRelay` itself rather than here - see its
+// own doc.
+
+class FriendPositionsWatcher internal constructor(
+    private val flow: StateFlow<Map<String, FriendPosition>>,
+) : Watcher() {
+    var value: Map<String, FriendPosition> = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+class StringSetWatcher internal constructor(
+    private val flow: StateFlow<Set<String>>,
+) : Watcher() {
+    var value: Set<String> = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+class GroupSpinWatcher internal constructor(
+    private val flow: StateFlow<GroupSpin?>,
+) : Watcher() {
+    var value: GroupSpin? = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+class SpinVotesWatcher internal constructor(
+    private val flow: StateFlow<Map<String, Int>>,
+) : Watcher() {
+    var value: Map<String, Int> = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+class OptionalStringWatcher internal constructor(
+    private val flow: StateFlow<String?>,
+) : Watcher() {
+    var value: String? = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+/** Bridges a hot event stream rather than a value to read back at any
+ *  moment - [Watcher.collect] only ever needed a [kotlinx.coroutines.flow.Flow],
+ *  and a [SharedFlow] is one, so the same shape as every watcher above
+ *  serves here too. [value] starts `null` rather than off [flow]'s own
+ *  value - a `SharedFlow` has none - since nothing has "just happened" yet
+ *  at construction time. */
+class AudioChunkWatcher internal constructor(
+    private val flow: SharedFlow<IncomingAudioChunk>,
+) : Watcher() {
+    var value: IncomingAudioChunk? = null
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+/** Same shape as [AudioChunkWatcher] - see its doc - for a `place_event`
+ *  arriving on the relay rather than a `ptt_audio` chunk. */
+class PlaceEventWatcher internal constructor(
+    private val flow: SharedFlow<RelayPlaceEvent>,
+) : Watcher() {
+    var value: RelayPlaceEvent? = null
         private set
 
     override suspend fun collect(onChange: () -> Unit) =

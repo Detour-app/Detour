@@ -82,8 +82,9 @@ final class CircleNotifications: NSObject {
 
     // MARK: Live path
 
-    /// Called from `ConvoyLiveClient.handle` for a `place_event` frame. The
-    /// server already excludes the mover from its own broadcast (see
+    /// Called from `ConvoyLiveClient`'s `placeEvents` watcher for a
+    /// `place_event` frame decoded by the shared `ConvoyRelay`. The server
+    /// already excludes the mover from its own broadcast (see
     /// docs/CIRCLES_AND_CONVOYS.md),
     /// so — unlike `runCatchUpSweep` — there is no self-transition to filter
     /// here.
