@@ -38,6 +38,27 @@ system) and is not on its way to becoming a second app.
   cannot share — `ASWebAuthenticationSession` + `SecRandomCopyBytes` on iOS,
   a Custom Tab + `SecureRandom` on Android (`app/auth/AuthBrowser.kt`).
 
+- **The convoy live relay is shared.** It used to be two independent
+  implementations of one WebSocket protocol — 693 lines of Kotlin against 600 of
+  Swift, with the same tuning constants typed out on both sides. The codec, the
+  state machine, peer pruning, backoff and the spin vote are now
+  `shared/.../drive/RelayProtocol.kt` and `ConvoyRelay.kt`, with each platform
+  supplying only a socket behind a `RelaySocket` interface
+  (`OkHttpRelaySocket.kt`, `UrlSessionRelaySocket.swift`).
+
+  The spin rule is the part that mattered most: both clients documented that a
+  convoy splits across two destinations if devices resolve one offer
+  differently, and it turned out to exist in *three* places — neither platform
+  used the one copy that had tests. It is one implementation now, and the
+  property is finally tested: two relays with deliberately different peer sets,
+  given the same offer, must reach the same destination. A fake `RelaySocket`
+  is what makes that testable at all; before this, exercising any of it needed
+  two phones and a live relay.
+
+  What is *not* shared, and cannot be: push-to-talk capture and playback
+  (`AudioRecord`/`AudioTrack` against `AVAudioEngine`), and Android's
+  foreground service with its audio focus and notification.
+
 - **Kotlin exceptions actually reach Swift.** They did not before, and this is
   worth its own bullet because nothing about it is visible at a call site. A
   Kotlin/Native `suspend` function without `@Throws` propagates only
@@ -95,9 +116,22 @@ Not gaps — decisions, and the places to look first if behaviour diverges.
 - **Guidance audio.** Android takes transient-may-duck focus per prompt;
   iOS uses `.duckOthers` + `.voicePrompt` and deactivates the session when the
   utterance ends, so music comes back between prompts.
-- **Convoy keep-alive.** OkHttp has `pingInterval`, which stops NAT and the
-  Cloudflare tunnel idling a quiet socket closed. `URLSessionWebSocketTask` has
-  no such setting, so the ping is scheduled by hand.
+- **Convoy keep-alive** — and, since the relay was shared, the *only* thing
+  about a convoy that still differs. OkHttp has `pingInterval`, which stops NAT
+  and the Cloudflare tunnel idling a quiet socket closed.
+  `URLSessionWebSocketTask` has no such setting, so the ping is scheduled by
+  hand in `UrlSessionRelaySocket.swift`. Everything above the socket — the
+  sixteen-frame protocol, peers, TTL pruning, reconnect backoff, push-to-talk
+  membership and the spin vote — is one implementation now, so this is a
+  difference in how the connection is kept alive rather than in what either
+  platform does with it.
+
+  Ktor's WebSockets plugin would close even this, since its `pingInterval` is
+  common code. It was not used because the `ktor-client-darwin` engine's
+  WebSocket support could not be confirmed from the resolved artifacts and
+  nothing in the build environment can compile an iOS target to check — see
+  `docs/superpowers/specs/2026-08-26-shared-convoy-relay-design.md`. If that is
+  ever confirmed, the two sockets and this divergence collapse together.
 
 ## Not done
 
