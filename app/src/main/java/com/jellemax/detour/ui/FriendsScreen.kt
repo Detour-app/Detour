@@ -200,6 +200,12 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state by FriendsStore.state.collectAsStateWithLifecycle()
+    // Not in the store: signing out is Account's business, not the friend
+    // list's, so there is no store `busy` slot it could occupy. It still has to
+    // gate the request rows — a revoke POST on a slow connection used to leave
+    // Accept/Decline tappable, which is how you answer a friend request on your
+    // way out the door. The old code got this for free from one shared local.
+    var signingOut by remember { mutableStateOf(false) }
 
     LaunchedEffect(username) {
         FriendsStore.reload()
@@ -223,12 +229,19 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
                 Text(username, style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold)
             }
-            TextButton(onClick = {
-                // A signed-out session must not keep broadcasting: leaves the
-                // live socket with no valid identity behind it otherwise.
-                ConvoyLiveService.stop(context)
-                scope.launch { Account.signOut() }
-            }) {
+            TextButton(
+                enabled = !signingOut,
+                onClick = {
+                    // A signed-out session must not keep broadcasting: leaves the
+                    // live socket with no valid identity behind it otherwise.
+                    ConvoyLiveService.stop(context)
+                    signingOut = true
+                    scope.launch {
+                        Account.signOut()
+                        signingOut = false
+                    }
+                },
+            ) {
                 Text("Sign out")
             }
         }
@@ -253,7 +266,7 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
         for (name in loaded.incoming) {
             RequestRow(
                 name = name,
-                busy = state.busy,
+                busy = state.busy || signingOut,
                 onAccept = { scope.launch { FriendsStore.respond(name, true) } },
                 onDecline = { scope.launch { FriendsStore.respond(name, false) } },
             )
