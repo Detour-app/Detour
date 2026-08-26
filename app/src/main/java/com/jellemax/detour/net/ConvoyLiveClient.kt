@@ -214,6 +214,16 @@ object ConvoyLiveClient {
 
     fun clearSpinOffer() = relay.clearSpinOffer()
 
+    /** Delegates to [ConvoyRelay.spinRoundOutcome] - see its own doc. What
+     *  `MapScreen`'s own vote-round effect calls, in place of the hand-rolled
+     *  version that effect used to carry (and `map/GroupSpinRules.kt`'s
+     *  matching, never-called copy). */
+    fun spinRoundOutcome(myUsername: String) = relay.spinRoundOutcome(myUsername)
+
+    /** Delegates to [ConvoyRelay.currentLeadIndex] - see its own doc. What
+     *  `MapScreen`'s "Go with the lead" button calls. */
+    fun currentLeadIndex(candidateCount: Int) = relay.currentLeadIndex(candidateCount)
+
     /** Launches [ConvoyRelay.run] if it is not already running - see
      *  [runJob] and [runLock]'s own docs for why more than one caller needs
      *  to be able to trigger this safely. [Auth.bearer] is wrapped in a

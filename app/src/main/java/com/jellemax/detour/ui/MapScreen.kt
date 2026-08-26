@@ -103,11 +103,11 @@ import com.jellemax.detour.drive.CameraPrefetch
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
+import com.jellemax.detour.drive.SpinRoundOutcome
 import com.jellemax.detour.map.CameraAuthority
 import com.jellemax.detour.map.FollowCamera
 import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.map.NavPolicy
-import com.jellemax.detour.map.leadingSpinIndex
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.wear.NavRelay
@@ -638,19 +638,17 @@ fun MapScreen(
     }
 
     // How a vote round ends: the rule and its correctness argument are
-    // resolveSpinRound in map/GroupSpinRules.kt. Not wired to it yet -
-    // verifying the convoy path needs two devices transmitting to each other.
+    // ConvoyRelay.spinRoundOutcome (shared/.../drive/ConvoyRelay.kt).
     LaunchedEffect(spinOffer, spinVotes, convoyPeers, accountUsername) {
         val offer = spinOffer ?: return@LaunchedEffect
         if (offer.candidates.size == 1) {
             commitSpinCandidate(0)
             return@LaunchedEffect
         }
-        if (!offer.fromMe) return@LaunchedEffect
-        val expected = convoyPeers.keys + setOfNotNull(accountUsername.takeIf { it.isNotBlank() })
-        if (expected.isNotEmpty() && spinVotes.keys.containsAll(expected)) {
-            ConvoyLiveClient.sendSpinOffer(
-                listOf(offer.candidates[leadingSpinIndex(spinVotes, offer.candidates.size)]))
+        when (val outcome = ConvoyLiveClient.spinRoundOutcome(accountUsername)) {
+            SpinRoundOutcome.Wait, SpinRoundOutcome.CommitOnly -> Unit
+            is SpinRoundOutcome.CloseRound ->
+                ConvoyLiveClient.sendSpinOffer(listOf(offer.candidates[outcome.leadIndex]))
         }
     }
 
@@ -1744,7 +1742,7 @@ fun MapScreen(
                                 {
                                     ConvoyLiveClient.sendSpinOffer(listOf(
                                         offer.candidates[
-                                            leadingSpinIndex(spinVotes, offer.candidates.size)]))
+                                            ConvoyLiveClient.currentLeadIndex(offer.candidates.size)]))
                                 }
                             },
                         )
