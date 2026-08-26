@@ -44,8 +44,20 @@ object FriendsStore {
      *  because the test for it asserts this exact string. */
     internal const val FALLBACK_ERROR = "Could not reach the server"
 
-    private val _state = MutableStateFlow(FriendsState())
+    /** `internal`, not `private`: [StoresTest] drives it directly to pin
+     *  [reset], which — being an unconditional overwrite rather than a
+     *  transition on a state the caller already has — has nothing else to
+     *  assert against. */
+    internal val _state = MutableStateFlow(FriendsState())
     val state: StateFlow<FriendsState> = _state.asStateFlow()
+
+    /** Drops everything back to [FriendsState]'s defaults — including
+     *  [FriendsState.own], which [loaded] otherwise goes out of its way to
+     *  preserve. Called from [Auth.clear] rather than by a screen; see that
+     *  function's doc for why. */
+    internal fun reset() {
+        _state.value = FriendsState()
+    }
 
     /** Both lists in one pass, so a screen never shows friends without their
      *  numbers or the other way round. */

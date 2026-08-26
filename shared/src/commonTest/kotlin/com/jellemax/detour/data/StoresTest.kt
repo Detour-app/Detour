@@ -305,4 +305,64 @@ class StoresTest {
         kind = "arrive",
         tsMs = 1_700_000_000_000L,
     )
+
+    // --- reset() ------------------------------------------------------------
+    //
+    // These drive the singleton directly (`_state` is `internal` for exactly
+    // this) rather than the reducer functions above, because a reset is not a
+    // transition on a state the caller already has — it is the store
+    // replacing whatever it was holding, unconditionally, with nothing left
+    // to inherit. What matters is that nothing survives the round trip.
+
+    @Test
+    fun resettingFriendsStoreRestoresTheDefaultState() {
+        FriendsStore._state.value = FriendsState(
+            lists = lists(),
+            leaderboard = listOf(stats("ada")),
+            own = stats("me"),
+            busy = true,
+            error = "stale",
+        )
+        FriendsStore.reset()
+        assertEquals(FriendsState(), FriendsStore.state.value)
+    }
+
+    @Test
+    fun resettingFriendsStoreClearsTheOwnRowOnItsOwn() {
+        // `own` is the one field a reload deliberately keeps (see `loaded`'s
+        // own doc) — the field a reset is most likely to inherit the same
+        // habit for by mistake. A sign-out is a different rider, not a
+        // failed refresh, and the old rider's own-stats row must not survive
+        // to render under the new rider's name in the leaderboard.
+        FriendsStore._state.value = FriendsState(own = stats("ada"))
+        FriendsStore.reset()
+        assertNull(FriendsStore.state.value.own)
+    }
+
+    @Test
+    fun resettingConvoysStoreRestoresTheDefaultState() {
+        ConvoysStore._state.value = ConvoysState(
+            convoys = listOf(convoy("c1", "Sunday run")),
+            busy = true,
+            error = "stale",
+        )
+        ConvoysStore.reset()
+        assertEquals(ConvoysState(), ConvoysStore.state.value)
+    }
+
+    @Test
+    fun resettingCirclesStoreRestoresTheDefaultState() {
+        CirclesStore._state.value = CirclesState(
+            circles = listOf(circle("c1", "Family")),
+            selectedId = "c1",
+            places = listOf(place("p1", "c1")),
+            events = listOf(event("e1")),
+            busy = true,
+            error = "stale",
+            detailBusy = true,
+            detailError = "stale detail",
+        )
+        CirclesStore.reset()
+        assertEquals(CirclesState(), CirclesStore.state.value)
+    }
 }

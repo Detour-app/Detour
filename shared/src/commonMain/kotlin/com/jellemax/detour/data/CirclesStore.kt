@@ -61,8 +61,19 @@ object CirclesStore {
 
     internal const val FALLBACK_ERROR = "Could not reach the server"
 
-    private val _state = MutableStateFlow(CirclesState())
+    /** `internal`, not `private`: [StoresTest] drives it directly to pin
+     *  [reset] — see [FriendsStore]'s matching field for why. */
+    internal val _state = MutableStateFlow(CirclesState())
     val state: StateFlow<CirclesState> = _state.asStateFlow()
+
+    /** Drops everything back to [CirclesState]'s defaults — the selected
+     *  circle included, so a leaked [CirclesState.selectedId] cannot make the
+     *  next rider's [CirclesStore.select] reload calls land on a circle that
+     *  was never theirs. Called from [Auth.clear] rather than by a screen;
+     *  see that function's doc for why. */
+    internal fun reset() {
+        _state.value = CirclesState()
+    }
 
     @Throws(Exception::class)
     suspend fun reload() {

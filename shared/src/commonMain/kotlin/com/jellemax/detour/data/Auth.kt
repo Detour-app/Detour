@@ -204,9 +204,28 @@ object Auth {
     /** Forgets the session without telling the provider — for the one case where
      *  the provider has already told *us* the session is gone. Clears the handle
      *  as well: it is what the screens read to decide whether anyone is signed
-     *  in, and a name left behind is a screen that thinks someone is. */
+     *  in, and a name left behind is a screen that thinks someone is.
+     *
+     *  Also resets [FriendsStore], [ConvoysStore], [CirclesStore] and
+     *  [FriendFog] — every singleton in this module that caches another
+     *  rider's data with no reset path of its own. They are per-account state
+     *  living in objects with no lifecycle: nothing tears one down when a
+     *  session ends, so without this, the next sign-in on the same device
+     *  renders the previous rider's friend list, leaderboard, circle places
+     *  and arrival/departure events, and shared fog-of-war traces — behind a
+     *  spinner or an error banner, since every one of those screens shows
+     *  last-known-good data while it reloads (see [FriendsState]'s own doc).
+     *  This lives here, once, rather than in each screen's own effect,
+     *  because [clear] is called from three places — [signOut], a 401 in
+     *  [Api], and a server switch in `RoutingServer.save` — and a screen
+     *  that forgets to reset on any one of them is a screen that leaks
+     *  another rider's data. */
     fun clear() {
         Settings.setSession("", "", 0L, "")
+        FriendsStore.reset()
+        ConvoysStore.reset()
+        CirclesStore.reset()
+        FriendFog.clear()
     }
 
     private suspend fun refresh(): String {

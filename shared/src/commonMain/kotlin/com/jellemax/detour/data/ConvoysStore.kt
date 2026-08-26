@@ -29,8 +29,16 @@ object ConvoysStore {
 
     internal const val FALLBACK_ERROR = "Could not reach the server"
 
-    private val _state = MutableStateFlow(ConvoysState())
+    /** `internal`, not `private`: [StoresTest] drives it directly to pin
+     *  [reset] — see [FriendsStore]'s matching field for why. */
+    internal val _state = MutableStateFlow(ConvoysState())
     val state: StateFlow<ConvoysState> = _state.asStateFlow()
+
+    /** Drops everything back to [ConvoysState]'s defaults. Called from
+     *  [Auth.clear] rather than by a screen; see that function's doc for why. */
+    internal fun reset() {
+        _state.value = ConvoysState()
+    }
 
     @Throws(Exception::class)
     suspend fun reload() {
