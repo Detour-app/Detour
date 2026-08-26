@@ -990,4 +990,71 @@ class ConvoyRelayTest {
         relay.stop()
         job2.join()
     }
+
+    // --- the epoch watcher outliving run(): the point of *this* task's fix -
+    //
+    // run()'s own Auth.sessionEpoch watcher above is scoped to run()'s own
+    // coroutine and is cancelled in run()'s finally the instant run() returns
+    // - including an ordinary stop(), the "go offline" button case stop()'s
+    // own doc describes, which deliberately preserves membership for its own
+    // reconnect. Nothing outside run() was watching the epoch in the tests
+    // above either, but every one of them bumps the epoch (via
+    // clearMembershipForSessionChange, the direct-call shortcut both take)
+    // while run() is still live. The test below is the one case none of them
+    // cover: the epoch moving after run() has already returned, with nothing
+    // live to react to it - see discardMembershipIfSessionChanged's own doc
+    // for why setConvoy/setNotifyingCircles close that window themselves.
+
+    @Test
+    fun aSessionChangeWhileRunIsNotLiveIsCaughtByTheNextMembershipCallRatherThanRejoiningTheDepartedConvoy() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        val job = launch { relay.run(socket, tokenSupplier()) }
+
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        // The "go offline" button stop()'s own doc describes: an ordinary
+        // stop() deliberately preserves membership for a caller-initiated
+        // reconnect, unlike a session change. run()'s own sessionWatcher is
+        // cancelled the instant run() returns either way - nothing is
+        // watching the epoch from here until something calls setConvoy/
+        // setNotifyingCircles again.
+        relay.stop()
+        job.join()
+        assertEquals("convoy-1", relay.convoyId.value, "stop() must still preserve membership on its own")
+
+        // The rider signs out - Auth.sessionEpoch moves - while run() is not
+        // live at all to react to it. Simulated directly rather than by
+        // actually bumping the real Auth.sessionEpoch, the same shortcut
+        // clearMembershipForSessionChange's own tests take above - see
+        // membershipEpoch's own doc for why: this module's tests stay
+        // isolated from the real Auth/Settings singletons. run() has already
+        // stamped membershipEpoch once by this point (it calls
+        // discardMembershipIfSessionChanged too - see run()'s own doc), so
+        // this is never null here.
+        relay.membershipEpoch = requireNotNull(relay.membershipEpoch) - 1
+
+        // The next rider's own CircleSync tick - setNotifyingCircles, not a
+        // fresh setConvoy call - is what actually rejoins a stale convoy in
+        // the real leak (see the class doc's Auth.sessionEpoch paragraph).
+        relay.setNotifyingCircles(setOf("circle-b"))
+
+        assertNull(relay.convoyId.value, "a stale convoy must not survive the next rider's own membership call")
+
+        val socket2 = FakeRelaySocket()
+        val job2 = launch { relay.run(socket2, tokenSupplier()) }
+        socket2.connectCount.first { it >= 1 }
+        socket2.push(joinedFrame())
+        relay.connected.first { it }
+
+        // Only what the new rider actually asked for - never convoy-1, which
+        // a stale _convoyId would have rejoined here had it survived.
+        assertEquals(listOf(RelayProtocol.buildJoin("circle-b")), socket2.sent)
+
+        relay.stop()
+        job2.join()
+    }
 }
