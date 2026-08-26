@@ -119,11 +119,25 @@ Four details that are decisions rather than mechanics:
 
 **`begin` returns `""` and never throws.** It is not a `suspend` function, and Kotlin/Native
 turns an exception out of a non-`suspend` exported function into a process termination, not
-something Swift can `catch`. `complete` is `suspend`, so its `AuthException` arrives in Swift as
-an `NSError` through the generated completion handler — which is why the existing
-`FriendsModel.report` already reads `(error as NSError).localizedDescription` for
-`Friends.lists()` and friends. No `@Throws` annotation is needed or used anywhere in this module
-today, and none is added.
+something Swift can `catch`. `complete` is `suspend`, and is annotated `@Throws`, so its
+`AuthException` arrives in Swift as an `NSError` through the generated completion handler.
+
+> **Correction.** An earlier revision of this document claimed the `@Throws` annotation was
+> unnecessary — that a `suspend` function's exceptions reach Swift as an `NSError` on their own,
+> and that `FriendsModel.report` already reading `(error as NSError).localizedDescription` for
+> `Friends.lists()` proved it. That was wrong, and the evidence was worthless: nothing on iOS
+> could sign in, so every one of those `catch` blocks was unreachable and had never run once.
+>
+> Kotlin/Native's actual rule: a `suspend` function without `@Throws` propagates **only**
+> `CancellationException`; any other Kotlin exception reaching Swift is treated as unhandled and
+> **terminates the process**. `grep -rc '@Throws' shared/src` returned 0 across the whole
+> module, against roughly 40 `try await` call sites in `iosApp/Detour/`. `try?` is no help — the
+> abort happens on the Kotlin side, before control returns to Swift.
+>
+> So the exported `suspend` surface iOS calls is annotated as part of this work, which is a
+> deliberate widening of this slice: sign-in is what makes friends, circles, convoys and sync
+> reachable on iOS at all, and a feature that dies on its first network error is not parity.
+> `@Throws` is a no-op for the Android target, so nothing on that side changes.
 
 **The PKCE challenge is okio, unpadded.** `verifier.encodeUtf8().sha256().base64Url()`, then
 `trimEnd('=')`: okio emits padding and RFC 7636 §4.2 forbids it. Both operations are common —
