@@ -46,7 +46,7 @@ import DetourShared
 /// and the shared relay's own membership are already correctly cleared
 /// without it.
 @MainActor
-final class ConvoyLiveClient: NSObject, ObservableObject {
+final class ConvoyLiveClient: ObservableObject {
 
     static let shared = ConvoyLiveClient()
 
@@ -119,7 +119,7 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
 
     private var locationTask: Task<Void, Never>?
 
-    private override init() {
+    private init() {
         let watchers = ConvoyRelayWatchers(relay: relay)
         self.watchers = watchers
         connectedWatcher = watchers.connected()
@@ -130,7 +130,6 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
         lastErrorWatcher = watchers.lastError()
         audioChunkWatcher = watchers.audioChunks()
         placeEventWatcher = watchers.placeEvents()
-        super.init()
 
         // `self?.x = self?.watcher.value ?? default` used to read as a nil
         // guard here and wasn't one: optional chaining on the assignment's
@@ -281,6 +280,22 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     }
 
     func clearSpinOffer() { relay.clearSpinOffer() }
+
+    /// Delegates to `ConvoyRelay.currentLeadIndex` - see its own doc. What
+    /// `MapScreen`'s "Go with the lead" button, and its own `resolveGroupSpin`,
+    /// call in place of the hand-rolled `leadingSpinIndex(of:)` this used to
+    /// carry.
+    func currentLeadIndex(candidateCount: Int) -> Int {
+        Int(relay.currentLeadIndex(candidateCount: Int32(candidateCount)))
+    }
+
+    /// Delegates to `ConvoyRelay.spinRoundIsReadyToClose` - see its own doc
+    /// for why iOS reads this `Bool` rather than switching over
+    /// `ConvoyRelay.spinRoundOutcome`'s own `SpinRoundOutcome` directly, the
+    /// way `net/ConvoyLiveClient.kt`'s Android counterpart now does.
+    func spinRoundIsReadyToClose(myUsername: String) -> Bool {
+        relay.spinRoundIsReadyToClose(myUsername: myUsername)
+    }
 
     // MARK: Running
 
