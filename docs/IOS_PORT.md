@@ -38,6 +38,27 @@ system) and is not on its way to becoming a second app.
   cannot share — `ASWebAuthenticationSession` + `SecRandomCopyBytes` on iOS,
   a Custom Tab + `SecureRandom` on Android (`app/auth/AuthBrowser.kt`).
 
+- **Circle presence and the arrival-notification policy are shared.** The two
+  presence loops were the tightest duplication in the project — same structure,
+  same guards, and eight hand-copied constants across two languages that all
+  happened to agree. The tick is now `shared/…/data/CirclePresence.kt` and the
+  delivery decisions `CircleNotifyPolicy.kt`; each platform keeps only its own
+  loop, its clocks, and its delivery mechanism (a foreground service and a
+  notification channel on Android, `UNUserNotificationCenter` and its
+  authorization on iOS).
+
+  Two things surfaced by sharing the decision rather than the code. Android's
+  catch-up notifications now raise **newest-first**, matching what iOS already
+  did — the cap exists because a backlog is not worth reading in full, so the
+  most recent arrival should not sit under four older ones. And the two
+  platforms do **not** measure fix age the same way: Android uses
+  `SystemClock.elapsedRealtime()` deliberately, because a device clock corrected
+  mid-drive answers "how old is this reading" wrong in whichever direction it
+  moved, while iOS has only `CLLocation`'s wall-clock `Date`. Fixing that means
+  stamping `ProcessInfo.systemUptime` where a fix is received, which is a
+  location-plumbing change and was left alone. It is visible now because both
+  call sites pass the same parameter.
+
 - **The convoy live relay is shared.** It used to be two independent
   implementations of one WebSocket protocol — 693 lines of Kotlin against 600 of
   Swift, with the same tuning constants typed out on both sides. The codec, the

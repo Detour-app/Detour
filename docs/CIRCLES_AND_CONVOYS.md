@@ -116,16 +116,20 @@ answer, so ids cannot be enumerated.
 | `shared/…/data/Groups.kt` | Membership calls for both kinds, taking the kind as a parameter |
 | `shared/…/data/CircleFixes.kt` | The low-cadence position path |
 | `shared/…/data/CircleEvents.kt` | Arrival/departure feed and the on-device geofence evaluator |
+| `shared/…/data/CirclePresence.kt` | The presence tick both platforms run: the guards, the sharing filter, the evaluator lifecycle, the trust check and the cadence. Takes its three clocks as parameters — see §10. |
+| `shared/…/data/CircleNotifyPolicy.kt` | Which circles want delivery, and which caught-up arrivals are worth raising (the cap, the stale window, newest-first). Decisions only; the wording and the delivery are elsewhere. |
 | `shared/…/drive/RelayProtocol.kt` | The wire codec — decodes the nine inbound frame types, builds the seven outbound ones. Pure, no socket, no state. |
 | `shared/…/drive/ConvoyRelay.kt` | The relay's state machine — peers, push-to-talk membership, the spin vote, connect/backoff/reconnect — behind a `RelaySocket` seam. One implementation both platforms run, not two hand-rolled copies. |
 | `shared/…/drive/RelaySocket.kt` | The seam: open/receive/send/close, with URL and bearer resolution left to whoever implements it |
 | `app/…/net/OkHttpRelaySocket.kt` | Android's `RelaySocket`, over OkHttp's `WebSocket` |
 | `app/…/net/ConvoyLiveClient.kt` | Android glue around `ConvoyRelay`: the `Features.liveRelay`/no-server guards, run-loop wiring, location forwarding |
 | `app/…/convoy/ConvoyLiveService.kt` | Foreground service holding the socket while the screen is off |
-| `app/…/tracking/TripTrackingService.kt` | The circle tick — one collector, two sinks (§10) |
+| `app/…/tracking/TripTrackingService.kt` | Drives the circle tick — one collector, two sinks (§10). Owns the loop and the monotonic fix age; the decisions are `CirclePresence`'s. |
 | `iosApp/Detour/UrlSessionRelaySocket.swift` | iOS's `RelaySocket`, over `URLSessionWebSocketTask` |
 | `iosApp/Detour/ConvoyLiveClient.swift` | iOS glue around `ConvoyRelay`, the same shape as the Android object above, `ObservableObject`-published for SwiftUI |
-| `iosApp/Detour/CircleSync.swift` | The circle tick counterpart |
+| `iosApp/Detour/CircleSync.swift` | The same, on iOS. Note its fix age is wall clock, not monotonic — `CLLocation` carries no uptime-stamped time, so it cannot answer "how old is this reading" as safely as Android can. |
+| `app/…/notif/CircleNotifyService.kt`, `PlaceNotifications.kt` | Android's notification delivery: the foreground service, the channel, the `PendingIntent`. Policy comes from `CircleNotifyPolicy`. |
+| `iosApp/Detour/CircleNotifications.swift` | iOS's delivery: `UNUserNotificationCenter`, authorization, the foreground catch-up sweep. Same policy source. |
 
 The two UIs stay entirely separate. A circle screen and a convoy screen have
 almost nothing visually in common, and merging them would be the one merge with
