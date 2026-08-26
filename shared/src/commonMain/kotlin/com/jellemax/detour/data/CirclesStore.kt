@@ -124,7 +124,7 @@ object CirclesStore {
      *  a list failure would. */
     private suspend fun loadDetail(groupId: String) {
         _state.value = _state.value.starting()
-        _state.value = try {
+        val result = try {
             val places = CirclePlaces.places(groupId)
             val events = CircleEvents.events(groupId, sinceMs = 0L).sortedByDescending { it.tsMs }
             _state.value.detailLoaded(places, events)
@@ -133,6 +133,20 @@ object CirclesStore {
         } catch (e: Exception) {
             _state.value.failed(e)
         }
+        // Only commit if this is still the circle being viewed. Two selections
+        // can be in flight at once — tap one circle, then another before the
+        // first answers — and the slower response arriving last would otherwise
+        // write its places under the newer circle's heading. [selecting] clears
+        // the detail on every change precisely to stop that, and without this
+        // check a late reply puts it straight back.
+        //
+        // The caller cancelling the stale coroutine also fixes it, and both
+        // screens happen to do that today (Compose keys a LaunchedEffect on the
+        // circle id, SwiftUI a .task(id:)). But this store cannot see its
+        // callers, one of them is already a plain unstructured `Task { }`, and
+        // Tasks 4-6 have yet to write the rest — so the guarantee belongs here
+        // rather than in a convention every future call site has to know.
+        _state.value = _state.value.commitIfViewing(groupId, result)
     }
 
     /** Runs a circle-list mutation, then reloads the whole list — same
@@ -176,6 +190,18 @@ object CirclesStore {
      *  [ConvoysStore]; one entity on the server, two kinds. */
     private const val KIND = "circle"
 }
+
+/**
+ * [result] if [groupId] is still the circle being viewed, otherwise this state
+ * untouched — the guard that stops a slow detail response landing under a
+ * circle the rider has already moved on from.
+ *
+ * `internal` and pure so it can be asserted directly: the race it prevents
+ * needs two overlapping coroutines to reproduce, which this module's test style
+ * (plain kotlin.test, no coroutine test dispatcher) cannot stage.
+ */
+internal fun CirclesState.commitIfViewing(groupId: String, result: CirclesState): CirclesState =
+    if (selectedId == groupId) result else this
 
 internal fun CirclesState.starting() = copy(busy = true, error = null)
 

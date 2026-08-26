@@ -208,6 +208,30 @@ class StoresTest {
         assertTrue(!failed.busy)
     }
 
+    @Test
+    fun aDetailResponseForACircleNoLongerBeingViewedIsDiscarded() {
+        // Tap one circle, tap another before the first answers: the slower
+        // response arrives last and would otherwise write its places under the
+        // newer circle's heading. Not reproducible as a concurrency test in
+        // this module's test style, so the commit decision is asserted directly.
+        val viewingC2 = CirclesState(
+            circles = listOf(circle("c1", "Family"), circle("c2", "Riders")),
+            selectedId = "c2",
+        )
+        val staleResult = viewingC2.copy(places = listOf(place("p1", "c1")))
+        assertSame(viewingC2, viewingC2.commitIfViewing("c1", staleResult))
+    }
+
+    @Test
+    fun aDetailResponseForTheCircleStillBeingViewedIsCommitted() {
+        val viewingC2 = CirclesState(
+            circles = listOf(circle("c2", "Riders")),
+            selectedId = "c2",
+        )
+        val fresh = viewingC2.copy(places = listOf(place("p2", "c2")))
+        assertSame(fresh, viewingC2.commitIfViewing("c2", fresh))
+    }
+
     private fun place(serverId: String, groupId: String) = CirclePlace(
         serverId = serverId,
         groupId = groupId,
