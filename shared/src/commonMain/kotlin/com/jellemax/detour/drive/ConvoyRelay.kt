@@ -32,7 +32,10 @@ private const val PEER_PRUNE_INTERVAL_MS = 5_000L
  * currently on the table - the convoy vote rule ported from
  * `app/.../map/GroupSpinRules.kt`, which documented the rule and its
  * correctness argument but - being reachable only from two live phones - was
- * never actually exercised by a test against a live relay loop. See
+ * never actually exercised by a test against a live relay loop. Task 5
+ * repointed both platforms at this copy and deleted that file (and its own
+ * `GroupSpinRulesTest.kt`, ported into `ConvoyRelayTest.kt`'s "the spin
+ * rule" section) - this is the only implementation left. See
  * [ConvoyRelay.spinRoundOutcome].
  */
 sealed interface SpinRoundOutcome {
@@ -830,6 +833,36 @@ class ConvoyRelay {
         return resolveSpinRound(offer.candidates.size, offer.fromMe, expected, _spinVotes.value)
     }
 
+    /**
+     * The candidate [spinVotes] currently leads with among [candidateCount]
+     * candidates - see [leadingSpinIndex] for the tie-break itself. Unlike
+     * [spinRoundOutcome], this never waits for anyone: it is what the
+     * sharer's own "go with the lead" affordance calls to force a round
+     * closed *before* every expected voter has, on both platforms - the one
+     * legitimate reason a caller needs the tally outside
+     * [spinRoundOutcome]'s own "has everyone voted" gate.
+     */
+    fun currentLeadIndex(candidateCount: Int): Int = leadingSpinIndex(_spinVotes.value, candidateCount)
+
+    /**
+     * Whether [spinRoundOutcome] resolves to [SpinRoundOutcome.CloseRound]
+     * for [myUsername] right now - never true for [SpinRoundOutcome.Wait] or
+     * [SpinRoundOutcome.CommitOnly]. A `Boolean`-only projection of
+     * [spinRoundOutcome] for `iosApp/Detour/ConvoyLiveClient.swift`
+     * specifically: this codebase has no existing precedent for a Swift
+     * caller switching over a Kotlin sealed interface with a
+     * payload-carrying case like [SpinRoundOutcome.CloseRound], so the iOS
+     * call site reads this plus [currentLeadIndex] - both plain
+     * `Boolean`/`Int`, the primitive shapes already proven to cross the
+     * Kotlin/Native boundary elsewhere in this class - rather than risk an
+     * unverifiable export shape neither this task nor CI can compile-check
+     * (see the task report). Kotlin callers - Android, this file's own
+     * tests - use [spinRoundOutcome] directly instead; this exists for
+     * Swift alone.
+     */
+    fun spinRoundIsReadyToClose(myUsername: String): Boolean =
+        spinRoundOutcome(myUsername) is SpinRoundOutcome.CloseRound
+
     // --- outbound sends -----------------------------------------------------
     //
     // Every one of these is fire-and-forget and non-suspend, matching both
@@ -973,14 +1006,14 @@ private fun errorFrameOrNull(text: String): ErrorFrame? {
 private fun unreachableMessage(e: Exception): String =
     e.message?.takeIf { it.isNotBlank() } ?: "Can't reach the live server"
 
-/** Tie-break rule for [SpinRoundOutcome.CloseRound]'s leader: ties (including
+/** Tie-break rule for [SpinRoundOutcome.CloseRound]'s leader, and for
+ *  [ConvoyRelay.currentLeadIndex]'s forced-close case: ties (including
  *  "nobody's voted yet", every count 0) go to the lowest index. `>` rather
  *  than `>=` is what makes that deterministic - every device tallying the
  *  same votes lands on the same leader without needing to compare who voted
- *  when. Ported from `app/.../map/GroupSpinRules.kt`'s `leadingSpinIndex`,
- *  which this same task's brief forbids touching directly - see this file's
- *  class doc and the task report for why a second, shared-owned copy is the
- *  right call here rather than reaching into `app/`. */
+ *  when. Ported from `app/.../map/GroupSpinRules.kt`'s `leadingSpinIndex` -
+ *  Task 5 deleted that file once both platforms were repointed here; this is
+ *  the only implementation left. */
 private fun leadingSpinIndex(votes: Map<String, Int>, candidateCount: Int): Int {
     val counts = IntArray(candidateCount)
     votes.values.forEach { if (it in counts.indices) counts[it]++ }
@@ -1009,7 +1042,9 @@ private fun leadingSpinIndex(votes: Map<String, Int>, candidateCount: Int): Int 
  * failure this rule exists to prevent - ported from
  * `app/.../map/GroupSpinRules.kt`'s `resolveSpinRound`, which stated this
  * argument but, being reachable only from two live phones, was never
- * actually tested against it.
+ * actually tested against it. [ConvoyRelayTest] is the first thing that
+ * does; Task 5 then deleted that file once both platforms were repointed at
+ * this one.
  */
 private fun resolveSpinRound(
     candidateCount: Int,

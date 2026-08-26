@@ -35,14 +35,21 @@ import kotlin.test.assertTrue
  * `delay` are what a genuine reconnect-with-backoff test needs, and nothing
  * here waits longer than one backoff step.
  *
- * The spin-vote rule itself ([SpinRoundOutcome]) is a straight port of
- * `app/.../map/GroupSpinRules.kt`, which already has its own pure-function
- * test (`GroupSpinRulesTest.kt`) covering `leadingSpinIndex`/`resolveSpinRound`
- * in isolation - tie-breaks, pruned-peer edge cases, and so on. This file
- * does not re-derive those; it covers the property that test suite never
- * could, because it needs two devices: that a relay driven entirely off its
- * own state reaches the identical outcome as a second relay with a
- * *different* peer set, given the same wire frames.
+ * The spin-vote rule itself ([SpinRoundOutcome]) was a straight port of
+ * `app/.../map/GroupSpinRules.kt`, which had its own pure-function test
+ * (`GroupSpinRulesTest.kt`) covering `leadingSpinIndex`/`resolveSpinRound` in
+ * isolation - tie-breaks, pruned-peer edge cases, and so on. Task 5 deleted
+ * both files once Android and iOS were repointed at this shared copy; the
+ * handful of cases that file covered and this one did not yet - ties, a
+ * stale out-of-range vote, an empty tally, a signed-out device's own blank
+ * username never being waited for - are ported into the "spin rule" section
+ * below rather than dropped, driven through [ConvoyRelay.currentLeadIndex]
+ * and [ConvoyRelay.spinRoundOutcome] exactly as production code now does,
+ * rather than through the private `leadingSpinIndex`/`resolveSpinRound`
+ * functions `GroupSpinRulesTest.kt` used to call directly. What only this
+ * file could ever cover is still below them, unchanged: that a relay driven
+ * entirely off its own state reaches the identical outcome as a second relay
+ * with a *different* peer set, given the same wire frames.
  *
  * Most tests below call [ConvoyRelay.setConvoy] (and/or
  * [ConvoyRelay.setNotifyingCircles]) *before* launching [ConvoyRelay.run] -
@@ -499,6 +506,96 @@ class ConvoyRelayTest {
         // peer sets land on an identical destination.
         assertEquals(relayA.spinOffer.value!!.candidates.single(), relayB.spinOffer.value!!.candidates.single())
         assertEquals("Coast road", relayB.spinOffer.value!!.candidates.single().name)
+    }
+
+    // --- ported from the deleted GroupSpinRulesTest.kt ----------------------
+    //
+    // `app/.../map/GroupSpinRules.kt`'s own test covered `leadingSpinIndex`
+    // and `resolveSpinRound` as bare pure functions - Task 5 deleted both
+    // files once Android and iOS were repointed at this class, so the cases
+    // below that this file's own tests (above) never happened to exercise are
+    // ported here instead of lost, driven through the same public API
+    // production code now calls: [ConvoyRelay.currentLeadIndex] for the
+    // tie-break itself, [ConvoyRelay.spinRoundOutcome] for the "who is
+    // waited for" rule. `theMostVotedCandidateLeads`,
+    // `aOneCandidateOfferCommitsRegardlessOfVotes`,
+    // `theSharerClosesTheRoundOnceEveryoneHasVoted`,
+    // `theSharerWaitsWhileAVoteIsStillOut`, `aReceivingDeviceNeverClosesARound`
+    // and `aPrunedPeerCannotCompleteTheRoundEarly` are not ported - each pins
+    // a property already covered above, most thoroughly by
+    // `aReceiverWithADifferentPeerSetNeverResolvesAMultiCandidateOfferItDidNotSendThenCommitsTheSharersClosingOne`.
+
+    @Test
+    fun noVotesAtAllLeadsWithTheFirstCandidate() {
+        val relay = ConvoyRelay()
+        assertEquals(0, relay.currentLeadIndex(candidateCount = 3))
+    }
+
+    @Test
+    fun tiesInTheCurrentTallyGoToTheLowestIndex() {
+        val relayA = ConvoyRelay()
+        relayA.sendSpinVote("a", 0)
+        relayA.sendSpinVote("b", 2)
+        assertEquals(0, relayA.currentLeadIndex(candidateCount = 3))
+
+        val relayB = ConvoyRelay()
+        relayB.sendSpinVote("a", 1)
+        relayB.sendSpinVote("b", 2)
+        assertEquals(1, relayB.currentLeadIndex(candidateCount = 3))
+    }
+
+    /** A vote for a candidate this device does not have - a frame from a
+     *  newer offer, an index past the end - is ignored rather than breaking
+     *  the tally. */
+    @Test
+    fun votesOutsideTheCandidateRangeAreIgnoredInTheCurrentTally() {
+        val relay = ConvoyRelay()
+        relay.sendSpinVote("a", 7)
+        relay.sendSpinVote("b", -1)
+        relay.sendSpinVote("c", 0)
+        assertEquals(0, relay.currentLeadIndex(candidateCount = 3))
+    }
+
+    /** A blank username means not signed in, and must not be waited for - a
+     *  round the local, signed-out device itself opened would otherwise
+     *  never be able to close. */
+    @Test
+    fun aBlankUsernameIsNotWaitedForWhenClosingARound() {
+        val relay = ConvoyRelay()
+        relay.applyEvent(RelayEvent.Positions(listOf(friendPosition("alice", expiresAtMs = Long.MAX_VALUE))))
+        relay.sendSpinOffer(
+            listOf(
+                SpinCandidate(51.0, 4.0, null, null, "A"),
+                SpinCandidate(52.0, 5.0, null, null, "B"),
+            ),
+        )
+        relay.applyEvent(RelayEvent.SpinVote("alice", 1))
+
+        assertEquals(SpinRoundOutcome.CloseRound(leadIndex = 1), relay.spinRoundOutcome(myUsername = ""))
+    }
+
+    /** [ConvoyRelay.spinRoundIsReadyToClose] is a `Boolean`-only projection of
+     *  [ConvoyRelay.spinRoundOutcome] for Swift - added because this codebase
+     *  has no precedent for switching over a Kotlin sealed interface from
+     *  Swift (see its own doc). Pinned directly since nothing on the iOS side
+     *  can be compiled here to catch a drift between the two. */
+    @Test
+    fun spinRoundIsReadyToCloseAgreesWithSpinRoundOutcome() {
+        val relay = ConvoyRelay()
+        relay.applyEvent(RelayEvent.Positions(listOf(friendPosition("bob", expiresAtMs = Long.MAX_VALUE))))
+        relay.sendSpinOffer(
+            listOf(
+                SpinCandidate(51.0, 4.0, null, null, "A"),
+                SpinCandidate(52.0, 5.0, null, null, "B"),
+            ),
+        )
+        assertFalse(relay.spinRoundIsReadyToClose(myUsername = "dave"))
+
+        relay.applyEvent(RelayEvent.SpinVote("bob", 1))
+        relay.sendSpinVote("dave", 1)
+
+        assertTrue(relay.spinRoundIsReadyToClose(myUsername = "dave"))
+        assertEquals(1, relay.currentLeadIndex(candidateCount = 2))
     }
 
     // --- additive membership: the point of this task's fix -----------------
