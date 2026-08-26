@@ -36,40 +36,79 @@ final class SignIn: NSObject, ObservableObject {
         busy = true
         defer { busy = false }
 
-        let authorize = Oidc.shared.begin(entropy: entropy())
+        guard let secureEntropy = entropy() else {
+            // SecRandomCopyBytes failing is undocumented on iOS, but checked
+            // rather than trusted — see entropy()'s doc. Reported distinctly
+            // from "no realm configured" below: proceeding with begin() here
+            // would either refuse on length (a true but misleading "no
+            // identity provider" message) or, if that guard were ever
+            // loosened, sign in with a guessable verifier. Neither is what
+            // actually happened, so the rider is told the truth instead.
+            error = "Could not generate a secure sign-in request. Please try again."
+            return
+        }
+
+        let authorize = Oidc.shared.begin(entropy: secureEntropy)
         guard !authorize.isEmpty, let url = URL(string: authorize) else {
             // begin() returns blank rather than throwing: it is not a suspend
             // function, and a throw out of one of those terminates this process
-            // instead of arriving as an error.
+            // instead of arriving as an error. secureEntropy is always full
+            // length by this point (entropy() guarantees it), so a blank
+            // result here can only be the other thing begin() refuses on: no
+            // realm configured.
             error = "No identity provider is configured, so there is nobody to "
                 + "sign in to. Set the sign-in realm under Settings → Own server."
             return
         }
 
+        // Two separate `do`/`catch` scopes, deliberately, rather than one
+        // wrapping both calls: `abandon()` belongs only to the failures this
+        // side caused. `present` failing means the browser never opened, so
+        // nothing was ever handed the parked verifier — abandoning here is
+        // the only place it gets cleared. `complete` failing means shared
+        // `Oidc.spend` already ran and already decided whether to clear it
+        // (see its doc: the state-mismatch path deliberately leaves it
+        // parked, so a forged `detour://auth/callback` cannot kill a sign-in
+        // genuinely in flight). Calling `abandon()` again after a `complete`
+        // failure would undo that client-side. Do not merge these back into
+        // one `catch`.
+        let callback: URL
         do {
-            let callback = try await present(url)
-            try await Oidc.shared.complete(url: callback.absoluteString)
+            callback = try await present(url)
         } catch is SignInDismissed {
             // Not a failure: the rider closed the sheet. Drop the parked
             // verifier so a later stale callback cannot be spent.
             Oidc.shared.abandon()
-        } catch {
+            return
+        } catch let presentFailure {
             Oidc.shared.abandon()
-            self.error = (error as NSError).localizedDescription
+            self.error = (presentFailure as NSError).localizedDescription
+            return
+        }
+
+        do {
+            try await Oidc.shared.complete(url: callback.absoluteString)
+        } catch let completeFailure {
+            self.error = (completeFailure as NSError).localizedDescription
         }
     }
 
     /// 80 bytes, the count shared `Oidc` asks for — 64 for the PKCE verifier
     /// and 16 for the state. `SecRandomCopyBytes`, never `Int.random`: both
     /// values have to be unguessable.
-    private func entropy() -> KotlinByteArray {
+    ///
+    /// `nil` only when `SecRandomCopyBytes` itself reports failure —
+    /// documented never to happen on iOS, but checked rather than trusted,
+    /// against `errSecSuccess` and nothing weaker. There is no path from
+    /// here to `begin` with a short or partially filled buffer standing in
+    /// for that failure: `out` is only ever built, full-length, after the
+    /// success check below, and a caller that gets `nil` must not fall back
+    /// to calling `begin` at all.
+    private func entropy() -> KotlinByteArray? {
         let count = Int(Enums.shared.oidcEntropyBytes)
         var bytes = [UInt8](repeating: 0, count: count)
-        if SecRandomCopyBytes(kSecRandomDefault, count, &bytes) != errSecSuccess {
-            // Documented never to fail on iOS. Returning short bytes is the
-            // safe outcome anyway: `begin` refuses them and the rider sees
-            // "cannot sign in" rather than a guessable verifier.
-            return KotlinByteArray(size: 0)
+        guard SecRandomCopyBytes(kSecRandomDefault, count, &bytes) == errSecSuccess else {
+            return nil
         }
         // Kotlin/Native maps ByteArray to KotlinByteArray, which no Swift
         // Data bridge fills in — hence the copy, once per sign-in.
@@ -88,7 +127,15 @@ final class SignIn: NSObject, ObservableObject {
             let session = ASWebAuthenticationSession(
                 url: url,
                 callbackURLScheme: "detour"
-            ) { callback, failure in
+            ) { [weak self] callback, failure in
+                // The flow is over, one way or another, the moment this runs —
+                // release the session here rather than holding it until the
+                // next sign-in attempt overwrites `self.session`. Weak self,
+                // not strong: a strong capture here would hold `self` (via
+                // `self.session` below holding this very session, which holds
+                // this closure) in a retain cycle for as long as the flow is
+                // in flight.
+                self?.session = nil
                 if let callback {
                     continuation.resume(returning: callback)
                     return
@@ -102,8 +149,11 @@ final class SignIn: NSObject, ObservableObject {
             session.presentationContextProvider = self
             self.session = session
             // A session that will not start never calls back, so resuming here
-            // cannot double-resume.
+            // cannot double-resume — and its completion handler above never
+            // runs to release `self.session`, so this branch clears it
+            // directly instead.
             if !session.start() {
+                self.session = nil
                 continuation.resume(throwing: SignInDismissed())
             }
         }

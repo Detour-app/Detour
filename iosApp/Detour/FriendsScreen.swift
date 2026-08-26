@@ -20,7 +20,16 @@ struct FriendsScreen: View {
                 }
             }
             .navigationTitle(model.signedIn ? model.username : "Friends")
-            .task { await model.reload() }
+            // Keyed on `signedIn`, not bare: a bare `.task` runs exactly once,
+            // at this Group's first appearance — which is before there is a
+            // session to load anything with, so `reload()`'s
+            // `guard signedIn else { return }` bails and the task never runs
+            // again on its own. Without the `id:`, a successful sign-in swaps
+            // the Group to `signedInList` with nothing having been loaded —
+            // an empty Leaderboard/Requests/Convoys that only a manual
+            // pull-to-refresh or tab switch fixes. Keying on `signedIn` makes
+            // SwiftUI re-run the task the moment a session appears.
+            .task(id: model.signedIn) { await model.reload() }
             .refreshable { await model.reload() }
             .alert("Something went wrong", isPresented: $model.showError) {
                 Button("OK", role: .cancel) {}
@@ -158,6 +167,22 @@ private struct SignInForm: View {
     // waiting for it — the app was killed behind the browser. Shown once,
     // then cleared, the same shape as CircleNotifications.PendingCircleOpen.
     @ObservedObject private var orphaned = OrphanedSignIn.shared
+    // A local copy of `orphaned.message`, captured the moment it arrives.
+    // This is what the view renders, not `orphaned.message` directly.
+    //
+    // The previous shape cleared the singleton from `.onAppear` on the very
+    // `Text` the `if let` above it gated — but here, unlike
+    // `PendingCircleOpen` (consumed only after a tab switch, an effect with
+    // its own trigger, so clearing loses nothing), the render *is* the
+    // effect: the message publishes, the body recomputes with the branch
+    // true, `onAppear` fires almost immediately after and sets the singleton
+    // back to nil, which recomputes the body again with the branch now
+    // false. The text was on screen for about one frame — indistinguishable
+    // from a Sign in button that silently did nothing, which is the exact
+    // failure this message exists to prevent. Copying into local `@State`
+    // lets the singleton be cleared right away without the render depending
+    // on it still being set.
+    @State private var orphanedMessage: String?
 
     var body: some View {
         Form {
@@ -171,11 +196,10 @@ private struct SignInForm: View {
                     .foregroundStyle(.secondary)
 
                 if signIn.configured {
-                    if let message = orphaned.message {
+                    if let message = orphanedMessage {
                         Text(message)
                             .font(.footnote)
                             .foregroundStyle(.red)
-                            .onAppear { orphaned.message = nil }
                     }
                     if let error = signIn.error {
                         Text(error)
@@ -183,6 +207,9 @@ private struct SignInForm: View {
                             .foregroundStyle(.red)
                     }
                     Button {
+                        // A stale orphaned-redirect message must not sit
+                        // under a fresh attempt.
+                        orphanedMessage = nil
                         Task { await signIn.start() }
                     } label: {
                         if signIn.busy {
@@ -206,6 +233,18 @@ private struct SignInForm: View {
                 Text("Opens a browser. New accounts and password changes happen there too.")
             }
         }
+        // Picks up a message set before this view ever appeared (the normal
+        // case: DetourApp's onOpenURL runs at launch, before the rider has
+        // necessarily navigated to this tab) as well as one that arrives
+        // while this view is already on screen.
+        .onAppear { captureOrphanedMessage() }
+        .onChange(of: orphaned.message) { _, _ in captureOrphanedMessage() }
+    }
+
+    private func captureOrphanedMessage() {
+        guard let message = orphaned.message else { return }
+        orphanedMessage = message
+        orphaned.message = nil
     }
 }
 
