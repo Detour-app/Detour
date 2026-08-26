@@ -105,8 +105,12 @@ object Oidc {
      * Whether [url] is the redirect this flow is waiting for.
      *
      * Matched as the whole redirect URI, optionally followed by a query — not
-     * as a prefix. `detour://` is also the scheme the legacy reset link used,
-     * so "starts with" would claim links that are not ours.
+     * as a prefix. On Android this is a second line of defence: the
+     * manifest's exact `android:path="/callback"` intent filter already keeps
+     * a URL like `detour://auth/callbackx` from reaching the app. On iOS
+     * there is nothing upstream of this at all — every `detour://` link the
+     * OS hands the app arrives here unfiltered — so on that platform this
+     * check is the only thing narrowing "our scheme" down to "our redirect".
      */
     fun isCallback(url: String): Boolean =
         url == Auth.REDIRECT_URI || url.startsWith("${Auth.REDIRECT_URI}?")
@@ -135,8 +139,18 @@ object Oidc {
     internal data class SpentCallback(val code: String, val verifier: String)
 
     /**
-     * Reads a callback, consuming the parked sign-in whatever the outcome — a
-     * code is single-use, and so is the verifier that unlocks it.
+     * Reads a callback and, once it is confirmed to be ours, consumes the
+     * parked sign-in whatever the outcome — a code is single-use, and so is
+     * the verifier that unlocks it.
+     *
+     * The parked verifier/state are read into locals up front but [abandon]
+     * is deliberately *not* called until the state check has passed. Any app
+     * on the device can fire `detour://auth/callback` — see `isCallback`'s
+     * doc for why nothing upstream of this file rules that out on iOS — so a
+     * callback that does not carry this process's own state has to be
+     * refused without touching what is parked, or a forged callback could end
+     * a sign-in that was never its to end and the genuine callback arriving
+     * afterwards would fail as "app restarted" for no reason.
      *
      * `internal` because this is the decision half of [complete] and the half
      * worth asserting: [complete]'s other half is a network call.
@@ -144,12 +158,49 @@ object Oidc {
     internal fun spend(url: String): SpentCallback {
         val verifier = pendingVerifier
         val expectedState = pendingState
+
+        // Fragment stripped before the scan: parseQueryString only knows '&'
+        // and '=', never '#', so `?code=abc#x` would otherwise parse as
+        // code == "abc#x" and the exchange would fail invalid_grant. Uri's
+        // query parser (the Android original this was extracted from) handled
+        // this for free; Keycloak's default response mode never sends a
+        // fragment, so this is latent rather than live, but it is a
+        // capability loss against what it replaces if left unfixed.
+        val params = parseQueryString(url.substringBefore('#').substringAfter('?', ""))
+
+        if (verifier == null || expectedState == null) {
+            // Checked before the state comparison below, not after: with
+            // nothing parked, expectedState is null too, so comparing states
+            // would report every restarted-app callback with this generic
+            // "could not be verified" wording instead of this specific one.
+            // That specific wording exists on purpose — see
+            // app/src/main/java/com/jellemax/detour/auth/Oidc.kt:109-119 for
+            // the story of the earlier phrasing sending people looking for a
+            // broken realm — and this check has to run first to preserve it.
+            throw AuthException(
+                "The app restarted while the browser was open, so this sign-in " +
+                    "could not be finished. Tap Sign in to start again."
+            )
+        }
+        // A callback whose state is not the one we sent did not come from the
+        // request we made, so it is refused here, before abandon() runs —
+        // deliberately not consuming the parked sign-in below. That is what
+        // closes the denial of service: without this, any app on the device
+        // could fire a callback with the wrong (or no) state and discard a
+        // sign-in genuinely in flight, and the real callback arriving after
+        // would find nothing parked.
+        if (params["state"] != expectedState) {
+            throw AuthException("Sign-in could not be verified — start again")
+        }
+        // Only now: the callback has proven itself ours by carrying the right
+        // state, so it is safe to consume what is parked. A code and a
+        // verifier are single-use either way, whatever happens below.
         abandon()
 
-        val params = parseQueryString(url.substringAfter('?', ""))
-
-        // Before the "is anything in flight" check: a realm that says why it
-        // refused is more use to the reader than this side saying it lost track.
+        // Trusted only now that the callback is known to be ours — the
+        // realm's own wording is more use to the reader than this side saying
+        // it lost track, but showing it before the state check would let an
+        // unrelated, hostile deep link put attacker-controlled text on screen.
         params["error"]?.let { error ->
             // The bare code is what a realm's own logs and docs call this, so
             // it is worth keeping even when a description is present.
@@ -158,24 +209,6 @@ object Oidc {
                 if (described.isNullOrBlank()) "The realm refused the sign-in ($error)"
                 else "$described ($error)"
             )
-        }
-        if (verifier == null || expectedState == null) {
-            // Not "nothing is in progress" — something plainly is, the rider
-            // just came back from it. The verifier is held in memory on purpose
-            // (see above), so the honest reading of its absence is that this
-            // process is not the one that started the sign-in. Android
-            // restarting the app behind the browser is by far the likeliest way
-            // that happens, and the old wording sent people looking for a
-            // broken realm instead.
-            throw AuthException(
-                "The app restarted while the browser was open, so this sign-in " +
-                    "could not be finished. Tap Sign in to start again."
-            )
-        }
-        // A callback whose state is not the one we sent did not come from the
-        // request we made, so the code in it is not ours to spend.
-        if (params["state"] != expectedState) {
-            throw AuthException("Sign-in could not be verified — start again")
         }
         val code = params["code"]
             ?: throw AuthException("The identity provider returned no code")

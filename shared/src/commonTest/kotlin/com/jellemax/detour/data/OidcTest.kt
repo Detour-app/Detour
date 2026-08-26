@@ -88,6 +88,13 @@ class OidcTest {
         assertEquals(Auth.REDIRECT_URI, p["redirect_uri"])
         assertEquals("S256", p["code_challenge_method"])
         assertTrue(p["state"].orEmpty().isNotBlank())
+        // params() above decodes '+' back to a space by construction, so it
+        // cannot tell '+' from '%20' from nothing at all — pin the raw,
+        // undecoded query too, or an encoder change that broke the wire
+        // format (Keycloak's QueryStringDecoder maps '+' to a space; a plain
+        // space or an unencoded literal would not survive the trip) would
+        // pass this test while failing every real sign-in.
+        assertTrue(url.contains("scope=openid+profile+email"), url)
     }
 
     @Test
@@ -141,6 +148,19 @@ class OidcTest {
     }
 
     @Test
+    fun aCallbackWithATrailingFragmentStillYieldsTheBareCode() {
+        // Ktor's parseQueryString only knows '&' and '=', never '#'. Put
+        // `code` last, right before the fragment, so an unstripped fragment
+        // would corrupt it into "abc#fragment-junk" — reproducing
+        // detour://auth/callback?code=abc#x from the Android original, which
+        // Uri.getQueryParameter handled and this must too.
+        val url = Oidc.begin(entropy(), issuer)
+        val state = params(url)["state"]
+        val spent = Oidc.spend("${Auth.REDIRECT_URI}?state=$state&code=abc#fragment-junk")
+        assertEquals("abc", spent.code)
+    }
+
+    @Test
     fun aCallbackWithNoCodeIsRefused() {
         val url = Oidc.begin(entropy(), issuer)
         val failure = assertFailsWith<AuthException> {
@@ -151,11 +171,16 @@ class OidcTest {
 
     @Test
     fun aCallbackCarryingAnErrorParamReportsTheRealmsDescription() {
-        Oidc.begin(entropy(), issuer)
+        // The error branch sits after the state check now (a hostile deep
+        // link must not be able to show its own text before it has proven
+        // it's ours), so a genuine realm error has to carry the real state
+        // to reach it — same as any other genuine callback.
+        val url = Oidc.begin(entropy(), issuer)
+        val state = params(url)["state"]
         val failure = assertFailsWith<AuthException> {
             Oidc.spend(
                 "${Auth.REDIRECT_URI}?error=invalid_scope" +
-                    "&error_description=Client%20not%20allowed%20openid"
+                    "&error_description=Client%20not%20allowed%20openid&state=$state"
             )
         }
         // Percent-encoded on the wire, because that is how a realm sends a
@@ -165,23 +190,52 @@ class OidcTest {
 
     @Test
     fun aCallbackCarryingABareErrorCodeStillNamesIt() {
-        Oidc.begin(entropy(), issuer)
+        val url = Oidc.begin(entropy(), issuer)
+        val state = params(url)["state"]
         val failure = assertFailsWith<AuthException> {
-            Oidc.spend("${Auth.REDIRECT_URI}?error=access_denied")
+            Oidc.spend("${Auth.REDIRECT_URI}?error=access_denied&state=$state")
         }
         assertEquals("The realm refused the sign-in (access_denied)", failure.message)
     }
 
     @Test
-    fun anErrorIsReportedEvenWhenNoSignInIsParked() {
-        // The realm's own refusal is the more useful message of the two, so it
-        // is checked before "nothing is in flight" — a process that restarted
-        // AND was refused should say why the realm said no.
+    fun anUnsolicitedErrorWithNothingParkedDoesNotRepeatItsDescription() {
+        // Any app on the device can fire this deep link. With nothing parked
+        // there is no state to match against, so this must fail as "app
+        // restarted" — not repeat the caller-supplied error_description,
+        // which would put arbitrary attacker text on screen.
         Oidc.abandon()
         val failure = assertFailsWith<AuthException> {
-            Oidc.spend("${Auth.REDIRECT_URI}?error=access_denied")
+            Oidc.spend(
+                "${Auth.REDIRECT_URI}?error=access_denied" +
+                    "&error_description=Your+account+was+suspended,+call+555-0100"
+            )
         }
-        assertEquals("The realm refused the sign-in (access_denied)", failure.message)
+        assertTrue(failure.message!!.contains("app restarted"), failure.message!!)
+        assertFalse(failure.message!!.contains("suspended"), failure.message!!)
+    }
+
+    @Test
+    fun aHostileErrorCallbackDoesNotConsumeTheParkedSignIn() {
+        // The denial of service this closes: a forged callback racing the
+        // real one used to discard the parked verifier/state unconditionally
+        // (spend() called abandon() as its third statement, before checking
+        // anything), so the genuine callback arriving afterwards would fail
+        // as "app restarted" even though it was never spent.
+        val url = Oidc.begin(entropy(), issuer)
+        val state = params(url)["state"]
+
+        val hostile = assertFailsWith<AuthException> {
+            Oidc.spend(
+                "${Auth.REDIRECT_URI}?error=access_denied" +
+                    "&error_description=Your+account+was+suspended&state=not-the-one-we-sent"
+            )
+        }
+        assertEquals("Sign-in could not be verified — start again", hostile.message)
+
+        // The genuine callback must still be spendable — the hostile one
+        // above must not have abandoned it.
+        assertEquals("abc", Oidc.spend("${Auth.REDIRECT_URI}?code=abc&state=$state").code)
     }
 
     @Test
@@ -208,9 +262,16 @@ class OidcTest {
     fun isCallbackAcceptsTheRedirectAndRejectsAUrlThatMerelyStartsLikeIt() {
         assertTrue(Oidc.isCallback("${Auth.REDIRECT_URI}?code=abc&state=xyz"))
         assertTrue(Oidc.isCallback(Auth.REDIRECT_URI))
-        // The old startsWith check accepted this. A different path is a
-        // different link — the reset deep link shares this scheme.
+        // A longer path is a different link, not a match with trailing junk.
+        // This matters most on iOS: Android's manifest filters
+        // detour://auth/callback with an exact android:path="/callback", so
+        // "…callbackx" is never even delivered there, but nothing narrows
+        // incoming links ahead of this check on iOS.
         assertFalse(Oidc.isCallback("${Auth.REDIRECT_URI}x?code=abc"))
+        // A different path is a different link, whatever scheme it shares.
+        // (detour://reset was the old password-reset link's scheme; the
+        // realm owns reset now and no such deep link is registered any more
+        // — this just stands in for "some other detour:// URL".)
         assertFalse(Oidc.isCallback("detour://reset?token=abc"))
         assertFalse(Oidc.isCallback("https://example.com/auth/callback?code=abc"))
     }
