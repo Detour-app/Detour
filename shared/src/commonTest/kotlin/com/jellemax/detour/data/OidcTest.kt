@@ -268,10 +268,15 @@ class OidcTest {
         // "…callbackx" is never even delivered there, but nothing narrows
         // incoming links ahead of this check on iOS.
         assertFalse(Oidc.isCallback("${Auth.REDIRECT_URI}x?code=abc"))
-        // A different path is a different link, whatever scheme it shares.
-        // (detour://reset was the old password-reset link's scheme; the
-        // realm owns reset now and no such deep link is registered any more
-        // — this just stands in for "some other detour:// URL".)
+        // A different path is a different link, whatever scheme it shares —
+        // and this one is not hypothetical. The realm owns password reset now
+        // and Android's filter for it is gone, but iOS still handles it:
+        // Info.plist registers the bare `detour` scheme app-wide and
+        // DetourApp.swift's onOpenURL routes host == "reset" into
+        // PendingReset. So a live reset link reaches the same unfiltered entry
+        // point this check sits in front of, which is the strongest reason the
+        // match is exact rather than a prefix. Do not delete this assertion as
+        // covering a dead case — it stops being live only when PendingReset is.
         assertFalse(Oidc.isCallback("detour://reset?token=abc"))
         assertFalse(Oidc.isCallback("https://example.com/auth/callback?code=abc"))
     }

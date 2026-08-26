@@ -118,10 +118,11 @@ object Oidc {
     /**
      * Finishes the flow: verifies the callback, then exchanges the code.
      *
-     * Throws [AuthException] on anything that is not a completed sign-in — the
-     * realm reporting an error, a state that does not match the request this
-     * process started, a missing code, or the exchange itself being refused —
-     * so a caller shows one message either way.
+     * Throws [AuthException] on anything that is not a completed sign-in, in
+     * the order [spend] checks them — no sign-in in flight, a state that does
+     * not match the request this process started, the realm reporting an
+     * error, a missing code — or the exchange itself being refused. A caller
+     * shows one message either way.
      */
     suspend fun complete(url: String) {
         val spent = spend(url)
