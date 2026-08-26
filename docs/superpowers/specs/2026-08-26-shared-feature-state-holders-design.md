@@ -165,6 +165,9 @@ data class CirclesState(
     val events: List<PlaceEvent> = emptyList(),
     val busy: Boolean = false,
     val error: String? = null,
+    // Detail gets its own pair. See the correction below.
+    val detailBusy: Boolean = false,
+    val detailError: String? = null,
 )
 
 object CirclesStore {
@@ -180,6 +183,21 @@ object CirclesStore {
     suspend fun unsharePlace(serverId: String)
 }
 ```
+
+> **Correction, after the Android screen was rewired.** This state originally carried a single
+> `busy`/`error` pair for the whole store, on the reasoning that one coarse state object per
+> feature keeps the iOS `FlowWatcher` cost at one subclass. That reasoning was sound about the
+> watcher and wrong about the state: the screen being replaced had **two** independent pairs —
+> `busy`/`error` for list operations and `placesBusy`/`placesError` for the detail pane — and
+> collapsing them caused three visible regressions. Opening a circle disabled the Invite, Leave,
+> sharing and notify controls, because the detail load set the same flag those gated on. Refresh
+> flashed the empty state, because `selecting` cleared the detail even on a same-circle
+> reselect. And a single failure could render twice, because the screen's two error sites both
+> read one field.
+>
+> The economy was false: `FlowWatcher`'s cost is one subclass per *state type*, not per field, so
+> adding a second pair to the same `data class` costs nothing in interop. `FriendsStore` and
+> `ConvoysStore` keep one pair each correctly — they have one concern each.
 
 `unsharePlace` takes a `serverId` and not a `groupId` because that is what
 `CirclePlaces.delete(serverId)` takes — a shared place is addressed by its own server identifier,
