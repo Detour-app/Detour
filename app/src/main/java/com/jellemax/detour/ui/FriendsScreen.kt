@@ -179,6 +179,11 @@ private fun SignInSection() {
                 )
                 AuthBrowser.StartFailure.NoBrowserAvailable ->
                     PendingSignIn.fail("No browser available to sign in with.")
+                AuthBrowser.StartFailure.NotConfigured ->
+                    PendingSignIn.fail(
+                        "No identity provider is configured. Set the sign-in " +
+                            "realm URL under Settings → Servers & sync."
+                    )
             }
         },
         enabled = !busy,

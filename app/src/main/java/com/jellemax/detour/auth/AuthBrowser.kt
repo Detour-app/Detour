@@ -46,6 +46,13 @@ object AuthBrowser {
 
         /** The URL is valid; nothing on the device can open it. */
         data object NoBrowserAvailable : StartFailure
+
+        /** No realm is configured, so there is no authorize URL to open.
+         *  Unreachable while the caller gates its button on [configured] — but
+         *  it has its own case rather than borrowing another failure's message,
+         *  because a gate moving one day should not silently start telling
+         *  riders their browser is missing. */
+        data object NotConfigured : StartFailure
     }
 
     /**
@@ -57,11 +64,9 @@ object AuthBrowser {
         val entropy = ByteArray(Oidc.ENTROPY_BYTES).also { SecureRandom().nextBytes(it) }
         val authorize = Oidc.begin(entropy)
         // Blank here is "no realm configured" (or, in principle, entropy too
-        // short) — begin() already dropped anything it parked in that case,
-        // and the caller already gates the button on `configured`, so this
-        // is not the malformed-URL case below and is reported the same way
-        // it always was.
-        if (authorize.isBlank()) return StartFailure.NoBrowserAvailable
+        // short). begin() already dropped anything it parked in that case, so
+        // there is nothing to abandon.
+        if (authorize.isBlank()) return StartFailure.NotConfigured
 
         if (authorize.toHttpUrlOrNull() == null) {
             // begin() already parked a fresh verifier and state for this
