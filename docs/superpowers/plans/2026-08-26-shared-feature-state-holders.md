@@ -39,11 +39,11 @@ Both live in the Friends screen and share one shape, so they land together. Deli
 - Create: `shared/src/commonTest/kotlin/com/jellemax/detour/data/StoresTest.kt`
 
 **Interfaces:**
-- Consumes: `Friends.lists/stats/request/respond/remove`, `Groups.create/list/invite/respond/leave`, `FriendLists`, `FriendStats`, `Group`, `Coverage.compute()`, `BadgeStore.stats/refresh`.
+- Consumes: `Friends.lists/stats/request/respond`, `Groups.create/list/invite/respond/leave`, `FriendLists`, `FriendStats`, `Group`, `Coverage.compute()`, `BadgeStore.stats/refresh`.
 - Produces, relied on by Tasks 3, 4 and 5 exactly as spelled here:
   - `FriendsState(lists, leaderboard, own, busy, error)` — all `val`, defaults `null`/`emptyList()`/`false`/`null`
   - `FriendsStore.state: StateFlow<FriendsState>`
-  - `suspend FriendsStore.reload()`, `refreshOwn(username: String)`, `request(username: String): String`, `respond(username: String, accept: Boolean)`, `remove(username: String)`
+  - `suspend FriendsStore.reload()`, `refreshOwn(username: String)`, `request(username: String): String`, `respond(username: String, accept: Boolean)`
   - `ConvoysState(convoys, busy, error)`
   - `ConvoysStore.state: StateFlow<ConvoysState>`
   - `suspend ConvoysStore.reload()`, `create(name: String)`, `invite(groupId: String, username: String): String`, `respond(groupId: String, accept: Boolean)`, `leave(groupId: String)`
@@ -283,11 +283,6 @@ object FriendsStore {
     @Throws(Exception::class)
     suspend fun respond(username: String, accept: Boolean) {
         act { Friends.respond(username, accept) }
-    }
-
-    @Throws(Exception::class)
-    suspend fun remove(username: String) {
-        act { Friends.remove(username) }
     }
 
     /**

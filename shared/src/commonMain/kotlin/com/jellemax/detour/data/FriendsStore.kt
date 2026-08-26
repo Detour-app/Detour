@@ -90,10 +90,6 @@ object FriendsStore {
         act { Friends.respond(username, accept) }
     }
 
-    @Throws(Exception::class)
-    suspend fun remove(username: String) {
-        act { Friends.remove(username) }
-    }
 
     /**
      * Runs a mutation, then reloads. Rethrows so a caller that wants to react
