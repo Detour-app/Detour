@@ -28,6 +28,23 @@ every device seeing one must commit — because a member whose view of who is st
 same votes into a *different destination*. Two implementations of a rule whose whole purpose is
 that both sides agree is a standing invitation to a convoy splitting in half.
 
+> **Correction, after Task 5 measured it.** This document's framing — ~1,290 duplicated lines
+> becoming "one implementation plus two small sockets" — was half right, and the half it got wrong
+> is worth stating rather than quietly leaving.
+>
+> The duplicated *logic* did collapse: the codec, the state machine, peer pruning, backoff and the
+> spin rule are one tested implementation now, and the spin rule in particular went from three
+> copies to one. But the platform-side line count only fell about 8%, from 1,293 to 1,184
+> (`app/.../net/ConvoyLiveClient.kt` 693 → 241, `iosApp/Detour/ConvoyLiveClient.swift` 600 → 404,
+> plus 190 and 349 for the two new sockets).
+>
+> The missing category is the wrapper classes. "One implementation plus two small sockets" assumed
+> everything that was not protocol was transport. It is not: each platform also needs its guards
+> (`Features.liveRelay`, refusing to start with no server configured), its run-loop wiring and
+> idempotent start, its location forwarding, and on iOS a Combine bridge for SwiftUI. That is real,
+> irreducible work per platform, and counting it as duplication it would delete was a
+> mis-estimate — not a shortfall in the execution.
+
 ## The transport question, and why the socket is not shared
 
 Ktor's WebSockets plugin would let the socket live in `commonMain` too, and its `pingInterval` is
