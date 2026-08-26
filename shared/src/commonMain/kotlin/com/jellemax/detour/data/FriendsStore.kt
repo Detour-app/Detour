@@ -83,6 +83,15 @@ object FriendsStore {
      * Recomputes the rider's own row. Separate from [reload] on purpose:
      * `Coverage.compute()` reads every trace on disk, and a screen that
      * reloads after every mutation must not pay that each time.
+     *
+     * **Blocks on disk and CPU — must not be called from a main-thread
+     * coroutine.** `Coverage.compute()` loads every trace and walks every
+     * point per municipality, and `BadgeStore.stats`/`refresh` load every trip
+     * and write `badges.json`; none of the three is `suspend`, because
+     * `commonMain` has no `Dispatchers` to hop off of. This store cannot
+     * switch dispatchers itself, so the caller must: `withContext(Dispatchers.IO)`
+     * on Android, `Task.detached` (or equivalent) on iOS. See
+     * `app/.../ui/BadgesScreen.kt` for the Android-side reasoning this mirrors.
      */
     @Throws(Exception::class)
     suspend fun refreshOwn(username: String) {

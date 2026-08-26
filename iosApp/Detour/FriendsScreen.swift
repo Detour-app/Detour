@@ -466,7 +466,18 @@ final class FriendsModel: ObservableObject {
     func reload() async {
         guard signedIn else { return }
         try? await FriendsStore.shared.reload()
-        try? await FriendsStore.shared.refreshOwn(username: username)
+        // `refreshOwn` blocks on disk and CPU — see its doc in
+        // FriendsStore.kt — and this method runs on `@MainActor` (this is a
+        // `.refreshable`, so it repeats on every pull-to-refresh). Same
+        // `Task.detached` precedent BadgesScreen.swift's `reload()` already
+        // uses for the identical `Coverage.compute()` cost. The state update
+        // it produces still reaches this view correctly either way: every
+        // `Watcher` (FlowWatcher.kt) collects on `Dispatchers.Main`
+        // regardless of which thread called the store action, so the
+        // `@Published` mutation in `init` above always lands on the main
+        // thread.
+        let name = username
+        _ = await Task.detached { try? await FriendsStore.shared.refreshOwn(username: name) }.value
         try? await ConvoysStore.shared.reload()
     }
 

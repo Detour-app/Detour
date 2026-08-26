@@ -209,7 +209,11 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
 
     LaunchedEffect(username) {
         FriendsStore.reload()
-        FriendsStore.refreshOwn(username)
+        // Coverage.compute() walks every trace point against every boundary;
+        // keep it off the main thread, same reasoning as BadgesScreen/
+        // HubScreen/CoverageMapScreen — see refreshOwn's own doc in
+        // FriendsStore.kt for the full contract.
+        withContext(Dispatchers.IO) { FriendsStore.refreshOwn(username) }
     }
 
     Card(
