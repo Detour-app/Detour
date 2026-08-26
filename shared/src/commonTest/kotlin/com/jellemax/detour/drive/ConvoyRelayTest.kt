@@ -225,13 +225,30 @@ class ConvoyRelayTest {
     @Test
     fun lastErrorReportsWhenTheRelayCannotBeReached() = runBlocking {
         val socket = FakeRelaySocket()
-        socket.connectFailsWith = Exception("connection refused")
+        // A socket words its own failures - see RelaySocket.connect. This one
+        // stands in for a refused upgrade, whose status code the rider needs
+        // and which a generic prefix would have buried.
+        socket.connectFailsWith = Exception("Live server refused the connection (401)")
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
         val job = launch { relay.run(socket, tokenSupplier()) }
 
         val error = relay.lastError.first { it != null }
-        assertEquals("Can't reach the live server: connection refused", error)
+        assertEquals("Live server refused the connection (401)", error)
+
+        relay.stop()
+        job.join()
+    }
+
+    @Test
+    fun lastErrorFallsBackToItsOwnWordingWhenTheSocketGivesNone() = runBlocking {
+        val socket = FakeRelaySocket()
+        socket.connectFailsWith = Exception()
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        val job = launch { relay.run(socket, tokenSupplier()) }
+
+        assertEquals("Can't reach the live server", relay.lastError.first { it != null })
 
         relay.stop()
         job.join()

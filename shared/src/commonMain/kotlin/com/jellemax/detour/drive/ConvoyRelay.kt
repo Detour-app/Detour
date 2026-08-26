@@ -837,12 +837,21 @@ private fun errorFrameOrNull(text: String): ErrorFrame? {
     return ErrorFrame(obj.optString("message").ifBlank { null })
 }
 
-/** `lastError`'s wording for "the relay could not be reached at all" -
- *  shared by a failed [RelaySocket.connect] and a [RelaySocket.receive] that
- *  throws before ever joining. */
+/**
+ * `lastError`'s wording for a connection that never came up - a failed
+ * [RelaySocket.connect], or a [RelaySocket.receive] that throws before ever
+ * joining.
+ *
+ * The socket's own message is used verbatim, because the socket is the only
+ * part that knows *why*: a refused upgrade carries a status code, a blank
+ * server address is not a network problem at all, and a transport failure is
+ * neither. Prefixing them all with one phrase produced "Can't reach the live
+ * server: Live server refused the connection (401)" - two sentences arguing
+ * with each other. [RelaySocket.connect]'s doc makes the wording the
+ * implementation's job for this reason.
+ */
 private fun unreachableMessage(e: Exception): String =
-    e.message?.takeIf { it.isNotBlank() }?.let { "Can't reach the live server: $it" }
-        ?: "Can't reach the live server"
+    e.message?.takeIf { it.isNotBlank() } ?: "Can't reach the live server"
 
 /** Tie-break rule for [SpinRoundOutcome.CloseRound]'s leader: ties (including
  *  "nobody's voted yet", every count 0) go to the lowest index. `>` rather

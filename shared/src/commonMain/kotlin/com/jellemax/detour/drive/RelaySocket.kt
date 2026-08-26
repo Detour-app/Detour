@@ -43,6 +43,13 @@ interface RelaySocket {
      * 401 read identically to a host that could not be reached at all.
      */
     @Throws(Exception::class)
+    /**
+     * An implementation's exception message reaches the rider as `lastError`
+     * verbatim, so it words the failure itself: name the status code on a
+     * refused upgrade, say so plainly when no server is configured, and give a
+     * transport failure a sentence rather than passing the platform's own
+     * wording through. The relay adds nothing.
+     */
     suspend fun connect(bearer: String)
 
     /**

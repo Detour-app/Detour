@@ -125,10 +125,14 @@ class OkHttpRelaySocket : RelaySocket {
                 // otherwise makes a 401 unreadable, exactly why the old
                 // client's wording here was "Live server refused the
                 // connection (${response.code})".
+                // The message goes to the rider verbatim (see RelaySocket.connect),
+                // so both cases get worded here rather than upstream: a refusal
+                // names its status code, and a transport failure says what it is
+                // instead of surfacing OkHttp's own "failed to connect to /..".
                 val err = if (response != null) {
                     IOException("Live server refused the connection (${response.code})")
                 } else {
-                    t
+                    IOException("Can't reach the live server", t)
                 }
                 if (!s.opened.isCompleted) s.opened.completeExceptionally(err)
                 s.frames.close(err)
