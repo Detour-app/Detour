@@ -76,12 +76,19 @@ object ConvoyRelay {
     val audioChunks: SharedFlow<IncomingAudioChunk>
     val placeEvents: SharedFlow<RelayPlaceEvent>
 
-    /** Joins [groupId] and stays connected — reconnecting with [Backoff] — until
-     *  [stop] is called. Suspends for the life of the connection. */
-    suspend fun run(groupId: String, socket: RelaySocket, bearer: suspend () -> String)
+    /** Stays connected — reconnecting with [Backoff] — for as long as anything
+     *  wants the socket, and suspends for the life of it. */
+    suspend fun run(socket: RelaySocket, bearer: suspend () -> String)
+
+    /** The convoy this device is in, or null. Joining or leaving one re-joins
+     *  on the live socket rather than reopening it. */
+    fun setConvoy(groupId: String?)
+
+    /** The circles that want live arrival events. Additive with [setConvoy]:
+     *  one socket serves a convoy and any number of circles at once. */
+    fun setNotifyingCircles(ids: Set<String>)
 
     fun stop()
-    fun setNotifyingCircles(ids: Set<String>)
     suspend fun sendLocation(lat: Double, lon: Double, headingDeg: Double?, speedKmh: Double?)
     fun sendPttStart(); fun sendPttEnd(); fun sendAudioChunk(pcm: ByteArray)
     fun sendSpinOffer(candidates: List<SpinCandidate>); fun sendSpinVote(index: Int)
@@ -91,6 +98,19 @@ object ConvoyRelay {
 `run()` owns the connect → receive → backoff → reconnect loop and returns only when `stop()` has
 been called. Each platform launches it from whatever already keeps it alive: Android's
 `ConvoyLiveService`, iOS's `Task` in `ConvoyLiveClient`.
+
+> **Correction, after Task 2.** An earlier revision of this document gave `run()` a required
+> `groupId` while also listing `setNotifyingCircles`, and never reconciled the two. That shape
+> cannot express what both existing clients actually do: the socket is **additive**, and
+> `CircleNotifyService` holds it open with **no convoy joined at all** — `setNotifyCircles` opens
+> the connection whenever `circleIds.isNotEmpty() || activeConvoyId != null`, and one socket
+> serves a convoy plus any number of circles simultaneously. A one-group-per-call `run()` would
+> have left circle arrival notifications with no transport on either platform.
+>
+> So what the socket is joined to is **state**, not a parameter: a nullable convoy id and a set of
+> circle ids, either of which can change while connected, and `run()` stays up while either is
+> non-empty and re-joins on change rather than reopening. `shouldStayConnected()` in the Android
+> client is the existing expression of that rule and is what the shared version reproduces.
 
 ### `stop()` is a flag, not a cancellation, and that is load-bearing
 
