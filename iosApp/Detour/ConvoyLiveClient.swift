@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 import DetourShared
 
 /// The single app-wide `ConvoyRelay` — see its class doc's "exactly one
@@ -62,15 +63,29 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     @Published private(set) var talking: Set<String> = []
     @Published private(set) var spinOffer: GroupSpin?
     @Published private(set) var spinVotes: [String: Int] = [:]
-    /// `relay.lastError` only — the "no live server"/"feature disabled"
-    /// refusals below never call `relay.run()` at all, so `relay` never sees
-    /// those cases (matching `ConvoyRelay`'s own class doc: URL and flag
-    /// guards are entirely the caller's job). Unlike Android's
-    /// `ConvoyLiveClient.lastError`, there is no overlay for that here — no
-    /// SwiftUI screen reads this today (Android's exists mainly for a rider-
-    /// facing message no iOS screen currently shows either), so the refusal
-    /// itself, not its wording, is what this class guarantees.
+    /// `relay.lastError`, overlaid with `guardMessage` — the "no live
+    /// server configured" refusal below, which never calls `relay.run()` at
+    /// all, so `relay` never sees that case itself (matching `ConvoyRelay`'s
+    /// own class doc: URL guards are entirely the caller's job). Same shape
+    /// as Android's `ConvoyLiveClient.lastError`/`_guardError`: `guardMessage`
+    /// wins whenever it is set, falls through to the relay's own
+    /// `lastError` otherwise - see `updateLastError()`. `FriendsScreen`'s
+    /// `convoysSection` is what actually reads this, mirroring Android's
+    /// `FriendsScreen.kt` `liveStatus`.
     @Published private(set) var lastError: String?
+
+    /// What `join`/`applyNotifyingCircles` refused to even start `relay.run()`
+    /// over, if anything - see `lastError`'s own doc. Cleared the moment a
+    /// guard passes, same discipline Android's `_guardError` uses, so a
+    /// stale refusal from a previous tap cannot outlive the attempt it
+    /// belonged to.
+    private var guardMessage: String? {
+        didSet { updateLastError() }
+    }
+
+    private func updateLastError() {
+        lastError = guardMessage ?? lastErrorWatcher.value
+    }
 
     /// Circles currently wanted joined for live arrival/departure pushes —
     /// disjoint from `activeConvoyId`, mirrored locally because
@@ -81,7 +96,11 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
 
     /// Guards against a second concurrent `ensureRunning()` launching a
     /// second `relay.run()` — see this class's own doc for why `@MainActor`
-    /// makes a plain `Bool` enough here, unlike Android's `runLock`.
+    /// makes a plain `Bool` enough here, unlike Android's `runLock`. Cleared
+    /// from inside `ensureRunning()`'s own `Task` right after `relay.run()`
+    /// returns — see that function's own doc for why a caller landing in the
+    /// gap before that write actually happens must not be the one left
+    /// responsible for noticing.
     private var running = false
 
     private let connectedWatcher: BoolWatcher
@@ -113,9 +132,24 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
         placeEventWatcher = watchers.placeEvents()
         super.init()
 
-        connectedWatcher.watch { [weak self] in self?.connected = self?.connectedWatcher.value ?? false }
-        peersWatcher.watch { [weak self] in self?.peers = self?.peersWatcher.value ?? [:] }
-        talkingWatcher.watch { [weak self] in self?.talking = self?.talkingWatcher.value ?? [] }
+        // `self?.x = self?.watcher.value ?? default` used to read as a nil
+        // guard here and wasn't one: optional chaining on the assignment's
+        // left side already skips the whole statement when `self` is nil,
+        // so the `?? default` on the right could never actually run - `guard
+        // let self else { return }` says the same thing without the dead
+        // fallback.
+        connectedWatcher.watch { [weak self] in
+            guard let self else { return }
+            self.connected = self.connectedWatcher.value
+        }
+        peersWatcher.watch { [weak self] in
+            guard let self else { return }
+            self.peers = self.peersWatcher.value
+        }
+        talkingWatcher.watch { [weak self] in
+            guard let self else { return }
+            self.talking = self.talkingWatcher.value
+        }
         spinOfferWatcher.watch { [weak self] in self?.spinOffer = self?.spinOfferWatcher.value }
         spinVotesWatcher.watch { [weak self] in
             guard let self else { return }
@@ -124,7 +158,7 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
             // — `.intValue` is what actually unwraps it to Int.
             self.spinVotes = self.spinVotesWatcher.value.mapValues { $0.intValue }
         }
-        lastErrorWatcher.watch { [weak self] in self?.lastError = self?.lastErrorWatcher.value }
+        lastErrorWatcher.watch { [weak self] in self?.updateLastError() }
         audioChunkWatcher.watch { [weak self] in
             guard let chunk = self?.audioChunkWatcher.value else { return }
             PttAudio.shared.play(chunk.pcm.toData(), from: chunk.username)
@@ -164,11 +198,18 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     /// when `Features.liveRelay` is off or no live server is configured, the
     /// two guards `ConvoyRelay` deliberately does not apply — see its class
     /// doc, and this class's own doc for why iOS needs them supplied here
-    /// exactly as `net/ConvoyLiveClient.kt`'s `join` does.
+    /// exactly as `net/ConvoyLiveClient.kt`'s `join` does. The blank-URL
+    /// refusal sets `guardMessage`, matching Android's own wording, so the
+    /// rider sees *why* nothing connects rather than the refusal going
+    /// silent.
     func join(convoyId: String) {
         guard Features.shared.liveRelay else { return }
         guard !(activeConvoyId == convoyId && running) else { return }
-        guard !BuildDefaults.shared.liveUrl.isEmpty else { return }
+        guard !BuildDefaults.shared.liveUrl.isEmpty else {
+            guardMessage = "No live server configured"
+            return
+        }
+        guardMessage = nil
         activeConvoyId = convoyId
         relay.setConvoy(groupId: convoyId)
         ensureRunning()
@@ -215,7 +256,11 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
         guard Features.shared.liveRelay else { return }
         relay.setNotifyingCircles(ids: wantedCircleIds)
         guard activeConvoyId != nil || !wantedCircleIds.isEmpty else { return }
-        guard !BuildDefaults.shared.liveUrl.isEmpty else { return }
+        guard !BuildDefaults.shared.liveUrl.isEmpty else {
+            guardMessage = "No live server configured"
+            return
+        }
+        guardMessage = nil
         ensureRunning()
     }
 
@@ -250,6 +295,22 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     /// doc). `AuthBearerSource` below is what actually calls `Auth.bearer`;
     /// see its own doc for why it can let a throw cross straight through
     /// rather than swallowing one to a blank string the way this used to.
+    ///
+    /// **Rechecks whether anything is still wanted immediately after
+    /// clearing `running`, rather than trusting whoever set `running` true
+    /// to still be the one who notices.** `relay.run()` suspends across an
+    /// exported Kotlin `suspend fun`, so when it finally returns, resuming
+    /// this `Task`'s body on the main actor is itself an async hop — other
+    /// main-actor work already queued (a `join`/`setNotifyingCircles` call
+    /// landing right in that window) can run *before* `self.running = false`
+    /// below actually executes, see `running` still `true`, and silently
+    /// no-op, since that is exactly what this function's own top guard is
+    /// for. Without the recheck, nothing ever launches a fresh `run()` again
+    /// after that: the UI shows the convoy joined with no socket underneath,
+    /// self-healing only whenever some *later*, unrelated membership change
+    /// happens to call this again. Android does not need this — it checks
+    /// `runJob?.isActive` instead of a hand-set flag, so there is no window
+    /// where the job has finished but the flag has not caught up yet.
     private func ensureRunning() {
         guard !running else { return }
         running = true
@@ -257,6 +318,9 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
             guard let self else { return }
             _ = try? await self.relay.run(socket: self.socket, bearer: AuthBearerSource())
             self.running = false
+            if self.activeConvoyId != nil || !self.wantedCircleIds.isEmpty {
+                self.ensureRunning()
+            }
         }
     }
 

@@ -423,7 +423,6 @@ class ConvoyRelay {
                     return@coroutineScope
                 }
                 _connected.value = false
-                _connected.value = false
                 // A vote tallied against a socket that is no longer relaying
                 // anyone's frames is wrong by the time it reconnects - drop
                 // it rather than let a stale offer sit on screen looking

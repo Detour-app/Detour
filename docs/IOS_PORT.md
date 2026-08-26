@@ -111,18 +111,24 @@ Not gaps — decisions, and the places to look first if behaviour diverges.
 
 2. **The stores can still take the app down.** The `@Throws` sweep above covered
    the `suspend` surface *iOS actually calls* — not the whole `suspend`
-   surface. 18 more public `suspend` functions in `commonMain` are exported
-   and still unannotated: `Auth.bearer`/`.exchangeCode`/`.signOut`,
+   surface. 17 more public `suspend` functions in `commonMain` are exported
+   and still unannotated: `Auth.exchangeCode`/`.signOut`,
    `CircleFixes.fixes`, `Friends.remove`, `PoiRoulette.randomPoi`,
    `RoadRoulette`'s `randomRoadPoint`/`fetchRoads`/`nearestSpeedLimitKmh`/
    `speedLimitWays`/`rawQuery`, `RoundTripPlanner.plan`, `RouteShare.inbox`/
    `.delete`, `RoutingServer.roundTrip`/`.randomRoadDestination`,
-   `SpinPicker.pickCandidate` and `SyncClient.syncIfDue`. None is called from
-   Swift today, so there is no live gap — but `SyncClient.syncIfDue` is worth
-   naming on its own: it sits directly above `sync()`'s canonical `@Throws`
-   doc comment in the same file, is Android-only today, and is exactly what
-   an iOS launch-time auto-sync would reach for first. Whoever wires that up
-   has to remember to annotate it then; nothing here does it for them.
+   `SpinPicker.pickCandidate` and `SyncClient.syncIfDue`. None of these is
+   called from Swift today, so there is no live gap for them — but
+   `Auth.bearer` was on this same list until the convoy relay gave Swift a
+   reason to call it (`ConvoyLiveClient.swift`'s `AuthBearerSource`, via the
+   relay's `BearerSource` interface): it is annotated and called now, which
+   is exactly the reminder this list exists to give the next function that
+   crosses the same way. `SyncClient.syncIfDue` is worth naming on its own
+   ahead of time for the identical reason: it sits directly above `sync()`'s
+   canonical `@Throws` doc comment in the same file, is Android-only today,
+   and is exactly what an iOS launch-time auto-sync would reach for first.
+   Whoever wires that up has to remember to annotate it then; nothing here
+   does it for them.
 
    Nor did the sweep cover the **non-`suspend`** store functions Swift calls —
    `TraceStore.append`/`.clear`/`.rawLines`, `TripStore.save`/

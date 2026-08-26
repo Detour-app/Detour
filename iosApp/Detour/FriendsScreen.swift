@@ -278,6 +278,15 @@ struct FriendsScreen: View {
                         Text(Features.shared.liveRelayNotice)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    } else if ConvoyLiveClient.shared.activeConvoyId == convoy.id, !ConvoyLiveClient.shared.connected {
+                        // Mirrors Android's FriendsScreen.kt liveStatus: only
+                        // shown for the convoy actually being connected to,
+                        // and only until connected flips true - lastError is
+                        // cleared the moment a "joined" reply arrives (see
+                        // ConvoyRelay.applyEvent), so this never lingers.
+                        Text(ConvoyLiveClient.shared.lastError ?? "Connecting…")
+                            .font(.caption)
+                            .foregroundStyle(ConvoyLiveClient.shared.lastError != nil ? .red : .secondary)
                     }
                 }
             }
