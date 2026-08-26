@@ -363,7 +363,13 @@ struct MapScreen: View {
             return SpinCandidate(
                 lat: c.destination.lat,
                 lon: c.destination.lon,
-                distanceM: distanceM.map { KotlinDouble(value: $0) },
+                // distanceM is c.route?.distanceMeters?.doubleValue ??
+                // c.straightLineMeters above - straightLineMeters is a
+                // non-null Kotlin Double (SpinPicker.kt's RouteCandidate),
+                // so the ?? collapses this to a plain Double, not a Double?,
+                // and it has no .map. durationS really is optional (there is
+                // no non-null fallback for it), so that one keeps .map.
+                distanceM: KotlinDouble(value: distanceM),
                 durationS: durationS.map { KotlinDouble(value: $0) },
                 name: c.name)
         })
