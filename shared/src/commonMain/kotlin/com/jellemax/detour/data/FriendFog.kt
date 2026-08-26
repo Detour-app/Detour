@@ -17,8 +17,15 @@ object FriendFog {
     private val _traces = MutableStateFlow<List<List<LatLon>>>(emptyList())
     val traces: StateFlow<List<List<LatLon>>> = _traces
 
-    /** Never throws — a friend's fog going missing is not worth interrupting
-     *  the map for. */
+    /**
+     * Never throws for the reason its own doc says — the network/parse leg
+     * below is caught internally. `@Throws(Exception::class)` is here anyway
+     * because that "never" is an internal promise, not something the Swift
+     * side can rely on if this function's body ever grows a path that
+     * doesn't hold it; see [SyncClient.sync]'s doc for why `Exception`
+     * rather than nothing.
+     */
+    @Throws(Exception::class)
     suspend fun refresh() {
         if (!SyncClient.configured() || !Account.signedIn || !Settings.shareFog.value) {
             _traces.value = emptyList()

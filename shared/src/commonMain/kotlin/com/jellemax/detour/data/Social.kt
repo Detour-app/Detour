@@ -41,6 +41,10 @@ object Account {
     val username: StateFlow<String> = Auth.username
     val signedIn: Boolean get() = Auth.signedIn
 
+    // @Throws(Exception::class): called directly from iosApp/Detour — see
+    // the doc on [SyncClient.sync] for why `Exception` and not just
+    // `IOException`.
+    @Throws(Exception::class)
     suspend fun signOut() = Auth.signOut()
 }
 
@@ -61,6 +65,11 @@ data class FriendLists(
 /** Friend requests and the shared leaderboard. */
 object Friends {
 
+    // @Throws(Exception::class) on [lists], [request], [respond] and [stats]
+    // below, all called directly from iosApp/Detour: see the doc on
+    // [SyncClient.sync] for why `Exception` and not just `IOException`.
+    // [remove] is not annotated — nothing outside this module calls it.
+    @Throws(Exception::class)
     suspend fun lists(): FriendLists {
         val o = Api.requestJson("GET", "/friends")
         return FriendLists(
@@ -72,11 +81,13 @@ object Friends {
 
     /** Returns the resulting status: "pending" or "accepted" (when they had
      *  already asked us, and this request answered theirs). */
+    @Throws(Exception::class)
     suspend fun request(username: String): String =
         Api.requestJson(
             "POST", "/friends/requests", buildJsonObject { put("username", username) }
         ).optString("status")
 
+    @Throws(Exception::class)
     suspend fun respond(username: String, accept: Boolean) {
         // Handles are letters, digits, dot, underscore and hyphen — all safe in a
         // path segment, so there is nothing to encode here.
@@ -90,6 +101,7 @@ object Friends {
         Api.request("DELETE", "/friends/$username")
     }
 
+    @Throws(Exception::class)
     suspend fun stats(): List<FriendStats> =
         jsonArrayOf(Api.request("GET", "/friends/stats")).objects().map { o ->
             val badges = o.optObject("badges")

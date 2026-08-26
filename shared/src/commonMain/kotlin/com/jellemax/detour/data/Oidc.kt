@@ -123,7 +123,14 @@ object Oidc {
      * not match the request this process started, the realm reporting an
      * error, a missing code — or the exchange itself being refused. A caller
      * shows one message either way.
+     *
+     * `@Throws(Exception::class)`: see the doc on [SyncClient.sync] for why
+     * `Exception` and not just [okio.IOException] — the same reasoning
+     * applies here, and matters more here than anywhere else in the app,
+     * since an unannotated throw out of this call is the one exception the
+     * rider can never even retry past.
      */
+    @Throws(Exception::class)
     suspend fun complete(url: String) {
         val spent = spend(url)
         Auth.exchangeCode(spent.code, spent.verifier)

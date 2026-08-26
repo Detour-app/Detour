@@ -26,6 +26,10 @@ object Geocoder {
     private fun baseUrl(): String =
         RoutingServer.geocoderBase(RoutingServer.loadCustom()).ifBlank { PUBLIC }
 
+    // @Throws(Exception::class): called directly from iosApp/Detour — see
+    // the doc on [SyncClient.sync] for why `Exception` and not just
+    // `IOException`.
+    @Throws(Exception::class)
     suspend fun search(query: String, near: LatLon?, limit: Int = 8): List<GeocodeResult> {
         val primary = baseUrl().trimEnd('/')
         // If a custom/baked instance is down, fail over to the public one so search

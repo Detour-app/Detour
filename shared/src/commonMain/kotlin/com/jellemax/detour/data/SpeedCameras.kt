@@ -61,7 +61,16 @@ object SpeedCameras {
     /** Beyond this a camera isn't worth warning about yet. */
     const val WARN_METERS = 400.0
 
-    /** Null on network error; an empty [Result] means the area really has none. */
+    /**
+     * Null on network error; an empty [Result] means the area really has
+     * none. The Overpass fetch's own network/parse failures are caught
+     * below and turned into that null, but this still carries
+     * `@Throws(Exception::class)` — see [SyncClient.sync]'s doc — because
+     * the JSON walk after the fetch (parsing elements into cameras and
+     * sections) is not inside that same catch and a malformed-but-still-JSON
+     * response could throw out of it.
+     */
+    @Throws(Exception::class)
     suspend fun near(
         center: LatLon,
         radiusMeters: Double = PREFETCH_RADIUS_M,

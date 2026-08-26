@@ -148,7 +148,13 @@ object MunicipalityStore {
     fun needsLookup(p: LatLon): Boolean =
         missKey(p) !in misses && load().none { it.contains(p) }
 
-    /** Resolves [p] to its municipality and stores it. Never throws. */
+    /**
+     * Resolves [p] to its municipality and stores it. The network/parse leg
+     * is caught internally (below) and never escapes, but [save] on the
+     * write-lock path still can — see [SyncClient.sync]'s doc for why this
+     * carries `@Throws(Exception::class)` rather than nothing at all.
+     */
+    @Throws(Exception::class)
     suspend fun discoverQuietly(p: LatLon) {
         if (!needsLookup(p)) return
         val found = try {

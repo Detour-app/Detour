@@ -44,6 +44,34 @@ object SyncClient {
         return sync()
     }
 
+    /**
+     * `@Throws(Exception::class)`, here and on every other exported `suspend`
+     * function Swift calls directly: Kotlin/Native only turns a thrown
+     * `CancellationException` into an `NSError` on its own — anything else a
+     * `suspend` function throws aborts the process before a Swift `catch`
+     * ever runs (Kotlin/Native's own docs on Objective-C/Swift interop say so
+     * plainly). Every `try await` under `iosApp/Detour/` was one network
+     * error away from that until this annotation went in.
+     *
+     * `Exception` rather than [okio.IOException]: what this module's
+     * `suspend` functions actually raise is [AuthException] or
+     * [HttpStatusException] (both `IOException` — see `Api.kt`/`Http.kt`),
+     * but a server that answers something the wire format doesn't expect
+     * surfaces as a kotlinx-serialization failure, and that is an
+     * `IllegalArgumentException`, not an `IOException`. Naming only
+     * `IOException` would leave the app terminating on exactly the response
+     * an unfriendly server sends. `Exception` also lets a genuine
+     * programming error through, which then reaches the rider as "something
+     * went wrong" instead of crashing loudly into a bug report — a
+     * deliberate trade, made because every one of these call sites already
+     * has a `catch` that reports to the user, and a wrong-ish message on a
+     * phone beats an aborted process. A no-op on Android/JVM, where
+     * `@Throws` has nothing to attach to.
+     *
+     * Not repeated at every other site this reasoning applies to — read it
+     * here.
+     */
+    @Throws(Exception::class)
     suspend fun sync(): SyncResult {
         Settings.init()
 

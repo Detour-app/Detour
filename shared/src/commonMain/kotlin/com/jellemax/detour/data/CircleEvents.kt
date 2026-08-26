@@ -40,6 +40,10 @@ data class RelayPlaceEvent(val groupId: String, val event: PlaceEvent)
  */
 object CircleEvents {
 
+    // @Throws(Exception::class) on [record] and [events] below, both called
+    // directly from iosApp/Detour: see the doc on [SyncClient.sync] for why
+    // `Exception` and not just `IOException`.
+    @Throws(Exception::class)
     suspend fun record(groupId: String, placeId: Long, kind: GeofenceKind, tsMs: Long) {
         Api.request(
             "POST", "/circles/$groupId/events",
@@ -53,6 +57,7 @@ object CircleEvents {
 
     /** Events newer than [sinceMs] — pass the last-seen event's [PlaceEvent.tsMs]
      *  to poll incrementally. */
+    @Throws(Exception::class)
     suspend fun events(groupId: String, sinceMs: Long): List<PlaceEvent> {
         val o = Api.requestJson("GET", "/circles/$groupId/events?since=$sinceMs")
         return o.optArray("events")?.objects().orEmpty().map { placeEventFromJson(it) }
