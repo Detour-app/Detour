@@ -89,7 +89,7 @@ object ConvoyLiveClient {
      *  second concurrent call. */
     private val runLock = Any()
 
-    private val _activeConvoyId = MutableStateFlow<String?>(null)
+
 
     /** The convoy this device is currently trying to stay connected to, or
      *  null when not joined. UI (FriendsScreen) should derive its "am I
@@ -102,7 +102,12 @@ object ConvoyLiveClient {
      *  this is this object's own record of what it last asked for, kept in
      *  step with every [join]/[leave] call rather than read back from
      *  [relay]. */
-    val activeConvoyId: StateFlow<String?> = _activeConvoyId.asStateFlow()
+    /** Delegated to [ConvoyRelay.convoyId] rather than mirrored. The mirror
+     *  this replaced went stale on a session change: the relay cleared its own
+     *  membership and this kept naming the departed rider's convoy, which
+     *  `MapScreen` gates the push-to-talk button and the spin-share affordance
+     *  on. */
+    val activeConvoyId: StateFlow<String?> get() = relay.convoyId
 
     private val _guardError = MutableStateFlow<String?>(null)
 
@@ -156,7 +161,7 @@ object ConvoyLiveClient {
      *  a reconnect. */
     fun join(convoyId: String) {
         if (!Features.liveRelay) return
-        if (_activeConvoyId.value == convoyId && runJob?.isActive == true) return
+        if (relay.convoyId.value == convoyId && runJob?.isActive == true) return
         if (liveUrl().isBlank()) {
             // Refuse to start the retry loop at all rather than spin it
             // forever against a server that was never configured - see
@@ -169,7 +174,6 @@ object ConvoyLiveClient {
         // while it is still connecting - the UI reads this the moment a join
         // starts, before any reply has come back.
         _guardError.value = null
-        _activeConvoyId.value = convoyId
         relay.setConvoy(convoyId)
         ensureRunning()
     }
@@ -179,7 +183,6 @@ object ConvoyLiveClient {
      *  [ConvoyRelay.setConvoy]'s own doc explains why leaving reopens the
      *  socket rather than just forgetting the id locally. */
     fun leave() {
-        _activeConvoyId.value = null
         relay.setConvoy(null)
     }
 
@@ -189,7 +192,7 @@ object ConvoyLiveClient {
     fun setNotifyCircles(circleIds: Set<String>) {
         if (!Features.liveRelay) return
         relay.setNotifyingCircles(circleIds)
-        if (circleIds.isEmpty() && _activeConvoyId.value == null) return
+        if (circleIds.isEmpty() && relay.convoyId.value == null) return
         if (liveUrl().isBlank()) {
             _guardError.value = "No live server configured"
             return

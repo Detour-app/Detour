@@ -315,6 +315,20 @@ class ConvoyRelay {
      *  send is silently dropped rather than mis-addressed, same as before. */
     private val _convoyId = MutableStateFlow<String?>(null)
 
+    /**
+     * The convoy this device is joined to, or null.
+     *
+     * Exposed so a platform reads it rather than keeping its own copy. Android
+     * used to mirror it in `net/ConvoyLiveClient.kt`, and the mirror went stale
+     * on a session change - [clearMembershipForSessionChange] cleared this one
+     * and left the mirror naming the departed rider's convoy, which the map
+     * gates the push-to-talk button and the spin-share affordance on. A rider
+     * could offer a destination to a convoy they had left. One source of truth
+     * is the fix; clearing two of them in step is the bug waiting to happen
+     * again.
+     */
+    val convoyId: StateFlow<String?> = _convoyId.asStateFlow()
+
     /** Circles that want live `place_event` pushes on this same socket,
      *  independent of [_convoyId] - see [setNotifyingCircles]. Same
      *  persist-across-[run] shape as [_convoyId]. */
