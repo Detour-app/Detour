@@ -264,6 +264,66 @@ class RelayProtocolTest {
         assertEquals(1_000L + RelayProtocol.FALLBACK_PEER_TTL_MS, p.expiresAtMs)
     }
 
+    // --- the two divergences this codec deliberately resolved ------------
+    //
+    // Both existing clients disagreed here and shared code took Android's
+    // stricter side, so iOS gains a guard it did not have. That is a chosen
+    // behaviour change rather than a transcription, which is exactly why it
+    // needs pinning: without these, a later edit could relax back to iOS's
+    // laxer check and every other test in this file would still pass.
+
+    @Test
+    fun aWhitespaceOnlyUserIsRefusedOnEveryFrameThatCarriesOne() {
+        // Android guarded with isNotBlank(), iOS only with !isEmpty, so a
+        // whitespace handle was dropped on one platform and accepted on the
+        // other. Refused everywhere now.
+        assertNull(RelayProtocol.decode(leftFrame(user = "   "), nowMs = 0))
+        assertNull(RelayProtocol.decode(pttStartFrame(user = "   "), nowMs = 0))
+        assertNull(RelayProtocol.decode(pttEndFrame(user = "   "), nowMs = 0))
+        assertNull(RelayProtocol.decode(pttAudioFrame(user = "   "), nowMs = 0))
+        assertNull(RelayProtocol.decode(spinVoteFrame(user = "   "), nowMs = 0))
+    }
+
+    @Test
+    fun aPttAudioFrameWithAnEmptyChunkIsRefused() {
+        // Swift had no chunk guard, and Data(base64Encoded: "") returns valid
+        // empty Data rather than nil — so an empty chunk reached the audio
+        // player as zero bytes instead of being dropped.
+        assertNull(RelayProtocol.decode(pttAudioFrame(chunk = ""), nowMs = 0))
+        assertNull(RelayProtocol.decode(pttAudioFrame(chunk = "   "), nowMs = 0))
+    }
+
+    // --- degenerate array shapes, which the two clients also split on -----
+
+    @Test
+    fun positionsWithNoPeersKeyAtAllIsRefused() {
+        assertNull(RelayProtocol.decode("""{"type":"positions"}""", nowMs = 0))
+    }
+
+    @Test
+    fun positionsWithEveryRowInvalidDecodesToAnEmptyUpdateRatherThanNothing() {
+        // Not the same as a missing "peers": the relay did answer, it just had
+        // nothing usable to say. A null here would be indistinguishable from a
+        // frame the codec did not recognise.
+        val frame = positionsFrame(peerRow(u = ""), peerRow(u = "  "))
+        val event = RelayProtocol.decode(frame, nowMs = 0)
+        assertTrue(event is RelayEvent.Positions, "expected Positions, got $event")
+        assertTrue((event as RelayEvent.Positions).peers.isEmpty())
+    }
+
+    @Test
+    fun spinOfferDropsAnInvalidCandidateAndKeepsTheRest() {
+        // The same drop-bad-keep-good rule `positions` follows. Worth its own
+        // test because Swift's array cast was all-or-nothing here: one bad
+        // element took the whole offer with it, and an offer that loses
+        // candidates silently is how two devices resolve one vote to two
+        // different destinations.
+        val frame = """{"type":"spin_offer","candidates":[""" +
+            """{"lat":"nope","lon":4.0},{"lat":51.0,"lon":4.0,"name":"Kept"}]}"""
+        val offer = RelayProtocol.decode(frame, nowMs = 0) as RelayEvent.SpinOffer
+        assertEquals(listOf("Kept"), offer.candidates.map { it.name })
+    }
+
     // --- the clock-skew defence: expiresAtMs tracks nowMs, never ts -------
 
     @Test
