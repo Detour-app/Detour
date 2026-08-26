@@ -489,8 +489,8 @@ final class FriendsModel: ObservableObject {
         // regardless of which thread called the store action, so the
         // `@Published` mutation in `init` above always lands on the main
         // thread.
-        let name = username
-        _ = await Task.detached { try? await FriendsStore.shared.refreshOwn(username: name) }.value
+        let currentName = username
+        _ = await Task.detached { try? await FriendsStore.shared.refreshOwn(username: currentName) }.value
         try? await ConvoysStore.shared.reload()
     }
 

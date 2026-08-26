@@ -98,6 +98,46 @@ class StoresTest {
         assertSame(withOwn.own, reloaded.own)
     }
 
+    // --- FriendsStore.commitIfCurrent / refreshOwn's guard -----------------
+    //
+    // The identity guard that closes the cross-user leak: reload()'s and
+    // refreshOwn()'s commit each capture Auth.sessionEpoch at the start of
+    // the action and check it again here, against the epoch read fresh at
+    // commit time, before writing. Not reproducible as a concurrency test in
+    // this module's test style (no coroutine test dispatcher), so — same as
+    // CirclesState.commitIfViewing above it — the commit decision is
+    // asserted directly.
+
+    @Test
+    fun aReloadWhoseIdentityChangedMidFlightDoesNotCommit() {
+        // Auth.clear() ran (sign-out, a 401, a server switch — or a
+        // sign-back-in as the very same rider) while this reload's request
+        // was in flight. The result it fetched belongs to a session that is
+        // no longer current, so it must not overwrite whatever `reset()` (or
+        // the new session) left behind.
+        val postReset = FriendsState()
+        val staleResult = FriendsState(lists = lists(), leaderboard = listOf(stats("ada")))
+        assertSame(postReset, postReset.commitIfCurrent(epoch = 1, currentEpoch = 2, result = staleResult))
+    }
+
+    @Test
+    fun aReloadWhoseIdentityIsUnchangedDoesCommit() {
+        val inFlight = FriendsState(busy = true)
+        val freshResult = FriendsState(lists = lists(), leaderboard = listOf(stats("ada")))
+        assertSame(freshResult, inFlight.commitIfCurrent(epoch = 1, currentEpoch = 1, result = freshResult))
+    }
+
+    @Test
+    fun refreshOwnForAStaleSessionDoesNotWriteTheOwnRow() {
+        // Pins the exact shape refreshOwn's guard uses: `it.copy(own = own)`
+        // as the candidate result, discarded the same way a stale reload's
+        // result is — see refreshOwn's own doc for why there is no
+        // suspension point here for a cancellation to interpose on instead.
+        val postReset = FriendsState()
+        val staleOwnRow = postReset.copy(own = stats("ada"))
+        assertSame(postReset, postReset.commitIfCurrent(epoch = 1, currentEpoch = 2, result = staleOwnRow))
+    }
+
     // --- ConvoysStore -----------------------------------------------------
 
     @Test
@@ -125,6 +165,20 @@ class StoresTest {
         assertTrue(!loaded.busy)
         assertNull(loaded.error)
         assertEquals(1, loaded.convoys.size)
+    }
+
+    @Test
+    fun aConvoyReloadWhoseIdentityChangedMidFlightDoesNotCommit() {
+        val postReset = ConvoysState()
+        val staleResult = ConvoysState(convoys = listOf(convoy("c1", "Sunday run")))
+        assertSame(postReset, postReset.commitIfCurrent(epoch = 1, currentEpoch = 2, result = staleResult))
+    }
+
+    @Test
+    fun aConvoyReloadWhoseIdentityIsUnchangedDoesCommit() {
+        val inFlight = ConvoysState(busy = true)
+        val freshResult = ConvoysState(convoys = listOf(convoy("c1", "Sunday run")))
+        assertSame(freshResult, inFlight.commitIfCurrent(epoch = 1, currentEpoch = 1, result = freshResult))
     }
 
     @Test
@@ -168,6 +222,41 @@ class StoresTest {
         val state = CirclesState(circles = listOf(circle("c1", "Family")), selectedId = "c1")
         val afterReload = state.loaded(listOf(circle("c1", "Family"), circle("c2", "Riders")))
         assertEquals("c1", afterReload.selectedId)
+    }
+
+    @Test
+    fun aSelectionMadeDuringAnInFlightReloadSurvivesTheReloadsCommit() {
+        // Change C's bug: `CirclesScreen.kt`'s `LaunchedEffect(Unit) { reload() }`
+        // runs before `LaunchedEffect(openCircleId) { selectOnly(it) }`, so a
+        // deep-link selection (a tapped arrival notification) — or an
+        // ordinary tap in the list — lands *while* a reload is in flight.
+        // `reload()` used to build its `.loaded()` result off a `_state.value`
+        // snapshot taken before its network awaits, so that selection got
+        // silently reverted to whatever it was when the reload started —
+        // `selectOnly`/`selecting()`'s write was there, `loaded()` just never
+        // saw it. Composing `starting()` (the reload begins) then `selecting()`
+        // (the selection lands mid-flight) then `loaded()` (the reload's
+        // result, now applied to the live state per the fix) pins that the
+        // selection survives the commit.
+        val beforeReload = CirclesState(circles = listOf(circle("c1", "Family")))
+        val reloadStarted = beforeReload.starting()
+        val selectedMidFlight = reloadStarted.selecting("c1")
+        val committed = selectedMidFlight.loaded(listOf(circle("c1", "Family"), circle("c2", "Riders")))
+        assertEquals("c1", committed.selectedId)
+    }
+
+    @Test
+    fun aCircleReloadWhoseIdentityChangedMidFlightDoesNotCommit() {
+        val postReset = CirclesState()
+        val staleResult = CirclesState(circles = listOf(circle("c1", "Family")))
+        assertSame(postReset, postReset.commitIfCurrent(epoch = 1, currentEpoch = 2, result = staleResult))
+    }
+
+    @Test
+    fun aCircleReloadWhoseIdentityIsUnchangedDoesCommit() {
+        val inFlight = CirclesState(busy = true)
+        val freshResult = CirclesState(circles = listOf(circle("c1", "Family")))
+        assertSame(freshResult, inFlight.commitIfCurrent(epoch = 1, currentEpoch = 1, result = freshResult))
     }
 
     @Test
@@ -316,53 +405,45 @@ class StoresTest {
         tsMs = 1_700_000_000_000L,
     )
 
-    // --- reset() ------------------------------------------------------------
+    // --- cleared() ------------------------------------------------------------
     //
-    // These drive the singleton directly (`_state` is `internal` for exactly
-    // this) rather than the reducer functions above, because a reset is not a
-    // transition on a state the caller already has — it is the store
-    // replacing whatever it was holding, unconditionally, with nothing left
-    // to inherit. What matters is that nothing survives the round trip.
+    // reset()'s reducer half. `_state` is `private` in all three stores —
+    // asserted here as a pure transition on a state the caller already has,
+    // same as every other transition above, rather than by driving the
+    // singleton through it directly.
 
     @Test
-    fun resettingFriendsStoreRestoresTheDefaultState() {
-        FriendsStore._state.value = FriendsState(
+    fun clearedFriendsStateIsTheDefault() {
+        val dirty = FriendsState(
             lists = lists(),
             leaderboard = listOf(stats("ada")),
             own = stats("me"),
             busy = true,
             error = "stale",
         )
-        FriendsStore.reset()
-        assertEquals(FriendsState(), FriendsStore.state.value)
+        assertEquals(FriendsState(), dirty.cleared())
     }
 
     @Test
-    fun resettingFriendsStoreClearsTheOwnRowOnItsOwn() {
-        // `own` is the one field a reload deliberately keeps (see `loaded`'s
-        // own doc) — the field a reset is most likely to inherit the same
+    fun clearedFriendsStateDropsTheOwnRowEvenThoughLoadedKeepsIt() {
+        // `own` is the one field `loaded()` deliberately preserves (see its
+        // own doc) — the field `cleared()` is most likely to inherit that
         // habit for by mistake. A sign-out is a different rider, not a
         // failed refresh, and the old rider's own-stats row must not survive
         // to render under the new rider's name in the leaderboard.
-        FriendsStore._state.value = FriendsState(own = stats("ada"))
-        FriendsStore.reset()
-        assertNull(FriendsStore.state.value.own)
+        val dirty = FriendsState(own = stats("ada"))
+        assertNull(dirty.cleared().own)
     }
 
     @Test
-    fun resettingConvoysStoreRestoresTheDefaultState() {
-        ConvoysStore._state.value = ConvoysState(
-            convoys = listOf(convoy("c1", "Sunday run")),
-            busy = true,
-            error = "stale",
-        )
-        ConvoysStore.reset()
-        assertEquals(ConvoysState(), ConvoysStore.state.value)
+    fun clearedConvoysStateIsTheDefault() {
+        val dirty = ConvoysState(convoys = listOf(convoy("c1", "Sunday run")), busy = true, error = "stale")
+        assertEquals(ConvoysState(), dirty.cleared())
     }
 
     @Test
-    fun resettingCirclesStoreRestoresTheDefaultState() {
-        CirclesStore._state.value = CirclesState(
+    fun clearedCirclesStateIsTheDefault() {
+        val dirty = CirclesState(
             circles = listOf(circle("c1", "Family")),
             selectedId = "c1",
             places = listOf(place("p1", "c1")),
@@ -372,7 +453,6 @@ class StoresTest {
             detailBusy = true,
             detailError = "stale detail",
         )
-        CirclesStore.reset()
-        assertEquals(CirclesState(), CirclesStore.state.value)
+        assertEquals(CirclesState(), dirty.cleared())
     }
 }

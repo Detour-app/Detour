@@ -62,9 +62,7 @@ object CirclesStore {
 
     internal const val FALLBACK_ERROR = "Could not reach the server"
 
-    /** `internal`, not `private`: [StoresTest] drives it directly to pin
-     *  [reset] — see [FriendsStore]'s matching field for why. */
-    internal val _state = MutableStateFlow(CirclesState())
+    private val _state = MutableStateFlow(CirclesState())
     val state: StateFlow<CirclesState> = _state.asStateFlow()
 
     /** Drops everything back to [CirclesState]'s defaults — the selected
@@ -73,19 +71,32 @@ object CirclesStore {
      *  was never theirs. Called from [Auth.clear] rather than by a screen;
      *  see that function's doc for why. */
     internal fun reset() {
-        _state.value = CirclesState()
+        _state.update { it.cleared() }
     }
 
     @Throws(Exception::class)
     suspend fun reload() {
+        val epoch = Auth.sessionEpoch.value
         _state.update { it.starting() }
-        _state.value = try {
-            _state.value.loaded(Groups.list(KIND))
+        // See FriendsStore.reload's comment: the transform is built from the
+        // await's result and only applied to the live `it` inside the final
+        // `update { }` below, not to a `_state.value` snapshot taken before
+        // the suspending call — which is also what lets a selection made
+        // while this reload was in flight (a tapped arrival notification, or
+        // a second tap in the list; see `CirclesState.loaded`'s
+        // `selectedId` handling) survive into the committed result instead of
+        // being silently reverted to whatever it was when this reload started.
+        val apply: (CirclesState) -> CirclesState = try {
+            val circles = Groups.list(KIND)
+            val transform: (CirclesState) -> CirclesState = { s -> s.loaded(circles) }
+            transform
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.value.failed(e)
+            val transform: (CirclesState) -> CirclesState = { s -> s.failed(e) }
+            transform
         }
+        _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, apply(it)) }
     }
 
     /** Opens [groupId]'s detail pane, or closes it for null. Clears the
@@ -115,16 +126,6 @@ object CirclesStore {
      *  calls [select] exactly once per open. */
     fun selectOnly(groupId: String) {
         _state.update { it.selecting(groupId) }
-    }
-
-    /** Surfaces a detail-pane failure that happened entirely on the calling
-     *  platform — a denied OS notification permission, say — through the same
-     *  banner a server failure would use, rather than inventing a second
-     *  error slot per platform. Not a mutation: nothing here calls the server
-     *  or touches [CirclesState.detailBusy], so it cannot race a detail load
-     *  already in flight. */
-    fun reportDetailError(message: String) {
-        _state.update { it.copy(detailError = message) }
     }
 
     /** True on success; false leaves the failure in [state]'s `error`. */
@@ -207,12 +208,31 @@ object CirclesStore {
         // the detail on every change precisely to stop that, and without this
         // check a late reply puts it straight back.
         //
-        // The caller cancelling the stale coroutine also fixes it, and both
-        // screens happen to do that today (Compose keys a LaunchedEffect on the
-        // circle id, SwiftUI a .task(id:)). But this store cannot see its
-        // callers, one of them is already a plain unstructured `Task { }`, and
-        // Tasks 4-6 have yet to write the rest — so the guarantee belongs here
-        // rather than in a convention every future call site has to know.
+        // The caller cancelling the stale coroutine would also fix it, and
+        // Android's screen does: Compose keys `LaunchedEffect(circle.id)` on
+        // the circle id, and that really does cancel the coroutine behind a
+        // stale `select`. iOS's `.task(id:)` does not, though it looks like
+        // it should — cancelling a Swift `Task` does not reach the Kotlin
+        // coroutine an exported `suspend fun` runs on, because the ObjC
+        // completion-handler bridge it compiles to has no cancellation path.
+        // So on iOS this check is not a second line of defence, it is the
+        // only one: the stale request keeps running regardless of what the
+        // Swift `Task` around it does, and this is what stops its answer from
+        // landing. This store cannot see its callers anyway, so the guarantee
+        // belongs here rather than in a convention every future call site has
+        // to know.
+        //
+        // Known gap, not fixed here: if the pane closes (`select(null)`)
+        // while this load is still running and was never cancelled — the iOS
+        // case, per the paragraph above — this discard branch leaves
+        // `detailBusy` stuck true, because nothing is left to hand it off to:
+        // there is no new `loadDetail` whose own `detailStarting()` would
+        // otherwise own it. Invisible today (`detailBusy` only gates a button
+        // inside the detail pane, which is closed by then), and clearing it
+        // unconditionally here would be wrong for the same reason
+        // `detailStarting()` exists — it would also fire when `selectedId`
+        // moved to a *different* circle, wiping out that circle's own
+        // genuine spinner mid-load.
         _state.update { it.commitIfViewing(groupId, result) }
     }
 
@@ -274,6 +294,20 @@ object CirclesStore {
  */
 internal fun CirclesState.commitIfViewing(groupId: String, result: CirclesState): CirclesState =
     if (selectedId == groupId) result else this
+
+/** [result] if [epoch] still names the session an in-flight [CirclesStore.reload]
+ *  started under, checked against [currentEpoch] read fresh at commit time —
+ *  or this state untouched otherwise. Same guard as [FriendsStore]'s
+ *  matching function; see its doc for the full reasoning. */
+internal fun CirclesState.commitIfCurrent(epoch: Int, currentEpoch: Int, result: CirclesState): CirclesState =
+    if (epoch == currentEpoch) result else this
+
+/** Every field back to [CirclesState]'s defaults — [CirclesState.selectedId]
+ *  included, so a leaked selection cannot make the next rider's
+ *  [CirclesStore.select] reload calls land on a circle that was never
+ *  theirs. `internal` and pure, called from [CirclesStore.reset] and
+ *  asserted directly — see [FriendsState.cleared]'s doc for why. */
+internal fun CirclesState.cleared() = CirclesState()
 
 internal fun CirclesState.starting() = copy(busy = true, error = null)
 

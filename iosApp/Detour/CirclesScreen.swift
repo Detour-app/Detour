@@ -114,12 +114,23 @@ struct CirclesScreen: View {
             // equivalent and `CircleDetailView.loadPlacesAndEvents()`: this
             // is the one place that now loads a circle's places/events.
             //
-            // `CirclesStore.select` never throws for an ordinary failure —
-            // it reports through `CirclesState.detailError` instead — so the
-            // only thing `try?` here ever discards is a cancellation (this
-            // `.task(id:)` cancels its predecessor whenever `viewedCircleId`
-            // changes again before the first finishes). Silently discarding
-            // it is exactly what the old
+            // `.task(id:)` marks its predecessor's Swift `Task` cancelled
+            // whenever `viewedCircleId` changes again before the first
+            // finishes, but that does not stop the Kotlin coroutine behind
+            // `CirclesStore.shared.select`: an exported `suspend fun`
+            // compiles to an ObjC completion-handler bridge with no
+            // cancellation path, so the predecessor's request keeps running
+            // and its result still arrives. What actually keeps that stale
+            // result from landing under the newer circle's heading is
+            // `CirclesState.commitIfViewing`, inside `CirclesStore.loadDetail`
+            // — see its doc there — not cancellation.
+            //
+            // `CirclesStore.select` never throws for an ordinary failure
+            // either — it reports through `CirclesState.detailError` instead
+            // — so `try?` here is mostly ceremony: the only thing it could
+            // ever discard is a genuine Swift-side cancellation error, thrown
+            // if this `Task` is torn down before the bridge call even starts.
+            // Silently discarding that is exactly what the old
             // `guard !Task.isCancelled else { return }` in
             // `loadPlacesAndEvents()` did: a cancelled load must not raise
             // "Something went wrong", and with nothing here to report one in
@@ -345,6 +356,12 @@ private struct CircleDetailView: View {
     /// plain `UserDefaults`, not a `StateFlow` the view can bind to
     /// directly, so this is what the Toggle below actually reads/writes.
     @State private var notifyOn = true
+    /// A denied OS notification permission is entirely local to this device
+    /// and this toggle — it is not shared state, so it does not belong in
+    /// `CirclesStore` (that used to be `reportDetailError`, which put an
+    /// iOS-only string into shared state, rendered under the wrong section,
+    /// and could be wiped by any later `selecting()`/`detailStarting()`).
+    @State private var notifyError: String?
 
     private var mine: GroupMember? {
         circle.members.first { $0.username == username }
@@ -375,6 +392,7 @@ private struct CircleDetailView: View {
                         get: { notifyOn },
                         set: { on in
                             notifyOn = on // optimistic; reset below if denied
+                            notifyError = nil
                             Task {
                                 if on {
                                     let granted = await CircleNotifications.shared.requestAuthorizationIfNeeded()
@@ -385,19 +403,14 @@ private struct CircleDetailView: View {
                                         // The toggle has to reflect reality,
                                         // not the tap that caused it.
                                         notifyOn = false
-                                        // Through the detail error field
-                                        // (`state.detailError`, rendered in
-                                        // the Shared places section below)
-                                        // rather than a local `@State` — this
-                                        // view has none of its own any more,
-                                        // now that `CirclesStore` owns the
-                                        // state, and reportDetailError exists
-                                        // for exactly this: a denial that
-                                        // happened entirely on this device,
-                                        // with nothing to reload.
-                                        CirclesStore.shared.reportDetailError(
-                                            message: "Notifications are turned off for Detour in iOS Settings."
-                                        )
+                                        // Local to this toggle, not
+                                        // `CirclesState.detailError`: this is
+                                        // a denial that happened entirely on
+                                        // this device, with nothing to
+                                        // reload, so it does not belong in
+                                        // shared state (see `notifyError`'s
+                                        // own doc above).
+                                        notifyError = "Notifications are turned off for Detour in iOS Settings."
                                     }
                                 } else {
                                     CircleNotifications.shared.setNotifyEnabled(circleId: circle.id, false)
@@ -414,6 +427,9 @@ private struct CircleDetailView: View {
                         }
                     }
                     .disabled(state.busy)
+                    if let notifyError {
+                        Text(notifyError).font(.caption).foregroundStyle(.red)
+                    }
                 }
                 HStack {
                     Button("Invite", action: onInvite).disabled(state.busy)

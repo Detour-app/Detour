@@ -45,11 +45,7 @@ object FriendsStore {
      *  because the test for it asserts this exact string. */
     internal const val FALLBACK_ERROR = "Could not reach the server"
 
-    /** `internal`, not `private`: [StoresTest] drives it directly to pin
-     *  [reset], which — being an unconditional overwrite rather than a
-     *  transition on a state the caller already has — has nothing else to
-     *  assert against. */
-    internal val _state = MutableStateFlow(FriendsState())
+    private val _state = MutableStateFlow(FriendsState())
     val state: StateFlow<FriendsState> = _state.asStateFlow()
 
     /** Drops everything back to [FriendsState]'s defaults — including
@@ -57,27 +53,51 @@ object FriendsStore {
      *  preserve. Called from [Auth.clear] rather than by a screen; see that
      *  function's doc for why. */
     internal fun reset() {
-        _state.value = FriendsState()
+        _state.update { it.cleared() }
     }
 
     /** Both lists in one pass, so a screen never shows friends without their
      *  numbers or the other way round. */
     @Throws(Exception::class)
     suspend fun reload() {
+        val epoch = Auth.sessionEpoch.value
         _state.update { it.starting() }
-        _state.value = try {
-            _state.value.loaded(Friends.lists(), Friends.stats())
+        // The transform is built here, once the awaits below are done, and
+        // only *applied* inside the final `update { }` — not computed against
+        // `_state.value` up front. Kotlin evaluates a call's receiver before
+        // its arguments, so `_state.value.loaded(Friends.lists(), Friends.stats())`
+        // would read `_state.value` as a snapshot taken *before* either
+        // suspending call, and the plain assignment that used to follow wrote
+        // that stale snapshot back wholesale — silently discarding anything
+        // that changed `state` during the request, including a sign-out's
+        // `reset()`. Deferring `.loaded()`/`.failed()` to run on the `it`
+        // inside `update { }` below applies them to the live state instead.
+        val apply: (FriendsState) -> FriendsState = try {
+            val lists = Friends.lists()
+            val leaderboard = Friends.stats()
+            val transform: (FriendsState) -> FriendsState = { s -> s.loaded(lists, leaderboard) }
+            transform
         } catch (e: CancellationException) {
-            // A cancellation is the caller's own doing (a `.task`/
-            // `LaunchedEffect` torn down by, say, a sign-out mid-request),
-            // not a load failure — and unlike a composable-local
-            // `mutableStateOf`, `state` here is a singleton other observers
-            // may be watching. Swallowing this would leave a phantom error
-            // banner sitting in shared state with nothing left to clear it.
+            // A cancellation is the caller's own doing — a genuine Kotlin
+            // `Job` cancelled, which is what happens when Android's
+            // `LaunchedEffect`/`scope.launch` tears down mid-request. It is
+            // NOT what iOS's `.task(id:)` teardown does to this call: an
+            // exported `suspend fun` compiles to an ObjC completion-handler
+            // bridge with no cancellation path, so cancelling the Swift
+            // `Task` awaiting it does not cancel the coroutine underneath —
+            // this catch never fires there. A sign-out mid-reload on iOS
+            // instead runs to completion and is caught by the `commitIfCurrent`
+            // check below, not by this branch. Either way this is not a load
+            // failure, and unlike a composable-local `mutableStateOf`, `state`
+            // here is a singleton other observers may be watching —
+            // swallowing this would leave a phantom error banner sitting in
+            // shared state with nothing left to clear it.
             throw e
         } catch (e: Exception) {
-            _state.value.failed(e)
+            val transform: (FriendsState) -> FriendsState = { s -> s.failed(e) }
+            transform
         }
+        _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, apply(it)) }
     }
 
     /**
@@ -96,6 +116,7 @@ object FriendsStore {
      */
     @Throws(Exception::class)
     suspend fun refreshOwn(username: String) {
+        val epoch = Auth.sessionEpoch.value
         val own = try {
             val coverage = Coverage.compute()
             val riderStats = BadgeStore.stats(coverage)
@@ -110,7 +131,15 @@ object FriendsStore {
             // the whole screen.
             return
         }
-        _state.update { it.copy(own = own) }
+        // Same guard as `reload`, and just as needed: there is no suspension
+        // between `own` being computed and the write below, so a cancellation
+        // cannot interpose either — but the caller of this function switches
+        // dispatcher/thread to get off the main one (`withContext(Dispatchers.IO)`
+        // on Android, `Task.detached` on iOS), and `Auth.clear()` can run
+        // concurrently on that other thread while this is still computing.
+        // Without this check, a sign-out mid-`refreshOwn` writes the departed
+        // rider's own-stats row into the next rider's freshly reset state.
+        _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.copy(own = own)) }
     }
 
     /** True on success; false leaves the failure in [state]'s `error`. */
@@ -164,3 +193,28 @@ internal fun FriendsState.loaded(lists: FriendLists, leaderboard: List<FriendSta
  *  screen, never a reason to blank it. */
 internal fun FriendsState.failed(e: Exception) =
     copy(busy = false, error = e.message?.ifBlank { null } ?: FriendsStore.FALLBACK_ERROR)
+
+/**
+ * [result] if [epoch] still names the session an in-flight action started
+ * under — checked against [currentEpoch], read fresh at commit time — or
+ * this state untouched otherwise. The guard that stops a reload's or
+ * refreshOwn's response for a rider who has since signed out (or signed back
+ * in, even as themselves) from landing after [Auth.clear] has already reset
+ * this store.
+ *
+ * `internal` and pure so it can be asserted directly, mirroring how
+ * [CirclesState.commitIfViewing] guards a stale detail response — the race
+ * this closes needs two overlapping coroutines to reproduce, which this
+ * module's test style (plain kotlin.test, no coroutine test dispatcher)
+ * cannot stage.
+ */
+internal fun FriendsState.commitIfCurrent(epoch: Int, currentEpoch: Int, result: FriendsState): FriendsState =
+    if (epoch == currentEpoch) result else this
+
+/** Every field back to [FriendsState]'s defaults — [FriendsState.own]
+ *  included, which [loaded] otherwise goes out of its way to preserve. A
+ *  sign-out is a different rider, not a failed refresh, so nothing here
+ *  survives the round trip. `internal` and pure, called from [FriendsStore.reset]
+ *  and asserted directly, rather than driving the singleton through
+ *  `_state` the way [reset]'s own test used to. */
+internal fun FriendsState.cleared() = FriendsState()

@@ -30,27 +30,34 @@ object ConvoysStore {
 
     internal const val FALLBACK_ERROR = "Could not reach the server"
 
-    /** `internal`, not `private`: [StoresTest] drives it directly to pin
-     *  [reset] — see [FriendsStore]'s matching field for why. */
-    internal val _state = MutableStateFlow(ConvoysState())
+    private val _state = MutableStateFlow(ConvoysState())
     val state: StateFlow<ConvoysState> = _state.asStateFlow()
 
     /** Drops everything back to [ConvoysState]'s defaults. Called from
      *  [Auth.clear] rather than by a screen; see that function's doc for why. */
     internal fun reset() {
-        _state.value = ConvoysState()
+        _state.update { it.cleared() }
     }
 
     @Throws(Exception::class)
     suspend fun reload() {
+        val epoch = Auth.sessionEpoch.value
         _state.update { it.starting() }
-        _state.value = try {
-            _state.value.loaded(Groups.list(KIND))
+        // See FriendsStore.reload's comment: the transform is built from the
+        // awaits' results and only applied to the live `it` inside the final
+        // `update { }` below, not to a `_state.value` snapshot taken before
+        // either suspending call.
+        val apply: (ConvoysState) -> ConvoysState = try {
+            val convoys = Groups.list(KIND)
+            val transform: (ConvoysState) -> ConvoysState = { s -> s.loaded(convoys) }
+            transform
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.value.failed(e)
+            val transform: (ConvoysState) -> ConvoysState = { s -> s.failed(e) }
+            transform
         }
+        _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, apply(it)) }
     }
 
     /** True on success; false leaves the failure in [state]'s `error`. */
@@ -102,3 +109,15 @@ internal fun ConvoysState.loaded(convoys: List<Group>) =
 
 internal fun ConvoysState.failed(e: Exception) =
     copy(busy = false, error = e.message?.ifBlank { null } ?: ConvoysStore.FALLBACK_ERROR)
+
+/** [result] if [epoch] still names the session an in-flight [ConvoysStore.reload]
+ *  started under, checked against [currentEpoch] read fresh at commit time —
+ *  or this state untouched otherwise. Same guard as [FriendsStore]'s
+ *  matching function; see its doc for the full reasoning. */
+internal fun ConvoysState.commitIfCurrent(epoch: Int, currentEpoch: Int, result: ConvoysState): ConvoysState =
+    if (epoch == currentEpoch) result else this
+
+/** Every field back to [ConvoysState]'s defaults. `internal` and pure,
+ *  called from [ConvoysStore.reset] and asserted directly — see
+ *  [FriendsState.cleared]'s doc for why. */
+internal fun ConvoysState.cleared() = ConvoysState()

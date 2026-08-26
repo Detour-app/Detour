@@ -1,6 +1,9 @@
 package com.jellemax.detour.data
 
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import io.ktor.http.parametersOf
@@ -49,6 +52,22 @@ object Auth {
     private val refreshLock = Mutex()
 
     val username: StateFlow<String> = Settings.authUsername
+
+    /**
+     * Bumped every time [clear] runs. [FriendsStore.reload], its two
+     * siblings, and [FriendsStore.refreshOwn] each capture this at the start
+     * of an action and check it again before committing a result that took a
+     * round trip to produce — if it has moved on, the session that started
+     * the action is not the one this store holds any more, whether because
+     * it signed out, was 401'd, switched servers, or even signed back in as
+     * the same rider. That last case is exactly why this is a counter and
+     * not [username]: two round trips for the same handle are not guaranteed
+     * to land in request order, so equality on the username alone would miss
+     * a sign-out-then-sign-in-as-yourself, and would not catch a
+     * blank-to-blank transition through no session at all either.
+     */
+    private val _sessionEpoch = MutableStateFlow(0)
+    internal val sessionEpoch: StateFlow<Int> = _sessionEpoch.asStateFlow()
 
     /** A session exists on this device. Whether it is still live is only
      *  knowable by using it, which is what [bearer] does. */
@@ -222,6 +241,7 @@ object Auth {
      *  another rider's data. */
     fun clear() {
         Settings.setSession("", "", 0L, "")
+        _sessionEpoch.update { it + 1 }
         FriendsStore.reset()
         ConvoysStore.reset()
         CirclesStore.reset()
