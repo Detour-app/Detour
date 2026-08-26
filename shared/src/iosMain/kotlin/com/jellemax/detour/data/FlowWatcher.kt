@@ -197,6 +197,19 @@ object SettingsFlows {
     fun authToken() = StringWatcher(Settings.refreshToken)
 }
 
+/**
+ * The session's own lifecycle signal — not a per-screen setting, so not part
+ * of [SettingsFlows]. [Auth.sessionEpoch] is `internal`, but that only scopes
+ * it to this module (`shared`); wrapping it in an [IntWatcher] here exports
+ * nothing wider than the watcher classes above already do. Ties platform
+ * code that outlives [Auth.clear]'s own reach — anything outside
+ * `commonMain` — to the session rather than to any one button, the way
+ * `ConvoyLiveClient.swift`'s session watcher does.
+ */
+object AuthFlows {
+    fun sessionEpoch() = IntWatcher(Auth.sessionEpoch)
+}
+
 /** Stores whose changes a screen needs to react to. */
 object StoreFlows {
     fun savedPlaces() = SavedPlacesWatcher(SavedPlaces.places)
