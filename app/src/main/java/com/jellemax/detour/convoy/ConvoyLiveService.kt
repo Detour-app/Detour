@@ -104,7 +104,7 @@ class ConvoyLiveService : Service() {
             },
         )
 
-        if (ConvoyLiveClient.liveUrl(this).isBlank()) {
+        if (ConvoyLiveClient.liveUrl().isBlank()) {
             // Nothing to connect to. Refusing to proceed here (rather than
             // handing off to ConvoyLiveClient's retry loop) is what stops a
             // misconfigured server from escalating GPS to LIVE cadence and
@@ -119,7 +119,7 @@ class ConvoyLiveService : Service() {
             // switches cleanly if a different one was passed - so a second
             // start() while already running (switching convoys) works
             // whether or not the one-time setup below has already run.
-            ConvoyLiveClient.join(this, convoyId)
+            ConvoyLiveClient.join(convoyId)
             if (scope == null) {
                 val newScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
                 scope = newScope

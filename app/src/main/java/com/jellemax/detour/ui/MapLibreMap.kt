@@ -23,7 +23,7 @@ import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.RouteColors
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
-import com.jellemax.detour.net.FriendPosition
+import com.jellemax.detour.drive.FriendPosition
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng

@@ -144,7 +144,7 @@ class CircleNotifyService : Service() {
             stopSelf()
             return
         }
-        ConvoyLiveClient.setNotifyCircles(this, ids)
+        ConvoyLiveClient.setNotifyCircles(ids)
     }
 
     private suspend fun periodicRefreshLoop() {
@@ -203,7 +203,7 @@ class CircleNotifyService : Service() {
     }
 
     override fun onDestroy() {
-        ConvoyLiveClient.setNotifyCircles(this, emptySet())
+        ConvoyLiveClient.setNotifyCircles(emptySet())
         serviceScope.cancel()
         super.onDestroy()
     }
