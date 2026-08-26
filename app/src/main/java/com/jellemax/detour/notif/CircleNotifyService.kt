@@ -173,9 +173,12 @@ class CircleNotifyService : Service() {
         ConvoyLiveClient.connected.collect { connected ->
             if (!connected) return@collect
             val ids = try {
-                Groups.list("circle")
-                    .filter { it.status == "accepted" && CircleNotifySettings.notifyEnabled(it.id) }
-                    .map { it.id }
+                // Same rule as [refreshNotifyCircles] and as iOS's own sweep,
+                // so it is asked once rather than spelled out per caller -
+                // this filter was inline here until the policy moved to
+                // shared/, and two copies of "which circles want delivery"
+                // is how the two platforms drifted in the first place.
+                CircleNotifyPolicy.circlesWantingDelivery(Groups.list("circle"))
             } catch (e: Exception) {
                 return@collect
             }
