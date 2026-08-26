@@ -54,17 +54,31 @@ object Auth {
     val username: StateFlow<String> = Settings.authUsername
 
     /**
-     * Bumped every time [clear] runs. [FriendsStore.reload], its two
-     * siblings, and [FriendsStore.refreshOwn] each capture this at the start
-     * of an action and check it again before committing a result that took a
-     * round trip to produce — if it has moved on, the session that started
-     * the action is not the one this store holds any more, whether because
-     * it signed out, was 401'd, switched servers, or even signed back in as
-     * the same rider. That last case is exactly why this is a counter and
-     * not [username]: two round trips for the same handle are not guaranteed
-     * to land in request order, so equality on the username alone would miss
-     * a sign-out-then-sign-in-as-yourself, and would not catch a
-     * blank-to-blank transition through no session at all either.
+     * Bumped every time a session starts as well as every time [clear] ends
+     * one — [store] bumps it when [establishesSession][store] is true, which
+     * is [exchangeCode]'s call and not [refresh]'s (see [store]'s own doc for
+     * why a routine access-token refresh must not count). [FriendsStore.reload],
+     * its two siblings, [FriendsStore.refreshOwn] and [FriendFog.refresh] each
+     * capture this at the start of an action and check it again before
+     * committing a result that took a round trip to produce — if it has moved
+     * on, the session that started the action is not the one this store holds
+     * any more, whether because it signed out, was 401'd, switched servers,
+     * signed back in as the same rider, or — the reason the establish side of
+     * this exists — a different rider signed in while the action was still
+     * running.
+     *
+     * That last case is what a bump on [clear] alone cannot catch: without it,
+     * one epoch value spans "rider A signed out" through the whole of rider
+     * B's session, so a write started in the gap between them (e.g.
+     * [FriendsStore.refreshOwn], which has no [signedIn] guard of its own —
+     * see its doc) reads as current for the whole of B's session once it
+     * begins, not just for the instant it was actually valid in.
+     *
+     * It is also why this is a counter and not [username]: two round trips
+     * for the same handle are not guaranteed to land in request order, so
+     * equality on the username alone would miss a sign-out-then-sign-in-as-
+     * yourself, and would not catch a blank-to-blank transition through no
+     * session at all either.
      */
     private val _sessionEpoch = MutableStateFlow(0)
     internal val sessionEpoch: StateFlow<Int> = _sessionEpoch.asStateFlow()
@@ -123,7 +137,7 @@ object Auth {
             // client, refused the code, or was never reached at all.
             throw AuthException(tokenFailureMessage(e.code, e.body))
         }
-        store(response)
+        store(response, establishesSession = true)
     }
 
     /**
@@ -215,7 +229,14 @@ object Auth {
                 ))
             }
         } catch (e: Exception) {
-            // Offline, or the session was already gone. Clearing is what matters.
+            // Offline, or the session was already gone. Clearing is what
+            // matters — deliberately including a CancellationException here
+            // rather than the `catch (e: CancellationException) { throw e }`
+            // this module otherwise always leads with: if the coroutine
+            // running this call is itself cancelled mid-revoke, `clear()`
+            // below must still run, or a rider who tapped "Sign out" and
+            // immediately navigated away would stay signed in on this
+            // device with nothing left to reset the local state.
         }
         clear()
     }
@@ -270,7 +291,7 @@ object Auth {
             // the two answered.
             throw AuthException(tokenFailureMessage(e.code, e.body))
         }
-        store(response)
+        store(response, establishesSession = false)
         return Settings.accessToken.value
     }
 
@@ -282,10 +303,36 @@ object Auth {
             contentType = Http.FORM_URLENCODED,
         )
 
-    private fun store(tokenResponse: String) {
+    /**
+     * Writes [tokenResponse] into [Settings], bumping [sessionEpoch] first
+     * when [establishesSession] is true.
+     *
+     * [exchangeCode] passes true: that call is a brand-new session by
+     * definition, the one place this device goes from "no session" (or
+     * someone else's) to a rider's own. [refresh] passes false: refreshing
+     * the access token continues the *same* session — [bearer] only calls it
+     * while [signedIn] was already true — and bumping the epoch there would
+     * discard a store action that legitimately spans a background refresh
+     * (a reload in flight when the 15-minute access token happens to expire)
+     * even though nothing about the session actually changed. See
+     * [sessionEpoch]'s own doc for why the establish side still has to exist
+     * despite that.
+     *
+     * `internal` rather than private because the test for it is the point,
+     * the same reason [tokenFailureMessage] is: proving the epoch bumps (or
+     * doesn't) needs to call this directly, since `Settings.init()` — real
+     * platform prefs — never runs in this module's test target (see
+     * `RouteStoreLoadOrderTest`'s doc for the same constraint, which this
+     * reuses: the write into [Settings] below throws for lack of a Context
+     * before it can do anything, and by then the bump above has already
+     * happened).
+     */
+    internal fun store(tokenResponse: String, establishesSession: Boolean) {
         val o = jsonObjectOf(tokenResponse)
         val access = o.optString("access_token")
         if (access.isBlank()) throw AuthException("The identity provider returned no token")
+
+        if (establishesSession) _sessionEpoch.update { it + 1 }
 
         Settings.setSession(
             accessToken = access,

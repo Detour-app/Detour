@@ -116,6 +116,16 @@ object FriendsStore {
      */
     @Throws(Exception::class)
     suspend fun refreshOwn(username: String) {
+        // Belt and braces: nothing above this function checks `Auth.signedIn`
+        // on its behalf (unlike `reload`/`act`, whose callers only ever run
+        // while signed in), so this makes the contract honest on its own
+        // rather than trusting every future call site to remember it. See
+        // [Auth.sessionEpoch]'s doc for the reachable case this closes one
+        // more layer of: a call already in flight when the epoch guard below
+        // captures it is unaffected by this line, same as ever — it is only
+        // a call that has not started yet that this stops from beginning
+        // ungated.
+        if (!Auth.signedIn) return
         val epoch = Auth.sessionEpoch.value
         val own = try {
             val coverage = Coverage.compute()
