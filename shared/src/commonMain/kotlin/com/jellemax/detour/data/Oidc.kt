@@ -174,10 +174,11 @@ object Oidc {
             // nothing parked, expectedState is null too, so comparing states
             // would report every restarted-app callback with this generic
             // "could not be verified" wording instead of this specific one.
-            // That specific wording exists on purpose — see
-            // app/src/main/java/com/jellemax/detour/auth/Oidc.kt:109-119 for
-            // the story of the earlier phrasing sending people looking for a
-            // broken realm — and this check has to run first to preserve it.
+            // That specific wording exists on purpose: the phrasing it
+            // replaced ("nothing is in progress") sent people looking for a
+            // broken realm, when the honest reading is that this process is
+            // simply not the one that started the sign-in. This check has to
+            // run first to preserve it.
             throw AuthException(
                 "The app restarted while the browser was open, so this sign-in " +
                     "could not be finished. Tap Sign in to start again."

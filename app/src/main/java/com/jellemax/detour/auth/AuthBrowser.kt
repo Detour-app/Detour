@@ -1,6 +1,5 @@
 package com.jellemax.detour.auth
 
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
@@ -39,10 +38,14 @@ object AuthBrowser {
         return try {
             CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(authorize))
             true
-        } catch (e: ActivityNotFoundException) {
-            // No browser at all: nothing here can substitute for one. Drop the
-            // parked secrets, or the next callback to arrive from some earlier
-            // attempt would still look spendable.
+        } catch (e: Exception) {
+            // ActivityNotFoundException is the expected one — no browser at all,
+            // and nothing here can substitute for one. Caught broadly anyway
+            // because the thing that must happen on *any* failure to open the
+            // browser is dropping the secrets [Oidc.begin] just parked: a
+            // sign-in nobody can finish must not leave a verifier that a later
+            // stray callback could still spend. A narrower catch would leave
+            // that window open for every other way launchUrl can fail.
             Oidc.abandon()
             false
         }
