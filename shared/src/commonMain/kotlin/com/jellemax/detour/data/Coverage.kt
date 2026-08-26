@@ -279,21 +279,41 @@ object Coverage {
             get() = if (totalCells == 0) 0.0 else 100.0 * exploredCells / totalCells
     }
 
+    // Hub, Badges, the coverage map and Friends each land on this independently
+    // as you navigate between them; cached here so the second and later calls
+    // are free instead of repeating the full trace walk. Keyed on TraceStore's
+    // own version counter, plus the municipality list's identity (it's only
+    // ever replaced wholesale, in MunicipalityStore.save) since municipalities
+    // have no version counter of their own. Held as one reference, not three
+    // separate @Volatile fields, so a concurrent reader (there are six callers
+    // across screens, sync and badge checks) can never observe matching keys
+    // paired with a stale/previous result.
+    private class Cache(val traceVersion: Int, val municipalities: List<Municipality>, val entries: List<Entry>)
+    @Volatile private var cache: Cache? = null
+
     /** Walks every trace point once per municipality it could belong to. Cheap
      *  enough for a screen open or a trip end; not for a GPS callback. */
     fun compute(): List<Entry> {
         val municipalities = MunicipalityStore.load()
-        if (municipalities.isEmpty()) return emptyList()
-        val points = TraceStore.loadAll().flatten()
+        val traceVersion = TraceStore.version.value
+        cache?.let { c ->
+            if (c.traceVersion == traceVersion && c.municipalities === municipalities) return c.entries
+        }
 
-        return municipalities.map { m ->
-            val explored = HashSet<Long>()
-            for (p in points) {
-                if (!m.boundingBoxContains(p)) continue
-                val cell = m.cellOf(p)
-                if (cell in m.insideCells) explored.add(cell)
-            }
-            Entry(m.name, explored.size, m.insideCells.size, m.id)
-        }.filter { it.totalCells > 0 }.sortedByDescending { it.percent }
+        val entries = if (municipalities.isEmpty()) emptyList() else {
+            val points = TraceStore.loadAll().flatten()
+            municipalities.map { m ->
+                val explored = HashSet<Long>()
+                for (p in points) {
+                    if (!m.boundingBoxContains(p)) continue
+                    val cell = m.cellOf(p)
+                    if (cell in m.insideCells) explored.add(cell)
+                }
+                Entry(m.name, explored.size, m.insideCells.size, m.id)
+            }.filter { it.totalCells > 0 }.sortedByDescending { it.percent }
+        }
+
+        cache = Cache(traceVersion, municipalities, entries)
+        return entries
     }
 }
