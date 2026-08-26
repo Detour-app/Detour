@@ -126,6 +126,13 @@ object FriendsStore {
         // a call that has not started yet that this stops from beginning
         // ungated.
         if (!Auth.signedIn) return
+        // A blank handle is not a rider. Reachable in one narrow window on iOS,
+        // where `username` is a mirrored @Published copy fed by a second
+        // watcher that can lag the token's by a tick after a sign-in — the
+        // mirror now clears rather than freezing, so what arrives here is "" and
+        // not the departed rider's handle. Committing it would put a nameless
+        // row in the leaderboard until the next reload.
+        if (username.isBlank()) return
         val epoch = Auth.sessionEpoch.value
         val own = try {
             val coverage = Coverage.compute()
