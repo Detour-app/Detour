@@ -1043,11 +1043,63 @@ None of these is checkable on Linux, so read for them deliberately:
    the first real check of that line — so a failure there is expected to be this, and is not
    a mystery.
 
+- [ ] **Step 5b: Decide what happens to a redirect that arrives with no session open**
+
+`ASWebAuthenticationSession` intercepts the callback and hands it to its own completion
+handler, so in the normal case the redirect never reaches `onOpenURL`. But `Info.plist:69-79`
+registers the bare `detour` scheme app-wide, and `DetourApp.swift:29-36` already has an
+`onOpenURL` that handles `host == "reset"` and silently drops everything else. So if the
+session is gone by the time the realm redirects — the app was killed behind the browser, the
+iOS equivalent of Android's "app restarted" case — the callback lands there and is discarded
+without a word.
+
+Android reports that case: `MainActivity` sees the redirect, finds nothing parked, and shows
+"The app restarted while the browser was open…". iOS currently would show nothing at all,
+which reads as a Sign in button that did nothing.
+
+Add the same reporting to `DetourApp.swift`'s `onOpenURL`, before the reset branch:
+
+```swift
+                    // A redirect arriving here rather than in the sign-in
+                    // session's completion handler means the session is gone —
+                    // the app was killed behind the browser. Shared Oidc has
+                    // nothing parked, so complete() will refuse it with the
+                    // "app restarted" message, which is the thing worth saying:
+                    // silently dropping it reads as a Sign in button that did
+                    // nothing. Same case Android reports from MainActivity.
+                    if Oidc.shared.isCallback(url: url.absoluteString) {
+                        Task { await SignIn.reportOrphanedCallback(url) }
+                        return
+                    }
+```
+
+and in `SignIn.swift`, a static counterpart that does the same thing `start()`'s `catch` does:
+
+```swift
+    /// A callback that arrived with no session waiting for it. Runs the shared
+    /// refusal so the rider is told why, rather than nothing happening.
+    static func reportOrphanedCallback(_ url: URL) async {
+        do {
+            try await Oidc.shared.complete(url: url.absoluteString)
+        } catch {
+            OrphanedSignIn.shared.message = (error as NSError).localizedDescription
+        }
+    }
+```
+
+`OrphanedSignIn` is a one-property `@MainActor final class … : ObservableObject` in
+`SignIn.swift` holding `@Published var message: String?`, observed by `SignInForm` and cleared
+when shown — the same one-shot shape `PendingSignIn.signedInAs` uses on Android, and the same
+shape `PendingCircleOpen` already uses in this app. Note the `complete` call is expected to
+throw: in the ordinary orphaned case it is the "app restarted" refusal. It is called rather
+than assumed so that a redirect that *can* still be spent is (the session was dismissed but
+the parked verifier survived), instead of being thrown away on a guess.
+
 - [ ] **Step 6: Commit**
 
 ```bash
 git add iosApp/Detour/SignIn.swift iosApp/Detour/FriendsScreen.swift \
-        iosApp/Detour/SettingsScreen.swift
+        iosApp/Detour/SettingsScreen.swift iosApp/Detour/DetourApp.swift
 git commit -m "feat(ios): sign in through the realm, and let the realm be configured
 
 The iOS app can now complete the authorization-code flow: SignIn.swift supplies
