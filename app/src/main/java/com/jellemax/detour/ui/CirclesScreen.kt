@@ -42,7 +42,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -56,23 +55,18 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.Account
-import com.jellemax.detour.data.CircleEvents
+import com.jellemax.detour.data.CirclesState
+import com.jellemax.detour.data.CirclesStore
 import com.jellemax.detour.data.Features
-import com.jellemax.detour.data.CirclePlace
-import com.jellemax.detour.data.CirclePlaces
 import com.jellemax.detour.data.Group
 import com.jellemax.detour.data.GroupMember
-import com.jellemax.detour.data.Groups
-import com.jellemax.detour.data.PlaceEvent
 import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.notif.CircleNotifySettings
 import com.jellemax.detour.notif.CircleNotifyService
 import com.jellemax.detour.notif.PendingCircleOpen
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /** A plain geofence radius suggestion — big enough that ordinary GPS jitter
  *  at a house or a workplace doesn't sit right on the line, small enough
@@ -96,57 +90,26 @@ fun CirclesScreen(onBack: () -> Unit, openCircleId: String? = null) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val username by Account.username.collectAsStateWithLifecycle()
-    var circles by remember { mutableStateOf<List<Group>>(emptyList()) }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var reloads by remember { mutableIntStateOf(0) }
+    val state by CirclesStore.state.collectAsStateWithLifecycle()
     var createOpen by remember { mutableStateOf(false) }
     var inviteFor by remember { mutableStateOf<Group?>(null) }
-    // Which circle this screen has open, for its places and events. The map no
-    // longer reads it: it draws every circle you're in, all the time, so there
-    // is nothing here for leaving the screen to disagree with.
-    var selectedId by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(reloads) {
-        try {
-            circles = withContext(Dispatchers.IO) { Groups.list("circle") }
-            error = null
-        } catch (e: Exception) {
-            error = e.message ?: "Could not reach the server"
-        }
-    }
+    LaunchedEffect(Unit) { CirclesStore.reload() }
 
     // A tapped arrival/departure notification opens straight to its circle -
-    // waits for the list to actually contain it (a cold start races this
-    // screen's own load) rather than opening a detail section for an id
-    // nothing yet confirms is real.
-    LaunchedEffect(circles, openCircleId) {
-        if (openCircleId != null && circles.any { it.id == openCircleId }) {
-            selectedId = openCircleId
+    // CirclesStore.select is safe to call before the list has finished its
+    // own load, since CirclesStore.loaded drops a selectedId that turns out
+    // not to name a real circle.
+    LaunchedEffect(openCircleId) {
+        openCircleId?.let {
+            CirclesStore.select(it)
             PendingCircleOpen.clear()
         }
     }
 
-    fun act(block: suspend () -> Unit) {
-        busy = true
-        error = null
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { block() }
-                reloads++
-                // Accepting an invite is the one action here that can change
-                // which circles want notifications - cheap enough (see the
-                // function's own doc) to just call unconditionally rather
-                // than singling that action out.
-                CircleNotifyService.refresh(context)
-            } catch (e: Exception) {
-                error = e.message ?: "Failed"
-            }
-            busy = false
-        }
-    }
-
-    val selected = circles.find { it.id == selectedId }
+    // The map no longer reads this: it draws every circle you're in, all the
+    // time, so there is nothing here for leaving the screen to disagree with.
+    val selected = state.circles.find { it.id == state.selectedId }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
@@ -154,7 +117,10 @@ fun CirclesScreen(onBack: () -> Unit, openCircleId: String? = null) {
         topBar = {
             SubScreenTopBar(
                 selected?.name ?: "Circles",
-                onBack = { if (selected != null) selectedId = null else onBack() },
+                onBack = {
+                    if (selected != null) scope.launch { CirclesStore.select(null) }
+                    else onBack()
+                },
                 scrollBehavior,
             )
         },
@@ -182,29 +148,42 @@ fun CirclesScreen(onBack: () -> Unit, openCircleId: String? = null) {
                 )
                 return@Column
             }
-            error?.let {
+            state.error?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
             if (selected == null) {
                 CircleListSection(
-                    circles = circles,
-                    busy = busy,
-                    onOpen = { selectedId = it.id },
+                    circles = state.circles,
+                    busy = state.busy,
+                    onOpen = { c -> scope.launch { CirclesStore.select(c.id) } },
                     onCreate = { createOpen = true },
-                    onAccept = { c -> act { Groups.respond(c.id, true) } },
-                    onDecline = { c -> act { Groups.respond(c.id, false) } },
+                    onAccept = { c ->
+                        scope.launch {
+                            if (CirclesStore.respond(c.id, true)) CircleNotifyService.refresh(context)
+                        }
+                    },
+                    onDecline = { c ->
+                        scope.launch {
+                            if (CirclesStore.respond(c.id, false)) CircleNotifyService.refresh(context)
+                        }
+                    },
                 )
             } else {
                 CircleDetailSection(
                     circle = selected,
                     username = username,
-                    busy = busy,
+                    state = state,
                     onInvite = { inviteFor = selected },
                     onLeave = {
-                        selectedId = null
-                        act { Groups.leave(selected.id) }
+                        scope.launch {
+                            if (CirclesStore.leave(selected.id)) CircleNotifyService.refresh(context)
+                        }
                     },
-                    onToggleSharing = { sharing -> act { Groups.setSharing(selected.id, sharing) } },
+                    onToggleSharing = { sharing ->
+                        scope.launch {
+                            if (CirclesStore.setSharing(selected.id, sharing)) CircleNotifyService.refresh(context)
+                        }
+                    },
                 )
             }
         }
@@ -213,14 +192,24 @@ fun CirclesScreen(onBack: () -> Unit, openCircleId: String? = null) {
     if (createOpen) {
         CreateCircleDialog(
             onDismiss = { createOpen = false },
-            onCreate = { name -> act { Groups.create("circle", name) }; createOpen = false },
+            onCreate = { name ->
+                scope.launch {
+                    if (CirclesStore.create(name)) CircleNotifyService.refresh(context)
+                }
+                createOpen = false
+            },
         )
     }
     inviteFor?.let { circle ->
         InviteToCircleDialog(
             circle = circle,
             onDismiss = { inviteFor = null },
-            onInvite = { target -> act { Groups.invite(circle.id, target) }; inviteFor = null },
+            onInvite = { target ->
+                scope.launch {
+                    if (CirclesStore.invite(circle.id, target) != null) CircleNotifyService.refresh(context)
+                }
+                inviteFor = null
+            },
         )
     }
 }
@@ -312,7 +301,7 @@ private fun CircleListSection(
 private fun CircleDetailSection(
     circle: Group,
     username: String,
-    busy: Boolean,
+    state: CirclesState,
     onInvite: () -> Unit,
     onLeave: () -> Unit,
     onToggleSharing: (Boolean) -> Unit,
@@ -320,11 +309,6 @@ private fun CircleDetailSection(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val savedPlaces by SavedPlaces.places.collectAsStateWithLifecycle()
-    var places by remember(circle.id) { mutableStateOf<List<CirclePlace>>(emptyList()) }
-    var events by remember(circle.id) { mutableStateOf<List<PlaceEvent>>(emptyList()) }
-    var placesError by remember(circle.id) { mutableStateOf<String?>(null) }
-    var placesBusy by remember(circle.id) { mutableStateOf(false) }
-    var dataReloads by remember(circle.id) { mutableIntStateOf(0) }
     var shareOpen by remember { mutableStateOf(false) }
 
     // Local-only preference (see CircleNotifySettings) - not part of `circle`
@@ -381,36 +365,19 @@ private fun CircleDetailSection(
         CircleNotifyService.refresh(context)
     }
 
-    // This *list* still only ever reflects the last time this screen loaded
+    // This *list* still only ever reflects the last time this section loaded
     // it - on open, after a mutation, or the refresh button below - even
     // though a local notification for a new arrival/departure can now
-    // arrive live (see CircleNotifyService): re-fetching the whole list on
-    // every relay frame just to keep a screen that might not even be open
-    // in sync isn't worth it, and tapping that notification lands back here
-    // anyway, which reloads it.
-    LaunchedEffect(circle.id, dataReloads) {
-        try {
-            places = withContext(Dispatchers.IO) { CirclePlaces.places(circle.id) }
-            events = withContext(Dispatchers.IO) { CircleEvents.events(circle.id, sinceMs = 0L) }
-                .sortedByDescending { it.tsMs }
-            placesError = null
-        } catch (e: Exception) {
-            placesError = e.message ?: "Could not reach the server"
-        }
-    }
-
-    fun act(block: suspend () -> Unit) {
-        placesBusy = true
-        placesError = null
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { block() }
-                dataReloads++
-            } catch (e: Exception) {
-                placesError = e.message ?: "Failed"
-            }
-            placesBusy = false
-        }
+    // arrive live (see CircleNotifyService): re-fetching on every relay
+    // frame just to keep a section that might not even be open in sync
+    // isn't worth it, and tapping that notification lands back here anyway,
+    // which reloads it. Keyed on the circle id alone, not a reload counter,
+    // now that CirclesStore owns the reload itself - so that a circle
+    // change while this section stays mounted cancels a stale in-flight
+    // load rather than letting CirclesStore.loadDetail finish it only to
+    // discard the result.
+    LaunchedEffect(circle.id) {
+        CirclesStore.select(circle.id)
     }
 
     val mine = circle.members.find { it.username == username }
@@ -435,7 +402,7 @@ private fun CircleDetailSection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Switch(checked = mine.sharing, enabled = !busy, onCheckedChange = onToggleSharing)
+            Switch(checked = mine.sharing, enabled = !state.busy, onCheckedChange = onToggleSharing)
         }
 
         Row(
@@ -457,15 +424,15 @@ private fun CircleDetailSection(
             }
             Switch(
                 checked = notifyEnabled && Features.liveRelay,
-                enabled = !busy && Features.liveRelay,
+                enabled = !state.busy && Features.liveRelay,
                 onCheckedChange = ::onToggleNotify,
             )
         }
     }
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(enabled = !busy, onClick = onInvite) { Text("Invite") }
-        TextButton(enabled = !busy, onClick = onLeave) { Text("Leave") }
+        OutlinedButton(enabled = !state.busy, onClick = onInvite) { Text("Invite") }
+        TextButton(enabled = !state.busy, onClick = onLeave) { Text("Leave") }
     }
 
     Row(
@@ -475,7 +442,7 @@ private fun CircleDetailSection(
     ) {
         Text("Shared places", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { dataReloads++ }) {
+            IconButton(onClick = { scope.launch { CirclesStore.select(circle.id) } }) {
                 Icon(Icons.Outlined.Refresh, contentDescription = "Refresh")
             }
             TextButton(enabled = savedPlaces.isNotEmpty(), onClick = { shareOpen = true }) {
@@ -484,10 +451,10 @@ private fun CircleDetailSection(
             }
         }
     }
-    placesError?.let {
+    state.error?.let {
         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
-    if (places.isEmpty()) {
+    if (state.places.isEmpty()) {
         Text(
             "No places shared yet. Sharing one lets the circle see arrivals and " +
                 "departures there — the place stays yours, only revoked when you leave.",
@@ -495,7 +462,7 @@ private fun CircleDetailSection(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     } else {
-        for (place in places) {
+        for (place in state.places) {
             Card {
                 Row(
                     Modifier
@@ -514,8 +481,8 @@ private fun CircleDetailSection(
                     }
                     if (place.owner == username) {
                         IconButton(
-                            enabled = !placesBusy,
-                            onClick = { act { CirclePlaces.delete(place.serverId) } },
+                            enabled = !state.busy,
+                            onClick = { scope.launch { CirclesStore.unsharePlace(place.serverId) } },
                         ) {
                             Icon(Icons.Outlined.Delete, contentDescription = "Remove ${place.place.name}",
                                 tint = MaterialTheme.colorScheme.error)
@@ -527,17 +494,17 @@ private fun CircleDetailSection(
     }
 
     Text("Recent activity", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-    if (events.isEmpty()) {
+    if (state.events.isEmpty()) {
         Text(
             "No arrivals or departures yet.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     } else {
-        for (event in events.take(20)) {
+        for (event in state.events.take(20)) {
             // The place may since have been unshared/deleted; say so rather
             // than dropping the event, which happened and stays true either way.
-            val placeName = places.find { it.place.id == event.placeId }?.place?.name ?: "a since-removed place"
+            val placeName = state.places.find { it.place.id == event.placeId }?.place?.name ?: "a since-removed place"
             val verb = if (event.kind == "arrive") "arrived at" else "left"
             Text(
                 "${event.username} $verb $placeName — ${relativeAge(event.tsMs)}",
@@ -551,7 +518,7 @@ private fun CircleDetailSection(
             places = savedPlaces,
             onDismiss = { shareOpen = false },
             onShare = { place, radiusM ->
-                act { CirclePlaces.share(circle.id, place, radiusM) }
+                scope.launch { CirclesStore.sharePlace(circle.id, place, radiusM) }
                 shareOpen = false
             },
         )
