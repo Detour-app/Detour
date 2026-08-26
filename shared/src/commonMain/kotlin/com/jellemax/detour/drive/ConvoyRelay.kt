@@ -61,21 +61,35 @@ sealed interface SpinRoundOutcome {
  * what seemed cleaner.
  *
  * **What the socket is joined to is state, not a [run] parameter - the
- * socket is additive.** One socket serves a convoy and any number of circles
- * at once: [setConvoy] names the convoy (or clears it), [setNotifyingCircles]
- * names the circles that want live `place_event` arrival/departure pushes,
- * and the two are independent - `CircleNotifyService` on Android holds this
- * socket open purely for circles, with no convoy joined at all, which an
- * earlier revision of this class made impossible by requiring a `groupId` to
- * call [run] in the first place. [run] stays connected for as long as either
- * is set (see [shouldStayConnected], reproduced from the Android client's
- * function of the same name) and returns once neither is, without needing
- * [stop] to be called - see [run]'s own doc. A change to either while
- * connected joins (or simply forgets) on the *live* socket rather than
- * reopening it, since neither existing client has a wire frame to leave a
- * single group - only closing the whole socket parts every membership at
- * once - see [setConvoy] and [setNotifyingCircles]'s own docs for what that
- * costs.
+ * socket is additive, but only in one direction.** One socket serves a
+ * convoy and any number of circles at once: [setConvoy] names the convoy (or
+ * clears it), [setNotifyingCircles] names the circles that want live
+ * `place_event` arrival/departure pushes, and the two are independent -
+ * `CircleNotifyService` on Android holds this socket open purely for
+ * circles, with no convoy joined at all, which an earlier revision of this
+ * class made impossible by requiring a `groupId` to call [run] in the first
+ * place. [run] stays connected for as long as either is set (see
+ * [shouldStayConnected], reproduced from the Android client's function of
+ * the same name) and returns once neither is, without needing [stop] to be
+ * called - see [run]'s own doc.
+ *
+ * Neither existing client has a wire frame to leave a single group - the
+ * outbound protocol is exactly seven frame types (`join`, `location`,
+ * `ptt_start`, `ptt_end`, `ptt_audio`, `spin_offer`, `spin_vote`) and closing
+ * the whole socket is the only way any of them parts a membership at all.
+ * That makes an *addition* (a convoy where there was none, a new circle id)
+ * cheap - it joins fresh on the *live* socket, no reconnect - but a
+ * *removal* (leaving a convoy, switching convoys - a removal plus an
+ * addition - or dropping a circle id) has no cheap path: it closes whatever
+ * socket [run] currently has open and lets [run]'s own reconnect loop bring
+ * a fresh one back joined to exactly what remains wanted, never to whatever
+ * was just left - see [setConvoy] and [setNotifyingCircles]'s own docs. This
+ * is why the removal side cannot stay additive too: [sendLocation] forwards
+ * this device's GPS for the life of the connection, so a socket left joined
+ * to a group this device actually departed keeps broadcasting its position
+ * onto it - the exact shape of leak documented on `ConvoyLiveClient.swift`'s
+ * `sessionEnded()`, for a socket that outlived a sign-out instead of a
+ * membership change. Do not ship a third instance of it.
  *
  * **URL and header resolution stay a platform concern.** Android's derives a
  * `wss://` URL from a `Context`-backed `Settings`/`BuildConfig` read; iOS's
@@ -289,35 +303,48 @@ class ConvoyRelay {
 
     /**
      * The convoy this device is in, or null - independent of
-     * [setNotifyingCircles] (see the class doc's "additive" paragraph).
+     * [setNotifyingCircles] (see the class doc's "additive, but only in one
+     * direction" paragraph).
      *
      * There is no wire frame to leave a single group on either existing
-     * client - only closing the whole socket parts every membership at once
-     * - so leaving (or switching away from) a convoy cannot itself be told
-     * to the relay; it is joined fresh here right on the live socket if one
-     * is already up, same as a freshly-notifying circle, and the relay may
-     * still consider this device a member of whatever [groupId] used to be
-     * until the next reconnect happens for some other reason. [peers]/
-     * [talking]/[spinOffer]/[spinVotes] are cleared locally regardless, so
-     * at least what is shown does not lag behind what was just requested,
-     * even though a stray late frame from the old convoy could in principle
-     * still arrive before that next reconnect.
+     * client - only closing the whole socket parts every membership at once.
+     * A **fresh** convoy (there was none joined before) is cheap: it joins
+     * right on the live socket if one is already up, same as a
+     * freshly-notifying circle. But leaving, or switching away from, a
+     * convoy this device *was* in is a **removal**, and the only way the
+     * relay actually stops treating this device as a member of the old
+     * [groupId] is a reconnect - so this closes whatever socket [run]
+     * currently has open, and [run]'s own reconnect loop brings a fresh one
+     * back joined to exactly the new [groupId] (if any) and every circle
+     * still wanted, never the departed convoy. This is the case
+     * `ConvoyLiveClient.swift`'s `join(convoyId:)` comment is about: simply
+     * joining a new convoy on top of the old one would leave this device
+     * receiving both convoys' traffic - and, worse, still broadcasting
+     * [sendLocation]'s fixes onto the one it left. [peers]/[talking]/
+     * [spinOffer]/[spinVotes] are cleared locally right away either way, so
+     * what is shown never lags behind what was just requested even while
+     * the reconnect is in flight.
      *
      * If this call leaves nothing wanted at all (see [shouldStayConnected])
-     * the live socket - if any - is closed instead, which is what lets
+     * the live socket - if any - is closed the same way (a reconnect loop
+     * that finds nothing wanted just lets [run] return), which is what lets
      * [run] notice and return; see [run]'s own doc.
      */
     fun setConvoy(groupId: String?) {
         if (_convoyId.value == groupId) return
+        val hadConvoy = _convoyId.value != null
         _convoyId.value = groupId
         _peers.value = emptyMap()
         _talking.value = emptySet()
         _spinOffer.value = null
         _spinVotes.value = emptyMap()
-        if (groupId != null && _connected.value) {
-            send(RelayProtocol.buildJoin(groupId))
-        } else if (!shouldStayConnected()) {
-            currentSocket?.close()
+        when {
+            !shouldStayConnected() -> currentSocket?.close()
+            // Leaving, or switching away from, a convoy is a removal -
+            // reopen rather than join on top of it, see this function's own
+            // doc for why there is no cheaper option.
+            hadConvoy -> currentSocket?.close()
+            groupId != null && _connected.value -> send(RelayProtocol.buildJoin(groupId))
         }
     }
 
@@ -329,16 +356,27 @@ class ConvoyRelay {
      * the same operation `setNotifyCircles`), rather than adding/removing
      * one id at a time.
      *
-     * A newly-added id is joined fresh on the live socket at once if one is
-     * already up - same immediate join [setConvoy] does for a fresh convoy.
-     * A dropped id is only forgotten locally: there is no wire "leave a
-     * single group" (see [setConvoy]'s own doc for the same constraint), so
-     * its `place_event` frames may keep arriving until the next reconnect -
-     * matching `ConvoyLiveClient.swift`'s `removeNotifyingCircle` exactly,
-     * which documents the same tolerance. A caller uninterested in a
-     * particular circle's events is expected to filter them itself, the same
-     * way `CircleNotifyService`/`CircleNotifications` already do downstream
-     * of this class on both platforms today.
+     * A newly-added id (nothing dropped in the same call) is joined fresh on
+     * the live socket at once if one is already up - same immediate join
+     * [setConvoy] does for a fresh convoy. A dropped id is a **removal**,
+     * and deliberately *not* handled the way either existing client handles
+     * it: Android reconnects for every membership change regardless, but
+     * iOS's `removeNotifyingCircle` only forgets the id locally and lets its
+     * `place_event` frames keep arriving - filtered client-side by
+     * `CircleNotifications` - until whatever reconnect happens next for some
+     * other reason. This class has no such downstream filter, and more to
+     * the point: there is no wire "leave a single group" (see [setConvoy]'s
+     * own doc for the same constraint), so a reconnect is the *only* way the
+     * relay actually stops treating this device as a member of the dropped
+     * circle. Staying joined server-side to a circle this device was just
+     * told to leave is the same shape of leak the class doc warns about for
+     * a convoy, so a dropped id reopens the socket the same way a left
+     * convoy does, even though a circle set can change while a rider is
+     * doing nothing in particular (a membership sync landing mid-drive) and
+     * an addition never pays this cost. The trade-off is deliberate: one
+     * reconnect's cost (peers/talking/spin cleared, back within a backoff
+     * step) against staying joined to a group this device has left, and the
+     * latter is the more expensive mistake between the two.
      *
      * If this call leaves nothing wanted at all, the live socket - if any -
      * is closed, same as [setConvoy] - see [run]'s own doc for why.
@@ -346,9 +384,15 @@ class ConvoyRelay {
     fun setNotifyingCircles(ids: Set<String>) {
         val previous = _notifyingCircleIds.value
         if (previous == ids) return
+        val removed = previous - ids
         _notifyingCircleIds.value = ids
-        if (_connected.value) (ids - previous).forEach { send(RelayProtocol.buildJoin(it)) }
-        if (!shouldStayConnected()) currentSocket?.close()
+        when {
+            !shouldStayConnected() -> currentSocket?.close()
+            // Any dropped id is a removal - reopen rather than leave this
+            // device joined to it server-side, see this function's own doc.
+            removed.isNotEmpty() -> currentSocket?.close()
+            _connected.value -> (ids - previous).forEach { send(RelayProtocol.buildJoin(it)) }
+        }
     }
 
     /**

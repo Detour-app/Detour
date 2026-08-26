@@ -48,10 +48,13 @@ import kotlin.test.assertTrue
  * [ConvoyRelay.setNotifyingCircles]) *before* launching [ConvoyRelay.run] -
  * membership is state, independent of the connection loop, so it can be set
  * ahead of a connection exactly as `CircleNotifyService`/`MapScreen` do on
- * the real clients. See the "additive" group of tests near the bottom for
- * the property this file exists to prove that a one-`groupId`-per-`run()`
- * signature made impossible: the socket serving a convoy and any number of
- * circles at once, and one changing without disturbing the other.
+ * the real clients. See the "additive membership" group of tests near the
+ * bottom for the property a one-`groupId`-per-`run()` signature made
+ * impossible: the socket serving a convoy and any number of circles at once,
+ * and an *addition* to either joining without disturbing the other. See the
+ * "removal reopens" group right after it for the other half: a *removal* -
+ * leaving a convoy, switching convoys, or dropping a circle - has no wire
+ * frame to do it with, so it closes and reopens the socket instead.
  */
 class ConvoyRelayTest {
 
@@ -497,10 +500,9 @@ class ConvoyRelayTest {
     }
 
     @Test
-    fun removingACircleWhileConnectedDoesNotReopenTheSocket() = runBlocking {
+    fun addingAConvoyWhileConnectedForCirclesJoinsOnTheLiveSocketWithoutReopening() = runBlocking {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
-        relay.setConvoy("convoy-1")
         relay.setNotifyingCircles(setOf("circle-1"))
         val job = launch { relay.run(socket, tokenSupplier()) }
 
@@ -508,24 +510,69 @@ class ConvoyRelayTest {
         socket.push(joinedFrame())
         relay.connected.first { it }
 
-        relay.setNotifyingCircles(emptySet())
+        // A fresh convoy - there was none before - is an addition exactly
+        // like a fresh circle id: joins on the live socket, no reconnect.
+        relay.setConvoy("convoy-1")
 
-        // No wire "leave a single group" exists (see ConvoyRelay's class
-        // doc) - only the sends already made from the initial join batch,
-        // and the convoy alone keeps the socket up regardless.
         assertEquals(
-            listOf(RelayProtocol.buildJoin("convoy-1"), RelayProtocol.buildJoin("circle-1")),
+            listOf(RelayProtocol.buildJoin("circle-1"), RelayProtocol.buildJoin("convoy-1")),
             socket.sent,
         )
         assertEquals(1, socket.connectCount.value)
-        assertTrue(relay.connected.value)
+
+        relay.stop()
+        job.join()
+    }
+
+    // --- removal reopens: the point of *this* task's fix -------------------
+    //
+    // The relay's outbound protocol is exactly seven frame types - join,
+    // location, ptt_start, ptt_end, ptt_audio, spin_offer, spin_vote - and
+    // none of them detaches a socket from a single group. Parting any one
+    // membership therefore has no cheap path: the whole socket has to close
+    // and reopen, then rejoin everything still wanted. Leaving this additive
+    // for a removal - as ConvoyRelay did before this fix, and as iOS still
+    // does for a dropped circle - leaves the device joined to a group it has
+    // left, and sendLocation() keeps broadcasting this device's GPS onto it:
+    // the same shape of leak already fixed once for a socket that outlived a
+    // sign-out (see ConvoyRelay's class doc). The three tests below replace
+    // three from the previous task that asserted exactly the behaviour this
+    // task exists to correct.
+
+    @Test
+    fun removingACircleWhileConnectedReopensTheSocketAndRejoinsExactlyTheRemainder() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        relay.setNotifyingCircles(setOf("circle-1", "circle-2"))
+        val job = launch { relay.run(socket, tokenSupplier()) }
+
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+        val sentBeforeDrop = socket.sent.size
+
+        relay.setNotifyingCircles(setOf("circle-2"))
+
+        // No wire "leave a single group" exists (see ConvoyRelay's class
+        // doc) - dropping circle-1 alone forces a full reconnect.
+        socket.connectCount.first { it >= 2 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        // The join batch sent on the fresh connection covers exactly what's
+        // still wanted - convoy-1 and circle-2 - and not circle-1.
+        assertEquals(
+            listOf(RelayProtocol.buildJoin("convoy-1"), RelayProtocol.buildJoin("circle-2")),
+            socket.sent.drop(sentBeforeDrop),
+        )
 
         relay.stop()
         job.join()
     }
 
     @Test
-    fun switchingConvoysReJoinsTheNewOneWithoutReopeningTheSocket() = runBlocking {
+    fun switchingConvoysReopensTheSocketAndJoinsOnlyTheNewOne() = runBlocking {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -537,22 +584,28 @@ class ConvoyRelayTest {
 
         relay.setConvoy("convoy-2")
 
-        // Same tradeoff as a dropped circle: there is no wire "leave a
-        // single group", so switching convoys joins the new one on the live
-        // socket rather than reopening it - convoy-1's frames may keep
-        // arriving server-side until the next natural reconnect.
+        // A convoy switch is a removal (of convoy-1) plus an addition (of
+        // convoy-2) - the exact case ConvoyLiveClient.swift's join(convoyId:)
+        // comment is about: simply joining convoy-2 on top of convoy-1 would
+        // leave this device receiving both convoys' traffic. The only way to
+        // actually stop being joined to convoy-1 is a full reconnect.
+        socket.connectCount.first { it >= 2 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        // Only convoy-2 is ever joined on the fresh connection - convoy-1's
+        // join from before the reconnect is the only place it appears.
         assertEquals(
             listOf(RelayProtocol.buildJoin("convoy-1"), RelayProtocol.buildJoin("convoy-2")),
             socket.sent,
         )
-        assertEquals(1, socket.connectCount.value)
 
         relay.stop()
         job.join()
     }
 
     @Test
-    fun leavingTheConvoyWhileCirclesRemainKeepsTheSocketUpAndClearingBothLetsRunFinish() = runBlocking {
+    fun leavingTheConvoyWhileCirclesRemainReopensTheSocketAndClearingBothLetsRunFinish() = runBlocking {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
         relay.setConvoy("convoy-1")
@@ -569,12 +622,24 @@ class ConvoyRelayTest {
 
         relay.setConvoy(null)
 
-        // Leaving the convoy alone must not touch the socket at all -
-        // circles still want it, and there is nothing to send to leave one
-        // group (see ConvoyRelay's class doc).
-        assertEquals(1, socket.connectCount.value)
-        assertTrue(relay.connected.value, "the socket should still be up for the remaining circle")
-        assertFalse(job.isCompleted)
+        // Leaving the convoy is a removal - the remaining circle keeps the
+        // socket up across it (run() must not return), but there is nothing
+        // that lets convoy-1 be parted from this socket short of a
+        // reconnect, so one happens despite circle-1 still being wanted.
+        socket.connectCount.first { it >= 2 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+        assertFalse(job.isCompleted, "the remaining circle should keep run() alive across the reconnect")
+
+        // Rejoined exactly what's still wanted on the fresh connection -
+        // circle-1, and not convoy-1.
+        assertEquals(
+            listOf(
+                RelayProtocol.buildJoin("convoy-1"), RelayProtocol.buildJoin("circle-1"),
+                RelayProtocol.buildJoin("circle-1"),
+            ),
+            socket.sent,
+        )
 
         // Now nothing wants the socket at all - this is what actually ends
         // run(), without stop() ever being called.
