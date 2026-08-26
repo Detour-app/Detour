@@ -1,0 +1,406 @@
+package com.jellemax.detour.drive
+
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlin.system.measureTimeMillis
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+/**
+ * Covers ConvoyRelay.kt: the convoy live-relay's state machine, ported from
+ * two independent hand-rolled loops (Android's `net/ConvoyLiveClient.kt` and
+ * iOS's `ConvoyLiveClient.swift`) that agreed on how peers, push-to-talk
+ * membership, the spin vote and the reconnect loop behave only by
+ * construction. This is the first time any of it runs against something
+ * other than two phones and a live relay.
+ *
+ * [FakeRelaySocket] is what makes that possible: a [RelaySocket] backed by an
+ * in-memory [Channel], so a test controls exactly which frames "arrive" and
+ * when, and can inspect exactly what got "sent". Every assertion that depends
+ * on the relay's own coroutine having processed a frame waits on the
+ * relevant `StateFlow` via `first { }` rather than reading `.value`
+ * immediately after handing the fake a frame - `first` suspends until the
+ * flow actually reaches the state being waited for, so it is correct
+ * regardless of how `runBlocking`'s scheduler happens to interleave the test
+ * coroutine and the relay's own, whereas reading `.value` right after a
+ * `Channel` send would be racing it. No coroutine test dispatcher is used,
+ * per this module's house style - `runBlocking` and a real (if short)
+ * `delay` are what a genuine reconnect-with-backoff test needs, and nothing
+ * here waits longer than one backoff step.
+ *
+ * The spin-vote rule itself ([SpinRoundOutcome]) is a straight port of
+ * `app/.../map/GroupSpinRules.kt`, which already has its own pure-function
+ * test (`GroupSpinRulesTest.kt`) covering `leadingSpinIndex`/`resolveSpinRound`
+ * in isolation - tie-breaks, pruned-peer edge cases, and so on. This file
+ * does not re-derive those; it covers the property that test suite never
+ * could, because it needs two devices: that a relay driven entirely off its
+ * own state reaches the identical outcome as a second relay with a
+ * *different* peer set, given the same wire frames.
+ */
+class ConvoyRelayTest {
+
+    // --- the fake socket ------------------------------------------------------
+
+    /**
+     * A [RelaySocket] good enough to drive [ConvoyRelay]'s whole state
+     * machine without a phone or a relay. [receive] suspends on an in-memory
+     * [Channel] that a test feeds via [push]; closing that channel (from
+     * [close], or a test calling it directly to simulate an unexpected
+     * drop) is what makes a blocked [receive] return `null`, the same signal
+     * a real closed socket gives. [connect] opens a fresh channel each time,
+     * since a real reconnect opens a fresh underlying connection too.
+     */
+    private class FakeRelaySocket : RelaySocket {
+        val sent = mutableListOf<String>()
+        val connectCount = MutableStateFlow(0)
+        var connectFailsWith: Exception? = null
+        var lastBearer: String? = null
+        private var inbox = Channel<String>(Channel.UNLIMITED)
+
+        override suspend fun connect(bearer: String) {
+            lastBearer = bearer
+            connectFailsWith?.let { throw it }
+            inbox = Channel(Channel.UNLIMITED)
+            connectCount.update { it + 1 }
+        }
+
+        override suspend fun receive(): String? = inbox.receiveCatching().getOrNull()
+
+        override fun send(text: String) {
+            sent += text
+        }
+
+        override fun close() {
+            inbox.close()
+        }
+
+        /** Delivers [text] as the next frame [receive] returns. */
+        suspend fun push(text: String) = inbox.send(text)
+    }
+
+    // --- fixtures ---------------------------------------------------------
+
+    private fun joinedFrame() = """{"type":"joined"}"""
+
+    private fun positionsFrame(username: String, lat: Double, lon: Double, ttl: Int = 10) =
+        """{"type":"positions","peers":[{"u":"$username","lat":$lat,"lon":$lon,"ts":0,"ttl":$ttl}]}"""
+
+    private fun errorFrame(message: String?) =
+        if (message == null) """{"type":"error"}""" else """{"type":"error","message":"$message"}"""
+
+    private fun friendPosition(username: String, expiresAtMs: Long) = FriendPosition(
+        username = username,
+        lat = 51.0,
+        lon = 4.0,
+        headingDeg = null,
+        speedKmh = null,
+        tsMs = 0L,
+        expiresAtMs = expiresAtMs,
+    )
+
+    private fun tokenSupplier(token: String = "test-token"): suspend () -> String = { token }
+
+    // --- connection lifecycle, against the fake socket ---------------------
+
+    @Test
+    fun joiningEmitsAJoinFrameCarryingTheGroupId() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        val job = launch { relay.run("convoy-1", socket, tokenSupplier()) }
+
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        // Only true once the receive loop is running, which is after the
+        // join frame was already sent - a solid sync point with no race.
+        relay.connected.first { it }
+
+        assertEquals(listOf(RelayProtocol.buildJoin("convoy-1")), socket.sent)
+
+        relay.stop()
+        job.join()
+    }
+
+    @Test
+    fun positionsFramePopulatesPeersAndALaterOneForTheSamePeerReplaces() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        val job = launch { relay.run("convoy-1", socket, tokenSupplier()) }
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        socket.push(positionsFrame("bob", lat = 51.0, lon = 4.0))
+        val firstPeers = relay.peers.first { it.containsKey("bob") }
+        assertEquals(51.0, firstPeers.getValue("bob").lat)
+
+        socket.push(positionsFrame("bob", lat = 52.0, lon = 5.0))
+        val updatedPeers = relay.peers.first { it["bob"]?.lat == 52.0 }
+        // Replaced, not duplicated: still exactly one entry for "bob".
+        assertEquals(1, updatedPeers.size)
+
+        relay.stop()
+        job.join()
+    }
+
+    @Test
+    fun stopEndsRunWithoutCancellingItsCoroutine() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        var returnedNormally = false
+        val job = launch {
+            relay.run("convoy-1", socket, tokenSupplier())
+            // Only reached if run() actually returned - a cancelled
+            // coroutine never runs the statement after a cancelled suspend.
+            returnedNormally = true
+        }
+
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it } // run() is genuinely blocked inside receive() right now
+
+        relay.stop()
+        job.join()
+
+        // The point of this test, stated directly: stop() ends run() by its
+        // own flag, not by cancelling the coroutine running it. Deliberately
+        // not proven by calling job.cancel() ourselves - that is exactly the
+        // mechanism a Swift caller cannot rely on (see ConvoyRelay's class
+        // doc), so a test that used it would prove nothing about this case.
+        assertFalse(job.isCancelled, "run() should complete normally, not be cancelled, when stop() is called")
+        assertTrue(returnedNormally)
+    }
+
+    @Test
+    fun aSocketThatClosesUnexpectedlyReconnectsWithBackoffAndConnectedReflectsIt() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        val job = launch { relay.run("convoy-1", socket, tokenSupplier()) }
+
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        val elapsedMs = measureTimeMillis {
+            // Drops the connection the way a network blip or a server
+            // restart would - not relay.stop(), a different exit path
+            // covered by the test above.
+            socket.close()
+            relay.connected.first { !it }
+            socket.connectCount.first { it >= 2 }
+        }
+        // MIN_BACKOFF_MS is 1000ms; a reconnect faster than that would mean
+        // the wait was skipped rather than honoured.
+        assertTrue(elapsedMs >= 900, "expected the reconnect to wait out a backoff, took ${elapsedMs}ms")
+
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        relay.stop()
+        job.join()
+    }
+
+    @Test
+    fun lastErrorReportsWhenTheRelayCannotBeReached() = runBlocking {
+        val socket = FakeRelaySocket()
+        socket.connectFailsWith = Exception("connection refused")
+        val relay = ConvoyRelay()
+        val job = launch { relay.run("convoy-1", socket, tokenSupplier()) }
+
+        val error = relay.lastError.first { it != null }
+        assertEquals("Can't reach the live server: connection refused", error)
+
+        relay.stop()
+        job.join()
+    }
+
+    @Test
+    fun lastErrorStaysNullWhenJoinedButNobodyIsSendingAnything() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        val job = launch { relay.run("convoy-1", socket, tokenSupplier()) }
+
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        // The distinction lastError exists for: connected, joined, and quiet
+        // is not an error - it is just a convoy where nobody has moved yet.
+        assertNull(relay.lastError.value)
+        assertTrue(relay.peers.value.isEmpty())
+
+        relay.stop()
+        job.join()
+    }
+
+    @Test
+    fun anErrorFrameSetsLastErrorAndEndsTheAttemptWithoutCrashing() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        val job = launch { relay.run("convoy-1", socket, tokenSupplier()) }
+
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        // "error" is deliberately not one of RelayProtocol.decode's nine
+        // frame types (see Task 1's report) - this is the special case that
+        // reads it straight off the wire instead, same as both existing
+        // clients do outside their own per-frame switch.
+        socket.push(errorFrame("membership removed"))
+        val error = relay.lastError.first { it != null }
+        assertEquals("membership removed", error)
+
+        relay.stop()
+        job.join()
+    }
+
+    // --- state transitions, applied directly - no socket or coroutine needed ---
+    //
+    // applyEvent/prunePeers are what the receive loop above calls for every
+    // frame; driving them directly here proves the same state transitions
+    // without needing a live connection for every single case.
+
+    @Test
+    fun pruningRemovesExactlyTheExpiredPeersAndLeavesTheRest() {
+        val relay = ConvoyRelay()
+        relay.applyEvent(
+            RelayEvent.Positions(
+                listOf(
+                    friendPosition("longExpired", expiresAtMs = 1_000L),
+                    // Expiring exactly at nowMs is expired too - matching
+                    // both existing clients' `expiresAtMs > now`, a strict
+                    // inequality rather than "still good at".
+                    friendPosition("expiringNow", expiresAtMs = 2_000L),
+                    friendPosition("fresh", expiresAtMs = 2_001L),
+                ),
+            ),
+        )
+
+        relay.prunePeers(nowMs = 2_000L)
+
+        assertEquals(setOf("fresh"), relay.peers.value.keys)
+    }
+
+    @Test
+    fun pttStartAndPttEndAddAndRemoveFromTalking() {
+        val relay = ConvoyRelay()
+        relay.applyEvent(RelayEvent.PttStart("bob"))
+        assertEquals(setOf("bob"), relay.talking.value)
+
+        relay.applyEvent(RelayEvent.PttStart("carol"))
+        assertEquals(setOf("bob", "carol"), relay.talking.value)
+
+        relay.applyEvent(RelayEvent.PttEnd("bob"))
+        assertEquals(setOf("carol"), relay.talking.value)
+    }
+
+    @Test
+    fun leftRemovesThePeerAndClearsThemFromTalking() {
+        val relay = ConvoyRelay()
+        relay.applyEvent(RelayEvent.Positions(listOf(friendPosition("bob", expiresAtMs = Long.MAX_VALUE))))
+        relay.applyEvent(RelayEvent.PttStart("bob"))
+
+        relay.applyEvent(RelayEvent.Left("bob"))
+
+        assertTrue(relay.peers.value.isEmpty())
+        assertTrue(relay.talking.value.isEmpty())
+    }
+
+    // --- the spin rule: the point of this file -----------------------------
+
+    @Test
+    fun aOneCandidateOfferCommitsOnEveryDeviceRegardlessOfPeersOrVotes() {
+        val relay = ConvoyRelay()
+        // No peers known at all, and nobody has voted - still commits,
+        // because a one-candidate offer *is* the decision, not a ballot.
+        relay.applyEvent(RelayEvent.SpinOffer(listOf(SpinCandidate(51.0, 4.0, null, null, "Only option"))))
+
+        assertEquals(SpinRoundOutcome.CommitOnly, relay.spinRoundOutcome(myUsername = "dave"))
+    }
+
+    @Test
+    fun aMultiCandidateOfferTalliesVotesAndOnlyClosesOnceEveryExpectedVoterHasVoted() {
+        val relay = ConvoyRelay()
+        relay.applyEvent(
+            RelayEvent.Positions(
+                listOf(
+                    friendPosition("bob", expiresAtMs = Long.MAX_VALUE),
+                    friendPosition("carol", expiresAtMs = Long.MAX_VALUE),
+                ),
+            ),
+        )
+        // This device opens the round - only the opener ever closes one,
+        // see resolveSpinRound's doc in ConvoyRelay.kt.
+        relay.sendSpinOffer(
+            listOf(
+                SpinCandidate(51.0, 4.0, null, null, "A"),
+                SpinCandidate(52.0, 5.0, null, null, "B"),
+            ),
+        )
+
+        relay.applyEvent(RelayEvent.SpinVote("bob", 1))
+        // dave (this device) has not voted yet - still waiting, however
+        // lopsided the tally already looks.
+        assertEquals(SpinRoundOutcome.Wait, relay.spinRoundOutcome(myUsername = "dave"))
+
+        relay.applyEvent(RelayEvent.SpinVote("carol", 1))
+        relay.sendSpinVote("dave", 0)
+
+        assertEquals(SpinRoundOutcome.CloseRound(leadIndex = 1), relay.spinRoundOutcome(myUsername = "dave"))
+    }
+
+    @Test
+    fun twoRelaysGivenTheSameOfferButDifferentPeerSetsResolveToTheSameDestination() {
+        val candidates = listOf(
+            SpinCandidate(51.0, 4.0, null, null, "A"),
+            SpinCandidate(53.0, 6.0, distanceM = 9_000.0, durationS = 800.0, name = "Coast road"),
+        )
+
+        // relayA is the sharer: it alone tallies the vote, among its own peers.
+        val relayA = ConvoyRelay()
+        relayA.applyEvent(
+            RelayEvent.Positions(
+                listOf(
+                    friendPosition("bob", expiresAtMs = Long.MAX_VALUE),
+                    friendPosition("carol", expiresAtMs = Long.MAX_VALUE),
+                ),
+            ),
+        )
+        relayA.sendSpinOffer(candidates)
+        relayA.applyEvent(RelayEvent.SpinVote("bob", 1))
+        relayA.applyEvent(RelayEvent.SpinVote("carol", 1))
+        relayA.sendSpinVote("dave", 0)
+
+        val outcome = relayA.spinRoundOutcome(myUsername = "dave")
+        assertEquals(SpinRoundOutcome.CloseRound(leadIndex = 1), outcome)
+
+        // What MapScreen's own vote-round effect does on seeing CloseRound:
+        // re-offer just the winner, which is what actually commits the
+        // round everywhere, including here on the sharer's own device.
+        val winner = candidates[(outcome as SpinRoundOutcome.CloseRound).leadIndex]
+        relayA.sendSpinOffer(listOf(winner))
+
+        // relayB is a member with a *completely different* peer set - it
+        // never saw bob or carol at all. This is exactly the divergence
+        // resolveSpinRound's own doc says would split a convoy across two
+        // destinations if either device tallied a multi-candidate offer
+        // independently instead of waiting for the sharer's closing frame.
+        val relayB = ConvoyRelay()
+        relayB.applyEvent(RelayEvent.Positions(listOf(friendPosition("zoe", expiresAtMs = Long.MAX_VALUE))))
+        relayB.applyEvent(RelayEvent.SpinOffer(listOf(winner)))
+
+        assertEquals(SpinRoundOutcome.CommitOnly, relayA.spinRoundOutcome(myUsername = "dave"))
+        assertEquals(SpinRoundOutcome.CommitOnly, relayB.spinRoundOutcome(myUsername = "zoe"))
+        // The point, stated directly: identical destination out of
+        // completely different peer sets.
+        assertEquals(relayA.spinOffer.value!!.candidates.single(), relayB.spinOffer.value!!.candidates.single())
+        assertEquals("Coast road", relayB.spinOffer.value!!.candidates.single().name)
+    }
+}
