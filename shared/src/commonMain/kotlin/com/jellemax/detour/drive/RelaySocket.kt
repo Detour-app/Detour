@@ -34,6 +34,13 @@ interface RelaySocket {
      * already resolved before it was constructed). Throws on failure to open
      * at all - unreachable host, TLS, a non-101 response - rather than
      * leaving [receive] to report it once a loop is already spinning on it.
+     *
+     * A non-101 response should fold its status code into the thrown
+     * exception's message - Android's own wording is
+     * `"Live server refused the connection (${response.code})"`. [ConvoyRelay]'s
+     * `lastError` surfaces `e.message` more or less verbatim (see
+     * `unreachableMessage`), so an implementation that omits the code makes a
+     * 401 read identically to a host that could not be reached at all.
      */
     @Throws(Exception::class)
     suspend fun connect(bearer: String)
@@ -58,6 +65,17 @@ interface RelaySocket {
      * Closes the current connection, if any, so a [receive] blocked on it
      * returns (with `null`, or throws) instead of hanging forever. Safe to
      * call more than once, and safe to call with nothing connected.
+     *
+     * **Must be safe to call from any thread, including while [receive] is
+     * suspended on another.** Every removal path and [ConvoyRelay.stop]
+     * calls this from whatever thread its caller happens to be on - never
+     * the thread [ConvoyRelay.run]'s own coroutine is parked in `receive()`
+     * on. A Swift implementation backed by `URLSessionWebSocketTask` that
+     * lands on a `@MainActor` type has to honour this deliberately: a
+     * same-actor-only [close] either isolation-hazards the Kotlin-side
+     * caller or, worse, silently no-ops and leaves the device joined to
+     * whatever it was just told to leave - see [ConvoyRelay]'s class doc for
+     * the exact shape of leak that becomes.
      */
     fun close()
 }

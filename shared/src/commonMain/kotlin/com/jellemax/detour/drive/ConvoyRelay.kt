@@ -18,8 +18,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.concurrent.Volatile
 
-/** Forwarded on every reconnect, unthrottled by [ConvoyRelay.sendLocation]. */
+/** [ConvoyRelay.sendLocation]'s own throttle: at most one location frame goes
+ *  out this often, whatever cadence fixes actually arrive at. */
 private const val LOCATION_SEND_INTERVAL_MS = 2_000L
 private const val MIN_BACKOFF_MS = 1_000L
 private const val MAX_BACKOFF_MS = 30_000L
@@ -90,6 +92,38 @@ sealed interface SpinRoundOutcome {
  * onto it - the exact shape of leak documented on `ConvoyLiveClient.swift`'s
  * `sessionEnded()`, for a socket that outlived a sign-out instead of a
  * membership change. Do not ship a third instance of it.
+ *
+ * **Exactly one instance app-wide, and exactly one live [run] on it at a
+ * time - this class enforces only the second.** Today's `ConvoyLiveClient`
+ * is an `object`, which is *why* `ConvoyLiveService` and `CircleNotifyService`
+ * share one socket - the "one socket, many groups" invariant the additive
+ * design above rests on. [ConvoyRelay] being a `class` instead (two live
+ * instances at once are exactly what the convergence test needs - see
+ * `ConvoyRelayTest`) drops that guarantee: nothing stops Task 3 or 4 from
+ * handing each service its own instance, which would mean two sockets, two
+ * location broadcasts, and neither service's [stop] able to part the other's
+ * memberships. Holding one instance where both services can reach it has to
+ * stay a call-site discipline - this class cannot enforce it from inside
+ * itself. What it *can* enforce, and does: [run] refuses a second concurrent
+ * call on the same instance (see the check at its top), since two live loops
+ * would both write [currentSocket] and only [stop] the newer one, leaving
+ * the older loop's socket open and joined with nothing left to close it.
+ *
+ * **Two guards both existing clients apply live entirely outside this
+ * class, and Task 3/4 must supply them at the call site.** Android refuses
+ * to start its retry loop at all when no live server is configured
+ * (`ConvoyLiveClient.kt:257-263`, `:330-335` - "Refuse to start the retry
+ * loop at all rather than spin it forever against a server that was never
+ * configured"), and its foreground service has a matching guard so it and
+ * GPS escalation do not run pointlessly either. URL resolution now lives in
+ * [RelaySocket] (see the paragraph above), so [run] has nothing left to
+ * check "blank" against - whatever constructs a [RelaySocket] must refuse to
+ * call [run] at all when it has nowhere to point. Likewise `Features.liveRelay`
+ * - "the one switch that turns every live feature off on both platforms at
+ * once" per the iOS client's own comment - gates every membership entry
+ * point on both existing clients, and has no equivalent here: [run],
+ * [setConvoy] and [setNotifyingCircles] all do exactly what they are told
+ * regardless of the flag. Both guards stay the caller's job.
  *
  * **URL and header resolution stay a platform concern.** Android's derives a
  * `wss://` URL from a `Context`-backed `Settings`/`BuildConfig` read; iOS's
@@ -183,8 +217,52 @@ class ConvoyRelay {
     private val _stopped = MutableStateFlow(false)
 
     /** The socket [stop] closes to unblock a live [RelaySocket.receive] - see
-     *  the class doc. Set at the top of every [run] call. */
+     *  the class doc. Set at the top of every [run] call.
+     *
+     *  `@Volatile` because it crosses threads without a happens-before edge
+     *  otherwise: [run] writes it on the relay coroutine's own thread
+     *  (`Dispatchers.IO` on Android), while [stop], [setConvoy],
+     *  [setNotifyingCircles], [send] and [sendLocation] all read it from
+     *  whatever thread the caller is on (main, typically). Same shape as
+     *  `MunicipalityStore.misses` in `data/Coverage.kt` - "the discovery
+     *  coroutine writes it while the location callback reads it" - just with
+     *  a plain nullable reference instead of a replace-the-whole-set write.
+     *  Without this, a stale read on the removal path (`hadConvoy ->
+     *  currentSocket?.close()` in [setConvoy]) can see `null` for a socket
+     *  that is very much still open, leaving [run] parked in [RelaySocket.receive]
+     *  and [sendLocation] still broadcasting this device's GPS onto a convoy
+     *  it just left - and defeats [stop] the identical way, since [stop]'s
+     *  flag write is safely published through `_stopped` (a `StateFlow`) but
+     *  the *close* that unblocks a parked `receive()` was not. */
+    @Volatile
     private var currentSocket: RelaySocket? = null
+
+    /** Guards against a second concurrent [run] call on this same instance -
+     *  see the class doc's "exactly one instance, exactly one live run()"
+     *  paragraph. Not a lock, just a fail-fast flag: a call that finds it
+     *  already `true` throws rather than silently starting a second loop
+     *  that would overwrite [currentSocket] out from under the first one,
+     *  after which [stop] could only ever close the newer socket while the
+     *  older loop sits parked in [RelaySocket.receive] on one that stays
+     *  open and joined. Written/read across the same run()-thread/
+     *  caller-thread boundary as [currentSocket] - see its doc. */
+    @Volatile
+    private var running: Boolean = false
+
+    /** True once this attempt's [joinEverythingWanted] has sent the initial
+     *  join batch, cleared in [attempt]'s own `finally` - what [setConvoy]
+     *  and [setNotifyingCircles] check before sending an *addition* straight
+     *  onto the live socket, instead of [_connected]. [_connected] only
+     *  flips true once a `joined` reply actually arrives, and that is a real
+     *  network round trip after the join batch already went out - an
+     *  addition landing in that window used to gate on [_connected] and be
+     *  neither sent then nor replayed later, silently never joining at all.
+     *  The socket is already open and receiving by the time
+     *  [joinEverythingWanted] runs, so anything wanted from that point on
+     *  can go straight out, same as it does once genuinely connected. Same
+     *  cross-thread shape as [currentSocket] - see its doc. */
+    @Volatile
+    private var attemptLive: Boolean = false
 
     /** The convoy this device is in, or null - see [setConvoy]. Persists
      *  independently of [run]'s own lifecycle: a caller may set this before
@@ -200,6 +278,11 @@ class ConvoyRelay {
      *  persist-across-[run] shape as [_convoyId]. */
     private val _notifyingCircleIds = MutableStateFlow<Set<String>>(emptySet())
 
+    /** `@Volatile` for parity with the field it replaces,
+     *  `net/ConvoyLiveClient.kt`'s own `@Volatile private var lastLocationSentMs`
+     *  - [sendLocation] can be called from any caller thread, same as
+     *  [currentSocket]'s readers, and there is only ever the one writer. */
+    @Volatile
     private var lastLocationSentMs = 0L
 
     /** What [run]'s own loop keeps looping for, and what [setConvoy]/
@@ -234,9 +317,21 @@ class ConvoyRelay {
      * deliberately: a caller may set either before ever calling [run] (see
      * the class doc's `CircleNotifyService` case), and this call must see
      * it, not wipe it out from under a caller who set it first.
+     *
+     * Throws [IllegalStateException] immediately if this instance already
+     * has a live [run] - see [running] and the class doc's "exactly one
+     * instance, exactly one live run()" paragraph. Not a condition normal
+     * operation should ever hit; a Task 3/4 call site racing two [run] calls
+     * on the same instance is a bug worth failing loudly on, not one to
+     * paper over the way a silent no-op would.
      */
     @Throws(Exception::class)
     suspend fun run(socket: RelaySocket, bearer: suspend () -> String): Unit = coroutineScope {
+        check(!running) {
+            "ConvoyRelay.run() called while already running - exactly one live run() " +
+                "per instance is required, see the class doc"
+        }
+        running = true
         currentSocket = socket
         _stopped.value = false
         _peers.value = emptyMap()
@@ -277,7 +372,24 @@ class ConvoyRelay {
                 // anyone's frames is wrong by the time it reconnects - drop
                 // it rather than let a stale offer sit on screen looking
                 // live through a dead connection. Matches both existing
-                // clients' `runConnection`/`connectionLoop`.
+                // clients' `runConnection`/`connectionLoop`. This fires on
+                // *every* reconnect for *any* reason the previous attempt
+                // ended, including one this device caused itself by dropping
+                // an unrelated notify-circle while the convoy never changed
+                // (see setNotifyingCircles's own doc) - a rider mid-vote can
+                // watch the destination sheet vanish because a CircleSync
+                // tick landed mid-drive for a reason that has nothing to do
+                // with the convoy. Deliberate, not overlooked: once the
+                // socket has been down at all, any vote frame could have
+                // been missed during the gap regardless of why it dropped,
+                // so the tally is no more trustworthy after a self-inflicted
+                // reconnect than after a network blip, and this loop would
+                // have to start tracking *why* the previous attempt ended to
+                // tell the two apart - coupling it to setConvoy/
+                // setNotifyingCircles for a case that already fits the
+                // broader "removal reopens" trade-off accepted everywhere
+                // else in this file. Clearing here is judged correct, not
+                // merely convenient; see the task report for the full case.
                 _spinOffer.value = null
                 _spinVotes.value = emptyMap()
                 failures = if (everJoined) 0 else failures + 1
@@ -287,6 +399,7 @@ class ConvoyRelay {
             sessionWatcher.cancel()
             pruner.cancel()
             currentSocket = null
+            running = false
         }
     }
 
@@ -344,7 +457,11 @@ class ConvoyRelay {
             // reopen rather than join on top of it, see this function's own
             // doc for why there is no cheaper option.
             hadConvoy -> currentSocket?.close()
-            groupId != null && _connected.value -> send(RelayProtocol.buildJoin(groupId))
+            // attemptLive, not _connected: an addition landing after the
+            // join batch already went out but before the server's own
+            // "joined" reply arrives must still be sent now, not lost - see
+            // attemptLive's own doc for the window this closes.
+            groupId != null && attemptLive -> send(RelayProtocol.buildJoin(groupId))
         }
     }
 
@@ -386,12 +503,22 @@ class ConvoyRelay {
         if (previous == ids) return
         val removed = previous - ids
         _notifyingCircleIds.value = ids
+        // Unlike setConvoy, this deliberately does not clear _peers/_talking
+        // locally right away - a dropped circle's members just linger in
+        // [peers] until their own TTL expires (prunePeers self-heals it).
+        // Matches Android (which never clears them for a circle drop either)
+        // and differs from iOS (whose removeNotifyingCircle also leaves
+        // peers as-is); a convoy leave clears immediately because leaving
+        // *the* convoy is the common, deliberate case a rider is looking at
+        // the screen for, whereas a circle drop is usually a background
+        // membership sync nobody is watching land.
         when {
             !shouldStayConnected() -> currentSocket?.close()
             // Any dropped id is a removal - reopen rather than leave this
             // device joined to it server-side, see this function's own doc.
             removed.isNotEmpty() -> currentSocket?.close()
-            _connected.value -> (ids - previous).forEach { send(RelayProtocol.buildJoin(it)) }
+            // attemptLive, not _connected - see setConvoy's matching comment.
+            attemptLive -> (ids - previous).forEach { send(RelayProtocol.buildJoin(it)) }
         }
     }
 
@@ -420,6 +547,15 @@ class ConvoyRelay {
                 _lastError.value = "Not signed in"
                 return false
             }
+            if (token.isBlank()) {
+                // bearer() didn't throw but handed back nothing - matches
+                // Android's own treatment of a blank token as "Not signed
+                // in" (net/ConvoyLiveClient.kt:488-491). Without this check a
+                // supplier returning "" connects with `Authorization: Bearer `
+                // and just retries forever instead of surfacing anything.
+                _lastError.value = "Not signed in"
+                return false
+            }
             if (_stopped.value) return false
 
             try {
@@ -430,8 +566,19 @@ class ConvoyRelay {
                 _lastError.value = unreachableMessage(e)
                 return false
             }
+            // Re-checked here too, not just before connect() above: the
+            // class doc claims _stopped is checked at every await boundary,
+            // and connect() is itself a suspend call - without this, a
+            // stop() landing while connect() was suspended still sends the
+            // whole join batch below before the loop ever notices the flag.
+            if (_stopped.value) return false
 
             joinEverythingWanted(socket)
+            // From here on the socket is open and has this attempt's join
+            // batch on the wire - anything setConvoy/setNotifyingCircles
+            // adds from now on can go straight out too, see attemptLive's
+            // own doc for the window this closes.
+            attemptLive = true
             var everJoined = false
             while (!_stopped.value) {
                 val text = try {
@@ -444,6 +591,11 @@ class ConvoyRelay {
                     // forever otherwise, indistinguishable from a convoy
                     // nobody else has joined yet. A drop *after* joining is
                     // an ordinary reconnect, not a fresh error to report.
+                    // Deliberate deviation from Android, which sets lastError
+                    // on a receive failure regardless of everJoined
+                    // (net/ConvoyLiveClient.kt's onFailure); iOS matches this
+                    // file's !everJoined gate, not Android's. Not a
+                    // transcription slip - see the task report.
                     if (!everJoined) _lastError.value = unreachableMessage(e)
                     return everJoined
                 }
@@ -471,6 +623,7 @@ class ConvoyRelay {
             }
             return everJoined
         } finally {
+            attemptLive = false
             socket.close()
         }
     }
@@ -671,6 +824,12 @@ private data class ErrorFrame(val message: String?)
 private fun errorFrameOrNull(text: String): ErrorFrame? {
     val obj = try {
         jsonObjectOf(text)
+    } catch (e: CancellationException) {
+        // Not suspend, so this can't actually observe a cancellation in
+        // practice - added to satisfy the house rule unconditionally
+        // (every catch (e: Exception) preceded by this) rather than
+        // claiming an exemption for a case that costs nothing to cover.
+        throw e
     } catch (e: Exception) {
         return null
     }

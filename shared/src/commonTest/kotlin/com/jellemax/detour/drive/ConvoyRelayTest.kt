@@ -375,14 +375,39 @@ class ConvoyRelayTest {
         assertEquals(SpinRoundOutcome.CloseRound(leadIndex = 1), relay.spinRoundOutcome(myUsername = "dave"))
     }
 
+    /**
+     * The property this whole file exists to test, exercised for real: a
+     * *receiver* handed the same multi-candidate offer the sharer just sent
+     * - never sent by the receiver itself - must not resolve it on its own,
+     * however complete its own tally looks, because a different peer set
+     * (or different prune timing, or a dropped frame) can make "complete"
+     * mean something different on each device. Only the sharer's *closing*
+     * one-candidate offer may commit anything, and every device - sharer and
+     * receiver alike, different peer sets and all - must land on the same
+     * destination off that one frame.
+     *
+     * Every earlier test in this file only ever fed a relay either a
+     * multi-candidate offer it sent itself ([sendSpinOffer], `fromMe = true`)
+     * or a one-candidate *closing* offer, which commits before `fromMe` is
+     * ever consulted (`resolveSpinRound`'s `candidateCount == 1` branch).
+     * Neither exercises the `if (!fromMe) return Wait` branch a receiver
+     * actually depends on - delete that branch and every test up to this one
+     * still passes. This test fails without it: relayB below is fed a full
+     * tally (bob, carol, and its own zoe, matching every voter its own peer
+     * set expects) for a multi-candidate offer it never sent, and asserts
+     * `Wait` - remove the branch and `resolveSpinRound` falls through to the
+     * same tally check `fromMe = true` uses, sees `expected` fully covered,
+     * and returns `CloseRound(leadIndex = 1)` instead.
+     */
     @Test
-    fun twoRelaysGivenTheSameOfferButDifferentPeerSetsResolveToTheSameDestination() {
+    fun aReceiverWithADifferentPeerSetNeverResolvesAMultiCandidateOfferItDidNotSendThenCommitsTheSharersClosingOne() {
         val candidates = listOf(
             SpinCandidate(51.0, 4.0, null, null, "A"),
             SpinCandidate(53.0, 6.0, distanceM = 9_000.0, durationS = 800.0, name = "Coast road"),
         )
 
-        // relayA is the sharer: it alone tallies the vote, among its own peers.
+        // relayA is the sharer: it alone may tally the vote and close the
+        // round, among its own peers.
         val relayA = ConvoyRelay()
         relayA.applyEvent(
             RelayEvent.Positions(
@@ -393,6 +418,27 @@ class ConvoyRelayTest {
             ),
         )
         relayA.sendSpinOffer(candidates)
+
+        // relayB is a member with a *completely different* peer set - it has
+        // never seen bob or carol, only zoe - and receives this same
+        // multi-candidate offer over the wire, never having sent it itself.
+        val relayB = ConvoyRelay()
+        relayB.applyEvent(RelayEvent.Positions(listOf(friendPosition("zoe", expiresAtMs = Long.MAX_VALUE))))
+        relayB.applyEvent(RelayEvent.SpinOffer(candidates))
+
+        // Feed relayB every vote out there - bob's and carol's (relayA's
+        // peers, not relayB's own) plus zoe's own - a tally that is complete
+        // by every measure relayB can see, expected voters included.
+        relayB.applyEvent(RelayEvent.SpinVote("bob", 1))
+        relayB.applyEvent(RelayEvent.SpinVote("carol", 1))
+        relayB.sendSpinVote("zoe", 1)
+
+        // The property under test, stated directly: relayB never closes this
+        // round itself, no matter how complete its own tally looks - only
+        // the sharer may.
+        assertEquals(SpinRoundOutcome.Wait, relayB.spinRoundOutcome(myUsername = "zoe"))
+
+        // Now the sharer actually completes its own round, among its own peers.
         relayA.applyEvent(RelayEvent.SpinVote("bob", 1))
         relayA.applyEvent(RelayEvent.SpinVote("carol", 1))
         relayA.sendSpinVote("dave", 0)
@@ -406,19 +452,14 @@ class ConvoyRelayTest {
         val winner = candidates[(outcome as SpinRoundOutcome.CloseRound).leadIndex]
         relayA.sendSpinOffer(listOf(winner))
 
-        // relayB is a member with a *completely different* peer set - it
-        // never saw bob or carol at all. This is exactly the divergence
-        // resolveSpinRound's own doc says would split a convoy across two
-        // destinations if either device tallied a multi-candidate offer
-        // independently instead of waiting for the sharer's closing frame.
-        val relayB = ConvoyRelay()
-        relayB.applyEvent(RelayEvent.Positions(listOf(friendPosition("zoe", expiresAtMs = Long.MAX_VALUE))))
+        // relayB receives that same closing frame over the wire - still with
+        // its own, still-different, peer set.
         relayB.applyEvent(RelayEvent.SpinOffer(listOf(winner)))
 
         assertEquals(SpinRoundOutcome.CommitOnly, relayA.spinRoundOutcome(myUsername = "dave"))
         assertEquals(SpinRoundOutcome.CommitOnly, relayB.spinRoundOutcome(myUsername = "zoe"))
-        // The point, stated directly: identical destination out of
-        // completely different peer sets.
+        // The point, stated directly: two relays with genuinely different
+        // peer sets land on an identical destination.
         assertEquals(relayA.spinOffer.value!!.candidates.single(), relayB.spinOffer.value!!.candidates.single())
         assertEquals("Coast road", relayB.spinOffer.value!!.candidates.single().name)
     }
@@ -519,6 +560,39 @@ class ConvoyRelayTest {
             socket.sent,
         )
         assertEquals(1, socket.connectCount.value)
+
+        relay.stop()
+        job.join()
+    }
+
+    @Test
+    fun anAdditionBeforeTheJoinedReplyArrivesIsSentRatherThanLost() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        val job = launch { relay.run(socket, tokenSupplier()) }
+
+        // The connect has succeeded and this attempt's own join batch is
+        // already on the wire - joinEverythingWanted only runs after
+        // connect() returns - but the server's "joined" reply has not been
+        // pushed yet. This is exactly the window an addition used to be
+        // silently lost in, gated on `connected` staying false until a
+        // reply nothing here has sent.
+        socket.connectCount.first { it >= 1 }
+        assertFalse(relay.connected.value, "the joined reply has not been pushed yet")
+
+        relay.setNotifyingCircles(setOf("circle-1"))
+
+        assertEquals(
+            listOf(RelayProtocol.buildJoin("convoy-1"), RelayProtocol.buildJoin("circle-1")),
+            socket.sent,
+        )
+        // Still the one connection - sent straight onto the live socket,
+        // not queued for a reconnect that would never come for an addition.
+        assertEquals(1, socket.connectCount.value)
+
+        socket.push(joinedFrame())
+        relay.connected.first { it }
 
         relay.stop()
         job.join()
