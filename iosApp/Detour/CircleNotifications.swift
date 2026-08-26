@@ -19,14 +19,18 @@ final class CircleNotifications: NSObject {
 
     /// A sweep after a long gap notifies for at most this many events — an
     /// offline week must not detonate into a wall of notifications the
-    /// moment the app reopens. Picked, not measured, same as the geofence
-    /// constants in `:shared`'s `GeofenceEvaluator`; easy to retune.
-    private static let catchUpCap = 5
+    /// moment the app reopens. Matches `CircleNotifyPolicy.NOTIFY_CAP`
+    /// (shared/); kept as a local `Int32` literal rather than read off the
+    /// shared object because `planCatchUp`'s Kotlin default arguments don't
+    /// cross the Swift boundary, so every call has to supply it anyway.
+    private static let catchUpCap: Int32 = 5
     /// Events older than this, measured from *now* rather than from the
     /// last sweep, are caught up on silently — they say where someone was,
     /// not where they are, and a transition from hours ago is not worth a
     /// push. `lastSeenEventTsMs` still advances past them either way (see
     /// `runCatchUpSweep`), so they are never re-fetched, just never shown.
+    /// Matches `CircleNotifyPolicy.STALE_AFTER_MS`, same reason as
+    /// `catchUpCap` above for not reading it off the shared object.
     private static let catchUpMaxAgeMs: Int64 = 3 * 60 * 60_000
 
     /// Mirrors the OS's actual authorization state, refreshed on every
@@ -117,11 +121,17 @@ final class CircleNotifications: NSObject {
         guard SyncClient.shared.configured(), Account.shared.signedIn else { return }
         let username = SettingsValues.shared.authUsername
         guard let circles = try? await Groups.shared.list(kind: "circle") else { return }
-        let notifying = circles.filter { $0.status == "accepted" && notifyEnabled(circleId: $0.id) }
-        ConvoyLiveClient.shared.setNotifyingCircles(Set(notifying.map { $0.id }))
+        // CircleNotifyPolicy.circlesWantingDelivery (shared/): accepted
+        // membership plus this device's own per-circle toggle — the same
+        // filter Android's CircleNotifyService.refreshNotifyCircles uses.
+        let notifyIds = CircleNotifyPolicy.shared.circlesWantingDelivery(
+            circles: circles,
+            notifyArrivals: { self.notifyEnabled(circleId: $0) }
+        )
+        ConvoyLiveClient.shared.setNotifyingCircles(notifyIds)
 
         guard authorized else { return }
-        let cutoffMs = nowMs() - Self.catchUpMaxAgeMs
+        let notifying = circles.filter { notifyIds.contains($0.id) }
         for circle in notifying {
             let since = CircleEvents.shared.lastSeenEventTsMs(circleId: circle.id)
             guard let events = try? await CircleEvents.shared.events(groupId: circle.id, sinceMs: since),
@@ -130,19 +140,26 @@ final class CircleNotifications: NSObject {
             // notified below, so a long-stale backlog is never re-fetched —
             // it is shown once (capped, filtered), and then it's gone.
             let maxTs = events.map { $0.tsMs }.max() ?? since
-            // Newest first, so the handful that fit under the cap are the
-            // arrivals still worth knowing about right now.
-            let notifiable = events
-                .filter { $0.username != username && $0.tsMs >= cutoffMs }
-                .sorted { $0.tsMs > $1.tsMs }
-            // Counted per circle, not per sweep, matching Android's
-            // `PlaceNotifications.planCatchUp` — a noisy circle must not
-            // silently eat a quiet one's only arrival.
-            for event in notifiable.prefix(Self.catchUpCap) {
+            // CircleNotifyPolicy.planCatchUp (shared/): drops this device's
+            // own transitions and anything stale, caps the rest, and hands
+            // them back newest-first — this device's sweep already raised
+            // newest-first before the policy moved to shared/, so nothing
+            // changes here; Android's copy sorted the other way and was the
+            // one that changed (see planCatchUp's own doc). Counted per
+            // circle, not per sweep — a noisy circle must not silently eat a
+            // quiet one's only arrival.
+            let plan = CircleNotifyPolicy.shared.planCatchUp(
+                events: events,
+                myUsername: username,
+                nowMs: nowMs(),
+                staleAfterMs: Self.catchUpMaxAgeMs,
+                cap: Self.catchUpCap
+            )
+            for event in plan.individual {
                 raise(event: event, circleId: circle.id)
             }
-            if notifiable.count > Self.catchUpCap {
-                raiseSummary(circleId: circle.id, collapsed: notifiable.count - Self.catchUpCap)
+            if plan.collapsedCount > 0 {
+                raiseSummary(circleId: circle.id, collapsed: Int(plan.collapsedCount))
             }
             CircleEvents.shared.setLastSeenEventTsMs(circleId: circle.id, tsMs: maxTs)
         }
