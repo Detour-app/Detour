@@ -20,7 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
-import com.jellemax.detour.auth.Oidc
+import com.jellemax.detour.data.Oidc
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.Auth
@@ -108,7 +108,7 @@ class MainActivity : ComponentActivity() {
      * goes to [PendingSignIn], which is what the screen reads.
      */
     private fun takeSignInRedirect(intent: Intent?) {
-        val data = intent?.data ?: return
+        val data = intent?.data?.toString() ?: return
         if (!Oidc.isCallback(data)) return
         PendingSignIn.begin()
         lifecycleScope.launch {

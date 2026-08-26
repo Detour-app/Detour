@@ -60,7 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.jellemax.detour.auth.Oidc
+import com.jellemax.detour.auth.AuthBrowser
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.convoy.ConvoyLiveService
 import com.jellemax.detour.data.Account
@@ -155,7 +155,7 @@ private fun SignInSection() {
             "totals and badges.",
         style = MaterialTheme.typography.bodyMedium,
     )
-    if (!Oidc.configured) {
+    if (!AuthBrowser.configured) {
         Text(
             "No identity provider is configured, so there is nobody to sign " +
                 "in to. Set the sign-in realm URL under Settings → Servers & sync.",
@@ -171,7 +171,7 @@ private fun SignInSection() {
     Button(
         onClick = {
             PendingSignIn.clear()
-            if (!Oidc.start(context)) {
+            if (!AuthBrowser.start(context)) {
                 PendingSignIn.fail("No browser available to sign in with.")
             }
         },
