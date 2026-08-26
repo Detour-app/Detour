@@ -241,13 +241,17 @@ object CirclesStore {
      *  ordinary failure is reported through `state.error` and returned as
      *  null rather than thrown. */
     private suspend fun <T> act(block: suspend () -> T): T? {
+        // Epoch-guarded like [reload]'s commit: a mutation failing after the
+        // rider signed out must not write its banner onto the next rider's
+        // freshly reset store. See FriendsStore.act for the full reasoning.
+        val epoch = Auth.sessionEpoch.value
         _state.update { it.starting() }
         val result = try {
             block()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.update { it.failed(e) }
+            _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.failed(e)) }
             return null
         }
         reload()
@@ -264,13 +268,14 @@ object CirclesStore {
      *  [CirclesState.detailBusy] instead of leaving it stuck, since nothing
      *  else will. */
     private suspend fun <T> actDetail(block: suspend () -> T): T? {
+        val epoch = Auth.sessionEpoch.value
         _state.update { it.detailStarting() }
         val result = try {
             block()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.update { it.detailFailed(e) }
+            _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.detailFailed(e)) }
             return null
         }
         val selectedId = _state.value.selectedId

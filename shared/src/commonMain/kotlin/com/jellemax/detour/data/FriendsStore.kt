@@ -167,13 +167,19 @@ object FriendsStore {
      * ordinary failure and still propagates, per [reload]'s comment above.
      */
     private suspend fun <T> act(block: suspend () -> T): T? {
+        // Same epoch capture as [reload]: a mutation that fails after the rider
+        // signed out must not write its banner onto the next rider's freshly
+        // reset store. Lower stakes than a leaked friend list — an error is not
+        // data — but it is the same shape, and leaving one instance of it is how
+        // it comes back.
+        val epoch = Auth.sessionEpoch.value
         _state.update { it.starting() }
         val result = try {
             block()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.update { it.failed(e) }
+            _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.failed(e)) }
             return null
         }
         reload()

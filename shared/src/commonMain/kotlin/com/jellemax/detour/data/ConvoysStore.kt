@@ -84,13 +84,17 @@ object ConvoysStore {
         act { Groups.leave(groupId) } != null
 
     private suspend fun <T> act(block: suspend () -> T): T? {
+        val epoch = Auth.sessionEpoch.value
         _state.update { it.starting() }
         val result = try {
             block()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.update { it.failed(e) }
+            // Epoch-guarded for the same reason the commit in [reload] is: a
+            // mutation failing after a sign-out must not put its banner on the
+            // next rider's store. See FriendsStore.act.
+            _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, it.failed(e)) }
             return null
         }
         reload()
