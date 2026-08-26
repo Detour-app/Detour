@@ -60,6 +60,23 @@ sealed interface SpinRoundOutcome {
  * decision below is checked against what those two files actually do, not
  * what seemed cleaner.
  *
+ * **What the socket is joined to is state, not a [run] parameter - the
+ * socket is additive.** One socket serves a convoy and any number of circles
+ * at once: [setConvoy] names the convoy (or clears it), [setNotifyingCircles]
+ * names the circles that want live `place_event` arrival/departure pushes,
+ * and the two are independent - `CircleNotifyService` on Android holds this
+ * socket open purely for circles, with no convoy joined at all, which an
+ * earlier revision of this class made impossible by requiring a `groupId` to
+ * call [run] in the first place. [run] stays connected for as long as either
+ * is set (see [shouldStayConnected], reproduced from the Android client's
+ * function of the same name) and returns once neither is, without needing
+ * [stop] to be called - see [run]'s own doc. A change to either while
+ * connected joins (or simply forgets) on the *live* socket rather than
+ * reopening it, since neither existing client has a wire frame to leave a
+ * single group - only closing the whole socket parts every membership at
+ * once - see [setConvoy] and [setNotifyingCircles]'s own docs for what that
+ * costs.
+ *
  * **URL and header resolution stay a platform concern.** Android's derives a
  * `wss://` URL from a `Context`-backed `Settings`/`BuildConfig` read; iOS's
  * does not go through the same derivation at all. Both differences are real
@@ -81,6 +98,15 @@ sealed interface SpinRoundOutcome {
  * closing off the very connect-flow tests this class exists to make
  * possible. The real call site (a later task) passes `Auth::bearer`.
  *
+ * Plainly, since the design brief's own shorthand can read otherwise: **this
+ * class never calls `Auth.bearer()` or `RoutingServer` itself.** Every access
+ * token crosses [run]'s boundary already resolved, via [bearer]; every URL
+ * crosses [RelaySocket]'s boundary already resolved, per the paragraph
+ * above. That is this implementation's own interpretive call rather than the
+ * brief's literal text - Tasks 3 and 4, wiring the real `Auth::bearer` and a
+ * platform [RelaySocket] at the actual call site, should read this
+ * signature rather than assume it matches the brief verbatim.
+ *
  * **`stop()` is a flag, not a cancellation - deliberately.** Cancelling a
  * Swift `Task` does not cancel the Kotlin coroutine behind an exported
  * `suspend fun` (see [RelaySocket]'s doc for why), so relying on cancellation
@@ -99,7 +125,9 @@ sealed interface SpinRoundOutcome {
  * button-press calls [stop] directly: a 401 or a server switch bump the
  * epoch the same way a sign-out does (see [Auth.sessionEpoch]'s own doc), and
  * only reacting to a "go offline" button is exactly the gap the leak above
- * came through.
+ * came through. That watcher is implemented but not unit-tested here - see
+ * its own comment inside [run] for why and what would be needed to change
+ * that.
  */
 class ConvoyRelay {
 
@@ -144,32 +172,58 @@ class ConvoyRelay {
      *  the class doc. Set at the top of every [run] call. */
     private var currentSocket: RelaySocket? = null
 
-    /** The group [run] is currently joined to, for the plain outbound sends
-     *  below - mirrors what the old singletons stamped onto every frame from
-     *  their own `_activeConvoyId`. Null outside a [run] call, so a send
-     *  attempted before joining or after leaving is silently dropped rather
-     *  than mis-addressed. */
-    private var currentGroupId: String? = null
+    /** The convoy this device is in, or null - see [setConvoy]. Persists
+     *  independently of [run]'s own lifecycle: a caller may set this before
+     *  [run] is ever called (or after it has returned), and [run] simply
+     *  reads whatever is current when it needs to. Also what the plain
+     *  outbound sends below stamp onto every frame, mirroring what the old
+     *  singletons stamped from their own `_activeConvoyId` - null means a
+     *  send is silently dropped rather than mis-addressed, same as before. */
+    private val _convoyId = MutableStateFlow<String?>(null)
+
+    /** Circles that want live `place_event` pushes on this same socket,
+     *  independent of [_convoyId] - see [setNotifyingCircles]. Same
+     *  persist-across-[run] shape as [_convoyId]. */
+    private val _notifyingCircleIds = MutableStateFlow<Set<String>>(emptySet())
 
     private var lastLocationSentMs = 0L
 
+    /** What [run]'s own loop keeps looping for, and what [setConvoy]/
+     *  [setNotifyingCircles] check before deciding whether clearing their
+     *  own membership should end the connection entirely. Reproduces
+     *  `ConvoyLiveClient.kt`'s function of the same name and the identical
+     *  rule - a convoy, a notify-circle join, or (ordinarily) both. */
+    private fun shouldStayConnected(): Boolean =
+        _convoyId.value != null || _notifyingCircleIds.value.isNotEmpty()
+
     /**
-     * Connects to [groupId] over [socket], forwarding [bearer]'s result on
-     * every (re)connect attempt, and keeps reconnecting with backoff until
-     * [stop] is called or `Auth.sessionEpoch` moves on - returning only then.
-     * Owns the whole connect → receive → backoff → reconnect cycle; nothing
-     * about it gives up early on its own, matching both existing clients,
-     * which retry forever for as long as something wants the socket open.
+     * Connects over [socket], forwarding [bearer]'s result on every
+     * (re)connect attempt, and keeps reconnecting with backoff for as long
+     * as [shouldStayConnected] holds - a convoy, a notify-circle join, or
+     * both, set via [setConvoy]/[setNotifyingCircles] before or during this
+     * call. Returns once [stop] has been called, **or** once neither wants
+     * the socket any more (see [shouldStayConnected]) - the second case
+     * needs no [stop] call at all, matching how neither existing client's
+     * connection loop needs one either: Android's `runConnection` and iOS's
+     * `connectionLoop` both simply stop looping once their own
+     * `shouldStayConnected`/`activeConvoyId != nil || !wantedCircleIds.isEmpty()`
+     * check goes false. Owns the whole connect → receive → backoff →
+     * reconnect cycle; nothing about it gives up early on its own otherwise,
+     * matching both existing clients, which retry forever for as long as
+     * something wants the socket open.
      *
      * Resets every piece of state below to this call's own baseline first -
-     * peers, talking, spin offer/votes, `lastError` - so a previous group's
+     * peers, talking, spin offer/votes, `lastError` - so a previous run's
      * state can never bleed into this one, the same guard `join()` applied
-     * on both existing clients before starting their own connection.
+     * on both existing clients before starting their own connection. Neither
+     * [setConvoy]'s nor [setNotifyingCircles]'s own state is reset here,
+     * deliberately: a caller may set either before ever calling [run] (see
+     * the class doc's `CircleNotifyService` case), and this call must see
+     * it, not wipe it out from under a caller who set it first.
      */
     @Throws(Exception::class)
-    suspend fun run(groupId: String, socket: RelaySocket, bearer: suspend () -> String): Unit = coroutineScope {
+    suspend fun run(socket: RelaySocket, bearer: suspend () -> String): Unit = coroutineScope {
         currentSocket = socket
-        currentGroupId = groupId
         _stopped.value = false
         _peers.value = emptyMap()
         _talking.value = emptySet()
@@ -180,6 +234,16 @@ class ConvoyRelay {
 
         val startEpoch = Auth.sessionEpoch.value
         val sessionWatcher = launch {
+            // Not exercised by this file's tests: doing so needs
+            // Auth.sessionEpoch to actually move while a fake-socket run()
+            // is live, and every test here drives ConvoyRelay in isolation
+            // from the real Auth/Settings singletons on purpose - mutating
+            // them mid-test would risk bleeding into every other test
+            // sharing this JVM test process (see the class doc's bearer-
+            // supplier paragraph for the matching Settings.init() constraint
+            // on Auth.bearer() itself). Left wired rather than removed - a
+            // 401, sign-out or server switch must still end run() - but
+            // verified only by manual repro today, not a unit test.
             Auth.sessionEpoch.first { it != startEpoch }
             stop()
         }
@@ -191,9 +255,9 @@ class ConvoyRelay {
         }
         try {
             var failures = 0
-            while (!_stopped.value) {
-                val everJoined = attempt(groupId, socket, bearer)
-                if (_stopped.value) return@coroutineScope
+            while (!_stopped.value && shouldStayConnected()) {
+                val everJoined = attempt(socket, bearer)
+                if (_stopped.value || !shouldStayConnected()) return@coroutineScope
                 _connected.value = false
                 // A vote tallied against a socket that is no longer relaying
                 // anyone's frames is wrong by the time it reconnects - drop
@@ -209,7 +273,6 @@ class ConvoyRelay {
             sessionWatcher.cancel()
             pruner.cancel()
             currentSocket = null
-            currentGroupId = null
         }
     }
 
@@ -225,6 +288,70 @@ class ConvoyRelay {
     }
 
     /**
+     * The convoy this device is in, or null - independent of
+     * [setNotifyingCircles] (see the class doc's "additive" paragraph).
+     *
+     * There is no wire frame to leave a single group on either existing
+     * client - only closing the whole socket parts every membership at once
+     * - so leaving (or switching away from) a convoy cannot itself be told
+     * to the relay; it is joined fresh here right on the live socket if one
+     * is already up, same as a freshly-notifying circle, and the relay may
+     * still consider this device a member of whatever [groupId] used to be
+     * until the next reconnect happens for some other reason. [peers]/
+     * [talking]/[spinOffer]/[spinVotes] are cleared locally regardless, so
+     * at least what is shown does not lag behind what was just requested,
+     * even though a stray late frame from the old convoy could in principle
+     * still arrive before that next reconnect.
+     *
+     * If this call leaves nothing wanted at all (see [shouldStayConnected])
+     * the live socket - if any - is closed instead, which is what lets
+     * [run] notice and return; see [run]'s own doc.
+     */
+    fun setConvoy(groupId: String?) {
+        if (_convoyId.value == groupId) return
+        _convoyId.value = groupId
+        _peers.value = emptyMap()
+        _talking.value = emptySet()
+        _spinOffer.value = null
+        _spinVotes.value = emptyMap()
+        if (groupId != null && _connected.value) {
+            send(RelayProtocol.buildJoin(groupId))
+        } else if (!shouldStayConnected()) {
+            currentSocket?.close()
+        }
+    }
+
+    /**
+     * Circles that want live `place_event` arrival/departure pushes on this
+     * same socket, independent of [setConvoy] - see the class doc. Replaces
+     * the whole set at once, matching `ConvoyLiveClient.swift`'s
+     * `setNotifyingCircles(_:)` (Android's `net/ConvoyLiveClient.kt` names
+     * the same operation `setNotifyCircles`), rather than adding/removing
+     * one id at a time.
+     *
+     * A newly-added id is joined fresh on the live socket at once if one is
+     * already up - same immediate join [setConvoy] does for a fresh convoy.
+     * A dropped id is only forgotten locally: there is no wire "leave a
+     * single group" (see [setConvoy]'s own doc for the same constraint), so
+     * its `place_event` frames may keep arriving until the next reconnect -
+     * matching `ConvoyLiveClient.swift`'s `removeNotifyingCircle` exactly,
+     * which documents the same tolerance. A caller uninterested in a
+     * particular circle's events is expected to filter them itself, the same
+     * way `CircleNotifyService`/`CircleNotifications` already do downstream
+     * of this class on both platforms today.
+     *
+     * If this call leaves nothing wanted at all, the live socket - if any -
+     * is closed, same as [setConvoy] - see [run]'s own doc for why.
+     */
+    fun setNotifyingCircles(ids: Set<String>) {
+        val previous = _notifyingCircleIds.value
+        if (previous == ids) return
+        _notifyingCircleIds.value = ids
+        if (_connected.value) (ids - previous).forEach { send(RelayProtocol.buildJoin(it)) }
+        if (!shouldStayConnected()) currentSocket?.close()
+    }
+
+    /**
      * One connect → join → receive-until-closed attempt. Returns whether a
      * "joined" reply was ever seen, which decides the next attempt's backoff
      * (see [run]) - identical in spirit to Android's `connectAndAwaitClose`
@@ -235,7 +362,7 @@ class ConvoyRelay {
      * (Android's case, not Swift's - see the class doc) - via the outer
      * `finally`, rather than repeating a close call on each of those paths.
      */
-    private suspend fun attempt(groupId: String, socket: RelaySocket, bearer: suspend () -> String): Boolean {
+    private suspend fun attempt(socket: RelaySocket, bearer: suspend () -> String): Boolean {
         try {
             val token = try {
                 bearer()
@@ -260,7 +387,7 @@ class ConvoyRelay {
                 return false
             }
 
-            socket.send(RelayProtocol.buildJoin(groupId))
+            joinEverythingWanted(socket)
             var everJoined = false
             while (!_stopped.value) {
                 val text = try {
@@ -302,6 +429,22 @@ class ConvoyRelay {
         } finally {
             socket.close()
         }
+    }
+
+    /**
+     * Sends a `join` for every group currently wanted - the convoy, if any,
+     * then every notifying circle - right after a fresh connect, since a new
+     * connection starts with no memberships at all and the relay only adds,
+     * never assumes. One frame per group, each naming exactly one id: there
+     * is no combined "join these several groups" frame on the wire, matching
+     * both existing clients' post-connect join batch (Android's
+     * `net/ConvoyLiveClient.kt` `onOpen`, iOS's `ConvoyLiveClient.swift`
+     * `connectAndAwaitClose`), which each loop the same way over "the
+     * convoy, then every circle".
+     */
+    private fun joinEverythingWanted(socket: RelaySocket) {
+        _convoyId.value?.let { socket.send(RelayProtocol.buildJoin(it)) }
+        _notifyingCircleIds.value.forEach { socket.send(RelayProtocol.buildJoin(it)) }
     }
 
     /** Applies one already-decoded frame to this relay's state - what
@@ -377,15 +520,15 @@ class ConvoyRelay {
     // send, it watches the relevant StateFlow for whatever comes back.
 
     fun sendPttStart() {
-        currentGroupId?.let { send(RelayProtocol.buildPttStart(it)) }
+        _convoyId.value?.let { send(RelayProtocol.buildPttStart(it)) }
     }
 
     fun sendPttEnd() {
-        currentGroupId?.let { send(RelayProtocol.buildPttEnd(it)) }
+        _convoyId.value?.let { send(RelayProtocol.buildPttEnd(it)) }
     }
 
     fun sendAudioChunk(pcm: ByteArray) {
-        currentGroupId?.let { send(RelayProtocol.buildPttAudio(it, pcm)) }
+        _convoyId.value?.let { send(RelayProtocol.buildPttAudio(it, pcm)) }
     }
 
     /** Shares a spin with the convoy - or, with a single candidate, closes a
@@ -401,7 +544,7 @@ class ConvoyRelay {
         if (candidates.isEmpty() || candidates.size > 3) return
         _spinOffer.value = GroupSpin(candidates, fromMe = true)
         _spinVotes.value = emptyMap()
-        currentGroupId?.let { send(RelayProtocol.buildSpinOffer(it, candidates)) }
+        _convoyId.value?.let { send(RelayProtocol.buildSpinOffer(it, candidates)) }
     }
 
     /** Casts [username]'s vote and records it in the local tally right away,
@@ -410,7 +553,7 @@ class ConvoyRelay {
      *  will not echo it back. */
     fun sendSpinVote(username: String, index: Int) {
         if (username.isNotBlank()) _spinVotes.update { it + (username to index) }
-        currentGroupId?.let { send(RelayProtocol.buildSpinVote(it, index)) }
+        _convoyId.value?.let { send(RelayProtocol.buildSpinVote(it, index)) }
     }
 
     /** Drops the current spin locally (a commit landed, or it was dismissed)
@@ -442,7 +585,14 @@ class ConvoyRelay {
 
     private suspend fun sleepUnlessStopped(totalMs: Long) {
         var remaining = totalMs
-        while (remaining > 0 && !_stopped.value) {
+        // Also cut short by shouldStayConnected() going false mid-wait - the
+        // same "checked at every await boundary" treatment _stopped already
+        // gets, extended to the other way run()'s own loop decides to stop:
+        // otherwise setConvoy(null)/setNotifyingCircles(emptySet()) landing
+        // during a backoff wait would leave run() sleeping out the rest of
+        // it - up to MAX_BACKOFF_MS - before noticing nothing wants it any
+        // more.
+        while (remaining > 0 && !_stopped.value && shouldStayConnected()) {
             val step = if (remaining < BACKOFF_POLL_STEP_MS) remaining else BACKOFF_POLL_STEP_MS
             delay(step)
             remaining -= step

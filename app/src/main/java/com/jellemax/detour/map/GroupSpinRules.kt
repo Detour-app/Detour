@@ -1,5 +1,7 @@
 package com.jellemax.detour.map
 
+// Also ported to shared/.../drive/ConvoyRelay.kt - edit there too, or instead, once MapScreen calls through it.
+
 /** Tie-break rule for a group spin's leader: ties (including "nobody's voted
  *  yet", every count 0) go to the lowest index. `>` rather than `>=` is what
  *  makes that deterministic - every device tallying the same votes lands on

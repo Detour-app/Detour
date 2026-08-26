@@ -43,6 +43,15 @@ import kotlin.test.assertTrue
  * could, because it needs two devices: that a relay driven entirely off its
  * own state reaches the identical outcome as a second relay with a
  * *different* peer set, given the same wire frames.
+ *
+ * Most tests below call [ConvoyRelay.setConvoy] (and/or
+ * [ConvoyRelay.setNotifyingCircles]) *before* launching [ConvoyRelay.run] -
+ * membership is state, independent of the connection loop, so it can be set
+ * ahead of a connection exactly as `CircleNotifyService`/`MapScreen` do on
+ * the real clients. See the "additive" group of tests near the bottom for
+ * the property this file exists to prove that a one-`groupId`-per-`run()`
+ * signature made impossible: the socket serving a convoy and any number of
+ * circles at once, and one changing without disturbing the other.
  */
 class ConvoyRelayTest {
 
@@ -113,7 +122,8 @@ class ConvoyRelayTest {
     fun joiningEmitsAJoinFrameCarryingTheGroupId() = runBlocking {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
-        val job = launch { relay.run("convoy-1", socket, tokenSupplier()) }
+        relay.setConvoy("convoy-1")
+        val job = launch { relay.run(socket, tokenSupplier()) }
 
         socket.connectCount.first { it >= 1 }
         socket.push(joinedFrame())
@@ -131,7 +141,8 @@ class ConvoyRelayTest {
     fun positionsFramePopulatesPeersAndALaterOneForTheSamePeerReplaces() = runBlocking {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
-        val job = launch { relay.run("convoy-1", socket, tokenSupplier()) }
+        relay.setConvoy("convoy-1")
+        val job = launch { relay.run(socket, tokenSupplier()) }
         socket.connectCount.first { it >= 1 }
         socket.push(joinedFrame())
         relay.connected.first { it }
@@ -153,9 +164,10 @@ class ConvoyRelayTest {
     fun stopEndsRunWithoutCancellingItsCoroutine() = runBlocking {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
         var returnedNormally = false
         val job = launch {
-            relay.run("convoy-1", socket, tokenSupplier())
+            relay.run(socket, tokenSupplier())
             // Only reached if run() actually returned - a cancelled
             // coroutine never runs the statement after a cancelled suspend.
             returnedNormally = true
@@ -181,7 +193,8 @@ class ConvoyRelayTest {
     fun aSocketThatClosesUnexpectedlyReconnectsWithBackoffAndConnectedReflectsIt() = runBlocking {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
-        val job = launch { relay.run("convoy-1", socket, tokenSupplier()) }
+        relay.setConvoy("convoy-1")
+        val job = launch { relay.run(socket, tokenSupplier()) }
 
         socket.connectCount.first { it >= 1 }
         socket.push(joinedFrame())
@@ -211,7 +224,8 @@ class ConvoyRelayTest {
         val socket = FakeRelaySocket()
         socket.connectFailsWith = Exception("connection refused")
         val relay = ConvoyRelay()
-        val job = launch { relay.run("convoy-1", socket, tokenSupplier()) }
+        relay.setConvoy("convoy-1")
+        val job = launch { relay.run(socket, tokenSupplier()) }
 
         val error = relay.lastError.first { it != null }
         assertEquals("Can't reach the live server: connection refused", error)
@@ -224,7 +238,8 @@ class ConvoyRelayTest {
     fun lastErrorStaysNullWhenJoinedButNobodyIsSendingAnything() = runBlocking {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
-        val job = launch { relay.run("convoy-1", socket, tokenSupplier()) }
+        relay.setConvoy("convoy-1")
+        val job = launch { relay.run(socket, tokenSupplier()) }
 
         socket.connectCount.first { it >= 1 }
         socket.push(joinedFrame())
@@ -243,7 +258,8 @@ class ConvoyRelayTest {
     fun anErrorFrameSetsLastErrorAndEndsTheAttemptWithoutCrashing() = runBlocking {
         val socket = FakeRelaySocket()
         val relay = ConvoyRelay()
-        val job = launch { relay.run("convoy-1", socket, tokenSupplier()) }
+        relay.setConvoy("convoy-1")
+        val job = launch { relay.run(socket, tokenSupplier()) }
 
         socket.connectCount.first { it >= 1 }
         socket.push(joinedFrame())
@@ -402,5 +418,169 @@ class ConvoyRelayTest {
         // completely different peer sets.
         assertEquals(relayA.spinOffer.value!!.candidates.single(), relayB.spinOffer.value!!.candidates.single())
         assertEquals("Coast road", relayB.spinOffer.value!!.candidates.single().name)
+    }
+
+    // --- additive membership: the point of this task's fix -----------------
+    //
+    // The socket serves a convoy and any number of circles at once - what a
+    // required `groupId` parameter on run() made impossible to express at
+    // all. setConvoy/setNotifyingCircles are state, independent of run()'s
+    // own lifecycle: set before run() starts (as CircleNotifyService and
+    // MapScreen each do today) or changed while it is live.
+
+    @Test
+    fun circlesAloneKeepTheSocketConnectedWithNoConvoyJoined() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        // The CircleNotifyService case: no convoy at all, ever - exactly
+        // what run(groupId, ...) could not express.
+        relay.setNotifyingCircles(setOf("circle-1"))
+        val job = launch { relay.run(socket, tokenSupplier()) }
+
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        assertEquals(listOf(RelayProtocol.buildJoin("circle-1")), socket.sent)
+
+        relay.stop()
+        job.join()
+    }
+
+    @Test
+    fun aConvoyAndCirclesEachJoinAsTheirOwnFrameOnConnect() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        relay.setNotifyingCircles(setOf("circle-1"))
+        val job = launch { relay.run(socket, tokenSupplier()) }
+
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        // Both existing clients send one `join` per group, never a combined
+        // frame - `net/ConvoyLiveClient.kt`'s `onOpen` and
+        // `ConvoyLiveClient.swift`'s `connectAndAwaitClose` each loop over
+        // "the convoy, then every circle", one send per id.
+        assertEquals(
+            listOf(RelayProtocol.buildJoin("convoy-1"), RelayProtocol.buildJoin("circle-1")),
+            socket.sent,
+        )
+
+        relay.stop()
+        job.join()
+    }
+
+    @Test
+    fun addingACircleWhileConnectedJoinsOnTheLiveSocketWithoutReopening() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        val job = launch { relay.run(socket, tokenSupplier()) }
+
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        relay.setNotifyingCircles(setOf("circle-1"))
+
+        assertEquals(
+            listOf(RelayProtocol.buildJoin("convoy-1"), RelayProtocol.buildJoin("circle-1")),
+            socket.sent,
+        )
+        // The point: no new underlying connection was opened for this.
+        assertEquals(1, socket.connectCount.value)
+
+        relay.stop()
+        job.join()
+    }
+
+    @Test
+    fun removingACircleWhileConnectedDoesNotReopenTheSocket() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        relay.setNotifyingCircles(setOf("circle-1"))
+        val job = launch { relay.run(socket, tokenSupplier()) }
+
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        relay.setNotifyingCircles(emptySet())
+
+        // No wire "leave a single group" exists (see ConvoyRelay's class
+        // doc) - only the sends already made from the initial join batch,
+        // and the convoy alone keeps the socket up regardless.
+        assertEquals(
+            listOf(RelayProtocol.buildJoin("convoy-1"), RelayProtocol.buildJoin("circle-1")),
+            socket.sent,
+        )
+        assertEquals(1, socket.connectCount.value)
+        assertTrue(relay.connected.value)
+
+        relay.stop()
+        job.join()
+    }
+
+    @Test
+    fun switchingConvoysReJoinsTheNewOneWithoutReopeningTheSocket() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        val job = launch { relay.run(socket, tokenSupplier()) }
+
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        relay.setConvoy("convoy-2")
+
+        // Same tradeoff as a dropped circle: there is no wire "leave a
+        // single group", so switching convoys joins the new one on the live
+        // socket rather than reopening it - convoy-1's frames may keep
+        // arriving server-side until the next natural reconnect.
+        assertEquals(
+            listOf(RelayProtocol.buildJoin("convoy-1"), RelayProtocol.buildJoin("convoy-2")),
+            socket.sent,
+        )
+        assertEquals(1, socket.connectCount.value)
+
+        relay.stop()
+        job.join()
+    }
+
+    @Test
+    fun leavingTheConvoyWhileCirclesRemainKeepsTheSocketUpAndClearingBothLetsRunFinish() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        relay.setNotifyingCircles(setOf("circle-1"))
+        var returnedNormally = false
+        val job = launch {
+            relay.run(socket, tokenSupplier())
+            returnedNormally = true
+        }
+
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        relay.setConvoy(null)
+
+        // Leaving the convoy alone must not touch the socket at all -
+        // circles still want it, and there is nothing to send to leave one
+        // group (see ConvoyRelay's class doc).
+        assertEquals(1, socket.connectCount.value)
+        assertTrue(relay.connected.value, "the socket should still be up for the remaining circle")
+        assertFalse(job.isCompleted)
+
+        // Now nothing wants the socket at all - this is what actually ends
+        // run(), without stop() ever being called.
+        relay.setNotifyingCircles(emptySet())
+        job.join()
+
+        assertTrue(returnedNormally, "run() should return once nothing wants the socket, without needing stop()")
     }
 }
