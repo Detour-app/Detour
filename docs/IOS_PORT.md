@@ -110,8 +110,22 @@ Not gaps — decisions, and the places to look first if behaviour diverges.
    realm. Treat that as untested rather than working.
 
 2. **The stores can still take the app down.** The `@Throws` sweep above covered
-   the `suspend` surface. It did not cover the **non-`suspend`** store functions
-   Swift calls — `TraceStore.append`/`.clear`/`.rawLines`, `TripStore.save`/
+   the `suspend` surface *iOS actually calls* — not the whole `suspend`
+   surface. 18 more public `suspend` functions in `commonMain` are exported
+   and still unannotated: `Auth.bearer`/`.exchangeCode`/`.signOut`,
+   `CircleFixes.fixes`, `Friends.remove`, `PoiRoulette.randomPoi`,
+   `RoadRoulette`'s `randomRoadPoint`/`fetchRoads`/`nearestSpeedLimitKmh`/
+   `speedLimitWays`/`rawQuery`, `RoundTripPlanner.plan`, `RouteShare.inbox`/
+   `.delete`, `RoutingServer.roundTrip`/`.randomRoadDestination`,
+   `SpinPicker.pickCandidate` and `SyncClient.syncIfDue`. None is called from
+   Swift today, so there is no live gap — but `SyncClient.syncIfDue` is worth
+   naming on its own: it sits directly above `sync()`'s canonical `@Throws`
+   doc comment in the same file, is Android-only today, and is exactly what
+   an iOS launch-time auto-sync would reach for first. Whoever wires that up
+   has to remember to annotate it then; nothing here does it for them.
+
+   Nor did the sweep cover the **non-`suspend`** store functions Swift calls —
+   `TraceStore.append`/`.clear`/`.rawLines`, `TripStore.save`/
    `.updateMode`/`.delete`, `RouteStore.save`/`.rename`/`.remove`,
    `SavedPlaces.rename`/`.remove`, `BadgeStore.refresh`, `RecentSearchStore.save`
    — which write through `okio.FileSystem` and can throw `okio.IOException`.

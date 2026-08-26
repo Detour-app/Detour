@@ -33,8 +33,9 @@ object PendingReset {
  *
  * Registration, sign-in and password reset are gone from here: the realm owns
  * them, and the browser leg that drives them lives in the platform layer
- * (`app/auth/Oidc.kt`). What is left is the two questions every screen asks —
- * who are we, and are we signed in — plus signing out. See [Auth].
+ * (`app/auth/AuthBrowser.kt` on Android, `iosApp/Detour/SignIn.swift` on iOS).
+ * What is left is the two questions every screen asks — who are we, and are
+ * we signed in — plus signing out. See [Auth].
  */
 object Account {
 

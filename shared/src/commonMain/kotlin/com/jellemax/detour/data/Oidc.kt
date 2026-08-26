@@ -13,8 +13,7 @@ import okio.ByteString.Companion.toByteString
  * ends of that trip are platform-shaped: opening a browser, and drawing bytes
  * from a CSPRNG. Everything between them is string work over a wire format —
  * so it lives here, once, where a test can reach it. The platform halves are
- * `app/auth/AuthBrowser.kt` and `iosApp/Detour/SignIn.swift`, and both are
- * about forty lines.
+ * `app/auth/AuthBrowser.kt` and `iosApp/Detour/SignIn.swift`.
  *
  * The invariant this exists to protect: the `code_challenge` sent to the
  * realm has to be the SHA-256 of the verifier [complete] later presents. Get
@@ -45,6 +44,16 @@ object Oidc {
      * is a sign-in to start again, which is cheaper than writing a secret to
      * disk to smooth an edge case — and ASVS 5.0.0 V10.1.2 wants the verifier
      * bound to the transaction and the user agent that began it.
+     *
+     * Plain `var`s, not behind a lock: correctness depends on [begin],
+     * [spend] and [abandon] all being called from a single thread.
+     * `commonMain` has no concurrency primitives to enforce that here, so
+     * this is a real constraint on every caller, not an accident of the two
+     * that exist today — Compose's `onClick` plus `lifecycleScope`
+     * (`Main.immediate`) on Android, `@MainActor` throughout on iOS. A future
+     * caller off that thread — a background coroutine, a new platform — would
+     * race this state rather than fail loudly, so treat "single-threaded
+     * access only" as part of this object's contract.
      */
     private var pendingVerifier: String? = null
     private var pendingState: String? = null

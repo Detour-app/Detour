@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
 import com.jellemax.detour.data.Oidc
 import java.security.SecureRandom
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
  * The browser half of signing in: opens the realm's login page in a Custom Tab.
@@ -26,18 +27,54 @@ object AuthBrowser {
     val configured: Boolean get() = Oidc.configured
 
     /**
-     * Opens the realm's login page. Returns false when there is no realm
-     * configured or no browser to open it in, so the caller can say so instead
-     * of leaving a button that does nothing.
+     * Why [start] did not open the browser.
+     *
+     * Its own type rather than folding into a `Boolean`: a rider looking at a
+     * typo'd realm address needs to be pointed at Settings, not at their
+     * browser, and a `Boolean` return can't carry which of the two happened
+     * — see `FriendsScreen.kt`'s `SignInSection`, the one caller.
      */
-    fun start(context: Context): Boolean {
+    sealed interface StartFailure {
+        /** The realm's authorize URL is not a valid URL — most likely a
+         *  malformed sign-in realm address; `RoutingServer.pick` only trims
+         *  and strips a trailing slash, it does not validate.
+         *  `android.net.Uri.parse` never throws on a malformed string the way
+         *  iOS's `URL(string:)` rejects one, so this is caught by validating
+         *  the URL up front rather than by an exception out of
+         *  [CustomTabsIntent.launchUrl]. */
+        data object InvalidRealmUrl : StartFailure
+
+        /** The URL is valid; nothing on the device can open it. */
+        data object NoBrowserAvailable : StartFailure
+    }
+
+    /**
+     * Opens the realm's login page. Returns `null` on success, or the reason
+     * it did not open, so the caller can report the actual cause instead of
+     * defaulting every failure to "no browser available".
+     */
+    fun start(context: Context): StartFailure? {
         val entropy = ByteArray(Oidc.ENTROPY_BYTES).also { SecureRandom().nextBytes(it) }
         val authorize = Oidc.begin(entropy)
-        if (authorize.isBlank()) return false
+        // Blank here is "no realm configured" (or, in principle, entropy too
+        // short) — begin() already dropped anything it parked in that case,
+        // and the caller already gates the button on `configured`, so this
+        // is not the malformed-URL case below and is reported the same way
+        // it always was.
+        if (authorize.isBlank()) return StartFailure.NoBrowserAvailable
+
+        if (authorize.toHttpUrlOrNull() == null) {
+            // begin() already parked a fresh verifier and state for this
+            // attempt; nothing will ever spend them if the browser never
+            // opens, so they have to be dropped here too — same reason the
+            // launchUrl catch below does it.
+            Oidc.abandon()
+            return StartFailure.InvalidRealmUrl
+        }
 
         return try {
             CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(authorize))
-            true
+            null
         } catch (e: Exception) {
             // ActivityNotFoundException is the expected one — no browser at all,
             // and nothing here can substitute for one. Caught broadly anyway
@@ -47,7 +84,7 @@ object AuthBrowser {
             // stray callback could still spend. A narrower catch would leave
             // that window open for every other way launchUrl can fail.
             Oidc.abandon()
-            false
+            StartFailure.NoBrowserAvailable
         }
     }
 }

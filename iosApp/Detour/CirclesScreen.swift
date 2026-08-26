@@ -82,7 +82,13 @@ struct CirclesScreen: View {
                     }
                 }
             }
-            .task { await model.reload() }
+            // Keyed on `signedIn`, not bare — see `FriendsModel`'s task for
+            // why: a bare `.task` only runs at this Group's first appearance,
+            // which on a mid-session sign-in (started from the Friends tab)
+            // is long past. Without the `id:`, switching to Circles after
+            // signing in shows the "sign in first" gate clear but the list
+            // still empty until a pull-to-refresh or restart.
+            .task(id: model.signedIn) { await model.reload() }
             .refreshable { await model.reload() }
             .alert("Something went wrong", isPresented: $model.showError) {
                 Button("OK", role: .cancel) {}
@@ -168,13 +174,35 @@ struct CirclesScreen: View {
 final class CirclesModel: ObservableObject {
 
     @Published private(set) var circles: [DetourShared.Group] = []
+    @Published var signedIn = false
+    @Published var username = ""
     @Published var busy = false
     @Published var errorMessage: String?
     @Published var showError = false
 
     var configured: Bool { SyncClient.shared.configured() }
-    var signedIn: Bool { Account.shared.signedIn }
-    var username: String { SettingsValues.shared.authUsername }
+
+    // Same shape as `FriendsModel`: `signedIn`/`username` need to be
+    // `@Published`, fed by a token watcher, before `.task(id:)` above has
+    // anything to key on — a computed `var` over `Account.shared.signedIn`
+    // publishes nothing and only happened to look reactive because something
+    // else (a scenePhase change) was recomputing the view anyway.
+    private let token = SettingsFlows.shared.authToken()
+    private let name = SettingsFlows.shared.authUsername()
+
+    init() {
+        token.watch { [weak self] in
+            self?.signedIn = !(self?.token.value.isEmpty ?? true)
+        }
+        name.watch { [weak self] in
+            guard let self, self.signedIn else { return }
+            self.username = self.name.value
+        }
+    }
+
+    deinit {
+        [token, name].forEach { $0.cancel() }
+    }
 
     func reload() async {
         guard configured, signedIn else { return }

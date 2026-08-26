@@ -249,10 +249,16 @@ extension SignIn: ASWebAuthenticationPresentationContextProviding {
 
 /// A sign-in callback that arrived in `DetourApp`'s `onOpenURL` rather than in
 /// an `ASWebAuthenticationSession`'s own completion handler — the session was
-/// already gone, because the app was killed behind the browser. One-shot,
-/// same shape as `CircleNotifications.PendingCircleOpen`: `SignInForm` shows
-/// the message once and clears it, the same way Android's `PendingSignIn`
-/// carries `MainActivity`'s equivalent refusal to `FriendsScreen`.
+/// already gone, because the app was killed behind the browser. NOT the same
+/// one-shot shape as `CircleNotifications.PendingCircleOpen`, despite reading
+/// like it at a glance: `FriendsScreen`'s `SignInForm` copies `message` into
+/// a local `@State` the moment it appears and clears this singleton right
+/// away, rather than clearing it from `.onAppear` on the very `Text` that
+/// renders it — see `SignInForm.orphanedMessage`'s doc for why that shape
+/// flashed the message for about one frame, indistinguishable from a Sign in
+/// button that silently did nothing. Carries the same job Android's
+/// `PendingSignIn` carries `MainActivity`'s equivalent refusal to
+/// `FriendsScreen.kt`.
 @MainActor
 final class OrphanedSignIn: ObservableObject {
     static let shared = OrphanedSignIn()

@@ -171,8 +171,14 @@ private fun SignInSection() {
     Button(
         onClick = {
             PendingSignIn.clear()
-            if (!AuthBrowser.start(context)) {
-                PendingSignIn.fail("No browser available to sign in with.")
+            when (AuthBrowser.start(context)) {
+                null -> {}
+                AuthBrowser.StartFailure.InvalidRealmUrl -> PendingSignIn.fail(
+                    "The sign-in realm address is not a valid URL. Check it " +
+                        "under Settings → Servers & sync."
+                )
+                AuthBrowser.StartFailure.NoBrowserAvailable ->
+                    PendingSignIn.fail("No browser available to sign in with.")
             }
         },
         enabled = !busy,
