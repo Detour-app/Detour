@@ -812,9 +812,29 @@ devcontainer-exec ./gradlew :app:testDebugUnitTest :shared:testDebugUnitTest :ap
 
 Expected: `BUILD SUCCESSFUL`. Report the line count before and after.
 
-- [ ] **Step 5: Verify on the emulator**
+- [ ] **Step 5: Verify on the emulator — and know in advance what is out of reach**
 
-Same setup as Task 4. Capture: with an unreachable server, the Circles screen shows an error, the spinner stops, and the screen is not blank. Report what could not be exercised without a server.
+Same setup as Task 4. **Task 4 established that the signed-in failure path cannot be exercised
+in this environment**, and the same applies here: `CirclesScreen`'s content sits behind a
+completed sign-in, and there is no reachable identity provider. Task 4's agent ruled out every
+route to a forged session — no debug auth hook exists, `ConfigFile` import/export deliberately
+excludes the session per its own doc comment, and hand-forging the Keystore-encrypted
+`secure.xml` is neither feasible nor safe. Do not spend time rediscovering that, and do not
+manufacture a session to get around it.
+
+So verify what is actually reachable, and say plainly what is not:
+
+1. The app builds, installs and runs; navigating to the Circles tab does not crash.
+2. The signed-out state renders as it did before — that copy is untouched by this task.
+3. `adb logcat` shows no exception mentioning `CirclesScreen`, `CirclesStore` or
+   `collectAsStateWithLifecycle` across a launch-and-navigate cycle.
+
+Capture each with `.claude/skills/detour-adb/scripts/capture-state.sh <scratch>/ emulator-5554`.
+
+The store's own behaviour on failure — spinner clears, error set, last-known-good data kept — is
+covered by `StoresTest` in `commonTest` and **that is the coverage of record for it**. Say so in
+your report rather than implying a device confirmed it. A wrong device claim in a report gets
+cited by later work and costs commits to undo.
 
 - [ ] **Step 6: Commit**
 
