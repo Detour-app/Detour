@@ -759,4 +759,98 @@ class ConvoyRelayTest {
 
         assertTrue(returnedNormally, "run() should return once nothing wants the socket, without needing stop()")
     }
+
+    // --- session change clears membership: the point of *this* task's fix --
+    //
+    // stop() is deliberately not this: a plain stop() (a button press, or
+    // run() itself noticing nothing is wanted any more) must leave
+    // _convoyId/_notifyingCircleIds alone so a caller-initiated reconnect
+    // resumes the same membership - see stop()'s own doc. A *session*
+    // change - what run()'s own Auth.sessionEpoch watcher reacts to - is not
+    // a reconnect: the membership itself is gone, so it must clear rather
+    // than preserve it, or a later setNotifyingCircles call (CircleSync's
+    // own periodic tick, driven by the *next* rider's own circles) makes
+    // shouldStayConnected() true again with the departed rider's stale
+    // _convoyId still sitting there, and the next run() rejoins it - sending
+    // the new rider's GPS onto the previous rider's convoy. See
+    // clearMembershipForSessionChange's own doc for why this is driven
+    // directly here rather than by actually bumping Auth.sessionEpoch.
+
+    @Test
+    fun aSessionChangeClearsConvoyScopedDisplayStateAndStopsTheRelay() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        relay.setNotifyingCircles(setOf("circle-1"))
+        var returnedNormally = false
+        val job = launch {
+            relay.run(socket, tokenSupplier())
+            returnedNormally = true
+        }
+
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        // Populate every piece of convoy-scoped display state, so this test
+        // proves all of it is cleared - not just membership.
+        socket.push(positionsFrame("bob", lat = 51.0, lon = 4.0))
+        relay.peers.first { it.containsKey("bob") }
+        relay.applyEvent(RelayEvent.PttStart("bob"))
+        relay.applyEvent(
+            RelayEvent.SpinOffer(
+                listOf(SpinCandidate(51.0, 4.0, null, null, "A"), SpinCandidate(52.0, 5.0, null, null, "B")),
+            ),
+        )
+        relay.applyEvent(RelayEvent.SpinVote("bob", 1))
+
+        // What run()'s own sessionEpoch watcher calls once Auth.sessionEpoch
+        // actually moves.
+        relay.clearMembershipForSessionChange()
+        job.join()
+
+        assertTrue(returnedNormally, "a session change should end run() cleanly, same as stop()")
+        assertFalse(relay.connected.value)
+        assertTrue(relay.peers.value.isEmpty())
+        assertTrue(relay.talking.value.isEmpty())
+        assertNull(relay.spinOffer.value)
+        assertTrue(relay.spinVotes.value.isEmpty())
+    }
+
+    @Test
+    fun aSessionChangeClearsMembershipSoALaterRunNeverRejoinsTheDepartedConvoy() = runBlocking {
+        val socket = FakeRelaySocket()
+        val relay = ConvoyRelay()
+        relay.setConvoy("convoy-1")
+        relay.setNotifyingCircles(setOf("circle-1"))
+        val job = launch { relay.run(socket, tokenSupplier()) }
+
+        socket.connectCount.first { it >= 1 }
+        socket.push(joinedFrame())
+        relay.connected.first { it }
+
+        relay.clearMembershipForSessionChange()
+        job.join()
+
+        // The next rider signs in on this device - CircleSync's own periodic
+        // tick calling setNotifyingCircles with *their* circles is what
+        // actually fires ensureRunning() again in the real app (see
+        // net/ConvoyLiveClient.kt's setNotifyCircles), not a fresh setConvoy
+        // call - the failure this test guards against never involves the new
+        // rider joining a convoy at all.
+        relay.setNotifyingCircles(setOf("circle-b"))
+        val socket2 = FakeRelaySocket()
+        val job2 = launch { relay.run(socket2, tokenSupplier()) }
+        socket2.connectCount.first { it >= 1 }
+        socket2.push(joinedFrame())
+        relay.connected.first { it }
+
+        // Only what the new rider actually asked for - never convoy-1, which
+        // a stale _convoyId left over from the departed session would have
+        // rejoined here, broadcasting the new rider's GPS onto it.
+        assertEquals(listOf(RelayProtocol.buildJoin("circle-b")), socket2.sent)
+
+        relay.stop()
+        job2.join()
+    }
 }

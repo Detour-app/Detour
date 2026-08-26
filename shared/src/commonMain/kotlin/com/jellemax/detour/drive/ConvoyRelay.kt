@@ -169,13 +169,18 @@ sealed interface SpinRoundOutcome {
  * close the socket; only the flag path is the one a Swift caller can
  * actually reach.
  *
- * [run] wires [stop] to `Auth.sessionEpoch` as well, alongside whatever
- * button-press calls [stop] directly: a 401 or a server switch bump the
- * epoch the same way a sign-out does (see [Auth.sessionEpoch]'s own doc), and
- * only reacting to a "go offline" button is exactly the gap the leak above
- * came through. That watcher is implemented but not unit-tested here - see
- * its own comment inside [run] for why and what would be needed to change
- * that.
+ * [run] wires [clearMembershipForSessionChange] to `Auth.sessionEpoch` as
+ * well, alongside whatever button-press calls [stop] directly: a 401 or a
+ * server switch bump the epoch the same way a sign-out does (see
+ * [Auth.sessionEpoch]'s own doc), and only reacting to a "go offline" button
+ * is exactly the gap the leak above came through - a session change, unlike
+ * an ordinary [stop], must clear [_convoyId] and [_notifyingCircleIds]
+ * rather than preserve them for a reconnect, or the *next* rider's own
+ * [setNotifyingCircles] call resurrects the departed rider's convoy - see
+ * [clearMembershipForSessionChange]'s own doc for the exact shape of that.
+ * The `Auth.sessionEpoch` wire-up itself is implemented but not
+ * unit-tested here - see the comment on [run]'s own `sessionWatcher` for
+ * why - but what it calls is, directly.
  */
 class ConvoyRelay {
 
@@ -343,18 +348,20 @@ class ConvoyRelay {
 
         val startEpoch = Auth.sessionEpoch.value
         val sessionWatcher = launch {
-            // Not exercised by this file's tests: doing so needs
-            // Auth.sessionEpoch to actually move while a fake-socket run()
-            // is live, and every test here drives ConvoyRelay in isolation
-            // from the real Auth/Settings singletons on purpose - mutating
+            // The wire-up itself - Auth.sessionEpoch actually moving while a
+            // fake-socket run() is live - is not exercised by this file's
+            // tests: every test here drives ConvoyRelay in isolation from
+            // the real Auth/Settings singletons on purpose, and mutating
             // them mid-test would risk bleeding into every other test
             // sharing this JVM test process (see the class doc's bearer-
             // supplier paragraph for the matching Settings.init() constraint
             // on Auth.bearer() itself). Left wired rather than removed - a
-            // 401, sign-out or server switch must still end run() - but
-            // verified only by manual repro today, not a unit test.
+            // 401, sign-out or server switch must still end run() - but this
+            // one line is verified only by manual repro, not a unit test.
+            // What it calls, clearMembershipForSessionChange, is unit-tested
+            // directly - see its own doc.
             Auth.sessionEpoch.first { it != startEpoch }
-            stop()
+            clearMembershipForSessionChange()
         }
         val pruner = launch {
             while (true) {
@@ -420,10 +427,61 @@ class ConvoyRelay {
      * returns instead of hanging - see the class doc for why this is a flag
      * plus a forced close rather than relying on cancelling [run]'s
      * coroutine. Idempotent, and safe to call with nothing running.
+     *
+     * **Deliberately leaves [_convoyId] and [_notifyingCircleIds] alone** -
+     * an ordinary [stop] (a button press, or [run] itself noticing nothing
+     * is wanted any more) is what lets a caller-initiated reconnect resume
+     * the exact same membership, matching [run]'s own doc on why it does not
+     * reset either. A *session* change is the one caller that must clear
+     * them instead - see [clearMembershipForSessionChange], which calls this
+     * after doing so, not the other way round.
      */
     fun stop() {
         _stopped.value = true
         currentSocket?.close()
+    }
+
+    /**
+     * What [run]'s own `Auth.sessionEpoch` watcher calls once the epoch has
+     * actually moved - a session change (sign-out, a 401, a server switch),
+     * not a reconnect. Clears every piece of state a caller only ever
+     * *adds* to ([setConvoy], [setNotifyingCircles]) plus the convoy-scoped
+     * display state [run]'s own next start would otherwise reset on its own
+     * - [peers], [talking], [spinOffer], [spinVotes] - and only then calls
+     * [stop], so nothing observing those flows mid-teardown can still see
+     * the departed session's convoy.
+     *
+     * This is the fix for a real leak, stated plainly: without it, [stop]
+     * alone closes the socket but leaves [_convoyId] pointed at the convoy
+     * the signed-out rider was in. A membership-sync call that has nothing
+     * to do with a convoy at all - `CircleSync`'s periodic
+     * [setNotifyingCircles] tick, running for whichever rider is signed in
+     * *now* - then makes [shouldStayConnected] true again on that stale id
+     * alone, and the very next [run] rejoins it, broadcasting the new
+     * rider's [sendLocation] fixes onto the previous rider's convoy. See the
+     * class doc's "removal reopens" paragraph for why [setConvoy]/
+     * [setNotifyingCircles] cannot fix this from their own side either - the
+     * relay has no wire frame to leave a single group, so a lingering
+     * [_convoyId] that nothing ever asks to leave stays joined server-side
+     * until the socket happens to reconnect for an unrelated reason, exactly
+     * what just happened here.
+     *
+     * `internal` rather than private so a test can drive this directly,
+     * without needing `Auth.sessionEpoch` to actually move while a
+     * fake-socket [run] is live - the same shortcut [applyEvent] and
+     * [prunePeers] take, and for the identical reason: exercising the real
+     * epoch wire-up needs the real `Auth`/`Settings` singletons this
+     * module's tests deliberately stay isolated from (see [run]'s own
+     * comment on its `sessionWatcher` for why).
+     */
+    internal fun clearMembershipForSessionChange() {
+        _convoyId.value = null
+        _notifyingCircleIds.value = emptySet()
+        _peers.value = emptyMap()
+        _talking.value = emptySet()
+        _spinOffer.value = null
+        _spinVotes.value = emptyMap()
+        stop()
     }
 
     /**

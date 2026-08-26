@@ -26,16 +26,24 @@ import DetourShared
 /// `Bool`, not a `Mutex`/`NSLock`-guarded one.
 ///
 /// **The session-epoch teardown is inherited, not just preserved.**
-/// `ConvoyRelay.run()` now watches `Auth.sessionEpoch` itself and calls its
-/// own `stop()` the moment it moves — see `run()`'s doc in `ConvoyRelay.kt` —
-/// which is what actually closes the socket and ends `sendLocation`'s
-/// broadcast on a sign-out, a 401, or a server switch, the exact leak this
-/// class used to guard against by hand. This class *also* keeps its own
-/// `sessionEpoch` watcher below, calling `relay.stop()` again (idempotent)
-/// and clearing `activeConvoyId`/`wantedCircleIds` — state `ConvoyRelay` has
-/// no knowledge of and cannot reset itself — so a departed rider's convoy
-/// does not linger in this screen's own "am I online" state even though the
-/// socket itself is already correctly down without it.
+/// `ConvoyRelay.run()` now watches `Auth.sessionEpoch` itself, and once it
+/// moves calls its own `clearMembershipForSessionChange()` — see `run()`'s
+/// doc in `ConvoyRelay.kt` — which clears the shared relay's own membership
+/// (`_convoyId`, `_notifyingCircleIds`) and convoy-scoped display state
+/// (`peers`, `talking`, `spinOffer`, `spinVotes`) before closing the socket,
+/// rather than the plain `stop()` this class used to trigger by hand: a
+/// session change is not a reconnect, so leaving `_convoyId` in place — the
+/// way an ordinary `stop()` deliberately does, for a caller-initiated
+/// reconnect — is what let a departed rider's convoy id survive into the
+/// next rider's session and get rejoined the moment `setNotifyingCircles`
+/// made the socket wanted again. This class *also* keeps its own
+/// `sessionEpoch` watcher below, purely to reset `activeConvoyId`/
+/// `wantedCircleIds` — this class's own local mirror of membership, which
+/// `ConvoyRelay` has no getter for and so cannot reset on this side itself
+/// (see `activeConvoyId`'s own doc) — so a departed rider's convoy does not
+/// linger in this screen's own "am I online" state even though the socket
+/// and the shared relay's own membership are already correctly cleared
+/// without it.
 @MainActor
 final class ConvoyLiveClient: NSObject, ObservableObject {
 
@@ -268,13 +276,15 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
         }
     }
 
-    /// Tears down this screen's own membership state — `activeConvoyId`,
-    /// `wantedCircleIds` — the moment the session that owns them ends. The
-    /// socket itself is already closed by `ConvoyRelay.run()`'s own epoch
-    /// watcher (see this class's doc); `relay.stop()` here is a harmless,
-    /// idempotent second call, not what actually does the work.
+    /// Tears down this screen's own local mirror of membership —
+    /// `activeConvoyId`, `wantedCircleIds` — the moment the session that owns
+    /// them ends. The socket, the shared relay's own membership and its
+    /// convoy-scoped display state are all already cleared by
+    /// `ConvoyRelay.run()`'s own epoch watcher (see this class's doc); this
+    /// only resets what genuinely remains platform-local — the two fields
+    /// this class keeps for itself because `ConvoyRelay` exposes no getter
+    /// for either.
     private func sessionEnded() {
-        relay.stop()
         activeConvoyId = nil
         wantedCircleIds = []
     }
