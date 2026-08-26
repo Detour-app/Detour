@@ -385,6 +385,19 @@ private struct CircleDetailView: View {
                                         // The toggle has to reflect reality,
                                         // not the tap that caused it.
                                         notifyOn = false
+                                        // Through the detail error field
+                                        // (`state.detailError`, rendered in
+                                        // the Shared places section below)
+                                        // rather than a local `@State` — this
+                                        // view has none of its own any more,
+                                        // now that `CirclesStore` owns the
+                                        // state, and reportDetailError exists
+                                        // for exactly this: a denial that
+                                        // happened entirely on this device,
+                                        // with nothing to reload.
+                                        CirclesStore.shared.reportDetailError(
+                                            message: "Notifications are turned off for Detour in iOS Settings."
+                                        )
                                     }
                                 } else {
                                     CircleNotifications.shared.setNotifyEnabled(circleId: circle.id, false)

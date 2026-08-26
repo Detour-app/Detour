@@ -252,6 +252,16 @@ class StoresTest {
     }
 
     @Test
+    fun goingIdleStopsTheDetailSpinnerWithoutRaisingAnError() {
+        // actDetail's null-selectedId branch and loadDetail's cancellation
+        // branch both land here instead of detailFailed — neither is a
+        // failure, just a busy flag with nothing left to clear it.
+        val idle = CirclesState(detailBusy = true, detailError = "stale").detailIdle()
+        assertTrue(!idle.detailBusy)
+        assertEquals("stale", idle.detailError)
+    }
+
+    @Test
     fun reselectingTheSameCircleLeavesPlacesAndEventsInPlace() {
         // Refresh calls select() with the circle already open. The old
         // detail must stay on screen while the refetch is in flight, not

@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * Everything the Friends screen shows about friends, on both platforms.
@@ -63,7 +64,7 @@ object FriendsStore {
      *  numbers or the other way round. */
     @Throws(Exception::class)
     suspend fun reload() {
-        _state.value = _state.value.starting()
+        _state.update { it.starting() }
         _state.value = try {
             _state.value.loaded(Friends.lists(), Friends.stats())
         } catch (e: CancellationException) {
@@ -109,7 +110,7 @@ object FriendsStore {
             // the whole screen.
             return
         }
-        _state.value = _state.value.copy(own = own)
+        _state.update { it.copy(own = own) }
     }
 
     /** True on success; false leaves the failure in [state]'s `error`. */
@@ -117,8 +118,10 @@ object FriendsStore {
     // call `Friends.request` directly, so that a refused handle reports inside
     // the dialog the rider is looking at rather than also lighting the banner
     // over the list behind it. Routing it through this store would set both.
-    // The cost is that a sent request does not appear under Outgoing until the
-    // next reload, which is how both screens already behaved.
+    // The cost is that a sent request does not appear under Outgoing on its
+    // own: Android's `AddFriendDialog` really does wait for the next reload,
+    // but iOS's `sendRequest()` (FriendsScreen.swift) reloads right after a
+    // successful send, so its pending row shows up immediately instead.
     @Throws(Exception::class)
     suspend fun respond(username: String, accept: Boolean): Boolean =
         act { Friends.respond(username, accept) } != null
@@ -135,13 +138,13 @@ object FriendsStore {
      * ordinary failure and still propagates, per [reload]'s comment above.
      */
     private suspend fun <T> act(block: suspend () -> T): T? {
-        _state.value = _state.value.starting()
+        _state.update { it.starting() }
         val result = try {
             block()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.value = _state.value.failed(e)
+            _state.update { it.failed(e) }
             return null
         }
         reload()

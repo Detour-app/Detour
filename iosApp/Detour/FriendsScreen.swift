@@ -217,6 +217,15 @@ struct FriendsScreen: View {
                     ? "You are now friends with \(target)"
                     : "Request sent to \(target)"
                 addName = ""
+                // The pending row this produces renders directly under the
+                // Send button, which is where the rider is looking — the
+                // same reload the old `FriendsModel.sendRequest()` got for
+                // free by going through `act`, which always reloaded on
+                // success. Bypassing `FriendsStore` for the request itself
+                // (see this function's own doc above) is not the same as
+                // bypassing the refresh that used to follow it. The `catch`
+                // below is unaffected: a refusal never reaches here.
+                await model.reload()
             } catch {
                 addError = (error as NSError).localizedDescription
             }
@@ -286,7 +295,11 @@ struct FriendsScreen: View {
     private func createConvoy() {
         let target = newConvoyName.trimmed()
         Task {
-            if (try? await ConvoysStore.shared.create(name: target)) == true {
+            // A suspend fun returning Boolean arrives as KotlinBoolean, which
+            // is an NSNumber and so compares to nothing on its own — same
+            // scar as RoutesScreen.swift's `pullInbox()` (~line 199) for
+            // KotlinInt. `?.boolValue` is what actually unwraps it to `Bool`.
+            if (try? await ConvoysStore.shared.create(name: target))?.boolValue == true {
                 newConvoyName = ""
             }
         }

@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * Everything the Circles screen and its detail pane show: the list plus the
@@ -77,7 +78,7 @@ object CirclesStore {
 
     @Throws(Exception::class)
     suspend fun reload() {
-        _state.value = _state.value.starting()
+        _state.update { it.starting() }
         _state.value = try {
             _state.value.loaded(Groups.list(KIND))
         } catch (e: CancellationException) {
@@ -93,8 +94,37 @@ object CirclesStore {
      *  the new one's. */
     @Throws(Exception::class)
     suspend fun select(groupId: String?) {
-        _state.value = _state.value.selecting(groupId)
+        _state.update { it.selecting(groupId) }
         if (groupId != null) loadDetail(groupId)
+    }
+
+    /** Same selection change as [select], without the load. For a caller
+     *  that is about to bring the detail pane into composition, whose own
+     *  effect calls [select] on mount and does the one load this pair needs
+     *  — Android's `CirclesScreen.kt` `CircleDetailSection` `LaunchedEffect`,
+     *  and its `onOpen`/deep-link callers, which used to call [select]
+     *  themselves and so fired that same load a second time. Two
+     *  `GET places`/`GET events` per open, and the slower of the two
+     *  responses could win over the newer one, since [commitIfViewing] only
+     *  compares ids, not request order.
+     *
+     *  Not `suspend`: unlike [select], this does no I/O, so a caller does not
+     *  need a coroutine just to flip the selection. Not `@Throws` either — it
+     *  cannot fail. iOS does not need this: its own single loader
+     *  (`.task(id: mapState.viewedCircleId)` in CirclesScreen.swift) already
+     *  calls [select] exactly once per open. */
+    fun selectOnly(groupId: String) {
+        _state.update { it.selecting(groupId) }
+    }
+
+    /** Surfaces a detail-pane failure that happened entirely on the calling
+     *  platform — a denied OS notification permission, say — through the same
+     *  banner a server failure would use, rather than inventing a second
+     *  error slot per platform. Not a mutation: nothing here calls the server
+     *  or touches [CirclesState.detailBusy], so it cannot race a detail load
+     *  already in flight. */
+    fun reportDetailError(message: String) {
+        _state.update { it.copy(detailError = message) }
     }
 
     /** True on success; false leaves the failure in [state]'s `error`. */
@@ -150,12 +180,22 @@ object CirclesStore {
      *  never disables Invite, Leave or the sharing switch, which read the
      *  list pair. */
     private suspend fun loadDetail(groupId: String) {
-        _state.value = _state.value.detailStarting()
+        _state.update { it.detailStarting() }
         val result = try {
             val places = CirclePlaces.places(groupId)
             val events = CircleEvents.events(groupId, sinceMs = 0L).sortedByDescending { it.tsMs }
             _state.value.detailLoaded(places, events)
         } catch (e: CancellationException) {
+            // A cancelled load must not leave `detailBusy` stuck on with
+            // nothing left to clear it. Guarded the same way the commit below
+            // is: only touch it if `groupId` is still the circle being
+            // viewed. The ordinary case — this coroutine was cancelled
+            // because the rider tapped a different circle before this one
+            // answered — has already moved `selectedId` on by the time this
+            // runs, and that circle's own `detailStarting()` owns
+            // `detailBusy` now; clearing it out from under that load would
+            // flash the spinner off while it is still genuinely loading.
+            if (_state.value.selectedId == groupId) _state.update { it.detailIdle() }
             throw e
         } catch (e: Exception) {
             _state.value.detailFailed(e)
@@ -173,7 +213,7 @@ object CirclesStore {
         // callers, one of them is already a plain unstructured `Task { }`, and
         // Tasks 4-6 have yet to write the rest — so the guarantee belongs here
         // rather than in a convention every future call site has to know.
-        _state.value = _state.value.commitIfViewing(groupId, result)
+        _state.update { it.commitIfViewing(groupId, result) }
     }
 
     /** Runs a circle-list mutation, then reloads the whole list — same
@@ -181,13 +221,13 @@ object CirclesStore {
      *  ordinary failure is reported through `state.error` and returned as
      *  null rather than thrown. */
     private suspend fun <T> act(block: suspend () -> T): T? {
-        _state.value = _state.value.starting()
+        _state.update { it.starting() }
         val result = try {
             block()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.value = _state.value.failed(e)
+            _state.update { it.failed(e) }
             return null
         }
         reload()
@@ -200,19 +240,21 @@ object CirclesStore {
      *  Busy and failure go through [CirclesState.detailBusy]/
      *  [CirclesState.detailError] rather than [act]'s list pair, for the
      *  same reason [loadDetail] does. A null [CirclesState.selectedId]
-     *  (nothing open any more) just skips the reload rather than loading a
-     *  circle that isn't there. */
+     *  (nothing open any more) just skips the reload — clearing
+     *  [CirclesState.detailBusy] instead of leaving it stuck, since nothing
+     *  else will. */
     private suspend fun <T> actDetail(block: suspend () -> T): T? {
-        _state.value = _state.value.detailStarting()
+        _state.update { it.detailStarting() }
         val result = try {
             block()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.value = _state.value.detailFailed(e)
+            _state.update { it.detailFailed(e) }
             return null
         }
-        _state.value.selectedId?.let { loadDetail(it) }
+        val selectedId = _state.value.selectedId
+        if (selectedId != null) loadDetail(selectedId) else _state.update { it.detailIdle() }
         return result
     }
 
@@ -239,6 +281,13 @@ internal fun CirclesState.starting() = copy(busy = true, error = null)
  *  load or mutation never disables the list-scoped controls (Invite,
  *  Leave, the sharing switch) that read [CirclesState.busy]. */
 internal fun CirclesState.detailStarting() = copy(detailBusy = true, detailError = null)
+
+/** Clears [CirclesState.detailBusy] with nothing else to show for it — the
+ *  no-op end of a detail action that found no circle open to reload, or a
+ *  detail load cancelled before it reached [commitIfViewing]. Neither is a
+ *  failure, so [CirclesState.detailError] is left alone; there is just a
+ *  spinner that must stop. */
+internal fun CirclesState.detailIdle() = copy(detailBusy = false)
 
 /** Drops [CirclesState.selectedId] if it names a circle no longer in
  *  [circles] — a circle can vanish between the list load and the tap

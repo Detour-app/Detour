@@ -97,12 +97,15 @@ fun CirclesScreen(onBack: () -> Unit, openCircleId: String? = null) {
     LaunchedEffect(Unit) { CirclesStore.reload() }
 
     // A tapped arrival/departure notification opens straight to its circle -
-    // CirclesStore.select is safe to call before the list has finished its
-    // own load, since CirclesStore.loaded drops a selectedId that turns out
-    // not to name a real circle.
+    // CirclesStore.selectOnly is safe to call before the list has finished
+    // its own load, since CirclesStore.loaded drops a selectedId that turns
+    // out not to name a real circle. selectOnly, not select: once selectedId
+    // is set, CircleDetailSection enters composition below and its own
+    // LaunchedEffect(circle.id) calls CirclesStore.select itself - calling
+    // select here too would fire the same detail load twice.
     LaunchedEffect(openCircleId) {
         openCircleId?.let {
-            CirclesStore.select(it)
+            CirclesStore.selectOnly(it)
             PendingCircleOpen.clear()
         }
     }
@@ -155,7 +158,11 @@ fun CirclesScreen(onBack: () -> Unit, openCircleId: String? = null) {
                 CircleListSection(
                     circles = state.circles,
                     busy = state.busy,
-                    onOpen = { c -> scope.launch { CirclesStore.select(c.id) } },
+                    // selectOnly, not select: CircleDetailSection's own
+                    // LaunchedEffect(circle.id) does the one load this pair
+                    // needs the moment this brings it into composition. No
+                    // scope.launch either - selectOnly does no I/O.
+                    onOpen = { c -> CirclesStore.selectOnly(c.id) },
                     onCreate = { createOpen = true },
                     onAccept = { c ->
                         scope.launch {

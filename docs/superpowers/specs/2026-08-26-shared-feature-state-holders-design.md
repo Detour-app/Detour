@@ -67,7 +67,9 @@ In scope:
 - `app/.../ui/FriendsScreen.kt` and `app/.../ui/CirclesScreen.kt` reduced to rendering plus
   `scope.launch { store.action() }`.
 - `iosApp/Detour/FriendsScreen.swift` and `CirclesScreen.swift`: `FriendsModel` and `CirclesModel`
-  deleted, the views bound to the shared state instead.
+  rewritten to own watchers rather than logic — the reload/act/error machinery they held moves
+  to the stores, and what is left under each name binds the view to the shared state instead. The
+  classes survive under their old names; nothing about them is deleted.
 - First `commonTest` coverage of any of this logic.
 - `versionName` minor bump: iOS gains the leaderboard's own-stats row (see below), which is a
   feature.

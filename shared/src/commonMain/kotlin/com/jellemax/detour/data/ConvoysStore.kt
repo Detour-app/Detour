@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 data class ConvoysState(
     val convoys: List<Group> = emptyList(),
@@ -42,7 +43,7 @@ object ConvoysStore {
 
     @Throws(Exception::class)
     suspend fun reload() {
-        _state.value = _state.value.starting()
+        _state.update { it.starting() }
         _state.value = try {
             _state.value.loaded(Groups.list(KIND))
         } catch (e: CancellationException) {
@@ -76,13 +77,13 @@ object ConvoysStore {
         act { Groups.leave(groupId) } != null
 
     private suspend fun <T> act(block: suspend () -> T): T? {
-        _state.value = _state.value.starting()
+        _state.update { it.starting() }
         val result = try {
             block()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.value = _state.value.failed(e)
+            _state.update { it.failed(e) }
             return null
         }
         reload()

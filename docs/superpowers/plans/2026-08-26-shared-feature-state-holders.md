@@ -52,11 +52,12 @@ Both live in the Friends screen and share one shape, so they land together. Deli
 - Create: `shared/src/commonTest/kotlin/com/jellemax/detour/data/StoresTest.kt`
 
 **Interfaces:**
-- Consumes: `Friends.lists/stats/request/respond`, `Groups.create/list/invite/respond/leave`, `FriendLists`, `FriendStats`, `Group`, `Coverage.compute()`, `BadgeStore.stats/refresh`.
+- Consumes: `Friends.lists/stats/respond`, `Groups.create/list/invite/respond/leave`, `FriendLists`, `FriendStats`, `Group`, `Coverage.compute()`, `BadgeStore.stats/refresh`.
 - Produces, relied on by Tasks 3, 4 and 5 exactly as spelled here:
   - `FriendsState(lists, leaderboard, own, busy, error)` — all `val`, defaults `null`/`emptyList()`/`false`/`null`
   - `FriendsStore.state: StateFlow<FriendsState>`
-  - `suspend FriendsStore.reload()`, `refreshOwn(username: String)`, `request(username: String): String?`, `respond(username: String, accept: Boolean): Boolean`
+  - `suspend FriendsStore.reload()`, `refreshOwn(username: String)`, `respond(username: String, accept: Boolean): Boolean`
+  - No `request` action, on purpose: both platforms' add-friend dialogs call `Friends.request` directly instead, so a refused handle reports inside the dialog rather than also lighting the banner behind it (see `FriendsStore.respond`'s own comment for the full reasoning).
   - `ConvoysState(convoys, busy, error)`
   - `ConvoysStore.state: StateFlow<ConvoysState>`
   - `suspend ConvoysStore.reload()`, `create(name: String): Boolean`, `invite(groupId: String, username: String): String?`, `respond(groupId: String, accept: Boolean): Boolean`, `leave(groupId: String): Boolean`
@@ -288,10 +289,10 @@ object FriendsStore {
         _state.value = _state.value.copy(own = own)
     }
 
-    /** Returns the resulting status — "pending", or "accepted" when they had
-     *  already asked us and this answered theirs. */
-    @Throws(Exception::class)
-    suspend fun request(username: String): String = act { Friends.request(username) }
+    // No `request` action here on purpose. Both platforms' add-friend dialogs
+    // call `Friends.request` directly, so that a refused handle reports inside
+    // the dialog the rider is looking at rather than also lighting the banner
+    // over the list behind it. Routing it through this store would set both.
 
     @Throws(Exception::class)
     suspend fun respond(username: String, accept: Boolean) {
@@ -851,33 +852,25 @@ reconciliation the screen did by hand is a tested transition in the store."
 
 ### Task 6: iOS — both screens, and the version
 
-Deliverable: the Swift models are gone, the views bind to shared state, the version reflects the feature.
+Deliverable: the Swift models own watchers instead of logic, the views bind to shared state, the version reflects the feature.
 
 **Files:**
-- Modify: `iosApp/Detour/FriendsScreen.swift` (delete `FriendsModel`)
-- Modify: `iosApp/Detour/CirclesScreen.swift` (delete `CirclesModel`)
+- Modify: `iosApp/Detour/FriendsScreen.swift` (rewrite `FriendsModel` down to watchers)
+- Modify: `iosApp/Detour/CirclesScreen.swift` (rewrite `CirclesModel` down to watchers)
 - Modify: `app/build.gradle.kts` (`versionName`)
 
 **Interfaces:**
 - Consumes: `FeatureFlows.friends()/convoys()/circles()` from Task 3, and every store action from Tasks 1 and 2.
 
-- [ ] **Step 1: Replace `FriendsModel`**
+- [ ] **Step 1: Rewrite `FriendsModel` down to its watchers**
 
-Delete the class. Replace it with an `ObservableObject` that owns watchers rather than logic — the same shape `SettingsModel` in `iosApp/Detour/SettingsScreen.swift` already uses: hold the watchers, mirror their values into `@Published`, `cancel()` every one in `deinit`.
+Keep the class name, gut what it does. Strip the reload/act/error logic out entirely and replace it with an `ObservableObject` that owns watchers rather than logic — the same shape `SettingsModel` in `iosApp/Detour/SettingsScreen.swift` already uses: hold the watchers, mirror their values into `@Published`, `cancel()` every one in `deinit`.
 
-Actions become `Task { await FriendsStore.shared.request(username: name) }` — note there is no
-`try?`, because an action does not throw on failure. It sets `state.error` and returns
-`String?`/`Boolean`. A call site that clears a text field or dismisses a sheet on success must
-branch on that return value; one that only needs the banner can ignore it. Read each site rather
-than mapping them all the same way.
-
-`CancellationException` **does** still cross, so the exported signature is `async throws` and
-Swift still needs `try` — use `try?` and let a cancellation be silently discarded, which is what
-a cancellation should be.
+Note `FriendsStore` has no `request` action, on purpose — both platforms' add-friend dialogs call `Friends.request` directly instead, so a refused handle reports inside the dialog rather than also lighting the banner over the list behind it (see the comment above `FriendsStore.respond` for the full reasoning). Actions that *do* live on the store become `Task { _ = try? await FriendsStore.shared.respond(username: name, accept: true) }` — `try?` is required, because `CancellationException` still crosses (the exported signature is `async throws`), even though an ordinary failure never throws: it sets `state.error` and returns `String?`/`Boolean`. A call site that clears a text field or dismisses a sheet on success must branch on that return value; one that only needs the banner can discard it with `_ =`. Read each site rather than mapping them all the same way.
 
 `signedIn` and `username` must stay `@Published` fed by the token watcher, exactly as slice A left them — that is what makes the screen react to a mid-session sign-in, and removing it silently reintroduces a bug slice A fixed.
 
-- [ ] **Step 2: Replace `CirclesModel`**
+- [ ] **Step 2: Rewrite `CirclesModel` down to its watchers**
 
 Same treatment. Keep `CircleMapState`, and keep the `Task.isCancelled` guard slice A added to `loadPlacesAndEvents` — or rather, delete that function along with the state it loaded, and make sure whatever replaces it keeps the guard's effect: a cancelled load must not raise "Something went wrong". Say in your report how you preserved it.
 
@@ -907,13 +900,19 @@ git add iosApp/Detour/FriendsScreen.swift iosApp/Detour/CirclesScreen.swift \
         app/build.gradle.kts
 git commit -m "feat(ios): bind friends and circles to the shared stores
 
-FriendsModel and CirclesModel are deleted: the reload/act/error logic they held
-is the same logic the Compose screens held, and it now lives once in
-commonMain. What is left on this side owns watchers, not decisions.
+FriendsModel and CirclesModel keep their names but not their logic: the
+reload/act/error machinery they held is the same logic the Compose screens
+held, and it now lives once in commonMain. What is left on this side owns
+watchers, not decisions.
 
 iOS gains the leaderboard's own-stats row, which only Android had, because the
 computation moved with the state — hence the minor bump."
 ```
+
+(NOTE, added after the fact: the actual commit, `c685d74`, kept the plan's
+original "are deleted" wording — the classes were not deleted, and the commit
+message says so. Left uncorrected there since rewriting a committed message
+would move a reviewed SHA; corrected here since this is guidance, not history.)
 
 ---
 
