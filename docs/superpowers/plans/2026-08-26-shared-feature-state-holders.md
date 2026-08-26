@@ -17,6 +17,19 @@
 - **Every exported `suspend` function needs `@Throws(Exception::class)`.** A Kotlin/Native `suspend` function without it propagates only `CancellationException`; every other exception reaching Swift **terminates the process**. Slice A annotated 29 existing functions for exactly this reason. Every new `suspend` action in this slice is a new exported function and must carry the annotation, or an error in this slice crashes iOS instead of showing a banner. Follow the existing pattern: one pointer comment per object, not the paragraph repeated per declaration — see `shared/src/commonMain/kotlin/com/jellemax/detour/data/Groups.kt` and the canonical explanation in `SyncClient.kt`.
 - **State classes must be exported types:** public `data class` in `commonMain`, **no generic parameters**. A generic reaches Swift with its type argument erased, which is the problem `FlowWatcher.kt`'s concrete subclasses exist to avoid.
 - **One new `Watcher` subclass per new state type, and no more.** Check `shared/src/iosMain/kotlin/com/jellemax/detour/data/FlowWatcher.kt` before adding one; reuse an existing element type over introducing a new one.
+- **An action never throws for an ordinary failure.** It reports through `state.error` and
+  returns a value the caller can branch on: `String?` where it produced a value (null means it
+  failed), `Boolean` otherwise. `reload()` and `refreshOwn()` stay `Unit`. This was changed after
+  Task 1's review: an earlier revision had actions rethrow, which would have made every
+  `scope.launch` call site responsible for catching an error the store had already reported —
+  and an uncaught exception in a `launch` crashes an Android app. **Call sites branch on the
+  return value; they do not wrap actions in `try`/`catch`.**
+- **`CancellationException` is the one thing that still propagates**, and every store must
+  `catch (e: CancellationException) { throw e }` ahead of its generic catch — the house pattern
+  in `shared/.../data/SpinPicker.kt` and `RoundTripPlanner.kt`. A cancellation is the caller's
+  own doing (a screen key changing, a sign-out mid-load) and must never become an error banner.
+  This is why the actions keep `@Throws(Exception::class)` even though they no longer throw on
+  failure: without it a cancellation crossing to Swift would terminate the process.
 - **Every action's contract, identically:** set `busy = true` and clear `error`; call the shared API object; on success re-read the server's view via `reload()` rather than patching the local copy; on failure set `error` from the exception message and **leave the last-known-good data in place**; set `busy = false` on both paths.
 - **Do not translate exception messages.** `AuthException` and `HttpStatusException` already carry the server's own wording. Store `e.message`, fall back to a fixed string when it is null.
 - **Android:** no behaviour change beyond what the spec names. User-facing copy stays byte-identical. Do not change `ConvoyLiveClient`, `ConvoyLiveService`, the mic-permission plumbing, the battery-optimisation dialog, or the notification-permission launcher — those are platform state and stay (spec, "Where the boundary falls").
@@ -43,10 +56,10 @@ Both live in the Friends screen and share one shape, so they land together. Deli
 - Produces, relied on by Tasks 3, 4 and 5 exactly as spelled here:
   - `FriendsState(lists, leaderboard, own, busy, error)` — all `val`, defaults `null`/`emptyList()`/`false`/`null`
   - `FriendsStore.state: StateFlow<FriendsState>`
-  - `suspend FriendsStore.reload()`, `refreshOwn(username: String)`, `request(username: String): String`, `respond(username: String, accept: Boolean)`
+  - `suspend FriendsStore.reload()`, `refreshOwn(username: String)`, `request(username: String): String?`, `respond(username: String, accept: Boolean): Boolean`
   - `ConvoysState(convoys, busy, error)`
   - `ConvoysStore.state: StateFlow<ConvoysState>`
-  - `suspend ConvoysStore.reload()`, `create(name: String)`, `invite(groupId: String, username: String): String`, `respond(groupId: String, accept: Boolean)`, `leave(groupId: String)`
+  - `suspend ConvoysStore.reload()`, `create(name: String): Boolean`, `invite(groupId: String, username: String): String?`, `respond(groupId: String, accept: Boolean): Boolean`, `leave(groupId: String): Boolean`
 
 - [ ] **Step 1: Read the code being replaced**
 
@@ -454,7 +467,7 @@ Deliverable: the third store plus its tests, still with nothing consuming it.
 - Produces, relied on by Tasks 4 and 5:
   - `CirclesState(circles, selectedId, places, events, busy, error)`
   - `CirclesStore.state: StateFlow<CirclesState>`
-  - `suspend CirclesStore.reload()`, `select(groupId: String?)`, `create(name: String)`, `invite(groupId: String, username: String): String`, `respond(groupId: String, accept: Boolean)`, `leave(groupId: String)`, `setSharing(groupId: String, sharing: Boolean)`, `sharePlace(groupId: String, place: SavedPlace, radiusM: Double)`, `unsharePlace(serverId: String)`
+  - `suspend CirclesStore.reload()`, `select(groupId: String?)`, `create(name: String): Boolean`, `invite(groupId: String, username: String): String?`, `respond(groupId: String, accept: Boolean): Boolean`, `leave(groupId: String): Boolean`, `setSharing(groupId: String, sharing: Boolean): Boolean`, `sharePlace(groupId: String, place: SavedPlace, radiusM: Double): Boolean`, `unsharePlace(serverId: String): Boolean`
 
 - [ ] **Step 1: Read the code being replaced**
 
@@ -696,7 +709,10 @@ Delete the `lists`, `stats`, `busy`, `error`, `reloads` `remember`s, the `Launch
 
 Read the rest of the composable and repoint every reference: `lists` → `state.lists`, `stats` → `state.leaderboard`, `own` → `state.own`, `busy` → `state.busy`, `error` → `state.error`. Every `act { … }` becomes `scope.launch { FriendsStore.action(…) }`.
 
-The store rethrows after setting the banner, so a `scope.launch` that calls an action must not let the exception escape into the composition — wrap it the way the surrounding code already handles failures, and say in your report which shape you chose and why.
+Actions do not throw on failure — they set `state.error` and return `String?`/`Boolean`. So a
+`scope.launch { }` needs **no** `try`/`catch`: launch the action, and branch on its return value
+only where the UI has something to do differently on success (clearing a text field, closing a
+dialog). Do not add a `catch` that discards an error the store has already reported.
 
 - [ ] **Step 2: Replace `ConvoysSection`'s membership state**
 
@@ -829,7 +845,15 @@ Deliverable: the Swift models are gone, the views bind to shared state, the vers
 
 Delete the class. Replace it with an `ObservableObject` that owns watchers rather than logic — the same shape `SettingsModel` in `iosApp/Detour/SettingsScreen.swift` already uses: hold the watchers, mirror their values into `@Published`, `cancel()` every one in `deinit`.
 
-Actions become `Task { try? await FriendsStore.shared.request(username: name) }`. Note the store already sets the error banner before rethrowing, so a Swift call site that only needs the banner can discard the error — but a call site that clears a text field on success must not clear it on failure, so read each one rather than mapping them all the same way.
+Actions become `Task { await FriendsStore.shared.request(username: name) }` — note there is no
+`try?`, because an action does not throw on failure. It sets `state.error` and returns
+`String?`/`Boolean`. A call site that clears a text field or dismisses a sheet on success must
+branch on that return value; one that only needs the banner can ignore it. Read each site rather
+than mapping them all the same way.
+
+`CancellationException` **does** still cross, so the exported signature is `async throws` and
+Swift still needs `try` — use `try?` and let a cancellation be silently discarded, which is what
+a cancellation should be.
 
 `signedIn` and `username` must stay `@Published` fed by the token watcher, exactly as slice A left them — that is what makes the screen react to a mid-session sign-in, and removing it silently reintroduces a bug slice A fixed.
 
