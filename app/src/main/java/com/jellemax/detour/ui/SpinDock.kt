@@ -206,6 +206,7 @@ private fun Modifier.modeSwitchAction(
     other: TravelMode,
     blockedReason: String?,
     onSwitch: (TravelMode) -> Unit,
+    onBlocked: (String) -> Unit,
 ): Modifier = semantics {
     customActions = listOf(
         CustomAccessibilityAction("Switch to ${other.label}") {
@@ -213,7 +214,14 @@ private fun Modifier.modeSwitchAction(
                 onSwitch(other)
                 true
             } else {
-                false
+                // Refusing silently is what the gesture path deliberately does
+                // not do: a swipe that is blocked raises a snackbar naming what
+                // to cancel first. A screen reader user invoking the same switch
+                // from the rotor gets the same explanation, or this action reads
+                // as simply broken. Returning true because it was handled - we
+                // answered - not because the mode changed.
+                onBlocked(blockedReason)
+                true
             }
         },
     )
@@ -386,7 +394,7 @@ internal fun SpinDock(
         modifier = modifier
             .fillMaxWidth()
             .glassBorder(MaterialTheme.shapes.extraLarge)
-            .modeSwitchAction(other, switchBlockedReason, onSwitchMode)
+            .modeSwitchAction(other, switchBlockedReason, onSwitchMode, onSwitchBlocked)
             .modeSwipeGesture(swipe, blockedRef, otherRef, onSwitchRef, onBlockedRef),
         shape = MaterialTheme.shapes.extraLarge,
         colors = glassCardColors(),
