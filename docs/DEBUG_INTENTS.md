@@ -125,6 +125,41 @@ or seed only on a build that has never signed in. To clear them again:
 adb shell run-as io.github.maxke24.detour.debug rm files/trips.json
 ```
 
+## Mode-swipe hint — `DebugSwipeHintReceiver`
+
+The spin dock's mode swipe plays a discoverability hint in one of two variants.
+There is no analytics in this app, so the two are compared by hand rather than
+measured. Switch between them without rebuilding:
+
+```sh
+adb shell am broadcast \
+  -n io.github.maxke24.detour.debug/com.jellemax.detour.debug.DebugSwipeHintReceiver \
+  --es variant arrows      # or: nudge
+```
+
+The hint fires once per map visit and retires permanently after three
+successful swipes. To see it again, re-arm the counter:
+
+```sh
+adb shell am broadcast \
+  -n io.github.maxke24.detour.debug/com.jellemax.detour.debug.DebugSwipeHintReceiver \
+  --ez reset true
+```
+
+Both arms can be sent in one broadcast. After either, leave the map screen and
+come back — the hint is scheduled once per visit.
+
+```sh
+adb logcat -s DebugSwipeHint   # the receiver logs what it set
+```
+
+Prefer this over editing `shared_prefs/settings.xml` directly. A `sed` sent
+through `adb shell` has its quotes re-parsed on the device; one that wrote
+malformed XML caused the app to discard the entire preferences file rather
+than fail to parse it.
+
+Deleted along with the losing variant once one of them wins.
+
 ## Related
 
 For behaviour that genuinely needs movement — auto-detection starting a trip,
