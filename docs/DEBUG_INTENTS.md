@@ -131,7 +131,7 @@ The spin dock's mode swipe plays a discoverability hint in one of two variants.
 There is no analytics in this app, so the two are compared by hand rather than
 measured. Switch between them without rebuilding:
 
-```sh
+```
 adb shell am broadcast \
   -n io.github.maxke24.detour.debug/com.jellemax.detour.debug.DebugSwipeHintReceiver \
   --es variant arrows      # or: nudge
@@ -140,7 +140,7 @@ adb shell am broadcast \
 The hint fires once per map visit and retires permanently after three
 successful swipes. To see it again, re-arm the counter:
 
-```sh
+```
 adb shell am broadcast \
   -n io.github.maxke24.detour.debug/com.jellemax.detour.debug.DebugSwipeHintReceiver \
   --ez reset true
@@ -149,7 +149,7 @@ adb shell am broadcast \
 Both arms can be sent in one broadcast. After either, leave the map screen and
 come back — the hint is scheduled once per visit.
 
-```sh
+```
 adb logcat -s DebugSwipeHint   # the receiver logs what it set
 ```
 
