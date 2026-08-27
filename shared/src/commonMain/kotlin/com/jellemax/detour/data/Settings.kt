@@ -325,6 +325,16 @@ object Settings {
         prefs.put("mode_swipes_used", value)
     }
 
+    /** Increments from this object's own value rather than from a copy the
+     *  caller happens to be holding. The UI reads this counter through a
+     *  Compose snapshot, and a read-modify-write across that boundary is
+     *  correct only while the propagation has settled - which is a scheduling
+     *  detail, not a contract. The hint's whole retirement rule hangs off this
+     *  number. */
+    fun incrementModeSwipesUsed() {
+        setModeSwipesUsed(_modeSwipesUsed.value + 1)
+    }
+
     fun setSwipeHintVariant(value: String) {
         _swipeHintVariant.value = value
         prefs.put("swipe_hint_variant", value)

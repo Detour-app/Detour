@@ -1790,7 +1790,7 @@ fun MapScreen(
                             },
                             onSwitchMode = { m ->
                                 selectMode(m)
-                                Settings.setModeSwipesUsed(modeSwipesUsed + 1)
+                                Settings.incrementModeSwipesUsed()
                             },
                             switchBlockedReason = switchBlockedReason,
                             // Not via `error`: LaunchedEffect(error) re-keys on
