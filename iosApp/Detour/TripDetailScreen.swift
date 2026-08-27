@@ -13,6 +13,10 @@ struct TripDetailScreen: View {
     let trip: Trip
 
     @State private var route: [CLLocationCoordinate2D] = []
+    @State private var routeLatLon: [LatLon] = []
+    @State private var cardDialogOpen = false
+    @State private var cardShareURL: URL?
+    @State private var cardShareSheetOpen = false
 
     var body: some View {
         List {
@@ -50,6 +54,19 @@ struct TripDetailScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ShareLink(item: gpxURL()) { Image(systemName: "square.and.arrow.up") }
+            Button { cardDialogOpen = true } label: { Image(systemName: "photo.badge.arrow.down") }
+        }
+        .confirmationDialog("Share trip card", isPresented: $cardDialogOpen, titleVisibility: .visible) {
+            Button("Share trimmed (recommended)") { shareTripCard(full: false) }
+            Button("Share full route") { shareTripCard(full: true) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Endpoints are trimmed by default to avoid sharing your driveway.")
+        }
+        .sheet(isPresented: $cardShareSheetOpen) {
+            if let url = cardShareURL {
+                ActivityView(activityItems: [url])
+            }
         }
         .task { loadRoute() }
     }
@@ -62,6 +79,7 @@ struct TripDetailScreen: View {
 
     private func loadRoute() {
         var points: [CLLocationCoordinate2D] = []
+        var latLons: [LatLon] = []
         for line in TraceStore.shared.rawLines() {
             guard let parsed = TraceStore.shared.parsePoints(line: line) else { continue }
             let inside = parsed.filter {
@@ -70,8 +88,25 @@ struct TripDetailScreen: View {
             points += inside.map {
                 CLLocationCoordinate2D(latitude: $0.at.lat, longitude: $0.at.lon)
             }
+            latLons += inside.map { $0.at }
         }
         route = points
+        routeLatLon = latLons
+    }
+
+    /// Renders and shares the trip card PNG. `darkTheme: false` (hardcoded)
+    /// matches `MapView.swift:66,68` — iOS route/card theming isn't
+    /// dark-mode-aware yet, and this keeps the card consistent with the live
+    /// map rather than introducing a new light/dark split between the two.
+    private func shareTripCard(full: Bool) {
+        let cardData = TripCardGeometry.shared.build(trip: trip, points: routeLatLon, full: full)
+        let routeColorHex = RouteColors.shared.hex(
+            color: SettingsValues.shared.routeColor, darkTheme: false)
+        guard let image = renderTripCardImage(
+            cardData: cardData, routeColorHex: routeColorHex, darkTheme: false, trimmed: !full
+        ) else { return }
+        cardShareURL = writeTripCardForShare(trip: trip, image: image)
+        cardShareSheetOpen = true
     }
 
     /// GPX 1.1 — the one track format every mapping tool reads. Written to the

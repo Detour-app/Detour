@@ -210,7 +210,18 @@ object Settings {
     private fun readVehicleDevices(): Map<String, VehicleDevice> {
         val raw = prefs.string("vehicle_devices").takeIf { it.isNotEmpty() } ?: return emptyMap()
         return runCatching {
-            jsonObjectOf(raw).mapValues { (addr, v) -> decodeVehicleDevice(addr, v) }
+            jsonObjectOf(raw).mapNotNull { (addr, v) ->
+                // A mode name that no longer exists (e.g. a device mapped to
+                // the removed WALK/BIKE modes) is dropped rather than silently
+                // reassigned to CAR — a stale mapping would both mistag trips
+                // and defeat the slow-trip drop gate.
+                val modeName = when (v) {
+                    is JsonObject -> v.optString("mode")
+                    else -> v.toString().trim('"')
+                }
+                if (TravelMode.entries.none { it.name == modeName }) return@mapNotNull null
+                addr to decodeVehicleDevice(addr, v)
+            }.toMap()
         }.getOrDefault(emptyMap())
     }
 

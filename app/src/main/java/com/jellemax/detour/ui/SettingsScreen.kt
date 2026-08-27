@@ -354,7 +354,7 @@ private fun NavigationSection() {
                 Text("Avoid highways", style = MaterialTheme.typography.bodyLarge)
                 Text(
                     "In-app navigation skips motorways (car mode; " +
-                        "moto and bike never use them)",
+                        "moto never uses them)",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -880,9 +880,9 @@ private fun NowPlayingSection() {
 
 /**
  * Map paired Bluetooth (Classic) devices to a vehicle. When one connects, the
- * tracking service logs the trip under that vehicle — a Cardo for the moto, the
- * car's infotainment for driving, walking earbuds for a walk. No scanning, so
- * it needs BLUETOOTH_CONNECT but never location.
+ * tracking service logs the trip under that vehicle — a Cardo for the moto,
+ * the car's infotainment for driving. No scanning, so it needs
+ * BLUETOOTH_CONNECT but never location.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -921,8 +921,8 @@ private fun VehicleSection() {
     SettingsSection("Vehicles") {
         Text(
             "Add a Bluetooth device to a vehicle. When it's connected, trips log " +
-                "under that vehicle automatically — and a walking device (or no " +
-                "connection at a walking pace) logs as a walk.",
+                "under that vehicle automatically. With nothing connected, a trip " +
+                "that never picks up real driving pace is dropped rather than saved.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

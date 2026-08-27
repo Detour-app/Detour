@@ -86,9 +86,10 @@ fun HubScreen(
     LaunchedEffect(Unit) { RouteStore.ensureLoaded() }
     val savedRoutes by RouteStore.routes.collectAsStateWithLifecycle()
 
-    // Coverage.compute walks every trace point against every boundary — same
-    // cost BadgesScreen pays, so it's loaded the same way: off-main, behind a
-    // produceState, with em-dashes standing in until it lands.
+    // Coverage.compute walks every trace point against every boundary, but
+    // caches the result — only the first call after trace/municipality data
+    // changes pays that cost. Still off-main, behind a produceState, with
+    // em-dashes standing in until it lands.
     val data by produceState<HubData?>(initialValue = null) {
         value = withContext(Dispatchers.IO) {
             val coverage = Coverage.compute()

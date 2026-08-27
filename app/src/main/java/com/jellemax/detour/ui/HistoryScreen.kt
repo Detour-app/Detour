@@ -285,6 +285,8 @@ private fun TripCard(
     var menuOpen by remember { mutableStateOf(false) }
     var vehicleMenuOpen by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var cardDialogOpen by remember { mutableStateOf(false) }
+    var cardPoints by remember { mutableStateOf<List<LatLon>?>(null) }
     Card(
         // The overflow IconButton below has its own clickable, so a tap on it
         // is consumed there and never reaches this one.
@@ -344,6 +346,10 @@ private fun TripCard(
                             text = { Text("Change vehicle") },
                             onClick = { menuOpen = false; vehicleMenuOpen = true },
                         )
+                        DropdownMenuItem(
+                            text = { Text("Share trip card") },
+                            onClick = { menuOpen = false; cardDialogOpen = true },
+                        )
                         HorizontalDivider()
                         DropdownMenuItem(
                             text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
@@ -402,6 +408,19 @@ private fun TripCard(
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
             },
+        )
+    }
+
+    if (cardDialogOpen) {
+        val context = LocalContext.current
+        LaunchedEffect(Unit) {
+            if (cardPoints == null) {
+                cardPoints = withContext(Dispatchers.IO) { loadTripTrace(context, trip) }
+            }
+        }
+        TripCardShareDialog(
+            trip, cardPoints,
+            onDismiss = { cardDialogOpen = false; cardPoints = null },
         )
     }
 }
