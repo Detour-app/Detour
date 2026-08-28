@@ -552,6 +552,13 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    if (trip.drivingStats.obd2SpeedPct > 0.0) {
+                        Text(
+                            "OBD2 speed: ${trip.drivingStats.obd2SpeedPct.roundToInt()}% of the drive",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     if (trip.drivingStats.hardBrakeCount + trip.drivingStats.hardAccelCount +
                         trip.drivingStats.hardCornerCount > 0
                     ) {

@@ -437,6 +437,8 @@ class TripTrackingService : Service() {
     @Volatile private var hardCornerCount = 0
     @Volatile private var hardBrakeCount = 0
     @Volatile private var hardAccelCount = 0
+    @Volatile private var obd2SpeedFixes = 0
+    @Volatile private var speedFixesTotal = 0
     @Volatile private var stopState = StopDetector.State()
     @Volatile private var tripLimitState = SpeedLimitTracker.State()
     @Volatile private var tripLimitFetchJob: kotlinx.coroutines.Job? = null
@@ -877,6 +879,8 @@ class TripTrackingService : Service() {
         hardCornerCount = 0
         hardBrakeCount = 0
         hardAccelCount = 0
+        obd2SpeedFixes = 0
+        speedFixesTotal = 0
         stopState = StopDetector.State()
         tripLimitState = SpeedLimitTracker.State()
         tripLimitFetchJob?.cancel()
@@ -952,6 +956,8 @@ class TripTrackingService : Service() {
                     twistinessScore = 0.0, // placeholder, replaced inside the launch below
                     stopCount = stopState.stopCount,
                     idleMs = stopState.idleMs,
+                    obd2SpeedPct = if (speedFixesTotal > 0)
+                        obd2SpeedFixes * 100.0 / speedFixesTotal else 0.0,
                 ),
             )
             // Two separate coroutines, not one: onDestroy's runBlocking joins
@@ -1274,6 +1280,15 @@ class TripTrackingService : Service() {
         // trace, which stay on the phone's own consistent GPS pipeline regardless
         // of whether an OBD2 adapter or board is paired.
         val effectiveSpeedMps = resolveDisplaySpeedMps(speed, stats.mode)
+
+        // Which source actually drove that number, for the per-trip
+        // obd2SpeedPct. Same predicate resolveDisplaySpeedMps uses for its OBD2
+        // arm — board telemetry winning does not count, GPS fallback does not
+        // count.
+        speedFixesTotal++
+        if (freshObdTelemetry()?.takeIf { stats.mode.tracksGForce && it.hasSpeed } != null) {
+            obd2SpeedFixes++
+        }
 
         // speedOf() hands back a fabricated 0.0 sentinel for a coarse/no-speed fix
         // (see its own doc below) — not a real zero-speed measurement. Feeding
