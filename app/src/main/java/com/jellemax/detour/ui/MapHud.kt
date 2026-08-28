@@ -284,6 +284,19 @@ internal const val RPM_REDLINE_FRACTION = 0.85f
 internal fun rpmBarFraction(rpm: Double, mode: TravelMode): Float =
     (rpm / rpmBarScale(mode)).coerceIn(0.0, 1.0).toFloat()
 
+/** "OBD2 signal lost" — shown under the speed HUD when an adapter that was
+ *  feeding this trip has dropped and not yet reconnected (gated by the caller).
+ *  A no-op when [lost] is false so the caller can place it unconditionally. */
+@Composable
+internal fun Obd2SignalLostLabel(lost: Boolean) {
+    if (!lost) return
+    Text(
+        "OBD2 signal lost",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.error,
+    )
+}
+
 /** A thin engine-RPM bar for under the speed HUD — no number, just a glanceable
  *  fill with a redline zone. Shown only while a trip is running and a paired
  *  OBD2 adapter is feeding fresh RPM (gated by the caller). */

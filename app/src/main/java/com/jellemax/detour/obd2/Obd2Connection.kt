@@ -36,6 +36,23 @@ data class ObdTelemetry(
 
 enum class Obd2ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, FAILED }
 
+/** Why the last connection attempt failed, for the pairing screen's diagnostics
+ *  line. [NONE] once a connection succeeds or after a clean [Obd2Connection.disconnect]. */
+enum class Obd2Failure { NONE, ADAPTER_UNAVAILABLE, PERMISSION_DENIED, HANDSHAKE_TIMEOUT, NO_DATA, SOCKET_ERROR }
+
+/** Maps the exception the connection loop caught to a [Obd2Failure] category.
+ *  Keyed off the message strings the loop actually throws (see [Obd2Connection.handshake]
+ *  and the poll watchdog) plus the two non-IOException types the catch was
+ *  broadened for. */
+internal fun classifyObd2Failure(e: Throwable): Obd2Failure = when {
+    e is SecurityException -> Obd2Failure.PERMISSION_DENIED
+    e is IllegalArgumentException -> Obd2Failure.ADAPTER_UNAVAILABLE
+    e.message?.contains("adapter unavailable", ignoreCase = true) == true -> Obd2Failure.ADAPTER_UNAVAILABLE
+    e.message?.contains("handshake", ignoreCase = true) == true -> Obd2Failure.HANDSHAKE_TIMEOUT
+    e.message?.contains("unresponsive", ignoreCase = true) == true -> Obd2Failure.NO_DATA
+    else -> Obd2Failure.SOCKET_ERROR
+}
+
 /**
  * Bluetooth Classic (SPP) connection to a paired ELM327-compatible adapter
  * for maxke24/Detour#62. A process-wide singleton, matching `BleNavServer`'s
@@ -79,6 +96,22 @@ object Obd2Connection {
     private val _connectionState = MutableStateFlow(Obd2ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<Obd2ConnectionState> = _connectionState
 
+    private val _lastFailure = MutableStateFlow(Obd2Failure.NONE)
+    val lastFailure: StateFlow<Obd2Failure> = _lastFailure
+
+    /** When the adapter last answered at least one PID. Unlike [telemetry] this
+     *  is NOT cleared on a drop — "last data 14s ago" is exactly what the
+     *  diagnostics line and the HUD's signal-lost check want to show. */
+    private val _lastDataAtMs = MutableStateFlow<Long?>(null)
+    val lastDataAtMs: StateFlow<Long?> = _lastDataAtMs
+
+    /** The address the running loop is connecting to, or null when idle. Lets
+     *  the pairing screen's "Retry now" target the right adapter and attribute
+     *  the shown status. Does NOT fix the singleton's two-adapters-in-range
+     *  ambiguity — it only exposes which one won. */
+    private val _linkedAddress = MutableStateFlow<String?>(null)
+    val linkedAddress: StateFlow<String?> = _linkedAddress
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var job: Job? = null
 
@@ -110,6 +143,7 @@ object Obd2Connection {
     @Synchronized
     fun connect(context: Context, address: String) {
         if (job?.isActive == true) return
+        _linkedAddress.value = address
         job = scope.launch { runConnectionLoop(context, address) }
     }
 
@@ -121,6 +155,9 @@ object Obd2Connection {
         activeSocket = null
         _connectionState.value = Obd2ConnectionState.DISCONNECTED
         _telemetry.value = null
+        _linkedAddress.value = null
+        // A deliberate stop isn't a failure to report.
+        _lastFailure.value = Obd2Failure.NONE
     }
 
     private suspend fun runConnectionLoop(context: Context, address: String) {
@@ -144,6 +181,7 @@ object Obd2Connection {
                 // published DISCONNECTED — see [activeSocket] and [disconnect].
                 if (!coroutineContext.isActive) return
                 _connectionState.value = Obd2ConnectionState.CONNECTED
+                _lastFailure.value = Obd2Failure.NONE
                 failures = 0
                 pollLoop(input, output)
             } catch (e: CancellationException) {
@@ -168,6 +206,7 @@ object Obd2Connection {
                 // owns the terminal state — don't clobber DISCONNECTED with FAILED.
                 if (coroutineContext.isActive) {
                     _connectionState.value = Obd2ConnectionState.FAILED
+                    _lastFailure.value = classifyObd2Failure(e)
                     _telemetry.value = null
                 }
             } finally {
@@ -236,6 +275,7 @@ object Obd2Connection {
                 }
             } else {
                 consecutiveEmptyPolls = 0
+                _lastDataAtMs.value = System.currentTimeMillis()
             }
             _telemetry.value = ObdTelemetry(
                 hasSpeed = speed != null, speedKmh = speed ?: 0.0,

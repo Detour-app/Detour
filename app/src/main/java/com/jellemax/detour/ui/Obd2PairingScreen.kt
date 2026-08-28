@@ -16,7 +16,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -29,6 +31,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.obd2.Obd2Connection
 import com.jellemax.detour.obd2.Obd2ConnectionState
+import com.jellemax.detour.obd2.Obd2Failure
+import kotlinx.coroutines.delay
 
 /**
  * Pair a bonded Bluetooth device as a vehicle's OBD2 adapter, and show a live
@@ -43,7 +47,20 @@ fun Obd2PairingScreen() {
     val mapping by Settings.vehicleDevices.collectAsStateWithLifecycle()
     val connectionState by Obd2Connection.connectionState.collectAsStateWithLifecycle()
     val telemetry by Obd2Connection.telemetry.collectAsStateWithLifecycle()
+    val lastFailure by Obd2Connection.lastFailure.collectAsStateWithLifecycle()
+    val lastDataAtMs by Obd2Connection.lastDataAtMs.collectAsStateWithLifecycle()
+    val linkedAddress by Obd2Connection.linkedAddress.collectAsStateWithLifecycle()
     val tachOnHud by Settings.obd2TachOnHud.collectAsStateWithLifecycle()
+
+    // 1s tick so "last data Ns ago" keeps counting up after the adapter drops
+    // (telemetry stops emitting then, so nothing else would recompose this).
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            nowMs = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
 
     var hasPerm by remember {
         mutableStateOf(
@@ -102,6 +119,30 @@ fun Obd2PairingScreen() {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+        if (connectionState == Obd2ConnectionState.FAILED) {
+            obd2FailureText(lastFailure)?.let { reason ->
+                Text(reason, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error)
+            }
+        }
+        lastDataAtMs?.let { at ->
+            val secs = ((nowMs - at) / 1_000L).coerceAtLeast(0)
+            Text(
+                if (secs < 60) "Last data: ${secs}s ago" else "Last data: ${secs / 60}m ago",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        val retryAddress = linkedAddress ?: mapping.values.firstNotNullOfOrNull { it.obd2Address }
+        if (retryAddress != null &&
+            (connectionState == Obd2ConnectionState.FAILED ||
+                connectionState == Obd2ConnectionState.DISCONNECTED)
+        ) {
+            OutlinedButton(onClick = {
+                Obd2Connection.disconnect()
+                Obd2Connection.connect(context.applicationContext, retryAddress)
+            }) { Text("Retry now") }
         }
         // Only worth offering once an adapter is paired — with none, the tach
         // could never draw.
@@ -189,4 +230,15 @@ fun Obd2PairingScreen() {
             )
         }
     }
+}
+
+/** Plain-words reason for a FAILED link. Null for [Obd2Failure.NONE] — nothing
+ *  to show. */
+internal fun obd2FailureText(failure: Obd2Failure): String? = when (failure) {
+    Obd2Failure.NONE -> null
+    Obd2Failure.ADAPTER_UNAVAILABLE -> "Couldn't reach the adapter — check it's plugged in and Bluetooth is on."
+    Obd2Failure.PERMISSION_DENIED -> "Bluetooth permission was denied."
+    Obd2Failure.HANDSHAKE_TIMEOUT -> "The adapter didn't answer the handshake — a cheap clone may need a re-plug."
+    Obd2Failure.NO_DATA -> "Connected, but the vehicle sent no data — try again with the ignition on."
+    Obd2Failure.SOCKET_ERROR -> "Bluetooth connection error — moving out of range or the adapter reset."
 }

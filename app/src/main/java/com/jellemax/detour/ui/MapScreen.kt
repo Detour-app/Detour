@@ -108,6 +108,7 @@ import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.leadingSpinIndex
 import com.jellemax.detour.obd2.Obd2Connection
+import com.jellemax.detour.obd2.Obd2ConnectionState
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.wear.NavRelay
@@ -222,6 +223,8 @@ fun MapScreen(
     val liveTrace by TripTrackingService.liveTrace.collectAsStateWithLifecycle()
     val obd2TachOnHud by Settings.obd2TachOnHud.collectAsStateWithLifecycle()
     val obd2Telemetry by Obd2Connection.telemetry.collectAsStateWithLifecycle()
+    val obd2State by Obd2Connection.connectionState.collectAsStateWithLifecycle()
+    val obd2LastDataAtMs by Obd2Connection.lastDataAtMs.collectAsStateWithLifecycle()
     // Convoy: only present while ConvoyLiveService is running (started/stopped
     // from FriendsScreen's convoy list, see Convoys.join/leave there).
     val convoyConnected by ConvoyLiveClient.connected.collectAsStateWithLifecycle()
@@ -1642,6 +1645,16 @@ fun MapScreen(
                             if (obd2TachOnHud && tripMode != null && freshRpm != null) {
                                 RpmBar(freshRpm.rpmValue, tripMode, Modifier.fillMaxWidth())
                             }
+                            // Diagnostics: an adapter that fed this trip and has
+                            // since dropped. Derived from timestamps, not a
+                            // per-trip accumulator — clears itself on reconnect.
+                            val obd2FedThisTrip = stats?.let { s ->
+                                obd2LastDataAtMs?.let { it > s.startTimeMs - 120_000L }
+                            } == true
+                            Obd2SignalLostLabel(
+                                lost = obd2FedThisTrip &&
+                                    obd2State != Obd2ConnectionState.CONNECTED,
+                            )
                         }
                     }
                 }

@@ -165,4 +165,32 @@ class Obd2ConnectionTest {
         assertEquals(listOf(0x32), second.bytes)
         assertTrue(second.answered)
     }
+
+    @Test
+    fun classifyMapsEachRealFailurePathToItsCategory() {
+        assertEquals(
+            Obd2Failure.PERMISSION_DENIED,
+            classifyObd2Failure(SecurityException("need BLUETOOTH_CONNECT")),
+        )
+        assertEquals(
+            Obd2Failure.ADAPTER_UNAVAILABLE,
+            classifyObd2Failure(IllegalArgumentException("00:11 is not a valid Bluetooth address")),
+        )
+        assertEquals(
+            Obd2Failure.ADAPTER_UNAVAILABLE,
+            classifyObd2Failure(IOException("Bluetooth adapter unavailable")),
+        )
+        assertEquals(
+            Obd2Failure.HANDSHAKE_TIMEOUT,
+            classifyObd2Failure(IOException("Handshake timed out waiting for ATZ response")),
+        )
+        assertEquals(
+            Obd2Failure.NO_DATA,
+            classifyObd2Failure(IOException("Adapter unresponsive: 5 consecutive empty poll cycles")),
+        )
+        assertEquals(
+            Obd2Failure.SOCKET_ERROR,
+            classifyObd2Failure(IOException("read failed, socket might closed")),
+        )
+    }
 }
