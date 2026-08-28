@@ -24,8 +24,7 @@ import DetourShared
 /// `CirclePresence.tick` now (see its KDoc). This keeps only what
 /// `commonMain` cannot have: the `while`/`Task.sleep` itself, the guard that
 /// a fix actually exists to share, and the fix's age — see the divergence
-/// noted at its computation below — plus the one thing `tick` deliberately
-/// does *not* reproduce, `reconcileNotifyingCircles()` (see its own doc).
+/// noted at its computation below.
 @MainActor
 final class CircleSync {
 
@@ -36,11 +35,13 @@ final class CircleSync {
     /// deliberately stays on the order of minutes rather than the convoy
     /// relay's ~2 second cadence — two minutes keeps "last seen" reading as
     /// current without turning a background circle into a battery cost
-    /// anyone notices. Matches Android's `CIRCLE_SYNC_INTERVAL_MS` and
-    /// `CirclePresence.ACTIVE_INTERVAL_MS`. Only the *first* sleep in
-    /// `loop()` ever uses this value — every one after is whatever `tick`
-    /// last returned.
-    private static let syncIntervalSeconds = 2 * 60
+    /// anyone notices. Read off `CirclePresence.ACTIVE_INTERVAL_MS` rather
+    /// than typed out again here — the point of the shared tick is that this
+    /// number exists once, and a seed value that drifts from the one every
+    /// later sleep uses would be the exact copy it was extracted to remove.
+    /// Only the *first* sleep in `loop()` ever uses it; every one after is
+    /// whatever `tick` last returned.
+    private static let syncIntervalSeconds = Int(Enums.shared.circleActiveIntervalMs / 1000)
 
     private var started = false
 
@@ -69,7 +70,7 @@ final class CircleSync {
             // `ProcessInfo.processInfo.systemUptime` where a fix is
             // *received* in the location plumbing (`LocationProvider` /
             // `TripRecorder` / `LocationBroadcast`), which is out of scope
-            // here — tracked as a follow-up.
+            // here — tracked as issue #75.
             let fixAgeMs = nowMs() - fixTsMs
 
             do {
@@ -81,7 +82,11 @@ final class CircleSync {
                     fixAgeMs: fixAgeMs,
                     nowMs: nowMs()
                 )
-                intervalSeconds = Int(intervalMs / 1000)
+                // A suspend function's primitive return arrives boxed
+                // across the ObjC export, so this is a `KotlinLong` — an
+                // NSNumber, which has no `/` of its own. Same rule
+                // `RoutesScreen`'s `pullInbox().intValue` follows.
+                intervalSeconds = Int(intervalMs.int64Value / 1000)
             } catch {
                 // tick() swallows every ordinary failure itself (offline, a
                 // 5xx, one circle mid-removal) and only ever propagates
@@ -89,36 +94,17 @@ final class CircleSync {
                 // ordinary to recover from here; the cadence just holds.
             }
 
-            await reconcileNotifyingCircles()
+            // Deliberately no reconciliation of `ConvoyLiveClient`'s
+            // live-push join set here. Two routes already do it:
+            // `CirclesScreen`'s toggle, immediately on the change itself,
+            // and `CircleNotifications.runCatchUpSweep` on every foreground.
+            // A periodic third one would need its own
+            // `Groups.list("circle")` — `tick` no longer hands back the list
+            // it fetched — doubling this device's circle-list requests
+            // against the cadence docs/CIRCLES_AND_CONVOYS.md section 10
+            // exists to bound, to cover only one window: membership changing
+            // server-side during a single long foreground session. Those
+            // arrivals still reach the tray, on the next foreground sweep.
         }
-    }
-
-    /// Reconciles `ConvoyLiveClient`'s live-push join set against circle
-    /// membership as it changes over a long session (left a circle, joined a
-    /// new one) — on top of the immediate add/remove `CirclesScreen`'s
-    /// toggle already does and the sweep
-    /// `CircleNotifications.runCatchUpSweep` runs on every foreground. This
-    /// is the backstop for whatever those two miss, not the primary path —
-    /// up to `syncIntervalSeconds`/idle-interval stale is fine for a feature
-    /// that already tolerates minutes of lag.
-    ///
-    /// `CirclePresence.tick` reproduces Android's `circleSyncLoop`, which
-    /// does not do this — Android keeps it entirely separate, in
-    /// `CircleNotifyService.refreshNotifyCircles`/`periodicRefreshLoop`, its
-    /// own service with its own loop. iOS has no equivalent standalone
-    /// service for this feature — `CircleSync`'s loop is the only long-lived
-    /// background loop it has — so this stays here, right alongside the
-    /// `tick` call, rather than moving to `CircleNotifications.swift`: it
-    /// needs its own circle-list fetch (`tick` no longer hands back the list
-    /// it fetched internally), and this loop is already the place that fetch
-    /// used to live.
-    private func reconcileNotifyingCircles() async {
-        guard SyncClient.shared.configured(), Account.shared.signedIn,
-              let circles = try? await Groups.shared.list(kind: "circle") else { return }
-        let notifyIds = CircleNotifyPolicy.shared.circlesWantingDelivery(
-            circles: circles,
-            notifyArrivals: { CircleNotifications.shared.notifyEnabled(circleId: $0) }
-        )
-        ConvoyLiveClient.shared.setNotifyingCircles(notifyIds)
     }
 }

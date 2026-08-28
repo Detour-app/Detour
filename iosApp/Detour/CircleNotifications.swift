@@ -95,11 +95,10 @@ final class CircleNotifications: NSObject {
     /// story, exactly as the phase-3 prompt's item 7 says to fall back to
     /// when that's the case.
     ///
-    /// Also reconciles `ConvoyLiveClient`'s live-join set on every call, on
-    /// top of `CircleSync`'s own periodic reconciliation — so a fresh launch
-    /// or a resume after a long background stretch doesn't wait for
-    /// `CircleSync`'s next tick (up to 30 minutes) before the live path
-    /// starts working again.
+    /// Also reconciles `ConvoyLiveClient`'s live-join set on every call. That
+    /// is one of the only two routes that do — the other being
+    /// `CirclesScreen`'s own toggle, which acts on the change itself; see
+    /// `CircleSync.loop` for why there is no periodic third one.
     func runCatchUpSweep() async {
         await syncAuthorizationStatus()
         guard SyncClient.shared.configured(), Account.shared.signedIn else { return }
@@ -110,7 +109,16 @@ final class CircleNotifications: NSObject {
         // filter Android's CircleNotifyService.refreshNotifyCircles uses.
         let notifyIds = CircleNotifyPolicy.shared.circlesWantingDelivery(
             circles: circles,
-            notifyArrivals: { self.notifyEnabled(circleId: $0) }
+            // `notifyArrivals` is a Kotlin `(String) -> Boolean`, i.e. a
+            // generic `Function1`, and a generic type argument boxes on the
+            // ObjC export — the same reason `ConvoyLiveClient` has to call
+            // `.intValue` on a `Map<String, Int>`'s values. So this hands
+            // back a `KotlinBoolean`, not a Swift `Bool`. Nothing else in
+            // this app passes a Kotlin function-type parameter from Swift
+            // (`FlowWatcher.watch(onChange:)` takes `() -> Unit`, which has
+            // no return to box), so the exact lowering is unverified until
+            // Xcode builds it.
+            notifyArrivals: { KotlinBoolean(bool: self.notifyEnabled(circleId: $0)) }
         )
         ConvoyLiveClient.shared.setNotifyingCircles(notifyIds)
 
