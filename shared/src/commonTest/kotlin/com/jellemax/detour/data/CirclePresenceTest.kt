@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -21,7 +22,11 @@ import kotlin.test.assertTrue
  * membership filter), [CirclePresence.retainJoinedCircles] (evaluator
  * cleanup), [CirclePresence.isFixTrusted] (the staleness gate) and
  * [CirclePresence.evaluateGeofences]/[CirclePresence.sessionChanged] (which
- * clock and which epoch actually drive an outcome).
+ * clock and which epoch actually drive an outcome) — plus
+ * [CirclePresence.discardEvaluatorsIfSessionChanged], the wiring that reads
+ * the real epoch and acts on that rule, which is the whole reason this file
+ * exists: a slice built to stop rider state leaking across a sign-out has to
+ * prove the discard actually happens, not only that the rule computes.
  */
 class CirclePresenceTest {
 
@@ -207,5 +212,55 @@ class CirclePresenceTest {
         // Auth.sessionEpoch the same way - this only needs to see the
         // number move, not which of those it was.
         assertTrue(CirclePresence.sessionChanged(previousEpoch = 3, currentEpoch = 4))
+    }
+
+    // --- discardEvaluatorsIfSessionChanged: the wiring, not just the rule --
+    //
+    // sessionChanged above is the decision; this is the half that reads the
+    // real Auth.sessionEpoch and acts on it, and until these two tests
+    // existed, negating its `if` broke nothing. Driven by setting
+    // lastSeenEpoch by hand rather than by making Auth.sessionEpoch actually
+    // move - the same shortcut ConvoyRelayTest takes with membershipEpoch,
+    // for the same reason: bumping the real epoch means Auth.store/Auth.clear,
+    // which write Settings, which this module's tests stay isolated from.
+
+    @AfterTest
+    fun leaveTheSessionStateAsAColdStartFindsIt() {
+        // CirclePresence is an object, so both fields outlive the test that
+        // set them - and a leftover lastSeenEpoch would make the *next*
+        // test's session change look like a first-ever tick.
+        CirclePresence.evaluators = emptyMap()
+        CirclePresence.lastSeenEpoch = null
+    }
+
+    @Test
+    fun aSessionChangeDiscardsTheDwellStateEveryCircleHadAccumulated() {
+        val evaluator = GeofenceEvaluator.withDefaults()
+        // Mid-dwell inside a place: the exact state that must not be waiting
+        // for whoever signs in next, since resuming it would fire an arrival
+        // the new rider never made.
+        evaluator.evaluate(lat = 10.0, lon = 10.0, tsMs = 0L, places = listOf(place(1, 10.0, 10.0, radiusM = 100.0)))
+        CirclePresence.evaluators = mapOf("c1" to evaluator)
+        CirclePresence.lastSeenEpoch = Auth.sessionEpoch.value - 1
+
+        CirclePresence.discardEvaluatorsIfSessionChanged()
+
+        assertTrue(CirclePresence.evaluators.isEmpty())
+        assertEquals(Auth.sessionEpoch.value, CirclePresence.lastSeenEpoch)
+    }
+
+    @Test
+    fun anUnmovedEpochKeepsTheDwellStateSoAnArrivalCanStillFire() {
+        // The other half, and why this checks the epoch instead of clearing
+        // on every tick: dwell accumulates across ticks, so a tick that
+        // discarded it unconditionally could never reach the minimum and
+        // "arrive" would never fire at all.
+        val evaluator = GeofenceEvaluator.withDefaults()
+        CirclePresence.evaluators = mapOf("c1" to evaluator)
+        CirclePresence.lastSeenEpoch = Auth.sessionEpoch.value
+
+        CirclePresence.discardEvaluatorsIfSessionChanged()
+
+        assertEquals(mapOf("c1" to evaluator), CirclePresence.evaluators)
     }
 }

@@ -104,9 +104,16 @@ object CirclePresence {
      *  `MunicipalityStore.misses` is: `commonMain` has no
      *  `ConcurrentHashMap`, so a plain mutable map touched from more than
      *  one dispatcher is unsafe, and swapping an immutable map into a
-     *  `@Volatile` field needs no lock on either platform. */
+     *  `@Volatile` field needs no lock on either platform.
+     *
+     *  `internal` rather than private so a test can seed dwell state here and
+     *  read back whether a session change discarded it — the same seam
+     *  [com.jellemax.detour.drive.ConvoyRelay.membershipEpoch] is `internal`
+     *  for, and for the same reason: the alternative is bumping the real
+     *  `Auth.sessionEpoch`, which means writing `Settings`, which this
+     *  module's tests deliberately stay isolated from. */
     @Volatile
-    private var evaluators: Map<String, GeofenceEvaluator> = emptyMap()
+    internal var evaluators: Map<String, GeofenceEvaluator> = emptyMap()
 
     /** The interval [tick] returns when nothing this pass recomputes it —
      *  see [planTick]. `@Volatile` for the same cross-dispatcher reason as
@@ -117,9 +124,10 @@ object CirclePresence {
 
     /** The `Auth.sessionEpoch` this object last saw, `null` until the first
      *  tick — see [sessionChanged]. `@Volatile` for the same reason as
-     *  [evaluators]. */
+     *  [evaluators], and `internal` for the same reason too: a test sets this
+     *  directly to stand in for a sign-out that happened between two ticks. */
     @Volatile
-    private var lastSeenEpoch: Int? = null
+    internal var lastSeenEpoch: Int? = null
 
     /**
      * One pass: post this device's fix to every circle it's sharing into,
@@ -260,12 +268,13 @@ object CirclePresence {
 
     /** The impure half of [sessionChanged]: reads the real `Auth.sessionEpoch`,
      *  clears [evaluators] if it moved, and stamps [lastSeenEpoch] either
-     *  way. Not itself unit-tested — same as
-     *  [com.jellemax.detour.drive.ConvoyRelay]'s own `sessionWatcher` wiring
-     *  — because exercising it needs the real `Auth`/`Settings` singletons
-     *  this module's tests deliberately stay isolated from; [sessionChanged]
-     *  carries the decision this wires up. */
-    private fun discardEvaluatorsIfSessionChanged() {
+     *  way. `internal` rather than private so a test can call it with
+     *  [lastSeenEpoch] set by hand — the same shortcut
+     *  [com.jellemax.detour.drive.ConvoyRelay.clearMembershipForSessionChange]
+     *  exists for, since actually moving `Auth.sessionEpoch` means writing
+     *  `Settings`. What that still leaves untested is [tick]'s own call to
+     *  this, one line up from a network fetch there is no seam for. */
+    internal fun discardEvaluatorsIfSessionChanged() {
         val current = Auth.sessionEpoch.value
         if (sessionChanged(lastSeenEpoch, current)) evaluators = emptyMap()
         lastSeenEpoch = current

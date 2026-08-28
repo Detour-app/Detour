@@ -82,18 +82,18 @@ class CircleNotifyPolicyTest {
         assertEquals(1, plan.collapsedCount)
     }
 
-    // --- planCatchUp: newest-first, the one deliberate behaviour change --------
+    // --- planCatchUp: newest-first selection, and what the cap collapsed -------
 
     @Test
     fun theKeptIndividualsAreNewestFirst() {
-        // Android's own copy of this planner posted oldest-first: an
-        // ascending sortedBy + takeLast keeps the retained events in their
-        // original (ascending) order. Shared raises newest-first instead -
-        // the cap exists precisely because a backlog isn't worth reading in
-        // full, so the item most worth seeing should not sit under four
-        // older ones. Pinned here rather than only described in a comment,
-        // so a later edit that reverts to Android's order fails a test
-        // instead of just contradicting a doc.
+        // Newest-first is the *selection* order: when only five of eight can
+        // be shown, these are the five worth showing. It is deliberately not
+        // the delivery order - both platforms iterate this in reverse, since
+        // neither tray sorts what it is given (see planCatchUp's own doc).
+        // Pinned here rather than only described in a comment, so a later
+        // edit that flips the selection fails a test instead of just
+        // contradicting a doc - and silently reverses both trays, since both
+        // reverse whatever this hands them.
         val now = 10_000_000L
         val total = CircleNotifyPolicy.NOTIFY_CAP + 3
         val events = (0 until total).map { i -> event("user$i", now - (total - i) * 1_000L) }
@@ -102,6 +102,12 @@ class CircleNotifyPolicyTest {
         // user(total-1) has the largest tsMs - the single most recent arrival.
         val expected = (total - 1 downTo total - CircleNotifyPolicy.NOTIFY_CAP).map { "user$it" }
         assertEquals(expected, plan.individual.map { it.username })
+        // Three past the cap, not one: without a second value here the whole
+        // `relevant.size - cap` arithmetic passes with the literal 1, which
+        // the cap+1 case above cannot tell apart. This assertion came over
+        // from the deleted PlaceNotificationsTest, which is where it was
+        // lost in the move.
+        assertEquals(3, plan.collapsedCount)
     }
 
     // --- circlesWantingDelivery -------------------------------------------------
