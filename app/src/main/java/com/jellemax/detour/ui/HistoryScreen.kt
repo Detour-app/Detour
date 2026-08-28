@@ -443,7 +443,10 @@ fun tripStatLine(trip: Trip): String {
     if (ds.hardAccelCount > 0) parts += "${ds.hardAccelCount} hard accel" + if (ds.hardAccelCount == 1) "" else "s"
     if (ds.hardCornerCount > 0) parts += "${ds.hardCornerCount} hard corner" + if (ds.hardCornerCount == 1) "" else "s"
     if (ds.stopCount > 0) parts += "${ds.stopCount} stop" + if (ds.stopCount == 1) "" else "s"
-    if (ds.obd2SpeedPct > 0.0) parts += "OBD2 ${ds.obd2SpeedPct.roundToInt()}%"
+    if (ds.obd2SpeedPct > 0.0) {
+        val pct = ds.obd2SpeedPct.roundToInt()
+        parts += if (pct == 0) "OBD2 <1%" else "OBD2 $pct%"
+    }
     return parts.joinToString(" · ")
 }
 

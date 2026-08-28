@@ -553,8 +553,10 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                         )
                     }
                     if (trip.drivingStats.obd2SpeedPct > 0.0) {
+                        val obd2Pct = trip.drivingStats.obd2SpeedPct.roundToInt()
                         Text(
-                            "OBD2 speed: ${trip.drivingStats.obd2SpeedPct.roundToInt()}% of the drive",
+                            if (obd2Pct == 0) "OBD2 speed: <1% of the drive"
+                            else "OBD2 speed: $obd2Pct% of the drive",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

@@ -41,10 +41,10 @@ data class DrivingStats(
     val twistinessScore: Double = 0.0,
     val stopCount: Int = 0,
     val idleMs: Long = 0,
-    /** Fraction (0-100) of this trip's speed fixes where fresh OBD2 telemetry
-     *  supplied the speed. 0.0 for trips recorded before OBD2 and for trips
-     *  where no adapter ever fed a reading — the two are not distinguished,
-     *  same as every other field here. */
+    /** Percentage (0-100) of this trip's location fixes where fresh OBD2 telemetry
+     *  supplied the speed. 0.0 for trips recorded before OBD2 and for trips where
+     *  no adapter ever fed a reading — the two are not distinguished, same as
+     *  every other field here. */
     val obd2SpeedPct: Double = 0.0,
 )
 

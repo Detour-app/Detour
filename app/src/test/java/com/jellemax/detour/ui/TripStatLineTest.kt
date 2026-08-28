@@ -36,4 +36,22 @@ class TripStatLineTest {
         val line = tripStatLine(trip(DrivingStats(stopCount = 3)))
         assertTrue(line.contains("3 stops"))
     }
+
+    @Test
+    fun obd2ShareAppearsWhenNonZero() {
+        val line = tripStatLine(trip(DrivingStats(obd2SpeedPct = 93.7)))
+        assertTrue(line.contains("OBD2 94%"))
+    }
+
+    @Test
+    fun obd2ShareIsOmittedWhenZero() {
+        val line = tripStatLine(trip())
+        assertFalse(line.contains("OBD2"))
+    }
+
+    @Test
+    fun obd2ShareThatRoundsToZeroRendersAsLessThanOnePercent() {
+        val line = tripStatLine(trip(DrivingStats(obd2SpeedPct = 0.2)))
+        assertTrue(line.contains("OBD2 <1%"))
+    }
 }

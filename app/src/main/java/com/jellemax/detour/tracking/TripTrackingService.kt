@@ -240,6 +240,11 @@ class TripTrackingService : Service() {
          *  poll loop ticks every ~1s (see Obd2Connection.POLL_INTERVAL_MS); 3s
          *  tolerates one or two missed polls before falling back to GPS. */
         private const val OBD_TELEMETRY_STALE_MS = 3_000L
+        /** A near-zero OBD2 speed is ignored when the phone's own GPS is this sure the
+         *  vehicle is moving — an always-hot ELM327 dongle keeps reporting 0 km/h from a
+         *  parked car while its owner walks or cycles past, and _lastFix (unlike the
+         *  trip pipeline) is live even with no trip running. */
+        private const val OBD_ZERO_OVERRIDE_MPS = 2.78  // ~10 km/h
         /** Floor between boundary lookups, so a drive along a coastline (where
          *  every point misses) can't turn into a stream of Overpass queries. */
         private const val MUNICIPALITY_LOOKUP_COOLDOWN_MS = 60_000L
@@ -474,16 +479,22 @@ class TripTrackingService : Service() {
         return if (age in 0..OBD_TELEMETRY_STALE_MS) telemetry else null
     }
 
-    /** OBD2 -> board telemetry -> phone GPS, whichever is fresh, highest first.
-     *  Single definition of the priority chain that onTripLocation's
-     *  effectiveSpeedMps and _lastFix both need. `mode` gates OBD2 trust: an
-     *  always-hot ELM327 dongle can stay linked to a parked car while the rider
-     *  starts a bike/walk trip in Bluetooth range, and its "stopped" reading
-     *  must not leak in. */
-    private fun resolveDisplaySpeedMps(gpsSpeedMps: Double, mode: TravelMode): Double =
+    /** Fresh OBD2 vehicle speed in m/s, or null when there is none to trust.
+     *  `mode.tracksGForce` is currently always true (only CAR and MOTO exist) —
+     *  it is kept for when a non-g-force mode returns, and is not the real
+     *  safeguard. The safeguard is [OBD_ZERO_OVERRIDE_MPS]: a hot dongle in a
+     *  parked car reports 0 km/h, and _lastFix is live with no trip running. */
+    private fun freshObdSpeedMps(gpsSpeedMps: Double, mode: TravelMode): Double? =
         freshObdTelemetry()
             ?.takeIf { mode.tracksGForce && it.hasSpeed }
+            ?.takeUnless { it.speedKmh < 1.0 && gpsSpeedMps > OBD_ZERO_OVERRIDE_MPS }
             ?.let { it.speedKmh / 3.6 }
+
+    /** OBD2 -> board telemetry -> phone GPS, highest priority first, each used
+     *  only while fresh. Single definition of the priority chain that
+     *  onTripLocation's effectiveSpeedMps and _lastFix both read. */
+    private fun resolveDisplaySpeedMps(gpsSpeedMps: Double, mode: TravelMode): Double =
+        freshObdSpeedMps(gpsSpeedMps, mode)
             ?: freshBoardTelemetry()
                 ?.takeIf { it.hasSpeed }
                 ?.let { it.speedKmh / 3.6 }
@@ -1266,27 +1277,19 @@ class TripTrackingService : Service() {
             return
         }
 
-        // Single speed value the rest of this pipeline reads: the hard-event/stop
-        // detectors, SpeedLimitTracker's fetch gate and onFix, secondsOverLimit,
-        // RoadTypeTracker's fetch gate, and the HUD/car-screen/wear currentSpeedMps
-        // and persisted topSpeedMps below all consume effectiveSpeedMps, not the
-        // phone's own `speed` — so a bad reading from any source has broad reach.
-        // Priority is OBD2 over board telemetry over the phone's, when fresh — see
-        // freshObdTelemetry()/freshBoardTelemetry(). OBD2 is only trusted for a
-        // vehicle whose mode tracks g-force (car/moto): an always-hot OBD2 dongle
-        // can stay linked to a parked car while the rider starts a bike/walk trip
-        // within Bluetooth range, and its "stopped" reading must not leak in as a
-        // false real zero. `speed` above still drives auto-start/stop and the fog
-        // trace, which stay on the phone's own consistent GPS pipeline regardless
-        // of whether an OBD2 adapter or board is paired.
+        // Best-available speed for the recorded-trip pipeline (hard-event / stop
+        // detectors, SpeedLimitTracker, RoadTypeTracker, persisted topSpeedMps).
+        // See resolveDisplaySpeedMps for the OBD2/board/GPS priority. `speed`
+        // above still drives auto-start/stop and the fog trace, which stay on the
+        // phone's own GPS pipeline regardless of what's paired.
         val effectiveSpeedMps = resolveDisplaySpeedMps(speed, stats.mode)
 
         // Which source actually drove that number, for the per-trip
-        // obd2SpeedPct. Same predicate resolveDisplaySpeedMps uses for its OBD2
+        // obd2SpeedPct. Same helper resolveDisplaySpeedMps uses for its OBD2
         // arm — board telemetry winning does not count, GPS fallback does not
         // count.
         speedFixesTotal++
-        if (freshObdTelemetry()?.takeIf { stats.mode.tracksGForce && it.hasSpeed } != null) {
+        if (freshObdSpeedMps(speed, stats.mode) != null) {
             obd2SpeedFixes++
         }
 

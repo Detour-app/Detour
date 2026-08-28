@@ -116,7 +116,17 @@ lines. `speedIsReal` just below it (`:1272-1274`) is **unchanged** — it needs 
 | Client-side speed-limit fetch trigger | `MapScreen.kt:853-899` | GPS | best source |
 | Average-speed section | `MapScreen.kt:1010-1022` | GPS | best source |
 | BLE + Wear nav relay `currentSpeedKmh` | `MapScreen.kt:1297-1313` | GPS | best source |
-| Circles live-location sink | `TripTrackingService.kt:1452-1473` | GPS | best source |
+| Convoy live location `speedKmh` | `ConvoyLiveClient.forwardLocation` | GPS | best source |
+| Android Auto HUD + speed-limit snap | `app/.../car/SpinScreen.kt` | GPS | best source |
+| Android Auto `onFix` | `app/.../car/NavScreen.kt` | GPS | best source |
+| Speed-camera chime gate | `MapScreen.kt` `CameraWarner` | GPS | best source |
+
+The Circles live-location sink (`circleSyncLoop` / `CircleFixes.postFix`) is **not** affected — it
+sends only `lat/lon/accuracy/timeMs`, never `speedMps`.
+
+`MapScreen.kt`'s camera-bearing-trust check and `SpinScreen.kt`'s equivalent use
+`fix.speedMps > 2.0` as an "is this GPS bearing trustworthy" proxy — now answered with a
+possibly-non-GPS number. Harmless in practice while driving; a deferred follow-up.
 
 Every one of these *should* use vehicle speed when it exists — this is a correctness improvement,
 not only a cosmetic one for the HUD.
