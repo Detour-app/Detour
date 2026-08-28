@@ -245,6 +245,9 @@ class TripTrackingService : Service() {
          *  parked car while its owner walks or cycles past, and _lastFix (unlike the
          *  trip pipeline) is live even with no trip running. */
         private const val OBD_ZERO_OVERRIDE_MPS = 2.78  // ~10 km/h
+        /** Throttle position above which a sample counts toward
+         *  [DrivingStats.pctWideOpenThrottle]. Provisional. */
+        private const val WIDE_OPEN_THROTTLE_PCT = 90.0
         /** Floor between boundary lookups, so a drive along a coastline (where
          *  every point misses) can't turn into a stream of Overpass queries. */
         private const val MUNICIPALITY_LOOKUP_COOLDOWN_MS = 60_000L
@@ -444,6 +447,15 @@ class TripTrackingService : Service() {
     @Volatile private var hardAccelCount = 0
     @Volatile private var obd2SpeedFixes = 0
     @Volatile private var speedFixesTotal = 0
+    // OBD2 engine summary, sampled from Obd2Connection.telemetry at its ~1 Hz
+    // poll rate by obd2EngineSampleJob for the duration of a trip.
+    @Volatile private var obdMaxRpm = 0.0
+    @Volatile private var obdMaxThrottlePct = 0.0
+    @Volatile private var obdRpmSum = 0.0
+    @Volatile private var obdRpmSamples = 0
+    @Volatile private var obdWideOpenThrottleSamples = 0
+    @Volatile private var obdThrottleSamples = 0
+    @Volatile private var obd2EngineSampleJob: kotlinx.coroutines.Job? = null
     @Volatile private var stopState = StopDetector.State()
     @Volatile private var tripLimitState = SpeedLimitTracker.State()
     @Volatile private var tripLimitFetchJob: kotlinx.coroutines.Job? = null
@@ -477,6 +489,27 @@ class TripTrackingService : Service() {
         val telemetry = Obd2Connection.telemetry.value ?: return null
         val age = System.currentTimeMillis() - telemetry.receivedAtMs
         return if (age in 0..OBD_TELEMETRY_STALE_MS) telemetry else null
+    }
+
+    /** Trip-scoped: folds every OBD2 poll into the engine-summary accumulators
+     *  ([obdMaxRpm] etc.) that [endTrip] turns into [DrivingStats.maxRpm] and
+     *  friends. Launched in [beginTrip], cancelled in [endTrip]. Collects the
+     *  live emissions, so each value is fresh by construction — no staleness
+     *  gate needed here. */
+    private suspend fun collectObdEngineSamples() {
+        Obd2Connection.telemetry.collect { t ->
+            t ?: return@collect
+            if (t.hasRpm) {
+                obdMaxRpm = maxOf(obdMaxRpm, t.rpmValue)
+                obdRpmSum += t.rpmValue
+                obdRpmSamples++
+            }
+            if (t.hasThrottle) {
+                obdMaxThrottlePct = maxOf(obdMaxThrottlePct, t.throttlePct)
+                obdThrottleSamples++
+                if (t.throttlePct > WIDE_OPEN_THROTTLE_PCT) obdWideOpenThrottleSamples++
+            }
+        }
     }
 
     /** Fresh OBD2 vehicle speed in m/s, or null when there is none to trust.
@@ -892,6 +925,14 @@ class TripTrackingService : Service() {
         hardAccelCount = 0
         obd2SpeedFixes = 0
         speedFixesTotal = 0
+        obdMaxRpm = 0.0
+        obdMaxThrottlePct = 0.0
+        obdRpmSum = 0.0
+        obdRpmSamples = 0
+        obdWideOpenThrottleSamples = 0
+        obdThrottleSamples = 0
+        obd2EngineSampleJob?.cancel()
+        obd2EngineSampleJob = serviceScope.launch { collectObdEngineSamples() }
         stopState = StopDetector.State()
         tripLimitState = SpeedLimitTracker.State()
         tripLimitFetchJob?.cancel()
@@ -929,6 +970,8 @@ class TripTrackingService : Service() {
         tripLimitFetchJob = null
         roadTypeFetchJob?.cancel()
         roadTypeFetchJob = null
+        obd2EngineSampleJob?.cancel()
+        obd2EngineSampleJob = null
         flushTrace()
         // An auto trip with no mapped vehicle that never left walking pace
         // wasn't a drive; don't save it under whatever mode the tab happened
@@ -969,6 +1012,11 @@ class TripTrackingService : Service() {
                     idleMs = stopState.idleMs,
                     obd2SpeedPct = if (speedFixesTotal > 0)
                         obd2SpeedFixes * 100.0 / speedFixesTotal else 0.0,
+                    maxRpm = obdMaxRpm,
+                    maxThrottlePct = obdMaxThrottlePct,
+                    pctWideOpenThrottle = if (obdThrottleSamples > 0)
+                        obdWideOpenThrottleSamples * 100.0 / obdThrottleSamples else 0.0,
+                    avgRpm = if (obdRpmSamples > 0) obdRpmSum / obdRpmSamples else 0.0,
                 ),
             )
             // Two separate coroutines, not one: onDestroy's runBlocking joins

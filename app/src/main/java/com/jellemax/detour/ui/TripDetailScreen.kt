@@ -561,6 +561,17 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    if (trip.drivingStats.maxRpm > 0.0) {
+                        val d = trip.drivingStats
+                        Text(
+                            "Engine: peak ${d.maxRpm.roundToInt()} rpm · " +
+                                "avg ${d.avgRpm.roundToInt()} rpm · " +
+                                "throttle max ${d.maxThrottlePct.roundToInt()}% · " +
+                                "WOT ${d.pctWideOpenThrottle.roundToInt()}%",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     if (trip.drivingStats.hardBrakeCount + trip.drivingStats.hardAccelCount +
                         trip.drivingStats.hardCornerCount > 0
                     ) {

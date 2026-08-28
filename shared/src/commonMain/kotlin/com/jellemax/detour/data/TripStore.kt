@@ -46,6 +46,14 @@ data class DrivingStats(
      *  no adapter ever fed a reading — the two are not distinguished, same as
      *  every other field here. */
     val obd2SpeedPct: Double = 0.0,
+    /** OBD2 engine summary over the trip, sampled at the adapter's ~1 Hz poll
+     *  rate while connected. All 0.0 when no adapter fed RPM/throttle — same
+     *  "recorded nothing" caveat as the fields above. [pctWideOpenThrottle] is
+     *  the share (0-100) of throttle samples above 90%. */
+    val maxRpm: Double = 0.0,
+    val maxThrottlePct: Double = 0.0,
+    val pctWideOpenThrottle: Double = 0.0,
+    val avgRpm: Double = 0.0,
 )
 
 /** Persists finished trips as a JSON array in app-private storage. */
@@ -139,6 +147,10 @@ object TripStore {
         put("stopCount", d.stopCount)
         put("idleMs", d.idleMs)
         put("obd2SpeedPct", d.obd2SpeedPct)
+        put("maxRpm", d.maxRpm)
+        put("maxThrottlePct", d.maxThrottlePct)
+        put("pctWideOpenThrottle", d.pctWideOpenThrottle)
+        put("avgRpm", d.avgRpm)
     }
 
     private fun decodeDrivingStats(o: JsonObject?): DrivingStats {
@@ -159,6 +171,10 @@ object TripStore {
             stopCount = o.optLong("stopCount").toInt(),
             idleMs = o.optLong("idleMs"),
             obd2SpeedPct = o.optDouble("obd2SpeedPct", 0.0),
+            maxRpm = o.optDouble("maxRpm", 0.0),
+            maxThrottlePct = o.optDouble("maxThrottlePct", 0.0),
+            pctWideOpenThrottle = o.optDouble("pctWideOpenThrottle", 0.0),
+            avgRpm = o.optDouble("avgRpm", 0.0),
         )
     }
 

@@ -28,6 +28,7 @@ class TripStoreTest {
             roadTypeMeters = mapOf(HighwayClass.MOTORWAY to 500.0, HighwayClass.LOCAL to 300.0),
             twistinessScore = 0.42, stopCount = 1, idleMs = 90_000L,
             obd2SpeedPct = 87.5,
+            maxRpm = 6400.0, maxThrottlePct = 98.0, pctWideOpenThrottle = 12.0, avgRpm = 2850.0,
         )
         val decoded = TripStore.decodeTrip(TripStore.encode(trip(stats)))
         assertEquals(stats, decoded.drivingStats)
