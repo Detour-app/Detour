@@ -41,6 +41,11 @@ data class DrivingStats(
     val twistinessScore: Double = 0.0,
     val stopCount: Int = 0,
     val idleMs: Long = 0,
+    /** Fraction (0-100) of this trip's speed fixes where fresh OBD2 telemetry
+     *  supplied the speed. 0.0 for trips recorded before OBD2 and for trips
+     *  where no adapter ever fed a reading — the two are not distinguished,
+     *  same as every other field here. */
+    val obd2SpeedPct: Double = 0.0,
 )
 
 /** Persists finished trips as a JSON array in app-private storage. */
@@ -133,6 +138,7 @@ object TripStore {
         put("twistinessScore", d.twistinessScore)
         put("stopCount", d.stopCount)
         put("idleMs", d.idleMs)
+        put("obd2SpeedPct", d.obd2SpeedPct)
     }
 
     private fun decodeDrivingStats(o: JsonObject?): DrivingStats {
@@ -152,6 +158,7 @@ object TripStore {
             twistinessScore = o.optDouble("twistinessScore", 0.0),
             stopCount = o.optLong("stopCount").toInt(),
             idleMs = o.optLong("idleMs"),
+            obd2SpeedPct = o.optDouble("obd2SpeedPct", 0.0),
         )
     }
 
