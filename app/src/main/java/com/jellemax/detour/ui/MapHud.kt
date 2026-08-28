@@ -3,7 +3,9 @@ package com.jellemax.detour.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -43,6 +46,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +55,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.audio.PushToTalk
 import com.jellemax.detour.data.SavedPlace
+import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.tracking.TripStats
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -258,6 +263,57 @@ private fun SectionAverageChip(averageKmh: Double, limitKmh: Double?, modifier: 
             )
             Text("avg km/h", style = MaterialTheme.typography.labelSmall, color = onColor)
         }
+    }
+}
+
+/** Full-scale RPM for [RpmBar], by vehicle. A bike revs well past a car's
+ *  redline; one shared ceiling would peg the bar low for the car or clip
+ *  the bike. */
+internal fun rpmBarScale(mode: TravelMode): Int = when (mode) {
+    TravelMode.MOTO -> 12_000
+    TravelMode.CAR -> 8_000
+}
+
+/** Fill level (0f..1f) at and above which the bar turns red; the last ~15% of
+ *  the track is also tinted so the zone is visible before the needle reaches it. */
+internal const val RPM_REDLINE_FRACTION = 0.85f
+
+/** 0f..1f fill for [rpm] against [rpmBarScale]. Clamped both ways: an
+ *  over-redline reading fills the bar rather than overflowing it, and an idle
+ *  adapter's negative/garbage value reads as empty. */
+internal fun rpmBarFraction(rpm: Double, mode: TravelMode): Float =
+    (rpm / rpmBarScale(mode)).coerceIn(0.0, 1.0).toFloat()
+
+/** A thin engine-RPM bar for under the speed HUD — no number, just a glanceable
+ *  fill with a redline zone. Shown only while a trip is running and a paired
+ *  OBD2 adapter is feeding fresh RPM (gated by the caller). */
+@Composable
+internal fun RpmBar(rpm: Double, mode: TravelMode, modifier: Modifier = Modifier) {
+    val target = rpmBarFraction(rpm, mode)
+    val fill by animateFloatAsState(target, label = "rpmFill")
+    Box(
+        modifier
+            .height(6.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+    ) {
+        Box(
+            Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .fillMaxWidth(1f - RPM_REDLINE_FRACTION)
+                .background(MaterialTheme.colorScheme.error.copy(alpha = 0.22f)),
+        )
+        Box(
+            Modifier
+                .align(Alignment.CenterStart)
+                .fillMaxHeight()
+                .fillMaxWidth(fill.coerceIn(0f, 1f))
+                .background(
+                    if (fill >= RPM_REDLINE_FRACTION) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.primary,
+                ),
+        )
     }
 }
 

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,6 +43,7 @@ fun Obd2PairingScreen() {
     val mapping by Settings.vehicleDevices.collectAsStateWithLifecycle()
     val connectionState by Obd2Connection.connectionState.collectAsStateWithLifecycle()
     val telemetry by Obd2Connection.telemetry.collectAsStateWithLifecycle()
+    val tachOnHud by Settings.obd2TachOnHud.collectAsStateWithLifecycle()
 
     var hasPerm by remember {
         mutableStateOf(
@@ -98,6 +100,29 @@ fun Obd2PairingScreen() {
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        // Only worth offering once an adapter is paired — with none, the tach
+        // could never draw.
+        if (mapping.values.any { it.obd2Address != null }) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Show RPM bar on the HUD", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "A thin engine-rev bar under the speed dial while driving, when " +
+                            "the adapter is feeding RPM.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = tachOnHud,
+                    onCheckedChange = { Settings.setObd2TachOnHud(it) },
                 )
             }
         }

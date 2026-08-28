@@ -107,6 +107,7 @@ import com.jellemax.detour.map.FollowCamera
 import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.leadingSpinIndex
+import com.jellemax.detour.obd2.Obd2Connection
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.wear.NavRelay
@@ -219,6 +220,8 @@ fun MapScreen(
     val stats by TripTrackingService.stats.collectAsStateWithLifecycle()
     val liveFix by TripTrackingService.lastFix.collectAsStateWithLifecycle()
     val liveTrace by TripTrackingService.liveTrace.collectAsStateWithLifecycle()
+    val obd2TachOnHud by Settings.obd2TachOnHud.collectAsStateWithLifecycle()
+    val obd2Telemetry by Obd2Connection.telemetry.collectAsStateWithLifecycle()
     // Convoy: only present while ConvoyLiveService is running (started/stopped
     // from FriendsScreen's convoy list, see Convoys.join/leave there).
     val convoyConnected by ConvoyLiveClient.connected.collectAsStateWithLifecycle()
@@ -1618,13 +1621,28 @@ fun MapScreen(
                     // stopping at a light fades the dial out instead of
                     // snatching it away mid-count.
                     liveFix?.takeIf { it.speedMps >= 1.4 || displaySpeedKmh >= 2.0 }?.let {
-                        SpeedHud(
-                            speedKmh = displaySpeedKmh,
-                            limitKmh = if (navigating) navProgress?.speedLimitKmh
-                                else ambientSpeedLimitKmh,
-                            averageKmh = sectionAvgKmh,
-                            averageLimitKmh = sectionLimitKmh,
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            SpeedHud(
+                                speedKmh = displaySpeedKmh,
+                                limitKmh = if (navigating) navProgress?.speedLimitKmh
+                                    else ambientSpeedLimitKmh,
+                                averageKmh = sectionAvgKmh,
+                                averageLimitKmh = sectionLimitKmh,
+                            )
+                            // Tach: opt-in, trip-only, and only while a paired
+                            // adapter is actually feeding RPM (3s freshness, same
+                            // window TripTrackingService uses for OBD2 speed).
+                            val tripMode = stats?.mode
+                            val freshRpm = obd2Telemetry?.takeIf { t ->
+                                t.hasRpm && System.currentTimeMillis() - t.receivedAtMs < 3_000L
+                            }
+                            if (obd2TachOnHud && tripMode != null && freshRpm != null) {
+                                RpmBar(freshRpm.rpmValue, tripMode, Modifier.fillMaxWidth())
+                            }
+                        }
                     }
                 }
 
