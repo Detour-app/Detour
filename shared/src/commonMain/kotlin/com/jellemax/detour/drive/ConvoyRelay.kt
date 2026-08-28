@@ -548,9 +548,9 @@ class ConvoyRelay {
                 // ended, including one this device caused itself by dropping
                 // an unrelated notify-circle while the convoy never changed
                 // (see setNotifyingCircles's own doc) - a rider mid-vote can
-                // watch the destination sheet vanish because a CircleSync
-                // tick landed mid-drive for a reason that has nothing to do
-                // with the convoy. Deliberate, not overlooked: once the
+                // watch the destination sheet vanish because a notify-circle
+                // refresh landed mid-drive for a reason that has nothing to
+                // do with the convoy. Deliberate, not overlooked: once the
                 // socket has been down at all, any vote frame could have
                 // been missed during the gap regardless of why it dropped,
                 // so the tally is no more trustworthy after a self-inflicted
@@ -606,9 +606,11 @@ class ConvoyRelay {
      * This is the fix for a real leak, stated plainly: without it, [stop]
      * alone closes the socket but leaves [_convoyId] pointed at the convoy
      * the signed-out rider was in. A membership-sync call that has nothing
-     * to do with a convoy at all - `CircleSync`'s periodic
-     * [setNotifyingCircles] tick, running for whichever rider is signed in
-     * *now* - then makes [shouldStayConnected] true again on that stale id
+     * to do with a convoy at all - the notify-circle refresh
+     * (`CircleNotifyService.periodicRefreshLoop` on Android, the foreground
+     * `CircleNotifications.runCatchUpSweep` on iOS) calling
+     * [setNotifyingCircles] for whichever rider is signed in *now* - then
+     * makes [shouldStayConnected] true again on that stale id
      * alone, and the very next [run] rejoins it, broadcasting the new
      * rider's [sendLocation] fixes onto the previous rider's convoy.
      *
