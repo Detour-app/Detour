@@ -192,7 +192,11 @@ class CircleNotifyService : Service() {
             val events = CircleEvents.events(circleId, since)
             if (events.isEmpty()) return
             val plan = CircleNotifyPolicy.planCatchUp(events, Account.username.value, System.currentTimeMillis())
-            plan.individual.forEach { PlaceNotifications.notify(this, circleId, it) }
+            // Reversed: the plan is newest-first because that is how it
+            // picks which five survive, but this tray has no sort key
+            // (PlaceNotifications.show sets none), so it ranks by post time
+            // and the last one posted sits on top - see planCatchUp's doc.
+            plan.individual.asReversed().forEach { PlaceNotifications.notify(this, circleId, it) }
             if (plan.collapsedCount > 0) PlaceNotifications.notifySummary(this, circleId, plan.collapsedCount)
             // Advance past everything returned, not just what got shown - a
             // self-transition or a stale one still must not be re-fetched

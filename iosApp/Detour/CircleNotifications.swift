@@ -134,12 +134,9 @@ final class CircleNotifications: NSObject {
             let maxTs = events.map { $0.tsMs }.max() ?? since
             // CircleNotifyPolicy.planCatchUp (shared/): drops this device's
             // own transitions and anything stale, caps the rest, and hands
-            // them back newest-first — this device's sweep already raised
-            // newest-first before the policy moved to shared/, so nothing
-            // changes here; Android's copy sorted the other way and was the
-            // one that changed (see planCatchUp's own doc). Counted per
-            // circle, not per sweep — a noisy circle must not silently eat a
-            // quiet one's only arrival.
+            // them back newest-first — the order it *selects* in. Counted
+            // per circle, not per sweep — a noisy circle must not silently
+            // eat a quiet one's only arrival.
             let plan = CircleNotifyPolicy.shared.planCatchUp(
                 events: events,
                 myUsername: username,
@@ -147,7 +144,15 @@ final class CircleNotifications: NSObject {
                 staleAfterMs: Enums.shared.circleStaleAfterMs,
                 cap: Enums.shared.circleCatchUpCap
             )
-            for event in plan.individual {
+            // Reversed, matching Android: an UNNotificationRequest carries
+            // no sort key, so the shade ranks by delivery time and whatever
+            // is added last sits on top. This sweep used to raise the
+            // newest first, which put the *oldest* on top — see
+            // planCatchUp's own doc. No test target on this side
+            // (iosApp/project.yml defines none), so this comment is the
+            // only thing pinning it here; the Android half is pinned by
+            // CircleNotifyDeliveryOrderTest.
+            for event in plan.individual.reversed() {
                 raise(event: event, circleId: circle.id)
             }
             if plan.collapsedCount > 0 {

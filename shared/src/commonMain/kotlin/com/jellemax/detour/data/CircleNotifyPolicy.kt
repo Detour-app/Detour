@@ -33,14 +33,21 @@ object CircleNotifyPolicy {
      * dropped from [CatchUpPlan.individual] but still counted in
      * [CatchUpPlan.collapsedCount] rather than vanishing without a trace.
      *
-     * [CatchUpPlan.individual] is newest-first: when only a handful can be
-     * shown, the most recent arrivals are the ones still worth knowing
-     * about right now. This is the one deliberate behaviour change from the
-     * Android copy this was extracted from, not a transcription - that copy
-     * sorted ascending and kept the tail (`takeLast`), which preserves
-     * ascending order and so posted oldest-first. The cap exists precisely
-     * because a backlog is not worth reading in full, so the item most
-     * worth seeing should not sit under four older ones.
+     * [CatchUpPlan.individual] is newest-first, and that is the **selection**
+     * order - which [cap] events survive - not the order they are delivered
+     * in: when only a handful can be shown, the most recent arrivals are the
+     * ones still worth knowing about right now.
+     *
+     * **Delivery iterates it in reverse, on both platforms** -
+     * `CircleNotifyService.catchUp` (app/.../notif) and
+     * `CircleNotifications.runCatchUpSweep` (iosApp/Detour). Neither tray
+     * sorts what it is given: `PlaceNotifications.show` sets no `setWhen`, no
+     * group and no sort key, and iOS's `UNNotificationRequest`s carry none
+     * either, so both shades rank by post time and whatever was posted
+     * *last* sits on top. Posting this list as-is would therefore bury the
+     * newest arrival under four older ones - the exact opposite of why it is
+     * selected newest-first. Reversing at the two delivery sites is what
+     * makes both trays read newest-on-top.
      */
     fun planCatchUp(
         events: List<PlaceEvent>,
