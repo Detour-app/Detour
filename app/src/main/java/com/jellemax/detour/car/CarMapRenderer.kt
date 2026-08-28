@@ -18,6 +18,7 @@ import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleFixes
+import com.jellemax.detour.data.CirclePresence
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MemberFix
 import com.jellemax.detour.data.Settings
@@ -74,10 +75,11 @@ private const val CAM_BEARING_EPS_DEG = 0.1f
  *  instead of spinning while you wait at a junction. */
 private const val BEARING_HOLD_MPS = 2.0
 
-/** Same cadence the phone map polls at: a circle fix only changes once a
- *  minute or so server-side, so asking faster would just re-fetch the same
- *  row (see MapScreen's CIRCLE_FIX_POLL_MS). */
-private const val CIRCLE_FIX_POLL_MS = 120_000L
+/** Same cadence the phone map polls at (see MapCameraTuning's
+ *  CIRCLE_FIX_POLL_MS): a circle member only posts a fix every
+ *  CirclePresence.ACTIVE_INTERVAL_MS, so asking faster would just re-fetch
+ *  the same row. Read from there rather than retyped. */
+private const val CIRCLE_FIX_POLL_MS = CirclePresence.ACTIVE_INTERVAL_MS
 
 /**
  * Android Auto gives an app only a raw [Surface] via [SurfaceCallback] — no

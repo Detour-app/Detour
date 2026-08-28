@@ -4,16 +4,18 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.prefs
 
 /**
- * The one-time battery-optimization prompt flag, plus thin access to the
- * per-circle "notify me about arrivals" toggle. Both are client-local -
- * unlike a circle's `sharing` flag (real server state, see
- * `Groups.setSharing`), neither has a server column.
+ * The one-time battery-optimization prompt flag: whether this device has
+ * already been asked to exempt the app from battery optimization. That flag is
+ * what earns this file - it is Android-only, since no other platform has a
+ * battery-optimization whitelist to be exempted from, and it needs a bag of
+ * its own (`prefs("circle_notify")`). Client-local, like the toggle below and
+ * unlike a circle's `sharing` flag, which is real server state (see
+ * `Groups.setSharing`).
  *
- * The toggle itself lives in shared's [Settings], not in the bag below,
- * because iOS shows the same switch: one key and one default there beat two
- * platform-local spellings that drift the first time either is touched. The
- * battery prompt stays here - Android is the only platform with a
- * battery-optimization whitelist to be exempted from.
+ * [notifyEnabled]/[setNotifyEnabled] are one-line passthroughs to shared's
+ * [Settings], which owns the key and the "on" default because iOS shows the
+ * same switch - they are here so the notif package has one place to ask,
+ * not because there is anything platform-specific about them.
  */
 object CircleNotifySettings {
 

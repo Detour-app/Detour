@@ -1,5 +1,6 @@
 package com.jellemax.detour.ui
 
+import com.jellemax.detour.data.CirclePresence
 import kotlin.math.abs
 
 /** Exponentially smooths a compass bearing toward [target], taking the
@@ -79,5 +80,5 @@ internal const val CAM_RESUME_QUIET_MS = 8_000L
 
 // Circle members post a fix every CirclePresence.ACTIVE_INTERVAL_MS (shared/)
 // at most, so polling faster than that would just re-fetch the same row —
-// this matches that cadence rather than guessing a separate one.
-internal const val CIRCLE_FIX_POLL_MS = 120_000L
+// read from there rather than retyped, so the two can't drift apart.
+internal const val CIRCLE_FIX_POLL_MS = CirclePresence.ACTIVE_INTERVAL_MS

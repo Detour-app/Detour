@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Move the circle presence tick and the arrival-notification policy into `shared/commonMain`, so eight hand-copied constants and two independently-written decision loops become one implementation — leaving each platform only its delivery mechanism and its clocks.
+**Goal:** Move the circle presence tick and the arrival-notification policy into `shared/commonMain`, so ten hand-copied constants (five values, each typed out in both languages) and two independently-written decision loops become one implementation — leaving each platform only its delivery mechanism and its clocks.
 
 **Architecture:** Two shared objects. `CircleNotifyPolicy` is pure (extracted from Android's already-pure `planCatchUp`). `CirclePresence.tick(...)` is `suspend`, takes the fix and its monotonic age as parameters, and returns the next interval — the platform owns the loop and the coroutine, as in slice B.
 

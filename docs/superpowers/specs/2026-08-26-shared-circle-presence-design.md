@@ -20,9 +20,12 @@ constants, arrived at independently:
 | Idle cadence | 30 min | `CIRCLE_IDLE_INTERVAL_MS` | `idleIntervalSeconds` |
 | Catch-up cap | 5 | `PlaceNotifications.NOTIFY_CAP` | `catchUpCap` |
 | Stale window | 3 h | `PlaceNotifications.STALE_AFTER_MS` | `catchUpMaxAgeMs` |
+| Fix trust window | 15 min | `CIRCLE_FIX_TRUST_MS` | `fixTrustMs` |
 
-Eight hand-copied numbers across two languages, and every one of them currently agrees. That is
-the argument for moving them: they agree *today*.
+Ten hand-copied numbers — five values, each typed out in both languages — and every one of them
+currently agrees. That is the argument for moving them: they agree *today*. (The fix-trust row was
+missing from this table when it was first written, and the undercount travelled into the plan,
+`docs/IOS_PORT.md` and a commit message before the final review caught it.)
 
 ## What is already shared, and what that tells us
 
@@ -57,6 +60,13 @@ picks **newest-first**: the cap exists because a backlog is not worth reading in
 most worth seeing should not be buried under four older ones. That makes Android's ordering change,
 which is a deliberate behaviour change and belongs in the PR description rather than passing as a
 refactor.
+
+> **Corrected in the final review.** The paragraph above conflates selection with display. Neither
+> tray sets a sort key, so both rank by post time and the item posted *last* sits on top — which
+> means delivering a newest-first list buries the newest under four older ones, the exact opposite
+> of the intent. The decision taken: the shared plan stays newest-first as the **selection** order,
+> and both platforms deliver it **in reverse**. Net effect — both trays read newest-on-top;
+> Android's tray is unchanged from before this slice, and iOS's is what actually changes.
 
 ## The one thing that cannot be shared, and why it shapes the interface
 
