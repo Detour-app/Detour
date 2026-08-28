@@ -108,7 +108,10 @@ data class TripStats(
     val currentlyOverLimit: Boolean = false,
 )
 
-/** Latest GPS fix, published live for the map (fog, navigation). */
+/** Latest location fix, published live for the map (fog, navigation) and the
+ *  HUD. `speedMps` is the best available source — fresh OBD2, else board
+ *  telemetry, else the phone's GPS — not necessarily GPS. Auto-start/stop and
+ *  the fog trace deliberately stay on raw GPS; see onLocation. */
 data class Fix(
     val lat: Double,
     val lon: Double,
@@ -468,6 +471,21 @@ class TripTrackingService : Service() {
         val age = System.currentTimeMillis() - telemetry.receivedAtMs
         return if (age in 0..OBD_TELEMETRY_STALE_MS) telemetry else null
     }
+
+    /** OBD2 -> board telemetry -> phone GPS, whichever is fresh, highest first.
+     *  Single definition of the priority chain that onTripLocation's
+     *  effectiveSpeedMps and _lastFix both need. `mode` gates OBD2 trust: an
+     *  always-hot ELM327 dongle can stay linked to a parked car while the rider
+     *  starts a bike/walk trip in Bluetooth range, and its "stopped" reading
+     *  must not leak in. */
+    private fun resolveDisplaySpeedMps(gpsSpeedMps: Double, mode: TravelMode): Double =
+        freshObdTelemetry()
+            ?.takeIf { mode.tracksGForce && it.hasSpeed }
+            ?.let { it.speedKmh / 3.6 }
+            ?: freshBoardTelemetry()
+                ?.takeIf { it.hasSpeed }
+                ?.let { it.speedKmh / 3.6 }
+            ?: gpsSpeedMps
 
     /** Board lean is only trusted for a vehicle whose mode tracks lean at all
      *  — the same rule [startMotionSensors] applies to the phone's own sensor,
@@ -1126,7 +1144,7 @@ class TripTrackingService : Service() {
         _lastFix.value = Fix(
             lat = location.latitude,
             lon = location.longitude,
-            speedMps = speed,
+            speedMps = resolveDisplaySpeedMps(speed, resolvedMode()),
             bearingDeg = if (location.hasBearing()) location.bearing else null,
             accuracyMeters = location.accuracy,
             timeMs = location.time,
@@ -1255,13 +1273,7 @@ class TripTrackingService : Service() {
         // false real zero. `speed` above still drives auto-start/stop and the fog
         // trace, which stay on the phone's own consistent GPS pipeline regardless
         // of whether an OBD2 adapter or board is paired.
-        val effectiveSpeedMps = freshObdTelemetry()
-            ?.takeIf { stats.mode.tracksGForce && it.hasSpeed }
-            ?.let { it.speedKmh / 3.6 }
-            ?: freshBoardTelemetry()
-                ?.takeIf { it.hasSpeed }
-                ?.let { it.speedKmh / 3.6 }
-            ?: speed
+        val effectiveSpeedMps = resolveDisplaySpeedMps(speed, stats.mode)
 
         // speedOf() hands back a fabricated 0.0 sentinel for a coarse/no-speed fix
         // (see its own doc below) — not a real zero-speed measurement. Feeding
