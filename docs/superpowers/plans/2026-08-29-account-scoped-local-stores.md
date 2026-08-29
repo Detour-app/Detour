@@ -467,6 +467,29 @@ class AccountFilesTest {
     }
 
     @Test
+    fun theScopedListIsExactlyTheEightRiderFilesAndNotTheSearchCache() {
+        // A literal list, deliberately, rather than deriving the expectation
+        // from SCOPED_NAMES — which would assert the list equals itself.
+        // Nothing else here would notice a name going missing: the migration
+        // tests below name three files, so dropping routes.json or
+        // municipalities.json from the list leaves every one of them green
+        // while that rider's data stays pooled across accounts.
+        assertEquals(
+            listOf(
+                "trips.json",
+                "deleted_trips.json",
+                "edited_modes.json",
+                "traces.jsonl",
+                "badges.json",
+                "saved_places.json",
+                "routes.json",
+                "municipalities.json",
+            ),
+            AccountFiles.SCOPED_NAMES,
+        )
+    }
+
+    @Test
     fun aFreshInstallWithNoFilesMigratesWithoutError() {
         val fs = FakeFileSystem()
         fs.createDirectories(root)
@@ -633,12 +656,20 @@ internal object AccountFiles {
 
 Run: `devcontainer-exec ./gradlew :shared:testDebugUnitTest --tests '*AccountFilesTest*'`
 
-Expected: PASS, 10 tests.
+Expected: PASS, 11 tests.
 
-- [ ] **Step 6: Prove the adoption guard is not vacuous**
+- [ ] **Step 6: Prove two guards are not vacuous**
 
-Delete the line `if (others.isNotEmpty()) return false` from `adopt`. Re-run. Expected: FAIL on
-`aSecondAccountDoesNotAdoptAndGetsAnEmptyBucket`. Restore the line.
+Both mutations, one at a time, each reverted after:
+
+1. Delete the line `if (others.isNotEmpty()) return false` from `adopt`. Re-run. Expected: FAIL on
+   `aSecondAccountDoesNotAdoptAndGetsAnEmptyBucket`.
+2. Delete `"routes.json"` from `SCOPED_NAMES`. Re-run. Expected: FAIL on
+   `theScopedListIsExactlyTheEightRiderFilesAndNotTheSearchCache`, and **only** that test — which is
+   the point of it. Task 1's review found the equivalent hole one level down: a test that asserted
+   the derived key "does not contain the username" passed with the hash removed entirely, because
+   hex can never contain a non-hex letter. Assert the value, not a property the value happens to
+   have.
 
 - [ ] **Step 7: Commit**
 
@@ -730,7 +761,7 @@ after the line `_authUsername.value = secure.string("auth_username")` (currently
 
 Run: `devcontainer-exec ./gradlew :shared:compileCommonMainKotlinMetadata :shared:testDebugUnitTest :app:testDebugUnitTest`
 
-Expected: BUILD SUCCESSFUL. Shared test count is 324 + 22 from Tasks 1-2 = **346**; app **61**.
+Expected: BUILD SUCCESSFUL. Shared test count is 324 + 23 from Tasks 1-2 = **347**; app **61**.
 
 - [ ] **Step 5: Commit**
 
@@ -918,7 +949,7 @@ class SessionSwitchTest {
 
 Run: `devcontainer-exec ./gradlew :shared:testDebugUnitTest :app:testDebugUnitTest :shared:compileCommonMainKotlinMetadata`
 
-Expected: BUILD SUCCESSFUL. Shared **348**, app **61**.
+Expected: BUILD SUCCESSFUL. Shared **349**, app **61**.
 
 - [ ] **Step 7: Prove the sync refusal is not vacuous**
 
@@ -1026,7 +1057,7 @@ an Android install takes. Recorded in the spec so the reasoning is visible rathe
 
 Run: `devcontainer-exec ./gradlew :shared:testDebugUnitTest :app:testDebugUnitTest :shared:compileCommonMainKotlinMetadata :app:assembleDebug`
 
-Expected: BUILD SUCCESSFUL, shared **348**, app **61**.
+Expected: BUILD SUCCESSFUL, shared **349**, app **61**.
 
 - [ ] **Step 7: Commit**
 
