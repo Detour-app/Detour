@@ -81,11 +81,18 @@ destroys data the user cannot get back, and none of them is ever actually requir
 skill was extracted so it could be run without retyping; these are left as prose precisely so
 that running one takes a deliberate act of typing it out.
 
-This has already happened here. `.superpowers/sdd/task-5-report.md` records an agent that,
-blocked by `pm revoke` on an OEM build, uninstalled and reinstalled the `.debug` variant to
-reach a clean "permission not granted" state. Its own "Concern: app data was wiped" section
-is the evidence: "any login session, cached routes, settings, or trip history that existed
-on this variant before I started is gone". The user had to log back in and reconfigure.
+This has already happened here. An agent blocked by `pm revoke` on an OEM build uninstalled
+and reinstalled the `.debug` variant to reach a clean "permission not granted" state. Its own
+report said, under "Concern: app data was wiped": *"any login session, cached routes,
+settings, or trip history that existed on this variant before I started is gone"*. The user
+had to log back in and reconfigure.
+
+> The quotes above used to be a citation to `.superpowers/sdd/task-5-report.md`. That path is
+> **gitignored scratch, and every plan's Task 5 overwrites it** — so the reference resolved to
+> whatever the most recent plan happened to write, which is how a reader checking it ends up
+> at an unrelated report and concludes this section is wrong. The evidence is quoted inline
+> now. Do not cite `.superpowers/` from a skill: it is per-session scratch, it rotates, and it
+> is not in the repository a reader clones.
 
 **Do not count on a backup to undo it.** `app/src/main/res/xml/backup_rules.xml` and
 `data_extraction_rules.xml` now `<include>` the whole `files/accounts` subtree in
@@ -106,8 +113,8 @@ that and stop. Do not improvise on the user's phone.
 ## When a permission command is refused
 
 `pm grant`, `pm revoke` and `appops set` are not available to the `shell` user on every
-build. A OnePlus CPH2449 on Android 16 (SDK 36) refused all three
-(`.superpowers/sdd/task-5-report.md:75-84`):
+build. A OnePlus CPH2449 on Android 16 (SDK 36) refused all three — the errors below are
+quoted from that run's report rather than cited, for the reason given above:
 
 ```
 SecurityException: Neither user 2000 nor current process has
