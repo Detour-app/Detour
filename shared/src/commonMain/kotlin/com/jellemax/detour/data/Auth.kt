@@ -377,4 +377,21 @@ object Auth {
         val json = payload.decodeBase64()?.utf8() ?: return ""
         return runCatching { jsonObjectOf(json).optString("preferred_username") }.getOrDefault("")
     }
+
+    /**
+     * The provider's stable identifier for this rider, read out of the same
+     * token payload [usernameFrom] reads. Used to name the on-disk bucket
+     * their files live in, which is why `sub` is preferred over the handle:
+     * a rider who renames themselves must not lose their history.
+     *
+     * Signature verification is deliberately absent for the same reason it is
+     * in [usernameFrom] — this token arrived from the provider over TLS and
+     * is being read for a label. The API is the party that has to verify it,
+     * and does.
+     */
+    internal fun subjectFrom(accessToken: String): String {
+        val payload = accessToken.split(".").getOrNull(1) ?: return ""
+        val json = payload.decodeBase64()?.utf8() ?: return ""
+        return runCatching { jsonObjectOf(json).optString("sub") }.getOrDefault("")
+    }
 }
