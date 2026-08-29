@@ -315,8 +315,10 @@ commits undoing confident claims.
 Concrete quantities worth counting, in rough order of usefulness:
 
 - **The recorded trip's `distanceMeters` and `topSpeedMps`** from
-  `run-as io.github.maxke24.detour.debug cat files/trips.json`. Deterministic enough that a
-  drift of more than a percent or two means the fix pipeline changed.
+  `run-as io.github.maxke24.detour.debug cat files/accounts/<key>/trips.json` — list
+  `files/accounts` first to find `<key>` (a signed-out install has exactly one bucket,
+  `_local`). Deterministic enough that a drift of more than a percent or two means the fix
+  pipeline changed.
 - **The number of trace points the replay stored.** The 25 m decimation makes this
   predictable — roughly route length ÷ 25 — so a change in it means the decimator's input
   changed. Count points, not lines: `traces.jsonl` is one JSON array *per segment*, each

@@ -26,6 +26,7 @@ IOS=iosApp/Detour/TripRecorder.swift
 
 fails=0
 count() { grep -c "$1" "$2" 2>/dev/null || true; }
+present() { grep -q "$1" "$2" 2>/dev/null && echo 1 || echo 0; }
 check() { # check <description> <expected> <actual>
     if [ "$2" = "$3" ]; then
         printf 'PASS  %s\n' "$1"
@@ -40,8 +41,15 @@ check 'Android decimates the trace at 25 m (if (gap < 25.0) return)' \
 check 'TraceStore still writes traces.jsonl' 1 "$(count 'traces.jsonl' "$STORE")"
 check 'iOS uses the same 25 m spacing, so an iOS trace reads the same way' \
     1 "$(count 'traceSpacingMeters = 25.0' "$IOS")"
+# The constant above passing proves nothing about *where* traces.jsonl lands — it moved from
+# filesDir's root into the per-account bucket (files/accounts/<key>/) without the filename
+# changing, which is exactly the kind of move this assertion would otherwise miss.
+check 'traces.jsonl is written into the per-account bucket, not straight into filesDir (TraceStore calls accountFile, not deviceFile)' \
+    1 "$(present 'accountFile(FILE_NAME)' "$STORE")"
+check 'TraceStore never falls back to the device-wide file for traces.jsonl' \
+    0 "$(present 'deviceFile(FILE_NAME)' "$STORE")"
 
-printf '\n%d checks, %d failed\n' 3 "$fails"
+printf '\n%d checks, %d failed\n' 5 "$fails"
 if [ "$fails" -ne 0 ]; then
     cat >&2 <<'EOF'
 Stop. The decimation contract has been retuned, so every threshold in this skill — and the
