@@ -38,9 +38,19 @@ class AccountScopeTest {
     }
 
     @Test
-    fun theKeyDoesNotContainTheIdentifierItCameFrom() {
-        val key = AccountScope.keyFrom(subject = "", username = "andre")
-        assertTrue(!key.contains("andre"), "the username leaked into the directory name: $key")
+    fun theKeyIsAHashAndNotAnEncodingOfTheIdentifier() {
+        // A golden value, not a property. The assertion this replaces checked that
+        // the key does not contain "andre" — true of *any* hex string, since n and r
+        // are not hex digits, so it passed even with the hash removed entirely.
+        // Getting that wrong matters here specifically: an un-hashed key is the
+        // rider's own handle, reversible, in a directory name that reaches a Google
+        // Drive backup.
+        assertEquals("bd01b0b648c2c64e", AccountScope.keyFrom(subject = "", username = "andre"))
+        assertNotEquals(
+            "616e647265",
+            AccountScope.keyFrom(subject = "", username = "andre"),
+            "the identifier was hex-encoded rather than hashed",
+        )
     }
 
     @Test
