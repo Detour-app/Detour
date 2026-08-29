@@ -46,18 +46,26 @@ object SavedPlaces {
 
     /** Add a place (or rename in place if [id] already exists) and persist. */
     fun add(name: String, location: LatLon, id: Long = nowMs()) {
+        ensureLoaded() // a mutation can arrive while the cache is empty and
+        // unloaded — a cold start, or [reset] having just run under a composed
+        // screen whose own ensureLoaded already fired — and without this,
+        // _places.value is still empty and write() below would truncate the
+        // file to this one place. Same guard and same reason as
+        // RouteStore.save; the two are one pattern.
         val cleaned = name.trim().ifEmpty { "Place" }
         val next = _places.value.filterNot { it.id == id } + SavedPlace(id, cleaned, location)
         write(next.sortedBy { it.name.lowercase() })
     }
 
     fun rename(id: Long, name: String) {
+        ensureLoaded() // see add(): a rename can be the first call to touch the store.
         val cleaned = name.trim().ifEmpty { return }
         write(_places.value.map { if (it.id == id) it.copy(name = cleaned) else it }
             .sortedBy { it.name.lowercase() })
     }
 
     fun remove(id: Long) {
+        ensureLoaded() // see add(): a remove can be the first call to touch the store.
         write(_places.value.filterNot { it.id == id })
     }
 
