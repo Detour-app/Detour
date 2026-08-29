@@ -36,7 +36,7 @@ introduced in one place rather than at every store.
 | `TripStore.load()`, `Badges.load()`, `TraceStore.loadAll()`, `RecentSearchStore.load()` | **No** — read-through, hit the file every call |
 | `SavedPlaces` | Yes — `_places` StateFlow behind a `loaded` latch (`:26-28`) |
 | `Routes` | Yes — `_routes` StateFlow behind a `loaded` latch (`:108-110`) |
-| `Coverage` | Yes — `@Volatile cache` and `misses` (`:118`, `:129`) |
+| `MunicipalityStore` (lives in `Coverage.kt`) | Yes — `@Volatile cache` and `misses` (`:118`, `:129`). **Not `object Coverage`**, which has no cache of its own — the filename and the object name differ, and reading the table as if they matched already cost an implementer time in Task 4. |
 
 Read-through stores are correct for free once the path moves. Only three need invalidating.
 
@@ -250,16 +250,40 @@ Three costs, none of them free:
 ## Version
 
 `1.83.0` → **1.84.0**. The on-disk layout changes and the migration is one-way, which `CLAUDE.md`'s
-table would send to major — but no rider loses data, the migration is automatic and silent, and the
-downgrade path that a major bump protects is not one an Android install takes in practice. Recorded
-here so the reasoning is visible rather than inferred from the number.
+table would send to major. The load-bearing argument against that is Play: it refuses a lower
+`versionCode`, so the downgrade path a major bump protects is not one an Android install can take.
+
+"No rider loses data" is *not* part of that argument, and should not be read as one — the review of
+this branch found two counterexamples to it as implemented (an unclaimed anonymous bucket after an
+upgrade, and a single failed rename splitting an install), both fixed, neither of which the version
+number would have helped with.
+
+The genuinely one-way property is worth stating precisely, because it is the one a rider can reach:
+a downgrade to 1.83.x destroys nothing — the files sit in `accounts/_local/` and 1.83 writes fresh
+ones at the root — but **re-upgrading then hits `migrate`'s "a file already in the bucket wins"
+rule, and everything recorded on the downgraded build is silently ignored.** It stays on disk and is
+never read again. That is the asymmetry, and it is a property of the migration rule rather than of
+the version number.
 
 ## Follow-ups this creates
 
 1. Prefs are not scoped. `Settings.lastSyncMs` and the per-circle `notifyArrivals` /
    `lastSeenEventTsMs` keys still span accounts. Smaller blast radius than files — no upload path —
    but the same class of defect, and worth its own pass.
-2. `_local` is never garbage-collected. A device that has seen an account keeps its anonymous bucket
-   forever, invisible in the UI. Deleting it needs a rider-facing decision this slice does not make.
-3. #74 (`place_event` frames never parse) and #75 (iOS wall-clock fix age) remain open and are
+2. **Rides recorded while signed out, after you have signed in once on this device, are only
+   visible while signed out.** `adopt` is "first account ever", not "first since `_local` was
+   recreated" — so once any account owns a bucket here, a later signed-out ride lands in `_local`
+   and the rider never sees it again unless they sign out. Riding signed out is a mainstream state
+   in this app, not an edge case, so this is the symptom to name rather than the mechanism. (The
+   mechanism — `_local` is never garbage-collected, and a device that has seen an account keeps its
+   anonymous bucket forever, invisible in the UI — is the same follow-up stated the other way
+   round; deleting the bucket needs a rider-facing decision this slice does not make.)
+3. **An issuer change makes every local file read empty, permanently, with no in-app way back.**
+   Switching identity provider calls `Auth.clear()`, and the new realm's `sub` yields a different
+   key — so `adopt` refuses, because a non-`_local` bucket already exists. History, fog, badges,
+   saved places and saved routes all read empty from then on. Trips, traces and badges would come
+   back from a server union; `routes.json` is not synced at all, so nothing restores it. This is a
+   real regression for self-hosters: before this branch an issuer switch kept every file visible,
+   because there was only ever one set of files.
+4. #74 (`place_event` frames never parse) and #75 (iOS wall-clock fix age) remain open and are
    unaffected by this.

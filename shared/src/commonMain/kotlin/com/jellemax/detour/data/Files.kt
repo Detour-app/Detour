@@ -20,7 +20,15 @@ import okio.use
  * This used to be `appFile`. The rename is deliberate: an unqualified
  * `appFile` that silently means device-scoped is the exact shape of #73, and
  * a name that reads as "the normal one" is how the next store inherits the
- * bug. Picking a scope is now a decision the compiler makes you make.
+ * bug. What the rename bought is the 28 existing call sites: every one of
+ * them had to be read and assigned a scope by hand, because the old name no
+ * longer compiled.
+ *
+ * It buys nothing going forward. A new store can call this and silently share
+ * one file across every rider on the device with no diagnostic of any kind —
+ * the name is a signpost, not a check. `detour-trip-data`'s precondition
+ * script is what actually holds the line: it asserts both directions across
+ * AccountFiles.SCOPED_NAMES on every run.
  */
 internal fun deviceFile(name: String): Path = appFilesDir() / name
 
