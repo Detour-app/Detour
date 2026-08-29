@@ -165,16 +165,22 @@ object Settings {
         store = prefs("settings")
         // First, because the guard above is already armed: everything this
         // function hydrates from here on may read a store path, and every one
-        // of those must find the migration done. `auth_scope_key` is in
-        // neither CredentialMigration group, so reading it ahead of
-        // migrateOnce() below loses nothing.
-        AccountScope.set(secure.string("auth_scope_key"))
+        // of those must find the migration done and the scope pointed at the
+        // right rider. `auth_scope_key` is in neither CredentialMigration
+        // group, so reading it ahead of migrateOnce() below loses nothing.
+        val storedKey = secure.string("auth_scope_key")
         // A throw here would propagate out of init() and, because `store` is
         // already set, permanently skip everything hydrated below —
         // including vehicle_devices, which TripTrackingService reads for
         // trip classification. Same defence as SecretBox's runCatchings, for
         // the same "one bad value must not abort init" reason.
-        runCatching { AccountFiles.migrate(fileSystem, appFilesDir()) }
+        runCatching { AccountFiles.reconcileAtLaunch(fileSystem, appFilesDir(), storedKey) }
+        // After the line above, never before it: an install that was already
+        // signed in when it upgraded has never claimed its bucket, and
+        // pointing accountFile() at `storedKey` while the files are still in
+        // `_local` is what makes that split permanent — see
+        // AccountFiles.reconcileAtLaunch.
+        AccountScope.set(storedKey)
         // Guarded once-per-process, shared with RoutingServer.loadCustom() — see
         // CredentialMigration.migrateOnce().
         CredentialMigration.migrateOnce()

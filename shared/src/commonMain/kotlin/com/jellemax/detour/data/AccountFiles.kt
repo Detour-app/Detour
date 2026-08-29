@@ -109,4 +109,41 @@ internal object AccountFiles {
         fs.atomicMove(anonymous, accounts / key)
         return true
     }
+
+    /**
+     * The whole on-disk half of a launch: get this install's files into a
+     * bucket, then make sure the bucket belongs to whoever the install is
+     * signed in as. [Settings.init] calls this once, before anything reads a
+     * store path.
+     *
+     * One function rather than two adjacent calls at that call site because
+     * the order between them is load-bearing and cannot be asserted there —
+     * `Settings` needs platform prefs this module's test target does not
+     * have — while here it is a property of a function that takes its
+     * [FileSystem] as a parameter. [AccountScope.set] deliberately stays at
+     * the call site: it is process state, not disk state, and it has to
+     * happen after this returns for the reason [Auth.store] gives at its own
+     * adopt/set pair.
+     *
+     * [storedKey] is `auth_scope_key` as persisted. It is non-empty on an
+     * install that was **already signed in when it upgraded**: that install
+     * has never run `Auth.exchangeCode`, so nothing has ever claimed the
+     * anonymous bucket its files just moved into, and `Auth.refresh` writes
+     * the key on the first token refresh. Without the [adopt] below, its next
+     * launch points [accountDir] at a directory that has never existed and
+     * the rider's entire history reads as empty — permanently, because the
+     * first write into the new bucket makes [adopt]'s "no other bucket
+     * exists" guard refuse `_local` from then on. Trips, traces and badges
+     * would come back from the server union; `routes.json` is not synced at
+     * all, so nothing restores it.
+     *
+     * A throwing [migrate] skips [adopt] rather than adopting a half-moved
+     * bucket: whatever did not move is retried next launch, and it can only
+     * be retried while the bucket it belongs in is still `_local`.
+     */
+    fun reconcileAtLaunch(fs: FileSystem, root: Path, storedKey: String) {
+        migrate(fs, root)
+        if (storedKey.isEmpty()) return
+        adopt(fs, root, storedKey)
+    }
 }
