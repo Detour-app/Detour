@@ -23,7 +23,12 @@ object SavedPlaces {
 
     private const val FILE_NAME = "saved_places.json"
 
-    private val _places = MutableStateFlow<List<SavedPlace>>(emptyList())
+    // internal, not private, for the same reason `loaded` below is: the
+    // session-switch test has to seed a non-empty list and watch
+    // Auth.resetAccountScopedStores empty it. Asserting on `loaded` alone
+    // would leave the line that actually drops the previous rider's places
+    // deletable with the suite still green.
+    internal val _places = MutableStateFlow<List<SavedPlace>>(emptyList())
     val places: StateFlow<List<SavedPlace>> = _places
     // internal, not private, so the session-switch test can set it and watch
     // Auth.resetAccountScopedStores clear it again. See that function's doc.

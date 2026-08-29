@@ -198,6 +198,62 @@ class AccountFilesTest {
     }
 
     @Test
+    fun anInstallAlreadySignedInWhenItUpgradedEndsUpUnderItsOwnKeyInOneLaunch() {
+        // The majority upgrade path, and the one nothing used to run: this
+        // install has never called exchangeCode, so adopt() has never been
+        // reached, but auth_scope_key is on disk because a token refresh wrote
+        // it. If one launch does not leave these under accounts/<key>, the
+        // launch after it points at a bucket that has never existed, the
+        // rider's history reads as empty, and the first write into the new
+        // bucket makes adopt() refuse `_local` for good — routes.json is not
+        // synced, so nothing brings it back.
+        val fs = fsWithRootFiles("trips.json", "routes.json")
+
+        AccountFiles.reconcileAtLaunch(fs, root, "a3f1c8e29b4d7061")
+
+        val bucket = root / "accounts" / "a3f1c8e29b4d7061"
+        assertEquals("contents-of-trips.json", fs.textAt(bucket / "trips.json"))
+        assertEquals("contents-of-routes.json", fs.textAt(bucket / "routes.json"))
+        assertFalse(
+            fs.exists(root / "accounts" / "_local"),
+            "the anonymous bucket was left behind, so the next write into accounts/<key> strands it",
+        )
+    }
+
+    @Test
+    fun aLaunchWithNoStoredKeyMigratesAndLeavesTheBucketUnclaimed() {
+        // Nobody has ever signed in on this device. The files still have to
+        // reach `_local`, and `_local` has to stay claimable — adopting it to
+        // the empty key would name a directory nothing can ever resolve.
+        val fs = fsWithRootFiles("trips.json")
+
+        AccountFiles.reconcileAtLaunch(fs, root, "")
+
+        assertEquals(
+            "contents-of-trips.json",
+            fs.textAt(root / "accounts" / "_local" / "trips.json"),
+        )
+        assertEquals(listOf("_local"), fs.list(root / "accounts").map { it.name })
+    }
+
+    @Test
+    fun relaunchingAfterAdoptionLeavesTheAdoptedBucketAlone() {
+        // reconcileAtLaunch runs on every launch, so it has to be idempotent
+        // against its own output as well as against a fresh install. The
+        // second call must not recreate `_local` or move anything.
+        val fs = fsWithRootFiles("trips.json")
+        AccountFiles.reconcileAtLaunch(fs, root, "a3f1c8e29b4d7061")
+
+        AccountFiles.reconcileAtLaunch(fs, root, "a3f1c8e29b4d7061")
+
+        assertEquals(listOf("a3f1c8e29b4d7061"), fs.list(root / "accounts").map { it.name })
+        assertEquals(
+            "contents-of-trips.json",
+            fs.textAt(root / "accounts" / "a3f1c8e29b4d7061" / "trips.json"),
+        )
+    }
+
+    @Test
     fun adoptingWithAnEmptyKeyIsRejectedAndDoesNotTouchTheAnonymousBucket() {
         val fs = fsWithRootFiles("trips.json")
         AccountFiles.migrate(fs, root)

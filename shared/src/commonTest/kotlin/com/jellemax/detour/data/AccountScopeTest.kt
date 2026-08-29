@@ -78,6 +78,17 @@ class AccountScopeTest {
     }
 
     @Test
+    fun aSecondKeyReplacesTheFirstRatherThanBeingIgnored() {
+        // Not a session switch — nothing here goes near Auth. It pins the one
+        // choice set() documents: a key arriving while another is already
+        // held replaces it, because ignoring it would leave the previous
+        // rider's key naming the directory the new rider writes into.
+        AccountScope.set("aaaaaaaaaaaaaaaa")
+        AccountScope.set("bbbbbbbbbbbbbbbb")
+        assertEquals("bbbbbbbbbbbbbbbb", AccountScope.current())
+    }
+
+    @Test
     fun aBlankKeyIsRefusedRatherThanBecomingADirectoryNamedNothing() {
         AccountScope.set("a3f1c8e29b4d7061")
         AccountScope.set("")
@@ -113,14 +124,20 @@ class SubjectFromTokenTest {
 }
 
 /**
- * Covers the wiring [Auth.resetAccountScopedStores] does, which is the whole
- * of this task and would otherwise have none: `Auth.store` and `Auth.clear`
- * cannot run here (they write [Settings], which needs platform prefs), so the
- * function is `internal` and called directly.
+ * Covers exactly one of the five things this task does: the in-memory half of
+ * a session change, [Auth.resetAccountScopedStores]. Not the on-disk half
+ * ([AccountFilesTest] has that), not `Auth.store`/`Auth.clear`'s
+ * [AccountScope] moves, and not the persisted `auth_scope_key` — all three
+ * of those go through [Settings], which needs platform prefs this module's
+ * test target does not have, so nothing here can reach them. The function is
+ * `internal` and called directly for that same reason.
  *
  * Each store is asserted separately rather than through one combined flag, so
  * a deleted call names which store stopped being cleared instead of just
- * failing.
+ * failing. The two caching stores are asserted by **value** as well as by
+ * their `loaded` latch: clearing the latch without emptying the list leaves
+ * the previous rider's places and routes on screen until something reloads,
+ * and a latch-only assertion passes with that line deleted.
  */
 class SessionSwitchTest {
 
@@ -129,7 +146,25 @@ class SessionSwitchTest {
         // Set the cached state by hand — populating these for real writes to
         // disk, and this module's tests have no file system.
         SavedPlaces.loaded = true
+        SavedPlaces._places.value = listOf(
+            SavedPlace(1L, "Previous rider's home", LatLon(51.05, 3.72)),
+        )
         RouteStore.loaded = true
+        RouteStore._routes.value = listOf(
+            SavedRoute(
+                id = 1L,
+                name = "Previous rider's Ardennes loop",
+                createdMs = 1L,
+                mode = TravelMode.MOTO,
+                stops = listOf(
+                    RouteStop(LatLon(50.5, 5.5)),
+                    RouteStop(LatLon(50.6, 5.6)),
+                ),
+                polyline = emptyList(),
+                distanceMeters = null,
+                timeMs = null,
+            ),
+        )
         MunicipalityStore.cache = emptyList()
         MunicipalityStore.misses = setOf(1L)
         val traceVersionBefore = TraceStore.version.value
@@ -137,7 +172,17 @@ class SessionSwitchTest {
         Auth.resetAccountScopedStores()
 
         assertFalse(SavedPlaces.loaded, "SavedPlaces kept the previous rider's places")
+        assertEquals(
+            emptyList(),
+            SavedPlaces.places.value,
+            "the shortcut chips still hold the previous rider's places",
+        )
         assertFalse(RouteStore.loaded, "RouteStore kept the previous rider's routes")
+        assertEquals(
+            emptyList(),
+            RouteStore.routes.value,
+            "the routes list still holds the previous rider's routes",
+        )
         assertNull(MunicipalityStore.cache, "MunicipalityStore kept the previous rider's learned boundaries")
         assertEquals(emptySet(), MunicipalityStore.misses, "MunicipalityStore kept the previous rider's misses")
         assertEquals(
@@ -145,19 +190,5 @@ class SessionSwitchTest {
             TraceStore.version.value,
             "the fog layer was not told the ground moved, so it keeps drawing the previous rider's territory",
         )
-    }
-
-    @Test
-    fun signingOutReturnsWritesToTheAnonymousBucket() {
-        AccountScope.set("a3f1c8e29b4d7061")
-        AccountScope.clear()
-        assertEquals(AccountScope.ANONYMOUS, AccountScope.current())
-    }
-
-    @Test
-    fun aDifferentAccountMovesTheBucketWithoutASignOutInBetween() {
-        AccountScope.set("aaaaaaaaaaaaaaaa")
-        AccountScope.set("bbbbbbbbbbbbbbbb")
-        assertEquals("bbbbbbbbbbbbbbbb", AccountScope.current())
     }
 }

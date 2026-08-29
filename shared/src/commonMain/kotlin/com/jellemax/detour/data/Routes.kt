@@ -105,7 +105,11 @@ object RouteStore {
 
     private const val FILE_NAME = "routes.json"
 
-    private val _routes = MutableStateFlow<List<SavedRoute>>(emptyList())
+    // internal, not private, for the same reason `loaded` below is — see
+    // SavedPlaces._places for the full why: asserting on `loaded` alone leaves
+    // the line that actually drops the previous rider's routes deletable with
+    // the suite still green.
+    internal val _routes = MutableStateFlow<List<SavedRoute>>(emptyList())
     val routes: StateFlow<List<SavedRoute>> = _routes
     // internal, not private, so the session-switch test can set it and watch
     // Auth.resetAccountScopedStores clear it again. See that function's doc.
