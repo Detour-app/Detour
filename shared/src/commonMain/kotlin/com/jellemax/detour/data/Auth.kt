@@ -375,6 +375,18 @@ object Auth {
 
         val username = usernameFrom(access).ifBlank { Settings.authUsername.value }
         val scopeKey = AccountScope.keyFrom(subject = subjectFrom(access), username = username)
+        // `auth_scope_key` is persisted on both paths while the live
+        // AccountScope only moves on the establish path below, and that
+        // divergence is deliberate: an install that was already signed in
+        // when it upgraded reaches [refresh] long before it reaches
+        // [exchangeCode], and the persist is the only thing that ever tells
+        // the next launch which bucket it owns. The gap it opens — stored key
+        // K, live scope still `_local` — cannot leak, because [SyncClient.sync]
+        // refuses to upload from the anonymous bucket while signed in, and it
+        // closes itself: `Settings.init()` adopts `_local` into `accounts/K`
+        // on the next launch (see [AccountFiles.reconcileAtLaunch]), so the
+        // rides recorded during the gap follow the rider rather than being
+        // left behind.
         Settings.setSession(
             accessToken = access,
             // Absent on a client configured without refresh tokens: keep the one
@@ -386,10 +398,16 @@ object Auth {
         )
 
         if (establishesSession) {
-            // Adoption before the scope moves: adopt() reads the anonymous
-            // bucket, and pointing accountFile() at the new key first would
-            // leave a fresh empty directory beside the data it was supposed
-            // to claim.
+            // Adoption before the scope moves, and the reason is another
+            // thread rather than this one: set() creates no directory, and
+            // adopt() reads the `_local` literal rather than current(), so on
+            // one thread these two lines are interchangeable. But any store
+            // call resolving accountFile() in the gap would create and write
+            // `accounts/<scopeKey>`, and adopt()'s "no other bucket exists"
+            // guard then refuses to claim `_local` for the rest of this
+            // install's life — the rider's pre-sign-in rides stranded in a
+            // bucket only a signed-out session can see, with routes.json
+            // (never synced) unrecoverable by any in-app path.
             AccountFiles.adopt(fileSystem, appFilesDir(), scopeKey)
             AccountScope.set(scopeKey)
             resetAccountScopedStores()

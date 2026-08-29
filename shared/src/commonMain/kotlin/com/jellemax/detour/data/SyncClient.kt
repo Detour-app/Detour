@@ -101,7 +101,7 @@ object SyncClient {
         // that does not happen is recoverable; one that puts another rider's
         // history into this account is not.
         if (Account.signedIn && AccountScope.current() == AccountScope.ANONYMOUS) {
-            throw AuthException("This session has no account identity; not uploading local data")
+            throw AuthException("Sign out and sign in again to link this device's rides to your account.")
         }
 
         // The check above is point-in-time; the POST below suspends for a full
