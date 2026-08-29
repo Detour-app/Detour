@@ -26,8 +26,14 @@ internal object AccountScope {
 
     /** The one directory under the app-private root that holds per-account
      *  buckets. Backed up as a subtree, which is why nothing else may live
-     *  in it. */
+     *  in it — and [AccountFiles.adopt] enforces that rather than trusting
+     *  it, using [KEY_LENGTH] to tell a bucket from a stray entry. */
     const val ACCOUNTS_DIR = "accounts"
+
+    /** How many hex characters a bucket name has. Shared with
+     *  [AccountFiles.adopt], which recognises a bucket by it: two copies of
+     *  this number would let the two disagree about what a bucket is. */
+    const val KEY_LENGTH = 16
 
     /** Read by [accountDir] on whatever thread a store call arrives on, and
      *  written by [Auth.store]/[Auth.clear] on another. `@Volatile` for the
@@ -71,7 +77,7 @@ internal object AccountScope {
     fun keyFrom(subject: String, username: String): String {
         val source = subject.ifEmpty { username }
         if (source.isEmpty()) return ""
-        return source.encodeUtf8().sha256().hex().take(16)
+        return source.encodeUtf8().sha256().hex().take(KEY_LENGTH)
     }
 
     /**

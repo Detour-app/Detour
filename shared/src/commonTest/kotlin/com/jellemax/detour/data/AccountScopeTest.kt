@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -13,6 +14,16 @@ import kotlin.test.assertTrue
  * part of what these assert, not just "is it stable".
  */
 class AccountScopeTest {
+
+    /** Same reason [CirclePresenceTest] restores its own: [AccountScope] is
+     *  process-global, so a key set here outlives the test that set it and
+     *  points every later `accountFile()` in this JVM somewhere unexpected.
+     *  Nothing depends on that today — which is exactly when to stop relying
+     *  on it. */
+    @AfterTest
+    fun restoreTheAnonymousBucket() {
+        AccountScope.clear()
+    }
 
     @Test
     fun theSubjectIsPreferredOverTheUsername() {

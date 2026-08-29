@@ -122,10 +122,62 @@ internal object AccountFiles {
         val accounts = root / AccountScope.ACCOUNTS_DIR
         val anonymous = accounts / AccountScope.ANONYMOUS
         if (!fs.exists(anonymous)) return false
-        val others = fs.list(accounts).filter { it.name != AccountScope.ANONYMOUS }
-        if (others.isNotEmpty()) return false
+        if (fs.list(accounts).any { it.isAccountBucket(fs) }) return false
         fs.atomicMove(anonymous, accounts / key)
         return true
+    }
+
+    /** Whether [this] is some other account's bucket, as opposed to anything
+     *  else that has turned up in `accounts/`.
+     *
+     *  "Nothing else may live here" is a comment on [AccountScope.ACCOUNTS_DIR]
+     *  and nothing enforced it, while [adopt]'s refusal depended on it: one
+     *  `.nomedia`, one restored backup fragment, one half-written temp file
+     *  and the anonymous bucket could never be claimed again — the rider's
+     *  pre-sign-in rides stranded where only a signed-out session can see
+     *  them, with `routes.json` unrecoverable by any in-app path. A key is a
+     *  directory whose name is [AccountScope.KEY_LENGTH] hex characters, so
+     *  the guard now says that rather than assuming it. */
+    private fun Path.isAccountBucket(fs: FileSystem): Boolean =
+        name != AccountScope.ANONYMOUS &&
+            name.length == AccountScope.KEY_LENGTH &&
+            name.all { it in "0123456789abcdef" } &&
+            fs.metadataOrNull(this)?.isDirectory == true
+
+    /**
+     * [adopt], and then point the live scope at [key].
+     *
+     * One function rather than two adjacent calls at `Auth.store`, for the
+     * same reason [reconcileAtLaunch] is one: the order between them is
+     * load-bearing, and at the call site it cannot be asserted — moving a
+     * session means writing `Settings`, which needs platform prefs this
+     * module's test target does not have — while here it is a property of a
+     * function that takes its [FileSystem] as a parameter.
+     *
+     * The order, and why it is not merely a preference: on one thread the two
+     * lines are interchangeable, because [AccountScope.set] creates no
+     * directory and [adopt] reads the `_local` literal rather than
+     * [AccountScope.current]. But any store call resolving `accountFile()` in
+     * the gap would create and write `accounts/<key>`, and [adopt]'s "no
+     * other bucket exists" guard then refuses `_local` for the rest of this
+     * install's life.
+     *
+     * The scope moves whether or not the adoption happened: a second account
+     * signing in adopts nothing and still has to write into its own bucket.
+     */
+    fun adoptAndActivate(fs: FileSystem, root: Path, key: String): Boolean {
+        val adopted = adopt(fs, root, key)
+        AccountScope.set(key)
+        return adopted
+    }
+
+    /** Puts the [migrated] guard back, so a test that ran [migrate] does not
+     *  disarm [accountDir]'s check for every later test in the same JVM.
+     *  `internal` and unused by the app for the same reason
+     *  [Auth.resetAccountScopedStores] is: a real process migrates once and
+     *  stays migrated, so nothing else has any business calling this. */
+    internal fun resetMigratedForTest() {
+        migrated = false
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -25,6 +26,21 @@ import okio.fakefilesystem.FakeFileSystem
 class AccountFilesTest {
 
     private val root = "/data/files".toPath()
+
+    /**
+     * Both of these are process-global and outlive the test that set them.
+     * `migrated` disarms `accountDir()`'s check for every later test in the
+     * same JVM — including RouteStoreLoadOrderTest, which then fails via a
+     * different throw depending on file order — and a key left in
+     * [AccountScope] points every later `accountFile()` somewhere unexpected.
+     * Nothing depends on either today; leaving them set makes the suite
+     * order-sensitive by construction, which is how it stops being true.
+     */
+    @AfterTest
+    fun restoreProcessGlobals() {
+        AccountFiles.resetMigratedForTest()
+        AccountScope.clear()
+    }
 
     private fun fsWithRootFiles(vararg names: String): FakeFileSystem {
         val fs = FakeFileSystem()
@@ -319,6 +335,103 @@ class AccountFilesTest {
             "contents-of-trips.json",
             fs.textAt(root / "accounts" / "_local" / "trips.json"),
         )
+    }
+
+    /**
+     * Records what [AccountScope.current] said at the instant the adoption
+     * renamed the bucket.
+     *
+     * Asserting the outcome alone — adopted, `_local` gone, scope on the key
+     * — cannot see the ordering at all: on one thread the two lines are
+     * genuinely interchangeable, which is what [AccountFiles.adoptAndActivate]'s
+     * own doc says. The hazard is a *concurrent* store call resolving
+     * `accountFile()` while the rename is in flight, and what decides whether
+     * that call lands in `_local` or creates the `accounts/<key>` that
+     * poisons adoption forever is precisely the scope at this instant.
+     */
+    private class RecordsScopeDuringAdoption(
+        delegate: FakeFileSystem,
+    ) : ForwardingFileSystem(delegate) {
+        var scopeAtRename: String? = null
+
+        override fun atomicMove(source: Path, target: Path) {
+            if (source.name == AccountScope.ANONYMOUS) scopeAtRename = AccountScope.current()
+            super.atomicMove(source, target)
+        }
+    }
+
+    @Test
+    fun adoptAndActivateClaimsTheBucketBeforeItPointsTheScopeAtIt() {
+        // The pair used to be two adjacent lines in Auth.store, where nothing
+        // could reach them: moving a session means writing Settings, which
+        // needs platform prefs this target does not have. Taking the
+        // FileSystem as a parameter is what makes the order assertable — the
+        // same argument reconcileAtLaunch's own doc makes.
+        val fs = fsWithRootFiles("trips.json")
+        AccountFiles.migrate(fs, root)
+        val watched = RecordsScopeDuringAdoption(fs)
+
+        val adopted = AccountFiles.adoptAndActivate(watched, root, "a3f1c8e29b4d7061")
+
+        assertTrue(adopted)
+        assertEquals(
+            AccountScope.ANONYMOUS,
+            watched.scopeAtRename,
+            "the scope had already moved while the bucket was still being claimed, so a " +
+                "store call in that window would create accounts/<key> and poison adopt forever",
+        )
+        assertEquals(
+            "contents-of-trips.json",
+            fs.textAt(root / "accounts" / "a3f1c8e29b4d7061" / "trips.json"),
+        )
+        assertFalse(fs.exists(root / "accounts" / "_local"), "`_local` outlived its adoption")
+        assertEquals("a3f1c8e29b4d7061", AccountScope.current())
+    }
+
+    @Test
+    fun adoptAndActivateStillMovesTheScopeWhenThereWasNothingToAdopt() {
+        // A second account signs in: it adopts nothing and must still write
+        // into its own bucket. Skipping the scope move here would leave the
+        // new rider writing into the previous one's directory.
+        val fs = fsWithRootFiles("trips.json")
+        AccountFiles.migrate(fs, root)
+        AccountFiles.adopt(fs, root, "aaaaaaaaaaaaaaaa")
+
+        val adopted = AccountFiles.adoptAndActivate(fs, root, "bbbbbbbbbbbbbbbb")
+
+        assertFalse(adopted)
+        assertEquals("bbbbbbbbbbbbbbbb", AccountScope.current())
+    }
+
+    @Test
+    fun aStrayEntryInTheAccountsDirectoryDoesNotBlockAdoptionForever() {
+        // "Nothing else may live in accounts/" was a comment, and adopt()
+        // depended on it: one .nomedia, one restored backup fragment, one
+        // temp file and `_local` could never be claimed again. A bucket is a
+        // directory named with sixteen hex characters; anything else is not
+        // evidence that an account has owned data here.
+        val fs = fsWithRootFiles("trips.json")
+        AccountFiles.migrate(fs, root)
+        fs.write(root / "accounts" / ".nomedia") { writeUtf8("") }
+
+        assertTrue(AccountFiles.adopt(fs, root, "a3f1c8e29b4d7061"))
+        assertEquals(
+            "contents-of-trips.json",
+            fs.textAt(root / "accounts" / "a3f1c8e29b4d7061" / "trips.json"),
+        )
+    }
+
+    @Test
+    fun aRealSecondBucketStillBlocksAdoption() {
+        // The other side of the filter above: loosening it must not start
+        // handing a second rider the anonymous bucket. Kept next to the stray
+        // entry test so the two are read together.
+        val fs = fsWithRootFiles("trips.json")
+        AccountFiles.migrate(fs, root)
+        fs.createDirectories(root / "accounts" / "aaaaaaaaaaaaaaaa")
+
+        assertFalse(AccountFiles.adopt(fs, root, "bbbbbbbbbbbbbbbb"))
+        assertTrue(fs.exists(root / "accounts" / "_local"))
     }
 
     @Test

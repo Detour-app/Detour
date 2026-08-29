@@ -396,18 +396,11 @@ object Auth {
         )
 
         if (establishesSession) {
-            // Adoption before the scope moves, and the reason is another
-            // thread rather than this one: set() creates no directory, and
-            // adopt() reads the `_local` literal rather than current(), so on
-            // one thread these two lines are interchangeable. But any store
-            // call resolving accountFile() in the gap would create and write
-            // `accounts/<scopeKey>`, and adopt()'s "no other bucket exists"
-            // guard then refuses to claim `_local` for the rest of this
-            // install's life — the rider's pre-sign-in rides stranded in a
-            // bucket only a signed-out session can see, with routes.json
-            // (never synced) unrecoverable by any in-app path.
-            AccountFiles.adopt(fileSystem, appFilesDir(), scopeKey)
-            AccountScope.set(scopeKey)
+            // Adoption and the scope move are one call, in that order, and
+            // both facts are load-bearing — see adoptAndActivate, which is
+            // where they can be asserted. They used to be two lines here,
+            // where nothing could reach them.
+            AccountFiles.adoptAndActivate(fileSystem, appFilesDir(), scopeKey)
             resetAccountScopedStores()
         }
     }
