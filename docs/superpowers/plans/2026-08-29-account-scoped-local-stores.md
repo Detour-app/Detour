@@ -757,13 +757,24 @@ after the line `_authUsername.value = secure.string("auth_username")` (currently
         AccountFiles.migrate(fileSystem, appFilesDir())
 ```
 
-- [ ] **Step 4: Verify it compiles and the suite still passes**
+- [ ] **Step 4: Make `AccountFiles.migrate`'s KDoc true**
+
+Its doc currently says the eager call from [Settings.init] "lands with the path split, not here" —
+worded in the future tense because, when Task 2 wrote it, the call site did not exist. Step 3 above
+is that wiring, so change it back to the present tense: it *is* called eagerly from [Settings.init],
+before any store reads, which is why there is no read-path fallback.
+
+A doc comment that describes a call site is only worth having while it is accurate in the direction
+it claims. Task 2's review caught it asserting this wiring already existed when it did not; leaving
+it future-tense now would be the same defect pointing the other way.
+
+- [ ] **Step 5: Verify it compiles and the suite still passes**
 
 Run: `devcontainer-exec ./gradlew :shared:compileCommonMainKotlinMetadata :shared:testDebugUnitTest :app:testDebugUnitTest`
 
 Expected: BUILD SUCCESSFUL. Shared test count is 324 + 23 from Tasks 1-2 = **347**; app **61**.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add shared/src/commonMain/kotlin/com/jellemax/detour/data/
