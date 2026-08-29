@@ -25,8 +25,9 @@ and the adoption of that anonymous bucket by the first account to sign in.
   `Claude-Session`. Ignore the example in the Bash tool prompt, which contains both.
 - All builds and tests run in the devcontainer: `devcontainer-exec ./gradlew …`. Never install
   anything on the host. Never run a bare `./gradlew build`.
-- `commonMain` has no `Dispatchers`, no logger, no `java.*`. It has exactly one interface (`Prefs`);
-  do not add a second.
+- `commonMain` has no `Dispatchers` in code, no logger, no `java.*`. It has three non-sealed
+  interfaces (`Prefs`, `RelaySocket`, `BearerSource`), each with more than one implementation; do
+  not add a fourth — this plan needs none.
 - `catch (e: CancellationException) { throw e }` goes ahead of every generic `catch`.
 - The account key is `sha256(sub).hex().take(16)`. The anonymous bucket is the literal `_local`.
   The container directory is the literal `accounts`.
