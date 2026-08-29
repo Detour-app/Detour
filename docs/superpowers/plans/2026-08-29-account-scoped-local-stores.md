@@ -785,19 +785,35 @@ git commit -m "refactor(data): make every store name the scope its files belong 
 
 ## Task 4: Session switch
 
+> **Correction, found during implementation.** Three symbol names in this task were wrong, and the
+> implementer had to work around all three:
+> - `Coverage.kt` holds **two** objects. The one with the `cache`/`misses` fields is
+>   `MunicipalityStore` (`:114`); the `Coverage` object (`:285`) is stateless and has nothing to
+>   reset. This task means `MunicipalityStore` everywhere it says `Coverage`.
+> - `Routes.kt` holds `RouteStore` (`:104`), not `Routes`.
+> - `Account.signedIn` is a plain `Boolean` (`Auth.kt:91`), not a `StateFlow`, so `.value` is wrong.
+>
+> A fourth was an omission rather than an error: growing `setSession`'s parameter list means
+> `Auth.clear()`'s existing `Settings.setSession("", "", 0L, "")` needs a fifth `""` to compile.
+>
+> All four are corrected in the text below. The cause is worth naming: these came from reading file
+> names rather than object declarations, and `Coverage.kt` containing `MunicipalityStore` is exactly
+> the case that punishes it.
+
+
 **Files:**
 - Modify: `shared/src/commonMain/kotlin/com/jellemax/detour/data/Auth.kt` (`store` at `:349`,
   `clear` at `:278`)
 - Modify: `shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt`
   (`setSession` at `:250`)
-- Modify: `SavedPlaces.kt`, `Routes.kt`, `Coverage.kt`, `TraceStore.kt` (add `reset()`)
+- Modify: `SavedPlaces.kt`, `Routes.kt`, `Coverage.kt` (the `MunicipalityStore` object), `TraceStore.kt` (add `reset()`)
 - Modify: `shared/src/commonMain/kotlin/com/jellemax/detour/data/SyncClient.kt` (`sync` at `:95`)
 - Test: `shared/src/commonTest/kotlin/com/jellemax/detour/data/AccountScopeTest.kt` (extend)
 
 **Interfaces:**
 - Consumes: `AccountScope.set/clear/keyFrom` (Task 1), `AccountFiles.adopt` (Task 2),
   `Auth.subjectFrom` (Task 1).
-- Produces: `SavedPlaces.reset()`, `Routes.reset()`, `Coverage.reset()`, `TraceStore.reset()`.
+- Produces: `SavedPlaces.reset()`, `RouteStore.reset()`, `MunicipalityStore.reset()`, `TraceStore.reset()`.
 
 - [ ] **Step 1: Add `reset()` to the three caching stores plus the trace version bump**
 
@@ -826,7 +842,7 @@ Then in `SavedPlaces.kt`, after `ensureLoaded()` (which ends at `:35`):
     }
 ```
 
-In `Routes.kt`, after `ensureLoaded()` (ends at `:118`), the same shape:
+In `Routes.kt` (object `RouteStore`), after `ensureLoaded()` (ends at `:118`), the same shape:
 
 ```kotlin
     /** Drops this rider's routes so the next [ensureLoaded] reads the new
@@ -838,7 +854,7 @@ In `Routes.kt`, after `ensureLoaded()` (ends at `:118`), the same shape:
     }
 ```
 
-In `Coverage.kt`, after `load()` (ends at `:145`):
+In `Coverage.kt` (object `MunicipalityStore`, **not** the stateless `Coverage` object lower in the same file), after `load()` (ends at `:145`):
 
 ```kotlin
     /** Drops the learned boundaries and the not-found set, both of which are
@@ -933,8 +949,8 @@ And add, as a private member of `Auth`:
      *  review found in the circle-presence slice. */
     internal fun resetAccountScopedStores() {
         SavedPlaces.reset()
-        Routes.reset()
-        Coverage.reset()
+        RouteStore.reset()
+        MunicipalityStore.reset()
         TraceStore.reset()
     }
 ```
@@ -949,7 +965,7 @@ In `SyncClient.kt`, at the top of `sync()`, directly after `Settings.init()`:
         // Uploading them is precisely #73, so this refuses instead. A sync
         // that does not happen is recoverable; one that puts another rider's
         // history into this account is not.
-        if (Account.signedIn.value && AccountScope.current() == AccountScope.ANONYMOUS) {
+        if (Account.signedIn && AccountScope.current() == AccountScope.ANONYMOUS) {
             throw AuthException("This session has no account identity; not uploading local data")
         }
 ```
@@ -976,17 +992,17 @@ class SessionSwitchTest {
         // Set the cached state by hand — populating these for real writes to
         // disk, and this module's tests have no file system.
         SavedPlaces.loaded = true
-        Routes.loaded = true
-        Coverage.cache = emptyList()
-        Coverage.misses = setOf(1L)
+        RouteStore.loaded = true
+        MunicipalityStore.cache = emptyList()
+        MunicipalityStore.misses = setOf(1L)
         val traceVersionBefore = TraceStore.version.value
 
         Auth.resetAccountScopedStores()
 
         assertFalse(SavedPlaces.loaded, "SavedPlaces kept the previous rider's places")
-        assertFalse(Routes.loaded, "Routes kept the previous rider's routes")
-        assertNull(Coverage.cache, "Coverage kept the previous rider's learned boundaries")
-        assertEquals(emptySet(), Coverage.misses, "Coverage kept the previous rider's misses")
+        assertFalse(RouteStore.loaded, "Routes kept the previous rider's routes")
+        assertNull(MunicipalityStore.cache, "Coverage kept the previous rider's learned boundaries")
+        assertEquals(emptySet(), MunicipalityStore.misses, "Coverage kept the previous rider's misses")
         assertEquals(
             traceVersionBefore + 1,
             TraceStore.version.value,
@@ -1020,8 +1036,8 @@ Expected: BUILD SUCCESSFUL. Shared **350**, app **61**.
 
 - [ ] **Step 7: Prove the reset wiring is pinned**
 
-Delete the `Coverage.reset()` line from `Auth.resetAccountScopedStores()`. Re-run. Expected: FAIL on
-`aSessionChangeDropsEveryStoreThatHoldsARidersFilesInMemory`, with the message naming Coverage.
+Delete the `MunicipalityStore.reset()` line from `Auth.resetAccountScopedStores()`. Re-run. Expected: FAIL on
+`aSessionChangeDropsEveryStoreThatHoldsARidersFilesInMemory`, with the message naming MunicipalityStore.
 Restore it, then do the same with `TraceStore.reset()` and confirm the failure names the fog layer.
 
 - [ ] **Step 8: Record what the sync refusal's coverage actually is**
