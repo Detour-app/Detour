@@ -104,6 +104,18 @@ object SyncClient {
             throw AuthException("This session has no account identity; not uploading local data")
         }
 
+        // The check above is point-in-time; the POST below suspends for a full
+        // history round trip, and the write-back after it re-resolves
+        // accountFile() fresh (deliberately — see Files.kt). Between the two,
+        // Auth.clear() or Auth.store() can move the bucket out from under this
+        // call: the launch sync runs on a scope that is never cancelled
+        // (app/data/AndroidSync.kt), so a sign-out mid-flight would write this
+        // rider's entire server-side history into `_local`, and a sign-in
+        // would write it into the next rider's bucket for their next sync to
+        // upload — #73 again, on the function this guard exists to protect.
+        // Same epoch capture FriendsStore.reload and CirclesStore use.
+        val epoch = Auth.sessionEpoch.value
+
         // Coverage is the only stat the server can't derive from the trips it
         // already holds — it needs the boundaries, which only we have.
         val stats = BadgeStore.stats(Coverage.compute())
@@ -122,6 +134,17 @@ object SyncClient {
         }
 
         val merged = Api.requestJson("POST", "/sync", payload)
+        if (epoch != Auth.sessionEpoch.value) {
+            // Whoever this response belongs to is no longer who this device is
+            // signed in as. Nothing is written — not the stores, and not
+            // lastSyncMs, which would otherwise let this discarded round trip
+            // suppress the new session's own launch sync for five minutes.
+            // Reported as a sync that brought nothing back rather than as a
+            // failure: the POST did succeed, the server has the upload, and
+            // the only untrue thing to say here would be a count of records
+            // that did not land.
+            return SyncResult(0, 0, 0)
+        }
         val trips = merged.optArray("trips") ?: JsonArrayEmpty
         val traces = merged.optArray("traces") ?: JsonArrayEmpty
         val badges = merged.optObject("badges") ?: jsonObjectOf("{}")
