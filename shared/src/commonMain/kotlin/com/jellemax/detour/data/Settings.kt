@@ -183,6 +183,11 @@ object Settings {
         _refreshToken.value = secure.string("refresh_token")
         _accessTokenExpiresAtMs.value = secure.long("access_token_expires_at", 0L)
         _authUsername.value = secure.string("auth_username")
+        // Before any store reads, so nothing ever has to look in two places
+        // for one file. Per-file and unconditional, so a run that dies halfway
+        // finishes on the next launch without a marker to get out of step.
+        AccountScope.set(secure.string("auth_scope_key"))
+        AccountFiles.migrate(fileSystem, appFilesDir())
         _leanOffsetDeg.value = prefs.float("lean_offset_deg", 0f)
         _voiceGuidance.value = prefs.bool("voice_guidance", true)
         _mapIcon.value = runCatching {

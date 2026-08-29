@@ -52,9 +52,9 @@ internal object AccountFiles {
      * destroying a file it isn't certain about is worse than leaving a
      * harmless duplicate behind.
      *
-     * Intended to run eagerly from [Settings.init], before any store reads,
-     * so no store ever has to look in two places for one file — that wiring
-     * lands with the path split, not here.
+     * Called eagerly from [Settings.init], before any store reads, so no
+     * store ever has to look in two places for one file — which is why
+     * there is no read-path fallback.
      */
     fun migrate(fs: FileSystem, root: Path) {
         val bucket = root / AccountScope.ACCOUNTS_DIR / AccountScope.ANONYMOUS

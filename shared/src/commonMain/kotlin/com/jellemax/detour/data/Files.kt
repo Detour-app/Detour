@@ -13,8 +13,29 @@ import okio.use
  * (traces.jsonl) is a few MB after a year of riding.
  */
 
-/** A file in the app-private directory. */
-internal fun appFile(name: String): Path = appFilesDir() / name
+/**
+ * A file belonging to the device rather than to any rider — one copy, shared
+ * by everyone who signs in here.
+ *
+ * This is what [accountFile]'s counterpart used to be called, back when it
+ * was the only one and every store used it by default. The rename is
+ * deliberate: an unqualified `appFile` that silently means device-scoped is
+ * the exact shape of #73, and a name that reads as "the normal one" is how
+ * the next store inherits the bug. Picking a scope is now a decision the
+ * compiler makes you make.
+ */
+internal fun deviceFile(name: String): Path = appFilesDir() / name
+
+/** The directory holding the current rider's files. */
+internal fun accountDir(): Path =
+    appFilesDir() / AccountScope.ACCOUNTS_DIR / AccountScope.current()
+
+/**
+ * A file belonging to whoever is signed in, or to the anonymous bucket when
+ * nobody is. Resolved per call rather than cached, because the answer changes
+ * the moment [Auth.store] or [Auth.clear] moves the session.
+ */
+internal fun accountFile(name: String): Path = accountDir() / name
 
 internal fun Path.exists(): Boolean = fileSystem.exists(this)
 

@@ -134,7 +134,7 @@ object MunicipalityStore {
 
     fun load(): List<Municipality> {
         cache?.let { return it }
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         val loaded = if (!f.exists()) emptyList() else try {
             jsonArrayOf(f.readText()).objects().mapNotNull { parse(it) }
         } catch (e: Exception) {
@@ -265,7 +265,7 @@ object MunicipalityStore {
                 }
             }
         }
-        appFile(FILE_NAME).writeText(array.string())
+        accountFile(FILE_NAME).writeText(array.string())
         cache = all
     }
 }

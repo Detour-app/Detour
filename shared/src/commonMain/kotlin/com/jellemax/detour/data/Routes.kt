@@ -146,7 +146,7 @@ object RouteStore {
     /** Raw stored JSON array, uploaded to the sync server. Reads the file so it
      *  works even before any screen has triggered [ensureLoaded]. */
     fun rawJson(): String {
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         return if (f.exists()) f.readText() else "[]"
     }
 
@@ -165,11 +165,11 @@ object RouteStore {
     private fun write(routes: List<SavedRoute>) {
         _routes.value = routes
         val array = buildJsonArray { for (r in routes) add(r.toJson()) }
-        appFile(FILE_NAME).writeText(array.string())
+        accountFile(FILE_NAME).writeText(array.string())
     }
 
     private fun read(): List<SavedRoute> {
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         if (!f.exists()) return emptyList()
         return try {
             jsonArrayOf(f.readText()).objects().mapNotNull { routeFromJson(it) }

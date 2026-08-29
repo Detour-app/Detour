@@ -54,7 +54,7 @@ object SavedPlaces {
     /** Raw stored JSON array, uploaded to the sync server. Reads the file so it
      *  works even before any screen has triggered [ensureLoaded]. */
     fun rawJson(): String {
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         return if (f.exists()) f.readText() else "[]"
     }
 
@@ -80,11 +80,11 @@ object SavedPlaces {
                 put("lon", p.location.lon)
             }
         }
-        appFile(FILE_NAME).writeText(array.string())
+        accountFile(FILE_NAME).writeText(array.string())
     }
 
     private fun read(): List<SavedPlace> {
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         if (!f.exists()) return emptyList()
         return try {
             parse(jsonArrayOf(f.readText()))
