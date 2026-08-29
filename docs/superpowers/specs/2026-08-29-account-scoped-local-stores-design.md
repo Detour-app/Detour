@@ -120,9 +120,10 @@ No new mechanism. The read-through stores need nothing.
 
 One rule each, both idempotent:
 
-**Migration.** If files exist at the root and `accounts/` does not, move them into `accounts/_local/`
-one file at a time via `atomicMove`. A partial run resumes on the next launch, because the condition
-is per-file rather than per-run.
+**Migration.** Any account-scoped file still at the root moves into `accounts/_local/`, one file at
+a time via `atomicMove`. The condition is **per-file, not per-run** — no marker, no "have I migrated
+yet" flag — so a partial run simply finishes on the next launch. Runs eagerly from
+`Settings.init()`, before any store reads (see §6).
 
 **Adoption.** An account signing in when `accounts/` contains *only* `_local` renames it to that
 account's key. "Has any account ever owned data here" needs no new persisted state — it is whether
@@ -149,19 +150,43 @@ Also stale the moment the paths move, and updated here:
 
 ### 6. Error handling
 
-Migration failures must not lose data and must not block the app. A failed move leaves the source
-file in place — `atomicMove` is atomic per file — so the next launch retries. A migration that
-cannot complete leaves the app reading whatever it successfully moved plus whatever remains,
-which is why the read path checks the account directory and falls back to the root for a file that
-has not moved yet. That fallback is temporary by construction: it applies only while `accounts/`
-exists and a root file still does.
+Migration runs **eagerly at `Settings.init()`**, before any store reads, so there is no window in
+which a store looks for a file that has not moved yet and therefore **no dual-path read fallback**.
+
+> **Correction, made while planning.** This section first specified a read path that checks the
+> account directory and falls back to the root for any file not yet moved. That was solving a
+> problem the ordering removes. Worse, a fallback is permanent by nature — every read pays it
+> forever to cover a window that lasts one launch — and it is exactly the kind of complexity that
+> outlives the reason for it. Eager migration is simpler and self-healing.
+
+A failed move leaves the source file in place, because `atomicMove` is atomic per file, so the next
+launch retries it. The cost of a partial failure is that some rides are briefly invisible, not that
+any are destroyed, and the retry is unconditional rather than needing a marker.
 
 `CancellationException` rethrown ahead of every generic catch, as everywhere else in this core.
 
 ## Tests
 
-`commonTest`, plain `kotlin.test`, over a fake `FileSystem` — the seam `Platform.kt:46` already
-notes exists for exactly this.
+`commonTest`, plain `kotlin.test`.
+
+> **Correction.** This first claimed a fake `FileSystem` was already the established pattern, citing
+> `Platform.kt:46`. Both halves were wrong: the line is `:64`, and while its doc does say "a fake in
+> tests", **nothing in the repo has ever supplied one** — `actual val fileSystem` is
+> `FileSystem.SYSTEM` in `Platform.android.kt:58` and `Platform.ios.kt:77`, there is no test actual,
+> and `okio-fakefilesystem` is not a dependency. The comment was aspirational and I read it as
+> established practice.
+
+The real precedent is better suited anyway: `CredentialMigrationTest` covers a migration by
+**pushing the store in as a parameter** — `CredentialMigration.step(plain: Prefs, secure: Prefs,
+group: SecretGroup)` is the pure seam, `migrateOnce()` the ambient wrapper that supplies the real
+ones. This copies that shape exactly: `AccountScope.migrate(fs: FileSystem, root: Path)` is pure and
+testable, `migrateOnce()` supplies `fileSystem` and `appFilesDir()`.
+
+That needs `com.squareup.okio:okio-fakefilesystem:3.9.0` in `commonTest` — a test-only dependency on
+okio's own fake, at the version `commonMain` already pins. Preferred over a new `commonMain`
+interface for file operations: `detour-shared-core` §4 records that `commonMain` has exactly one
+interface (`Prefs`) and that adding a second needs an argument of its own, which this does not have.
+It also makes `Platform.kt:64`'s claim true for the first time.
 
 - Key derivation: `sub` present; `sub` absent and `preferred_username` present; both blank.
 - `sync()` refuses when the key is blank, and the refusal is returned rather than thrown.
