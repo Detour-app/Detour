@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import kotlin.concurrent.Volatile
 import okio.FileSystem
 import okio.Path
 
@@ -15,6 +16,14 @@ import okio.Path
  * takes its stores, the ambient wrapper supplies the real ones.
  */
 internal object AccountFiles {
+
+    /** Whether [migrate] has run this process. `accountDir` refuses to resolve
+     *  a path before it has — see that function for why silence would be worse
+     *  than a crash. `@Volatile` because the first store read can be on a
+     *  different thread from `Settings.init`. */
+    @Volatile
+    internal var migrated: Boolean = false
+        private set
 
     /**
      * Every file that belongs to a rider rather than to the device.
@@ -57,14 +66,23 @@ internal object AccountFiles {
      * there is no read-path fallback.
      */
     fun migrate(fs: FileSystem, root: Path) {
-        val bucket = root / AccountScope.ACCOUNTS_DIR / AccountScope.ANONYMOUS
-        for (name in SCOPED_NAMES) {
-            val from = root / name
-            if (!fs.exists(from)) continue
-            val to = bucket / name
-            if (fs.exists(to)) continue
-            fs.createDirectories(bucket)
-            fs.atomicMove(from, to)
+        try {
+            val bucket = root / AccountScope.ACCOUNTS_DIR / AccountScope.ANONYMOUS
+            for (name in SCOPED_NAMES) {
+                val from = root / name
+                if (!fs.exists(from)) continue
+                val to = bucket / name
+                if (fs.exists(to)) continue
+                fs.createDirectories(bucket)
+                fs.atomicMove(from, to)
+            }
+        } finally {
+            // Set even on a partial run. What this flag guards is "migrate was
+            // attempted before anything read a path", not "every file made it":
+            // the loop's condition is per-file, so whatever did not move is
+            // retried next launch. Setting it only on success would turn one
+            // failed move into a permanent refusal to start.
+            migrated = true
         }
     }
 

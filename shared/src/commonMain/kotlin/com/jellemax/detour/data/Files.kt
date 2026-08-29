@@ -27,8 +27,16 @@ import okio.use
 internal fun deviceFile(name: String): Path = appFilesDir() / name
 
 /** The directory holding the current rider's files. */
-internal fun accountDir(): Path =
-    appFilesDir() / AccountScope.ACCOUNTS_DIR / AccountScope.current()
+internal fun accountDir(): Path {
+    // A path resolved before the migration has run points at an empty bucket
+    // while the rider's real files are still at the root — and a *write*
+    // through it makes that permanent, because migrate skips a name the bucket
+    // already holds. Failing loudly at the offending call site is the whole
+    // reason this design has no read-path fallback. Same shape as
+    // Settings.prefs, which errors rather than returning an empty bag.
+    check(AccountFiles.migrated) { "AccountFiles.migrate has not run; call Settings.init() first" }
+    return appFilesDir() / AccountScope.ACCOUNTS_DIR / AccountScope.current()
+}
 
 /**
  * A file belonging to whoever is signed in, or to the anonymous bucket when
