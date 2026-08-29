@@ -2,8 +2,11 @@ package com.jellemax.detour.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import okio.ForwardingFileSystem
+import okio.IOException
 import okio.Path
 import okio.Path.Companion.toPath
 import okio.fakefilesystem.FakeFileSystem
@@ -250,6 +253,71 @@ class AccountFilesTest {
         assertEquals(
             "contents-of-trips.json",
             fs.textAt(root / "accounts" / "a3f1c8e29b4d7061" / "trips.json"),
+        )
+    }
+
+    /**
+     * A rename that fails for one named source and works for everything else.
+     *
+     * [FakeFileSystem] has no way to make a single operation fail, and the
+     * behaviour under test — one bad `atomicMove` out of eight — has no other
+     * reachable trigger from a test. Forwarding is okio's own supported seam
+     * for this.
+     */
+    private class MoveFailsFor(
+        delegate: FakeFileSystem,
+        private val failingSourceName: String,
+    ) : ForwardingFileSystem(delegate) {
+        override fun atomicMove(source: Path, target: Path) {
+            if (source.name == failingSourceName) throw IOException("simulated rename failure")
+            super.atomicMove(source, target)
+        }
+    }
+
+    @Test
+    fun oneFailedMoveCostsThatFileAndNeitherTheOtherSevenNorTheAdoption() {
+        // The whole of I8: before the per-file catch, one failed atomicMove
+        // aborted the remaining names *and* propagated past adopt(), so
+        // Settings.init pointed the scope at accounts/<key> — a directory
+        // this run never created. History then reads empty, the first write
+        // creates the directory, and adopt() refuses `_local` for good.
+        val fs = fsWithRootFiles(*AccountFiles.SCOPED_NAMES.toTypedArray())
+
+        AccountFiles.reconcileAtLaunch(MoveFailsFor(fs, "traces.jsonl"), root, "a3f1c8e29b4d7061")
+
+        val bucket = root / "accounts" / "a3f1c8e29b4d7061"
+        AccountFiles.SCOPED_NAMES.filter { it != "traces.jsonl" }.forEach { name ->
+            assertEquals(
+                "contents-of-$name",
+                fs.textAt(bucket / name),
+                "$name was aborted by an unrelated file's failed move",
+            )
+        }
+        assertTrue(
+            fs.exists(root / "traces.jsonl"),
+            "the name that failed must stay at the root so the next launch retries it",
+        )
+        assertFalse(
+            fs.exists(root / "accounts" / "_local"),
+            "adopt() was skipped, so accounts/<key> is not where the files are",
+        )
+    }
+
+    @Test
+    fun aFailedAdoptionIsNotSwallowedSoTheCallerCanLeaveTheScopeWhereTheFilesAre() {
+        // The other half of the same decision. migrate() absorbs its own
+        // failures; adopt()'s must reach Settings.init, which skips
+        // AccountScope.set on a throw and leaves the scope on `_local` —
+        // where these files still are.
+        val fs = fsWithRootFiles("trips.json")
+
+        assertFailsWith<IOException> {
+            AccountFiles.reconcileAtLaunch(MoveFailsFor(fs, "_local"), root, "a3f1c8e29b4d7061")
+        }
+
+        assertEquals(
+            "contents-of-trips.json",
+            fs.textAt(root / "accounts" / "_local" / "trips.json"),
         )
     }
 

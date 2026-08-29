@@ -69,12 +69,30 @@ internal object AccountFiles {
         try {
             val bucket = root / AccountScope.ACCOUNTS_DIR / AccountScope.ANONYMOUS
             for (name in SCOPED_NAMES) {
-                val from = root / name
-                if (!fs.exists(from)) continue
-                val to = bucket / name
-                if (fs.exists(to)) continue
-                fs.createDirectories(bucket)
-                fs.atomicMove(from, to)
+                try {
+                    val from = root / name
+                    if (!fs.exists(from)) continue
+                    val to = bucket / name
+                    if (fs.exists(to)) continue
+                    fs.createDirectories(bucket)
+                    fs.atomicMove(from, to)
+                } catch (e: Exception) {
+                    // Per file, because the blast radius of letting one rename
+                    // out of here is the whole install. Aborting the loop
+                    // leaves the remaining names at the root; propagating
+                    // additionally skips [adopt], and [Settings.init] then
+                    // points the scope at a bucket that has never existed —
+                    // one failed rename turning into a permanently empty
+                    // history. Swallowed rather than reported because there is
+                    // nothing here that could act on it: commonMain has no
+                    // logger, and the retry is the next launch either way.
+                    //
+                    // What this costs is a name that keeps failing until after
+                    // [adopt] has claimed the bucket: it then lands in a
+                    // freshly recreated `_local` that [adopt] will refuse, so
+                    // it is visible signed out and invisible signed in. One
+                    // stranded file, recoverable, against eight lost ones.
+                }
             }
         } finally {
             // Set even on a partial run. What this flag guards is "migrate was
@@ -137,9 +155,12 @@ internal object AccountFiles {
      * would come back from the server union; `routes.json` is not synced at
      * all, so nothing restores it.
      *
-     * A throwing [migrate] skips [adopt] rather than adopting a half-moved
-     * bucket: whatever did not move is retried next launch, and it can only
-     * be retried while the bucket it belongs in is still `_local`.
+     * [migrate] no longer aborts on a failed rename, so a name that could not
+     * move does not stop [adopt] claiming the seven that did — see its own
+     * catch for the trade. What can still throw out of here is [adopt]'s own
+     * rename, and that one must not be swallowed: the bucket is then still
+     * `_local`, and [Settings.init] leaves the scope there rather than
+     * pointing it at a directory this call failed to create.
      */
     fun reconcileAtLaunch(fs: FileSystem, root: Path, storedKey: String) {
         migrate(fs, root)

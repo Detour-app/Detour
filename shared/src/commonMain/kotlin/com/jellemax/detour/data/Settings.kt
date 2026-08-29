@@ -169,18 +169,34 @@ object Settings {
         // right rider. `auth_scope_key` is in neither CredentialMigration
         // group, so reading it ahead of migrateOnce() below loses nothing.
         val storedKey = secure.string("auth_scope_key")
-        // A throw here would propagate out of init() and, because `store` is
-        // already set, permanently skip everything hydrated below —
-        // including vehicle_devices, which TripTrackingService reads for
-        // trip classification. Same defence as SecretBox's runCatchings, for
-        // the same "one bad value must not abort init" reason.
-        runCatching { AccountFiles.reconcileAtLaunch(fileSystem, appFilesDir(), storedKey) }
-        // After the line above, never before it: an install that was already
-        // signed in when it upgraded has never claimed its bucket, and
-        // pointing accountFile() at `storedKey` while the files are still in
-        // `_local` is what makes that split permanent — see
-        // AccountFiles.reconcileAtLaunch.
-        AccountScope.set(storedKey)
+        // A throw here must not propagate: it would take down whichever
+        // caller ran init() (Application.onCreate on Android) and skip
+        // everything hydrated below — including vehicle_devices, which
+        // TripTrackingService reads for trip classification. Same defence as
+        // SecretBox's runCatchings, for the same "one bad value must not
+        // abort init" reason.
+        val reconciled = runCatching {
+            AccountFiles.reconcileAtLaunch(fileSystem, appFilesDir(), storedKey)
+        }.isSuccess
+        // Only when the line above got the files where `storedKey` says they
+        // are. Two orderings matter here and they are different claims.
+        //
+        // After, never before: an install already signed in when it upgraded
+        // has never claimed its bucket, and pointing accountFile() at
+        // `storedKey` while the files are still in `_local` is what makes
+        // that split permanent — see AccountFiles.reconcileAtLaunch.
+        //
+        // Conditional, not unconditional: the alternative to setting the
+        // scope anyway is not an unhandled throw, it is this runCatching
+        // *and* skipping the set — which leaves the scope on `_local`, where
+        // the files actually are. That costs one session of SyncClient.sync
+        // refusing to upload, which is recoverable and cannot leak because
+        // the refusal is exactly the anonymous-bucket one. Setting it anyway
+        // costs a bucket that has never existed: history reads empty, the
+        // first write creates it, and adopt() refuses `_local` from then on.
+        // A recoverable failure over an unrecoverable one, the same trade
+        // sync() makes three files away.
+        if (reconciled) AccountScope.set(storedKey)
         // Guarded once-per-process, shared with RoutingServer.loadCustom() — see
         // CredentialMigration.migrateOnce().
         CredentialMigration.migrateOnce()
