@@ -48,6 +48,25 @@ class AccountFilesTest {
     }
 
     @Test
+    fun everyNameOnTheScopedListActuallyMovesNotJustTheOnesOtherTestsUse() {
+        // theScopedListIsExactlyTheEightRiderFilesAndNotTheSearchCache pins the
+        // constant, but nothing calls migrate() with all eight names and checks
+        // what actually moved. A loop hardcoding three names would leave every
+        // other test in this file green while five of the eight rider-data
+        // file types kept pooling across every account on the device — this is
+        // what would catch that.
+        val fs = fsWithRootFiles(*AccountFiles.SCOPED_NAMES.toTypedArray())
+
+        AccountFiles.migrate(fs, root)
+
+        val bucket = root / "accounts" / "_local"
+        AccountFiles.SCOPED_NAMES.forEach { name ->
+            assertEquals("contents-of-$name", fs.textAt(bucket / name))
+            assertFalse(fs.exists(root / name))
+        }
+    }
+
+    @Test
     fun theDeviceScopedFileStaysAtTheRoot() {
         val fs = fsWithRootFiles("trips.json", "recent_searches.json")
 
@@ -176,5 +195,20 @@ class AccountFilesTest {
         AccountFiles.adopt(fs, root, "a3f1c8e29b4d7061")
 
         assertFalse(AccountFiles.adopt(fs, root, "a3f1c8e29b4d7061"))
+    }
+
+    @Test
+    fun adoptingWithAnEmptyKeyIsRejectedAndDoesNotTouchTheAnonymousBucket() {
+        val fs = fsWithRootFiles("trips.json")
+        AccountFiles.migrate(fs, root)
+
+        val adopted = AccountFiles.adopt(fs, root, "")
+
+        assertFalse(adopted)
+        assertEquals(listOf("_local"), fs.list(root / "accounts").map { it.name })
+        assertEquals(
+            "contents-of-trips.json",
+            fs.textAt(root / "accounts" / "_local" / "trips.json"),
+        )
     }
 }

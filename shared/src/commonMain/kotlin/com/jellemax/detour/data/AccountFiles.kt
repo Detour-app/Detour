@@ -46,8 +46,15 @@ internal object AccountFiles {
      * leftover at the root — the bucket is where the app has been writing
      * since the first successful pass, so the root copy is the stale one.
      *
-     * Called eagerly from [Settings.init], before any store reads, so no
-     * store ever has to look in two places for one file.
+     * That losing root copy is never deleted; it stays on disk indefinitely.
+     * Deliberate, not an oversight — this function has no way to tell a
+     * genuinely stale leftover from a file it doesn't fully understand, and
+     * destroying a file it isn't certain about is worse than leaving a
+     * harmless duplicate behind.
+     *
+     * Intended to run eagerly from [Settings.init], before any store reads,
+     * so no store ever has to look in two places for one file — that wiring
+     * lands with the path split, not here.
      */
     fun migrate(fs: FileSystem, root: Path) {
         val bucket = root / AccountScope.ACCOUNTS_DIR / AccountScope.ANONYMOUS
