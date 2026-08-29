@@ -1044,7 +1044,6 @@ git commit -m "fix(data): move the on-disk bucket when the session moves"
 ## Task 5: Backup rules, docs, skills and the version bump
 
 **Files:**
-- Modify: `app/src/main/res/xml/backup_rules.xml`, `app/src/main/res/xml/data_extraction_rules.xml`
 - Modify: `app/build.gradle.kts:76`
 - Modify: `docs/DEBUG_INTENTS.md:98-126`
 - Modify: `.claude/skills/detour-trip-data/SKILL.md` (`:132-140`) and
@@ -1056,34 +1055,14 @@ git commit -m "fix(data): move the on-disk bucket when the session moves"
 - Consumes: the `accounts/<key>/` layout from Task 3.
 - Produces: nothing.
 
-- [ ] **Step 1: Rewrite `backup_rules.xml`**
+> **Moved out of this task.** Steps 1 and 2 were the two backup-rule rewrites. A review of Task 3
+> found they cannot wait: that commit moves `trips.json` and `traces.jsonl` out of the root, and the
+> XMLs name those paths literally, so between Task 3 and here Google Drive backup and Android 12+
+> device transfer would carry **zero** rider data — for the only two files that had a cloud copy at
+> all. A rider who lost their phone in that window would lose everything, with no error and nothing
+> in the UI to notice by. The rewrite belongs in the commit that moves the files and landed there.
 
-Replace the two `<include>` lines and extend the comment:
-
-```xml
-<full-backup-content>
-    <!-- The whole accounts subtree, not two named files. Android's include
-         paths cannot enumerate per-account directories, and the alternative
-         was a second scoping mechanism alongside the directory one just to
-         preserve the old exact-path scope.
-
-         This deliberately broadens what is backed up: badges, saved places,
-         routes and learned coverage had no cloud copy at all before, and now
-         have one. recent_searches.json stays outside this subtree, at the
-         files/ root, so typed addresses do not travel to Google Drive. -->
-    <include domain="file" path="accounts" />
-</full-backup-content>
-```
-
-- [ ] **Step 2: Rewrite `data_extraction_rules.xml`**
-
-Replace `<include domain="file" path="trips.json" />` and
-`<include domain="file" path="traces.jsonl" />` with `<include domain="file" path="accounts" />` in
-**both** `<cloud-backup>` and `<device-transfer>`, and add the same explanatory comment as Step 1
-above the `<cloud-backup>` block. Leave the `sharedpref` includes in `<device-transfer>` exactly as
-they are.
-
-- [ ] **Step 3: Update `docs/DEBUG_INTENTS.md`**
+- [ ] **Step 1: Update `docs/DEBUG_INTENTS.md`**
 
 The seeding recipe at `:98-126` writes to `files/trips.json`, which is now
 `files/accounts/<key>/trips.json`. Replace the three `files/trips.json` occurrences with the scoped
@@ -1096,7 +1075,7 @@ path and add above the recipe:
 > anything was recorded before signing in.
 ```
 
-- [ ] **Step 4: Update the three skills**
+- [ ] **Step 2: Update the three skills**
 
 In `.claude/skills/detour-trip-data/SKILL.md`, the file table at `:132-140`: add a column or a note
 recording that every row except `recent_searches.json` now lives under `files/accounts/<key>/`.
@@ -1119,7 +1098,7 @@ first" note as Step 3.
 In `.claude/skills/detour-gps-replay/SKILL.md:318`, update the
 `run-as … cat files/trips.json` verification step the same way.
 
-- [ ] **Step 5: Bump the version**
+- [ ] **Step 3: Bump the version**
 
 In `app/build.gradle.kts:76`: `versionName = "1.83.0"` → `versionName = "1.84.0"`.
 
@@ -1127,16 +1106,16 @@ Minor, not major, though the on-disk layout changes and the migration is one-way
 data, the migration is automatic and silent, and the downgrade path a major bump protects is not one
 an Android install takes. Recorded in the spec so the reasoning is visible rather than inferred.
 
-- [ ] **Step 6: Verify the whole build**
+- [ ] **Step 4: Verify the whole build**
 
 Run: `devcontainer-exec ./gradlew :shared:testDebugUnitTest :app:testDebugUnitTest :shared:compileCommonMainKotlinMetadata :app:assembleDebug`
 
 Expected: BUILD SUCCESSFUL, shared **350**, app **61**.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add app/src/main/res/xml/ app/build.gradle.kts docs/DEBUG_INTENTS.md .claude/skills/
+git add app/build.gradle.kts docs/DEBUG_INTENTS.md .claude/skills/
 git commit -m "chore: back up the accounts subtree, bump to 1.84.0, and repoint the adb recipes"
 ```
 
