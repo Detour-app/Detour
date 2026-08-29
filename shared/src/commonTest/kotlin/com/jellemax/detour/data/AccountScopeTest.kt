@@ -2,7 +2,9 @@ package com.jellemax.detour.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -107,5 +109,55 @@ class SubjectFromTokenTest {
     @Test
     fun anUndecodablePayloadYieldsNothingRatherThanThrowing() {
         assertEquals("", Auth.subjectFrom("e30.!!!not-base64!!!.sig"))
+    }
+}
+
+/**
+ * Covers the wiring [Auth.resetAccountScopedStores] does, which is the whole
+ * of this task and would otherwise have none: `Auth.store` and `Auth.clear`
+ * cannot run here (they write [Settings], which needs platform prefs), so the
+ * function is `internal` and called directly.
+ *
+ * Each store is asserted separately rather than through one combined flag, so
+ * a deleted call names which store stopped being cleared instead of just
+ * failing.
+ */
+class SessionSwitchTest {
+
+    @Test
+    fun aSessionChangeDropsEveryStoreThatHoldsARidersFilesInMemory() {
+        // Set the cached state by hand — populating these for real writes to
+        // disk, and this module's tests have no file system.
+        SavedPlaces.loaded = true
+        RouteStore.loaded = true
+        MunicipalityStore.cache = emptyList()
+        MunicipalityStore.misses = setOf(1L)
+        val traceVersionBefore = TraceStore.version.value
+
+        Auth.resetAccountScopedStores()
+
+        assertFalse(SavedPlaces.loaded, "SavedPlaces kept the previous rider's places")
+        assertFalse(RouteStore.loaded, "RouteStore kept the previous rider's routes")
+        assertNull(MunicipalityStore.cache, "MunicipalityStore kept the previous rider's learned boundaries")
+        assertEquals(emptySet(), MunicipalityStore.misses, "MunicipalityStore kept the previous rider's misses")
+        assertEquals(
+            traceVersionBefore + 1,
+            TraceStore.version.value,
+            "the fog layer was not told the ground moved, so it keeps drawing the previous rider's territory",
+        )
+    }
+
+    @Test
+    fun signingOutReturnsWritesToTheAnonymousBucket() {
+        AccountScope.set("a3f1c8e29b4d7061")
+        AccountScope.clear()
+        assertEquals(AccountScope.ANONYMOUS, AccountScope.current())
+    }
+
+    @Test
+    fun aDifferentAccountMovesTheBucketWithoutASignOutInBetween() {
+        AccountScope.set("aaaaaaaaaaaaaaaa")
+        AccountScope.set("bbbbbbbbbbbbbbbb")
+        assertEquals("bbbbbbbbbbbbbbbb", AccountScope.current())
     }
 }

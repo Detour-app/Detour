@@ -107,13 +107,23 @@ object RouteStore {
 
     private val _routes = MutableStateFlow<List<SavedRoute>>(emptyList())
     val routes: StateFlow<List<SavedRoute>> = _routes
-    private var loaded = false
+    // internal, not private, so the session-switch test can set it and watch
+    // Auth.resetAccountScopedStores clear it again. See that function's doc.
+    internal var loaded = false
 
     /** Read from disk once; safe to call on every screen entry. */
     fun ensureLoaded() {
         if (loaded) return
         loaded = true
         _routes.value = read()
+    }
+
+    /** Drops this rider's routes so the next [ensureLoaded] reads the new
+     *  account's file. See [SavedPlaces.reset] for why only the caching
+     *  stores need one. */
+    fun reset() {
+        loaded = false
+        _routes.value = emptyList()
     }
 
     /** Add a route (or replace in place if [route]'s id already exists) and persist. */

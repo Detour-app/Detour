@@ -281,11 +281,31 @@ object Auth {
         // consistent rather than opposite disciplines on the two sides of
         // one mechanism.
         _sessionEpoch.update { it + 1 }
-        Settings.setSession("", "", 0L, "")
+        Settings.setSession("", "", 0L, "", "")
         FriendsStore.reset()
         ConvoysStore.reset()
         CirclesStore.reset()
         FriendFog.clear()
+        AccountScope.clear()
+        resetAccountScopedStores()
+    }
+
+    /** The stores that hold a rider's file contents in memory. Everything else
+     *  reads through to the file on every call, so moving the directory is all
+     *  those need.
+     *
+     *  `internal` rather than private so a test can call it directly, the same
+     *  shortcut [com.jellemax.detour.drive.ConvoyRelay.clearMembershipForSessionChange]
+     *  and [CirclePresence.discardEvaluatorsIfSessionChanged] exist for: actually
+     *  moving a session means writing [Settings], which needs platform prefs this
+     *  module's test target does not have. Without the seam this function — the
+     *  whole point of the task — has no coverage at all, which is the exact gap a
+     *  review found in the circle-presence slice. */
+    internal fun resetAccountScopedStores() {
+        SavedPlaces.reset()
+        RouteStore.reset()
+        MunicipalityStore.reset()
+        TraceStore.reset()
     }
 
     private suspend fun refresh(): String {
@@ -353,14 +373,27 @@ object Auth {
 
         if (establishesSession) _sessionEpoch.update { it + 1 }
 
+        val username = usernameFrom(access).ifBlank { Settings.authUsername.value }
+        val scopeKey = AccountScope.keyFrom(subject = subjectFrom(access), username = username)
         Settings.setSession(
             accessToken = access,
             // Absent on a client configured without refresh tokens: keep the one
             // we have rather than silently downgrading the session to 15 minutes.
             refreshToken = o.optString("refresh_token").ifBlank { Settings.refreshToken.value },
             expiresAtMs = nowMs() + o.optLong("expires_in", 0L) * 1000L,
-            username = usernameFrom(access).ifBlank { Settings.authUsername.value },
+            username = username,
+            scopeKey = scopeKey,
         )
+
+        if (establishesSession) {
+            // Adoption before the scope moves: adopt() reads the anonymous
+            // bucket, and pointing accountFile() at the new key first would
+            // leave a fresh empty directory beside the data it was supposed
+            // to claim.
+            AccountFiles.adopt(fileSystem, appFilesDir(), scopeKey)
+            AccountScope.set(scopeKey)
+            resetAccountScopedStores()
+        }
     }
 
     /**

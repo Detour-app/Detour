@@ -264,6 +264,7 @@ object Settings {
         refreshToken: String,
         expiresAtMs: Long,
         username: String,
+        scopeKey: String,
     ) {
         _accessToken.value = accessToken
         // `_refreshToken` before `_authUsername` is load-bearing: each
@@ -281,6 +282,7 @@ object Settings {
         secure.put("refresh_token", refreshToken)
         secure.put("access_token_expires_at", expiresAtMs)
         secure.put("auth_username", username)
+        secure.put("auth_scope_key", scopeKey)
     }
 
     fun setTheme(value: Theme) {

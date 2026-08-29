@@ -25,13 +25,23 @@ object SavedPlaces {
 
     private val _places = MutableStateFlow<List<SavedPlace>>(emptyList())
     val places: StateFlow<List<SavedPlace>> = _places
-    private var loaded = false
+    // internal, not private, so the session-switch test can set it and watch
+    // Auth.resetAccountScopedStores clear it again. See that function's doc.
+    internal var loaded = false
 
     /** Read from disk once; safe to call on every screen entry. */
     fun ensureLoaded() {
         if (loaded) return
         loaded = true
         _places.value = read()
+    }
+
+    /** Drops this rider's places so the next [ensureLoaded] reads the new
+     *  account's file. The read-through stores need no equivalent — they hit
+     *  the file on every call, so moving the directory is enough. */
+    fun reset() {
+        loaded = false
+        _places.value = emptyList()
     }
 
     /** Add a place (or rename in place if [id] already exists) and persist. */

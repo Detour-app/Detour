@@ -115,7 +115,9 @@ object MunicipalityStore {
 
     private const val FILE_NAME = "municipalities.json"
 
-    @Volatile private var cache: List<Municipality>? = null
+    // internal, not private, so the session-switch test can set it and watch
+    // Auth.resetAccountScopedStores clear it again. See that function's doc.
+    @Volatile internal var cache: List<Municipality>? = null
 
     /**
      * Points Overpass had no admin_level=8 boundary for (sea, or outside our
@@ -126,7 +128,9 @@ object MunicipalityStore {
      * a @Volatile field needs no lock on either platform (Kotlin/Native has no
      * ConcurrentHashMap to borrow).
      */
-    @Volatile private var misses: Set<Long> = emptySet()
+    // internal, not private, so the session-switch test can set it and watch
+    // Auth.resetAccountScopedStores clear it again. See that function's doc.
+    @Volatile internal var misses: Set<Long> = emptySet()
 
     /** Serialises the read-modify-write in [discoverQuietly], which `synchronized`
      *  used to do; `synchronized` is JVM-only. */
@@ -142,6 +146,13 @@ object MunicipalityStore {
         }
         cache = loaded
         return loaded
+    }
+
+    /** Drops the learned boundaries and the not-found set, both of which are
+     *  derived from one rider's traces. */
+    fun reset() {
+        cache = null
+        misses = emptySet()
     }
 
     /** True when [p] is in no known boundary and hasn't already missed. */

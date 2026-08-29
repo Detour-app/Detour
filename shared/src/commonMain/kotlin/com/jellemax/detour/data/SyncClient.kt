@@ -95,6 +95,15 @@ object SyncClient {
     suspend fun sync(): SyncResult {
         Settings.init()
 
+        // Signed in but with nothing to key a bucket on: the files being read
+        // below belong to the anonymous bucket, which is not this session's.
+        // Uploading them is precisely #73, so this refuses instead. A sync
+        // that does not happen is recoverable; one that puts another rider's
+        // history into this account is not.
+        if (Account.signedIn && AccountScope.current() == AccountScope.ANONYMOUS) {
+            throw AuthException("This session has no account identity; not uploading local data")
+        }
+
         // Coverage is the only stat the server can't derive from the trips it
         // already holds — it needs the boundaries, which only we have.
         val stats = BadgeStore.stats(Coverage.compute())

@@ -40,6 +40,14 @@ object TraceStore {
     private val _version = MutableStateFlow(0)
     val version: StateFlow<Int> = _version
 
+    /** Nothing is cached here — [loadAll] reads the file every call — but the
+     *  fog layer redraws off [version], so it has to be told the ground moved
+     *  or it keeps showing the previous rider's territory until something
+     *  else happens to bump it. */
+    fun reset() {
+        _version.value++
+    }
+
     fun append(trace: List<TracePoint>) {
         if (trace.size < 2) return
         val line = buildJsonArray {
