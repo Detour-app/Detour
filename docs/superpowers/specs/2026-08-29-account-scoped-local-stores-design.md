@@ -133,6 +133,26 @@ The two compose: an existing signed-in install migrates to `_local` and immediat
 rider sees no change at all. An existing signed-out install migrates to `_local` and adopts whenever
 they first sign in.
 
+> **Correction, found in review after implementation.** The first of those two sentences asserted a
+> composition that nothing implemented, and it is the majority upgrade path. Adoption was reachable
+> only from `exchangeCode`, which an already-signed-in install never calls. The consequence was not
+> cosmetic: cold start 1 migrates the files into `_local` and everything still displays; a routine
+> token refresh then persists the real key without moving the scope or adopting; cold start 2 points
+> at a bucket that has never existed, and the rider's history, fog, badges, saved places and saved
+> routes all read as empty. Writing into the new bucket then makes `adopt` refuse to claim `_local`
+> from then on, so the split is **permanent**, and `routes.json` never syncs to the server, so saved
+> routes have no recovery path at all.
+>
+> The fix is a reconciliation in `Settings.init()`: after `migrate()`, if a key is stored, `adopt`
+> with it before pointing the scope at it. `adopt` is already idempotent and already no-ops once any
+> non-anonymous bucket exists, so it is safe on every other path — including a normal sign-in, which
+> still adopts through `Auth.store`.
+>
+> Worth naming as a pattern rather than a one-off: this section described **what the two rules do
+> when composed**, and I read that description as evidence the composition existed. It did not. A
+> spec sentence in the present tense is a claim that needs a call site, exactly like the KDoc in
+> Task 2 that asserted a `Settings.init()` call before one existed.
+
 ### 5. Backup, docs and skills
 
 Both XMLs move to `<include domain="file" path="accounts"/>`, with their comments rewritten to state
