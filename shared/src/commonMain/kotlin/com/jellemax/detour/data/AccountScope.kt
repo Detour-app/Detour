@@ -73,4 +73,47 @@ internal object AccountScope {
         if (source.isEmpty()) return ""
         return source.encodeUtf8().sha256().hex().take(16)
     }
+
+    /**
+     * Which bucket this launch owns, from what the secure store already holds.
+     *
+     * [storedKey] — `auth_scope_key` — wins whenever it is there, and on the
+     * install this exists for it is not there. An install that was **already
+     * signed in when it upgraded** has never run `Auth.exchangeCode`, and only
+     * `Auth.store` writes that key, so nothing has written it yet;
+     * `Auth.clear` then blanks it again on every sign-out, every 401 and every
+     * issuer change. Waiting for the next token refresh to write it leaves
+     * `accounts/_local` holding this rider's whole history **unclaimed** for
+     * the rest of the session — and the next account to sign in adopts it,
+     * renders A's trips, traces, badges and saved places as their own, and
+     * uploads them into their own server account on the first sync. That is
+     * #73, on the majority upgrade path, from inside the change that exists to
+     * close it.
+     *
+     * Deriving it needs nothing new. The token is already on disk and
+     * `Auth.subjectFrom` is an unsigned base64 decode, so an access token long
+     * past its fifteen minutes still yields the right `sub`; [username] is the
+     * same fallback [keyFrom] always had, for a provider that issues none.
+     *
+     * [refreshToken] is the gate because it is the field that answers "is
+     * there a session at all" (see `Settings.refreshToken`), and `Auth.clear`
+     * blanks it in the same write that blanks the key. Without it a
+     * signed-out install would derive a key from the departed rider's stale
+     * token and adopt their bucket on their behalf.
+     *
+     * Every input arrives by parameter rather than being read here: the caller
+     * is `Settings.init`, which needs platform prefs this module's test target
+     * does not have, and the whole point is that this half is assertable
+     * anyway. Same seam, same reason, as [AccountFiles.reconcileAtLaunch].
+     */
+    fun keyAtLaunch(
+        storedKey: String,
+        refreshToken: String,
+        accessToken: String,
+        username: String,
+    ): String {
+        if (storedKey.isNotEmpty()) return storedKey
+        if (refreshToken.isBlank()) return ""
+        return keyFrom(subject = Auth.subjectFrom(accessToken), username = username)
+    }
 }

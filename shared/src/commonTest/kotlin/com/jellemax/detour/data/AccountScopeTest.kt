@@ -96,6 +96,115 @@ class AccountScopeTest {
     }
 }
 
+/**
+ * Covers [AccountScope.keyAtLaunch] — the half of the launch key decision that
+ * can be asserted. Its caller, `Settings.init`, reads the four values out of
+ * the Keystore-backed store and cannot run in this target at all; what is
+ * pinned here is what it does with them once it has them.
+ */
+class KeyAtLaunchTest {
+
+    // header.payload.signature, the same fixture [SubjectFromTokenTest] uses:
+    // the payload decodes to {"sub":"9f2b1a44","preferred_username":"andre"}.
+    private val token =
+        "e30." +
+            "eyJzdWIiOiI5ZjJiMWE0NCIsInByZWZlcnJlZF91c2VybmFtZSI6ImFuZHJlIn0" +
+            ".sig"
+
+    @Test
+    fun aPersistedKeyIsUsedAsIsRatherThanReDerived() {
+        assertEquals(
+            "a3f1c8e29b4d7061",
+            AccountScope.keyAtLaunch(
+                storedKey = "a3f1c8e29b4d7061",
+                refreshToken = "rt",
+                accessToken = token,
+                username = "andre",
+            ),
+        )
+    }
+
+    @Test
+    fun anInstallAlreadySignedInWhenItUpgradedGetsItsKeyWithoutWaitingForARefresh() {
+        // The whole of C1. Only Auth.store writes auth_scope_key, and this
+        // install has never called exchangeCode — so without a derivation
+        // here, accounts/_local holds this rider's entire history unclaimed
+        // until some later token refresh, and any Auth.clear() in that window
+        // (sign-out, a 401, a refresh past the idle horizon, an issuer
+        // change) hands the whole bucket to the next account to sign in.
+        assertEquals(
+            AccountScope.keyFrom(subject = "9f2b1a44", username = "andre"),
+            AccountScope.keyAtLaunch(
+                storedKey = "",
+                refreshToken = "a-refresh-token",
+                accessToken = token,
+                username = "andre",
+            ),
+        )
+    }
+
+    @Test
+    fun theDerivedKeyMatchesWhatAuthStoreWouldHaveWritten() {
+        // Not the assertion above in different words: if these two ever
+        // disagree, the launch adopts accounts/<X> while the next refresh
+        // persists <Y>, and the rider's files split across two buckets.
+        val atLaunch = AccountScope.keyAtLaunch(
+            storedKey = "",
+            refreshToken = "a-refresh-token",
+            accessToken = token,
+            username = "andre",
+        )
+        val atStore = AccountScope.keyFrom(
+            subject = Auth.subjectFrom(token),
+            username = Auth.usernameFrom(token),
+        )
+        assertEquals(atStore, atLaunch)
+    }
+
+    @Test
+    fun aSignedOutInstallDerivesNothingSoItCannotAdoptOnADepartedRidersBehalf() {
+        // Auth.clear() blanks refresh_token and auth_scope_key in the same
+        // write. If this gate went, a signed-out device would claim `_local`
+        // for the rider who just left, and the next rider to sign in would be
+        // locked out of adoption for the life of the install.
+        assertEquals(
+            "",
+            AccountScope.keyAtLaunch(
+                storedKey = "",
+                refreshToken = "",
+                accessToken = token,
+                username = "andre",
+            ),
+        )
+    }
+
+    @Test
+    fun aSessionWithNothingToKeyOnStaysKeylessRatherThanInventingABucket() {
+        assertEquals(
+            "",
+            AccountScope.keyAtLaunch(
+                storedKey = "",
+                refreshToken = "a-refresh-token",
+                accessToken = "",
+                username = "",
+            ),
+        )
+    }
+
+    @Test
+    fun theUsernameCarriesTheDerivationWhenTheTokenHasNoSubject() {
+        assertEquals(
+            AccountScope.keyFrom(subject = "", username = "andre"),
+            AccountScope.keyAtLaunch(
+                storedKey = "",
+                refreshToken = "a-refresh-token",
+                accessToken = "notatoken",
+                username = "andre",
+            ),
+        )
+    }
+}
+
 class SubjectFromTokenTest {
 
     // header.payload.signature. The payload segment is verified base64url of

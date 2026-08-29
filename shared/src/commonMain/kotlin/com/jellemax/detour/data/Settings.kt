@@ -162,13 +162,23 @@ object Settings {
         // while `secureStore` is still null, which would crash on the `secure`
         // accessor instead of on the intended `store != null` guard.
         secureStore = securePrefs()
-        store = prefs("settings")
-        // First, because the guard above is already armed: everything this
-        // function hydrates from here on may read a store path, and every one
-        // of those must find the migration done and the scope pointed at the
-        // right rider. `auth_scope_key` is in neither CredentialMigration
-        // group, so reading it ahead of migrateOnce() below loses nothing.
-        val storedKey = secure.string("auth_scope_key")
+        // Before the key is read below, not after it. access_token,
+        // refresh_token and auth_username are all in
+        // CredentialMigration.SESSION_GROUP, so on an install still holding
+        // plaintext credentials they live in the `settings` bag until this
+        // runs — reading them earlier would derive a key from three empty
+        // strings on precisely the installs the derivation exists for.
+        // Safe this early: migrateOnce() opens its own bags and touches
+        // neither `store`, nor AccountScope, nor any file.
+        // Guarded once-per-process, shared with RoutingServer.loadCustom().
+        CredentialMigration.migrateOnce()
+        val persistedKey = secure.string("auth_scope_key")
+        val storedKey = AccountScope.keyAtLaunch(
+            storedKey = persistedKey,
+            refreshToken = secure.string("refresh_token"),
+            accessToken = secure.string("access_token"),
+            username = secure.string("auth_username"),
+        )
         // A throw here must not propagate: it would take down whichever
         // caller ran init() (Application.onCreate on Android) and skip
         // everything hydrated below — including vehicle_devices, which
@@ -197,9 +207,22 @@ object Settings {
         // A recoverable failure over an unrecoverable one, the same trade
         // sync() makes three files away.
         if (reconciled) AccountScope.set(storedKey)
-        // Guarded once-per-process, shared with RoutingServer.loadCustom() — see
-        // CredentialMigration.migrateOnce().
-        CredentialMigration.migrateOnce()
+        // Only when it was derived rather than read: securePrefs() is
+        // Keystore-backed, and a write on every cold start for a value that
+        // has not changed is one this project has already paid for once.
+        if (persistedKey.isEmpty() && storedKey.isNotEmpty()) {
+            secure.put("auth_scope_key", storedKey)
+        }
+        // Last, not first. This is the assignment the early-return above
+        // guards on, and everything between it and the top of the function
+        // has to have happened before another thread may skip past it and
+        // resolve a store path — securePrefs() alone measured 1.6-1.8s on a
+        // Galaxy S928B, so the window is a real one. Two threads running the
+        // body concurrently instead is harmless: migrateOnce() is guarded,
+        // reconcileAtLaunch() is idempotent and catches per file, and every
+        // line below is an assignment. `secure` is reachable throughout
+        // because it hangs off secureStore, not off this.
+        store = prefs("settings")
         _theme.value = runCatching {
             Theme.valueOf(prefs.string("theme", Theme.AUTO.name))
         }.getOrDefault(Theme.AUTO)

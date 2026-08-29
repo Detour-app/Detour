@@ -379,14 +379,12 @@ object Auth {
         // AccountScope only moves on the establish path below, and that
         // divergence is deliberate: an install that was already signed in
         // when it upgraded reaches [refresh] long before it reaches
-        // [exchangeCode], and the persist is the only thing that ever tells
-        // the next launch which bucket it owns. The gap it opens — stored key
-        // K, live scope still `_local` — cannot leak, because [SyncClient.sync]
-        // refuses to upload from the anonymous bucket while signed in, and it
-        // closes itself: `Settings.init()` adopts `_local` into `accounts/K`
-        // on the next launch (see [AccountFiles.reconcileAtLaunch]), so the
-        // rides recorded during the gap follow the rider rather than being
-        // left behind.
+        // [exchangeCode], and this is where that install first records which
+        // bucket it owns. It is no longer the *only* thing that records it —
+        // [AccountScope.keyAtLaunch] derives the same key from the same token
+        // one launch earlier, precisely so the bucket is not left unclaimed
+        // for a whole session — but the persist still saves the next launch
+        // from re-deriving it, and it is the only writer once the key changes.
         Settings.setSession(
             accessToken = access,
             // Absent on a client configured without refresh tokens: keep the one

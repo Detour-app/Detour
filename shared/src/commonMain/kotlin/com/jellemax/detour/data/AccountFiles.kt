@@ -143,17 +143,18 @@ internal object AccountFiles {
      * happen after this returns for the reason [Auth.store] gives at its own
      * adopt/set pair.
      *
-     * [storedKey] is `auth_scope_key` as persisted. It is non-empty on an
-     * install that was **already signed in when it upgraded**: that install
-     * has never run `Auth.exchangeCode`, so nothing has ever claimed the
-     * anonymous bucket its files just moved into, and `Auth.refresh` writes
-     * the key on the first token refresh. Without the [adopt] below, its next
-     * launch points [accountDir] at a directory that has never existed and
-     * the rider's entire history reads as empty — permanently, because the
-     * first write into the new bucket makes [adopt]'s "no other bucket
-     * exists" guard refuse `_local` from then on. Trips, traces and badges
-     * would come back from the server union; `routes.json` is not synced at
-     * all, so nothing restores it.
+     * [storedKey] is whatever [AccountScope.keyAtLaunch] resolved: the
+     * persisted `auth_scope_key`, or — on an install that was **already
+     * signed in when it upgraded**, where nothing has written that key yet —
+     * the key derived from the tokens already on disk. Either way it is
+     * non-empty exactly when this install belongs to an account, which is
+     * when the [adopt] below has to run. Without it the next launch points
+     * [accountDir] at a directory that has never existed and the rider's
+     * entire history reads as empty — permanently, because the first write
+     * into the new bucket makes [adopt]'s "no other bucket exists" guard
+     * refuse `_local` from then on. Trips, traces and badges would come back
+     * from the server union; `routes.json` is not synced at all, so nothing
+     * restores it.
      *
      * [migrate] no longer aborts on a failed rename, so a name that could not
      * move does not stop [adopt] claiming the seven that did — see its own
