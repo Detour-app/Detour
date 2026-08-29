@@ -43,11 +43,17 @@ and the adoption of that anonymous bucket by the first account to sign in.
 
 **Create:**
 
-- `shared/src/commonMain/kotlin/com/jellemax/detour/data/AccountScope.kt` — the key, the migration
-  and the adoption rule. All policy lives here so `Files.kt` stays what its own doc says it is:
+- `shared/src/commonMain/kotlin/com/jellemax/detour/data/AccountScope.kt` — the key: deriving it,
+  holding the current one, and the anonymous fallback. No file operations.
+- `shared/src/commonMain/kotlin/com/jellemax/detour/data/AccountFiles.kt` — the migration and the
+  adoption rule, both taking their `FileSystem` and root `Path` as parameters. Split from
+  `AccountScope` because these are the only two functions here that touch a disk, and keeping them
+  apart is what makes them testable against a fake. `Files.kt` stays what its own doc says it is:
   whole-file operations over okio, no policy.
-- `shared/src/commonTest/kotlin/com/jellemax/detour/data/AccountScopeTest.kt` — key derivation,
-  migration, adoption.
+- `shared/src/commonTest/kotlin/com/jellemax/detour/data/AccountScopeTest.kt` — key derivation and
+  the current-bucket rules.
+- `shared/src/commonTest/kotlin/com/jellemax/detour/data/AccountFilesTest.kt` — migration and
+  adoption, over `FakeFileSystem`.
 
 **Modify:**
 
