@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import kotlin.concurrent.Volatile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonArray
@@ -32,6 +33,14 @@ object SavedPlaces {
     val places: StateFlow<List<SavedPlace>> = _places
     // internal, not private, so the session-switch test can set it and watch
     // Auth.resetAccountScopedStores clear it again. See that function's doc.
+    //
+    // @Volatile because this latch became cross-thread when reset() gained a
+    // caller: Auth.clear()/Auth.store() run it on an IO coroutine while
+    // ensureLoaded() reads it on the main thread. Without it a thread may see
+    // `true` against an already-emptied list, return early from ensureLoaded()
+    // and let a mutation write that empty list over the file — the truncation
+    // 332d493 fixed, reachable again through the cache instead of the guard.
+    @Volatile
     internal var loaded = false
 
     /** Read from disk once; safe to call on every screen entry. */

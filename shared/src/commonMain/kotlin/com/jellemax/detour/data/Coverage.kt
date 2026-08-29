@@ -168,16 +168,28 @@ object MunicipalityStore {
     @Throws(Exception::class)
     suspend fun discoverQuietly(p: LatLon) {
         if (!needsLookup(p)) return
+        // Captured before the suspension below, and checked again after it.
+        // [fetch] resolves a boundary from *this* rider's fix; if the session
+        // moves while it is in flight, both writes below would land in the
+        // next rider's municipalities.json. `existing` is already re-read
+        // inside the lock, which keeps the file consistent — but consistent
+        // with the wrong rider's data. Same capture FriendsStore.reload and
+        // SyncClient.sync use.
+        val epoch = Auth.sessionEpoch.value
         val found = try {
             fetch(p)
         } catch (e: Exception) {
             return // offline or Overpass down; the next new cell tries again
         }
         if (found == null) {
-            misses = misses + missKey(p)
+            if (epoch == Auth.sessionEpoch.value) misses = misses + missKey(p)
             return
         }
         writeLock.withLock {
+            // Inside the lock, not before it: the lock is itself a suspension
+            // point, so a check outside it can go stale while this call waits
+            // its turn behind another discovery.
+            if (epoch != Auth.sessionEpoch.value) return
             val existing = load()
             if (existing.any { it.id == found.id }) return
             save(existing + found)

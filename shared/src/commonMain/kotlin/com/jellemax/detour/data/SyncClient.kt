@@ -133,6 +133,16 @@ object SyncClient {
             put("shareFog", Settings.shareFog.value)
         }
 
+        // Again, immediately before the POST. The capture above guards the
+        // write-back; it does not guard the upload, because every field in
+        // `payload` was read before Api.request resolves the bearer. A
+        // session change in between sends this rider's history under the next
+        // rider's token — #73 verbatim, and not a narrow window either:
+        // Coverage.compute() walks every trace point against every boundary
+        // and TraceStore.rawLines() reads a multi-megabyte file, which on a
+        // year of riding is seconds, not instants.
+        if (epoch != Auth.sessionEpoch.value) return SyncResult(0, 0, 0)
+
         val merged = Api.requestJson("POST", "/sync", payload)
         if (epoch != Auth.sessionEpoch.value) {
             // Whoever this response belongs to is no longer who this device is
