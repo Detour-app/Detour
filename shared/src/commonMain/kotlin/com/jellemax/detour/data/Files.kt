@@ -17,12 +17,10 @@ import okio.use
  * A file belonging to the device rather than to any rider — one copy, shared
  * by everyone who signs in here.
  *
- * This is what [accountFile]'s counterpart used to be called, back when it
- * was the only one and every store used it by default. The rename is
- * deliberate: an unqualified `appFile` that silently means device-scoped is
- * the exact shape of #73, and a name that reads as "the normal one" is how
- * the next store inherits the bug. Picking a scope is now a decision the
- * compiler makes you make.
+ * This used to be `appFile`. The rename is deliberate: an unqualified
+ * `appFile` that silently means device-scoped is the exact shape of #73, and
+ * a name that reads as "the normal one" is how the next store inherits the
+ * bug. Picking a scope is now a decision the compiler makes you make.
  */
 internal fun deviceFile(name: String): Path = appFilesDir() / name
 
