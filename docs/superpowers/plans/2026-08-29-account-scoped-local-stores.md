@@ -790,7 +790,20 @@ git commit -m "refactor(data): make every store name the scope its files belong 
 
 - [ ] **Step 1: Add `reset()` to the three caching stores plus the trace version bump**
 
-In `SavedPlaces.kt`, after `ensureLoaded()` (which ends at `:35`):
+First, make the cached state observable to a test. In `SavedPlaces.kt` change
+`private var loaded = false` (`:28`) to `internal var loaded = false`; in `Routes.kt` change
+`private var loaded = false` (`:110`) to `internal var loaded = false`; in `Coverage.kt` change
+`@Volatile private var cache: List<Municipality>? = null` (`:118`) to
+`@Volatile internal var cache: List<Municipality>? = null` and
+`@Volatile private var misses: Set<Long> = emptySet()` (`:129`) to
+`@Volatile internal var misses: Set<Long> = emptySet()`. Add to each, on the line above:
+
+```kotlin
+    // internal, not private, so the session-switch test can set it and watch
+    // Auth.resetAccountScopedStores clear it again. See that function's doc.
+```
+
+Then in `SavedPlaces.kt`, after `ensureLoaded()` (which ends at `:35`):
 
 ```kotlin
     /** Drops this rider's places so the next [ensureLoaded] reads the new
@@ -898,8 +911,16 @@ And add, as a private member of `Auth`:
 ```kotlin
     /** The stores that hold a rider's file contents in memory. Everything else
      *  reads through to the file on every call, so moving the directory is all
-     *  those need. */
-    private fun resetAccountScopedStores() {
+     *  those need.
+     *
+     *  `internal` rather than private so a test can call it directly, the same
+     *  shortcut [com.jellemax.detour.drive.ConvoyRelay.clearMembershipForSessionChange]
+     *  and [CirclePresence.discardEvaluatorsIfSessionChanged] exist for: actually
+     *  moving a session means writing [Settings], which needs platform prefs this
+     *  module's test target does not have. Without the seam this function — the
+     *  whole point of the task — has no coverage at all, which is the exact gap a
+     *  review found in the circle-presence slice. */
+    internal fun resetAccountScopedStores() {
         SavedPlaces.reset()
         Routes.reset()
         Coverage.reset()
@@ -927,7 +948,40 @@ In `SyncClient.kt`, at the top of `sync()`, directly after `Settings.init()`:
 Append to `AccountScopeTest.kt`:
 
 ```kotlin
+/**
+ * Covers the wiring [Auth.resetAccountScopedStores] does, which is the whole
+ * of this task and would otherwise have none: `Auth.store` and `Auth.clear`
+ * cannot run here (they write [Settings], which needs platform prefs), so the
+ * function is `internal` and called directly.
+ *
+ * Each store is asserted separately rather than through one combined flag, so
+ * a deleted call names which store stopped being cleared instead of just
+ * failing.
+ */
 class SessionSwitchTest {
+
+    @Test
+    fun aSessionChangeDropsEveryStoreThatHoldsARidersFilesInMemory() {
+        // Set the cached state by hand — populating these for real writes to
+        // disk, and this module's tests have no file system.
+        SavedPlaces.loaded = true
+        Routes.loaded = true
+        Coverage.cache = emptyList()
+        Coverage.misses = setOf(1L)
+        val traceVersionBefore = TraceStore.version.value
+
+        Auth.resetAccountScopedStores()
+
+        assertFalse(SavedPlaces.loaded, "SavedPlaces kept the previous rider's places")
+        assertFalse(Routes.loaded, "Routes kept the previous rider's routes")
+        assertNull(Coverage.cache, "Coverage kept the previous rider's learned boundaries")
+        assertEquals(emptySet(), Coverage.misses, "Coverage kept the previous rider's misses")
+        assertEquals(
+            traceVersionBefore + 1,
+            TraceStore.version.value,
+            "the fog layer was not told the ground moved, so it keeps drawing the previous rider's territory",
+        )
+    }
 
     @Test
     fun signingOutReturnsWritesToTheAnonymousBucket() {
@@ -945,23 +999,32 @@ class SessionSwitchTest {
 }
 ```
 
+Add `import kotlin.test.assertFalse` and `import kotlin.test.assertNull` to the file if absent.
+
 - [ ] **Step 6: Run the full suite**
 
 Run: `devcontainer-exec ./gradlew :shared:testDebugUnitTest :app:testDebugUnitTest :shared:compileCommonMainKotlinMetadata`
 
-Expected: BUILD SUCCESSFUL. Shared **349**, app **61**.
+Expected: BUILD SUCCESSFUL. Shared **350**, app **61**.
 
-- [ ] **Step 7: Prove the sync refusal is not vacuous**
+- [ ] **Step 7: Prove the reset wiring is pinned**
+
+Delete the `Coverage.reset()` line from `Auth.resetAccountScopedStores()`. Re-run. Expected: FAIL on
+`aSessionChangeDropsEveryStoreThatHoldsARidersFilesInMemory`, with the message naming Coverage.
+Restore it, then do the same with `TraceStore.reset()` and confirm the failure names the fog layer.
+
+- [ ] **Step 8: Record what the sync refusal's coverage actually is**
 
 Delete the `throw AuthException(...)` line added in Step 4 and confirm nothing fails — this refusal
 has no unit test, because `sync()` does network I/O with no seam. **Report that gap explicitly**
 rather than writing a test that asserts nothing; it is covered by reading, and by the
 `AccountScope.current()` tests that pin the value it branches on. Restore the line.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add shared/src/commonMain/kotlin/com/jellemax/detour/data/
+git add shared/src/commonMain/kotlin/com/jellemax/detour/data/ \
+        shared/src/commonTest/kotlin/com/jellemax/detour/data/
 git commit -m "fix(data): move the on-disk bucket when the session moves"
 ```
 
@@ -1057,7 +1120,7 @@ an Android install takes. Recorded in the spec so the reasoning is visible rathe
 
 Run: `devcontainer-exec ./gradlew :shared:testDebugUnitTest :app:testDebugUnitTest :shared:compileCommonMainKotlinMetadata :app:assembleDebug`
 
-Expected: BUILD SUCCESSFUL, shared **349**, app **61**.
+Expected: BUILD SUCCESSFUL, shared **350**, app **61**.
 
 - [ ] **Step 7: Commit**
 
