@@ -26,6 +26,12 @@ import okio.use
  */
 internal fun deviceFile(name: String): Path = appFilesDir() / name
 
+/** The layout, as a pure function of the root — [accountDir]'s testable half.
+ *  Ambient `appFilesDir()` needs a platform Context, so the seam is what makes
+ *  the component order assertable at all. */
+internal fun accountDirIn(root: Path, bucket: String): Path =
+    root / AccountScope.ACCOUNTS_DIR / bucket
+
 /** The directory holding the current rider's files. */
 internal fun accountDir(): Path {
     // A path resolved before the migration has run points at an empty bucket
@@ -35,7 +41,7 @@ internal fun accountDir(): Path {
     // reason this design has no read-path fallback. Same shape as
     // Settings.prefs, which errors rather than returning an empty bag.
     check(AccountFiles.migrated) { "AccountFiles.migrate has not run; call Settings.init() first" }
-    return appFilesDir() / AccountScope.ACCOUNTS_DIR / AccountScope.current()
+    return accountDirIn(appFilesDir(), AccountScope.current())
 }
 
 /**
