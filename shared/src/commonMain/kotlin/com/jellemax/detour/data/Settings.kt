@@ -163,6 +163,18 @@ object Settings {
         // accessor instead of on the intended `store != null` guard.
         secureStore = securePrefs()
         store = prefs("settings")
+        // First, because the guard above is already armed: everything this
+        // function hydrates from here on may read a store path, and every one
+        // of those must find the migration done. `auth_scope_key` is in
+        // neither CredentialMigration group, so reading it ahead of
+        // migrateOnce() below loses nothing.
+        AccountScope.set(secure.string("auth_scope_key"))
+        // A throw here would propagate out of init() and, because `store` is
+        // already set, permanently skip everything hydrated below —
+        // including vehicle_devices, which TripTrackingService reads for
+        // trip classification. Same defence as SecretBox's runCatchings, for
+        // the same "one bad value must not abort init" reason.
+        runCatching { AccountFiles.migrate(fileSystem, appFilesDir()) }
         // Guarded once-per-process, shared with RoutingServer.loadCustom() — see
         // CredentialMigration.migrateOnce().
         CredentialMigration.migrateOnce()
@@ -183,11 +195,6 @@ object Settings {
         _refreshToken.value = secure.string("refresh_token")
         _accessTokenExpiresAtMs.value = secure.long("access_token_expires_at", 0L)
         _authUsername.value = secure.string("auth_username")
-        // Before any store reads, so nothing ever has to look in two places
-        // for one file. Per-file and unconditional, so a run that dies halfway
-        // finishes on the next launch without a marker to get out of step.
-        AccountScope.set(secure.string("auth_scope_key"))
-        AccountFiles.migrate(fileSystem, appFilesDir())
         _leanOffsetDeg.value = prefs.float("lean_offset_deg", 0f)
         _voiceGuidance.value = prefs.bool("voice_guidance", true)
         _mapIcon.value = runCatching {
