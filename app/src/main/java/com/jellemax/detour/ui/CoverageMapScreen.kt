@@ -73,16 +73,17 @@ private data class CoverageMapData(
  * Full-screen "conquest map": every municipality driven into, filled by how
  * much of it has been covered. Reached from the Coverage section of
  * [BadgesScreen], which already computes the same [Coverage.compute] — this
- * screen recomputes it rather than threading the result through navigation
- * state, same tradeoff BadgesScreen and HubScreen each make independently.
+ * screen calls it again rather than threading the result through navigation
+ * state, but [Coverage] caches the result itself, so this is free unless the
+ * trace or municipality data changed since.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CoverageMapScreen(onBack: () -> Unit) {
     val context = LocalContext.current
 
-    // Coverage.compute walks every trace point against every boundary; off
-    // the main thread, same reasoning as BadgesScreen/HubScreen.
+    // First call after trace/municipality data changes walks every trace
+    // point against every boundary; still off the main thread for that case.
     val data by produceState<CoverageMapData?>(initialValue = null) {
         value = withContext(Dispatchers.IO) {
             val entries = Coverage.compute()

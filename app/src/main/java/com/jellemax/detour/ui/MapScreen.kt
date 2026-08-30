@@ -48,6 +48,7 @@ import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -230,8 +231,15 @@ fun MapScreen(
     // Stored traces reload on every store write; the live trace and fix come
     // straight from the tracking service, so fog and position update in real
     // time instead of only when a trip is saved.
+    //
+    // Loaded off the main thread: reading + JSON-decoding traces.jsonl inside a
+    // remember{} ran during composition and stalled the first frame — this is
+    // the app's default landing screen, so that stall was the app's cold start.
+    // Empty until the read lands; the fog effect below just redraws when it does.
     val storeVersion by TraceStore.version.collectAsStateWithLifecycle()
-    val traces = remember(storeVersion) { TraceStore.loadAll() }
+    val traces by produceState(initialValue = emptyList<List<LatLon>>(), storeVersion) {
+        value = withContext(Dispatchers.IO) { TraceStore.loadAll() }
+    }
     // Friends' territory, unioned into the same fog. Empty unless both sides
     // opted in; the overlay can't tell whose trace is whose, and neither can we.
     val shareFog by Settings.shareFog.collectAsStateWithLifecycle()
