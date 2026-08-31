@@ -94,7 +94,10 @@ fun CirclesScreen(onBack: () -> Unit, openCircleId: String? = null) {
     var createOpen by remember { mutableStateOf(false) }
     var inviteFor by remember { mutableStateOf<Group?>(null) }
 
-    LaunchedEffect(Unit) { CirclesStore.reload() }
+    // Fires on every entry, and stepping Hub -> Circles -> Hub -> Circles is
+    // not a new visit. reloadIfStale skips the round trip inside its window;
+    // every mutation on this screen still calls reload() unconditionally.
+    LaunchedEffect(Unit) { CirclesStore.reloadIfStale() }
 
     // A tapped arrival/departure notification opens straight to its circle -
     // CirclesStore.selectOnly is safe to call before the list has finished

@@ -2,6 +2,7 @@ package com.jellemax.detour.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -82,7 +83,7 @@ class StoresTest {
     fun aSuccessfulLoadClearsBusyAndError() {
         val loaded = FriendsState(error = "stale")
             .starting()
-            .loaded(lists(), listOf(stats("ada")))
+            .loaded(lists(), listOf(stats("ada")), nowMs = 0L)
         assertTrue(!loaded.busy)
         assertNull(loaded.error)
         assertEquals(2, loaded.lists!!.friends.size)
@@ -94,7 +95,7 @@ class StoresTest {
         // disk. A list reload after every mutation must not throw it away and
         // make the leaderboard's "me" row flicker.
         val withOwn = FriendsState(own = stats("me"))
-        val reloaded = withOwn.starting().loaded(lists(), listOf(stats("ada")))
+        val reloaded = withOwn.starting().loaded(lists(), listOf(stats("ada")), nowMs = 0L)
         assertSame(withOwn.own, reloaded.own)
     }
 
@@ -161,7 +162,7 @@ class StoresTest {
     fun aSuccessfulConvoyLoadClearsBusyAndError() {
         val loaded = ConvoysState(error = "stale")
             .starting()
-            .loaded(listOf(convoy("c1", "Sunday run")))
+            .loaded(listOf(convoy("c1", "Sunday run")), nowMs = 0L)
         assertTrue(!loaded.busy)
         assertNull(loaded.error)
         assertEquals(1, loaded.convoys.size)
@@ -193,7 +194,7 @@ class StoresTest {
         // stands in for the transition that lets it return the value.
         val failure = ConvoysState().starting().failed(RuntimeException("no route to host"))
         assertEquals("no route to host", failure.error)
-        val success = ConvoysState(error = "stale").starting().loaded(emptyList())
+        val success = ConvoysState(error = "stale").starting().loaded(emptyList(), nowMs = 0L)
         assertNull(success.error)
     }
 
@@ -213,14 +214,14 @@ class StoresTest {
         // removed you, or you left it on another device. A detail pane
         // pointed at nothing is worse than no detail pane.
         val state = CirclesState(circles = listOf(circle("c1", "Family")), selectedId = "c1")
-        val afterReload = state.loaded(listOf(circle("c2", "Riders")))
+        val afterReload = state.loaded(listOf(circle("c2", "Riders")), nowMs = 0L)
         assertNull(afterReload.selectedId)
     }
 
     @Test
     fun aStillPresentSelectionSurvivesAReload() {
         val state = CirclesState(circles = listOf(circle("c1", "Family")), selectedId = "c1")
-        val afterReload = state.loaded(listOf(circle("c1", "Family"), circle("c2", "Riders")))
+        val afterReload = state.loaded(listOf(circle("c1", "Family"), circle("c2", "Riders")), nowMs = 0L)
         assertEquals("c1", afterReload.selectedId)
     }
 
@@ -241,7 +242,7 @@ class StoresTest {
         val beforeReload = CirclesState(circles = listOf(circle("c1", "Family")))
         val reloadStarted = beforeReload.starting()
         val selectedMidFlight = reloadStarted.selecting("c1")
-        val committed = selectedMidFlight.loaded(listOf(circle("c1", "Family"), circle("c2", "Riders")))
+        val committed = selectedMidFlight.loaded(listOf(circle("c1", "Family"), circle("c2", "Riders")), nowMs = 0L)
         assertEquals("c1", committed.selectedId)
     }
 
@@ -478,5 +479,69 @@ class StoresTest {
             detailError = "stale detail",
         )
         assertEquals(CirclesState(), dirty.cleared())
+    }
+
+    // --- re-entry freshness (#82) -----------------------------------------
+
+    /**
+     * Hub -> Circles -> Hub -> Circles used to issue two identical
+     * `Groups.list("circle")` calls, because the screen's
+     * `LaunchedEffect(Unit) { reload() }` fires on every entry and nothing
+     * remembered that the answer was seconds old.
+     */
+    @Test
+    fun aListLoadedMomentsAgoIsNotStale() {
+        assertFalse(isStale(loadedAtMs = 1_000L, nowMs = 1_000L + SOCIAL_TTL_MS - 1))
+    }
+
+    @Test
+    fun aListOlderThanItsWindowIsStale() {
+        assertTrue(isStale(loadedAtMs = 1_000L, nowMs = 1_000L + SOCIAL_TTL_MS + 1))
+    }
+
+    @Test
+    fun aListThatHasNeverLoadedIsStale() {
+        assertTrue(isStale(loadedAtMs = null, nowMs = 1_000L))
+    }
+
+    /** Same reasoning as RiderTotals.freshness: the stamp can outlive a clock
+     *  change, and a record dated in the future must not read as the freshest
+     *  thing there is. */
+    @Test
+    fun aStampFromTheFutureIsStale() {
+        assertTrue(isStale(loadedAtMs = 5_000L, nowMs = 1_000L))
+    }
+
+    @Test
+    fun loadingStampsWhenItLoaded() {
+        val loaded = FriendsState().loaded(lists(), listOf(stats("ada")), nowMs = 42L)
+        assertEquals(42L, loaded.loadedAtMs)
+        assertEquals(42L, CirclesState().loaded(emptyList(), nowMs = 42L).loadedAtMs)
+        assertEquals(42L, ConvoysState().loaded(emptyList(), nowMs = 42L).loadedAtMs)
+    }
+
+    /**
+     * A failed reload must not stamp. Otherwise the failure suppresses the
+     * next entry's attempt for the whole window, and the rider is left looking
+     * at an error banner that re-opening the screen cannot clear.
+     */
+    @Test
+    fun aFailedReloadDoesNotCountAsHavingLoaded() {
+        val failed = FriendsState().starting().failed(RuntimeException("no route to host"))
+        assertNull(failed.loadedAtMs)
+        assertTrue(isStale(failed.loadedAtMs, nowMs = 1_000L))
+    }
+
+    /** A reload that succeeds after a failure stamps normally — the window
+     *  starts from the answer, not from the attempt. */
+    @Test
+    fun aReloadThatRecoversStampsAfresh() {
+        val recovered = FriendsState()
+            .starting()
+            .failed(RuntimeException("offline"))
+            .starting()
+            .loaded(lists(), listOf(stats("ada")), nowMs = 900L)
+        assertEquals(900L, recovered.loadedAtMs)
+        assertFalse(isStale(recovered.loadedAtMs, nowMs = 900L))
     }
 }

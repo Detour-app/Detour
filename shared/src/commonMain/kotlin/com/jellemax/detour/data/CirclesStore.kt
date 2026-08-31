@@ -42,6 +42,11 @@ data class CirclesState(
     val error: String? = null,
     val detailBusy: Boolean = false,
     val detailError: String? = null,
+    /** When the server last answered. Drives [isStale], so re-entering a
+     *  screen seconds later shows what it showed instead of re-fetching.
+     *  Null until a load has actually succeeded — a failure must not stamp,
+     *  or it would suppress the next entry's attempt. */
+    val loadedAtMs: Long? = null,
 )
 
 /**
@@ -74,6 +79,25 @@ object CirclesStore {
         _state.update { it.cleared() }
     }
 
+    /**
+     * The entry point a screen should use on open.
+     *
+     * [reload] is unconditional and stays that way — a pull-to-refresh and
+     * every mutation want the server's answer whatever the clock says. This is
+     * for the case a screen cannot distinguish: `LaunchedEffect(Unit)` fires on
+     * every entry, and stepping away and back within [SOCIAL_TTL_MS] is not a
+     * new visit.
+     *
+     * No parameters, so the generated Swift signature is unchanged and iOS can
+     * adopt it by swapping the call. The decision itself is [isStale], which is
+     * pure and tested; this only supplies the clock.
+     */
+    @Throws(Exception::class)
+    suspend fun reloadIfStale() {
+        if (!isStale(_state.value.loadedAtMs, nowMs())) return
+        reload()
+    }
+
     @Throws(Exception::class)
     suspend fun reload() {
         val epoch = Auth.sessionEpoch.value
@@ -88,7 +112,7 @@ object CirclesStore {
         // being silently reverted to whatever it was when this reload started.
         val apply: (CirclesState) -> CirclesState = try {
             val circles = Groups.list(KIND)
-            val transform: (CirclesState) -> CirclesState = { s -> s.loaded(circles) }
+            val transform: (CirclesState) -> CirclesState = { s -> s.loaded(circles, nowMs()) }
             transform
         } catch (e: CancellationException) {
             throw e
@@ -348,11 +372,12 @@ internal fun CirclesState.detailIdle() = copy(detailBusy = false)
  *  [circles] — a circle can vanish between the list load and the tap
  *  (someone removed you, or you left it on another device), and a detail
  *  pane pointed at nothing is worse than none. */
-internal fun CirclesState.loaded(circles: List<Group>) = copy(
+internal fun CirclesState.loaded(circles: List<Group>, nowMs: Long) = copy(
     circles = circles,
     selectedId = selectedId?.takeIf { id -> circles.any { it.id == id } },
     busy = false,
     error = null,
+    loadedAtMs = nowMs,
 )
 
 internal fun CirclesState.failed(e: Exception) =

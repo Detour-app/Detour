@@ -10,6 +10,11 @@ data class ConvoysState(
     val convoys: List<Group> = emptyList(),
     val busy: Boolean = false,
     val error: String? = null,
+    /** When the server last answered. Drives [isStale], so re-entering a
+     *  screen seconds later shows what it showed instead of re-fetching.
+     *  Null until a load has actually succeeded — a failure must not stamp,
+     *  or it would suppress the next entry's attempt. */
+    val loadedAtMs: Long? = null,
 )
 
 /**
@@ -39,6 +44,25 @@ object ConvoysStore {
         _state.update { it.cleared() }
     }
 
+    /**
+     * The entry point a screen should use on open.
+     *
+     * [reload] is unconditional and stays that way — a pull-to-refresh and
+     * every mutation want the server's answer whatever the clock says. This is
+     * for the case a screen cannot distinguish: `LaunchedEffect(Unit)` fires on
+     * every entry, and stepping away and back within [SOCIAL_TTL_MS] is not a
+     * new visit.
+     *
+     * No parameters, so the generated Swift signature is unchanged and iOS can
+     * adopt it by swapping the call. The decision itself is [isStale], which is
+     * pure and tested; this only supplies the clock.
+     */
+    @Throws(Exception::class)
+    suspend fun reloadIfStale() {
+        if (!isStale(_state.value.loadedAtMs, nowMs())) return
+        reload()
+    }
+
     @Throws(Exception::class)
     suspend fun reload() {
         val epoch = Auth.sessionEpoch.value
@@ -49,7 +73,7 @@ object ConvoysStore {
         // either suspending call.
         val apply: (ConvoysState) -> ConvoysState = try {
             val convoys = Groups.list(KIND)
-            val transform: (ConvoysState) -> ConvoysState = { s -> s.loaded(convoys) }
+            val transform: (ConvoysState) -> ConvoysState = { s -> s.loaded(convoys, nowMs()) }
             transform
         } catch (e: CancellationException) {
             throw e
@@ -108,8 +132,8 @@ object ConvoysStore {
 
 internal fun ConvoysState.starting() = copy(busy = true, error = null)
 
-internal fun ConvoysState.loaded(convoys: List<Group>) =
-    copy(convoys = convoys, busy = false, error = null)
+internal fun ConvoysState.loaded(convoys: List<Group>, nowMs: Long) =
+    copy(convoys = convoys, busy = false, error = null, loadedAtMs = nowMs)
 
 internal fun ConvoysState.failed(e: Exception) =
     copy(busy = false, error = e.message?.ifBlank { null } ?: ConvoysStore.FALLBACK_ERROR)
