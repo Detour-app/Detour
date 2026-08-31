@@ -311,8 +311,10 @@ fun MapScreen(
     var speedSections by remember { mutableStateOf<List<SpeedCameras.Section>>(emptyList()) }
     // Non-null only while driving through a trajectcontrole: the running average
     // speed since entering it, and the posted limit it's judged against.
-    var sectionAvgKmh by remember { mutableStateOf<Double?>(null) }
-    var sectionLimitKmh by remember { mutableStateOf<Double?>(null) }
+    // Seeded from the retained machine, so a return mid-section shows the
+    // reading it was showing rather than nothing.
+    var sectionAvgKmh by remember { mutableStateOf(retained.sectionState.reading.averageKmh) }
+    var sectionLimitKmh by remember { mutableStateOf(retained.sectionState.reading.limitKmh) }
 
     // Where the camera is heading. GPS delivers a fix about once a second; the
     // frame loop further down eases the map toward these targets every frame,
@@ -1072,7 +1074,10 @@ fun MapScreen(
     // reasoning behind each live with their tests.
     val speedSectionsRef = rememberUpdatedState(speedSections)
     LaunchedEffect(Unit) {
-        var st = SectionAverageTracker.State()
+        // Resumed, not restarted: this effect is keyed on Unit and so restarts
+        // on every return to the map, which used to throw away an in-progress
+        // section along with its entry time and accumulated distance.
+        var st = retained.sectionState
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
             st = SectionAverageTracker.onFix(
@@ -1083,6 +1088,7 @@ fun MapScreen(
                 speedMps = fix.speedMps,
                 nowMs = System.currentTimeMillis(),
             )
+            retained.sectionState = st
             // Two states, one assignment source: they can no longer disagree
             // across a recomposition. Collapsing them into one is stage 4's.
             sectionAvgKmh = st.reading.averageKmh

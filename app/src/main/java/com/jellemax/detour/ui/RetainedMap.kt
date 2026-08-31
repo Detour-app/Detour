@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.ColdStartTiming
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.drive.SectionAverageTracker
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
@@ -96,6 +97,22 @@ class RetainedMap(context: Context) {
      * the number has settled (hazards skill §6).
      */
     var displaySpeedKmh: Double by mutableDoubleStateOf(0.0)
+
+    /**
+     * The average-speed (trajectcontrole) machine's state.
+     *
+     * Seeded fresh on every composition before this, so leaving the map
+     * mid-section abandoned the measurement: entry time and accumulated
+     * distance went with it, the Ø chip vanished, and the section could not be
+     * resumed — the vehicle was already past the entry gate, so nothing would
+     * re-arm it. Losing it next to a real fine is the worst version of this
+     * whole class of bug.
+     *
+     * The machine itself is pure (`SectionAverageTracker.onFix` is a
+     * state-in/state-out function in shared/), so retaining it is just holding
+     * its State rather than reaching into a coroutine's locals.
+     */
+    var sectionState: SectionAverageTracker.State by mutableStateOf(SectionAverageTracker.State())
 }
 
 /**
