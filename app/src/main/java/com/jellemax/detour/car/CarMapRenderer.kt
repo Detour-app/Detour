@@ -146,6 +146,15 @@ class CarMapRenderer(
                     // rather than blanking the map on one failed poll.
                     runCatching { withContext(Dispatchers.IO) { CircleFixes.othersFixes(me) } }
                         .onSuccess { setCircleMembers(it) }
+                } else {
+                    // Signed out: nothing to ask the server for, and nothing
+                    // of the previous rider's worth keeping — matches the
+                    // phone map's own blank-handle clear (MapScreen.kt), the
+                    // other consumer of this same CircleFixes.othersFixes
+                    // chain. Without this a blank handle skipped the branch
+                    // entirely and left the departed rider's members in
+                    // `circleMembers` for the life of the renderer.
+                    setCircleMembers(emptyList())
                 }
                 delay(CIRCLE_FIX_POLL_MS)
             }
@@ -339,7 +348,15 @@ class CarMapRenderer(
                 position?.let { fresh.setPosition(it, positionBearing) }
                 if (cameras.isNotEmpty()) fresh.setCameras(cameras)
                 if (friends.isNotEmpty()) fresh.setFriends(friends)
-                if (circleMembers.isNotEmpty()) fresh.setCircleMembers(circleMembers)
+                // Signed-out guarded here too, not just in the poll loop
+                // above: the loop only notices a sign-out on its own
+                // CIRCLE_FIX_POLL_MS cadence, and a surface recreated (car
+                // app switched away and back) inside that window must not
+                // redraw circleMembers that tick hasn't caught up to clearing
+                // yet.
+                if (circleMembers.isNotEmpty() && Account.username.value.isNotBlank()) {
+                    fresh.setCircleMembers(circleMembers)
+                }
             }
             startCameraLoop()
         }

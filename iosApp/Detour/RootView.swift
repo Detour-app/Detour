@@ -110,7 +110,15 @@ struct RootView: View {
         // Re-fetch when sharing is switched on, and drop what we hold the
         // moment it is switched off — a stale union would keep revealing a
         // friend's roads.
-        .task(id: SettingsValues.shared.shareFog) {
+        //
+        // Keyed on the session as well as the toggle. `shareFog` alone is a
+        // plain Kotlin getter nothing publishes on, and it does not change when
+        // the rider does — so on a sign-in this never re-ran, and the new rider
+        // saw no friend fog at all until they toggled it or relaunched. (Before
+        // FriendFog's commit became epoch-guarded, what they saw instead was
+        // the *previous* rider's fog, which was the more urgent half of the
+        // same bug.)
+        .task(id: "\(launchSyncGate.signedIn)-\(SettingsValues.shared.shareFog)") {
             if SettingsValues.shared.shareFog {
                 // Documented never to throw: a friend's fog going missing is
                 // not worth interrupting the map for.

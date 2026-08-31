@@ -123,6 +123,19 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     /// `CircleNotifications`/`CircleSync`, never read by anything UI-facing.
     private var wantedCircleIds: Set<String> = []
 
+    /// Ties this socket's whole lifetime to the session rather than to any
+    /// one caller — see `sessionEnded()`. `Auth.sessionEpoch` bumps on
+    /// sign-out, a 401 and a server switch alike (`Auth.clear`'s three call
+    /// sites), which is exactly the set of paths a single "Sign out" button
+    /// handler cannot cover; Android's `ConvoyLiveService.stop(context)` on
+    /// its own sign-out button has the same gap for the same reason.
+    private let sessionEpoch = AuthFlows.shared.sessionEpoch()
+
+    private override init() {
+        super.init()
+        sessionEpoch.watch { [weak self] in self?.sessionEnded() }
+    }
+
     // MARK: Membership
 
     func join(convoyId: String) {
@@ -184,6 +197,36 @@ final class ConvoyLiveClient: NSObject, ObservableObject {
     }
 
     // MARK: Connection
+
+    /// Tears the socket down and forgets every membership — the whole
+    /// footprint this class has — the moment the session that owns it ends.
+    ///
+    /// Without this, the socket outlives the rider: it stays joined to the
+    /// departed rider's convoy and circles (`disconnect()` deliberately
+    /// leaves `wantedCircleIds` alone, and `activeConvoyId` with it, for the
+    /// legitimate reconnect case), `handle`'s `place_event` branch keeps
+    /// raising their circles' arrivals as this device's own notifications,
+    /// and — the serious half — `forwardLocation()` has no `signedIn` or
+    /// convoy gate of its own, so it keeps broadcasting whichever rider is
+    /// live on this device now onto the *departed* rider's convoy and circle
+    /// members for as long as the connection loop keeps reconnecting.
+    ///
+    /// Driven off `Auth.sessionEpoch` rather than the "Sign out" button
+    /// (`FriendsScreen.swift`'s `Account.shared.signOut()`), so a 401 and a
+    /// server switch tear this down too — see `sessionEpoch`'s own doc.
+    /// Fires once more on the *next* sign-in as well, since establishing a
+    /// session bumps the epoch the same way clearing one does (see
+    /// `Auth.sessionEpoch`'s doc in Auth.kt); harmless there, since nothing
+    /// has joined anything for a brand-new session yet.
+    ///
+    /// Must not restart the connection afterward the way `leave()` does for
+    /// a lingering notify-circle join — a session that just ended has
+    /// nothing left worth staying connected for.
+    private func sessionEnded() {
+        disconnect()
+        activeConvoyId = nil
+        wantedCircleIds = []
+    }
 
     /// Tears down the socket and every convoy-scoped published value, but
     /// never touches `wantedCircleIds` — see `leave()`.

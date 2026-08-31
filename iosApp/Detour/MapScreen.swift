@@ -19,6 +19,7 @@ struct MapScreen: View {
     /// Kept across polls even when a fetch fails, so a blip doesn't blank the
     /// map — see the `.task(id:)` below.
     @State private var circleFixes: [MemberFix] = []
+    @StateObject private var circleFixUsername = CircleFixUsernameModel()
     /// Convoy state, for the group spin below. Same shared singleton ConvoyBar
     /// observes — the vote round and the peer strip are two views of it.
     @ObservedObject private var live = ConvoyLiveClient.shared
@@ -88,15 +89,46 @@ struct MapScreen: View {
         // count — including dropping your own fix, which the server returns
         // like anyone else's and which would otherwise stack a second marker
         // on your own position.
-        .task(id: SettingsValues.shared.authUsername) {
-            let me = SettingsValues.shared.authUsername
-            guard !me.isEmpty else {
-                circleFixes = []  // signed out: nothing to ask the server for
-                return
-            }
+        //
+        // Keyed on `circleFixUsername.username`, an actual `@Published`
+        // mirror — not `SettingsValues.shared.authUsername` directly, which
+        // is a plain Kotlin getter nothing publishes on, so keying `.task(id:)`
+        // on it only re-evaluated when something else happened to recompute
+        // this view. That used to mean a sign-out never restarted this task
+        // on its own, so the previous rider's circle members' last-known
+        // positions — drawn as map markers and punched through the fog scrim
+        // — stayed on screen for the rest of the app session. Same shape as
+        // `FriendsModel`/`CirclesModel`: watch the StateFlow itself. Matches
+        // Android's `LaunchedEffect(accountUsername)` in MapScreen.kt, which
+        // is already keyed on a collected StateFlow.
+        .task(id: circleFixUsername.username) {
+            let me = circleFixUsername.username
+            // Cleared unconditionally, not only on the empty branch below.
+            // Sign-in and sign-out both happen on the Friends tab, so this
+            // `.task` can be torn down without ever running for the `""`
+            // transition in between — the Map tab was simply not selected
+            // for it. `circleFixes` is `@State`, which survives a TabView
+            // switch, so without this the new rider's first visit to the Map
+            // tab would start this loop with the previous rider's positions
+            // still drawn until the first round trip returns — or
+            // indefinitely if it fails, since the `catch` below deliberately
+            // keeps the last known positions.
+            circleFixes = []
+            guard !me.isEmpty else { return }  // signed out: nothing to ask the server for
             while !Task.isCancelled {
                 do {
-                    circleFixes = try await CircleFixes.shared.othersFixes(selfUsername: me)
+                    let fixes = try await CircleFixes.shared.othersFixes(selfUsername: me)
+                    // Cancelling this Task when the id changes does not cancel
+                    // the Kotlin coroutine behind `othersFixes` — an exported
+                    // suspend fun has no cancellation path through the ObjC
+                    // bridge, so a call already in flight always runs to
+                    // completion regardless. A sign-out (or a sign-in as
+                    // someone else) while this fetch was in flight must not
+                    // let its answer land after the id has moved on, the same
+                    // reason the shared stores guard their own commits on
+                    // Auth.sessionEpoch — this is that guard's Swift-side
+                    // equivalent for a value with no shared epoch to check.
+                    if circleFixUsername.username == me { circleFixes = fixes }
                 } catch {
                     // Offline or server down; keep the last known positions
                     // and retry on the next tick.
@@ -502,6 +534,25 @@ private struct SearchSheet: View {
             }
         }
     }
+}
+
+/// An observable source of the signed-in rider's handle, for the circle-fix
+/// poll above. `SettingsValues.shared.authUsername` is a plain Kotlin
+/// getter — nothing publishes on it, so keying `.task(id:)` on it directly
+/// only re-evaluates when something else happens to recompute this view.
+/// Same shape as `FriendsModel`/`CirclesModel`/`LaunchSyncGate`: watch the
+/// StateFlow itself.
+@MainActor
+final class CircleFixUsernameModel: ObservableObject {
+    @Published var username = ""
+
+    private let watcher = SettingsFlows.shared.authUsername()
+
+    init() {
+        watcher.watch { [weak self] in self?.username = self?.watcher.value ?? "" }
+    }
+
+    deinit { watcher.cancel() }
 }
 
 /// The selected vehicle, which is persisted because the trip recorder reads it
