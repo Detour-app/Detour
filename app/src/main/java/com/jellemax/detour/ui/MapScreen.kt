@@ -316,9 +316,9 @@ fun MapScreen(
     val defaultZoom by Settings.defaultZoom.collectAsStateWithLifecycle()
     val mapIcon by Settings.mapIcon.collectAsStateWithLifecycle()
     val routeColor by Settings.routeColor.collectAsStateWithLifecycle()
-    var camTarget by remember { mutableStateOf<LatLon?>(null) }
-    var camTargetBearing by remember { mutableStateOf<Float?>(null) }
-    var camTargetZoom by remember { mutableDoubleStateOf(defaultZoom.toDouble()) }
+    // Held in RetainedMap, not in a remember: these survive a navigation so the
+    // camera does not ease back to the default zoom and north-up every time the
+    // rider returns to the map. See RetainedMap's camera section.
     var displaySpeedKmh by remember { mutableDoubleStateOf(0.0) }
     // Same expression as before, now owned by the state: navigation drives the
     // camera whether or not you are following, and a park still stops it.
@@ -650,7 +650,7 @@ fun MapScreen(
             positionMarker = PositionMarker.CallerDraws,
             // Same bearing the camera is easing towards, which is already held
             // through a stop rather than following the noise below 2 m/s.
-            positionBearingDeg = camTargetBearing?.toDouble(),
+            positionBearingDeg = retained.camTargetBearing?.toDouble(),
         )
     }
 
@@ -800,7 +800,7 @@ fun MapScreen(
         // Arrival, or the Exit button. Either way stop mid-sentence rather than
         // finishing a prompt for a turn that no longer matters.
         navVoice.stop()
-        camTargetBearing = null
+        retained.camTargetBearing = null
         // The line stays on the map after arrival (and after a stop); without
         // this it would keep the driven part greyed out with nothing following
         // it any more.
@@ -1093,9 +1093,9 @@ fun MapScreen(
     // previous 350ms flight partway through and the map lurched.
     LaunchedEffect(liveFix, defaultZoom) {
         val fix = liveFix ?: return@LaunchedEffect
-        camTarget = LatLon(fix.lat, fix.lon)
-        if (fix.bearingDeg != null && fix.speedMps > 2.0) camTargetBearing = fix.bearingDeg
-        camTargetZoom = NavEngine.cameraZoom(
+        retained.camTarget = LatLon(fix.lat, fix.lon)
+        if (fix.bearingDeg != null && fix.speedMps > 2.0) retained.camTargetBearing = fix.bearingDeg
+        retained.camTargetZoom = NavEngine.cameraZoom(
             defaultZoom.toDouble(),
             fix.speedMps,
             navProgress?.distanceToTurnMeters ?: Double.MAX_VALUE,
@@ -1125,7 +1125,7 @@ fun MapScreen(
     // resumed, so this costs nothing with the screen off.
     // `haveFix` is a key so that turning follow on before the first fix arrives
     // still starts the loop once it does, instead of leaving it returned-out.
-    val haveFix = camTarget != null || myLocation != null
+    val haveFix = retained.camTarget != null || myLocation != null
     LaunchedEffect(cameraActive, haveFix, mapLibreMap) {
         val map = mapLibreMap ?: return@LaunchedEffect
         if (!cameraActive) {
@@ -1135,11 +1135,12 @@ fun MapScreen(
             }
             return@LaunchedEffect
         }
-        val start = camTarget ?: myLocation ?: return@LaunchedEffect
+        val start = retained.camTarget ?: myLocation ?: return@LaunchedEffect
         var lat = start.lat
         var lon = start.lon
-        var bearing = camTargetBearing ?: 0f
-        var zoom = map.cameraPosition.zoom.takeIf { it > 1.0 } ?: camTargetZoom
+        var bearing = retained.camTargetBearing ?: 0f
+        var zoom = map.cameraPosition.zoom.takeIf { it > 1.0 }
+            ?: retained.camTargetZoom ?: defaultZoom.toDouble()
         // Whether the camera has ever actually been pushed to the map. MapMotion.shouldPush
         // needs only this as a "first frame" sentinel — it compares the eased lat/lon/zoom/
         // bearing above against the target itself, not against a record of what was last
@@ -1159,6 +1160,9 @@ fun MapScreen(
             // cancels the ease's own steady-state error: a first-order lag driven at
             // constant velocity settles v*tau behind its input, so aiming tau ahead
             // leaves the camera on the true position instead of behind it.
+            // Re-read every frame: the fix effect rewrites it, and a null means
+            // no fix has set one yet, so the rider's current default applies.
+            val targetZoom = retained.camTargetZoom ?: defaultZoom.toDouble()
             val f = liveFix
             val camTargetNow = if (f != null) MapMotion.predict(
                 at = LatLon(f.lat, f.lon),
@@ -1167,7 +1171,7 @@ fun MapScreen(
                 fixElapsedMs = f.elapsedRealtimeMs,
                 nowElapsedMs = SystemClock.elapsedRealtime(),
                 leadSeconds = CAM_POS_TAU,
-            ) else camTarget
+            ) else retained.camTarget
             camTargetNow?.let { target ->
                 if (MapMotion.shouldSnap(LatLon(lat, lon), target)) {
                     // Too far to be continuous motion — a resume from background, a
@@ -1178,19 +1182,19 @@ fun MapScreen(
                     // over their own time constants after a background-resume snap.
                     lat = target.lat
                     lon = target.lon
-                    bearing = camTargetBearing ?: bearing
-                    zoom = camTargetZoom
+                    bearing = retained.camTargetBearing ?: bearing
+                    zoom = targetZoom
                 } else {
                     val a = 1.0 - exp(-dt / CAM_POS_TAU)
                     lat += (target.lat - lat) * a
                     lon += (target.lon - lon) * a
                 }
             }
-            camTargetBearing?.let { target ->
+            retained.camTargetBearing?.let { target ->
                 bearing = smoothBearing(
                     bearing, target, (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat())
             }
-            zoom += (camTargetZoom - zoom) * (1.0 - exp(-dt / CAM_ZOOM_TAU))
+            zoom += (targetZoom - zoom) * (1.0 - exp(-dt / CAM_ZOOM_TAU))
 
             // Heading-up while moving: MapLibre bearing points the camera along
             // travel, so the road you're on runs up the screen. The camera-move
@@ -1210,7 +1214,7 @@ fun MapScreen(
             val moved = MapMotion.shouldPush(
                 camLat = lat, camLon = lon, camZoom = zoom, camBearing = bearing,
                 tgtLat = camTargetNow?.lat ?: lat, tgtLon = camTargetNow?.lon ?: lon,
-                tgtZoom = camTargetZoom, tgtBearing = camTargetBearing ?: bearing,
+                tgtZoom = targetZoom, tgtBearing = retained.camTargetBearing ?: bearing,
                 targetMoved = targetMoved,
                 neverPushed = neverPushed,
             )
@@ -1263,7 +1267,7 @@ fun MapScreen(
                 nowElapsedMs = SystemClock.elapsedRealtime(),
                 leadSeconds = 0.0,
             )
-            camTargetBearing?.let { target ->
+            retained.camTargetBearing?.let { target ->
                 markerBearing = smoothBearing(
                     markerBearing, target, (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat())
             }

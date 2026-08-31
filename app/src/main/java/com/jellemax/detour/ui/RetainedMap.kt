@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.ColdStartTiming
+import com.jellemax.detour.data.LatLon
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
@@ -61,6 +62,23 @@ class RetainedMap(context: Context) {
     /** Rebuilt whenever the style is (re)loaded — i.e. on a theme flip, not on
      *  a navigation. */
     var overlays: MapOverlays? by mutableStateOf(null)
+
+    // --- where the camera is aiming -------------------------------------
+    //
+    // Retained for the same reason the view is. The MapView keeps its actual
+    // camera across a navigation, but these are MapScreen's *intent*, and as
+    // plain `remember`s they came back at their defaults — so the follow loop
+    // found itself at the zoom the rider left and a target of `defaultZoom`,
+    // and eased between the two. That is the zoom-in on every return to the
+    // map, and the accompanying rotation back to north from a null bearing.
+    // #82's second acceptance criterion is precisely that this stops.
+
+    var camTarget: LatLon? by mutableStateOf(null)
+    var camTargetBearing: Float? by mutableStateOf(null)
+
+    /** Null until the first fix computes one, so MapScreen can fall back to
+     *  the current `defaultZoom` setting rather than to a stale copy of it. */
+    var camTargetZoom: Double? by mutableStateOf(null)
 }
 
 /**
