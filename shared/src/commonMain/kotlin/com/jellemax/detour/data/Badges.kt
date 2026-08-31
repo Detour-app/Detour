@@ -149,7 +149,7 @@ object BadgeStore {
     }
 
     private fun load(): Map<String, Long> {
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         if (!f.exists()) return emptyMap()
         return try {
             jsonObjectOf(f.readText()).mapValues { (_, v) -> v.toString().trim('"').toLong() }
@@ -160,12 +160,12 @@ object BadgeStore {
 
     private fun save(earned: Map<String, Long>) {
         val o = buildJsonObject { for ((id, at) in earned) put(id, at) }
-        appFile(FILE_NAME).writeText(o.string())
+        accountFile(FILE_NAME).writeText(o.string())
     }
 
     /** Raw stored JSON, for server sync. */
     fun rawJson(): String {
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         return if (f.exists()) f.readText() else "{}"
     }
 
@@ -173,6 +173,6 @@ object BadgeStore {
      *  earliest earnedAtMs per badge, so this only ever moves dates backwards. */
     fun replaceRaw(json: String) {
         jsonObjectOf(json) // validate before overwriting
-        appFile(FILE_NAME).writeText(json)
+        accountFile(FILE_NAME).writeText(json)
     }
 }

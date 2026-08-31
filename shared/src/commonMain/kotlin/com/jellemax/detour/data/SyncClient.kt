@@ -95,6 +95,27 @@ object SyncClient {
     suspend fun sync(): SyncResult {
         Settings.init()
 
+        // Signed in but with nothing to key a bucket on: the files being read
+        // below belong to the anonymous bucket, which is not this session's.
+        // Uploading them is precisely #73, so this refuses instead. A sync
+        // that does not happen is recoverable; one that puts another rider's
+        // history into this account is not.
+        if (Account.signedIn && AccountScope.current() == AccountScope.ANONYMOUS) {
+            throw AuthException("Sign out and sign in again to link this device's rides to your account.")
+        }
+
+        // The check above is point-in-time; the POST below suspends for a full
+        // history round trip, and the write-back after it re-resolves
+        // accountFile() fresh (deliberately — see Files.kt). Between the two,
+        // Auth.clear() or Auth.store() can move the bucket out from under this
+        // call: the launch sync runs on a scope that is never cancelled
+        // (app/data/AndroidSync.kt), so a sign-out mid-flight would write this
+        // rider's entire server-side history into `_local`, and a sign-in
+        // would write it into the next rider's bucket for their next sync to
+        // upload — #73 again, on the function this guard exists to protect.
+        // Same epoch capture FriendsStore.reload and CirclesStore use.
+        val epoch = Auth.sessionEpoch.value
+
         // Coverage is the only stat the server can't derive from the trips it
         // already holds — it needs the boundaries, which only we have.
         val stats = BadgeStore.stats(Coverage.compute())
@@ -112,7 +133,28 @@ object SyncClient {
             put("shareFog", Settings.shareFog.value)
         }
 
+        // Again, immediately before the POST. The capture above guards the
+        // write-back; it does not guard the upload, because every field in
+        // `payload` was read before Api.request resolves the bearer. A
+        // session change in between sends this rider's history under the next
+        // rider's token — #73 verbatim, and not a narrow window either:
+        // Coverage.compute() walks every trace point against every boundary
+        // and TraceStore.rawLines() reads a multi-megabyte file, which on a
+        // year of riding is seconds, not instants.
+        if (epoch != Auth.sessionEpoch.value) return SyncResult(0, 0, 0)
+
         val merged = Api.requestJson("POST", "/sync", payload)
+        if (epoch != Auth.sessionEpoch.value) {
+            // Whoever this response belongs to is no longer who this device is
+            // signed in as. Nothing is written — not the stores, and not
+            // lastSyncMs, which would otherwise let this discarded round trip
+            // suppress the new session's own launch sync for five minutes.
+            // Reported as a sync that brought nothing back rather than as a
+            // failure: the POST did succeed, the server has the upload, and
+            // the only untrue thing to say here would be a count of records
+            // that did not land.
+            return SyncResult(0, 0, 0)
+        }
         val trips = merged.optArray("trips") ?: JsonArrayEmpty
         val traces = merged.optArray("traces") ?: JsonArrayEmpty
         val badges = merged.optObject("badges") ?: jsonObjectOf("{}")

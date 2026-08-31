@@ -17,13 +17,20 @@
      to "not signed in" rather than crash — reads fail soft — but transferring bytes
      that cannot be read is not a feature. -->
 <data-extraction-rules>
+    <!-- The whole accounts subtree, not two named files. Android's include
+         paths cannot enumerate per-account directories, and the alternative
+         was a second scoping mechanism alongside the directory one just to
+         preserve the old exact-path scope.
+
+         This deliberately broadens what is backed up: badges, saved places,
+         routes and learned coverage had no cloud copy at all before, and now
+         have one. recent_searches.json stays outside this subtree, at the
+         files/ root, so typed addresses do not travel to Google Drive. -->
     <cloud-backup>
-        <include domain="file" path="trips.json" />
-        <include domain="file" path="traces.jsonl" />
+        <include domain="file" path="accounts" />
     </cloud-backup>
     <device-transfer>
-        <include domain="file" path="trips.json" />
-        <include domain="file" path="traces.jsonl" />
+        <include domain="file" path="accounts" />
         <include domain="sharedpref" path="settings.xml" />
         <include domain="sharedpref" path="routing_server.xml" />
     </device-transfer>

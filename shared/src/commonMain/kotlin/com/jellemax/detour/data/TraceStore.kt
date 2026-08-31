@@ -40,6 +40,14 @@ object TraceStore {
     private val _version = MutableStateFlow(0)
     val version: StateFlow<Int> = _version
 
+    /** Nothing is cached here — [loadAll] reads the file every call — but the
+     *  fog layer redraws off [version], so it has to be told the ground moved
+     *  or it keeps showing the previous rider's territory until something
+     *  else happens to bump it. */
+    fun reset() {
+        _version.value++
+    }
+
     fun append(trace: List<TracePoint>) {
         if (trace.size < 2) return
         val line = buildJsonArray {
@@ -51,7 +59,7 @@ object TraceStore {
                 add(p.leanDeg?.let { JsonPrimitive(round(it, 1)) } ?: JsonNull)
             }
         }
-        appFile(FILE_NAME).appendText(line.string() + "\n")
+        accountFile(FILE_NAME).appendText(line.string() + "\n")
         _version.value++
     }
 
@@ -63,7 +71,7 @@ object TraceStore {
     }
 
     fun loadAll(): List<List<LatLon>> {
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         if (!f.exists()) return emptyList()
         return parseLines(f.readLines())
     }
@@ -101,16 +109,16 @@ object TraceStore {
     }
 
     fun clear() {
-        appFile(FILE_NAME).deleteIfExists()
+        accountFile(FILE_NAME).deleteIfExists()
         _version.value++
     }
 
     /** Raw JSONL lines, for server sync. */
-    fun rawLines(): List<String> = appFile(FILE_NAME).readLines().filter { it.isNotBlank() }
+    fun rawLines(): List<String> = accountFile(FILE_NAME).readLines().filter { it.isNotBlank() }
 
     /** Overwrite the store with merged lines from the sync server. */
     fun replaceLines(lines: List<String>) {
-        appFile(FILE_NAME).writeText(
+        accountFile(FILE_NAME).writeText(
             lines.filter { it.isNotBlank() }.joinToString("\n", postfix = "\n"))
         _version.value++
     }

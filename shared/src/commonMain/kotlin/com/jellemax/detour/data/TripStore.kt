@@ -71,7 +71,7 @@ object TripStore {
         val array = buildJsonArray {
             for (t in trips) add(encode(t))
         }
-        appFile(FILE_NAME).writeText(array.string())
+        accountFile(FILE_NAME).writeText(array.string())
     }
 
     private fun encode(t: Trip): JsonObject = buildJsonObject {
@@ -87,7 +87,7 @@ object TripStore {
     }
 
     fun load(): List<Trip> {
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         if (!f.exists()) return emptyList()
         return try {
             jsonArrayOf(f.readText()).objects().map { o ->
@@ -112,7 +112,7 @@ object TripStore {
 
     /** Raw stored JSON array, for server sync. */
     fun rawJson(): String {
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         return if (f.exists()) f.readText() else "[]"
     }
 
@@ -133,7 +133,7 @@ object TripStore {
         val tombstones = tombstones()
         val overrides = modeOverrides()
         if (tombstones.isEmpty() && overrides.isEmpty()) {
-            appFile(FILE_NAME).writeText(json)
+            accountFile(FILE_NAME).writeText(json)
             return
         }
         var overridesChanged = false
@@ -157,11 +157,11 @@ object TripStore {
             }
         }
         if (overridesChanged) writeModeOverrides(overrides)
-        appFile(FILE_NAME).writeText(kept.string())
+        accountFile(FILE_NAME).writeText(kept.string())
     }
 
     private fun tombstones(): MutableSet<Long> {
-        val f = appFile(DELETED_FILE_NAME)
+        val f = accountFile(DELETED_FILE_NAME)
         if (!f.exists()) return mutableSetOf()
         return try {
             val array = jsonArrayOf(f.readText())
@@ -173,13 +173,13 @@ object TripStore {
 
     private fun writeTombstones(ids: Set<Long>) {
         val array = buildJsonArray { ids.forEach { add(it) } }
-        appFile(DELETED_FILE_NAME).writeText(array.string())
+        accountFile(DELETED_FILE_NAME).writeText(array.string())
     }
 
     /** Local vehicle-mode corrections, startTimeMs → mode name, pending until
      *  the server echoes them back. */
     private fun modeOverrides(): MutableMap<Long, String> {
-        val f = appFile(EDITED_FILE_NAME)
+        val f = accountFile(EDITED_FILE_NAME)
         if (!f.exists()) return mutableMapOf()
         return try {
             jsonObjectOf(f.readText()).entries
@@ -193,6 +193,6 @@ object TripStore {
         val o = buildJsonObject {
             map.forEach { (start, mode) -> put(start.toString(), mode) }
         }
-        appFile(EDITED_FILE_NAME).writeText(o.string())
+        accountFile(EDITED_FILE_NAME).writeText(o.string())
     }
 }

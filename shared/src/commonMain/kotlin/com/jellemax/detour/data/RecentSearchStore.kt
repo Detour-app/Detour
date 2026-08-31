@@ -21,11 +21,11 @@ object RecentSearchStore {
                 put("lon", r.location.lon)
             }
         }
-        appFile(FILE_NAME).writeText(array.string())
+        deviceFile(FILE_NAME).writeText(array.string())
     }
 
     fun load(): List<GeocodeResult> {
-        val f = appFile(FILE_NAME)
+        val f = deviceFile(FILE_NAME)
         if (!f.exists()) return emptyList()
         return try {
             jsonArrayOf(f.readText()).objects().map { o ->

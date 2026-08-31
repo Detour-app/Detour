@@ -281,11 +281,31 @@ object Auth {
         // consistent rather than opposite disciplines on the two sides of
         // one mechanism.
         _sessionEpoch.update { it + 1 }
-        Settings.setSession("", "", 0L, "")
+        Settings.setSession("", "", 0L, "", "")
         FriendsStore.reset()
         ConvoysStore.reset()
         CirclesStore.reset()
         FriendFog.clear()
+        AccountScope.clear()
+        resetAccountScopedStores()
+    }
+
+    /** The stores that hold a rider's file contents in memory. Everything else
+     *  reads through to the file on every call, so moving the directory is all
+     *  those need.
+     *
+     *  `internal` rather than private so a test can call it directly, the same
+     *  shortcut [com.jellemax.detour.drive.ConvoyRelay.clearMembershipForSessionChange]
+     *  and [CirclePresence.discardEvaluatorsIfSessionChanged] exist for: actually
+     *  moving a session means writing [Settings], which needs platform prefs this
+     *  module's test target does not have. Without the seam this function — the
+     *  whole point of the task — has no coverage at all, which is the exact gap a
+     *  review found in the circle-presence slice. */
+    internal fun resetAccountScopedStores() {
+        SavedPlaces.reset()
+        RouteStore.reset()
+        MunicipalityStore.reset()
+        TraceStore.reset()
     }
 
     private suspend fun refresh(): String {
@@ -353,14 +373,36 @@ object Auth {
 
         if (establishesSession) _sessionEpoch.update { it + 1 }
 
+        val username = usernameFrom(access).ifBlank { Settings.authUsername.value }
+        val scopeKey = AccountScope.keyFrom(subject = subjectFrom(access), username = username)
+        // `auth_scope_key` is persisted on both paths while the live
+        // AccountScope only moves on the establish path below, and that
+        // divergence is deliberate: an install that was already signed in
+        // when it upgraded reaches [refresh] long before it reaches
+        // [exchangeCode], and this is where that install first records which
+        // bucket it owns. It is no longer the *only* thing that records it —
+        // [AccountScope.keyAtLaunch] derives the same key from the same token
+        // one launch earlier, precisely so the bucket is not left unclaimed
+        // for a whole session — but the persist still saves the next launch
+        // from re-deriving it, and it is the only writer once the key changes.
         Settings.setSession(
             accessToken = access,
             // Absent on a client configured without refresh tokens: keep the one
             // we have rather than silently downgrading the session to 15 minutes.
             refreshToken = o.optString("refresh_token").ifBlank { Settings.refreshToken.value },
             expiresAtMs = nowMs() + o.optLong("expires_in", 0L) * 1000L,
-            username = usernameFrom(access).ifBlank { Settings.authUsername.value },
+            username = username,
+            scopeKey = scopeKey,
         )
+
+        if (establishesSession) {
+            // Adoption and the scope move are one call, in that order, and
+            // both facts are load-bearing — see adoptAndActivate, which is
+            // where they can be asserted. They used to be two lines here,
+            // where nothing could reach them.
+            AccountFiles.adoptAndActivate(fileSystem, appFilesDir(), scopeKey)
+            resetAccountScopedStores()
+        }
     }
 
     /**
@@ -376,5 +418,22 @@ object Auth {
         val payload = accessToken.split(".").getOrNull(1) ?: return ""
         val json = payload.decodeBase64()?.utf8() ?: return ""
         return runCatching { jsonObjectOf(json).optString("preferred_username") }.getOrDefault("")
+    }
+
+    /**
+     * The provider's stable identifier for this rider, read out of the same
+     * token payload [usernameFrom] reads. Used to name the on-disk bucket
+     * their files live in, which is why `sub` is preferred over the handle:
+     * a rider who renames themselves must not lose their history.
+     *
+     * Signature verification is deliberately absent for the same reason it is
+     * in [usernameFrom] — this token arrived from the provider over TLS and
+     * is being read for a label. The API is the party that has to verify it,
+     * and does.
+     */
+    internal fun subjectFrom(accessToken: String): String {
+        val payload = accessToken.split(".").getOrNull(1) ?: return ""
+        val json = payload.decodeBase64()?.utf8() ?: return ""
+        return runCatching { jsonObjectOf(json).optString("sub") }.getOrDefault("")
     }
 }
