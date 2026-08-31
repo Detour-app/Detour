@@ -38,6 +38,27 @@ system) and is not on its way to becoming a second app.
   cannot share — `ASWebAuthenticationSession` + `SecRandomCopyBytes` on iOS,
   a Custom Tab + `SecureRandom` on Android (`app/auth/AuthBrowser.kt`).
 
+- **The convoy live relay is shared.** It used to be two independent
+  implementations of one WebSocket protocol — 693 lines of Kotlin against 600 of
+  Swift, with the same tuning constants typed out on both sides. The codec, the
+  state machine, peer pruning, backoff and the spin vote are now
+  `shared/.../drive/RelayProtocol.kt` and `ConvoyRelay.kt`, with each platform
+  supplying only a socket behind a `RelaySocket` interface
+  (`OkHttpRelaySocket.kt`, `UrlSessionRelaySocket.swift`).
+
+  The spin rule is the part that mattered most: both clients documented that a
+  convoy splits across two destinations if devices resolve one offer
+  differently, and it turned out to exist in *three* places — neither platform
+  used the one copy that had tests. It is one implementation now, and the
+  property is finally tested: two relays with deliberately different peer sets,
+  given the same offer, must reach the same destination. A fake `RelaySocket`
+  is what makes that testable at all; before this, exercising any of it needed
+  two phones and a live relay.
+
+  What is *not* shared, and cannot be: push-to-talk capture and playback
+  (`AudioRecord`/`AudioTrack` against `AVAudioEngine`), and Android's
+  foreground service with its audio focus and notification.
+
 - **Kotlin exceptions actually reach Swift.** They did not before, and this is
   worth its own bullet because nothing about it is visible at a call site. A
   Kotlin/Native `suspend` function without `@Throws` propagates only
@@ -97,7 +118,32 @@ Not gaps — decisions, and the places to look first if behaviour diverges.
   utterance ends, so music comes back between prompts.
 - **Convoy keep-alive.** OkHttp has `pingInterval`, which stops NAT and the
   Cloudflare tunnel idling a quiet socket closed. `URLSessionWebSocketTask` has
-  no such setting, so the ping is scheduled by hand.
+  no such setting, so the ping is scheduled by hand in
+  `UrlSessionRelaySocket.swift`. Everything above the socket — the
+  sixteen-frame protocol, peers, TTL pruning, reconnect backoff, push-to-talk
+  membership and the spin vote — is one implementation now, so this is a
+  difference in how the connection is kept alive rather than in what either
+  platform does with it.
+- **Convoy live-URL resolution — not collapsed by the shared relay, and not
+  new either.** `OkHttpRelaySocket.liveUrl()` checks a baked-in
+  `BuildConfig.LIVE_URL` first, then derives `wss://<host>/api/live` from
+  `RoutingServer.loadCustom()` — a rider's own self-hosted server URL.
+  `UrlSessionRelaySocket.swift` reads only the baked-in
+  `BuildDefaults.shared.liveUrl` and refuses outright if that is empty; it has
+  no equivalent derivation. `RelaySocket`'s own doc says URL resolution is
+  deliberately a platform concern, not something the shared relay decides, so
+  this is not a gap the relay port left open - it is one that was never
+  closed, the same divergence register entry 6c described before the relay
+  moved: an iOS install pointed at a self-hosted server with no baked-in live
+  URL can never join a convoy, where Android derives one from the same
+  `server.url` every other service reads.
+
+  Ktor's WebSockets plugin would close even this, since its `pingInterval` is
+  common code. It was not used because the `ktor-client-darwin` engine's
+  WebSocket support could not be confirmed from the resolved artifacts and
+  nothing in the build environment can compile an iOS target to check — see
+  `docs/superpowers/specs/2026-08-26-shared-convoy-relay-design.md`. If that is
+  ever confirmed, the two sockets and this divergence collapse together.
 
 ## Not done
 
@@ -111,18 +157,24 @@ Not gaps — decisions, and the places to look first if behaviour diverges.
 
 2. **The stores can still take the app down.** The `@Throws` sweep above covered
    the `suspend` surface *iOS actually calls* — not the whole `suspend`
-   surface. 18 more public `suspend` functions in `commonMain` are exported
-   and still unannotated: `Auth.bearer`/`.exchangeCode`/`.signOut`,
+   surface. 17 more public `suspend` functions in `commonMain` are exported
+   and still unannotated: `Auth.exchangeCode`/`.signOut`,
    `CircleFixes.fixes`, `Friends.remove`, `PoiRoulette.randomPoi`,
    `RoadRoulette`'s `randomRoadPoint`/`fetchRoads`/`nearestSpeedLimitKmh`/
    `speedLimitWays`/`rawQuery`, `RoundTripPlanner.plan`, `RouteShare.inbox`/
    `.delete`, `RoutingServer.roundTrip`/`.randomRoadDestination`,
-   `SpinPicker.pickCandidate` and `SyncClient.syncIfDue`. None is called from
-   Swift today, so there is no live gap — but `SyncClient.syncIfDue` is worth
-   naming on its own: it sits directly above `sync()`'s canonical `@Throws`
-   doc comment in the same file, is Android-only today, and is exactly what
-   an iOS launch-time auto-sync would reach for first. Whoever wires that up
-   has to remember to annotate it then; nothing here does it for them.
+   `SpinPicker.pickCandidate` and `SyncClient.syncIfDue`. None of these is
+   called from Swift today, so there is no live gap for them — but
+   `Auth.bearer` was on this same list until the convoy relay gave Swift a
+   reason to call it (`ConvoyLiveClient.swift`'s `AuthBearerSource`, via the
+   relay's `BearerSource` interface): it is annotated and called now, which
+   is exactly the reminder this list exists to give the next function that
+   crosses the same way. `SyncClient.syncIfDue` is worth naming on its own
+   ahead of time for the identical reason: it sits directly above `sync()`'s
+   canonical `@Throws` doc comment in the same file, is Android-only today,
+   and is exactly what an iOS launch-time auto-sync would reach for first.
+   Whoever wires that up has to remember to annotate it then; nothing here
+   does it for them.
 
    Nor did the sweep cover the **non-`suspend`** store functions Swift calls —
    `TraceStore.append`/`.clear`/`.rawLines`, `TripStore.save`/

@@ -116,10 +116,15 @@ answer, so ids cannot be enumerated.
 | `shared/…/data/Groups.kt` | Membership calls for both kinds, taking the kind as a parameter |
 | `shared/…/data/CircleFixes.kt` | The low-cadence position path |
 | `shared/…/data/CircleEvents.kt` | Arrival/departure feed and the on-device geofence evaluator |
-| `app/…/net/ConvoyLiveClient.kt` | The socket: peers, connection state, active groups |
+| `shared/…/drive/RelayProtocol.kt` | The wire codec — decodes the nine inbound frame types, builds the seven outbound ones. Pure, no socket, no state. |
+| `shared/…/drive/ConvoyRelay.kt` | The relay's state machine — peers, push-to-talk membership, the spin vote, connect/backoff/reconnect — behind a `RelaySocket` seam. One implementation both platforms run, not two hand-rolled copies. |
+| `shared/…/drive/RelaySocket.kt` | The seam: open/receive/send/close, with URL and bearer resolution left to whoever implements it |
+| `app/…/net/OkHttpRelaySocket.kt` | Android's `RelaySocket`, over OkHttp's `WebSocket` |
+| `app/…/net/ConvoyLiveClient.kt` | Android glue around `ConvoyRelay`: the `Features.liveRelay`/no-server guards, run-loop wiring, location forwarding |
 | `app/…/convoy/ConvoyLiveService.kt` | Foreground service holding the socket while the screen is off |
 | `app/…/tracking/TripTrackingService.kt` | The circle tick — one collector, two sinks (§10) |
-| `iosApp/Detour/ConvoyLiveClient.swift` | The socket counterpart |
+| `iosApp/Detour/UrlSessionRelaySocket.swift` | iOS's `RelaySocket`, over `URLSessionWebSocketTask` |
+| `iosApp/Detour/ConvoyLiveClient.swift` | iOS glue around `ConvoyRelay`, the same shape as the Android object above, `ObservableObject`-published for SwiftUI |
 | `iosApp/Detour/CircleSync.swift` | The circle tick counterpart |
 
 The two UIs stay entirely separate. A circle screen and a convoy screen have

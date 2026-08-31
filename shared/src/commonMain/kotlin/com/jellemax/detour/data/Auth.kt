@@ -102,7 +102,19 @@ object Auth {
     /**
      * An access token good for the next [REFRESH_SKEW_MS], refreshing first if
      * the stored one is not.
+     *
+     * `@Throws` because Swift calls this now: `ConvoyLiveClient.swift` hands
+     * it to `ConvoyRelay.run` as the bearer supplier. Without the annotation a
+     * Kotlin/Native `suspend` function propagates only `CancellationException`
+     * and every other exception terminates the process — so an expired refresh
+     * token, a realm that refuses, or an unconfigured issuer would kill the app
+     * rather than surface as `lastError`, and a Swift `try?` cannot catch it
+     * because the abort happens on this side of the bridge. See [SyncClient]'s
+     * own note for the rule, and `docs/IOS_PORT.md` for why the earlier sweep
+     * missed this one: it annotated what Swift called *at the time*, and
+     * nothing called `bearer` from Swift until the relay did.
      */
+    @Throws(Exception::class)
     suspend fun bearer(): String {
         if (!signedIn) throw AuthException("Sign in to sync")
         if (!expiringSoon()) return Settings.accessToken.value

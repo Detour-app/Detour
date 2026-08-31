@@ -3,8 +3,8 @@ package com.jellemax.detour.ui
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
-import com.jellemax.detour.net.GroupSpin
-import com.jellemax.detour.net.SpinCandidate
+import com.jellemax.detour.drive.GroupSpin
+import com.jellemax.detour.drive.SpinCandidate
 
 /** One color per spin candidate, so the pin on the map and the row in the card
  *  are recognizably the same place. Kept clear of the blue radius circle, the

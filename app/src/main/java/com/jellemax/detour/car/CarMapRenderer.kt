@@ -22,9 +22,9 @@ import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MemberFix
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
+import com.jellemax.detour.drive.FriendPosition
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.net.ConvoyLiveClient
-import com.jellemax.detour.net.FriendPosition
 import com.jellemax.detour.ui.MapOverlays
 import com.jellemax.detour.ui.PositionMarker
 import com.jellemax.detour.ui.openFreeMapStyleUrl

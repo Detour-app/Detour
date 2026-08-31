@@ -612,9 +612,25 @@ extraction in the repo (~270 Swift lines) and needs its own chain, not a work it
 
 ## 6. The convoy relay protocol — two hand-written implementations of one wire format
 
+> **Correction, after the shared-convoy-relay branch.** This entry's whole premise —
+> `app/…/net/ConvoyLiveClient.kt` and `iosApp/Detour/ConvoyLiveClient.swift` as two independent
+> hand-rolled implementations — stopped being true at `db5a107`. The codec, the state machine
+> (peers, push-to-talk membership, the spin vote), peer pruning and the reconnect/backoff loop all
+> moved into `shared/src/commonMain/kotlin/com/jellemax/detour/drive/{RelayProtocol,ConvoyRelay}.kt`,
+> which both platforms now call through a small `RelaySocket` seam instead of each carrying its
+> own copy. `app/…/net/ConvoyLiveClient.kt` is 236 lines now, not the 625 quoted below, and
+> `iosApp/Detour/ConvoyLiveClient.swift` is 408 (241 and 473 are older still, from before that).
+> Every `kt:`/`swift:` line citation in 6a–6f below is left as written rather than re-derived line
+> by line — several now point past the end of the file they cite — because the entries describe a
+> divergence in code that no longer exists in that shape at all, not a position that merely moved;
+> re-deriving line numbers for deleted code would misrepresent the fix as a line-number drift
+> rather than what it actually was. What still matters from this entry — whether the six leaks
+> below stayed fixed — is what §D's `check-divergences.sh` fence verifies for 6a/6b against the
+> current shared implementation now, not against either platform file any more.
+
 **What.** A convoy is a group of riders sharing live position, push-to-talk audio and a shared
 "spin" vote for where to go next, over one WebSocket relay. The Android and iOS clients implement
-that protocol independently, in Kotlin and in Swift.
+that protocol independently, in Kotlin and in Swift **— see the correction above: no longer true**.
 
 **Copies.** `app/…/net/ConvoyLiveClient.kt` (625 lines) ↔
 `iosApp/Detour/ConvoyLiveClient.swift` (473 lines). The Swift file's own doc comment concedes the
@@ -2146,13 +2162,18 @@ check 'the -6 roundabout-exit branch is still car-only' 1 \
 check 'iOS declares a microphone usage description' 1 \
     "$(grep -c 'NSMicrophoneUsageDescription' iosApp/Detour/Info.plist)"
 
-# Entries 6a and 6b — RESOLVED by aff8407. Both were absences, so both are now
-# inverted: 0 means the left branch or the sweep was lost again. The pruner
-# counts 2 — the definition and the one place the connection loop starts it.
-check 'iOS handles the relay left frame' 1 \
-    "$(grep -c 'case "left"' iosApp/Detour/ConvoyLiveClient.swift)"
-check 'iOS prunes quiet peers on a timer' 2 \
-    "$(grep -c 'prunePeersPeriodically' iosApp/Detour/ConvoyLiveClient.swift)"
+# Entries 6a and 6b — RESOLVED by aff8407, then SUPERSEDED by db5a107
+# (shared-convoy-relay): iOS's own `case "left"`/`prunePeersPeriodically`
+# moved out of ConvoyLiveClient.swift entirely into
+# shared/.../drive/ConvoyRelay.kt, which both platforms now call - the
+# divergence these two guarded is no longer a thing two hand-rolled copies
+# could disagree about, since there is only the one copy. Re-pointed at what
+# replaced them rather than deleted, so a regression that drops either still
+# fails the fence.
+check 'the shared relay still handles the left frame' 1 \
+    "$(grep -c 'is RelayEvent.Left ->' shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt)"
+check 'the shared relay still prunes quiet peers on a timer' 1 \
+    "$(grep -c 'val pruner = launch' shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt)"
 
 # Entry 5d's gate — RESOLVED by 35b8993. Inverted: 0 means a hand-started iOS
 # trip can auto-end again.
