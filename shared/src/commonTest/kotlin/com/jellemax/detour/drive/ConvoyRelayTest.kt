@@ -962,8 +962,8 @@ class ConvoyRelayTest {
     // resumes the same membership - see stop()'s own doc. A *session*
     // change - what run()'s own Auth.sessionEpoch watcher reacts to - is not
     // a reconnect: the membership itself is gone, so it must clear rather
-    // than preserve it, or a later setNotifyingCircles call (CircleSync's
-    // own periodic tick, driven by the *next* rider's own circles) makes
+    // than preserve it, or a later setNotifyingCircles call (the
+    // notify-circle refresh, driven by the *next* rider's own circles) makes
     // shouldStayConnected() true again with the departed rider's stale
     // _convoyId still sitting there, and the next run() rejoins it - sending
     // the new rider's GPS onto the previous rider's convoy. See
@@ -1026,8 +1026,8 @@ class ConvoyRelayTest {
         relay.clearMembershipForSessionChange()
         job.join()
 
-        // The next rider signs in on this device - CircleSync's own periodic
-        // tick calling setNotifyingCircles with *their* circles is what
+        // The next rider signs in on this device - the notify-circle refresh
+        // calling setNotifyingCircles with *their* circles is what
         // actually fires ensureRunning() again in the real app (see
         // net/ConvoyLiveClient.kt's setNotifyCircles), not a fresh setConvoy
         // call - the failure this test guards against never involves the new
@@ -1094,8 +1094,8 @@ class ConvoyRelayTest {
         // this is never null here.
         relay.membershipEpoch = requireNotNull(relay.membershipEpoch) - 1
 
-        // The next rider's own CircleSync tick - setNotifyingCircles, not a
-        // fresh setConvoy call - is what actually rejoins a stale convoy in
+        // The next rider's own notify-circle refresh - setNotifyingCircles,
+        // not a fresh setConvoy call - is what actually rejoins a stale convoy in
         // the real leak (see the class doc's Auth.sessionEpoch paragraph).
         relay.setNotifyingCircles(setOf("circle-b"))
 

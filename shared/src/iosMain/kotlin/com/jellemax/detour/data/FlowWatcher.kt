@@ -373,6 +373,23 @@ object Enums {
      *  measured against the same number the fetch used. */
     val cameraPrefetchRadiusMeters: Double = SpeedCameras.PREFETCH_RADIUS_M
 
+    /** [CircleNotifyPolicy.planCatchUp]'s two policy numbers, for the same
+     *  reason as [cameraPrefetchRadiusMeters]: they are `const val`s inside an
+     *  object, whose exported spelling is not stable, and Swift has to pass
+     *  them explicitly because an exported function carries no default
+     *  arguments. Read from here rather than retyped in Swift — they were two
+     *  of the ten hand-copied constants (five values, two languages) the
+     *  shared policy exists to make one. */
+    val circleCatchUpCap: Int = CircleNotifyPolicy.NOTIFY_CAP
+    val circleStaleAfterMs: Long = CircleNotifyPolicy.STALE_AFTER_MS
+
+    /** The cadence `CircleSync.loop` seeds its first sleep with — the last of
+     *  those ten. Only the first: every sleep after is whatever
+     *  [CirclePresence.tick] returned, so this is the one place the 2-minute
+     *  number could quietly drift from the shared one if Swift kept its own
+     *  copy. */
+    val circleActiveIntervalMs: Long = CirclePresence.ACTIVE_INTERVAL_MS
+
     /** How many random bytes `SignIn.swift` must draw for [Oidc.begin]. Named
      *  here for the same reason the rest of this object exists: a `const val`
      *  in an object has no stable exported spelling. */

@@ -1762,6 +1762,32 @@ selection rule (cap, max-age, newest-N) is written twice and identical, so it is
 candidate — and `CircleEvents.kt` already holds the wording, which is the precedent stage 3 is
 told to copy.
 
+**RESOLVED (ordering) — `5d8b162`, in favour of newest-on-top on both platforms.** This entry's
+"possibly both are already right for their platform" does not survive contact with the trays:
+**neither sets a sort key**. `PlaceNotifications.show` sets no `setWhen`, no group and no sort
+key, and an `UNNotificationRequest` carries none either, so both shades rank by post time and
+whatever was posted *last* sits on top. Android's `takeLast` happened to preserve ascending order
+and so already read newest-on-top; iOS's `prefix` posted newest-first and so read oldest-on-top.
+
+Slice D (`docs/superpowers/specs/2026-08-26-shared-circle-presence-design.md`) moved the selection
+into `shared/…/data/CircleNotifyPolicy.planCatchUp`, which selects newest-first — that being which
+five survive the cap, not a display order — and the decision recorded in its final review is that
+**both platforms iterate it in reverse when delivering**. Net effect: both trays read
+newest-on-top, Android's behaviour is unchanged, iOS's is what moved. Pinned by
+`CircleNotifyDeliveryOrderTest` (app/src/test) on the Android side; iOS has no test target
+(`iosApp/project.yml` defines none), so its `reversed()` is pinned by a comment.
+
+The **catch-up** self-filter is shared by the same move: `planCatchUp` drops the caller's own
+transitions for both platforms, so that half can no longer be present on one side only.
+
+**Still open — the live-path self-filter.** `CircleNotifications.handleLiveEvent`
+(`iosApp/Detour/CircleNotifications.swift:79`) still has no `event.username == me` guard, where
+`CircleNotifyService.collectLiveEvents` (`app/…/notif/CircleNotifyService.kt:162`) does. Slice D
+left it deliberately: notification *delivery* stays platform-side, and only policy moved. So the
+one-line defence against a server-side `exclude_user_id` regression is still Android-only, and
+this entry's "survive — Android's self-filter, added to iOS" verdict stands for that half as a
+follow-up.
+
 **Blocks stage 3: no.** Notification policy is not a stage-3 machine.
 
 ---
@@ -1858,7 +1884,7 @@ items plus one open question plus a bug — so the buckets add to more than 22 b
 | 19 | Distance-to-turn: metres vs 100 m steps | product decision | phone, wear, iOS | no | **needs-a-human**, low stakes |
 | 7 | `fetchLocation`, five one-shot lookups | drift | phone, car | no | survive: high-accuracy shape, parameterised |
 | 18 | Speed HUD fades at standstill on the phone only | product decision | phone or car | constrains it | **needs-a-human**, "leave both" is fine |
-| 21 | Catch-up order reversed; iOS lacks a self-filter | product decision + gap | one platform, iOS | no | **needs-a-human** on order; survive the filter |
+| 21 | Catch-up order reversed; iOS lacks a self-filter | product decision + gap | one platform, iOS | no | **ordering RESOLVED `5d8b162`** — newest-on-top on both, catch-up self-filter now shared; iOS's **live-path** self-filter still open |
 | 14 | Wear discards the instruction text | product decision (small) | wear | no | **needs-a-human** (§C4-adjacent) |
 | 8 | `60` literal vs `NavPolicy.OFF_ROUTE_METERS` | latent | phone | no | **RESOLVED — constant `7d57087`, car indicator `6551f37`** |
 | 22 | Trip dates: fixed pattern vs locale-derived | drift | phone | no | survive: **iOS's** |
