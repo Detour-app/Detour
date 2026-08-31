@@ -138,6 +138,7 @@ private enum class BottomCard { NAV, CANDIDATES, COLLAPSED, EXPANDED }
 @Composable
 fun MapScreen(
     onOpenHub: () -> Unit,
+    retained: RetainedMap,
 ) {
     val context = LocalContext.current
     // Extra bottom padding for a fitted route/candidate spread, roughly the
@@ -362,10 +363,12 @@ fun MapScreen(
     val darkTheme = isAppDarkTheme(themePref)
     val fogRadius by Settings.fogRadiusMeters.collectAsStateWithLifecycle()
 
-    val mapView = remember { ColdStartTiming.timed("MapView(context)") { MapView(context) } }
-    val fogView = remember { FogView(context) }
-    var mapLibreMap by remember { mutableStateOf<MapLibreMap?>(null) }
-    var mapOverlays by remember { mutableStateOf<MapOverlays?>(null) }
+    // All four outlive this composition — see RetainedMap. Leaving the map for
+    // the Hub no longer destroys the GL surface or re-fetches the style.
+    val mapView = retained.mapView
+    val fogView = retained.fogView
+    val mapLibreMap = retained.map
+    val mapOverlays = retained.overlays
 
     // Tell the tracker the map is being looked at, so it drops its battery-saving
     // batched fixes for navigation-grade ones while we're here. Tied to the
@@ -397,45 +400,10 @@ fun MapScreen(
         }
     }
 
-    // MapView lifecycle. The map arrives asynchronously; effects that touch it
-    // guard on `mapLibreMap` being non-null.
-    DisposableEffect(Unit) {
-        mapView.onCreate(null)
-        mapView.onStart()
-        mapView.onResume()
-        mapView.getMapAsync { map ->
-            ColdStartTiming.mark("getMapAsync ready")
-            map.uiSettings.isCompassEnabled = false
-            map.uiSettings.isRotateGesturesEnabled = true
-            // Keep OSM/OpenFreeMap attribution above the collapsed spin bar
-            // instead of half-covered by it in every card state.
-            map.uiSettings.setAttributionMargins(0, 0, 0, attributionBottomMarginPx)
-            map.uiSettings.setLogoMargins(0, 0, 0, attributionBottomMarginPx)
-            mapLibreMap = map
-        }
-        onDispose {
-            fogView.map = null
-            mapView.onPause()
-            mapView.onStop()
-            mapView.onDestroy()
-        }
-    }
-
-    // (Re)load the style on theme flip; rebuild the overlay layers on the new
-    // Style and (re)attach the fog view over the GL surface.
-    LaunchedEffect(darkTheme, mapLibreMap) {
-        val map = mapLibreMap ?: return@LaunchedEffect
-        map.setStyle(Style.Builder().fromUri(openFreeMapStyleUrl(darkTheme))) { style ->
-            ColdStartTiming.mark("style loaded")
-            mapOverlays = MapOverlays(style, context, darkTheme)
-            fogView.map = map
-            if (mapView.indexOfChild(fogView) < 0) {
-                mapView.addView(fogView, android.view.ViewGroup.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT))
-            }
-        }
-    }
+    // The MapView's lifecycle, getMapAsync and style load all moved into
+    // RetainedMap, which owns them for the Activity's life rather than for this
+    // composition's. Calling onDestroy here would destroy a map the next entry
+    // expects to still be alive.
 
     // Park the camera as soon as the map is dragged or pinched. A camera-move
     // listener can't be used for this: the frame loop moves the camera every
@@ -731,13 +699,14 @@ fun MapScreen(
     val candidatesRef = rememberUpdatedState(displayCandidates)
     val spinOfferRef = rememberUpdatedState(spinOffer)
     val navigatingRef = rememberUpdatedState(navigating)
-    // Registered in a DisposableEffect that removes what it added. Today
-    // `mapLibreMap` goes null -> map exactly once per Activity, so this is
-    // behaviour-preserving — the removals never run while the screen is alive.
-    // It is a precondition for retaining the map across a navigation, where the
-    // effect re-runs on every entry against an already-non-null map and the
-    // listeners would otherwise stack. See the hazards skill's §2b, and
-    // FogView.map's setter in MapLibreMap.kt for the shape.
+    // A DisposableEffect, not a LaunchedEffect, and that is load-bearing now the
+    // map outlives this composition. Before RetainedMap, `mapLibreMap` went
+    // null -> map exactly once per Activity, so registering without removing was
+    // safe (the hazards skill's §2b). Now every return to the map composes
+    // against an already-non-null map and re-runs this — so each of the four
+    // has to come back off, or a rider who visits the Hub three times gets
+    // sixteen listeners and the fog invalidates four times per camera move.
+    // The remove-what-you-added shape is FogView.map's setter, in MapLibreMap.kt.
     DisposableEffect(mapLibreMap) {
         val map = mapLibreMap ?: return@DisposableEffect onDispose { }
         // The fog is screen-space, projected through the map — redraw it on every
@@ -1562,7 +1531,16 @@ fun MapScreen(
                 .fillMaxSize()
                 .padding(bottom = scaffoldPadding.calculateBottomPadding()),
         ) {
-            AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
+            // The view is retained, so on a return it is still attached to the
+            // parent the previous entry gave it, and addView would throw
+            // "The specified child already has a parent".
+            AndroidView(
+                factory = {
+                    (mapView.parent as? android.view.ViewGroup)?.removeView(mapView)
+                    mapView
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
 
             // The banner drops in from the top edge when navigation starts; the
             // toolbar fades back once it ends.

@@ -48,6 +48,7 @@ import com.jellemax.detour.ui.SavedPlacesScreen
 import com.jellemax.detour.ui.SettingsScreen
 import com.jellemax.detour.ui.TripDetailScreen
 import com.jellemax.detour.ui.isAppDarkTheme
+import com.jellemax.detour.ui.rememberRetainedMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -161,6 +162,12 @@ private enum class Screen(val depth: Int) {
 
 @Composable
 private fun AppRoot() {
+    // Created here, above the navigation swap, so it outlives MapScreen's
+    // composition — that is the whole point of it. AppRoot is composed for the
+    // Activity's life, which is the correct scope for a MapView's Context. See
+    // RetainedMap.
+    val themePref by Settings.theme.collectAsStateWithLifecycle()
+    val retainedMap = rememberRetainedMap(darkTheme = isAppDarkTheme(themePref))
     var screen by remember { mutableStateOf(Screen.MAP) }
     // The trip a TRIP_DETAIL screen is showing — set on the way in from
     // History, left stale (but unread) once we've navigated away from it.
@@ -273,7 +280,10 @@ private fun AppRoot() {
                 onBack = { screen = Screen.ROUTES },
                 onSaved = { screen = Screen.ROUTES },
             )
-            Screen.MAP -> MapScreen(onOpenHub = { screen = Screen.HUB })
+            Screen.MAP -> MapScreen(
+                onOpenHub = { screen = Screen.HUB },
+                retained = retainedMap,
+            )
         }
     }
 }
