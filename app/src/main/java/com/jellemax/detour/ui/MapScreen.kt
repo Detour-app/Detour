@@ -293,22 +293,18 @@ fun MapScreen(
     // Dock (collapsed) is the resting state; the sheet only comes up when
     // tapped open, and folds back down on its own after a spin lands.
     var settingsCollapsed by rememberSaveable { mutableStateOf(true) }
-    var ambientSpeedLimitKmh by remember { mutableStateOf<Double?>(null) }
     // The prefetched way set, the fetch throttle, the miss counter and the
     // snapped value: SpeedLimitTracker's, in shared/…/drive/, where the policy
-    // lives with its tests. ambientSpeedLimitKmh stays its own state because the
+    // lives with its tests. retained.ambientSpeedLimitKmh stays its own state because the
     // camera chime snapshots it below and the HUD reads it; collapsing the two is
     // the state layer's call, not this one's.
-    var limitState by remember { mutableStateOf(SpeedLimitTracker.State()) }
     // Out here rather than inside the effect that uses it, for the same reason
-    // limitState is: that effect is keyed on `navigating` and restarts, and a
+    // retained.limitState is: that effect is keyed on `navigating` and restarts, and a
     // holder that restarted with it would forget an in-flight fetch — so the
     // guard would wave a second one through on the very next fix after a
     // navigation toggle. The fetch itself runs on `scope`, which outlives the
     // restart, so the two have to agree about what is running.
     var speedLimitFetchJob by remember { mutableStateOf<Job?>(null) }
-    var speedCameras by remember { mutableStateOf<List<SpeedCameras.Camera>>(emptyList()) }
-    var speedSections by remember { mutableStateOf<List<SpeedCameras.Section>>(emptyList()) }
     // Non-null only while driving through a trajectcontrole: the running average
     // speed since entering it, and the posted limit it's judged against.
     // Seeded from the retained machine, so a return mid-section shows the
@@ -865,8 +861,17 @@ fun MapScreen(
         // reset() says why, and keeps the prefetched area. Clear it and let the
         // next snap re-establish it, the way the car has since it shipped
         // (car/SpinScreen.kt's onStart).
-        limitState = SpeedLimitTracker.reset(limitState)
-        ambientSpeedLimitKmh = null
+        //
+        // Guarded, because this effect also restarts whenever the composition
+        // is recreated — which is every return to the map — and the effect
+        // cannot tell that apart from a real crossing. Unguarded, the sign went
+        // blank on every trip to the Hub and stayed blank until the next
+        // prefetch and snap re-established it.
+        if (retained.limitResetForNavigating != navigating) {
+            retained.limitResetForNavigating = navigating
+            retained.limitState = SpeedLimitTracker.reset(retained.limitState)
+            retained.ambientSpeedLimitKmh = null
+        }
         if (navigating) return@LaunchedEffect
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
@@ -875,7 +880,7 @@ fun MapScreen(
             if (fix.speedMps < SpeedLimitTracker.MIN_MPS) return@collect
             val pos = LatLon(fix.lat, fix.lon)
             val now = System.currentTimeMillis()
-            if (SpeedLimitTracker.needsWays(limitState, pos, now) &&
+            if (SpeedLimitTracker.needsWays(retained.limitState, pos, now) &&
                 speedLimitFetchJob?.isActive != true
             ) {
                 // The refresh runs in its own coroutine. lastFix is a StateFlow
@@ -888,7 +893,7 @@ fun MapScreen(
                 // The isActive guard is what now stops two fetches overlapping,
                 // which is the job the inline await used to do by accident.
                 // Same fix as car/SpinScreen.kt's updateSpeedLimit.
-                limitState = SpeedLimitTracker.fetchStarted(limitState, now)
+                retained.limitState = SpeedLimitTracker.fetchStarted(retained.limitState, now)
                 speedLimitFetchJob = scope.launch {
                     // runCatching because this no longer runs inside the
                     // collector: an exception escaping here would cancel
@@ -907,16 +912,16 @@ fun MapScreen(
                     val ways = runCatching {
                         withContext(Dispatchers.IO) { RoadRoulette.speedLimitWays(pos) }
                     }.getOrNull()
-                    limitState = SpeedLimitTracker.withWays(limitState, ways, pos)
+                    retained.limitState = SpeedLimitTracker.withWays(retained.limitState, ways, pos)
                 }
             }
-            limitState = SpeedLimitTracker.onFix(
-                state = limitState,
+            retained.limitState = SpeedLimitTracker.onFix(
+                state = retained.limitState,
                 at = pos,
                 headingDeg = fix.bearingDeg?.toDouble(),
                 speedMps = fix.speedMps,
             )
-            ambientSpeedLimitKmh = limitState.limitKmh
+            retained.ambientSpeedLimitKmh = retained.limitState.limitKmh
         }
     }
 
@@ -929,10 +934,16 @@ fun MapScreen(
         // The cadence — the margin, the throttle and the backoff after a run of
         // refusals — is CameraPrefetch's (shared/…/drive/), so the head unit
         // keeps the same one. What stays here is the I/O and the two holders it
-        // fills. Coroutine-local, unlike the ambient limit's holder up in the
-        // body: this effect is keyed on Unit and never restarts, so a local has
-        // nothing to lose. Keeping it here is what says so.
-        var prefetch = CameraPrefetch.State()
+        // fills.
+        //
+        // This used to hold `prefetch` in a coroutine-local, on the grounds
+        // that "this effect is keyed on Unit and never restarts, so a local has
+        // nothing to lose". That was wrong about the restart: Unit keeps it
+        // from restarting on a *recomposition*, but leaving the map disposes
+        // the composition outright, so every return re-ran it with a fresh
+        // State — re-fetching an area already held, and losing the backoff that
+        // exists to stop hammering a refusing mirror.
+        var prefetch = retained.cameraPrefetch
         var fetchJob: Job? = null
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
@@ -947,16 +958,18 @@ fun MapScreen(
                 // section machine, so suspending it also stalled the running
                 // average's own fix stream.
                 prefetch = CameraPrefetch.fetchStarted(prefetch, now)
+                retained.cameraPrefetch = prefetch
                 fetchJob = scope.launch {
                     val result = runCatching {
                         withContext(Dispatchers.IO) { SpeedCameras.near(pos) }
                     }.getOrNull()
                     prefetch = CameraPrefetch.fetched(prefetch, result, pos)
+                    retained.cameraPrefetch = prefetch
                     // Only the markers are ours to fold in; a null result keeps
                     // the ones we hold rather than flickering them off.
                     if (result != null) {
-                        speedCameras = result.cameras
-                        speedSections = result.sections
+                        retained.speedCameras = result.cameras
+                        retained.speedSections = result.sections
                     }
                 }
             }
@@ -965,8 +978,8 @@ fun MapScreen(
 
     // Push camera markers to the map. Separate from the main overlay render
     // because cameras change on the prefetch cadence, not per drawable-state flip.
-    LaunchedEffect(mapOverlays, speedCameras) {
-        mapOverlays?.setCameras(speedCameras)
+    LaunchedEffect(mapOverlays, retained.speedCameras) {
+        mapOverlays?.setCameras(retained.speedCameras)
     }
 
     // Convoy friend markers, on ConvoyLiveClient's own relay-driven cadence —
@@ -1016,15 +1029,18 @@ fun MapScreen(
     // the one case worth interrupting for. The rule, the one-chime-per-camera
     // latch and the wording are CameraWarner's (shared/…/drive/), where they live
     // with their tests; what to do about a warning is ours.
-    val speedCamerasRef = rememberUpdatedState(speedCameras)
-    val ambientLimitRef = rememberUpdatedState(ambientSpeedLimitKmh)
+    val speedCamerasRef = rememberUpdatedState(retained.speedCameras)
+    val ambientLimitRef = rememberUpdatedState(retained.ambientSpeedLimitKmh)
     val navProgressRef = rememberUpdatedState(navProgress)
     val toneGen = remember {
         runCatching { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90) }.getOrNull()
     }
     DisposableEffect(Unit) { onDispose { toneGen?.release() } }
     LaunchedEffect(Unit) {
-        var warnerState = CameraWarner.State()
+        // Resumed for the same reason as the section machine: this is the
+        // one-warning-per-camera latch, and restarting it re-arms a camera the
+        // rider has already been warned about and already passed.
+        var warnerState = retained.warnerState
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
             // The ambient sign is the free-drive source. While navigating, the
@@ -1041,6 +1057,7 @@ fun MapScreen(
                 limitKmh = navProgressRef.value?.speedLimitKmh ?: ambientLimitRef.value,
             )
             warnerState = step.state
+            retained.warnerState = warnerState
             when (val outcome = step.outcome) {
                 is CameraWarner.Outcome.Warn -> {
                     toneGen?.startTone(ToneGenerator.TONE_PROP_BEEP2, 400)
@@ -1072,7 +1089,7 @@ fun MapScreen(
     // Average speed through a trajectcontrole: SectionAverageTracker's call now
     // (shared/…/drive/), where the gate rules, the eight thresholds and the
     // reasoning behind each live with their tests.
-    val speedSectionsRef = rememberUpdatedState(speedSections)
+    val speedSectionsRef = rememberUpdatedState(retained.speedSections)
     LaunchedEffect(Unit) {
         // Resumed, not restarted: this effect is keyed on Unit and so restarts
         // on every return to the map, which used to throw away an in-progress
@@ -1656,7 +1673,7 @@ fun MapScreen(
                         SpeedHud(
                             speedKmh = retained.displaySpeedKmh,
                             limitKmh = if (navigating) navProgress?.speedLimitKmh
-                                else ambientSpeedLimitKmh,
+                                else retained.ambientSpeedLimitKmh,
                             averageKmh = sectionAvgKmh,
                             averageLimitKmh = sectionLimitKmh,
                         )

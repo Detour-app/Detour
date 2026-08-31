@@ -14,7 +14,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.ColdStartTiming
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.SpeedCameras
+import com.jellemax.detour.drive.CameraPrefetch
+import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.drive.SpeedLimitTracker
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
@@ -113,6 +117,34 @@ class RetainedMap(context: Context) {
      * its State rather than reaching into a coroutine's locals.
      */
     var sectionState: SectionAverageTracker.State by mutableStateOf(SectionAverageTracker.State())
+
+    // --- the ambient speed-limit sign ------------------------------------
+
+    var limitState: SpeedLimitTracker.State by mutableStateOf(SpeedLimitTracker.State())
+    var ambientSpeedLimitKmh: Double? by mutableStateOf(null)
+
+    /**
+     * The `navigating` value the limit machine was last reset for.
+     *
+     * Its effect is keyed on `navigating` and opens by resetting, because
+     * crossing into or out of navigation genuinely invalidates the held sign.
+     * But a restart caused by returning to the map is indistinguishable from
+     * one caused by that crossing — the effect only sees that it restarted — so
+     * the sign was cleared on every re-entry and stayed blank until the next
+     * prefetch and snap. Recording what was last reset for is what tells the
+     * two apart. Null until the first run.
+     */
+    var limitResetForNavigating: Boolean? = null
+
+    // --- speed cameras and trajectcontrole sections ----------------------
+
+    var cameraPrefetch: CameraPrefetch.State by mutableStateOf(CameraPrefetch.State())
+    var speedCameras: List<SpeedCameras.Camera> by mutableStateOf(emptyList())
+    var speedSections: List<SpeedCameras.Section> by mutableStateOf(emptyList())
+
+    /** The one-warning-per-camera latch. Reset it and a camera already passed
+     *  chimes again on the way back past nothing. */
+    var warnerState: CameraWarner.State by mutableStateOf(CameraWarner.State())
 }
 
 /**
