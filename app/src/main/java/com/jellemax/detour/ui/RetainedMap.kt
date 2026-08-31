@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -79,6 +80,22 @@ class RetainedMap(context: Context) {
     /** Null until the first fix computes one, so MapScreen can fall back to
      *  the current `defaultZoom` setting rather than to a stale copy of it. */
     var camTargetZoom: Double? by mutableStateOf(null)
+
+    /**
+     * The eased speedometer reading, retained for the same reason as the
+     * camera's target.
+     *
+     * As a plain `remember` this came back at 0.0 on every return to the map
+     * and then climbed to the real speed over `SPEED_TAU`, so a rider glancing
+     * at the HUD just after leaving the Hub saw a number that was simply wrong
+     * — worst exactly when moving, which is when it is read.
+     *
+     * `mutableDoubleStateOf`, not `mutableStateOf`, to keep the unboxed write
+     * the per-frame easing loop does. Compose still skips invalidation when the
+     * value is unchanged, which is what lets that loop run unconditionally once
+     * the number has settled (hazards skill §6).
+     */
+    var displaySpeedKmh: Double by mutableDoubleStateOf(0.0)
 }
 
 /**

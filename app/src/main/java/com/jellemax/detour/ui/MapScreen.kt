@@ -319,7 +319,6 @@ fun MapScreen(
     // Held in RetainedMap, not in a remember: these survive a navigation so the
     // camera does not ease back to the default zoom and north-up every time the
     // rider returns to the map. See RetainedMap's camera section.
-    var displaySpeedKmh by remember { mutableDoubleStateOf(0.0) }
     // Same expression as before, now owned by the state: navigation drives the
     // camera whether or not you are following, and a park still stops it.
     val cameraActive = camAuthority.cameraActive(navigating)
@@ -1113,10 +1112,10 @@ fun MapScreen(
             val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.1)
             lastNs = ns
             val target = speedTarget.value
-            val gap = target - displaySpeedKmh
-            displaySpeedKmh =
+            val gap = target - retained.displaySpeedKmh
+            retained.displaySpeedKmh =
                 if (abs(gap) < SPEED_EPS_KMH) target
-                else displaySpeedKmh + gap * (1.0 - exp(-dt / SPEED_TAU))
+                else retained.displaySpeedKmh + gap * (1.0 - exp(-dt / SPEED_TAU))
         }
     }
 
@@ -1643,9 +1642,9 @@ fun MapScreen(
                     // Stays up while the eased number winds back down, so
                     // stopping at a light fades the dial out instead of
                     // snatching it away mid-count.
-                    liveFix?.takeIf { it.speedMps >= 1.4 || displaySpeedKmh >= 2.0 }?.let {
+                    liveFix?.takeIf { it.speedMps >= 1.4 || retained.displaySpeedKmh >= 2.0 }?.let {
                         SpeedHud(
-                            speedKmh = displaySpeedKmh,
+                            speedKmh = retained.displaySpeedKmh,
                             limitKmh = if (navigating) navProgress?.speedLimitKmh
                                 else ambientSpeedLimitKmh,
                             averageKmh = sectionAvgKmh,
