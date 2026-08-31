@@ -306,6 +306,7 @@ object Auth {
         RouteStore.reset()
         MunicipalityStore.reset()
         TraceStore.reset()
+        RiderTotals.reset()
     }
 
     private suspend fun refresh(): String {

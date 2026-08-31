@@ -49,6 +49,7 @@ import com.jellemax.detour.data.CirclePresence
 import com.jellemax.detour.data.Coverage
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MunicipalityStore
+import com.jellemax.detour.data.RiderTotals
 import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
@@ -1187,6 +1188,10 @@ class TripTrackingService : Service() {
             val coverage = Coverage.compute()
             val newly = BadgeStore.refresh(BadgeStore.stats(coverage)).newlyEarned
             if (newly.isNotEmpty()) notifyBadgesEarned(newly)
+            // The trip just saved was folded into the record incrementally, so
+            // the badge check above already read the right numbers. This is the
+            // TTL catching up, after the notification rather than before it.
+            RiderTotals.refreshIfStale()
         }
     }
 

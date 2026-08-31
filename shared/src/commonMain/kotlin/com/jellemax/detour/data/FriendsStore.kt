@@ -139,6 +139,10 @@ object FriendsStore {
             val riderStats = BadgeStore.stats(coverage)
             val badgeIds = BadgeStore.refresh(riderStats).states
                 .filter { it.earned }.map { it.def.id }
+            // This function is contractually off the main thread already (see
+            // its doc), which is what makes it a place a stale totals record
+            // can be refolded without a rider waiting on it.
+            RiderTotals.refreshIfStale()
             FriendStats(username, riderStats, badgeIds)
         } catch (e: CancellationException) {
             throw e
