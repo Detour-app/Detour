@@ -217,7 +217,24 @@ private fun AppRoot() {
     // coverage map back to Badges — took the push branch and slid in from the
     // right, as though the rider were going somewhere new rather than returning.
     // The business logic was right the whole time; only the direction was wrong.
-    PushPopContent(target = screen, depthOf = { it.depth }, label = "screen") { current ->
+    // Two destinations show *a* trip and *a* route rather than a fixed page, and
+    // the saved-state slot has to say which one. Keyed on the enum alone,
+    // opening trip A, going back, then opening trip B would hand B's screen A's
+    // saved scroll offset — the enum is the same value both times. Everything
+    // else carries no argument and keys on itself.
+    val stateKeyOf: (Screen) -> Any = {
+        when (it) {
+            Screen.TRIP_DETAIL -> "TRIP_DETAIL:${detailTrip?.startTimeMs}"
+            Screen.ROUTE_EDITOR -> "ROUTE_EDITOR:${editingRoute?.id}"
+            else -> it.name
+        }
+    }
+    PushPopContent(
+        target = screen,
+        depthOf = { it.depth },
+        label = "screen",
+        keyOf = stateKeyOf,
+    ) { current ->
         when (current) {
             Screen.HUB -> HubScreen(
                 onBack = { screen = Screen.MAP },
