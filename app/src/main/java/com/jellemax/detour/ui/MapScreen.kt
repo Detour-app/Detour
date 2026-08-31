@@ -731,33 +731,50 @@ fun MapScreen(
     val candidatesRef = rememberUpdatedState(displayCandidates)
     val spinOfferRef = rememberUpdatedState(spinOffer)
     val navigatingRef = rememberUpdatedState(navigating)
-    LaunchedEffect(mapLibreMap) {
-        val map = mapLibreMap ?: return@LaunchedEffect
+    // Registered in a DisposableEffect that removes what it added. Today
+    // `mapLibreMap` goes null -> map exactly once per Activity, so this is
+    // behaviour-preserving — the removals never run while the screen is alive.
+    // It is a precondition for retaining the map across a navigation, where the
+    // effect re-runs on every entry against an already-non-null map and the
+    // listeners would otherwise stack. See the hazards skill's §2b, and
+    // FogView.map's setter in MapLibreMap.kt for the shape.
+    DisposableEffect(mapLibreMap) {
+        val map = mapLibreMap ?: return@DisposableEffect onDispose { }
         // The fog is screen-space, projected through the map — redraw it on every
         // camera change so a manual pan/pinch keeps it glued to the map, not just
         // while the follow loop is running.
-        map.addOnCameraMoveListener { fogView.invalidate() }
-        map.addOnCameraIdleListener { fogView.invalidate() }
+        val onCameraMove = MapLibreMap.OnCameraMoveListener { fogView.invalidate() }
+        val onCameraIdle = MapLibreMap.OnCameraIdleListener { fogView.invalidate() }
         // Touching the map dismisses the layers panel, which is what the Popup's
         // dismissOnClickOutside used to do before the panel moved inline.
-        map.addOnMapLongClickListener { ll ->
+        val onLongClick = MapLibreMap.OnMapLongClickListener { ll ->
             layersOpen = false
-            if (navigatingRef.value) return@addOnMapLongClickListener false
+            if (navigatingRef.value) return@OnMapLongClickListener false
             destination = LatLon(ll.latitude, ll.longitude)
             destinationName = "Dropped pin"
             route = null
             true
         }
-        map.addOnMapClickListener { ll ->
+        val onClick = MapLibreMap.OnMapClickListener { ll ->
             layersOpen = false
             val p = map.projection.toScreenLocation(ll)
             val tap = RectF(p.x - 22f, p.y - 22f, p.x + 22f, p.y + 22f)
             val idx = map.queryRenderedFeatures(tap, LAYER_CANDIDATES)
                 .firstOrNull()?.getNumberProperty("index")?.toInt()
             val cs = candidatesRef.value
-            if (idx == null || idx >= cs.size) return@addOnMapClickListener false
+            if (idx == null || idx >= cs.size) return@OnMapClickListener false
             if (spinOfferRef.value != null) ConvoyLiveClient.sendSpinVote(idx) else choose(cs[idx])
             true
+        }
+        map.addOnCameraMoveListener(onCameraMove)
+        map.addOnCameraIdleListener(onCameraIdle)
+        map.addOnMapLongClickListener(onLongClick)
+        map.addOnMapClickListener(onClick)
+        onDispose {
+            map.removeOnCameraMoveListener(onCameraMove)
+            map.removeOnCameraIdleListener(onCameraIdle)
+            map.removeOnMapLongClickListener(onLongClick)
+            map.removeOnMapClickListener(onClick)
         }
     }
 
