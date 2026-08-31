@@ -218,11 +218,6 @@ fun MapScreen(
     var poiKind by rememberSaveable { mutableStateOf(PoiKind.ROAD) }
     var directionDeg by rememberSaveable { mutableStateOf<Float?>(null) }
     var destinationName by remember { mutableStateOf(savedSpin.destinationName) }
-    // Keep the holder in sync with whatever changed these — a new spin, a
-    // pick, a cancel, or navigation ending and clearing the result.
-    LaunchedEffect(destination, destinationName, route, candidates) {
-        SpinResultHolder.state.value = SpinResult(destination, destinationName, route, candidates)
-    }
     val fogEnabled by Settings.fogEnabled.collectAsStateWithLifecycle()
     val accountUsername by Account.username.collectAsStateWithLifecycle()
     var searchOpen by remember { mutableStateOf(false) }
@@ -274,9 +269,18 @@ fun MapScreen(
         }
     }
 
-    var navigating by remember { mutableStateOf(false) }
+    var navigating by remember { mutableStateOf(savedSpin.navigating) }
     var navProgress by remember { mutableStateOf<NavEngine.Progress?>(null) }
     var rerouting by remember { mutableStateOf(false) }
+
+    // Keep the holder in sync with whatever changed these — a new spin, a
+    // pick, a cancel, or navigation ending and clearing the result. Declared
+    // here rather than beside `destination` because it now also reads
+    // `navigating`, and Kotlin resolves local declarations in order.
+    LaunchedEffect(destination, destinationName, route, candidates, navigating) {
+        SpinResultHolder.state.value =
+            SpinResult(destination, destinationName, route, candidates, navigating)
+    }
     var lastRerouteMs by remember { mutableLongStateOf(0L) }
     // Following is the resting state of the map. `camSuspended` is what a pan,
     // a pinch or a spin result sets so you can look around; it does not switch
