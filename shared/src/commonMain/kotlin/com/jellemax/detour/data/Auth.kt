@@ -17,10 +17,13 @@ import okio.ByteString.Companion.decodeBase64
  * what is left on this side is holding the tokens and keeping the access token
  * fresh.
  *
- * The authorization-code leg is platform code — it needs a browser and a
- * SHA-256 — and lives in `app/auth/Oidc.kt`. Everything after the redirect is
- * plain HTTP and lives here, shared, because refreshing has one rule that must
- * not be got wrong twice.
+ * The browser leg — opening the realm's page, and drawing the CSPRNG bytes a
+ * fresh verifier needs — is the only part that stays platform code, in
+ * `app/auth/AuthBrowser.kt` and `iosApp/Detour/SignIn.swift`. The rest of the
+ * authorization-code-with-PKCE flow, SHA-256 included, is shared in `Oidc.kt`
+ * in this same module. Everything after the redirect — exchanging the code,
+ * keeping the access token fresh — is plain HTTP and lives here, because
+ * refreshing has one rule that must not be got wrong twice.
  */
 object Auth {
 

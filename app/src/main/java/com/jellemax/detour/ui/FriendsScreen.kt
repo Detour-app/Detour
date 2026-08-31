@@ -60,7 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.jellemax.detour.auth.Oidc
+import com.jellemax.detour.auth.AuthBrowser
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.convoy.ConvoyLiveService
 import com.jellemax.detour.data.Account
@@ -155,7 +155,7 @@ private fun SignInSection() {
             "totals and badges.",
         style = MaterialTheme.typography.bodyMedium,
     )
-    if (!Oidc.configured) {
+    if (!AuthBrowser.configured) {
         Text(
             "No identity provider is configured, so there is nobody to sign " +
                 "in to. Set the sign-in realm URL under Settings → Servers & sync.",
@@ -171,8 +171,19 @@ private fun SignInSection() {
     Button(
         onClick = {
             PendingSignIn.clear()
-            if (!Oidc.start(context)) {
-                PendingSignIn.fail("No browser available to sign in with.")
+            when (AuthBrowser.start(context)) {
+                null -> {}
+                AuthBrowser.StartFailure.InvalidRealmUrl -> PendingSignIn.fail(
+                    "The sign-in realm address is not a valid URL. Check it " +
+                        "under Settings → Servers & sync."
+                )
+                AuthBrowser.StartFailure.NoBrowserAvailable ->
+                    PendingSignIn.fail("No browser available to sign in with.")
+                AuthBrowser.StartFailure.NotConfigured ->
+                    PendingSignIn.fail(
+                        "No identity provider is configured. Set the sign-in " +
+                            "realm URL under Settings → Servers & sync."
+                    )
             }
         },
         enabled = !busy,

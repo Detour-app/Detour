@@ -44,6 +44,54 @@ object SyncClient {
         return sync()
     }
 
+    /**
+     * `@Throws(Exception::class)`, here and on every other exported `suspend`
+     * function Swift calls directly: Kotlin/Native only turns a thrown
+     * `CancellationException` into an `NSError` on its own — anything else a
+     * `suspend` function throws aborts the process before a Swift `catch`
+     * ever runs (Kotlin/Native's own docs on Objective-C/Swift interop say so
+     * plainly). Every `try await` under `iosApp/Detour/` was one network
+     * error away from that until this annotation went in.
+     *
+     * `Exception` rather than [okio.IOException]: what this module's
+     * `suspend` functions actually raise is [AuthException] or
+     * [HttpStatusException] (both `IOException` — see `Api.kt`/`Http.kt`),
+     * but a server that answers something the wire format doesn't expect
+     * surfaces as a kotlinx-serialization failure, and that is an
+     * `IllegalArgumentException`, not an `IOException`. Naming only
+     * `IOException` would leave the app terminating on exactly the response
+     * an unfriendly server sends. `Exception` also lets a genuine
+     * programming error through, which then reaches the rider as "something
+     * went wrong" instead of crashing loudly into a bug report — a
+     * deliberate trade, made because every one of these call sites already
+     * has a `catch` that reports to the user, and a wrong-ish message on a
+     * phone beats an aborted process. A no-op on Android/JVM, where
+     * `@Throws` has nothing to attach to.
+     *
+     * Two more things this choice accepts, worth recording since that's this
+     * comment's whole job:
+     *
+     * `Exception` also covers `CancellationException` (it's an
+     * `IllegalStateException`), which is not a gap — it's why a coroutine
+     * cancelled out from under a Swift caller (a `.task(id:)` whose key
+     * changed mid-await, say) now arrives there as an ordinary `NSError`
+     * instead of as Swift's own `CancellationError`. A `catch` on the Swift
+     * side that doesn't check `Task.isCancelled` before reporting will treat
+     * the rider's own cancellation as a failure worth an alert. See
+     * `FriendsScreen.swift`'s `reload()` for where that actually bit, and
+     * its comment for the fix; the two comments should be read together.
+     *
+     * It does **not** cover `Error`/`Throwable` subclasses — only
+     * `Exception` and below. `OutOfMemoryError`, `AssertionError`, and the
+     * `NotImplementedError` a bare `TODO()` throws all still abort the
+     * process before reaching Swift. Deliberate: those are conditions a
+     * `catch` reporting "something went wrong" to the rider would only
+     * mislabel, not meaningfully recover from.
+     *
+     * Not repeated at every other site this reasoning applies to — read it
+     * here.
+     */
+    @Throws(Exception::class)
     suspend fun sync(): SyncResult {
         Settings.init()
 

@@ -82,7 +82,13 @@ struct CirclesScreen: View {
                     }
                 }
             }
-            .task { await model.reload() }
+            // Keyed on `signedIn`, not bare — see `FriendsModel`'s task for
+            // why: a bare `.task` only runs at this Group's first appearance,
+            // which on a mid-session sign-in (started from the Friends tab)
+            // is long past. Without the `id:`, switching to Circles after
+            // signing in shows the "sign in first" gate clear but the list
+            // still empty until a pull-to-refresh or restart.
+            .task(id: model.signedIn) { await model.reload() }
             .refreshable { await model.reload() }
             .alert("Something went wrong", isPresented: $model.showError) {
                 Button("OK", role: .cancel) {}
@@ -168,13 +174,35 @@ struct CirclesScreen: View {
 final class CirclesModel: ObservableObject {
 
     @Published private(set) var circles: [DetourShared.Group] = []
+    @Published var signedIn = false
+    @Published var username = ""
     @Published var busy = false
     @Published var errorMessage: String?
     @Published var showError = false
 
     var configured: Bool { SyncClient.shared.configured() }
-    var signedIn: Bool { Account.shared.signedIn }
-    var username: String { SettingsValues.shared.authUsername }
+
+    // Same shape as `FriendsModel`: `signedIn`/`username` need to be
+    // `@Published`, fed by a token watcher, before `.task(id:)` above has
+    // anything to key on — a computed `var` over `Account.shared.signedIn`
+    // publishes nothing and only happened to look reactive because something
+    // else (a scenePhase change) was recomputing the view anyway.
+    private let token = SettingsFlows.shared.authToken()
+    private let name = SettingsFlows.shared.authUsername()
+
+    init() {
+        token.watch { [weak self] in
+            self?.signedIn = !(self?.token.value.isEmpty ?? true)
+        }
+        name.watch { [weak self] in
+            guard let self, self.signedIn else { return }
+            self.username = self.name.value
+        }
+    }
+
+    deinit {
+        [token, name].forEach { $0.cancel() }
+    }
 
     func reload() async {
         guard configured, signedIn else { return }
@@ -428,10 +456,27 @@ private struct CircleDetailView: View {
             events = try await e.sorted { $0.tsMs > $1.tsMs }
             placesError = nil
         } catch {
+            // This runs inside `.task(id: dataReloads)` below, so it can be
+            // cancelled mid-flight the same way FriendsScreen.reload() can:
+            // the refresh button and `act(_:)` below both bump `dataReloads`,
+            // and a bump while a load is still in flight cancels this one.
+            // Kotlin cancellation crosses as an ordinary `NSError` here too
+            // (see the comment on FriendsModel.reload()), so without this
+            // guard, tapping refresh twice in a row — or sharing/deleting a
+            // place while a load is still running — pops a spurious "went
+            // wrong" banner for what the rider just did successfully.
+            guard !Task.isCancelled else { return }
             placesError = (error as NSError).localizedDescription
         }
     }
 
+    // Not cancellable the same way `loadPlacesAndEvents()` above is: this
+    // `Task {}` is a plain unstructured task kicked off from a button action
+    // (share/delete/leave/invite), not attached to any `.task(id:)` — nothing
+    // here cancels it when `dataReloads` changes, so there's no
+    // `Task.isCancelled` path worth guarding. Same conclusion applies to
+    // `CirclesModel.act(_:)` above and to `CirclesScreen`'s own
+    // `.task { await model.reload() }`, which isn't keyed on an `id:` at all.
     private func act(_ block: @escaping () async throws -> Void) {
         placesBusy = true
         Task {

@@ -223,4 +223,9 @@ object Enums {
      *  arguments, and "have I driven near the edge of what I hold" has to be
      *  measured against the same number the fetch used. */
     val cameraPrefetchRadiusMeters: Double = SpeedCameras.PREFETCH_RADIUS_M
+
+    /** How many random bytes `SignIn.swift` must draw for [Oidc.begin]. Named
+     *  here for the same reason the rest of this object exists: a `const val`
+     *  in an object has no stable exported spelling. */
+    val oidcEntropyBytes: Int = Oidc.ENTROPY_BYTES
 }

@@ -23,6 +23,12 @@ data class MemberFix(
  */
 object CircleFixes {
 
+    // @Throws(Exception::class) on [postFix] and [othersFixes] below, the two
+    // called directly from iosApp/Detour: see the doc on [SyncClient.sync]
+    // for why `Exception` and not just `IOException`. [fixes] is not
+    // annotated — nothing outside this module calls it directly, only
+    // [othersFixes] does, and that already carries the annotation.
+    @Throws(Exception::class)
     suspend fun postFix(groupId: String, lat: Double, lon: Double, accuracyM: Double, tsMs: Long) {
         Api.request(
             "POST", "/circles/$groupId/positions",
@@ -44,6 +50,7 @@ object CircleFixes {
      *
      *  Both the phone map and the car map read this, so they can't drift
      *  apart on which members count. */
+    @Throws(Exception::class)
     suspend fun othersFixes(selfUsername: String): List<MemberFix> =
         newestPerOtherMember(
             Groups.list("circle")

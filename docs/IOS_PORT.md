@@ -31,6 +31,24 @@ system) and is not on its way to becoming a second app.
   recording in the background, history and trip detail with GPX export, badges,
   saved places, routes, settings, and in-app turn-by-turn with spoken
   directions.
+- **Sign-in, and with it everything gated on an account**: friends and the
+  leaderboard, convoys, circles, circle arrival notifications, circle presence
+  sync and trip sync. The authorization-code-with-PKCE flow is shared
+  (`shared/.../data/Oidc.kt`) and each platform supplies only the two things it
+  cannot share — `ASWebAuthenticationSession` + `SecRandomCopyBytes` on iOS,
+  a Custom Tab + `SecureRandom` on Android (`app/auth/AuthBrowser.kt`).
+
+- **Kotlin exceptions actually reach Swift.** They did not before, and this is
+  worth its own bullet because nothing about it is visible at a call site. A
+  Kotlin/Native `suspend` function without `@Throws` propagates only
+  `CancellationException`; every other exception reaching Swift is treated as
+  unhandled and **terminates the process**. The module had zero `@Throws`
+  against ~40 `try await` sites, and `try?` is no help — the abort happens on
+  the Kotlin side before control returns. It went unnoticed because the
+  account-gated majority of those paths was unreachable while sign-in was
+  missing. The 29 suspend functions iOS calls are now annotated. `@Throws` is
+  inert for the Android target, so nothing changed there.
+
 - **CI on `macos-15`** — free and unmetered on this public repo. Runs the
   shared tests on both the JVM and Kotlin/Native, builds the app for the
   simulator, boots it, and uploads a screenshot. No Mac and no Apple Developer
@@ -83,23 +101,50 @@ Not gaps — decisions, and the places to look first if behaviour diverges.
 
 ## Not done
 
-1. **Sign-in — and with it, half the app.** This is the gap that matters.
-   Signing in moved to the identity provider's own page in a browser
-   (authorization code with PKCE). Android does that in a Custom Tab
-   (`app/auth/Oidc.kt`); the iOS side needs an `ASWebAuthenticationSession` and
-   has not been written, so `SignInForm` states the situation rather than
-   offering a password form the server would refuse.
+1. **The iOS sign-in round trip on real hardware.** Signing in works and is
+   shared, but what has actually been exercised is narrower than that sounds:
+   the shared half has unit tests, the Android half was driven on a device, and
+   the iOS half is verified only as far as `ios.yml` reaches — it compiles,
+   boots the simulator and screenshots. CI cannot reach a private Keycloak, so
+   nobody has yet watched an iPhone complete the browser leg against a real
+   realm. Treat that as untested rather than working.
 
-   `signedIn` is therefore always false on iOS, which gates friends and the
-   leaderboard, convoys, circles, circle notifications, circle sync and trip
-   sync. Everything listed under *Done* still works; everything that needs an
-   account does not.
+2. **The stores can still take the app down.** The `@Throws` sweep above covered
+   the `suspend` surface *iOS actually calls* — not the whole `suspend`
+   surface. 18 more public `suspend` functions in `commonMain` are exported
+   and still unannotated: `Auth.bearer`/`.exchangeCode`/`.signOut`,
+   `CircleFixes.fixes`, `Friends.remove`, `PoiRoulette.randomPoi`,
+   `RoadRoulette`'s `randomRoadPoint`/`fetchRoads`/`nearestSpeedLimitKmh`/
+   `speedLimitWays`/`rawQuery`, `RoundTripPlanner.plan`, `RouteShare.inbox`/
+   `.delete`, `RoutingServer.roundTrip`/`.randomRoadDestination`,
+   `SpinPicker.pickCandidate` and `SyncClient.syncIfDue`. None is called from
+   Swift today, so there is no live gap — but `SyncClient.syncIfDue` is worth
+   naming on its own: it sits directly above `sync()`'s canonical `@Throws`
+   doc comment in the same file, is Android-only today, and is exactly what
+   an iOS launch-time auto-sync would reach for first. Whoever wires that up
+   has to remember to annotate it then; nothing here does it for them.
 
-   The missing pieces are the browser trip and a SHA-256 for the PKCE challenge
-   (`CryptoKit`) — maybe 80 lines. Everything after the redirect already exists
-   in shared `Auth`, whose `exchangeCode(code:verifier:)` is exported to Swift.
-2. **watchOS app.** Small, but nothing reuses from `wear/`.
-3. **Signed device builds.** CI builds for the simulator only.
+   Nor did the sweep cover the **non-`suspend`** store functions Swift calls —
+   `TraceStore.append`/`.clear`/`.rawLines`, `TripStore.save`/
+   `.updateMode`/`.delete`, `RouteStore.save`/`.rename`/`.remove`,
+   `SavedPlaces.rename`/`.remove`, `BadgeStore.refresh`, `RecentSearchStore.save`
+   — which write through `okio.FileSystem` and can throw `okio.IOException`.
+   Because they are not annotated and not `suspend`, Swift cannot even write
+   `try` against them, so there is no hint at the call site that a real I/O
+   failure kills the process. The worst pair is `TraceStore.append` and
+   `TripStore.save`, which run from `TripRecorder` *during* a ride: a phone at
+   zero free space loses the trip and the app with it. A background location
+   launch before first unlock is the other reachable case — default data
+   protection returns `EPERM` and okio throws.
+
+   Deliberately not fixed alongside sign-in: annotating a non-`suspend`
+   function is a source-breaking Swift API change (~18 call sites across nine
+   more files must grow `try`), and the annotation alone fixes nothing — it
+   converts an abort into a throw each site must then handle, mostly by
+   catching and degrading. These back features that already shipped, so they
+   are their own change.
+3. **watchOS app.** Small, but nothing reuses from `wear/`.
+4. **Signed device builds.** CI builds for the simulator only.
 
 ### Will not port
 

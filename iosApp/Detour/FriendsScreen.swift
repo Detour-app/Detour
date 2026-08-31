@@ -16,11 +16,20 @@ struct FriendsScreen: View {
                 if model.signedIn {
                     signedInList
                 } else {
-                    SignInForm(model: model)
+                    SignInForm()
                 }
             }
             .navigationTitle(model.signedIn ? model.username : "Friends")
-            .task { await model.reload() }
+            // Keyed on `signedIn`, not bare: a bare `.task` runs exactly once,
+            // at this Group's first appearance — which is before there is a
+            // session to load anything with, so `reload()`'s
+            // `guard signedIn else { return }` bails and the task never runs
+            // again on its own. Without the `id:`, a successful sign-in swaps
+            // the Group to `signedInList` with nothing having been loaded —
+            // an empty Leaderboard/Requests/Convoys that only a manual
+            // pull-to-refresh or tab switch fixes. Keying on `signedIn` makes
+            // SwiftUI re-run the task the moment a session appears.
+            .task(id: model.signedIn) { await model.reload() }
             .refreshable { await model.reload() }
             .alert("Something went wrong", isPresented: $model.showError) {
                 Button("OK", role: .cancel) {}
@@ -146,30 +155,112 @@ struct FriendsScreen: View {
     }
 }
 
-/// Signing in moved to the identity provider, which means a browser trip
-/// (authorization code with PKCE). Android does that in a Custom Tab; the iOS
-/// side needs an `ASWebAuthenticationSession` and has not been written yet, so
-/// this states it rather than offering a password form the server would refuse.
+/// Signing in is a trip out to the realm's own page and back — authorization
+/// code with PKCE, in an `ASWebAuthenticationSession`. Creating an account,
+/// changing a password and recovering one all happen on the realm's pages,
+/// which is why none of them is offered here. Same copy as the Android
+/// screen's, deliberately: one feature described two ways reads as two.
 private struct SignInForm: View {
-    @ObservedObject var model: FriendsModel
+
+    @StateObject private var signIn = SignIn()
+    // Set by DetourApp's onOpenURL when a redirect arrives with no session
+    // waiting for it — the app was killed behind the browser. NOT the same
+    // one-shot shape as CircleNotifications.PendingCircleOpen any more,
+    // despite reading like it at a glance — see the comment on
+    // `orphanedMessage` just below for why a local copy replaced clearing the
+    // singleton straight from `.onAppear`.
+    @ObservedObject private var orphaned = OrphanedSignIn.shared
+    // A local copy of `orphaned.message`, captured the moment it arrives.
+    // This is what the view renders, not `orphaned.message` directly.
+    //
+    // The previous shape cleared the singleton from `.onAppear` on the very
+    // `Text` the `if let` above it gated — but here, unlike
+    // `PendingCircleOpen` (consumed only after a tab switch, an effect with
+    // its own trigger, so clearing loses nothing), the render *is* the
+    // effect: the message publishes, the body recomputes with the branch
+    // true, `onAppear` fires almost immediately after and sets the singleton
+    // back to nil, which recomputes the body again with the branch now
+    // false. The text was on screen for about one frame — indistinguishable
+    // from a Sign in button that silently did nothing, which is the exact
+    // failure this message exists to prevent. Copying into local `@State`
+    // lets the singleton be cleared right away without the render depending
+    // on it still being set.
+    @State private var orphanedMessage: String?
 
     var body: some View {
         Form {
             Section {
-                Text(Features.shared.liveRelayNotice)
-                    .font(.headline)
                 Text("""
-                    Signing in now happens on your server's own sign-in page, in a \
-                    browser. The iOS app has not been ported to that yet — the Android \
-                    app has. Everything on this device that does not need an account \
-                    keeps working: recording rides, the map, roulette and routes.
+                    Sign in to sync your rides and compare stats with friends. \
+                    Your trips and explored map stay private — friends only ever \
+                    see totals and badges.
                     """)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+
+                if signIn.configured {
+                    if let message = orphanedMessage {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                    if let error = signIn.error {
+                        Text(error)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                    Button {
+                        // A stale orphaned-redirect message must not sit
+                        // under a fresh attempt.
+                        orphanedMessage = nil
+                        Task { await signIn.start() }
+                    } label: {
+                        if signIn.busy {
+                            ProgressView()
+                        } else {
+                            Text("Sign in")
+                        }
+                    }
+                    .disabled(signIn.busy)
+                } else {
+                    Text("""
+                        No identity provider is configured, so there is nobody to \
+                        sign in to. Set the sign-in realm under Settings → Own server.
+                        """)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             } header: {
                 Text("Account")
+            } footer: {
+                Text("Opens a browser. New accounts and password changes happen there too.")
             }
         }
+        // Picks up a message set before this view ever appeared (the normal
+        // case: DetourApp's onOpenURL runs at launch, before the rider has
+        // necessarily navigated to this tab) as well as one that arrives
+        // while this view is already on screen.
+        .onAppear { captureOrphanedMessage() }
+        .onChange(of: orphaned.message) { _, _ in captureOrphanedMessage() }
+    }
+
+    private func captureOrphanedMessage() {
+        // Guarded on `signIn.configured`, matching the `Text` above that
+        // renders `orphanedMessage` from inside the same `if signIn.configured`
+        // branch. Without this, a `detour://auth/callback` deep link — which
+        // `Oidc.isCallback` matches regardless of whether a realm is
+        // configured — would capture and clear the singleton here with
+        // nothing on screen to show for it: a silent swallow rather than a
+        // decision. Chose "guard the capture" over "render outside the
+        // branch" because there's nothing actionable to tell a rider about a
+        // sign-in realm that isn't even set up; leaving the message parked
+        // keeps it available for a later capture, if a realm gets configured
+        // and this view reappears before the singleton is otherwise cleared
+        // (see `OrphanedSignIn`'s doc and the sign-in-success clear in
+        // `SignIn.start()`).
+        guard signIn.configured, let message = orphaned.message else { return }
+        orphanedMessage = message
+        orphaned.message = nil
     }
 }
 
@@ -222,6 +313,18 @@ final class FriendsModel: ObservableObject {
             leaderboard = try await Friends.shared.stats()
             convoys = try await Groups.shared.list(kind: "convoy")
         } catch {
+            // This runs inside `.task(id: model.signedIn)`, so signing out
+            // mid-reload cancels it — e.g. one of the three awaits above is
+            // still in flight when the token flow flips `signedIn` to false.
+            // Kotlin/Native surfaces that cancellation as an ordinary
+            // `NSError`, not a Swift `CancellationError`: every exported
+            // `suspend` function here is `@Throws(Exception::class)`
+            // (`SyncClient.kt` carries the canonical comment), which also
+            // covers `CancellationException`. Without this guard, a
+            // successful sign-out pops "Something went wrong" for no reason
+            // — the rider's own action caused the cancellation, there's
+            // nothing to tell them.
+            guard !Task.isCancelled else { return }
             report(error)
         }
     }
@@ -229,6 +332,11 @@ final class FriendsModel: ObservableObject {
     // Every action follows the same shape: run it, then re-read the server's
     // view rather than patching the local copy, so a request that crossed with
     // someone else's can't leave the two disagreeing.
+    //
+    // Not cancellable the same way `reload()` above is: this `Task {}` is a
+    // plain unstructured task kicked off from a button action, not attached
+    // to any `.task(id:)` — nothing in this view cancels it when `signedIn`
+    // flips, so it has no `Task.isCancelled` path worth guarding.
     private func act(_ block: @escaping () async throws -> Void) {
         busy = true
         Task {
