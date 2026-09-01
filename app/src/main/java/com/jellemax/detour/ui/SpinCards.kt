@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Casino
-import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.Button
@@ -40,95 +38,8 @@ import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.tracking.TripStats
 
-private val DIRECTION_NAMES = listOf("North", "North-east", "East", "South-east",
+internal val DIRECTION_NAMES = listOf("North", "North-east", "East", "South-east",
     "South", "South-west", "West", "North-west")
-
-/** Persistent glass bar at the bottom of the map: the spin dock. Tapping the
- *  left cell opens the sheet; the dice FAB spins right away without needing
- *  the sheet open at all. */
-@Composable
-internal fun SpinDock(
-    mode: TravelMode,
-    radiusKm: Float,
-    directionDeg: Float?,
-    spinning: Boolean,
-    destination: LatLon?,
-    route: RouteResult?,
-    origin: LatLon?,
-    inAppAvailable: Boolean,
-    onSpin: () -> Unit,
-    onExpand: () -> Unit,
-    onNavigateInApp: () -> Unit,
-    onNavigate: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .glassBorder(MaterialTheme.shapes.extraLarge),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = glassCardColors(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(
-                Modifier
-                    .weight(1f)
-                    .clickable(onClick = onExpand),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(mode.icon, contentDescription = null)
-                Column {
-                    Text(
-                        "${if (mode.maxKm <= 10f) "%.1f".format(radiusKm) else radiusKm.toInt()} km",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        "${mode.label} · " + (directionDeg?.let { DIRECTION_NAMES[(it / 45f).toInt()] }
-                            ?: "any direction"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
-                }
-                Icon(Icons.Outlined.ExpandLess, contentDescription = "Expand",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Button(
-                onClick = onSpin,
-                shape = CircleShape,
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.size(52.dp),
-            ) {
-                if (spinning) {
-                    CircularProgressIndicator(
-                        Modifier.size(22.dp), strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
-                } else {
-                    Icon(Icons.Outlined.Casino, contentDescription = "Spin")
-                }
-            }
-            NavIconButton(
-                destination = destination,
-                route = route?.waypoints,
-                origin = origin,
-                mode = mode,
-                inAppAvailable = inAppAvailable,
-                onNavigateInApp = onNavigateInApp,
-                onNavigate = onNavigate,
-            )
-        }
-    }
-}
 
 /** The spin sheet: everything the dock's left cell expands into. Same glass
  *  card the dock uses, just taller — a drag-handle bar stands in for an
