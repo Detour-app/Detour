@@ -84,7 +84,7 @@ sealed interface Destination : NavKey {
 
     /** The route editor. A null [routeId] means a new route. */
     @Serializable
-    data class RouteEditor(val routeId: String?) : Destination
+    data class RouteEditor(val routeId: Long?) : Destination
 
     /**
      * Settings and its six spokes.

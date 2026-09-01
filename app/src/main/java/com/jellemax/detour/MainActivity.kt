@@ -5,9 +5,13 @@ import android.os.Bundle
 import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -17,14 +21,26 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation3.runtime.NavBackStack
+import androidx.navigation3.runtime.NavKey
+import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.ui.NavDisplay
+import com.jellemax.detour.nav.Destination
+import com.jellemax.detour.nav.circleNotificationStack
+import com.jellemax.detour.nav.pop
+import com.jellemax.detour.nav.push
+import com.jellemax.detour.nav.returnToMap
+import com.jellemax.detour.nav.tripNotificationStack
 import com.jellemax.detour.data.Oidc
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.Auth
-import com.jellemax.detour.data.SavedRoute
+import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
@@ -44,7 +60,6 @@ import com.jellemax.detour.ui.FriendsScreen
 import com.jellemax.detour.ui.HistoryScreen
 import com.jellemax.detour.ui.HubScreen
 import com.jellemax.detour.ui.MapScreen
-import com.jellemax.detour.ui.PushPopContent
 import com.jellemax.detour.ui.GraphiteDark
 import com.jellemax.detour.ui.GraphiteLight
 import com.jellemax.detour.ui.RouteEditorScreen
@@ -190,26 +205,6 @@ class MainActivity : ComponentActivity() {
 
 private const val TAG = "DetourAuth"
 
-/**
- * The screens, each carrying how deep it sits in the navigation this app
- * actually performs — the map, the hub over it, the destinations off the hub,
- * and the three screens pushed from one of those.
- *
- * [depth] exists so an animation can tell a push from a pop. There is no back
- * stack here (`screen` is a single value), so the direction of a transition is
- * not otherwise recoverable: `SETTINGS -> HUB` and `HUB -> SETTINGS` are the
- * same pair of values in the opposite order, and only the depths say which way
- * the rider is travelling. It mirrors the BackHandler below, which is the other
- * place this shape is written down; change one and change both.
- *
- * Declaration order is left alone deliberately — nothing reads `ordinal`, but
- * reordering an enum to group it by depth would be a bigger diff than the fix.
- */
-private enum class Screen(val depth: Int) {
-    MAP(0), HUB(1), HISTORY(2), TRIP_DETAIL(3), BADGES(2), FRIENDS(2), CIRCLES(2),
-    SETTINGS(2), SAVED(2), ROUTES(2), ROUTE_EDITOR(3), COVERAGE_MAP(3),
-}
-
 @Composable
 private fun AppRoot() {
     // Created here, above the navigation swap, so it outlives MapScreen's
@@ -218,122 +213,198 @@ private fun AppRoot() {
     // RetainedMap.
     val themePref by Settings.theme.collectAsStateWithLifecycle()
     val retainedMap = rememberRetainedMap(darkTheme = isAppDarkTheme(themePref))
-    var screen by remember { mutableStateOf(Screen.MAP) }
-    // The trip a TRIP_DETAIL screen is showing — set on the way in from
-    // History, left stale (but unread) once we've navigated away from it.
-    var detailTrip by remember { mutableStateOf<Trip?>(null) }
-    // The route a ROUTE_EDITOR screen is showing — null means "new route",
-    // same left-stale-once-navigated-away convention as detailTrip.
-    var editingRoute by remember { mutableStateOf<SavedRoute?>(null) }
+
+    // The back stack the app owns, rooted at the map. This replaced `screen` — a
+    // single value that could not say which way the rider moved, because
+    // SETTINGS -> HUB and HUB -> SETTINGS are the same pair of values in the
+    // opposite order. A list knows: it either grew or it shrank.
+    //
+    // rememberNavBackStack, not remember: the stack goes into saved state, so it
+    // survives a rotation and a process death. `screen` was a plain `remember`,
+    // which is why a rotation anywhere in the app used to return the rider to the
+    // map.
+    val backStack = rememberNavBackStack(Destination.Map)
+
     // A tapped arrival/departure notification opens straight to that circle,
     // wherever the app was.
+    //
+    // Replaces the stack rather than pushing, and that preserves today's
+    // behaviour rather than changing it: with a single `screen` value, back from
+    // Circles ran the `else -> Screen.HUB` branch regardless of where the rider
+    // had been, so the implicit chain was already Map -> Hub -> Circles. A bare
+    // push would be the change, sending back to whatever the notification
+    // interrupted.
     val openCircleId by PendingCircleOpen.circleId.collectAsStateWithLifecycle()
     LaunchedEffect(openCircleId) {
-        if (openCircleId != null) screen = Screen.CIRCLES
+        if (openCircleId == null) return@LaunchedEffect
+        backStack.resetTo(circleNotificationStack(null))
     }
+
     // A tapped trip-ended notification opens that trip, not just the app.
     val openTripStartMs by PendingTripOpen.startTimeMs.collectAsStateWithLifecycle()
     LaunchedEffect(openTripStartMs) {
         val start = openTripStartMs ?: return@LaunchedEffect
-        // load() reads and parses a file, so it stays off the main thread —
-        // same reasoning as HistoryScreen's own load.
-        val trip = withContext(Dispatchers.IO) { TripStore.load().find { it.startTimeMs == start } }
-        // Assigned before the screen switch: TRIP_DETAIL renders nothing at all
-        // when detailTrip is null.
-        detailTrip = trip
-        // Deleted, or dropped by a /sync merge before the tap — the history list
-        // is the honest fallback, rather than a blank detail screen.
-        screen = if (trip != null) Screen.TRIP_DETAIL else Screen.HISTORY
+        // load() reads and parses a file, so it stays off the main thread — same
+        // reasoning as HistoryScreen's own load. Existence is settled here rather
+        // than inside the TripDetail entry because a trip that is gone must not
+        // land on a blank detail screen: deleted, or dropped by a /sync merge
+        // before the tap, and the history list is the honest fallback. Same
+        // choice the old effect made.
+        val exists = withContext(Dispatchers.IO) {
+            TripStore.load().any { it.startTimeMs == start }
+        }
+        backStack.resetTo(tripNotificationStack(if (exists) start else null))
         // Clearing is what lets a second tap navigate again.
         PendingTripOpen.clear()
     }
-    // System back from any sub-screen returns to the map instead of exiting the
-    // app — only enabled off the map, so back on the map itself still falls
-    // through to the default (exit) behaviour. The destinations off Hub step
-    // back to Hub, not all the way to the map, so back always undoes one level
-    // of the push it followed to get here — except TRIP_DETAIL, which is pushed
-    // from History rather than Hub, so it steps back to History instead,
-    // ROUTE_EDITOR, which is pushed from ROUTES and steps back there, and
-    // COVERAGE_MAP, which is pushed from Badges and steps back there.
-    BackHandler(enabled = screen != Screen.MAP) {
-        screen = when (screen) {
-            Screen.HUB -> Screen.MAP
-            Screen.TRIP_DETAIL -> Screen.HISTORY
-            Screen.ROUTE_EDITOR -> Screen.ROUTES
-            Screen.COVERAGE_MAP -> Screen.BADGES
-            else -> Screen.HUB
-        }
-    }
+
     // Sub-screens slide in over the map from the right and slide back out the
-    // same way, so opening/closing feels like a push/pop instead of a hard swap.
+    // same way, so opening and closing feel like a push and a pop.
     //
-    // Which of the two it is comes from the depths, not from the destination's
-    // identity. This used to ask `targetState == Screen.MAP`, which is true for
-    // exactly one of the five pops this app performs: every other one — Settings
-    // back to Hub, a trip back to History, the editor back to Routes, the
-    // coverage map back to Badges — took the push branch and slid in from the
-    // right, as though the rider were going somewhere new rather than returning.
-    // The business logic was right the whole time; only the direction was wrong.
-    // Two destinations show *a* trip and *a* route rather than a fixed page, and
-    // the saved-state slot has to say which one. Keyed on the enum alone,
-    // opening trip A, going back, then opening trip B would hand B's screen A's
-    // saved scroll offset — the enum is the same value both times. Everything
-    // else carries no argument and keys on itself.
-    val stateKeyOf: (Screen) -> Any = {
-        when (it) {
-            Screen.TRIP_DETAIL -> "TRIP_DETAIL:${detailTrip?.startTimeMs}"
-            Screen.ROUTE_EDITOR -> "ROUTE_EDITOR:${editingRoute?.id}"
-            else -> it.name
-        }
-    }
-    PushPopContent(
-        target = screen,
-        depthOf = { it.depth },
-        label = "screen",
-        keyOf = stateKeyOf,
-    ) { current ->
-        when (current) {
-            Screen.HUB -> HubScreen(
-                onBack = { screen = Screen.MAP },
-                onOpenHistory = { screen = Screen.HISTORY },
-                onOpenBadges = { screen = Screen.BADGES },
-                onOpenFriends = { screen = Screen.FRIENDS },
-                onOpenCircles = { screen = Screen.CIRCLES },
-                onOpenSettings = { screen = Screen.SETTINGS },
-                onOpenSavedPlaces = { screen = Screen.SAVED },
-                onOpenRoutes = { screen = Screen.ROUTES },
-            )
-            Screen.HISTORY -> HistoryScreen(
-                onBack = { screen = Screen.HUB },
-                onOpenTrip = { trip -> detailTrip = trip; screen = Screen.TRIP_DETAIL },
-            )
-            Screen.TRIP_DETAIL -> detailTrip?.let { trip ->
-                TripDetailScreen(trip = trip, onBack = { screen = Screen.HISTORY })
+    // Which of the two it is no longer comes from a depth table. NavDisplay takes
+    // the two specs separately because it knows whether the list grew or shrank,
+    // and predictivePopTransitionSpec drives the system back gesture, which this
+    // app did not animate at all before — the manifest has carried
+    // android:enableOnBackInvokedCallback="true" since before this change
+    // (AndroidManifest.xml:50), so the gesture was opted into with nothing
+    // drawing it.
+    //
+    // The two animation bodies are the ones ui/PushPopContent shipped, moved
+    // verbatim. Only the choice between them changed hands.
+    NavDisplay(
+        backStack = backStack,
+        onBack = { backStack.pop() },
+        transitionSpec = {
+            (slideInHorizontally { it } + fadeIn()) togetherWith
+                (slideOutHorizontally { -it / 4 } + fadeOut())
+        },
+        popTransitionSpec = {
+            // What we are returning to eases in from the left while the screen
+            // being left slides off to the right, the way it came in.
+            (slideInHorizontally { -it / 4 } + fadeIn()) togetherWith
+                (slideOutHorizontally { it } + fadeOut())
+        },
+        predictivePopTransitionSpec = {
+            (slideInHorizontally { -it / 4 } + fadeIn()) togetherWith
+                (slideOutHorizontally { it } + fadeOut())
+        },
+        entryProvider = entryProvider {
+            entry<Destination.Map> {
+                MapScreen(
+                    onOpenHub = { backStack.push(Destination.Hub) },
+                    retained = retainedMap,
+                )
             }
-            Screen.BADGES -> BadgesScreen(
-                onBack = { screen = Screen.HUB },
-                onOpenCoverageMap = { screen = Screen.COVERAGE_MAP },
-            )
-            Screen.COVERAGE_MAP -> CoverageMapScreen(onBack = { screen = Screen.BADGES })
-            Screen.FRIENDS -> FriendsScreen(onBack = { screen = Screen.HUB })
-            Screen.CIRCLES -> CirclesScreen(onBack = { screen = Screen.HUB }, openCircleId = openCircleId)
-            Screen.SETTINGS -> SettingsScreen(onBack = { screen = Screen.HUB })
-            Screen.SAVED -> SavedPlacesScreen(onBack = { screen = Screen.HUB })
-            Screen.ROUTES -> RoutesScreen(
-                onBack = { screen = Screen.HUB },
-                onCreateNew = { editingRoute = null; screen = Screen.ROUTE_EDITOR },
-                onEdit = { route -> editingRoute = route; screen = Screen.ROUTE_EDITOR },
-                onNavigate = { screen = Screen.MAP },
-            )
-            Screen.ROUTE_EDITOR -> RouteEditorScreen(
-                editing = editingRoute,
-                onBack = { screen = Screen.ROUTES },
-                onSaved = { screen = Screen.ROUTES },
-            )
-            Screen.MAP -> MapScreen(
-                onOpenHub = { screen = Screen.HUB },
-                retained = retainedMap,
-            )
+            entry<Destination.Hub> {
+                HubScreen(
+                    onBack = { backStack.pop() },
+                    onOpenHistory = { backStack.push(Destination.History) },
+                    onOpenBadges = { backStack.push(Destination.Badges) },
+                    onOpenFriends = { backStack.push(Destination.Friends) },
+                    onOpenCircles = { backStack.push(Destination.Circles) },
+                    onOpenSettings = { backStack.push(Destination.Settings) },
+                    onOpenSavedPlaces = { backStack.push(Destination.SavedPlaces) },
+                    onOpenRoutes = { backStack.push(Destination.Routes) },
+                )
+            }
+            entry<Destination.History> {
+                HistoryScreen(
+                    onBack = { backStack.pop() },
+                    onOpenTrip = { trip ->
+                        backStack.push(Destination.TripDetail(trip.startTimeMs))
+                    },
+                )
+            }
+            entry<Destination.TripDetail> { key ->
+                TripDetailEntry(startTimeMs = key.startTimeMs, onBack = { backStack.pop() })
+            }
+            entry<Destination.Badges> {
+                BadgesScreen(
+                    onBack = { backStack.pop() },
+                    onOpenCoverageMap = { backStack.push(Destination.CoverageMap) },
+                )
+            }
+            entry<Destination.CoverageMap> {
+                CoverageMapScreen(onBack = { backStack.pop() })
+            }
+            entry<Destination.Friends> { FriendsScreen(onBack = { backStack.pop() }) }
+            entry<Destination.Circles> {
+                CirclesScreen(onBack = { backStack.pop() }, openCircleId = openCircleId)
+            }
+            entry<Destination.Settings> { SettingsScreen(onBack = { backStack.pop() }) }
+            entry<Destination.SavedPlaces> { SavedPlacesScreen(onBack = { backStack.pop() }) }
+            entry<Destination.Routes> {
+                RoutesScreen(
+                    onBack = { backStack.pop() },
+                    onCreateNew = { backStack.push(Destination.RouteEditor(null)) },
+                    onEdit = { route -> backStack.push(Destination.RouteEditor(route.id)) },
+                    // Not a pop: Routes sits two deep, so popping once would land
+                    // on Hub. See NavActions.returnToMap.
+                    onNavigate = { backStack.returnToMap() },
+                )
+            }
+            entry<Destination.RouteEditor> { key ->
+                RouteEditorEntry(
+                    routeId = key.routeId,
+                    onBack = { backStack.pop() },
+                    onSaved = { backStack.pop() },
+                )
+            }
+        },
+    )
+}
+
+/**
+ * Replaces the whole stack in one snapshot.
+ *
+ * Two statements — clear then addAll — would let a reader observe an empty back
+ * stack, which NavDisplay has no entry to render. `withMutableSnapshot` makes the
+ * pair atomic.
+ */
+private fun NavBackStack<NavKey>.resetTo(entries: List<Destination>) {
+    Snapshot.withMutableSnapshot {
+        clear()
+        addAll(entries)
+    }
+}
+
+/**
+ * [TripDetailScreen] reached from a key rather than from a passed `Trip`.
+ *
+ * The old code held the trip in an `AppRoot` local, set on the way in from
+ * History and left stale once navigated away. A key has to survive being written
+ * to saved state and read back after the process died, and `Trip` has no id field
+ * — trips are keyed by `startTimeMs` (`TripStore.kt`) — so the screen loads its
+ * own subject.
+ *
+ * `TripStore.load()` reads and parses a file, so it stays off the main thread.
+ * Null renders nothing, which is what `detailTrip?.let { … }` did before.
+ */
+@Composable
+private fun TripDetailEntry(startTimeMs: Long, onBack: () -> Unit) {
+    var trip by remember(startTimeMs) { mutableStateOf<Trip?>(null) }
+    LaunchedEffect(startTimeMs) {
+        trip = withContext(Dispatchers.IO) {
+            TripStore.load().find { it.startTimeMs == startTimeMs }
         }
     }
+    trip?.let { TripDetailScreen(trip = it, onBack = onBack) }
+}
+
+/**
+ * [RouteEditorScreen] reached from a route id rather than from a passed
+ * `SavedRoute?`.
+ *
+ * No IO here, unlike [TripDetailEntry]: `Routes.routes` is already a `StateFlow`
+ * of the loaded list, so the subject is a lookup. A null [routeId] means a new
+ * route, the same convention the old `editingRoute` local used.
+ */
+@Composable
+private fun RouteEditorEntry(routeId: Long?, onBack: () -> Unit, onSaved: () -> Unit) {
+    val routes by RouteStore.routes.collectAsStateWithLifecycle()
+    RouteEditorScreen(
+        editing = routeId?.let { id -> routes.find { it.id == id } },
+        onBack = onBack,
+        onSaved = onSaved,
+    )
 }
