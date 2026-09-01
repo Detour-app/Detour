@@ -479,6 +479,23 @@ object Settings {
         prefs.put("last_sync_ms", tsMs)
     }
 
+    /** When the update check last ran, throttling it to once an hour. Stamped
+     *  before the request, not after: a device with no connectivity would
+     *  otherwise retry on every foreground. */
+    fun lastUpdateCheckMs(): Long = prefs.long("last_update_check_ms", 0L)
+
+    fun setLastUpdateCheckMs(tsMs: Long) {
+        prefs.put("last_update_check_ms", tsMs)
+    }
+
+    /** The version a notification has already been posted for. One per version,
+     *  so a rider who declines an update is not told about it hourly. */
+    fun notifiedUpdateVersion(): String = prefs.string("notified_update_version", "")
+
+    fun setNotifiedUpdateVersion(version: String) {
+        prefs.put("notified_update_version", version)
+    }
+
     /** Whether arrive/depart notifications are raised for circle [circleId].
      *  Device-local, unlike the circle's `sharing` flag (real server state,
      *  see `Groups.setSharing`) — muting a circle on the phone says nothing
