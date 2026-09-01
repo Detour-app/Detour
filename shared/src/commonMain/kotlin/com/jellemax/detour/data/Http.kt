@@ -44,18 +44,7 @@ internal object Http {
         // Transparent gzip on responses, matching the old
         // "Accept-Encoding: gzip" + GZIPInputStream pair.
         install(ContentEncoding) { gzip() }
-        install(HttpTimeout) {
-            connectTimeoutMillis = 5_000
-            // Without this the OkHttp/NSURLSession engine keeps its own ~10s
-            // read-timeout default, which a full-history sync blows through: the
-            // upload resends every trace (9 MB+ after a year) and the
-            // self-hosted server goes quiet for tens of seconds while it
-            // decompresses, merges and answers. This is the max gap between
-            // bytes, so it has to cover that whole silent stretch; per-request
-            // requestTimeoutMillis (30s default, 120s for /sync) is the ceiling
-            // that actually bounds a normal call.
-            socketTimeoutMillis = 120_000
-        }
+        install(HttpTimeout) { connectTimeoutMillis = 5_000 }
     }
 
     /**
@@ -69,6 +58,12 @@ internal object Http {
         url: String,
         body: String? = null,
         headers: Map<String, String> = emptyMap(),
+        // Bounds both the whole call (requestTimeoutMillis) and the gap between
+        // bytes (socketTimeoutMillis) — without it the engine keeps its own ~10s
+        // read default. Applied per-request, not on the client, so /sync (a
+        // multi-MB upload the self-hosted server answers only after a long silent
+        // decompress-and-merge) can ask for 120s while every small social call
+        // keeps the 30s default.
         readTimeoutMs: Long = 30_000,
         gzipBody: Boolean = false,
         contentType: String = ContentType.Application.Json.toString(),
@@ -76,7 +71,10 @@ internal object Http {
         val response = client.request(url) {
             this.method = HttpMethod.parse(method)
             headers.forEach { (k, v) -> header(k, v) }
-            timeout { requestTimeoutMillis = readTimeoutMs }
+            timeout {
+                requestTimeoutMillis = readTimeoutMs
+                socketTimeoutMillis = readTimeoutMs
+            }
             if (body != null) {
                 contentType(ContentType.parse(contentType))
                 if (gzipBody) {

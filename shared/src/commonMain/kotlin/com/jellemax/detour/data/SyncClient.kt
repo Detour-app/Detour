@@ -160,9 +160,10 @@ object SyncClient {
             )
         }
         val postMark = Perf.start()
-        // Full-history upload + server-side merge; 30s is not enough once the
-        // trace file is several MB. Bounded by Http's socketTimeoutMillis for
-        // the between-bytes gap.
+        // Full-history upload + server-side merge; the 30s default is not enough
+        // once the trace file is several MB and the self-hosted server goes quiet
+        // for tens of seconds while it decompresses and merges. This bounds both
+        // the whole call and the between-bytes gap (see Http.request).
         val merged = Api.requestJson("POST", "/sync", payload, readTimeoutMs = 120_000)
         Perf.end(postMark, "SyncClient.sync.post") {
             listOf(
