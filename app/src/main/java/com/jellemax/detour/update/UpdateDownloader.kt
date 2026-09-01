@@ -1,0 +1,133 @@
+package com.jellemax.detour.update
+
+import android.content.Context
+import android.util.Log
+import com.jellemax.detour.data.UpdateClient
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.security.MessageDigest
+
+/**
+ * Streams an update APK to `filesDir/updates/` and verifies it.
+ *
+ * Not on the shared Http client: that returns `bodyAsText()`, which for a 46 MB
+ * binary means holding it in memory as a String. This streams, reports
+ * progress, and hashes as it writes so the file is read once.
+ */
+object UpdateDownloader {
+
+    private const val DIR = "updates"
+
+    /** GitHub redirects release assets to a signed, short-lived URL on a
+     *  different host — verified 2026-09-01, `release-assets.githubusercontent.com`.
+     *  The redirect cannot be refused, so it is pinned instead: HTTPS, and a
+     *  host GitHub actually serves assets from. This ends in an installable
+     *  package; an open redirect here is an arbitrary-APK install. */
+    private fun allowed(url: URL): Boolean =
+        url.protocol == "https" &&
+            (url.host == "github.com" || url.host.endsWith(".githubusercontent.com"))
+
+    fun dir(context: Context): File = File(context.filesDir, DIR).apply { mkdirs() }
+
+    /**
+     * Deletes every file in `updates/` except [keep].
+     *
+     * Called on each check, so a superseded 46 MB APK cannot sit there
+     * forever — and, since nothing is persisted across launches in this
+     * version, so yesterday's abandoned download is not mistaken for today's.
+     */
+    fun prune(context: Context, keep: String?) {
+        dir(context).listFiles()?.forEach {
+            if (it.name != keep) it.delete()
+        }
+    }
+
+    /**
+     * Downloads [update] and returns the file, or null on any failure.
+     *
+     * [onProgress] receives 0f..1f, or -1f when the server sends no length.
+     * Blocking: call from `Dispatchers.IO`.
+     */
+    fun download(
+        context: Context,
+        update: UpdateClient.PendingUpdate,
+        onProgress: (Float) -> Unit,
+    ): File? {
+        val url = runCatching { URL(update.downloadUrl) }.getOrNull() ?: return null
+        if (!allowed(url)) {
+            Log.w("DetourUpdate", "refusing download from ${url.host}")
+            return null
+        }
+        val target = File(dir(context), update.asset)
+        val digest = MessageDigest.getInstance("SHA-256")
+        var connection: HttpURLConnection? = null
+        return try {
+            connection = (url.openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = true
+                connectTimeout = 30_000
+                readTimeout = 30_000
+            }
+            // followRedirects handles same-protocol hops; a downgrade to http
+            // is not followed by the JDK, and the final host is checked here.
+            if (!allowed(connection.url)) {
+                Log.w("DetourUpdate", "refusing redirect to ${connection.url.host}")
+                return null
+            }
+            val total = connection.contentLengthLong
+            var read = 0L
+            connection.inputStream.use { input ->
+                target.outputStream().use { output ->
+                    val buf = ByteArray(64 * 1024)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n <= 0) break
+                        output.write(buf, 0, n)
+                        digest.update(buf, 0, n)
+                        read += n
+                        onProgress(if (total > 0) read.toFloat() / total else -1f)
+                    }
+                }
+            }
+            if (!verify(target, digest, update, read)) {
+                target.delete()
+                return null
+            }
+            target
+        } catch (e: Exception) {
+            Log.w("DetourUpdate", "download failed", e)
+            target.delete()
+            null
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
+    /** Size and hash both, when the manifest supplied them.
+     *
+     *  A blank sha256 now means one thing only: the release carries no
+     *  update.json at all, i.e. it predates the manifest. UpdateClient returns
+     *  null rather than falling back when a manifest is present but
+     *  unreadable, so a transient network failure can no longer arrive here
+     *  looking like a manifest-less release and skip verification. The install
+     *  sheet still shows the signer either way. */
+    private fun verify(
+        file: File,
+        digest: MessageDigest,
+        update: UpdateClient.PendingUpdate,
+        read: Long,
+    ): Boolean {
+        if (update.size > 0 && read != update.size) {
+            Log.w("DetourUpdate", "size mismatch: got $read want ${update.size}")
+            return false
+        }
+        if (update.sha256.isNotBlank()) {
+            val hex = digest.digest().joinToString("") { "%02x".format(it) }
+            if (!hex.equals(update.sha256, ignoreCase = true)) {
+                Log.w("DetourUpdate", "sha256 mismatch")
+                return false
+            }
+        }
+        return true
+    }
+}
