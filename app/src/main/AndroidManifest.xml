@@ -65,7 +65,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
             <!-- Where the realm sends the browser back after a sign-in, carrying
-                 the authorization code (see auth/Oidc.kt). A private-use scheme
+                 the authorization code (handed to shared Oidc by MainActivity;
+                 the browser leg is auth/AuthBrowser.kt). A private-use scheme
                  because that is what a native app can claim without hosting
                  anything, and it is what the realm has registered for this
                  client. singleTop above keeps the redirect from stacking a
@@ -143,6 +144,14 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".update.InstallResultReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.jellemax.detour.INSTALL_RESULT" />
             </intent-filter>
         </receiver>
     </application>

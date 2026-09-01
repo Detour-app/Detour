@@ -20,7 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
-import com.jellemax.detour.auth.Oidc
+import com.jellemax.detour.data.Oidc
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.Auth
@@ -28,10 +28,15 @@ import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
+import com.jellemax.detour.data.UpdateClient
 import com.jellemax.detour.notif.CircleNotifyService
 import com.jellemax.detour.notif.PendingCircleOpen
 import com.jellemax.detour.notif.PendingTripOpen
 import com.jellemax.detour.notif.PlaceNotifications
+import com.jellemax.detour.update.UpdateDownloader
+import com.jellemax.detour.update.UpdateNotification
+import com.jellemax.detour.update.UpdateState
+import com.jellemax.detour.update.UpdateStatus
 import com.jellemax.detour.ui.BadgesScreen
 import com.jellemax.detour.ui.CirclesScreen
 import com.jellemax.detour.ui.CoverageMapScreen
@@ -48,6 +53,7 @@ import com.jellemax.detour.ui.SavedPlacesScreen
 import com.jellemax.detour.ui.SettingsScreen
 import com.jellemax.detour.ui.TripDetailScreen
 import com.jellemax.detour.ui.isAppDarkTheme
+import com.jellemax.detour.ui.rememberRetainedMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -100,6 +106,51 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * onStart, not onResume. Returning from the install sheet, the unknown-
+     * sources settings screen or a browser all fire onResume, and re-entering
+     * the check on the way back from the thing the check just started is how a
+     * state machine chases its own tail. The hourly throttle would mask it.
+     */
+    override fun onStart() {
+        super.onStart()
+        checkForUpdate()
+    }
+
+    private fun checkForUpdate() {
+        val repo = BuildConfig.UPDATE_REPO
+        if (repo.isBlank()) return
+        val now = System.currentTimeMillis()
+        if (now - Settings.lastUpdateCheckMs() < 60 * 60 * 1000L) return
+        // Stamped before the request: a device with no connectivity would
+        // otherwise retry on every foreground.
+        Settings.setLastUpdateCheckMs(now)
+        lifecycleScope.launch(Dispatchers.IO) {
+            val update = runCatching {
+                UpdateClient.newerThan(repo, BuildConfig.VERSION_NAME)
+            }.getOrNull()
+            // Silent on failure. This is a background courtesy; a rider mid-ride
+            // is never told the update check could not reach GitHub.
+            // Never prune while a download is running. prune deletes by name;
+            // the downloader holds the file open, and unlinking an open file
+            // succeeds silently on Linux — the download then "completes",
+            // verify() passes on the in-memory digest, and the app reports
+            // Downloaded for a path that no longer exists. Needs a slow
+            // download alive past the hourly mark plus a failing check to
+            // coincide, which is rare and entirely silent when it happens.
+            if (UpdateState.status.value is UpdateStatus.Downloading) return@launch
+            if (update == null) {
+                UpdateDownloader.prune(this@MainActivity, keep = null)
+                return@launch
+            }
+            UpdateDownloader.prune(this@MainActivity, keep = update.asset)
+            if (UpdateState.current()?.version != update.version) {
+                UpdateState.set(UpdateStatus.Available(update))
+            }
+            UpdateNotification.notifyOnce(this@MainActivity, update.version)
+        }
+    }
+
+    /**
      * Spends the authorization code from a `detour://auth/callback` redirect.
      *
      * On the activity's own scope rather than a screen's: the redirect can land
@@ -108,7 +159,7 @@ class MainActivity : ComponentActivity() {
      * goes to [PendingSignIn], which is what the screen reads.
      */
     private fun takeSignInRedirect(intent: Intent?) {
-        val data = intent?.data ?: return
+        val data = intent?.data?.toString() ?: return
         if (!Oidc.isCallback(data)) return
         PendingSignIn.begin()
         lifecycleScope.launch {
@@ -161,6 +212,12 @@ private enum class Screen(val depth: Int) {
 
 @Composable
 private fun AppRoot() {
+    // Created here, above the navigation swap, so it outlives MapScreen's
+    // composition — that is the whole point of it. AppRoot is composed for the
+    // Activity's life, which is the correct scope for a MapView's Context. See
+    // RetainedMap.
+    val themePref by Settings.theme.collectAsStateWithLifecycle()
+    val retainedMap = rememberRetainedMap(darkTheme = isAppDarkTheme(themePref))
     var screen by remember { mutableStateOf(Screen.MAP) }
     // The trip a TRIP_DETAIL screen is showing — set on the way in from
     // History, left stale (but unread) once we've navigated away from it.
@@ -217,7 +274,24 @@ private fun AppRoot() {
     // coverage map back to Badges — took the push branch and slid in from the
     // right, as though the rider were going somewhere new rather than returning.
     // The business logic was right the whole time; only the direction was wrong.
-    PushPopContent(target = screen, depthOf = { it.depth }, label = "screen") { current ->
+    // Two destinations show *a* trip and *a* route rather than a fixed page, and
+    // the saved-state slot has to say which one. Keyed on the enum alone,
+    // opening trip A, going back, then opening trip B would hand B's screen A's
+    // saved scroll offset — the enum is the same value both times. Everything
+    // else carries no argument and keys on itself.
+    val stateKeyOf: (Screen) -> Any = {
+        when (it) {
+            Screen.TRIP_DETAIL -> "TRIP_DETAIL:${detailTrip?.startTimeMs}"
+            Screen.ROUTE_EDITOR -> "ROUTE_EDITOR:${editingRoute?.id}"
+            else -> it.name
+        }
+    }
+    PushPopContent(
+        target = screen,
+        depthOf = { it.depth },
+        label = "screen",
+        keyOf = stateKeyOf,
+    ) { current ->
         when (current) {
             Screen.HUB -> HubScreen(
                 onBack = { screen = Screen.MAP },
@@ -256,7 +330,10 @@ private fun AppRoot() {
                 onBack = { screen = Screen.ROUTES },
                 onSaved = { screen = Screen.ROUTES },
             )
-            Screen.MAP -> MapScreen(onOpenHub = { screen = Screen.HUB })
+            Screen.MAP -> MapScreen(
+                onOpenHub = { screen = Screen.HUB },
+                retained = retainedMap,
+            )
         }
     }
 }

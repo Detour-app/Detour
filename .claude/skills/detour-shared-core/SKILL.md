@@ -29,8 +29,9 @@ re-derive it before trusting the body.
 ```
 
 Seven assertions, `PASS`/`FAIL` per line, non-zero exit if any failed: the four `expect`s all
-in `Platform.kt`, **zero** `Dispatchers` in `commonMain`, **exactly one** non-sealed
-`interface` there (`Prefs`, pinned to `Platform.kt` so a second one is still caught), `wear/`
+in `Platform.kt`, **zero** `Dispatchers` in `commonMain` code, **exactly three** non-sealed
+`interface` there (`Prefs`, `RelaySocket` and `BearerSource`, pinned to their three files so a
+fourth is still caught), `wear/`
 still **not** depending on `:shared`, `app/` still depending on it, and `nowMs()` still in
 `Angles.kt`. Two of those are inverted-to-zero assertions, which is why they are worth running
 rather than eyeballing — a grep that prints nothing looks the same whether the claim holds or
@@ -80,7 +81,7 @@ Measured today (whole-file line counts, `find … | xargs cat | wc -l`):
 2. **Does the proposed abstraction have more than one implementation?** If not, do not create
    the interface or the `expect`. One implementation behind an interface is indirection, not a
    boundary. `commonMain` has **one** interface (`Prefs`, CONTRIBUTING.md:40 — three
-   implementations) and 33 `object` singletons; that is the house pattern, and adding a second
+   implementations) and 33 `object` singletons; that is the house pattern, and adding another
    interface needs an argument of its own.
 3. **New logic with no second copy yet** — `CONTRIBUTING.md:31-32` sends it to `shared/`
    unless it genuinely cannot go there. §3 and §4 below are the "genuinely cannot" list.
@@ -142,7 +143,7 @@ change; `Platform.kt:11-14` is a documented decision and reversing it is its own
 | File I/O | okio, via `Files.kt` over `expect val fileSystem` | works; the strongest seam in the repo, and `Platform.kt:46` notes it takes a fake in tests |
 | HTTP | `internal object Http` — a concrete Ktor client, engine chosen per target in `shared/build.gradle.kts` | not injectable and not fakeable from `commonTest`; test the parsing, not the fetch |
 | Logging | **Zero.** No logger, no `println` | a move out of `app/` drops its `android.util.Log` calls; there is no port to keep them |
-| Interfaces / DI | **One interface (`Prefs`), 33 `object` singletons** | `Prefs` earned it under CONTRIBUTING.md:40 — three implementations (plain Android, Keystore-encrypted Android, plain iOS). Everything with one implementation is still an `object`; see §2 test 2 |
+| Interfaces / DI | **Three interfaces (`Prefs`, `RelaySocket`, `BearerSource`), 33 `object` singletons** | Each earned it under CONTRIBUTING.md:40 — more than one implementation, and a genuine platform swap. `Prefs`: plain Android, Keystore-encrypted Android, plain iOS. `RelaySocket`: OkHttp, `URLSessionWebSocketTask`, a test fake. `BearerSource`: a `fun interface` rather than `suspend () -> String`, because that function type lowers to `KotlinSuspendFunction0` (unsatisfiable from a Swift closure) and leaves `@Throws` nowhere to attach. Everything with one implementation is still an `object`; see §2 test 2 |
 | Frame clock | none, and none possible | `withFrameNanos` cannot move. Animation loops stay in Compose |
 | Android/Apple types | none | `Context`, `Intent`, `LatLng`, `MapLibreMap`, `ToneGenerator`, `AudioManager`, `MotionEvent`, `ViewConfiguration` are hard stops |
 

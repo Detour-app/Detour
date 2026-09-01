@@ -61,16 +61,23 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
 
-    <!-- Password-reset links from the sync server's mails, matching the
-         Android manifest's detour://reset intent filter. A custom scheme
-         rather than https on purpose: the sync server sits behind Cloudflare
-         Access, so a browser following an https link would meet the Access
-         wall, while the app already holds the service token. -->
+    <!-- This scheme carries two things back into the app. The realm's
+         authorization-code callback after a sign-in (`detour://auth/callback`,
+         registered with the realm as this client's redirect_uri — see
+         `Oidc.isCallback` and `SignIn.swift`, and the matching comment on
+         Android's own intent filter in AndroidManifest.xml). And legacy
+         password-reset links from the sync server's mails
+         (`detour://reset?token=…`) — the realm owns password reset now, so
+         Android no longer registers a filter for this half, but iOS still
+         parks the token (see `PendingReset`'s doc). That half is a custom
+         scheme rather than https on purpose: the sync server sits behind
+         Cloudflare Access, so a browser following an https link would meet
+         the Access wall, while the app already holds the service token. -->
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
             <key>CFBundleURLName</key>
-            <string>io.github.maxke24.detour.reset</string>
+            <string>io.github.maxke24.detour.urlscheme</string>
             <key>CFBundleURLSchemes</key>
             <array>
                 <string>detour</string>

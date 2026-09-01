@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import kotlin.concurrent.Volatile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonObject
@@ -105,15 +106,37 @@ object RouteStore {
 
     private const val FILE_NAME = "routes.json"
 
-    private val _routes = MutableStateFlow<List<SavedRoute>>(emptyList())
+    // internal, not private, for the same reason `loaded` below is — see
+    // SavedPlaces._places for the full why: asserting on `loaded` alone leaves
+    // the line that actually drops the previous rider's routes deletable with
+    // the suite still green.
+    internal val _routes = MutableStateFlow<List<SavedRoute>>(emptyList())
     val routes: StateFlow<List<SavedRoute>> = _routes
-    private var loaded = false
+    // internal, not private, so the session-switch test can set it and watch
+    // Auth.resetAccountScopedStores clear it again. See that function's doc.
+    //
+    // @Volatile because this latch became cross-thread when reset() gained a
+    // caller: Auth.clear()/Auth.store() run it on an IO coroutine while
+    // ensureLoaded() reads it on the main thread. Without it a thread may see
+    // `true` against an already-emptied list, return early from ensureLoaded()
+    // and let a mutation write that empty list over the file — the truncation
+    // 332d493 fixed, reachable again through the cache instead of the guard.
+    @Volatile
+    internal var loaded = false
 
     /** Read from disk once; safe to call on every screen entry. */
     fun ensureLoaded() {
         if (loaded) return
         loaded = true
         _routes.value = read()
+    }
+
+    /** Drops this rider's routes so the next [ensureLoaded] reads the new
+     *  account's file. See [SavedPlaces.reset] for why only the caching
+     *  stores need one. */
+    fun reset() {
+        loaded = false
+        _routes.value = emptyList()
     }
 
     /** Add a route (or replace in place if [route]'s id already exists) and persist. */
@@ -146,7 +169,7 @@ object RouteStore {
     /** Raw stored JSON array, uploaded to the sync server. Reads the file so it
      *  works even before any screen has triggered [ensureLoaded]. */
     fun rawJson(): String {
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         return if (f.exists()) f.readText() else "[]"
     }
 
@@ -165,11 +188,11 @@ object RouteStore {
     private fun write(routes: List<SavedRoute>) {
         _routes.value = routes
         val array = buildJsonArray { for (r in routes) add(r.toJson()) }
-        appFile(FILE_NAME).writeText(array.string())
+        accountFile(FILE_NAME).writeText(array.string())
     }
 
     private fun read(): List<SavedRoute> {
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         if (!f.exists()) return emptyList()
         return try {
             jsonArrayOf(f.readText()).objects().mapNotNull { routeFromJson(it) }

@@ -314,7 +314,14 @@ object RoutingServer {
      * Turn-by-turn route between two points, for in-app navigation. Delegates
      * to [routeVia] so there is a single query-building path for the two-point
      * and multi-stop cases.
+     *
+     * `@Throws(Exception::class)`, same as [routeVia] below: both are called
+     * directly from iosApp/Detour, and delegating to `routeVia` doesn't
+     * inherit its annotation — each exported entry point needs its own. See
+     * the doc on [SyncClient.sync] for why `Exception` and not just
+     * `IOException`.
      */
+    @Throws(Exception::class)
     suspend fun route(
         config: ServerConfig,
         from: LatLon,
@@ -333,6 +340,7 @@ object RoutingServer {
      * one switches to a POST with a custom model, which needs flexible
      * routing — hence `ch.disable`.
      */
+    @Throws(Exception::class)
     suspend fun routeVia(
         config: ServerConfig,
         points: List<LatLon>,

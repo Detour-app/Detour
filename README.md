@@ -71,9 +71,10 @@ key, so it can't be updated by a GitHub APK either.
    anything else installed.
 
 Everything above works with no account and no server. Sign-in only buys you
-sync, friends, convoys, circles and a shared fog of war — and it needs a build
-that points at a server you run, which the published APKs deliberately are not.
-See [Pointing the app at it](#pointing-the-app-at-it).
+sync, friends, convoys, circles and a shared fog of war — and it needs a server
+you run, since the published APKs deliberately ship with none baked in. Point
+Settings → Servers & sync at your own, including the sign-in realm — nothing
+here needs a custom build. See [Pointing the app at it](#pointing-the-app-at-it).
 
 ## The map screen
 
@@ -442,13 +443,21 @@ A SwiftUI app in `iosApp/` runs on the same core as the Android one: map and
 spin, trip recording in the background, history with GPX export, badges, saved
 places and in-app turn-by-turn with spoken directions.
 
-**The iPhone app cannot sign in yet.** Sign-in moved to the identity provider's
-own page in a browser, and the iOS side of that (`ASWebAuthenticationSession`)
-has not been written — the Android side has. So everything that needs an
-account is currently unreachable on iPhone: sync, friends and the leaderboard,
-convoys, circles and the group spin. Everything that doesn't need one — the
-map, spinning, recording rides, routes, navigation — works. The account screen
-says so rather than offering a password form the server would refuse.
+**Sign-in works on iPhone.** It moved to the identity provider's own page in a
+browser, and iOS supplies its half of that — `ASWebAuthenticationSession` plus
+`SecRandomCopyBytes` — the same way Android supplies a Custom Tab plus
+`SecureRandom`; the authorization-code-with-PKCE flow itself is shared
+(`shared/.../data/Oidc.kt`). That unblocks everything that was gated on an
+account: sync, friends and the leaderboard, convoys, circles and the group
+spin.
+
+Be as honest here as [docs/IOS_PORT.md](docs/IOS_PORT.md) is: what has actually
+been exercised is narrower than "works" sounds. The shared flow has unit
+tests, the Android side has been driven on a real device, and the iOS side is
+verified only as far as CI's `ios.yml` reaches — it compiles, boots the
+simulator and gets screenshotted. CI cannot reach a private Keycloak, so
+nobody has yet watched an iPhone finish the browser leg against a real realm.
+Treat that leg as untested, not working, until someone has.
 
 Three things are Android-only and are not coming to iOS: **Android Auto**
 (CarPlay navigation needs an entitlement Apple grants on application, and
@@ -597,13 +606,18 @@ one, your trips and traces live on hardware you own.
 
 ### Pointing the app at it
 
-Two of the three addresses can be typed into Settings → Servers & sync at
-runtime: the routing server and the search server. The **realm cannot** — the
-issuer is read at startup from the build, because a sign-in page is the one
-address it must not be possible to redirect by editing a text field.
+Every address — the server URL, its per-service overrides, and the sign-in
+realm alike — can be typed into Settings → Servers & sync at runtime, on
+Android and iOS both (`app/.../ui/SettingsScreen.kt`'s "Sign-in realm URL"
+field, `iosApp/Detour/SettingsScreen.swift`'s "Own server" section). Nothing
+has to be baked into a build for sign-in to work: `RoutingServer.issuer`
+resolves the saved realm ahead of whatever the build shipped. Changing the
+realm signs the device out immediately — `RoutingServer.save` calls
+`Auth.clear()`, because tokens issued by one realm mean nothing to another.
 
-So signing in needs an APK that already knows your realm. Put both in
-`local.properties` and build your own:
+Baking addresses in at build time is still there for whoever would rather
+ship or install an app that already knows its server, so it never has to be
+typed in. Put them in `local.properties` and build your own:
 
 ```properties
 api.url=https://api.example.com
@@ -611,10 +625,10 @@ idp.issuer=https://idp.example.com/realms/detour
 ```
 
 The APKs published on the releases page are built by CI with **no** server
-configuration baked in, so on those, sign-in is unavailable and every social
-feature behaves as it does when signed out. That is deliberate — a public
-release should not ship someone else's server address — but it does mean sync,
-friends, circles and convoys are for people who build the app themselves.
+configuration baked in — deliberately; a public release should not ship
+someone else's server address. That does not disable sign-in, only
+preconfigure it: enter your own routing/API address and sign-in realm under
+Settings and sync, friends, circles and convoys all work from the stock APK.
 [CONTRIBUTING.md](CONTRIBUTING.md) lists every property, and
 [docker/prod/CLOUDFLARE.md](docker/prod/CLOUDFLARE.md) has a worked example.
 

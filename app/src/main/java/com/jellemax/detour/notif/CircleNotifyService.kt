@@ -16,6 +16,7 @@ import com.jellemax.detour.MainActivity
 import com.jellemax.detour.R
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleEvents
+import com.jellemax.detour.data.CircleNotifyPolicy
 import com.jellemax.detour.data.Features
 import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.Settings
@@ -56,8 +57,8 @@ class CircleNotifyService : Service() {
          *  toggle) is re-polled in the background, to pick up an invite
          *  accepted or a switch flipped without this service being the one
          *  that flipped it. Minutes, not seconds - same reasoning as
-         *  TripTrackingService's own CIRCLE_SYNC_INTERVAL_MS: a circle is
-         *  Life360-style presence, not a live feed, and this loop only
+         *  [com.jellemax.detour.data.CirclePresence.ACTIVE_INTERVAL_MS]: a
+         *  circle is Life360-style presence, not a live feed, and this loop only
          *  exists to correct drift, not to carry the actual notifications
          *  (those ride the socket [collectLiveEvents] holds open). */
         private const val CIRCLE_LIST_REFRESH_MS = 5 * 60_000L
@@ -123,20 +124,17 @@ class CircleNotifyService : Service() {
     }
 
     /** Recomputes which circles this device should be joined to for
-     *  notifications - accepted membership and this device's own toggle,
-     *  see [CircleNotifySettings] - and hands the result to
-     *  [ConvoyLiveClient]. Stands the service down if nothing (or nobody
-     *  signed in) qualifies. */
+     *  notifications - [CircleNotifyPolicy.circlesWantingDelivery]'s call,
+     *  accepted membership plus this device's own toggle (see
+     *  [CircleNotifySettings]) - and hands the result to [ConvoyLiveClient].
+     *  Stands the service down if nothing (or nobody signed in) qualifies. */
     private suspend fun refreshNotifyCircles() {
         if (!Account.signedIn || !SyncClient.configured()) {
             stopSelf()
             return
         }
         val ids = try {
-            Groups.list("circle")
-                .filter { it.status == "accepted" && CircleNotifySettings.notifyEnabled(it.id) }
-                .map { it.id }
-                .toSet()
+            CircleNotifyPolicy.circlesWantingDelivery(Groups.list("circle"))
         } catch (e: Exception) {
             return // offline or server hiccup; whatever's already joined stays joined, retried next tick
         }
@@ -144,7 +142,7 @@ class CircleNotifyService : Service() {
             stopSelf()
             return
         }
-        ConvoyLiveClient.setNotifyCircles(this, ids)
+        ConvoyLiveClient.setNotifyCircles(ids)
     }
 
     private suspend fun periodicRefreshLoop() {
@@ -175,9 +173,12 @@ class CircleNotifyService : Service() {
         ConvoyLiveClient.connected.collect { connected ->
             if (!connected) return@collect
             val ids = try {
-                Groups.list("circle")
-                    .filter { it.status == "accepted" && CircleNotifySettings.notifyEnabled(it.id) }
-                    .map { it.id }
+                // Same rule as [refreshNotifyCircles] and as iOS's own sweep,
+                // so it is asked once rather than spelled out per caller -
+                // this filter was inline here until the policy moved to
+                // shared/, and two copies of "which circles want delivery"
+                // is how the two platforms drifted in the first place.
+                CircleNotifyPolicy.circlesWantingDelivery(Groups.list("circle"))
             } catch (e: Exception) {
                 return@collect
             }
@@ -190,8 +191,12 @@ class CircleNotifyService : Service() {
             val since = CircleEvents.lastSeenEventTsMs(circleId)
             val events = CircleEvents.events(circleId, since)
             if (events.isEmpty()) return
-            val plan = PlaceNotifications.planCatchUp(events, Account.username.value, System.currentTimeMillis())
-            plan.individual.forEach { PlaceNotifications.notify(this, circleId, it) }
+            val plan = CircleNotifyPolicy.planCatchUp(events, Account.username.value, System.currentTimeMillis())
+            // Reversed: the plan is newest-first because that is how it
+            // picks which five survive, but this tray has no sort key
+            // (PlaceNotifications.show sets none), so it ranks by post time
+            // and the last one posted sits on top - see planCatchUp's doc.
+            plan.individual.asReversed().forEach { PlaceNotifications.notify(this, circleId, it) }
             if (plan.collapsedCount > 0) PlaceNotifications.notifySummary(this, circleId, plan.collapsedCount)
             // Advance past everything returned, not just what got shown - a
             // self-transition or a stale one still must not be re-fetched
@@ -203,7 +208,7 @@ class CircleNotifyService : Service() {
     }
 
     override fun onDestroy() {
-        ConvoyLiveClient.setNotifyCircles(this, emptySet())
+        ConvoyLiveClient.setNotifyCircles(emptySet())
         serviceScope.cancel()
         super.onDestroy()
     }

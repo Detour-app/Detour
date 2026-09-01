@@ -23,10 +23,12 @@ documented way. **§1 is the reason this skill exists — read it before anythin
 .claude/skills/detour-trip-data/scripts/check-preconditions.sh
 ```
 
-Three assertions — the 25 m decimation on Android, `traces.jsonl` still written by
-`TraceStore`, and the same 25 m spacing on iOS — printed `PASS`/`FAIL` with a non-zero exit if
-any failed. If any fails, the decimation contract has been retuned and every threshold below
-is stale.
+Five assertions — the 25 m decimation on Android, `traces.jsonl` still written by
+`TraceStore`, the same 25 m spacing on iOS, and that `TraceStore` writes it through the
+per-account bucket rather than straight into `filesDir` — printed `PASS`/`FAIL` with a
+non-zero exit if any failed. A failure in the first three means the decimation contract has
+been retuned and every threshold below is stale; a failure in the last two means the on-disk
+path in §2 is stale instead.
 
 ## 1. The decimation contract
 
@@ -125,7 +127,12 @@ line, so a naive concatenation double-counts it.
 
 ## 2. The files on disk
 
-All in the app-private `filesDir`, all written through `shared/`.
+All in the app-private `filesDir`, all written through `shared/`. Every row below except
+`recent_searches.json` lives under `files/accounts/<key>/`, where `<key>` is `sha256(sub)`
+truncated to 16 hex characters — it cannot be guessed, so list `files/accounts` over `adb`
+before reading one (`detour-adb`'s table has the exact command). `recent_searches.json` stays
+at the root deliberately: it is excluded from the `accounts` subtree so typed addresses do not
+travel to Google Drive with the rest of a backed-up account.
 
 | File | Defined at | Shape |
 |---|---|---|
@@ -137,7 +144,7 @@ All in the app-private `filesDir`, all written through `shared/`.
 | `badges.json` | `Badges.kt:61` | earned badges |
 | `routes.json` | `Routes.kt:106` | saved routes |
 | `saved_places.json` | `SavedPlaces.kt:24` | named pins |
-| `recent_searches.json` | `RecentSearchStore.kt:10` | recent geocoder hits |
+| `recent_searches.json` | `RecentSearchStore.kt:10` | recent geocoder hits — the one file above still at the root, not under `accounts/<key>/` |
 
 ### A trace point
 
