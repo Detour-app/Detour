@@ -135,8 +135,12 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          # Baked into BuildConfig.UPDATE_REPO, so a fork's build checks the
+          # fork's own releases. Blank in every build that is not this one,
+          # which is what keeps the update check inert everywhere else.
+          UPDATE_REPO: ${{ github.repository }}
         run: |
-          ./gradlew :app:assembleRelease :app:bundleRelease \
+          ./gradlew :app:assembleGithubRelease :app:bundleRelease \
                     :wear:assembleRelease :wear:bundleRelease
 
       # The APK carries the version in its name, so a downloaded file still says
@@ -154,7 +158,7 @@ jobs:
       # app-release-unsigned.apk on an unsigned PR build.
       - name: Rename APKs
         run: |
-          cp app/build/outputs/apk/release/app-release*.apk \
+          cp app/build/outputs/apk/githubRelease/app-githubRelease*.apk \
              detour-${{ steps.version.outputs.name }}.apk
           cp wear/build/outputs/apk/release/wear-release*.apk \
              detour-wear-${{ steps.version.outputs.name }}.apk
@@ -191,10 +195,83 @@ jobs:
           name: detour-mapping-${{ steps.version.outputs.name }}
           path: app/build/outputs/mapping/release/mapping.txt
 
-      # Play first, GitHub second: an upload Play rejects (duplicate code, a
-      # bundle that fails its checks) should stop the run before a tag and a
-      # release exist claiming that version shipped. When the gate above turns
-      # it off the step is skipped outright, so the GitHub release still cuts.
+      # Tagged per version, so old builds stay downloadable instead of being
+      # overwritten. Pushing twice without bumping versionName in
+      # app/build.gradle.kts replaces that version's release rather than
+      # creating a second one. PRs build the same release artifacts to prove
+      # they still compile/minify clean, but a PR has nothing worth tagging and
+      # publishing — only a push to main cuts a release.
+      # The app reads this to learn which asset belongs to its platform. Not a
+      # glob on the release's asset list: detour-wear-<ver>.apk also starts with
+      # detour-, so a prefix match hands a phone the watch build. The sha256 is
+      # what lets the app refuse a download that did not arrive intact.
+      - name: Generate update manifest
+        if: github.event_name == 'push'
+        run: |
+          phone="detour-${{ steps.version.outputs.name }}.apk"
+          wear="detour-wear-${{ steps.version.outputs.name }}.apk"
+          cat > update.json <<EOF
+          {
+            "version": "${{ steps.version.outputs.name }}",
+            "artifacts": {
+              "android-phone": {
+                "asset": "$phone",
+                "size": $(stat -c%s "$phone"),
+                "sha256": "$(sha256sum "$phone" | cut -d' ' -f1)"
+              },
+              "android-wear": {
+                "asset": "$wear",
+                "size": $(stat -c%s "$wear"),
+                "sha256": "$(sha256sum "$wear" | cut -d' ' -f1)"
+              }
+            }
+          }
+          EOF
+          cat update.json
+
+      - name: Publish release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.name }}
+          name: v${{ steps.version.outputs.name }}
+          make_latest: true
+          files: |
+            detour-${{ steps.version.outputs.name }}.apk
+            detour-wear-${{ steps.version.outputs.name }}.apk
+            app/build/outputs/mapping/githubRelease/mapping.txt
+            update.json
+          body: |
+            Detour v${{ steps.version.outputs.name }} (versionCode
+            ${{ steps.version.outputs.code }}), built from
+            ${{ github.sha }}.${{ steps.play.outputs.enabled == 'true' && ' Also published to the Play internal testing track.' || '' }}
+
+            Download the `.apk` below and install it on your phone (allow
+            installs from unknown sources). `detour-wear-*.apk` is the watch
+            app — sideload it separately with `adb`, or take it from Play once
+            you're on the internal testers list.
+
+            This build ships with no server configured. Point it at your own
+            under Settings → Routing server and Settings → Backup sync, or
+            import a saved config under Settings → Server config file. See
+            `backend/README.md` to host one.
+
+      # GitHub first, Play second — the reverse of what this used to do.
+      #
+      # The old order existed so that an upload Play rejects would stop the run
+      # before a tag and a release existed claiming that version shipped. That
+      # reasoning assumed the GitHub release was the lesser channel. It is not
+      # any more: since the in-app update check landed, that release *is* how
+      # every sideloaded install learns a new version exists, so withholding it
+      # over a Play verdict withholds updates from the riders who cannot get
+      # them any other way.
+      #
+      # It also conflates two unrelated verdicts. Play rejected 1.88.0 for
+      # targeting API 35 when its policy had moved to 36 — a statement about
+      # store policy, not about whether the artifact is fit to sideload.
+      #
+      # A Play failure still fails the job, so it stays visible. It just no
+      # longer takes the release with it.
       #
       # internal: available to the testers on that list within minutes, no
       # review queue. Promote to production from the Play Console when a build
@@ -226,38 +303,6 @@ jobs:
           track: internal
           status: completed
           mappingFile: app/build/outputs/mapping/release/mapping.txt
-
-      # Tagged per version, so old builds stay downloadable instead of being
-      # overwritten. Pushing twice without bumping versionName in
-      # app/build.gradle.kts replaces that version's release rather than
-      # creating a second one. PRs build the same release artifacts to prove
-      # they still compile/minify clean, but a PR has nothing worth tagging and
-      # publishing — only a push to main cuts a release.
-      - name: Publish release
-        if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.version.outputs.name }}
-          name: v${{ steps.version.outputs.name }}
-          make_latest: true
-          files: |
-            detour-${{ steps.version.outputs.name }}.apk
-            detour-wear-${{ steps.version.outputs.name }}.apk
-            app/build/outputs/mapping/release/mapping.txt
-          body: |
-            Detour v${{ steps.version.outputs.name }} (versionCode
-            ${{ steps.version.outputs.code }}), built from
-            ${{ github.sha }}.${{ steps.play.outputs.enabled == 'true' && ' Also published to the Play internal testing track.' || '' }}
-
-            Download the `.apk` below and install it on your phone (allow
-            installs from unknown sources). `detour-wear-*.apk` is the watch
-            app — sideload it separately with `adb`, or take it from Play once
-            you're on the internal testers list.
-
-            This build ships with no server configured. Point it at your own
-            under Settings → Routing server and Settings → Backup sync, or
-            import a saved config under Settings → Server config file. See
-            `backend/README.md` to host one.
 
       # `wear:internal` — the internal track of the Wear OS form factor, a
       # different track from the `internal` above and the only one that accepts

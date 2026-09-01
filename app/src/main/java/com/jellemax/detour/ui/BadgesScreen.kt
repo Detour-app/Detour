@@ -54,6 +54,7 @@ import com.jellemax.detour.data.BadgeState
 import com.jellemax.detour.data.BadgeStore
 import com.jellemax.detour.data.Coverage
 import com.jellemax.detour.data.RiderStats
+import com.jellemax.detour.data.RiderTotals
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -93,6 +94,9 @@ fun BadgesScreen(onBack: () -> Unit, onOpenCoverageMap: () -> Unit) {
             val stats = BadgeStore.stats(coverage)
             ScreenData(BadgeStore.refresh(stats).states, coverage, stats)
         }
+        // See HubScreen: the stale-record fold happens after the rider has
+        // their numbers, not in front of them.
+        withContext(Dispatchers.IO) { RiderTotals.refreshIfStale() }
     }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()

@@ -2,556 +2,407 @@ import Foundation
 import CoreLocation
 import DetourShared
 
-struct FriendPosition: Equatable {
-    let username: String
-    let lat: Double
-    let lon: Double
-    let headingDeg: Double?
-    let speedKmh: Double?
-    let tsMs: Int64
-    /// When this fix stops being worth drawing, as local elapsed time.
-    ///
-    /// Per peer rather than one constant, because a convoy rider and a circle
-    /// member now arrive on the same socket at wildly different cadences —
-    /// seconds against minutes. One staleness window for both either flickers
-    /// circle members off the map between their updates or leaves a dropped
-    /// convoy rider frozen on it. The relay knows which tier a sender is on.
-    let expiresAtMs: Int64
-}
-
-/// One `spin_offer` candidate, wire shape — see the relay protocol
-/// comment near `_valid_spin_offer`. `distanceM` / `durationS` are whatever
-/// the sharer's own spin already knew; a member receiving them has no route
-/// of its own until it commits and asks for one.
-struct SpinCandidate: Equatable {
-    let lat: Double
-    let lon: Double
-    let distanceM: Double?
-    let durationS: Double?
-    let name: String?
-}
-
-/// A convoy's shared spin, either just sent by this device or just received
-/// from a peer's.
+/// The single app-wide `ConvoyRelay` — see its class doc's "exactly one
+/// instance app-wide, and exactly one live run() at a time" paragraph — plus
+/// the platform glue `ConvoyRelay` deliberately does not provide:
+/// `Features.liveRelay`/"no live server configured" guards, launching its
+/// `run()` loop, and the stable surface `MapScreen`, `ConvoyBar`,
+/// `FriendsScreen`, `CirclesScreen`, `CircleSync` and `CircleNotifications`
+/// read or send through, none of which should reach into `ConvoyRelay`
+/// directly. Swift-side counterpart of `app/.../net/ConvoyLiveClient.kt`
+/// (224 lines) — read that file's own doc first; this one only calls out
+/// where Swift's shape differs from it.
 ///
-/// A **one-candidate** offer is not a sheet to vote on, it's the sharer
-/// announcing the winner: every device that sees one commits it. That is why
-/// `fromMe` exists — only the device that opened the round decides when it is
-/// over and sends that closing offer, so a member whose view of who is still
-/// live differs (a peer gone quiet for 20 s is pruned from `peers` on one
-/// phone and not another) cannot resolve the same votes into a different
-/// destination. Identical rule to the Android client's, deliberately: the two
-/// have to agree or a convoy splits across two destinations.
-struct GroupSpin: Equatable {
-    let candidates: [SpinCandidate]
-    let fromMe: Bool
-}
-
-/// The convoy live-location / push-to-talk WebSocket.
+/// **Why `@MainActor` makes the single-`run()` guard *simpler* than
+/// Android's, not more awkward.** Android needs `runLock` because
+/// `ConvoyLiveService` (main thread) and `CircleNotifyService`
+/// (`Dispatchers.IO`) can both call `ensureRunning()` concurrently — an
+/// unguarded check-then-launch race could let both reach `ConvoyRelay.run()`,
+/// which throws on the second concurrent call. Every entry point here —
+/// `join`, `leave`, `addNotifyingCircle`, `removeNotifyingCircle`,
+/// `setNotifyingCircles` — is a synchronous method on this `@MainActor`
+/// class, so Swift's actor isolation already serialises every caller onto
+/// the same thread before `ensureRunning()` ever runs; there is no second
+/// caller for a lock to be needed against, and `running` below is a plain
+/// `Bool`, not a `Mutex`/`NSLock`-guarded one.
 ///
-/// Speaks the same protocol as the Android client verbatim — join, location,
-/// ptt_start / ptt_audio / ptt_end, and the server's `joined` / `error`
-/// replies — because the relay on the other end is one server serving both.
-/// Nothing is persisted, matching the relay's in-memory-only design.
-///
-/// `URLSessionWebSocketTask` replaces OkHttp. The one real difference: OkHttp
-/// has a `pingInterval` that keeps NAT and the Cloudflare tunnel from idling a
-/// quiet connection closed; URLSession has no such setting, so the ping is
-/// scheduled here instead.
-///
-/// The relay is multi-group on the wire (docs/CIRCLES_AND_CONVOYS.md section 6):
-/// every frame carries a `groupId`, and one socket can hold several
-/// memberships at once — `join` adds one rather than replacing what the
-/// socket already had. Circles use exactly that: they still post fixes over
-/// plain HTTP at a much lower cadence (see `CircleFixes.postFix`) and never
-/// send `location`/`ptt_*`/`spin_*` frames here — the relay only ever
-/// relays those for a convoy group (server-side kind check) — but a circle
-/// with arrival notifications on joins this same socket purely to *receive*
-/// `place_event` pushes (see `wantedCircleIds` / `setNotifyingCircles`
-/// below). That's also why the socket now has to exist even with no convoy
-/// active: a circle-only user still needs it for the live path.
+/// **The session-epoch teardown is inherited, not just preserved.**
+/// `ConvoyRelay.run()` now watches `Auth.sessionEpoch` itself, and once it
+/// moves calls its own `clearMembershipForSessionChange()` — see `run()`'s
+/// doc in `ConvoyRelay.kt` — which clears the shared relay's own membership
+/// (`_convoyId`, `_notifyingCircleIds`) and convoy-scoped display state
+/// (`peers`, `talking`, `spinOffer`, `spinVotes`) before closing the socket,
+/// rather than the plain `stop()` this class used to trigger by hand: a
+/// session change is not a reconnect, so leaving `_convoyId` in place — the
+/// way an ordinary `stop()` deliberately does, for a caller-initiated
+/// reconnect — is what let a departed rider's convoy id survive into the
+/// next rider's session and get rejoined the moment `setNotifyingCircles`
+/// made the socket wanted again. This class *also* keeps its own
+/// `sessionEpoch` watcher below, purely to reset `activeConvoyId`/
+/// `wantedCircleIds` — this class's own local mirror of membership, which
+/// `ConvoyRelay` has no getter for and so cannot reset on this side itself
+/// (see `activeConvoyId`'s own doc) — so a departed rider's convoy does not
+/// linger in this screen's own "am I online" state even though the socket
+/// and the shared relay's own membership are already correctly cleared
+/// without it.
 @MainActor
-final class ConvoyLiveClient: NSObject, ObservableObject {
+final class ConvoyLiveClient: ObservableObject {
 
     static let shared = ConvoyLiveClient()
 
-    private static let locationSendIntervalMs: Int64 = 2_000
-    private static let minBackoff: Duration = .seconds(1)
-    private static let maxBackoff: Duration = .seconds(30)
-    private static let pingInterval: Duration = .seconds(20)
-    /// Used only for a peer whose frame carried no usable `ttl` — an older or
-    /// broken relay. What this client used to apply to everyone: ~10 missed 2 s
-    /// updates, generous enough that a normal gap in GPS fixes doesn't flicker a
-    /// marker, short enough that someone who dropped off stops being shown live.
-    private static let fallbackPeerTtlMs: Int64 = 20_000
-    /// How often expiry is swept, matching the Android client's
-    /// `PEER_PRUNE_INTERVAL_MS` (`net/ConvoyLiveClient.kt:116`). A timer, not a
-    /// side effect of receiving someone else's frame: the case that matters is
-    /// the convoy where nobody is transmitting any more, where an inbound-only
-    /// sweep never runs and every peer sits frozen on the map.
-    private static let peerPruneInterval: Duration = .seconds(5)
+    /// The one `ConvoyRelay` every convoy/circle caller shares, and the one
+    /// `UrlSessionRelaySocket` it runs against — two of either would mean two
+    /// location broadcasts, per `ConvoyRelay`'s class doc.
+    private let relay = ConvoyRelay()
+    private let socket = UrlSessionRelaySocket()
+    private let watchers: ConvoyRelayWatchers
 
     @Published private(set) var activeConvoyId: String?
     @Published private(set) var connected = false
     @Published private(set) var peers: [String: FriendPosition] = [:]
     @Published private(set) var talking: Set<String> = []
-    /// The convoy's current group spin, if any candidate set is on the table —
-    /// set locally the moment this device shares one (the relay never echoes a
-    /// sender's own frame back), or when a peer's `spin_offer` arrives. Nil
-    /// once nobody has shared a spin, once the convoy is left, or across a
-    /// disconnect: a stale vote is worse than no vote.
     @Published private(set) var spinOffer: GroupSpin?
-    /// username → candidate index, tallied client-side only from every
-    /// `spin_vote` this device has sent or received for the current
-    /// `spinOffer`. The server holds none of it. Reset whenever `spinOffer`
-    /// changes.
     @Published private(set) var spinVotes: [String: Int] = [:]
-    /// Set when the relay can't be reached at all (misconfigured server, not
-    /// signed in) or rejects a join. Cleared on a successful join, so a
-    /// permanently-failing connection surfaces something instead of retrying
-    /// silently forever.
+    /// `relay.lastError`, overlaid with `guardMessage` — the "no live
+    /// server configured" refusal below, which never calls `relay.run()` at
+    /// all, so `relay` never sees that case itself (matching `ConvoyRelay`'s
+    /// own class doc: URL guards are entirely the caller's job). Same shape
+    /// as Android's `ConvoyLiveClient.lastError`/`_guardError`: `guardMessage`
+    /// wins whenever it is set, falls through to the relay's own
+    /// `lastError` otherwise - see `updateLastError()`. `FriendsScreen`'s
+    /// `convoysSection` is what actually reads this, mirroring Android's
+    /// `FriendsScreen.kt` `liveStatus`.
     @Published private(set) var lastError: String?
 
-    private var socket: URLSessionWebSocketTask?
-    private var connectionTask: Task<Void, Never>?
-    private var lastLocationSentMs: Int64 = 0
-    private let session = URLSession(configuration: .default)
+    /// What `join`/`applyNotifyingCircles` refused to even start `relay.run()`
+    /// over, if anything - see `lastError`'s own doc. Cleared the moment a
+    /// guard passes, same discipline Android's `_guardError` uses, so a
+    /// stale refusal from a previous tap cannot outlive the attempt it
+    /// belonged to.
+    private var guardMessage: String? {
+        didSet { updateLastError() }
+    }
+
+    private func updateLastError() {
+        lastError = guardMessage ?? lastErrorWatcher.value
+    }
 
     /// Circles currently wanted joined for live arrival/departure pushes —
-    /// disjoint from `activeConvoyId`, and the reason this class is no
-    /// longer purely "the convoy socket" (see the class doc). Populated by
-    /// `CircleNotifications`/`CircleSync`, never read by anything UI-facing.
+    /// disjoint from `activeConvoyId`, mirrored locally because
+    /// `ConvoyRelay.setNotifyingCircles` replaces the whole set at once and
+    /// has no per-id add/remove of its own, unlike `CirclesScreen`'s call
+    /// sites below.
     private var wantedCircleIds: Set<String> = []
+
+    /// Guards against a second concurrent `ensureRunning()` launching a
+    /// second `relay.run()` — see this class's own doc for why `@MainActor`
+    /// makes a plain `Bool` enough here, unlike Android's `runLock`. Cleared
+    /// from inside `ensureRunning()`'s own `Task` right after `relay.run()`
+    /// returns — see that function's own doc for why a caller landing in the
+    /// gap before that write actually happens must not be the one left
+    /// responsible for noticing.
+    private var running = false
+
+    private let connectedWatcher: BoolWatcher
+    private let peersWatcher: FriendPositionsWatcher
+    private let talkingWatcher: StringSetWatcher
+    private let spinOfferWatcher: GroupSpinWatcher
+    private let spinVotesWatcher: SpinVotesWatcher
+    private let lastErrorWatcher: OptionalStringWatcher
+    private let audioChunkWatcher: AudioChunkWatcher
+    private let placeEventWatcher: PlaceEventWatcher
+
+    /// Ties this socket's whole lifetime to the session rather than to any
+    /// one caller — see this class's own doc. `Auth.sessionEpoch` bumps on
+    /// sign-out, a 401 and a server switch alike.
+    private let sessionEpoch = AuthFlows.shared.sessionEpoch()
+
+    private var locationTask: Task<Void, Never>?
+
+    private init() {
+        let watchers = ConvoyRelayWatchers(relay: relay)
+        self.watchers = watchers
+        connectedWatcher = watchers.connected()
+        peersWatcher = watchers.peers()
+        talkingWatcher = watchers.talking()
+        spinOfferWatcher = watchers.spinOffer()
+        spinVotesWatcher = watchers.spinVotes()
+        lastErrorWatcher = watchers.lastError()
+        audioChunkWatcher = watchers.audioChunks()
+        placeEventWatcher = watchers.placeEvents()
+
+        // `self?.x = self?.watcher.value ?? default` used to read as a nil
+        // guard here and wasn't one: optional chaining on the assignment's
+        // left side already skips the whole statement when `self` is nil,
+        // so the `?? default` on the right could never actually run - `guard
+        // let self else { return }` says the same thing without the dead
+        // fallback.
+        connectedWatcher.watch { [weak self] in
+            guard let self else { return }
+            self.connected = self.connectedWatcher.value
+        }
+        peersWatcher.watch { [weak self] in
+            guard let self else { return }
+            self.peers = self.peersWatcher.value
+        }
+        talkingWatcher.watch { [weak self] in
+            guard let self else { return }
+            self.talking = self.talkingWatcher.value
+        }
+        spinOfferWatcher.watch { [weak self] in self?.spinOffer = self?.spinOfferWatcher.value }
+        spinVotesWatcher.watch { [weak self] in
+            guard let self else { return }
+            // Map<String, Int>'s Int values arrive boxed (KotlinInt), same
+            // reason a suspend fun returning Int does elsewhere in this app
+            // — `.intValue` is what actually unwraps it to Int.
+            self.spinVotes = self.spinVotesWatcher.value.mapValues { $0.intValue }
+        }
+        lastErrorWatcher.watch { [weak self] in self?.updateLastError() }
+        audioChunkWatcher.watch { [weak self] in
+            guard let chunk = self?.audioChunkWatcher.value else { return }
+            PttAudio.shared.play(chunk.pcm.toData(), from: chunk.username)
+        }
+        placeEventWatcher.watch { [weak self] in
+            guard let relayEvent = self?.placeEventWatcher.value else { return }
+            CircleNotifications.shared.handleLiveEvent(groupId: relayEvent.groupId, event: relayEvent.event)
+        }
+        sessionEpoch.watch { [weak self] in self?.sessionEnded() }
+
+        // Location rides on the trip recorder's fixes rather than opening a
+        // second GPS listener, same as before — `ConvoyRelay.sendLocation` is
+        // a cheap no-op while nothing is connected, so there is no cost to
+        // leaving this running for the life of the process versus starting/
+        // stopping it around every join/setNotifyingCircles cycle.
+        locationTask = Task { [weak self] in
+            for await fix in LocationBroadcast.shared.stream() {
+                guard let self else { return }
+                self.relay.sendLocation(
+                    lat: fix.coordinate.latitude,
+                    lon: fix.coordinate.longitude,
+                    headingDeg: fix.course >= 0 ? KotlinDouble(value: fix.course) : nil,
+                    speedKmh: max(0, fix.speed) * 3.6,
+                    // The fix's own time, not the moment this loop iteration
+                    // runs - same conversion CircleSync.swift's fixTsMs
+                    // already uses for the same CLLocation.timestamp.
+                    tsMs: Int64(fix.timestamp.timeIntervalSince1970 * 1000))
+            }
+        }
+    }
+
+    deinit {
+        [connectedWatcher, peersWatcher, talkingWatcher, spinOfferWatcher, spinVotesWatcher, lastErrorWatcher,
+         audioChunkWatcher, placeEventWatcher, sessionEpoch].forEach { $0.cancel() }
+        locationTask?.cancel()
+    }
 
     // MARK: Membership
 
+    /// Joins `convoyId`'s live relay — see `ConvoyRelay.setConvoy`. Refuses
+    /// when `Features.liveRelay` is off or no live server is configured, the
+    /// two guards `ConvoyRelay` deliberately does not apply — see its class
+    /// doc, and this class's own doc for why iOS needs them supplied here
+    /// exactly as `net/ConvoyLiveClient.kt`'s `join` does. The blank-URL
+    /// refusal sets `guardMessage`, matching Android's own wording, so the
+    /// rider sees *why* nothing connects rather than the refusal going
+    /// silent.
     func join(convoyId: String) {
-        // The relay is back, so this normally passes; the flag stays as the one
-        // switch that turns every live feature off on both platforms at once.
         guard Features.shared.liveRelay else { return }
-        guard activeConvoyId != convoyId else { return }
-        // A convoy switch has to fully reconnect, not just add a second
-        // join: the relay has no client "leave one group" frame (only a
-        // whole-socket close), so simply joining the new id on top of the
-        // old one would leave this device receiving both convoys' traffic.
-        disconnect()
+        guard !(activeConvoyId == convoyId && running) else { return }
+        guard !BuildDefaults.shared.liveUrl.isEmpty else {
+            guardMessage = "No live server configured"
+            return
+        }
+        guardMessage = nil
         activeConvoyId = convoyId
-        startConnectionIfNeeded()
+        relay.setConvoy(groupId: convoyId)
+        ensureRunning()
     }
 
-    /// Leaves the convoy only. A circle notification join on this same
-    /// socket (see `setNotifyingCircles`) has nothing to do with a convoy
-    /// ending, so the socket stays up for it rather than being torn down
-    /// here — only `disconnect()` when nothing wants it any more.
+    /// Leaves the convoy only — a notify-circle join on this same socket has
+    /// nothing to do with a convoy ending, so `ConvoyRelay.setConvoy`'s own
+    /// removal-reopens-the-socket handling is what keeps that connection up
+    /// for it; nothing here needs to.
     func leave() {
         guard activeConvoyId != nil else { return }
-        disconnect()
         activeConvoyId = nil
-        startConnectionIfNeeded()
+        relay.setConvoy(groupId: nil)
     }
 
-    /// Adds one circle to the live push set — joined on the socket at once
-    /// if it's already open, or the socket is started purely to carry it if
-    /// nothing else has one open (the common case for a circle-only user:
-    /// no convoy, so nothing else would ever connect this socket at all).
+    /// Adds one circle to the live push set — see `ConvoyRelay.setNotifyingCircles`.
     func addNotifyingCircle(_ id: String) {
         guard !wantedCircleIds.contains(id) else { return }
         wantedCircleIds.insert(id)
-        if connected {
-            send(groupId: id, ["type": "join"])
-        } else {
-            startConnectionIfNeeded()
-        }
+        applyNotifyingCircles()
     }
 
-    /// Drops one circle from the live push set. Not an active "un-join" —
-    /// the wire protocol has none (see the class doc) — so `place_event`
-    /// frames for it may still arrive until the next reconnect;
-    /// `CircleNotifications` filters those client-side in the meantime.
-    /// Tears the socket down if that was the only reason it was open.
+    /// Drops one circle from the live push set. Unlike the old
+    /// `removeNotifyingCircle`, this is no longer a purely-local forget: a
+    /// dropped id reopens the socket so the relay actually stops treating
+    /// this device as a member — see `ConvoyRelay.setNotifyingCircles`'s own
+    /// doc for why staying joined server-side to a circle just left is the
+    /// same shape of leak as the convoy case, and why there is no cheaper
+    /// wire path than a reconnect.
     func removeNotifyingCircle(_ id: String) {
         guard wantedCircleIds.remove(id) != nil else { return }
-        if activeConvoyId == nil && wantedCircleIds.isEmpty { disconnect() }
+        applyNotifyingCircles()
     }
 
     /// Reconciles the whole wanted set at once — what `CircleSync`'s
-    /// periodic loop and `CircleNotifications.runCatchUpSweep` use, since
-    /// they recompute "which circles want live pushes" from scratch each
-    /// time rather than tracking a diff themselves.
+    /// periodic loop and `CircleNotifications.runCatchUpSweep` use.
     func setNotifyingCircles(_ ids: Set<String>) {
-        for id in ids.subtracting(wantedCircleIds) { addNotifyingCircle(id) }
-        for id in wantedCircleIds.subtracting(ids) { removeNotifyingCircle(id) }
+        guard wantedCircleIds != ids else { return }
+        wantedCircleIds = ids
+        applyNotifyingCircles()
     }
 
-    // MARK: Connection
-
-    /// Tears down the socket and every convoy-scoped published value, but
-    /// never touches `wantedCircleIds` — see `leave()`.
-    private func disconnect() {
-        connectionTask?.cancel()
-        connectionTask = nil
-        socket?.cancel(with: .goingAway, reason: nil)
-        socket = nil
-        connected = false
-        peers = [:]
-        talking = []
-        spinOffer = nil
-        spinVotes = [:]
-    }
-
-    /// Starts the connection loop if something actually wants a socket open
-    /// and one isn't running already — a convoy, at least one notifying
-    /// circle, or both at once (the relay's "one socket, many groups"
-    /// design; see the class doc).
-    private func startConnectionIfNeeded() {
-        guard connectionTask == nil, activeConvoyId != nil || !wantedCircleIds.isEmpty else { return }
-        connectionTask = Task { await self.connectionLoop() }
-    }
-
-    /// Reconnects with exponential backoff, reset whenever an attempt actually
-    /// got as far as being joined — a connection that worked and then dropped
-    /// should come back promptly, unlike one that never authenticated.
-    private func connectionLoop() async {
-        // Runs for as long as anything wants a socket, across reconnects and
-        // backoff waits, the way Android launches `prunePeers()` alongside its
-        // connection job (`net/ConvoyLiveClient.kt:313-315`) rather than per
-        // attempt: peers held while a dropped connection is backing off go
-        // stale just the same. Every exit from this function — cancellation
-        // from `disconnect()`, or the self-clearing "nothing wants a socket"
-        // path below — runs the `defer`.
-        let pruner = Task { await self.prunePeersPeriodically() }
-        defer { pruner.cancel() }
-        var backoff = Self.minBackoff
-        while !Task.isCancelled {
-            let everJoined = await connectAndAwaitClose()
-            // Cancellation only ever comes from `disconnect()`, which has
-            // already cleared `connectionTask` itself — touching it again
-            // here could stomp a newer task `startConnectionIfNeeded()`
-            // assigned in the same synchronous call that cancelled this one.
-            if Task.isCancelled { return }
-            connected = false
-            // A tally against a socket that is no longer relaying anyone's
-            // frames is already wrong by the time it reconnects — drop it
-            // rather than leave a stale offer on screen looking live.
-            spinOffer = nil
-            spinVotes = [:]
-            // Nothing wants a socket any more (convoy left, no circle asking
-            // for pushes either) — stop instead of reconnecting forever, and
-            // self-clear since nobody else initiated this shutdown.
-            guard activeConvoyId != nil || !wantedCircleIds.isEmpty else {
-                connectionTask = nil
-                return
-            }
-            backoff = everJoined ? Self.minBackoff : min(backoff * 2, Self.maxBackoff)
-            try? await Task.sleep(for: backoff)
+    private func applyNotifyingCircles() {
+        guard Features.shared.liveRelay else { return }
+        relay.setNotifyingCircles(ids: wantedCircleIds)
+        guard activeConvoyId != nil || !wantedCircleIds.isEmpty else { return }
+        guard !BuildDefaults.shared.liveUrl.isEmpty else {
+            guardMessage = "No live server configured"
+            return
         }
-    }
-
-    private func connectAndAwaitClose() async -> Bool {
-        guard let url = URL(string: BuildDefaults.shared.liveUrl),
-              !BuildDefaults.shared.liveUrl.isEmpty else {
-            lastError = "No convoy relay configured"
-            return false
-        }
-
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(SettingsValues.shared.authToken)",
-                         forHTTPHeaderField: "Authorization")
-        // The relay sits behind the same Cloudflare Access service token as
-        // the routing server.
-        let cf = RoutingServer.shared.load()
-        if !cf.clientId.isEmpty {
-            request.setValue(cf.clientId, forHTTPHeaderField: "CF-Access-Client-Id")
-            request.setValue(cf.clientSecret, forHTTPHeaderField: "CF-Access-Client-Secret")
-        }
-
-        let task = session.webSocketTask(with: request)
-        socket = task
-        task.resume()
-
-        // Join everything currently wanted — the active convoy, if any, and
-        // every notifying circle — since a fresh connection starts with no
-        // memberships at all and the relay only adds, never assumes.
-        if let convoyId = activeConvoyId { send(groupId: convoyId, ["type": "join"]) }
-        for circleId in wantedCircleIds { send(groupId: circleId, ["type": "join"]) }
-        let pinger = Task { await self.keepAlive(task) }
-        let forwarder = Task { await self.forwardLocation() }
-        defer {
-            pinger.cancel()
-            forwarder.cancel()
-            if socket === task { socket = nil }
-        }
-
-        var everJoined = false
-        while !Task.isCancelled {
-            do {
-                let message = try await task.receive()
-                guard case let .string(text) = message else { continue }
-                if handle(text) { everJoined = true }
-            } catch {
-                return everJoined
-            }
-        }
-        return everJoined
-    }
-
-    private func keepAlive(_ task: URLSessionWebSocketTask) async {
-        while !Task.isCancelled {
-            try? await Task.sleep(for: Self.pingInterval)
-            task.sendPing { _ in }
-        }
+        guardMessage = nil
+        ensureRunning()
     }
 
     // MARK: Sending
 
-    func sendPttStart() { send(["type": "ptt_start"]) }
-    func sendPttEnd() { send(["type": "ptt_end"]) }
+    func sendPttStart() { relay.sendPttStart() }
+    func sendPttEnd() { relay.sendPttEnd() }
+    func sendAudioChunk(_ pcm: Data) { relay.sendAudioChunk(pcm: pcm.toKotlinByteArray()) }
 
-    func sendAudioChunk(_ pcm: Data) {
-        send(["type": "ptt_audio", "chunk": pcm.base64EncodedString()])
-    }
+    func sendSpinOffer(_ candidates: [SpinCandidate]) { relay.sendSpinOffer(candidates: candidates) }
 
-    /// Shares a spin with the convoy — or, with a single candidate, closes the
-    /// round on the winner (see `GroupSpin`). Sets `spinOffer` locally right
-    /// away: the relay excludes the sender from its own broadcast, so waiting
-    /// for the frame to come back would mean waiting forever. Outside 1–3
-    /// candidates it does nothing, matching the server's own cap.
-    func sendSpinOffer(_ candidates: [SpinCandidate]) {
-        guard (1...3).contains(candidates.count) else { return }
-        spinOffer = GroupSpin(candidates: candidates, fromMe: true)
-        spinVotes = [:]
-        let wire: [[String: Any]] = candidates.map { c in
-            var o: [String: Any] = ["lat": c.lat, "lon": c.lon]
-            if let d = c.distanceM { o["distanceM"] = d }
-            if let s = c.durationS { o["durationS"] = s }
-            if let n = c.name { o["name"] = n }
-            return o
-        }
-        send(["type": "spin_offer", "candidates": wire])
-    }
-
-    /// Casts this device's vote and records it locally at once, for the same
-    /// reason `sendSpinOffer` does: the relay will not echo it back to us.
+    /// Casts this device's vote — `username` is read here, not inside
+    /// `ConvoyRelay`, which takes it as a parameter rather than reaching for
+    /// `Settings.authUsername` itself; see `ConvoyRelay.sendSpinVote`'s own
+    /// doc.
     func sendSpinVote(_ index: Int) {
-        let me = SettingsValues.shared.authUsername
-        if !me.isEmpty { spinVotes[me] = index }
-        send(["type": "spin_vote", "index": index])
+        relay.sendSpinVote(username: SettingsValues.shared.authUsername, index: Int32(index))
     }
 
-    /// Drops the current spin locally (a commit landed, or it was dismissed)
-    /// without telling anyone — there is nothing to tell, the vote was never
-    /// server state.
-    func clearSpinOffer() {
-        spinOffer = nil
-        spinVotes = [:]
+    func clearSpinOffer() { relay.clearSpinOffer() }
+
+    /// Delegates to `ConvoyRelay.currentLeadIndex` - see its own doc. What
+    /// `MapScreen`'s "Go with the lead" button, and its own `resolveGroupSpin`,
+    /// call in place of the hand-rolled `leadingSpinIndex(of:)` this used to
+    /// carry.
+    func currentLeadIndex(candidateCount: Int) -> Int {
+        Int(relay.currentLeadIndex(candidateCount: Int32(candidateCount)))
     }
 
-    /// Stamps `payload` with `groupId` and sends it — every frame needs one
-    /// now, see the class doc. `groupId` defaults to the active convoy: every
-    /// convoy-scoped call site (location, ptt, spin) already only makes sense
-    /// there, so they call `send` unchanged; only the per-group `join` frames
-    /// pass one explicitly. A payload with no resolvable group (no convoy,
-    /// none passed) is silently dropped rather than mis-sent.
-    private func send(groupId: String? = nil, _ payload: [String: Any]) {
-        guard let groupId = groupId ?? activeConvoyId else { return }
-        var stamped = payload
-        stamped["groupId"] = groupId
-        sendUnscoped(stamped)
+    /// Delegates to `ConvoyRelay.spinRoundIsReadyToClose` - see its own doc
+    /// for why iOS reads this `Bool` rather than switching over
+    /// `ConvoyRelay.spinRoundOutcome`'s own `SpinRoundOutcome` directly, the
+    /// way `net/ConvoyLiveClient.kt`'s Android counterpart now does.
+    func spinRoundIsReadyToClose(myUsername: String) -> Bool {
+        relay.spinRoundIsReadyToClose(myUsername: myUsername)
     }
 
-    /// Sends a frame that names no group.
+    // MARK: Running
+
+    /// Launches `ConvoyRelay.run()` if it is not already running — see
+    /// `running`'s own doc for why `@MainActor` needs no lock here, unlike
+    /// Android's `ensureRunning`.
     ///
-    /// Only a position uses this, and that is the point: a fix belongs to the
-    /// rider, not to whichever group they happen to have joined. The relay
-    /// resolves who may see it from the sender's memberships, which is also why
-    /// this needs no convoy — someone sharing a circle and no convoy at all
-    /// still has a position worth sending.
-    private func sendUnscoped(_ payload: [String: Any]) {
-        guard let socket,
-              let data = try? JSONSerialization.data(withJSONObject: payload),
-              let text = String(data: data, encoding: .utf8) else { return }
-        socket.send(.string(text)) { _ in }
-    }
-
-    /// Location rides on the trip recorder's fixes rather than opening a second
-    /// GPS listener, same as the Android client reads the tracking service's.
-    private func forwardLocation() async {
-        for await fix in LocationBroadcast.shared.stream() {
-            let now = nowMs()
-            guard now - lastLocationSentMs >= Self.locationSendIntervalMs else { continue }
-            lastLocationSentMs = now
-            var payload: [String: Any] = [
-                "type": "location",
-                "lat": fix.coordinate.latitude,
-                "lon": fix.coordinate.longitude,
-                "speedKmh": max(0, fix.speed) * 3.6,
-                "ts": Int(fix.timestamp.timeIntervalSince1970 * 1000),
-            ]
-            if fix.course >= 0 { payload["headingDeg"] = fix.course }
-            sendUnscoped(payload)
-        }
-    }
-
-    // MARK: Receiving
-
-    /// Returns true only for "joined", the one message the connection loop
-    /// needs to see to know auth worked.
-    @discardableResult
-    private func handle(_ text: String) -> Bool {
-        guard let data = text.data(using: .utf8),
-              let msg = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = msg["type"] as? String else { return false }
-
-        switch type {
-        case "joined":
-            connected = true
-            lastError = nil
-            return true
-
-        case "error":
-            // The server rejects a join it does not close the socket for (e.g.
-            // membership was removed) — close it ourselves so this attempt ends
-            // and the backoff loop picks it up, rather than sitting
-            // connected-but-never-joined forever.
-            lastError = msg["message"] as? String
-            socket?.cancel(with: .normalClosure, reason: nil)
-
-        // One frame carries every peer the relay had queued for this socket,
-        // not one frame per peer: at eight riders that is one packet a round
-        // instead of seven, and the packet count is what a phone's radio pays
-        // for. Keys are short for the same reason.
-        case "positions":
-            guard let rows = msg["peers"] as? [[String: Any]] else { break }
-            let now = nowMs()
-            for row in rows {
-                guard let user = row["u"] as? String, !user.isEmpty,
-                      let lat = row["lat"] as? Double,
-                      let lon = row["lon"] as? Double else { continue }
-                let ttlSeconds = row["ttl"] as? Int ?? 0
-                peers[user] = FriendPosition(
-                    username: user,
-                    lat: lat,
-                    lon: lon,
-                    headingDeg: row["h"] as? Double,
-                    speedKmh: row["s"] as? Double,
-                    tsMs: Int64(row["ts"] as? Int ?? 0),
-                    // Anchored to arrival, not to the fix's own timestamp: that
-                    // comes off the sender's clock, and a phone whose clock is
-                    // minutes out would otherwise vanish at once or never.
-                    expiresAtMs: now + (ttlSeconds > 0
-                        ? Int64(ttlSeconds) * 1_000
-                        : Self.fallbackPeerTtlMs)
-                )
+    /// `bearer` is `AuthBearerSource()`, not a closure — `ConvoyRelay.run`'s
+    /// `bearer` parameter is a `BearerSource`, a `fun interface` rather than
+    /// the bare `suspend () -> String` function type it used to be, which
+    /// could not be implemented from Swift at all (see `BearerSource`'s own
+    /// doc). `AuthBearerSource` below is what actually calls `Auth.bearer`;
+    /// see its own doc for why it can let a throw cross straight through
+    /// rather than swallowing one to a blank string the way this used to.
+    ///
+    /// **Rechecks whether anything is still wanted immediately after
+    /// clearing `running`, rather than trusting whoever set `running` true
+    /// to still be the one who notices.** `relay.run()` suspends across an
+    /// exported Kotlin `suspend fun`, so when it finally returns, resuming
+    /// this `Task`'s body on the main actor is itself an async hop — other
+    /// main-actor work already queued (a `join`/`setNotifyingCircles` call
+    /// landing right in that window) can run *before* `self.running = false`
+    /// below actually executes, see `running` still `true`, and silently
+    /// no-op, since that is exactly what this function's own top guard is
+    /// for. Without the recheck, nothing ever launches a fresh `run()` again
+    /// after that: the UI shows the convoy joined with no socket underneath,
+    /// self-healing only whenever some *later*, unrelated membership change
+    /// happens to call this again. Android does not need this — it checks
+    /// `runJob?.isActive` instead of a hand-set flag, so there is no window
+    /// where the job has finished but the flag has not caught up yet.
+    private func ensureRunning() {
+        guard !running else { return }
+        running = true
+        Task { [weak self] in
+            guard let self else { return }
+            _ = try? await self.relay.run(socket: self.socket, bearer: AuthBearerSource())
+            self.running = false
+            if self.activeConvoyId != nil || !self.wantedCircleIds.isEmpty {
+                self.ensureRunning()
             }
-            pruneStalePeers()
-
-        case "left":
-            // A rider who left the convoy — or was evicted, or whose socket
-            // dropped — is gone now, not in 20 s when the staleness sweep would
-            // have caught up. The relay emits this for every one of those cases
-            // (`server/sync/sync_server.py:2442`, `:2456`) and Android has
-            // always handled it (`net/ConvoyLiveClient.kt:573-576`); without the
-            // branch it fell through to `default` and the peer stayed on the map.
-            guard let user = msg["user"] as? String, !user.isEmpty else { break }
-            peers.removeValue(forKey: user)
-            talking.remove(user)
-
-        case "ptt_start":
-            if let user = msg["user"] as? String, !user.isEmpty { talking.insert(user) }
-
-        case "ptt_end":
-            if let user = msg["user"] as? String, !user.isEmpty { talking.remove(user) }
-
-        case "ptt_audio":
-            guard let user = msg["user"] as? String, !user.isEmpty,
-                  let chunk = msg["chunk"] as? String,
-                  // The server caps chunk length but does not validate that it
-                  // is base64; a malformed frame must not take the socket down.
-                  let pcm = Data(base64Encoded: chunk) else { break }
-            PttAudio.shared.play(pcm, from: user)
-
-        case "spin_offer":
-            guard let raw = msg["candidates"] as? [[String: Any]] else { break }
-            let candidates: [SpinCandidate] = raw.compactMap { o in
-                guard let lat = o["lat"] as? Double, let lon = o["lon"] as? Double else {
-                    return nil
-                }
-                let name = o["name"] as? String
-                return SpinCandidate(
-                    lat: lat,
-                    lon: lon,
-                    distanceM: o["distanceM"] as? Double,
-                    durationS: o["durationS"] as? Double,
-                    name: (name?.isEmpty ?? true) ? nil : name
-                )
-            }
-            // A new offer starts a fresh vote even mid-round: the candidates it
-            // names are a different sheet than whatever was being voted on.
-            guard !candidates.isEmpty else { break }
-            spinOffer = GroupSpin(candidates: candidates, fromMe: false)
-            spinVotes = [:]
-
-        case "spin_vote":
-            guard let user = msg["user"] as? String, !user.isEmpty,
-                  let index = msg["index"] as? Int, (0...2).contains(index) else { break }
-            spinVotes[user] = index
-
-        case "place_event":
-            // Deliberately hand-parsed here rather than routed through
-            // `:shared`'s `placeEventFromRelayFrame(o: JsonObject)` — that
-            // function wants a genuine kotlinx.serialization `JsonObject`,
-            // which nothing in this file (or anywhere else in iosApp) ever
-            // constructs from a Foundation `[String: Any]`, and the framework
-            // doesn't `export()` kotlinx-serialization-json, so there is no
-            // precedent anywhere in this codebase for building one from
-            // Swift to check a guessed spelling against. Every other case in
-            // this same switch already hand-parses its frame the same way
-            // (see "location" above) — this mirrors that, and mirrors
-            // `placeEventFromRelayFrame`'s own field/validity rules exactly
-            // (required fields, `kind` must be arrive/depart) so the two
-            // don't drift. See the phase-3 report for the full reasoning.
-            guard let groupId = msg["groupId"] as? String,
-                  let placeId = msg["placeId"] as? Int,
-                  let kind = msg["kind"] as? String, kind == "arrive" || kind == "depart",
-                  let user = msg["user"] as? String, !user.isEmpty,
-                  let tsMs = msg["tsMs"] as? Int else { break }
-            let event = PlaceEvent(
-                // A live frame addresses nothing, so it carries no stored id.
-                id: "",
-                placeId: Int64(placeId),
-                placeName: msg["placeName"] as? String ?? "",
-                username: user,
-                kind: kind,
-                tsMs: Int64(tsMs)
-            )
-            CircleNotifications.shared.handleLiveEvent(groupId: groupId, event: event)
-
-        default:
-            break
-        }
-        return false
-    }
-
-    /// Sweeps staleness on a timer for the life of the connection loop. The
-    /// inbound `location` branch also prunes, which keeps a busy convoy tidy
-    /// promptly, but on its own it never fired in the case that matters: a
-    /// convoy where everybody has gone quiet is never swept, and the last peer
-    /// to go quiet is the interesting one — that is the rider who lost signal or
-    /// came off.
-    private func prunePeersPeriodically() async {
-        while !Task.isCancelled {
-            try? await Task.sleep(for: Self.peerPruneInterval)
-            guard !Task.isCancelled else { return }
-            pruneStalePeers()
         }
     }
 
-    private func pruneStalePeers() {
-        let now = nowMs()
-        // Each peer expires on its own clock: a circle member updating every
-        // couple of minutes and a convoy rider updating every two seconds share
-        // this map, and one cutoff for both drops the first between every pair
-        // of their updates.
-        peers = peers.filter { $0.value.expiresAtMs > now }
+    /// Tears down this screen's own local mirror of membership —
+    /// `activeConvoyId`, `wantedCircleIds` — the moment the session that owns
+    /// them ends. The socket, the shared relay's own membership and its
+    /// convoy-scoped display state are all already cleared by
+    /// `ConvoyRelay.run()`'s own epoch watcher (see this class's doc); this
+    /// only resets what genuinely remains platform-local — the two fields
+    /// this class keeps for itself because `ConvoyRelay` exposes no getter
+    /// for either.
+    private func sessionEnded() {
+        activeConvoyId = nil
+        wantedCircleIds = []
+    }
+}
+
+/// Conforms to the generated `BearerSource` protocol — `ConvoyRelay.kt`'s
+/// `fun interface BearerSource`, whose one method carries its own
+/// `@Throws` — the same shape `UrlSessionRelaySocket` already conforms to
+/// `RelaySocket` with: Kotlin/Native lowers a `fun interface` to an
+/// ordinary protocol with a real `async throws` method, not the
+/// completion-handler-only `KotlinSuspendFunction0` a bare `suspend () ->
+/// String` function type used to generate — see `BearerSource`'s own doc
+/// for why only the interface shape can be implemented from Swift at all.
+///
+/// Because `bearer()` really can throw across this boundary now,
+/// `ConvoyRelay.attempt` catching it is what actually turns a failure into
+/// `lastError` — see its own comment — so there is nothing left for this
+/// type to swallow itself: no `signedIn` guard, no `try?`. The one that
+/// used to be here worked around the missing annotation slot on the old
+/// function-type parameter, not around anything about `Auth.bearer` itself.
+private final class AuthBearerSource: BearerSource {
+    func bearer() async throws -> String {
+        try await Auth.shared.bearer()
+    }
+}
+
+private extension KotlinByteArray {
+    /// Kotlin/Native maps `ByteArray` to `KotlinByteArray`, which no Swift
+    /// `Data` bridge fills in — same gap `SignIn.entropy()` works around in
+    /// the other direction. A ptt_audio chunk is 640 bytes at 16 kHz/25 Hz,
+    /// so a per-byte `get(index:)` loop here is a real but small cost, once
+    /// per 40 ms while transmitting or receiving — not a new hot path, the
+    /// old client converted the same bytes itself, just via `Data` directly.
+    func toData() -> Data {
+        var out = Data(capacity: Int(size))
+        for i in 0..<size {
+            out.append(UInt8(bitPattern: get(index: i)))
+        }
+        return out
+    }
+}
+
+private extension Data {
+    /// The write-direction counterpart of `KotlinByteArray.toData()` above,
+    /// for `sendAudioChunk` handing this device's own captured PCM to
+    /// `ConvoyRelay.sendAudioChunk(pcm: ByteArray)`.
+    func toKotlinByteArray() -> KotlinByteArray {
+        let out = KotlinByteArray(size: Int32(count))
+        for (index, byte) in enumerated() {
+            out.set(index: Int32(index), value: Int8(bitPattern: byte))
+        }
+        return out
     }
 }

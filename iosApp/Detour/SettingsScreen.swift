@@ -13,8 +13,8 @@ struct SettingsScreen: View {
     @State private var clientId = ""
     @State private var clientSecret = ""
     // Carried through load/save untouched: this screen has no editors for the
-    // per-service addresses or the sign-in realm yet, and saving defaults over
-    // values set elsewhere would silently unconfigure them.
+    // per-service addresses yet, and saving defaults over values set
+    // elsewhere would silently unconfigure them.
     @State private var apiURL = ""
     @State private var routingURL = ""
     @State private var geocoderURL = ""
@@ -136,6 +136,10 @@ struct SettingsScreen: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
             SecureField("CF-Access-Client-Secret", text: $clientSecret)
+            TextField("https://your.realm/realms/detour", text: $idpIssuer)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
             Button("Save server") { saveServer() }
             if RoutingServer.shared.loadCustom() != nil {
                 Button("Use built-in server", role: .destructive) {
@@ -146,7 +150,12 @@ struct SettingsScreen: View {
         } header: {
             Text("Own server")
         } footer: {
-            Text("One address reaches routing, search, sync and convoys — the tunnel routes by path. Leave blank to use the built-in defaults.")
+            Text("""
+                One address reaches routing, search, sync and convoys — the tunnel \
+                routes by path. Leave blank to use the built-in defaults. The realm \
+                address is separate and never derived from the others: it is where \
+                signing in happens.
+                """)
         }
     }
 

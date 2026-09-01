@@ -23,7 +23,14 @@ data class RouteCandidate(
  *  route request can time out) and must not sink the spin; only every roll
  *  failing does, and then the first real failure is what gets reported rather
  *  than a generic message. A cancellation is never a failed roll — it means
- *  the spin was called off, so it propagates instead of being counted. */
+ *  the spin was called off, so it propagates instead of being counted.
+ *
+ *  `@Throws(Exception::class)`: called directly from iosApp/Detour as
+ *  `SpinPickerKt.pickThreeCandidates` — see [SyncClient.sync]'s doc for why
+ *  `Exception` and not just `IOException`. [pickCandidate] below is not
+ *  annotated: nothing outside this module calls it, only this function does,
+ *  through `runCatching`. */
+@Throws(Exception::class)
 suspend fun pickThreeCandidates(
     config: ServerConfig,
     loc: LatLon,

@@ -17,18 +17,6 @@ final class CircleNotifications: NSObject {
     static let shared = CircleNotifications()
     private override init() { super.init() }
 
-    /// A sweep after a long gap notifies for at most this many events — an
-    /// offline week must not detonate into a wall of notifications the
-    /// moment the app reopens. Picked, not measured, same as the geofence
-    /// constants in `:shared`'s `GeofenceEvaluator`; easy to retune.
-    private static let catchUpCap = 5
-    /// Events older than this, measured from *now* rather than from the
-    /// last sweep, are caught up on silently — they say where someone was,
-    /// not where they are, and a transition from hours ago is not worth a
-    /// push. `lastSeenEventTsMs` still advances past them either way (see
-    /// `runCatchUpSweep`), so they are never re-fetched, just never shown.
-    private static let catchUpMaxAgeMs: Int64 = 3 * 60 * 60_000
-
     /// Mirrors the OS's actual authorization state, refreshed on every
     /// foreground sweep (`syncAuthorizationStatus`) rather than trusted from
     /// whenever it was last asked — the user can revoke it from iOS Settings
@@ -82,8 +70,9 @@ final class CircleNotifications: NSObject {
 
     // MARK: Live path
 
-    /// Called from `ConvoyLiveClient.handle` for a `place_event` frame. The
-    /// server already excludes the mover from its own broadcast (see
+    /// Called from `ConvoyLiveClient`'s `placeEvents` watcher for a
+    /// `place_event` frame decoded by the shared `ConvoyRelay`. The server
+    /// already excludes the mover from its own broadcast (see
     /// docs/CIRCLES_AND_CONVOYS.md),
     /// so — unlike `runCatchUpSweep` — there is no self-transition to filter
     /// here.
@@ -106,21 +95,35 @@ final class CircleNotifications: NSObject {
     /// story, exactly as the phase-3 prompt's item 7 says to fall back to
     /// when that's the case.
     ///
-    /// Also reconciles `ConvoyLiveClient`'s live-join set on every call, on
-    /// top of `CircleSync`'s own periodic reconciliation — so a fresh launch
-    /// or a resume after a long background stretch doesn't wait for
-    /// `CircleSync`'s next tick (up to 30 minutes) before the live path
-    /// starts working again.
+    /// Also reconciles `ConvoyLiveClient`'s live-join set on every call. That
+    /// is one of the only two routes that do — the other being
+    /// `CirclesScreen`'s own toggle, which acts on the change itself; see
+    /// `CircleSync.loop` for why there is no periodic third one.
     func runCatchUpSweep() async {
         await syncAuthorizationStatus()
         guard SyncClient.shared.configured(), Account.shared.signedIn else { return }
         let username = SettingsValues.shared.authUsername
         guard let circles = try? await Groups.shared.list(kind: "circle") else { return }
-        let notifying = circles.filter { $0.status == "accepted" && notifyEnabled(circleId: $0.id) }
-        ConvoyLiveClient.shared.setNotifyingCircles(Set(notifying.map { $0.id }))
+        // CircleNotifyPolicy.circlesWantingDelivery (shared/): accepted
+        // membership plus this device's own per-circle toggle — the same
+        // filter Android's CircleNotifyService.refreshNotifyCircles uses.
+        let notifyIds = CircleNotifyPolicy.shared.circlesWantingDelivery(
+            circles: circles,
+            // `notifyArrivals` is a Kotlin `(String) -> Boolean`, i.e. a
+            // generic `Function1`, and a generic type argument boxes on the
+            // ObjC export — the same reason `ConvoyLiveClient` has to call
+            // `.intValue` on a `Map<String, Int>`'s values. So this hands
+            // back a `KotlinBoolean`, not a Swift `Bool`. Nothing else in
+            // this app passes a Kotlin function-type parameter from Swift
+            // (`FlowWatcher.watch(onChange:)` takes `() -> Unit`, which has
+            // no return to box), so the exact lowering is unverified until
+            // Xcode builds it.
+            notifyArrivals: { KotlinBoolean(bool: self.notifyEnabled(circleId: $0)) }
+        )
+        ConvoyLiveClient.shared.setNotifyingCircles(notifyIds)
 
         guard authorized else { return }
-        let cutoffMs = nowMs() - Self.catchUpMaxAgeMs
+        let notifying = circles.filter { notifyIds.contains($0.id) }
         for circle in notifying {
             let since = CircleEvents.shared.lastSeenEventTsMs(circleId: circle.id)
             guard let events = try? await CircleEvents.shared.events(groupId: circle.id, sinceMs: since),
@@ -129,19 +132,31 @@ final class CircleNotifications: NSObject {
             // notified below, so a long-stale backlog is never re-fetched —
             // it is shown once (capped, filtered), and then it's gone.
             let maxTs = events.map { $0.tsMs }.max() ?? since
-            // Newest first, so the handful that fit under the cap are the
-            // arrivals still worth knowing about right now.
-            let notifiable = events
-                .filter { $0.username != username && $0.tsMs >= cutoffMs }
-                .sorted { $0.tsMs > $1.tsMs }
-            // Counted per circle, not per sweep, matching Android's
-            // `PlaceNotifications.planCatchUp` — a noisy circle must not
-            // silently eat a quiet one's only arrival.
-            for event in notifiable.prefix(Self.catchUpCap) {
+            // CircleNotifyPolicy.planCatchUp (shared/): drops this device's
+            // own transitions and anything stale, caps the rest, and hands
+            // them back newest-first — the order it *selects* in. Counted
+            // per circle, not per sweep — a noisy circle must not silently
+            // eat a quiet one's only arrival.
+            let plan = CircleNotifyPolicy.shared.planCatchUp(
+                events: events,
+                myUsername: username,
+                nowMs: nowMs(),
+                staleAfterMs: Enums.shared.circleStaleAfterMs,
+                cap: Enums.shared.circleCatchUpCap
+            )
+            // Reversed, matching Android: an UNNotificationRequest carries
+            // no sort key, so the shade ranks by delivery time and whatever
+            // is added last sits on top. This sweep used to raise the
+            // newest first, which put the *oldest* on top — see
+            // planCatchUp's own doc. No test target on this side
+            // (iosApp/project.yml defines none), so this comment is the
+            // only thing pinning it here; the Android half is pinned by
+            // CircleNotifyDeliveryOrderTest.
+            for event in plan.individual.reversed() {
                 raise(event: event, circleId: circle.id)
             }
-            if notifiable.count > Self.catchUpCap {
-                raiseSummary(circleId: circle.id, collapsed: notifiable.count - Self.catchUpCap)
+            if plan.collapsedCount > 0 {
+                raiseSummary(circleId: circle.id, collapsed: Int(plan.collapsedCount))
             }
             CircleEvents.shared.setLastSeenEventTsMs(circleId: circle.id, tsMs: maxTs)
         }

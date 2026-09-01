@@ -32,10 +32,16 @@ object Groups {
 
     private fun ns(kind: String) = if (kind == "circle") "circles" else "convoys"
 
+    // @Throws(Exception::class) on every suspend fun below, all of them
+    // called directly from iosApp/Detour: see the doc on [SyncClient.sync]
+    // for why `Exception` and not just `IOException`.
+
+    @Throws(Exception::class)
     suspend fun create(kind: String, name: String): String =
         Api.requestJson("POST", "/${ns(kind)}", buildJsonObject { put("name", name) })
             .optString("id")
 
+    @Throws(Exception::class)
     suspend fun list(kind: String): List<Group> =
         jsonArrayOf(Api.request("GET", "/${ns(kind)}")).objects().map { groupFromJson(it, kind) }
 
@@ -46,11 +52,13 @@ object Groups {
      *  routes under `/groups/{id}` serves both, because the rule being applied
      *  ("are you a member of this thing") is the same either way. Which kind it
      *  is stays a property of the group the server resolves [groupId] to. */
+    @Throws(Exception::class)
     suspend fun invite(groupId: String, username: String): String =
         Api.requestJson(
             "POST", "/groups/$groupId/invitations", buildJsonObject { put("username", username) }
         ).optString("status")
 
+    @Throws(Exception::class)
     suspend fun respond(groupId: String, accept: Boolean) {
         Api.request(
             "POST", "/groups/$groupId/invitations/respond",
@@ -58,6 +66,7 @@ object Groups {
         )
     }
 
+    @Throws(Exception::class)
     suspend fun leave(groupId: String) {
         Api.request("DELETE", "/groups/$groupId/membership")
     }
@@ -65,6 +74,7 @@ object Groups {
     /** Circles only — pause/resume sharing your position with the group.
      *  The server 404s if [groupId] is actually a convoy: a convoy
      *  connection *is* sharing, so there is nothing to pause. */
+    @Throws(Exception::class)
     suspend fun setSharing(groupId: String, sharing: Boolean): Boolean =
         Api.requestJson(
             "PUT", "/circles/$groupId/sharing", buildJsonObject { put("sharing", sharing) }

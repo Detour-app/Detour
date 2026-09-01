@@ -28,9 +28,14 @@ data class CirclePlace(
  */
 object CirclePlaces {
 
+    // @Throws(Exception::class) on every suspend fun below, all of them
+    // called directly from iosApp/Detour: see the doc on [SyncClient.sync]
+    // for why `Exception` and not just `IOException`.
+
     /** Shares [place] into [groupId] with a geofence of [radiusM] metres.
      *  Re-sharing the same [SavedPlace.id] updates the existing row instead
      *  of creating a second one. */
+    @Throws(Exception::class)
     suspend fun share(groupId: String, place: SavedPlace, radiusM: Double) {
         Api.request(
             "POST", "/circles/$groupId/places",
@@ -50,6 +55,7 @@ object CirclePlaces {
 
     /** Every place shared into [groupId], newest first — the server 403s if
      *  the caller isn't an accepted member. */
+    @Throws(Exception::class)
     suspend fun places(groupId: String): List<CirclePlace> {
         val o = Api.requestJson("GET", "/circles/$groupId/places")
         return o.optArray("places")?.objects().orEmpty().mapNotNull { entry ->
@@ -73,6 +79,7 @@ object CirclePlaces {
 
     /** Removes one shared place by its server identifier — owner only, the
      *  server 404s otherwise rather than saying whose it was. */
+    @Throws(Exception::class)
     suspend fun delete(serverId: String) {
         Api.request("DELETE", "/circle-places/$serverId")
     }

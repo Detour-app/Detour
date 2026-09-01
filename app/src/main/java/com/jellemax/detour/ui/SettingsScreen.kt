@@ -104,18 +104,26 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.atan2
 
-/** The six spokes off the Settings root. Internal to this screen — not new
- *  MainActivity screens — so the same push/pop feel as Hub-and-back applies
- *  without adding another layer to the app-wide Screen enum. */
-private enum class SettingsPage(val title: String) {
-    ROOT("Settings"),
-    APPEARANCE_MAP("Appearance & map"),
-    TRACKING_VEHICLES("Tracking & vehicles"),
-    NAVIGATION("Navigation"),
-    FOG("Fog of war"),
-    DISPLAYS_MEDIA("Displays & media"),
-    SERVERS_SYNC("Servers & sync"),
-    OBD2("OBD2 adapter"),
+/**
+ * The spokes off the Settings root. Internal to this screen — not new
+ * MainActivity screens — so the same push/pop feel as Hub-and-back applies
+ * without adding another layer to the app-wide Screen enum.
+ *
+ * That claim was aspirational until now: the `when (page)` below sat in a plain
+ * Column, so opening a spoke and coming back were both instant swaps with no
+ * animation at all, while the app-wide screens around them slid. [depth] is
+ * what [PushPopContent] reads to tell the two directions apart, and it is the
+ * same idea the Screen enum in MainActivity carries.
+ */
+private enum class SettingsPage(val title: String, val depth: Int) {
+    ROOT("Settings", 0),
+    APPEARANCE_MAP("Appearance & map", 1),
+    TRACKING_VEHICLES("Tracking & vehicles", 1),
+    NAVIGATION("Navigation", 1),
+    FOG("Fog of war", 1),
+    DISPLAYS_MEDIA("Displays & media", 1),
+    SERVERS_SYNC("Servers & sync", 1),
+    OBD2("OBD2 adapter", 1),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -145,92 +153,98 @@ fun SettingsScreen(onBack: () -> Unit) {
             )
         },
     ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(if (page == SettingsPage.ROOT) 10.dp else 16.dp),
-        ) {
-            when (page) {
-                SettingsPage.ROOT -> {
-                    HubRow(
-                        icon = Icons.Outlined.Brightness6,
-                        title = SettingsPage.APPEARANCE_MAP.title,
-                        subtitle = theme.name.lowercase().replaceFirstChar { it.uppercase() } + " theme",
-                        onClick = { page = SettingsPage.APPEARANCE_MAP },
-                    )
-                    HubRow(
-                        icon = Icons.Outlined.DirectionsCar,
-                        title = SettingsPage.TRACKING_VEHICLES.title,
-                        subtitle = "Auto-detect drives: " + (if (autoDetect) "on" else "off"),
-                        onClick = { page = SettingsPage.TRACKING_VEHICLES },
-                    )
-                    HubRow(
-                        icon = Icons.Outlined.Navigation,
-                        title = SettingsPage.NAVIGATION.title,
-                        subtitle = "Avoid highways: " + (if (avoidHighways) "on" else "off"),
-                        onClick = { page = SettingsPage.NAVIGATION },
-                    )
-                    HubRow(
-                        icon = Icons.Outlined.VisibilityOff,
-                        title = SettingsPage.FOG.title,
-                        subtitle = "${fogRadius.toInt()} m reveal radius",
-                        onClick = { page = SettingsPage.FOG },
-                    )
-                    HubRow(
-                        icon = Icons.Outlined.Tv,
-                        title = SettingsPage.DISPLAYS_MEDIA.title,
-                        subtitle = "External display: " + (if (externalDisplayEnabled) "on" else "off"),
-                        onClick = { page = SettingsPage.DISPLAYS_MEDIA },
-                    )
-                    HubRow(
-                        icon = Icons.Outlined.Cloud,
-                        title = SettingsPage.SERVERS_SYNC.title,
-                        subtitle = if (authUsername.isBlank()) "Not signed in"
-                            else "Signed in as $authUsername",
-                        onClick = { page = SettingsPage.SERVERS_SYNC },
-                    )
-                    HubRow(
-                        icon = Icons.Outlined.Speed,
-                        title = SettingsPage.OBD2.title,
-                        subtitle = "Connect a vehicle's OBD2 adapter for accurate speed",
-                        onClick = { page = SettingsPage.OBD2 },
-                    )
-                    Text(
-                        "Detour ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                        textAlign = TextAlign.Center,
-                    )
+        PushPopContent(
+            target = page,
+            depthOf = { it.depth },
+            label = "settingsPage",
+        ) { current ->
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(if (current == SettingsPage.ROOT) 10.dp else 16.dp),
+            ) {
+                when (current) {
+                    SettingsPage.ROOT -> {
+                        HubRow(
+                            icon = Icons.Outlined.Brightness6,
+                            title = SettingsPage.APPEARANCE_MAP.title,
+                            subtitle = theme.name.lowercase().replaceFirstChar { it.uppercase() } + " theme",
+                            onClick = { page = SettingsPage.APPEARANCE_MAP },
+                        )
+                        HubRow(
+                            icon = Icons.Outlined.DirectionsCar,
+                            title = SettingsPage.TRACKING_VEHICLES.title,
+                            subtitle = "Auto-detect drives: " + (if (autoDetect) "on" else "off"),
+                            onClick = { page = SettingsPage.TRACKING_VEHICLES },
+                        )
+                        HubRow(
+                            icon = Icons.Outlined.Navigation,
+                            title = SettingsPage.NAVIGATION.title,
+                            subtitle = "Avoid highways: " + (if (avoidHighways) "on" else "off"),
+                            onClick = { page = SettingsPage.NAVIGATION },
+                        )
+                        HubRow(
+                            icon = Icons.Outlined.VisibilityOff,
+                            title = SettingsPage.FOG.title,
+                            subtitle = "${fogRadius.toInt()} m reveal radius",
+                            onClick = { page = SettingsPage.FOG },
+                        )
+                        HubRow(
+                            icon = Icons.Outlined.Tv,
+                            title = SettingsPage.DISPLAYS_MEDIA.title,
+                            subtitle = "External display: " + (if (externalDisplayEnabled) "on" else "off"),
+                            onClick = { page = SettingsPage.DISPLAYS_MEDIA },
+                        )
+                        HubRow(
+                            icon = Icons.Outlined.Cloud,
+                            title = SettingsPage.SERVERS_SYNC.title,
+                            subtitle = if (authUsername.isBlank()) "Not signed in"
+                                else "Signed in as $authUsername",
+                            onClick = { page = SettingsPage.SERVERS_SYNC },
+                        )
+                        HubRow(
+                            icon = Icons.Outlined.Speed,
+                            title = SettingsPage.OBD2.title,
+                            subtitle = "Connect a vehicle's OBD2 adapter for accurate speed",
+                            onClick = { page = SettingsPage.OBD2 },
+                        )
+                        Text(
+                            "Detour ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    SettingsPage.APPEARANCE_MAP -> {
+                        AppearanceSection(theme)
+                        MapIconSection()
+                        RouteColorSection(theme)
+                        MapSection()
+                    }
+                    SettingsPage.TRACKING_VEHICLES -> {
+                        TrackingSection(autoDetect, context)
+                        VehicleSection()
+                        LeanCalibrationSection()
+                    }
+                    SettingsPage.NAVIGATION -> NavigationSection()
+                    SettingsPage.FOG -> FogSection(context)
+                    SettingsPage.DISPLAYS_MEDIA -> {
+                        ExternalDisplaySection()
+                        NowPlayingSection()
+                    }
+                    SettingsPage.SERVERS_SYNC -> {
+                        ServerSection()
+                        SyncSection()
+                        ConfigFileSection()
+                    }
+                    SettingsPage.OBD2 -> Obd2PairingScreen()
                 }
-                SettingsPage.APPEARANCE_MAP -> {
-                    AppearanceSection(theme)
-                    MapIconSection()
-                    RouteColorSection(theme)
-                    MapSection()
-                }
-                SettingsPage.TRACKING_VEHICLES -> {
-                    TrackingSection(autoDetect, context)
-                    VehicleSection()
-                    LeanCalibrationSection()
-                }
-                SettingsPage.NAVIGATION -> NavigationSection()
-                SettingsPage.FOG -> FogSection(context)
-                SettingsPage.DISPLAYS_MEDIA -> {
-                    ExternalDisplaySection()
-                    NowPlayingSection()
-                }
-                SettingsPage.SERVERS_SYNC -> {
-                    ServerSection()
-                    SyncSection()
-                    ConfigFileSection()
-                }
-                SettingsPage.OBD2 -> Obd2PairingScreen()
             }
         }
     }

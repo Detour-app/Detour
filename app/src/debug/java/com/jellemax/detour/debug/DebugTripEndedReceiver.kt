@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TripStore
 import com.jellemax.detour.notif.TripEndedNotification
 import kotlinx.coroutines.CoroutineScope
@@ -43,6 +44,20 @@ class DebugTripEndedReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                // accountDir() refuses to resolve a path before the account
+                // migration has run, so every process-starting component has
+                // to call this first. The documented way to use this receiver
+                // — `am force-stop` then `am broadcast`, in the KDoc above and
+                // in docs/DEBUG_INTENTS.md — starts a cold process, and
+                // without this the check throws out of an unsupervised
+                // coroutine and takes the process with it.
+                //
+                // Here rather than at the top of onReceive: securePrefs() is
+                // Keystore-backed and measured at 1.6-1.8s on a Galaxy S928B,
+                // and onReceive runs on the main thread — which is the whole
+                // reason goAsync() is above. What matters is only that it
+                // precedes the first store call, and it does.
+                Settings.init()
                 val startTimeMs = explicit
                     ?: TripStore.load().maxByOrNull { it.startTimeMs }?.startTimeMs
                     // No trips and no explicit id: use a timestamp no trip can

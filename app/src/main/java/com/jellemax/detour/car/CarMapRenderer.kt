@@ -18,13 +18,14 @@ import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleFixes
+import com.jellemax.detour.data.CirclePresence
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MemberFix
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
+import com.jellemax.detour.drive.FriendPosition
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.net.ConvoyLiveClient
-import com.jellemax.detour.net.FriendPosition
 import com.jellemax.detour.ui.MapOverlays
 import com.jellemax.detour.ui.PositionMarker
 import com.jellemax.detour.ui.openFreeMapStyleUrl
@@ -74,10 +75,11 @@ private const val CAM_BEARING_EPS_DEG = 0.1f
  *  instead of spinning while you wait at a junction. */
 private const val BEARING_HOLD_MPS = 2.0
 
-/** Same cadence the phone map polls at: a circle fix only changes once a
- *  minute or so server-side, so asking faster would just re-fetch the same
- *  row (see MapScreen's CIRCLE_FIX_POLL_MS). */
-private const val CIRCLE_FIX_POLL_MS = 120_000L
+/** Same cadence the phone map polls at (see MapCameraTuning's
+ *  CIRCLE_FIX_POLL_MS): a circle member only posts a fix every
+ *  CirclePresence.ACTIVE_INTERVAL_MS, so asking faster would just re-fetch
+ *  the same row. Read from there rather than retyped. */
+private const val CIRCLE_FIX_POLL_MS = CirclePresence.ACTIVE_INTERVAL_MS
 
 /**
  * Android Auto gives an app only a raw [Surface] via [SurfaceCallback] — no
@@ -146,6 +148,15 @@ class CarMapRenderer(
                     // rather than blanking the map on one failed poll.
                     runCatching { withContext(Dispatchers.IO) { CircleFixes.othersFixes(me) } }
                         .onSuccess { setCircleMembers(it) }
+                } else {
+                    // Signed out: nothing to ask the server for, and nothing
+                    // of the previous rider's worth keeping — matches the
+                    // phone map's own blank-handle clear (MapScreen.kt), the
+                    // other consumer of this same CircleFixes.othersFixes
+                    // chain. Without this a blank handle skipped the branch
+                    // entirely and left the departed rider's members in
+                    // `circleMembers` for the life of the renderer.
+                    setCircleMembers(emptyList())
                 }
                 delay(CIRCLE_FIX_POLL_MS)
             }
@@ -339,7 +350,15 @@ class CarMapRenderer(
                 position?.let { fresh.setPosition(it, positionBearing) }
                 if (cameras.isNotEmpty()) fresh.setCameras(cameras)
                 if (friends.isNotEmpty()) fresh.setFriends(friends)
-                if (circleMembers.isNotEmpty()) fresh.setCircleMembers(circleMembers)
+                // Signed-out guarded here too, not just in the poll loop
+                // above: the loop only notices a sign-out on its own
+                // CIRCLE_FIX_POLL_MS cadence, and a surface recreated (car
+                // app switched away and back) inside that window must not
+                // redraw circleMembers that tick hasn't caught up to clearing
+                // yet.
+                if (circleMembers.isNotEmpty() && Account.username.value.isNotBlank()) {
+                    fresh.setCircleMembers(circleMembers)
+                }
             }
             startCameraLoop()
         }

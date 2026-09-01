@@ -45,9 +45,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -60,22 +58,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.jellemax.detour.auth.Oidc
+import com.jellemax.detour.auth.AuthBrowser
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.convoy.ConvoyLiveService
 import com.jellemax.detour.data.Account
-import com.jellemax.detour.data.BadgeStore
-import com.jellemax.detour.data.Coverage
+import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.Features
-import com.jellemax.detour.data.FriendLists
 import com.jellemax.detour.data.FriendStats
 import com.jellemax.detour.data.Friends
+import com.jellemax.detour.data.FriendsStore
 import com.jellemax.detour.data.Group
 import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.RiderStats
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.net.ConvoyLiveClient
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -86,6 +82,14 @@ fun FriendsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val username by Account.username.collectAsStateWithLifecycle()
     var addOpen by remember { mutableStateOf(false) }
+
+    // Signing in from here announces itself by this screen swapping its own
+    // contents — the button becomes the friends list. Consuming the one-shot
+    // stops the map from announcing the same sign-in a second time whenever
+    // the rider next navigates back to it.
+    LaunchedEffect(username) {
+        if (username.isNotBlank()) PendingSignIn.clearSignedIn()
+    }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
@@ -147,7 +151,7 @@ private fun SignInSection() {
             "totals and badges.",
         style = MaterialTheme.typography.bodyMedium,
     )
-    if (!Oidc.configured) {
+    if (!AuthBrowser.configured) {
         Text(
             "No identity provider is configured, so there is nobody to sign " +
                 "in to. Set the sign-in realm URL under Settings → Servers & sync.",
@@ -163,8 +167,19 @@ private fun SignInSection() {
     Button(
         onClick = {
             PendingSignIn.clear()
-            if (!Oidc.start(context)) {
-                PendingSignIn.fail("No browser available to sign in with.")
+            when (AuthBrowser.start(context)) {
+                null -> {}
+                AuthBrowser.StartFailure.InvalidRealmUrl -> PendingSignIn.fail(
+                    "The sign-in realm address is not a valid URL. Check it " +
+                        "under Settings → Servers & sync."
+                )
+                AuthBrowser.StartFailure.NoBrowserAvailable ->
+                    PendingSignIn.fail("No browser available to sign in with.")
+                AuthBrowser.StartFailure.NotConfigured ->
+                    PendingSignIn.fail(
+                        "No identity provider is configured. Set the sign-in " +
+                            "realm URL under Settings → Servers & sync."
+                    )
             }
         },
         enabled = !busy,
@@ -184,50 +199,23 @@ private fun SignInSection() {
 private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var lists by remember { mutableStateOf<FriendLists?>(null) }
-    var stats by remember { mutableStateOf<List<FriendStats>>(emptyList()) }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    // Bumped after every mutation so the lists below reload.
-    var reloads by remember { mutableIntStateOf(0) }
+    val state by FriendsStore.state.collectAsStateWithLifecycle()
+    // Not in the store: signing out is Account's business, not the friend
+    // list's, so there is no store `busy` slot it could occupy. It still has to
+    // gate the request rows — a revoke POST on a slow connection used to leave
+    // Accept/Decline tappable, which is how you answer a friend request on your
+    // way out the door. The old code got this for free from one shared local.
+    var signingOut by remember { mutableStateOf(false) }
 
-    LaunchedEffect(reloads) {
-        try {
-            val loaded = withContext(Dispatchers.IO) { Friends.lists() to Friends.stats() }
-            lists = loaded.first
-            stats = loaded.second
-            error = null
-        } catch (e: Exception) {
-            error = e.message ?: "Could not reach the server"
-        }
-    }
-
-    // Own totals, computed the same way BadgesScreen and the Hub do — the
-    // server never sends them back to us, only to friends, so this is the
-    // only way to put "me" in my own leaderboard.
-    val own by produceState<FriendStats?>(initialValue = null) {
-        value = withContext(Dispatchers.IO) {
-            val coverage = Coverage.compute()
-            val riderStats = BadgeStore.stats(coverage)
-            val badgeIds = BadgeStore.refresh(riderStats).states
-                .filter { it.earned }.map { it.def.id }
-            FriendStats(username, riderStats, badgeIds)
-        }
-    }
-
-    /** Runs a mutation, then reloads; never leaves [busy] stuck on failure. */
-    fun act(scope: CoroutineScope, block: suspend () -> Unit) {
-        busy = true
-        error = null
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { block() }
-                reloads++
-            } catch (e: Exception) {
-                error = e.message ?: "Failed"
-            }
-            busy = false
-        }
+    LaunchedEffect(username) {
+        // See CirclesScreen: re-entering within the freshness window shows the
+        // list it already has rather than re-fetching it.
+        FriendsStore.reloadIfStale()
+        // Coverage.compute() walks every trace point against every boundary;
+        // keep it off the main thread, same reasoning as BadgesScreen/
+        // HubScreen/CoverageMapScreen — see refreshOwn's own doc in
+        // FriendsStore.kt for the full contract.
+        withContext(Dispatchers.IO) { FriendsStore.refreshOwn(username) }
     }
 
     Card(
@@ -247,23 +235,30 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
                 Text(username, style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold)
             }
-            TextButton(onClick = {
-                // A signed-out session must not keep broadcasting: leaves the
-                // live socket with no valid identity behind it otherwise.
-                ConvoyLiveService.stop(context)
-                act(scope) { Account.signOut() }
-            }) {
+            TextButton(
+                enabled = !signingOut,
+                onClick = {
+                    // A signed-out session must not keep broadcasting: leaves the
+                    // live socket with no valid identity behind it otherwise.
+                    ConvoyLiveService.stop(context)
+                    signingOut = true
+                    scope.launch {
+                        Account.signOut()
+                        signingOut = false
+                    }
+                },
+            ) {
                 Text("Sign out")
             }
         }
     }
 
-    error?.let {
+    state.error?.let {
         Text(it, color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall)
     }
 
-    val loaded = lists
+    val loaded = state.lists
     if (loaded == null) {
         CircularProgressIndicator()
         return
@@ -277,9 +272,9 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
         for (name in loaded.incoming) {
             RequestRow(
                 name = name,
-                busy = busy,
-                onAccept = { act(scope) { Friends.respond(name, true) } },
-                onDecline = { act(scope) { Friends.respond(name, false) } },
+                busy = state.busy || signingOut,
+                onAccept = { scope.launch { FriendsStore.respond(name, true) } },
+                onDecline = { scope.launch { FriendsStore.respond(name, false) } },
             )
         }
     }
@@ -304,7 +299,7 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
             Text("Add a friend")
         }
     }
-    if (stats.isEmpty()) {
+    if (state.leaderboard.isEmpty()) {
         Text(
             "No friends yet. Add one above — you'll see their totals, " +
                 "never their routes.",
@@ -312,7 +307,7 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     } else {
-        val ranked = (stats + listOfNotNull(own))
+        val ranked = (state.leaderboard + listOfNotNull(state.own))
             .sortedByDescending { it.stats.totalDistanceMeters }
         ranked.forEachIndexed { i, friend ->
             LeaderboardRow(rank = i + 1, friend = friend, isMe = friend.username == username)
@@ -352,7 +347,7 @@ private fun RequestRow(name: String, busy: Boolean, onAccept: () -> Unit, onDecl
 }
 
 /** One leaderboard row: rank, initial avatar, name, trailing distance. The
- *  signed-in user's own row (synthesized locally, see [own] above) gets a
+ *  signed-in user's own row (synthesized by `FriendsStore.refreshOwn`) gets a
  *  primary outline and a tinted background so it's easy to find at a glance. */
 @Composable
 private fun LeaderboardRow(rank: Int, friend: FriendStats, isMe: Boolean) {
@@ -486,10 +481,7 @@ private fun AddFriendDialog(onDismiss: () -> Unit) {
 private fun ConvoysSection() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var convoys by remember { mutableStateOf<List<Group>>(emptyList()) }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var reloads by remember { mutableIntStateOf(0) }
+    val state by ConvoysStore.state.collectAsStateWithLifecycle()
     var createOpen by remember { mutableStateOf(false) }
     var inviteFor by remember { mutableStateOf<Group?>(null) }
     val liveConvoyId by ConvoyLiveClient.activeConvoyId.collectAsStateWithLifecycle()
@@ -525,27 +517,8 @@ private fun ConvoysSection() {
         }
     }
 
-    LaunchedEffect(reloads) {
-        try {
-            convoys = withContext(Dispatchers.IO) { Groups.list("convoy") }
-            error = null
-        } catch (e: Exception) {
-            error = e.message ?: "Could not reach the server"
-        }
-    }
-
-    fun act(block: suspend () -> Unit) {
-        busy = true
-        error = null
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { block() }
-                reloads++
-            } catch (e: Exception) {
-                error = e.message ?: "Failed"
-            }
-            busy = false
-        }
+    LaunchedEffect(Unit) {
+        ConvoysStore.reloadIfStale()
     }
 
     Row(
@@ -561,7 +534,7 @@ private fun ConvoysSection() {
         }
     }
 
-    error?.let {
+    state.error?.let {
         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
 
@@ -569,7 +542,7 @@ private fun ConvoysSection() {
         DisabledFeatureNotice(Features.liveRelayReason)
     }
 
-    if (convoys.isEmpty()) {
+    if (state.convoys.isEmpty()) {
         Text(
             "No convoys yet. Start one to share live location and push-to-talk " +
                 "with friends who join it — nothing is shared until they accept.",
@@ -577,10 +550,10 @@ private fun ConvoysSection() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     } else {
-        for (convoy in convoys) {
+        for (convoy in state.convoys) {
             ConvoyRow(
                 convoy = convoy,
-                busy = busy,
+                busy = state.busy,
                 live = liveConvoyId == convoy.id,
                 liveEnabled = Features.liveRelay,
                 liveStatus = when {
@@ -592,11 +565,11 @@ private fun ConvoysSection() {
                 },
                 liveStatusIsError = Features.liveRelay &&
                     liveConvoyId == convoy.id && !liveConnected && liveError != null,
-                onAccept = { act { Groups.respond(convoy.id, true) } },
-                onDecline = { act { Groups.respond(convoy.id, false) } },
+                onAccept = { scope.launch { ConvoysStore.respond(convoy.id, true) } },
+                onDecline = { scope.launch { ConvoysStore.respond(convoy.id, false) } },
                 onLeave = {
                     if (liveConvoyId == convoy.id) ConvoyLiveService.stop(context)
-                    act { Groups.leave(convoy.id) }
+                    scope.launch { ConvoysStore.leave(convoy.id) }
                 },
                 onInvite = { inviteFor = convoy },
                 onToggleLive = {
@@ -613,14 +586,14 @@ private fun ConvoysSection() {
     if (createOpen) {
         CreateConvoyDialog(
             onDismiss = { createOpen = false },
-            onCreate = { name -> act { Groups.create("convoy", name) }; createOpen = false },
+            onCreate = { name -> scope.launch { ConvoysStore.create(name) }; createOpen = false },
         )
     }
     inviteFor?.let { convoy ->
         InviteToConvoyDialog(
             convoy = convoy,
             onDismiss = { inviteFor = null },
-            onInvite = { target -> act { Groups.invite(convoy.id, target) }; inviteFor = null },
+            onInvite = { target -> scope.launch { ConvoysStore.invite(convoy.id, target) }; inviteFor = null },
         )
     }
 }

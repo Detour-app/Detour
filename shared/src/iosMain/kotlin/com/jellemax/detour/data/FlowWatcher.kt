@@ -1,10 +1,14 @@
 package com.jellemax.detour.data
 
+import com.jellemax.detour.drive.FriendPosition
+import com.jellemax.detour.drive.GroupSpin
+import com.jellemax.detour.drive.IncomingAudioChunk
 import com.jellemax.detour.drive.SectionAverageTracker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -146,6 +150,125 @@ class SectionReadingWatcher internal constructor(
         flow.collect { value = it; onChange() }
 }
 
+class FriendsStateWatcher internal constructor(
+    private val flow: StateFlow<FriendsState>,
+) : Watcher() {
+    var value: FriendsState = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+class ConvoysStateWatcher internal constructor(
+    private val flow: StateFlow<ConvoysState>,
+) : Watcher() {
+    var value: ConvoysState = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+class CirclesStateWatcher internal constructor(
+    private val flow: StateFlow<CirclesState>,
+) : Watcher() {
+    var value: CirclesState = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+// --- ConvoyRelay's own flows ---------------------------------------------
+//
+// One subclass per element type, same rule as everything above - added for
+// `iosApp/Detour/ConvoyLiveClient.swift`'s move onto the shared
+// `com.jellemax.detour.drive.ConvoyRelay`. Handed out by
+// `com.jellemax.detour.drive.ConvoyRelayWatchers`, not by a factory object
+// here: `ConvoyRelay` is constructed by Swift (there is no commonMain
+// singleton the way `Settings`/`Auth`/the `*Store`s are), so the wrapping
+// class has to live next to `ConvoyRelay` itself rather than here - see its
+// own doc.
+
+class FriendPositionsWatcher internal constructor(
+    private val flow: StateFlow<Map<String, FriendPosition>>,
+) : Watcher() {
+    var value: Map<String, FriendPosition> = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+class StringSetWatcher internal constructor(
+    private val flow: StateFlow<Set<String>>,
+) : Watcher() {
+    var value: Set<String> = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+class GroupSpinWatcher internal constructor(
+    private val flow: StateFlow<GroupSpin?>,
+) : Watcher() {
+    var value: GroupSpin? = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+class SpinVotesWatcher internal constructor(
+    private val flow: StateFlow<Map<String, Int>>,
+) : Watcher() {
+    var value: Map<String, Int> = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+class OptionalStringWatcher internal constructor(
+    private val flow: StateFlow<String?>,
+) : Watcher() {
+    var value: String? = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+/** Bridges a hot event stream rather than a value to read back at any
+ *  moment - [Watcher.collect] only ever needed a [kotlinx.coroutines.flow.Flow],
+ *  and a [SharedFlow] is one, so the same shape as every watcher above
+ *  serves here too. [value] starts `null` rather than off [flow]'s own
+ *  value - a `SharedFlow` has none - since nothing has "just happened" yet
+ *  at construction time. */
+class AudioChunkWatcher internal constructor(
+    private val flow: SharedFlow<IncomingAudioChunk>,
+) : Watcher() {
+    var value: IncomingAudioChunk? = null
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
+/** Same shape as [AudioChunkWatcher] - see its doc - for a `place_event`
+ *  arriving on the relay rather than a `ptt_audio` chunk. */
+class PlaceEventWatcher internal constructor(
+    private val flow: SharedFlow<RelayPlaceEvent>,
+) : Watcher() {
+    var value: RelayPlaceEvent? = null
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
 /** The settings a SwiftUI screen binds to. */
 object SettingsFlows {
     fun tripMode() = TravelModeWatcher(Settings.tripMode)
@@ -167,6 +290,19 @@ object SettingsFlows {
     fun authToken() = StringWatcher(Settings.refreshToken)
 }
 
+/**
+ * The session's own lifecycle signal — not a per-screen setting, so not part
+ * of [SettingsFlows]. [Auth.sessionEpoch] is `internal`, but that only scopes
+ * it to this module (`shared`); wrapping it in an [IntWatcher] here exports
+ * nothing wider than the watcher classes above already do. Ties platform
+ * code that outlives [Auth.clear]'s own reach — anything outside
+ * `commonMain` — to the session rather than to any one button, the way
+ * `ConvoyLiveClient.swift`'s session watcher does.
+ */
+object AuthFlows {
+    fun sessionEpoch() = IntWatcher(Auth.sessionEpoch)
+}
+
 /** Stores whose changes a screen needs to react to. */
 object StoreFlows {
     fun savedPlaces() = SavedPlacesWatcher(SavedPlaces.places)
@@ -174,6 +310,19 @@ object StoreFlows {
     fun traceVersion() = IntWatcher(TraceStore.version)
     fun friendFog() = TracesWatcher(FriendFog.traces)
     fun pendingResetToken() = StringWatcher(PendingReset.token)
+}
+
+/**
+ * The feature stores a SwiftUI screen binds to.
+ *
+ * One watcher per store rather than one per field: each distinct element type
+ * costs a subclass above (see this file's header), and a coarse state object
+ * keeps that at three classes instead of a dozen.
+ */
+object FeatureFlows {
+    fun friends() = FriendsStateWatcher(FriendsStore.state)
+    fun convoys() = ConvoysStateWatcher(ConvoysStore.state)
+    fun circles() = CirclesStateWatcher(CirclesStore.state)
 }
 
 /**
@@ -223,4 +372,26 @@ object Enums {
      *  arguments, and "have I driven near the edge of what I hold" has to be
      *  measured against the same number the fetch used. */
     val cameraPrefetchRadiusMeters: Double = SpeedCameras.PREFETCH_RADIUS_M
+
+    /** [CircleNotifyPolicy.planCatchUp]'s two policy numbers, for the same
+     *  reason as [cameraPrefetchRadiusMeters]: they are `const val`s inside an
+     *  object, whose exported spelling is not stable, and Swift has to pass
+     *  them explicitly because an exported function carries no default
+     *  arguments. Read from here rather than retyped in Swift — they were two
+     *  of the ten hand-copied constants (five values, two languages) the
+     *  shared policy exists to make one. */
+    val circleCatchUpCap: Int = CircleNotifyPolicy.NOTIFY_CAP
+    val circleStaleAfterMs: Long = CircleNotifyPolicy.STALE_AFTER_MS
+
+    /** The cadence `CircleSync.loop` seeds its first sleep with — the last of
+     *  those ten. Only the first: every sleep after is whatever
+     *  [CirclePresence.tick] returned, so this is the one place the 2-minute
+     *  number could quietly drift from the shared one if Swift kept its own
+     *  copy. */
+    val circleActiveIntervalMs: Long = CirclePresence.ACTIVE_INTERVAL_MS
+
+    /** How many random bytes `SignIn.swift` must draw for [Oidc.begin]. Named
+     *  here for the same reason the rest of this object exists: a `const val`
+     *  in an object has no stable exported spelling. */
+    val oidcEntropyBytes: Int = Oidc.ENTROPY_BYTES
 }
