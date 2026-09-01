@@ -9,10 +9,10 @@ import org.junit.Test
 
 class TripStatLineTest {
 
-    private fun trip(drivingStats: DrivingStats = DrivingStats()) = Trip(
+    private fun trip(drivingStats: DrivingStats = DrivingStats(), distanceMeters: Double = 5_000.0) = Trip(
         startTimeMs = 1_700_000_000_000L,
         endTimeMs = 1_700_000_600_000L,
-        distanceMeters = 5_000.0,
+        distanceMeters = distanceMeters,
         topSpeedMps = 30.0,
         destinationLat = null,
         destinationLon = null,
@@ -52,5 +52,30 @@ class TripStatLineTest {
     @Test
     fun behaviorLineRendersASubPercentObd2ShareAsLessThanOne() {
         assertTrue(tripBehaviorLine(trip(DrivingStats(obd2SpeedPct = 0.2)))!!.contains("OBD2 <1%"))
+    }
+
+    @Test
+    fun behaviorLineShowsFuelEconomyInLitresPer100km() {
+        // 300 mL over 5 km = 6.0 L/100km
+        val line = tripBehaviorLine(trip(DrivingStats(fuelMilliliters = 300)))!!
+        assertTrue(line.contains("6.0 L/100km"))
+        assertFalse(line.contains("~")) // direct PID reading, not flagged
+    }
+
+    @Test
+    fun anEstimatedFuelEconomyIsPrefixedWithATilde() {
+        val line = tripBehaviorLine(trip(DrivingStats(fuelMilliliters = 300, fuelEstimated = true)))!!
+        assertTrue(line.contains("~6.0 L/100km"))
+    }
+
+    @Test
+    fun fuelEconomyIsOmittedForATripTooShortToBeMeaningful() {
+        // L/100km over 200 m is noise; the token is gated on distance.
+        assertNull(tripBehaviorLine(trip(DrivingStats(fuelMilliliters = 50), distanceMeters = 200.0)))
+    }
+
+    @Test
+    fun fuelEconomyIsOmittedWhenNoFuelWasRecorded() {
+        assertNull(tripBehaviorLine(trip(DrivingStats(fuelMilliliters = 0))))
     }
 }

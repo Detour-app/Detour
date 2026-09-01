@@ -54,6 +54,13 @@ data class DrivingStats(
     val maxThrottlePct: Double = 0.0,
     val pctWideOpenThrottle: Double = 0.0,
     val avgRpm: Double = 0.0,
+    /** Total fuel burned over the trip, in millilitres (integer so a long
+     *  integration doesn't drift). 0 when no adapter fed a fuel reading, same
+     *  "recorded nothing" caveat as the fields above. [fuelEstimated] is true
+     *  when it came from the MAF estimate rather than the direct fuel-rate PID —
+     *  the estimate assumes petrol at the stoichiometric ratio. */
+    val fuelMilliliters: Long = 0,
+    val fuelEstimated: Boolean = false,
 )
 
 /** Persists finished trips as a JSON array in app-private storage. */
@@ -163,6 +170,8 @@ object TripStore {
         put("maxThrottlePct", d.maxThrottlePct)
         put("pctWideOpenThrottle", d.pctWideOpenThrottle)
         put("avgRpm", d.avgRpm)
+        put("fuelMilliliters", d.fuelMilliliters)
+        put("fuelEstimated", d.fuelEstimated)
     }
 
     private fun decodeDrivingStats(o: JsonObject?): DrivingStats {
@@ -187,6 +196,8 @@ object TripStore {
             maxThrottlePct = o.optDouble("maxThrottlePct", 0.0),
             pctWideOpenThrottle = o.optDouble("pctWideOpenThrottle", 0.0),
             avgRpm = o.optDouble("avgRpm", 0.0),
+            fuelMilliliters = o.optLong("fuelMilliliters"),
+            fuelEstimated = o.optBoolean("fuelEstimated"),
         )
     }
 

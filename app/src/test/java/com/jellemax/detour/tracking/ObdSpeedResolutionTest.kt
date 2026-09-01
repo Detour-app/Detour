@@ -18,6 +18,7 @@ class ObdSpeedResolutionTest {
         hasSpeed = hasSpeed, speedKmh = speedKmh,
         hasThrottle = false, throttlePct = 0.0,
         hasRpm = false, rpmValue = 0.0,
+        hasFuelRate = false, fuelRateLph = 0.0, fuelEstimated = false,
         receivedAtMs = 0L,
     )
 

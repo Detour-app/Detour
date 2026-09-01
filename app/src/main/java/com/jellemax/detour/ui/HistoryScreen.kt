@@ -449,9 +449,10 @@ fun tripStatLine(trip: Trip): String {
     return parts.joinToString(" · ")
 }
 
-/** Hard-event counts, stops and OBD2 coverage — the driving-behaviour extras
- *  that used to trail [tripStatLine] and get ellipsed off a history row. Null
- *  when the trip recorded none of them, so the caller can skip the row. */
+/** Hard-event counts, stops, OBD2 coverage and fuel economy — the
+ *  driving-behaviour extras that used to trail [tripStatLine] and get ellipsed
+ *  off a history row. Null when the trip recorded none of them, so the caller
+ *  can skip the row. */
 fun tripBehaviorLine(trip: Trip): String? {
     val ds = trip.drivingStats
     val parts = mutableListOf<String>()
@@ -462,6 +463,11 @@ fun tripBehaviorLine(trip: Trip): String? {
     if (ds.obd2SpeedPct > 0.0) {
         val pct = ds.obd2SpeedPct.roundToInt()
         parts += if (pct == 0) "OBD2 <1%" else "OBD2 $pct%"
+    }
+    // L/100km is nonsense over a few hundred metres; gate on distance.
+    if (ds.fuelMilliliters > 0 && trip.distanceMeters > 500) {
+        val litresPer100 = ds.fuelMilliliters * 100.0 / trip.distanceMeters
+        parts += (if (ds.fuelEstimated) "~" else "") + "%.1f L/100km".format(litresPer100)
     }
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }

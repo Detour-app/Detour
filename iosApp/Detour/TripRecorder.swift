@@ -210,7 +210,9 @@ final class TripRecorder: NSObject, ObservableObject {
                 maxRpm: 0.0,
                 maxThrottlePct: 0.0,
                 pctWideOpenThrottle: 0.0,
-                avgRpm: 0.0
+                avgRpm: 0.0,
+                fuelMilliliters: 0,
+                fuelEstimated: false
             )
         )
         TripStore.shared.save(trip: trip)
