@@ -826,10 +826,25 @@ object UpdateDownloader {
                 connectTimeout = 30_000
                 readTimeout = 30_000
             }
-            // followRedirects handles same-protocol hops; a downgrade to http
-            // is not followed by the JDK, and the final host is checked here.
+            // responseCode first, deliberately. getURL() does not report the
+            // redirect target until the response headers have arrived —
+            // Android's libcore says so outright — so checking it before any
+            // I/O just re-tests the URL allowed() already passed above, and
+            // would wave through a redirect to anywhere. Still a gate rather
+            // than a postmortem: this runs before a single body byte is read.
+            //
+            // libcore also refuses any protocol-switching redirect in either
+            // direction, so an https -> http downgrade never reaches here.
+            val code = connection.responseCode
             if (!allowed(connection.url)) {
                 Log.w("DetourUpdate", "refusing redirect to ${connection.url.host}")
+                return null
+            }
+            // Without this a 404 streams its HTML body into the file and the
+            // rider is offered an "APK" that is an error page. A manifest-less
+            // release has no size or hash to catch that later.
+            if (code !in 200..299) {
+                Log.w("DetourUpdate", "download refused: HTTP $code")
                 return null
             }
             val total = connection.contentLengthLong
