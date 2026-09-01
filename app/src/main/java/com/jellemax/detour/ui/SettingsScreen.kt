@@ -10,7 +10,6 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Build
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -22,6 +21,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -82,6 +82,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -94,6 +95,7 @@ import com.jellemax.detour.data.RouteColors
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.nav.Destination
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.tracking.TripTrackingService
@@ -104,35 +106,72 @@ import kotlinx.coroutines.withContext
 import kotlin.math.atan2
 
 /**
- * The six spokes off the Settings root. Internal to this screen — not new
- * MainActivity screens — so the same push/pop feel as Hub-and-back applies
- * without adding another layer to the app-wide Screen enum.
+ * The title each Settings destination shows in its own top bar.
  *
- * That claim was aspirational until now: the `when (page)` below sat in a plain
- * Column, so opening a spoke and coming back were both instant swaps with no
- * animation at all, while the app-wide screens around them slid. [depth] is
- * what [PushPopContent] reads to tell the two directions apart, and it is the
- * same idea the Screen enum in MainActivity carries.
+ * Exhaustive over [Destination.SettingsSpoke], so adding a spoke without giving
+ * it a title does not compile. This replaced `SettingsPage`, an enum that carried
+ * both the title and a hand-maintained `depth` — the depth is gone with the
+ * inference it fed.
  */
-private enum class SettingsPage(val title: String, val depth: Int) {
-    ROOT("Settings", 0),
-    APPEARANCE_MAP("Appearance & map", 1),
-    TRACKING_VEHICLES("Tracking & vehicles", 1),
-    NAVIGATION("Navigation", 1),
-    FOG("Fog of war", 1),
-    DISPLAYS_MEDIA("Displays & media", 1),
-    SERVERS_SYNC("Servers & sync", 1),
+private fun spokeTitle(spoke: Destination.SettingsSpoke): String = when (spoke) {
+    Destination.SettingsAppearanceMap -> "Appearance & map"
+    Destination.SettingsTrackingVehicles -> "Tracking & vehicles"
+    Destination.SettingsNavigation -> "Navigation"
+    Destination.SettingsFog -> "Fog of war"
+    Destination.SettingsDisplaysMedia -> "Displays & media"
+    Destination.SettingsServersSync -> "Servers & sync"
 }
 
+/**
+ * The Scaffold every Settings destination shares.
+ *
+ * One per destination rather than one wrapping an inner animation, which is the
+ * whole of the change: the top bar now belongs to the screen and travels with it,
+ * the way `HistoryScreen.kt` and `BadgesScreen.kt` have always worked. Settings
+ * was the only push in the app where the bar stayed put and the title snapped.
+ *
+ * A consequence worth naming rather than discovering: `pinnedScrollBehavior` is
+ * created per destination now, where one instance used to be shared across the
+ * root and all six spokes. Opening a spoke after scrolling another no longer
+ * inherits its scrolled container colour. The scroll *position* was already
+ * per-spoke — #66 put `rememberScrollState()` inside the animated lambda — so
+ * only the bar's own state changes hands.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    var page by remember { mutableStateOf(SettingsPage.ROOT) }
-    // Back from a spoke returns to the root; only off the root does it fall
-    // through to leaving the screen entirely (same shape as Hub vs. MAP).
-    BackHandler(enabled = page != SettingsPage.ROOT) { page = SettingsPage.ROOT }
+private fun SettingsScaffold(
+    title: String,
+    onBack: () -> Unit,
+    spacing: Dp,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = { SubScreenTopBar(title, onBack, scrollBehavior) },
+    ) { padding ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(spacing),
+            content = content,
+        )
+    }
+}
 
+/**
+ * The Settings root: six rows onto the six spokes.
+ *
+ * [onOpenSpoke] replaced `page = SettingsPage.X`. The screen no longer holds any
+ * navigation state and no longer has a `BackHandler` — there is nothing left for
+ * one to intercept, because a spoke is an entry on the app's stack and back pops
+ * it like any other.
+ */
+@Composable
+fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) -> Unit) {
     val theme by Settings.theme.collectAsStateWithLifecycle()
     val autoDetect by Settings.autoDetectDrives.collectAsStateWithLifecycle()
     val avoidHighways by Settings.avoidHighways.collectAsStateWithLifecycle()
@@ -140,103 +179,93 @@ fun SettingsScreen(onBack: () -> Unit) {
     val externalDisplayEnabled by Settings.externalDisplayEnabled.collectAsStateWithLifecycle()
     val authUsername by Settings.authUsername.collectAsStateWithLifecycle()
 
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-    Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            SubScreenTopBar(
-                page.title,
-                onBack = { if (page == SettingsPage.ROOT) onBack() else page = SettingsPage.ROOT },
-                scrollBehavior,
-            )
-        },
-    ) { padding ->
-        PushPopContent(
-            target = page,
-            depthOf = { it.depth },
-            label = "settingsPage",
-        ) { current ->
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(if (current == SettingsPage.ROOT) 10.dp else 16.dp),
-            ) {
-                when (current) {
-                    SettingsPage.ROOT -> {
-                        HubRow(
-                            icon = Icons.Outlined.Brightness6,
-                            title = SettingsPage.APPEARANCE_MAP.title,
-                            subtitle = theme.name.lowercase().replaceFirstChar { it.uppercase() } + " theme",
-                            onClick = { page = SettingsPage.APPEARANCE_MAP },
-                        )
-                        HubRow(
-                            icon = Icons.Outlined.DirectionsCar,
-                            title = SettingsPage.TRACKING_VEHICLES.title,
-                            subtitle = "Auto-detect drives: " + (if (autoDetect) "on" else "off"),
-                            onClick = { page = SettingsPage.TRACKING_VEHICLES },
-                        )
-                        HubRow(
-                            icon = Icons.Outlined.Navigation,
-                            title = SettingsPage.NAVIGATION.title,
-                            subtitle = "Avoid highways: " + (if (avoidHighways) "on" else "off"),
-                            onClick = { page = SettingsPage.NAVIGATION },
-                        )
-                        HubRow(
-                            icon = Icons.Outlined.VisibilityOff,
-                            title = SettingsPage.FOG.title,
-                            subtitle = "${fogRadius.toInt()} m reveal radius",
-                            onClick = { page = SettingsPage.FOG },
-                        )
-                        HubRow(
-                            icon = Icons.Outlined.Tv,
-                            title = SettingsPage.DISPLAYS_MEDIA.title,
-                            subtitle = "External display: " + (if (externalDisplayEnabled) "on" else "off"),
-                            onClick = { page = SettingsPage.DISPLAYS_MEDIA },
-                        )
-                        HubRow(
-                            icon = Icons.Outlined.Cloud,
-                            title = SettingsPage.SERVERS_SYNC.title,
-                            subtitle = if (authUsername.isBlank()) "Not signed in"
-                                else "Signed in as $authUsername",
-                            onClick = { page = SettingsPage.SERVERS_SYNC },
-                        )
-                        Text(
-                            "Detour ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 12.dp),
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                    SettingsPage.APPEARANCE_MAP -> {
-                        AppearanceSection(theme)
-                        MapIconSection()
-                        RouteColorSection(theme)
-                        MapSection()
-                    }
-                    SettingsPage.TRACKING_VEHICLES -> {
-                        TrackingSection(autoDetect, context)
-                        VehicleSection()
-                        LeanCalibrationSection()
-                    }
-                    SettingsPage.NAVIGATION -> NavigationSection()
-                    SettingsPage.FOG -> FogSection(context)
-                    SettingsPage.DISPLAYS_MEDIA -> {
-                        ExternalDisplaySection()
-                        NowPlayingSection()
-                    }
-                    SettingsPage.SERVERS_SYNC -> {
-                        ServerSection()
-                        SyncSection()
-                        ConfigFileSection()
-                        DiagnosticsSection()
-                    }
-                }
+    SettingsScaffold("Settings", onBack, spacing = 10.dp) {
+        HubRow(
+            icon = Icons.Outlined.Brightness6,
+            title = spokeTitle(Destination.SettingsAppearanceMap),
+            subtitle = theme.name.lowercase().replaceFirstChar { it.uppercase() } + " theme",
+            onClick = { onOpenSpoke(Destination.SettingsAppearanceMap) },
+        )
+        HubRow(
+            icon = Icons.Outlined.DirectionsCar,
+            title = spokeTitle(Destination.SettingsTrackingVehicles),
+            subtitle = "Auto-detect drives: " + (if (autoDetect) "on" else "off"),
+            onClick = { onOpenSpoke(Destination.SettingsTrackingVehicles) },
+        )
+        HubRow(
+            icon = Icons.Outlined.Navigation,
+            title = spokeTitle(Destination.SettingsNavigation),
+            subtitle = "Avoid highways: " + (if (avoidHighways) "on" else "off"),
+            onClick = { onOpenSpoke(Destination.SettingsNavigation) },
+        )
+        HubRow(
+            icon = Icons.Outlined.VisibilityOff,
+            title = spokeTitle(Destination.SettingsFog),
+            subtitle = "${fogRadius.toInt()} m reveal radius",
+            onClick = { onOpenSpoke(Destination.SettingsFog) },
+        )
+        HubRow(
+            icon = Icons.Outlined.Tv,
+            title = spokeTitle(Destination.SettingsDisplaysMedia),
+            subtitle = "External display: " + (if (externalDisplayEnabled) "on" else "off"),
+            onClick = { onOpenSpoke(Destination.SettingsDisplaysMedia) },
+        )
+        HubRow(
+            icon = Icons.Outlined.Cloud,
+            title = spokeTitle(Destination.SettingsServersSync),
+            subtitle = if (authUsername.isBlank()) "Not signed in"
+                else "Signed in as $authUsername",
+            onClick = { onOpenSpoke(Destination.SettingsServersSync) },
+        )
+        Text(
+            "Detour ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp),
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/**
+ * One spoke, with its own top bar.
+ *
+ * The `when` is exhaustive over [Destination.SettingsSpoke] rather than over the
+ * whole app's destinations, which is what the sealed sub-interface buys: a new
+ * spoke fails to compile here until it is rendered.
+ */
+@Composable
+fun SettingsSpokeScreen(spoke: Destination.SettingsSpoke, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val theme by Settings.theme.collectAsStateWithLifecycle()
+    val autoDetect by Settings.autoDetectDrives.collectAsStateWithLifecycle()
+
+    SettingsScaffold(spokeTitle(spoke), onBack, spacing = 16.dp) {
+        when (spoke) {
+            Destination.SettingsAppearanceMap -> {
+                AppearanceSection(theme)
+                MapIconSection()
+                RouteColorSection(theme)
+                MapSection()
+            }
+            Destination.SettingsTrackingVehicles -> {
+                TrackingSection(autoDetect, context)
+                VehicleSection()
+                LeanCalibrationSection()
+            }
+            Destination.SettingsNavigation -> NavigationSection()
+            Destination.SettingsFog -> FogSection(context)
+            Destination.SettingsDisplaysMedia -> {
+                ExternalDisplaySection()
+                NowPlayingSection()
+            }
+            Destination.SettingsServersSync -> {
+                ServerSection()
+                SyncSection()
+                ConfigFileSection()
+                DiagnosticsSection()
             }
         }
     }
