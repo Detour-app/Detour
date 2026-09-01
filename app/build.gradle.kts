@@ -191,19 +191,19 @@ android {
 dependencies {
     // Roulette/routing/trip logic, shared verbatim with the iOS app in iosApp/.
     implementation(project(":shared"))
-    implementation(platform("androidx.compose:compose-bom:2024.09.02"))
+    implementation(platform("androidx.compose:compose-bom:2026.02.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.activity:activity-compose:1.9.2")
+    implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.core:core-ktx:1.13.1")
     // Custom Tabs, for the sign-in leg. A native app must not put the identity
     // provider's login form in a WebView (RFC 8252): a tab keeps the address bar
     // and the browser's own session, so the user can see who they are typing a
     // password into and does not type it again on the next device.
     implementation("androidx.browser:browser:1.8.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
     implementation("org.maplibre.gl:android-sdk:11.8.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
