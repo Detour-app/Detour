@@ -3,6 +3,7 @@ package com.jellemax.detour.ui
 import com.jellemax.detour.data.DrivingStats
 import com.jellemax.detour.data.Trip
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -19,39 +20,37 @@ class TripStatLineTest {
     )
 
     @Test
-    fun aTripWithNoHardEventsOmitsTheHardEventSegment() {
-        val line = tripStatLine(trip())
+    fun statLineIsTheCoreNumbersOnly() {
+        // Driving-behaviour counts moved to tripBehaviorLine so the maxLines = 1
+        // history row isn't ellipsing them — the core line never carries them.
+        val line = tripStatLine(trip(DrivingStats(hardBrakeCount = 2, stopCount = 3, obd2SpeedPct = 90.0)))
         assertFalse(line.contains("hard"))
+        assertFalse(line.contains("stop"))
+        assertFalse(line.contains("OBD2"))
+        assertTrue(line.contains("avg"))
+        assertTrue(line.contains("top"))
     }
 
     @Test
-    fun hardEventCountsAppearWhenNonZero() {
-        val line = tripStatLine(trip(DrivingStats(hardBrakeCount = 2, hardCornerCount = 1)))
+    fun behaviorLineIsNullWhenNothingWasRecorded() {
+        assertNull(tripBehaviorLine(trip()))
+    }
+
+    @Test
+    fun behaviorLineCarriesHardEventCountsAndStops() {
+        val line = tripBehaviorLine(trip(DrivingStats(hardBrakeCount = 2, hardCornerCount = 1, stopCount = 3)))!!
         assertTrue(line.contains("2 hard brakes"))
         assertTrue(line.contains("1 hard corner"))
-    }
-
-    @Test
-    fun stopsAppearWhenNonZero() {
-        val line = tripStatLine(trip(DrivingStats(stopCount = 3)))
         assertTrue(line.contains("3 stops"))
     }
 
     @Test
-    fun obd2ShareAppearsWhenNonZero() {
-        val line = tripStatLine(trip(DrivingStats(obd2SpeedPct = 93.7)))
-        assertTrue(line.contains("OBD2 94%"))
+    fun behaviorLineShowsObd2Share() {
+        assertTrue(tripBehaviorLine(trip(DrivingStats(obd2SpeedPct = 93.7)))!!.contains("OBD2 94%"))
     }
 
     @Test
-    fun obd2ShareIsOmittedWhenZero() {
-        val line = tripStatLine(trip())
-        assertFalse(line.contains("OBD2"))
-    }
-
-    @Test
-    fun obd2ShareThatRoundsToZeroRendersAsLessThanOnePercent() {
-        val line = tripStatLine(trip(DrivingStats(obd2SpeedPct = 0.2)))
-        assertTrue(line.contains("OBD2 <1%"))
+    fun behaviorLineRendersASubPercentObd2ShareAsLessThanOne() {
+        assertTrue(tripBehaviorLine(trip(DrivingStats(obd2SpeedPct = 0.2)))!!.contains("OBD2 <1%"))
     }
 }

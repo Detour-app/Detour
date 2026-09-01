@@ -48,7 +48,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.data.syncQuietly
@@ -81,13 +80,13 @@ internal data class TraceSegment(
  *  [TraceStore.loadAll], which drops the per-point timestamp — the one thing
  *  this screen needs to match a trace back to the trip that was running when it
  *  was recorded, and the one thing a GPX export can't be built without. */
-private fun readTraceSegments(context: android.content.Context): List<TraceSegment> {
-    // Uncached, unlike TraceStore.loadAll: this re-reads and re-parses the whole
-    // of traces.jsonl on every history open, trip detail and GPX export, so it
-    // grows with every ride and nothing memoises it. #84.
+private fun readTraceSegments(): List<TraceSegment> {
+    // Parse is cached in TraceStore.loadAllPoints (keyed on its write version),
+    // so a second history open / trip detail / GPX export in the same session
+    // reuses it instead of re-reading the whole of traces.jsonl. Building the
+    // [startMs, endMs] window per line is cheap and stays here.
     val t = Perf.start()
-    val segments = TraceStore.rawLines().mapNotNull { line ->
-        val points = TraceStore.parsePoints(line) ?: return@mapNotNull null
+    val segments = TraceStore.loadAllPoints().mapNotNull { points ->
         var start = Long.MAX_VALUE
         var end = Long.MIN_VALUE
         for (p in points) {
@@ -145,8 +144,8 @@ internal fun matchTripPoints(segments: List<TraceSegment>, trip: Trip): List<Tra
     return result
 }
 
-private fun matchThumbnails(context: android.content.Context, trips: List<Trip>): Map<Long, List<LatLon>> {
-    val segments = readTraceSegments(context)
+private fun matchThumbnails(trips: List<Trip>): Map<Long, List<LatLon>> {
+    val segments = readTraceSegments()
     val result = HashMap<Long, List<LatLon>>()
     for (trip in trips) {
         val points = matchTripPoints(segments, trip)
@@ -167,14 +166,14 @@ private fun matchThumbnails(context: android.content.Context, trips: List<Trip>)
  *  for one trip at a time on demand rather than held for the whole history
  *  list. Empty if no trace matches (shouldn't happen when the caller only
  *  opens trips whose thumbnail was already matched). */
-fun loadTripTrace(context: android.content.Context, trip: Trip): List<LatLon> =
-    loadTripPoints(context, trip).map { it.at }
+fun loadTripTrace(trip: Trip): List<LatLon> =
+    loadTripPoints(trip).map { it.at }
 
 /** The same trace with its timestamps kept, for the GPX export — a track
  *  without times is just a shape, and every tool that would receive one wants
  *  to know when it was ridden. */
-fun loadTripPoints(context: android.content.Context, trip: Trip): List<TraceStore.TracePoint> =
-    matchTripPoints(readTraceSegments(context), trip)
+fun loadTripPoints(trip: Trip): List<TraceStore.TracePoint> =
+    matchTripPoints(readTraceSegments(), trip)
 
 private val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
 private fun monthKey(timeMs: Long) = SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(timeMs)
@@ -182,7 +181,6 @@ private fun monthKey(timeMs: Long) = SimpleDateFormat("yyyy-MM", Locale.getDefau
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Loaded off the main thread: reading + JSON-parsing the store inside a
     // remember{} ran during composition and stalled the first frame (~125 ms on a
@@ -192,7 +190,7 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
     fun reload() = scope.launch {
         entries = withContext(Dispatchers.IO) {
             val trips = TripStore.load()
-            val thumbnails = matchThumbnails(context, trips)
+            val thumbnails = matchThumbnails(trips)
             trips.map { HistoryEntry(it, thumbnails[it.startTimeMs]) }
         }
     }
@@ -423,10 +421,9 @@ private fun TripCard(
     }
 
     if (cardDialogOpen) {
-        val context = LocalContext.current
         LaunchedEffect(Unit) {
             if (cardPoints == null) {
-                cardPoints = withContext(Dispatchers.IO) { loadTripTrace(context, trip) }
+                cardPoints = withContext(Dispatchers.IO) { loadTripTrace(trip) }
             }
         }
         TripCardShareDialog(
@@ -437,8 +434,9 @@ private fun TripCard(
 }
 
 /** "duration · distance · avg X · top Y" plus lean/G when the vehicle tracks
- *  them — the numbers that used to be four separate labelled columns,
- *  collapsed to the one line a history row now has room for. */
+ *  them — the core numbers, the one line a history row (maxLines = 1) has room
+ *  for without ellipsing half of them away. The driving-behaviour counts moved
+ *  to [tripBehaviorLine], which only the trip-detail card renders. */
 fun tripStatLine(trip: Trip): String {
     val parts = mutableListOf(
         formatDurationHistory(trip.durationMs),
@@ -448,7 +446,15 @@ fun tripStatLine(trip: Trip): String {
     )
     if (trip.mode.tracksLean) parts += "lean " + formatLeanAngle(trip.maxLeanAngleDeg)
     if (trip.mode.tracksGForce) parts += "max " + formatGForce(trip.maxGForce)
+    return parts.joinToString(" · ")
+}
+
+/** Hard-event counts, stops and OBD2 coverage — the driving-behaviour extras
+ *  that used to trail [tripStatLine] and get ellipsed off a history row. Null
+ *  when the trip recorded none of them, so the caller can skip the row. */
+fun tripBehaviorLine(trip: Trip): String? {
     val ds = trip.drivingStats
+    val parts = mutableListOf<String>()
     if (ds.hardBrakeCount > 0) parts += "${ds.hardBrakeCount} hard brake" + if (ds.hardBrakeCount == 1) "" else "s"
     if (ds.hardAccelCount > 0) parts += "${ds.hardAccelCount} hard accel" + if (ds.hardAccelCount == 1) "" else "s"
     if (ds.hardCornerCount > 0) parts += "${ds.hardCornerCount} hard corner" + if (ds.hardCornerCount == 1) "" else "s"
@@ -457,7 +463,7 @@ fun tripStatLine(trip: Trip): String {
         val pct = ds.obd2SpeedPct.roundToInt()
         parts += if (pct == 0) "OBD2 <1%" else "OBD2 $pct%"
     }
-    return parts.joinToString(" · ")
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
 
 /** Draws the trip's trace as a simple normalized polyline — not a map, just a

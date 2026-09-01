@@ -220,7 +220,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
     // GPX export needs them; the map only reads the coordinates.
     var trace by remember { mutableStateOf<List<TraceStore.TracePoint>?>(null) }
     LaunchedEffect(trip.startTimeMs) {
-        trace = withContext(Dispatchers.IO) { loadTripPoints(context, trip) }
+        trace = withContext(Dispatchers.IO) { loadTripPoints(trip) }
     }
 
     val themePref by Settings.theme.collectAsStateWithLifecycle()
@@ -521,6 +521,15 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    // Hard events / stops / OBD2 — trimmed off the history row
+                    // (see tripStatLine), shown here where the card can wrap.
+                    tripBehaviorLine(trip)?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     // Road-type mix: share of the *classified* distance on each
                     // highway class, skipping classes with nothing recorded.
                     // Normalised against the sum of what was matched to a way, not

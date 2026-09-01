@@ -47,6 +47,7 @@ object TraceStore {
      *  rider's territory until something else happens to change it. */
     fun reset() {
         cache = null
+        pointsCache = null
         _version.value++
     }
 
@@ -67,6 +68,15 @@ object TraceStore {
 
     @Volatile
     private var cache: Cache? = null
+
+    /** The tail-preserving parse of [FILE_NAME], keyed on [version] exactly like
+     *  [Cache]. Separate from [cache] because [parsePoints] keeps time/speed/lean
+     *  that [parseLines] throws away, and the history screen, trip detail and GPX
+     *  export all need it. */
+    private class PointsCache(val version: Int, val segments: List<List<TracePoint>>)
+
+    @Volatile
+    private var pointsCache: PointsCache? = null
 
     fun append(trace: List<TracePoint>) {
         if (trace.size < 2) return
@@ -117,6 +127,34 @@ object TraceStore {
                 "bytes" to lines.sumOf { it.length + 1 },
                 "hit" to 0,
             )
+        }
+        return parsed
+    }
+
+    /**
+     * Every stored line parsed with its tail kept, one entry per line, cached on
+     * [version] the same way [loadAll] caches the coords-only parse. Before this,
+     * `HistoryScreen.readTraceSegments` re-read and re-parsed the whole file on
+     * every history open, every trip-detail open and every GPX export, with
+     * nothing memoising it (#84). A write bumps [version], so a stale parse is
+     * never served.
+     */
+    fun loadAllPoints(): List<List<TracePoint>> {
+        val t = Perf.start()
+        val version = _version.value // read before the file, same reason as loadAll
+        pointsCache?.let {
+            if (it.version == version) {
+                Perf.end(t, "TraceStore.loadAllPoints") {
+                    listOf("segments" to it.segments.size, "hit" to 1)
+                }
+                return it.segments
+            }
+        }
+        val f = accountFile(FILE_NAME)
+        val parsed = (if (!f.exists()) emptyList() else f.readLines()).mapNotNull { parsePoints(it) }
+        pointsCache = PointsCache(version, parsed)
+        Perf.end(t, "TraceStore.loadAllPoints") {
+            listOf("segments" to parsed.size, "points" to parsed.sumOf { it.size }, "hit" to 0)
         }
         return parsed
     }
