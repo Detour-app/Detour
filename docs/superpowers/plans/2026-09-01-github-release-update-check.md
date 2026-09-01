@@ -1428,6 +1428,12 @@ Add to `MainActivity`:
             }.getOrNull()
             // Silent on failure. This is a background courtesy; a rider mid-ride
             // is never told the update check could not reach GitHub.
+            // Never prune while a download is running. prune deletes by name;
+            // the downloader holds the file open, and unlinking an open file
+            // succeeds silently on Linux — the download then "completes",
+            // verify() passes on the in-memory digest, and the app reports
+            // Downloaded for a path that no longer exists.
+            if (UpdateState.status.value is UpdateStatus.Downloading) return@launch
             if (update == null) {
                 UpdateDownloader.prune(this@MainActivity, keep = null)
                 return@launch
