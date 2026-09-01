@@ -36,6 +36,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,7 +54,12 @@ import com.jellemax.detour.data.RiderTotals
 import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.SyncClient
+import com.jellemax.detour.update.UpdateDownloader
+import com.jellemax.detour.update.UpdateInstaller
+import com.jellemax.detour.update.UpdateState
+import com.jellemax.detour.update.UpdateStatus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private data class HubData(
@@ -80,11 +86,13 @@ fun HubScreen(
     onOpenRoutes: () -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val username by Account.username.collectAsStateWithLifecycle()
     val signedIn = Account.signedIn
     val savedPlaces by SavedPlaces.places.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { RouteStore.ensureLoaded() }
     val savedRoutes by RouteStore.routes.collectAsStateWithLifecycle()
+    val updateStatus by UpdateState.status.collectAsStateWithLifecycle()
 
     // Coverage.compute walks every trace point against every boundary, but
     // caches the result — only the first call after trace/municipality data
@@ -119,6 +127,31 @@ fun HubScreen(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            UpdateBanner(
+                status = updateStatus,
+                onDownload = {
+                    val update = UpdateState.current() ?: return@UpdateBanner
+                    UpdateState.set(UpdateStatus.Downloading(update, -1f))
+                    scope.launch(Dispatchers.IO) {
+                        val file = UpdateDownloader.download(context, update) { f ->
+                            UpdateState.set(UpdateStatus.Downloading(update, f))
+                        }
+                        UpdateState.set(
+                            if (file != null) UpdateStatus.Downloaded(update, file.path)
+                            else UpdateStatus.Failed(update)
+                        )
+                    }
+                },
+                onInstall = {
+                    val s = updateStatus as? UpdateStatus.Downloaded ?: return@UpdateBanner
+                    if (!UpdateInstaller.canInstall(context)) {
+                        UpdateInstaller.requestPermission(context)
+                    } else {
+                        UpdateInstaller.install(context, java.io.File(s.path))
+                    }
+                },
+            )
+
             AccountCard(
                 username = username,
                 signedIn = signedIn,
