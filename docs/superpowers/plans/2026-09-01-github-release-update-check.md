@@ -424,7 +424,7 @@ object UpdateClient {
      *  which is the same today and need not stay that way. */
     private val HEADERS = mapOf("Accept" to "application/vnd.github+json")
 
-    data class Available(
+    data class PendingUpdate(
         val version: String,
         val asset: String,
         val downloadUrl: String,
@@ -438,9 +438,14 @@ object UpdateClient {
      * The newest release of [repo] if it is newer than [installedVersion],
      * else null.
      *
-     * Null is also the answer for every failure — offline, rate-limited, a
-     * malformed payload. This is a background courtesy; it does not report
-     * problems to a rider who did not ask.
+     * Returns null when there is simply nothing to offer: the release is not
+     * newer, the manifest names no artifact for this platform, or a release
+     * with no manifest has no conventionally-named asset either.
+     *
+     * Failures fetching or parsing the release itself — offline, rate-limited,
+     * any non-2xx — throw, which is what [Throws] is for. The caller decides
+     * what silence means; on Android that is a silent skip until the next
+     * hourly check.
      */
     @Throws(Exception::class)
     suspend fun newerThan(repo: String, installedVersion: String): Available? {
@@ -449,18 +454,24 @@ object UpdateClient {
         val release = UpdateCheck.parseRelease(releaseText) ?: return null
         if (!UpdateCheck.isNewer(installedVersion, release.version)) return null
 
-        // The manifest is the authority on which file this platform wants. A
-        // release published before it existed falls back to the name CI has
-        // always used; see UpdateCheck.conventionalPhoneAsset.
+        // Only a release published before update.json existed may fall back to
+        // the conventional filename. If the asset is *there* but unreadable,
+        // that is a transient failure, not a manifest-less release — falling
+        // back would silently downgrade a checksummed download to an unchecked
+        // one, letting a network blip decide whether the APK gets verified.
+        // No update this hour; the next check retries.
         val manifestUrl = release.assetUrl("update.json")
-        val artifact = manifestUrl
-            ?.let { runCatching { Http.get(it, HEADERS) }.getOrNull() }
-            ?.let { UpdateCheck.parseManifest(it) }
-            ?.let { UpdateCheck.artifactFor(it, UpdateCheck.PLATFORM_ANDROID_PHONE) }
+        val artifact = if (manifestUrl == null) {
+            null
+        } else {
+            val text = runCatching { Http.get(manifestUrl) }.getOrNull() ?: return null
+            val manifest = UpdateCheck.parseManifest(text) ?: return null
+            UpdateCheck.artifactFor(manifest, UpdateCheck.PLATFORM_ANDROID_PHONE) ?: return null
+        }
 
         val assetName = artifact?.asset ?: UpdateCheck.conventionalPhoneAsset(release.version)
         val url = release.assetUrl(assetName) ?: return null
-        return Available(
+        return PendingUpdate(
             version = release.version,
             asset = assetName,
             downloadUrl = url,
@@ -684,11 +695,11 @@ import kotlinx.coroutines.flow.StateFlow
 sealed interface UpdateStatus {
     /** Nothing known, or nothing newer. */
     data object None : UpdateStatus
-    data class Available(val update: UpdateClient.Available) : UpdateStatus
-    data class Downloading(val update: UpdateClient.Available, val fraction: Float) : UpdateStatus
-    data class Downloaded(val update: UpdateClient.Available, val path: String) : UpdateStatus
+    data class Available(val update: UpdateClient.PendingUpdate) : UpdateStatus
+    data class Downloading(val update: UpdateClient.PendingUpdate, val fraction: Float) : UpdateStatus
+    data class Downloaded(val update: UpdateClient.PendingUpdate, val path: String) : UpdateStatus
     /** The download failed or the file did not verify. The banner offers a retry. */
-    data class Failed(val update: UpdateClient.Available) : UpdateStatus
+    data class Failed(val update: UpdateClient.PendingUpdate) : UpdateStatus
 }
 
 object UpdateState {
@@ -700,7 +711,7 @@ object UpdateState {
     }
 
     /** The update currently on offer, whatever phase it is in. */
-    fun current(): UpdateClient.Available? = when (val s = _status.value) {
+    fun current(): UpdateClient.PendingUpdate? = when (val s = _status.value) {
         is UpdateStatus.Available -> s.update
         is UpdateStatus.Downloading -> s.update
         is UpdateStatus.Downloaded -> s.update
@@ -785,7 +796,7 @@ object UpdateDownloader {
      */
     fun download(
         context: Context,
-        update: UpdateClient.Available,
+        update: UpdateClient.PendingUpdate,
         onProgress: (Float) -> Unit,
     ): File? {
         val url = runCatching { URL(update.downloadUrl) }.getOrNull() ?: return null
@@ -837,13 +848,18 @@ object UpdateDownloader {
         }
     }
 
-    /** Size and hash both, when the manifest supplied them. A release with no
-     *  manifest carries neither, and an unverifiable download is still better
-     *  than none — the install sheet shows the signer either way. */
+    /** Size and hash both, when the manifest supplied them.
+     *
+     *  A blank sha256 now means one thing only: the release carries no
+     *  update.json at all, i.e. it predates the manifest. UpdateClient returns
+     *  null rather than falling back when a manifest is present but
+     *  unreadable, so a transient network failure can no longer arrive here
+     *  looking like a manifest-less release and skip verification. The install
+     *  sheet still shows the signer either way. */
     private fun verify(
         file: File,
         digest: MessageDigest,
-        update: UpdateClient.Available,
+        update: UpdateClient.PendingUpdate,
         read: Long,
     ): Boolean {
         if (update.size > 0 && read != update.size) {
