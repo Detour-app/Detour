@@ -96,6 +96,32 @@ object Curviness {
         return if (total > 0) curvy / total else 0.0
     }
 
+    /**
+     * Same 25-300m circumradius window as [score]/[routeScore], applied to a
+     * driven trace instead of an OSM way or a routed polyline (maxke24/Detour#61's
+     * twistiness stat). No junction filtering: a driven trace carries neither OSM
+     * node ids ([score]'s junction set) nor turn instructions ([routeScore]'s), so
+     * real intersections are not excluded — this over-counts town-driving corners
+     * as "twisty" relative to the other two callers. Acceptable for a
+     * same-trip-to-same-trip comparison; documented rather than solved.
+     */
+    fun traceScore(points: List<LatLon>): Double {
+        if (points.size < 3) return 0.0
+        var total = 0.0
+        for (i in 0 until points.size - 1) total += RoadRoulette.distanceMeters(points[i], points[i + 1])
+        if (total < 500) return 0.0 // too short to judge, same floor as score()
+
+        var curvy = 0.0
+        for (i in 1 until points.size - 1) {
+            val r = circumradiusMeters(points[i - 1], points[i], points[i + 1])
+            if (r in 25.0..300.0) {
+                curvy += (RoadRoulette.distanceMeters(points[i - 1], points[i]) +
+                    RoadRoulette.distanceMeters(points[i], points[i + 1])) / 2
+            }
+        }
+        return curvy / total
+    }
+
     /** Flags every vertex within [JUNCTION_SKIP_METERS] of [index], walking out
      *  in both directions — a maneuver's corner is spread over the vertices
      *  around it, not just the one the instruction points at. */

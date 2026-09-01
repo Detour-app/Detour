@@ -447,6 +447,11 @@ fun tripStatLine(trip: Trip): String {
     )
     if (trip.mode.tracksLean) parts += "lean " + formatLeanAngle(trip.maxLeanAngleDeg)
     if (trip.mode.tracksGForce) parts += "max " + formatGForce(trip.maxGForce)
+    val ds = trip.drivingStats
+    if (ds.hardBrakeCount > 0) parts += "${ds.hardBrakeCount} hard brake" + if (ds.hardBrakeCount == 1) "" else "s"
+    if (ds.hardAccelCount > 0) parts += "${ds.hardAccelCount} hard accel" + if (ds.hardAccelCount == 1) "" else "s"
+    if (ds.hardCornerCount > 0) parts += "${ds.hardCornerCount} hard corner" + if (ds.hardCornerCount == 1) "" else "s"
+    if (ds.stopCount > 0) parts += "${ds.stopCount} stop" + if (ds.stopCount == 1) "" else "s"
     return parts.joinToString(" · ")
 }
 

@@ -179,16 +179,16 @@ object RoadRoulette {
 
     /** Road classes a car/moto can legally be on; excludes the footways,
      *  cycleways, service roads and tracks that used to hijack the badge. */
-    private const val DRIVABLE_HIGHWAYS = "motorway|trunk|primary|secondary|tertiary|" +
+    internal const val DRIVABLE_HIGHWAYS = "motorway|trunk|primary|secondary|tertiary|" +
         "unclassified|residential|living_street|" +
         "motorway_link|trunk_link|primary_link|secondary_link|tertiary_link"
 
     /** Beyond this the road is not the one we are on, whatever Overpass returned. */
-    private const val MAX_SNAP_METERS = 25.0
+    internal const val MAX_SNAP_METERS = 25.0
 
     /** A road counts as "the one we're on" when it runs within this many degrees
      *  of our heading, in either direction of travel. */
-    private const val HEADING_TOLERANCE_DEG = 40.0
+    internal const val HEADING_TOLERANCE_DEG = 40.0
 
     /**
      * Posted speed limit (km/h) of the road [point] is on, via Overpass — for the
@@ -352,7 +352,7 @@ object RoadRoulette {
     }
 
     /** True when segment [a]→[b] runs along [headingDeg], either way round. */
-    private fun alignsWith(a: LatLon, b: LatLon, headingDeg: Double): Boolean {
+    internal fun alignsWith(a: LatLon, b: LatLon, headingDeg: Double): Boolean {
         val dLat = b.lat - a.lat
         val dLon = (b.lon - a.lon) * cos(toRadians(a.lat))
         if (dLat == 0.0 && dLon == 0.0) return false

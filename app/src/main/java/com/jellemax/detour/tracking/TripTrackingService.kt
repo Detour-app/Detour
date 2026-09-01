@@ -47,6 +47,8 @@ import com.jellemax.detour.data.BadgeDef
 import com.jellemax.detour.data.BadgeStore
 import com.jellemax.detour.data.CirclePresence
 import com.jellemax.detour.data.Coverage
+import com.jellemax.detour.data.Curviness
+import com.jellemax.detour.data.DrivingStats
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MunicipalityStore
 import com.jellemax.detour.data.RiderTotals
@@ -57,7 +59,12 @@ import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
+import com.jellemax.detour.drive.HardEventDetector
+import com.jellemax.detour.drive.RoadTypeTracker
+import com.jellemax.detour.drive.SpeedLimitTracker
+import com.jellemax.detour.drive.StopDetector
 import com.jellemax.detour.notif.TripEndedNotification
+import com.jellemax.detour.ui.loadTripPoints
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -84,6 +91,15 @@ data class TripStats(
     val maxLeanAngleDeg: Double = 0.0,
     val currentGForce: Double = 0.0,
     val maxGForce: Double = 0.0,
+    val hardBrakeCount: Int = 0,
+    val hardAccelCount: Int = 0,
+    val hardCornerCount: Int = 0,
+    val stopCount: Int = 0,
+    /** True while the current fix reads over the posted limit (same margin as
+     *  [TripTrackingService.OVER_LIMIT_MARGIN]) — a live HUD signal, not a
+     *  count; carries the previous value forward on a fix with no real speed
+     *  measurement rather than flickering off. */
+    val currentlyOverLimit: Boolean = false,
 )
 
 /** Latest GPS fix, published live for the map (fog, navigation). */
@@ -213,6 +229,9 @@ class TripTrackingService : Service() {
         /** Floor between boundary lookups, so a drive along a coastline (where
          *  every point misses) can't turn into a stream of Overpass queries. */
         private const val MUNICIPALITY_LOOKUP_COOLDOWN_MS = 60_000L
+        /** 10% over the posted limit, provisional — a floor against GPS/rounding
+         *  noise reading a steady legal speed as a violation. */
+        private const val OVER_LIMIT_MARGIN = 1.10
 
         private val _stats = MutableStateFlow<TripStats?>(null)
         val stats: StateFlow<TripStats?> = _stats
@@ -374,6 +393,22 @@ class TripTrackingService : Service() {
      *  from the settings screen, never mid-trip. */
     private var leanOffsetDeg = 0.0
 
+    @Volatile private var speedEventState = HardEventDetector.SpeedState()
+    @Volatile private var headingEventState = HardEventDetector.HeadingState()
+    /** Threaded into [HardEventDetector.onLeanSample] from [recordLean] — a
+     *  car trip never calls it, so it only ever moves for a moto trip. */
+    @Volatile private var leanCorneringNow = false
+    @Volatile private var hardCornerCount = 0
+    @Volatile private var hardBrakeCount = 0
+    @Volatile private var hardAccelCount = 0
+    @Volatile private var stopState = StopDetector.State()
+    @Volatile private var tripLimitState = SpeedLimitTracker.State()
+    @Volatile private var tripLimitFetchJob: kotlinx.coroutines.Job? = null
+    @Volatile private var secondsOverLimit = 0.0
+    @Volatile private var lastLimitFixMs = 0L
+    @Volatile private var roadTypeState = RoadTypeTracker.State()
+    @Volatile private var roadTypeFetchJob: kotlinx.coroutines.Job? = null
+
     /**
      * The board's own GPS and IMU, treated as truth over the phone's
      * FusedLocationProvider/rotation-vector sensor when both are present:
@@ -407,10 +442,22 @@ class TripTrackingService : Service() {
     private fun recordLean(deg: Double) {
         if (abs(deg) > MAX_PLAUSIBLE_LEAN_DEG) return
         // Below riding speed, "lean" is steering-head rake, not the bike
-        // actually leaning — see MIN_LEAN_SPEED_MPS.
-        if ((_stats.value?.currentSpeedMps ?: 0.0) < MIN_LEAN_SPEED_MPS) return
+        // actually leaning — see MIN_LEAN_SPEED_MPS. Skip the sample, but if the
+        // bike is also upright, drop the corner latch: onLeanSample never runs
+        // here to clear it, so a hard corner that bled off speed while leaned
+        // (slow hairpin, braking to a stop mid-lean) would otherwise leave
+        // leanCorneringNow stuck true and swallow the next corner. Still leaned
+        // past the threshold → keep the latch, same as onHeadingFix holds it
+        // through an unmeasurable fix rather than re-firing on a brief dip.
+        if ((_stats.value?.currentSpeedMps ?: 0.0) < MIN_LEAN_SPEED_MPS) {
+            if (abs(deg) < HardEventDetector.HARD_CORNER_LEAN_DEG) leanCorneringNow = false
+            return
+        }
         maxLeanDeg = maxOf(maxLeanDeg, abs(deg))
         if (abs(deg) > abs(segmentPeakLeanDeg)) segmentPeakLeanDeg = deg
+        val (cornering, newEvent) = HardEventDetector.onLeanSample(leanCorneringNow, deg)
+        leanCorneringNow = cornering
+        if (newEvent) hardCornerCount++
     }
 
     /**
@@ -752,6 +799,21 @@ class TripTrackingService : Service() {
         currentLeanDeg = 0.0; maxLeanDeg = 0.0
         // 1.0, not 0: the resting magnitude is 1 g — see the field declaration.
         currentG = 1.0; maxG = 0.0
+        speedEventState = HardEventDetector.SpeedState()
+        headingEventState = HardEventDetector.HeadingState()
+        leanCorneringNow = false
+        hardCornerCount = 0
+        hardBrakeCount = 0
+        hardAccelCount = 0
+        stopState = StopDetector.State()
+        tripLimitState = SpeedLimitTracker.State()
+        tripLimitFetchJob?.cancel()
+        tripLimitFetchJob = null
+        secondsOverLimit = 0.0
+        lastLimitFixMs = startTimeMs
+        roadTypeState = RoadTypeTracker.State()
+        roadTypeFetchJob?.cancel()
+        roadTypeFetchJob = null
         lastMovingMs = System.currentTimeMillis()
         // Re-check what's actually linked: the set may have gone stale since the
         // last trip. Answers async, retagging through refreshTripMode.
@@ -765,10 +827,21 @@ class TripTrackingService : Service() {
         updateNotification()
     }
 
-    private fun endTrip() {
-        val stats = _stats.value ?: return
+    /**
+     * Returns the [kotlinx.coroutines.Job] doing the trip's save-and-notify tail
+     * (null when nothing was worth saving), so [onDestroy] — the one caller that
+     * cannot let this outlive its own teardown — can join it before tearing down
+     * [serviceScope]. Every other call site discards the return value; that
+     * remains source-compatible since none of them assigned or returned it.
+     */
+    private fun endTrip(): kotlinx.coroutines.Job? {
+        val stats = _stats.value ?: return null
         val wasAuto = autoStarted
         stopMotionSensors()
+        tripLimitFetchJob?.cancel()
+        tripLimitFetchJob = null
+        roadTypeFetchJob?.cancel()
+        roadTypeFetchJob = null
         flushTrace()
         // An auto trip with no mapped vehicle that never left walking pace
         // wasn't a drive; don't save it under whatever mode the tab happened
@@ -782,23 +855,68 @@ class TripTrackingService : Service() {
         val worthSaving =
             if (wasAuto) stats.distanceMeters >= MIN_AUTO_TRIP_METERS && !looksLikeAWalk
             else stats.durationMs > 0
+        var saveJob: kotlinx.coroutines.Job? = null
         if (worthSaving) {
-            TripStore.save(Trip(
-                    startTimeMs = stats.startTimeMs,
-                    endTimeMs = System.currentTimeMillis(),
-                    distanceMeters = stats.distanceMeters,
-                    topSpeedMps = stats.topSpeedMps,
-                    maxLeanAngleDeg = maxLeanDeg,
-                    maxGForce = maxG,
-                    destinationLat = destLat,
-                    destinationLon = destLon,
-                    mode = stats.mode,
+            val durationSec = stats.durationMs / 1000.0
+            val trip = Trip(
+                startTimeMs = stats.startTimeMs,
+                endTimeMs = System.currentTimeMillis(),
+                distanceMeters = stats.distanceMeters,
+                topSpeedMps = stats.topSpeedMps,
+                maxLeanAngleDeg = maxLeanDeg,
+                maxGForce = maxG,
+                destinationLat = destLat,
+                destinationLon = destLon,
+                mode = stats.mode,
+                drivingStats = DrivingStats(
+                    hardBrakeCount = hardBrakeCount,
+                    hardAccelCount = hardAccelCount,
+                    hardCornerCount = hardCornerCount,
+                    secondsOverLimit = secondsOverLimit.toLong(),
+                    pctOverLimit = if (durationSec > 0) secondsOverLimit / durationSec * 100.0 else 0.0,
+                    roadTypeMeters = roadTypeState.meters,
+                    // Post-hoc, over the trace this trip just flushed above — see
+                    // Curviness.traceScore's KDoc for why this can't run live.
+                    twistinessScore = 0.0, // placeholder, replaced inside the launch below
+                    stopCount = stopState.stopCount,
+                    idleMs = stopState.idleMs,
                 ),
             )
-            SyncClient.syncQuietly()
-            checkBadges()
-            // Only tell the user about trips they didn't end themselves.
-            if (wasAuto) TripEndedNotification.show(this, stats.startTimeMs)
+            // Two separate coroutines, not one: onDestroy's runBlocking joins
+            // saveJob to guarantee the trip survives process death, and that join
+            // must be bounded by a cheap file write, not by loadTripPoints — which
+            // reads the whole traces.jsonl back and parses every line before
+            // filtering to this trip's window (same class of cost HistoryScreen.kt's
+            // own Dispatchers.IO comment documents for the smaller trips.json).
+            // `trip` above is already fully built from this-instant state, so
+            // nothing here needs to run before the field resets below.
+            val save = serviceScope.launch {
+                TripStore.save(trip)
+                checkBadges()
+                // Only tell the user about trips they didn't end themselves.
+                if (wasAuto) TripEndedNotification.show(this@TripTrackingService, stats.startTimeMs)
+            }
+            saveJob = save
+            // Unawaited — best-effort. onDestroy only joins saveJob above (and
+            // then syncs itself), so if the process dies before this finishes the
+            // trip still exists (saved above) with twistinessScore at its
+            // placeholder default; only the expensive post-hoc score is lost, not
+            // the whole trip. Joins `save` first: updateDrivingStats loads
+            // trips.json and no-ops if the trip isn't there yet, and a bare
+            // TripStore.save call has no dedup so it can't be used to race ahead.
+            // syncQuietly() runs AFTER the twistiness write, not in saveJob: a
+            // sync response applies via TripStore.replaceRaw (SyncClient.kt),
+            // which overwrites the local trips file wholesale — syncing before
+            // the write would let that response clobber it straight back to the
+            // placeholder on a signed-in device.
+            serviceScope.launch {
+                save.join()
+                val twistiness = runCatching {
+                    Curviness.traceScore(loadTripPoints(this@TripTrackingService, trip).map { it.at })
+                }.getOrDefault(0.0)
+                TripStore.updateDrivingStats(trip.startTimeMs, trip.drivingStats.copy(twistinessScore = twistiness))
+                SyncClient.syncQuietly()
+            }
         }
         _stats.value = null
         destLat = null
@@ -807,6 +925,7 @@ class TripTrackingService : Service() {
         pendingStopAtMs = null
         ensureLocationUpdates()
         updateNotification()
+        return saveJob
     }
 
     private fun currentMode(): LocationMode = when {
@@ -1081,6 +1200,112 @@ class TripTrackingService : Service() {
             ?.let { it.speedKmh / 3.6 }
             ?: speed
 
+        // speedOf() hands back a fabricated 0.0 sentinel for a coarse/no-speed fix
+        // (see its own doc below) — not a real zero-speed measurement. Feeding
+        // that into the physics-based detectors below as if it were real reads a
+        // tunnel/parking-garage GPS gap as "suddenly stopped": a false hard brake,
+        // and potentially a false stop. Real iff this fix's own hasSpeed() is set,
+        // or fresh board telemetry supplied the number effectiveSpeedMps is using.
+        val speedIsReal = location.hasSpeed() ||
+            freshBoardTelemetry()?.takeIf { it.hasSpeed } != null
+
+        // Thresholds here are scoped to car/moto (tracksGForce) — a bike or walk
+        // decelerating normally must not print a "hard brake" meant for a vehicle.
+        // Cornering is separately gated: heading-rate below to CAR, lean-based
+        // cornering (recordLean) to tracksLean.
+        if (stats.mode.tracksGForce) {
+            if (speedIsReal) {
+                val speedResult = HardEventDetector.onSpeedFix(speedEventState, effectiveSpeedMps, location.time)
+                speedEventState = speedResult.state
+                if (speedResult.hardBrake) hardBrakeCount++
+                if (speedResult.hardAccel) hardAccelCount++
+            }
+            // No speedIsReal guard needed: a fabricated 0.0 here just fails the
+            // MIN_CORNER_SPEED_MPS gate harmlessly inside onHeadingFix.
+            if (stats.mode == TravelMode.CAR && location.hasBearing()) {
+                val (nextHeadingState, cornerEvent) = HardEventDetector.onHeadingFix(
+                    headingEventState, location.bearing.toDouble(), effectiveSpeedMps, location.time)
+                headingEventState = nextHeadingState
+                if (cornerEvent) hardCornerCount++
+            }
+        }
+        // Stops/speeding are meaningful for every mode, so no tracksGForce gate
+        // here — but a fabricated zero must not open or resolve a stop candidate,
+        // so this still needs the speedIsReal guard. Skipping entirely (rather
+        // than feeding the sentinel) lets the state's stale lastFixMs carry
+        // forward, so the next real fix's own Δt naturally spans the gap.
+        if (speedIsReal) {
+            stopState = StopDetector.onFix(stopState, effectiveSpeedMps, location.time)
+        }
+
+        val here = LatLon(location.latitude, location.longitude)
+        val bearing = if (location.hasBearing()) location.bearing.toDouble() else null
+        if (effectiveSpeedMps >= SpeedLimitTracker.MIN_MPS &&
+            SpeedLimitTracker.needsWays(tripLimitState, here, now) &&
+            tripLimitFetchJob?.isActive != true
+        ) {
+            tripLimitState = SpeedLimitTracker.fetchStarted(tripLimitState, now)
+            // serviceScope is already Dispatchers.IO (`:1343`), so no withContext needed here.
+            tripLimitFetchJob = serviceScope.launch {
+                val ways = runCatching { RoadRoulette.speedLimitWays(here) }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                    .getOrNull()
+                tripLimitState = SpeedLimitTracker.withWays(tripLimitState, ways, here)
+            }
+        }
+        tripLimitState = SpeedLimitTracker.onFix(tripLimitState, here, bearing, effectiveSpeedMps)
+        val limitKmh = tripLimitState.limitKmh
+        // Same speedIsReal guard as above, and the same reason: a fabricated
+        // zero must not read as "suddenly under the limit" nor have its (bogus)
+        // duration folded into secondsOverLimit. lastLimitFixMs is left stale on
+        // a skipped fix so the next real fix's Δt naturally spans the gap.
+        var currentlyOverLimitNow: Boolean? = null
+        if (speedIsReal) {
+            val overLimitDtMs = location.time - lastLimitFixMs
+            val over = limitKmh != null && effectiveSpeedMps * 3.6 > limitKmh * OVER_LIMIT_MARGIN
+            if (overLimitDtMs in 1..15_000 && over) {
+                secondsOverLimit += overLimitDtMs / 1000.0
+            }
+            lastLimitFixMs = location.time
+            currentlyOverLimitNow = over
+        }
+
+        // Reuses the hop the distance accumulator above already computed under both its
+        // guards (accuracy AND recency) rather than tracking a third `lastFixLocation`
+        // anchor with only the accuracy half of that gate — an accuracy-only guard would
+        // let a post-tunnel/post-parking-garage GPS re-acquire, fully accurate but far from
+        // the last real fix, attribute several kilometres to whatever class the reacquire
+        // fix snaps to. `distance` already equals `stats.distanceMeters + hop` if the
+        // accumulator's guard passed, or is unchanged if it didn't. No speedIsReal guard
+        // needed here — this is driven by the accuracy+recency-gated distance hop, not
+        // raw speed.
+        val roadTypeHop = distance - stats.distanceMeters
+        // Scoped to car/moto (tracksGForce), same reasoning as the hard-event
+        // block above: a walk/bike's road-type mix isn't part of this stat.
+        if (stats.mode.tracksGForce) {
+            if (effectiveSpeedMps >= SpeedLimitTracker.MIN_MPS &&
+                RoadTypeTracker.needsWays(roadTypeState, here, now) &&
+                roadTypeFetchJob?.isActive != true
+            ) {
+                roadTypeState = RoadTypeTracker.fetchStarted(roadTypeState, now)
+                // serviceScope is already Dispatchers.IO (`:1358`), so no withContext needed here.
+                // Rethrow cancellation rather than let runCatching swallow it (same pattern
+                // Task 4 established for SpeedLimitTracker's fetch) — RoadTypeTracker.fetchWays
+                // is nullable with the identical null-vs-empty contract, so getOrNull, not
+                // getOrDefault(emptyList()): collapsing a cancelled/failed fetch to emptyList()
+                // would make withWays treat it as "confirmed no roads here."
+                roadTypeFetchJob = serviceScope.launch {
+                    val ways = runCatching { RoadTypeTracker.fetchWays(here) }
+                        .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                        .getOrNull()
+                    roadTypeState = RoadTypeTracker.withWays(roadTypeState, ways, here)
+                }
+            }
+            if (roadTypeHop > 0.0) {
+                roadTypeState = RoadTypeTracker.onFix(roadTypeState, here, bearing, roadTypeHop)
+            }
+        }
+
         // update (not value =) so the 5 Hz sensor writes aren't clobbered here.
         _stats.update {
             it?.copy(
@@ -1088,6 +1313,13 @@ class TripTrackingService : Service() {
                 distanceMeters = distance,
                 currentSpeedMps = effectiveSpeedMps,
                 topSpeedMps = maxOf(it.topSpeedMps, effectiveSpeedMps),
+                hardBrakeCount = hardBrakeCount,
+                hardAccelCount = hardAccelCount,
+                hardCornerCount = hardCornerCount,
+                stopCount = stopState.stopCount,
+                // Carries the previous value forward on a fix with no real speed
+                // measurement, rather than flickering the HUD signal off.
+                currentlyOverLimit = currentlyOverLimitNow ?: it.currentlyOverLimit,
             )
         }
         // Pick up a mode-bar change made while the trip is running.
@@ -1210,7 +1442,6 @@ class TripTrackingService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onDestroy() {
-        serviceScope.cancel()
         if (::fusedClient.isInitialized) {
             fusedClient.removeLocationUpdates(locationCallback)
         }
@@ -1219,7 +1450,24 @@ class TripTrackingService : Service() {
             runCatching { unregisterReceiver(btStateReceiver) }
             btRegistered = false
         }
-        endTrip()
+        // endTrip()'s save-and-notify tail runs on serviceScope (round-1 fix,
+        // off the main thread on every other call site) — but the service is
+        // dying right here, so cancelling that scope before the tail runs would
+        // silently drop an in-flight trip. Join it before cancelling: a brief
+        // main-thread block in this one terminal-teardown path beats losing the
+        // trip. Every other endTrip() call site keeps running fully async.
+        val saveJob = endTrip()
+        if (saveJob != null) {
+            kotlinx.coroutines.runBlocking { saveJob.join() }
+            // endTrip's own syncQuietly() rides on the unawaited twistiness
+            // coroutine, which serviceScope.cancel() below kills mid-compute —
+            // so push the just-saved trip here instead. syncQuietly() runs on
+            // its own scope and returns immediately; the placeholder
+            // twistinessScore it carries is the same value that coroutine's
+            // loss leaves on this device anyway.
+            SyncClient.syncQuietly()
+        }
+        serviceScope.cancel()
         flushTrace()
         super.onDestroy()
     }
