@@ -58,6 +58,12 @@ internal object Http {
         url: String,
         body: String? = null,
         headers: Map<String, String> = emptyMap(),
+        // Bounds both the whole call (requestTimeoutMillis) and the gap between
+        // bytes (socketTimeoutMillis) — without it the engine keeps its own ~10s
+        // read default. Applied per-request, not on the client, so /sync (a
+        // multi-MB upload the self-hosted server answers only after a long silent
+        // decompress-and-merge) can ask for 120s while every small social call
+        // keeps the 30s default.
         readTimeoutMs: Long = 30_000,
         gzipBody: Boolean = false,
         contentType: String = ContentType.Application.Json.toString(),
@@ -65,7 +71,10 @@ internal object Http {
         val response = client.request(url) {
             this.method = HttpMethod.parse(method)
             headers.forEach { (k, v) -> header(k, v) }
-            timeout { requestTimeoutMillis = readTimeoutMs }
+            timeout {
+                requestTimeoutMillis = readTimeoutMs
+                socketTimeoutMillis = readTimeoutMs
+            }
             if (body != null) {
                 contentType(ContentType.parse(contentType))
                 if (gzipBody) {
