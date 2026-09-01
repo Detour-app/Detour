@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This variant only. The Play bundle is built from `release` and must not
+     carry REQUEST_INSTALL_PACKAGES: a store-installed copy updating itself
+     from GitHub is against Play policy, and the permission is restricted.
+
+     Install-time, so it never prompts. The rider-facing consent is the
+     separate per-app "Install unknown apps" toggle, read with
+     canRequestPackageInstalls() — see UpdateInstaller. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+</manifest>
