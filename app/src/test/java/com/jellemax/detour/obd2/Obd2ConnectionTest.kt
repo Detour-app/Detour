@@ -207,51 +207,6 @@ class Obd2ConnectionTest {
         )
     }
 
-    // --- resolveFuelRate ----------------------------------------------------
-
-    @Test
-    fun fuelRateUsesTheDirectPidWhenPresentAndMarksItNotEstimated() {
-        val r = resolveFuelRate(directLph = 6.4, mafGramsPerSec = 30.0, throttlePct = 40.0, rpm = 2000.0, speedKmh = 60.0)!!
-        assertEquals(6.4, r.lph, 0.0)
-        assertFalse(r.estimated)
-    }
-
-    @Test
-    fun fuelRateFallsBackToMafAndMarksItEstimated() {
-        val r = resolveFuelRate(directLph = null, mafGramsPerSec = 10.0, throttlePct = 40.0, rpm = 2000.0, speedKmh = 60.0)!!
-        assertEquals(Obd2Pids.fuelRateFromMafLph(10.0), r.lph, 1e-9)
-        assertTrue(r.estimated)
-    }
-
-    @Test
-    fun fuelRateIsNullWhenNeitherPidAnswered() {
-        assertNull(resolveFuelRate(directLph = null, mafGramsPerSec = null, throttlePct = 0.0, rpm = 2000.0, speedKmh = 60.0))
-    }
-
-    @Test
-    fun mafEstimateIsZeroedUnderDecelerationFuelCut() {
-        // Closed throttle, engine spinning well above idle, still rolling — the
-        // ECU has cut injection, so the MAF-implied rate is a lie.
-        val r = resolveFuelRate(directLph = null, mafGramsPerSec = 8.0, throttlePct = 1.0, rpm = 2500.0, speedKmh = 40.0)!!
-        assertEquals(0.0, r.lph, 0.0)
-        assertTrue(r.estimated)
-    }
-
-    @Test
-    fun decelerationFuelCutDoesNotZeroTheDirectPid() {
-        // 015E already reports its own ~0 in fuel cut; don't second-guess it.
-        val r = resolveFuelRate(directLph = 0.3, mafGramsPerSec = 8.0, throttlePct = 1.0, rpm = 2500.0, speedKmh = 40.0)!!
-        assertEquals(0.3, r.lph, 0.0)
-    }
-
-    @Test
-    fun aClosedThrottleAtIdleIsNotFuelCut() {
-        // Stopped at a light: throttle closed, rpm at idle, speed 0 — the engine
-        // is idling and burning fuel, not coasting.
-        val r = resolveFuelRate(directLph = null, mafGramsPerSec = 2.5, throttlePct = 0.0, rpm = 800.0, speedKmh = 0.0)!!
-        assertTrue(r.lph > 0.0)
-    }
-
     @Test
     fun pollPidParsesThroughAnEchoedRequestPrefix() {
         // Clone that ignored ATE0: the response leads with the echoed command

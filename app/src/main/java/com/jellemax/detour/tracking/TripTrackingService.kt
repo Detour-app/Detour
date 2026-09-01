@@ -448,6 +448,7 @@ class TripTrackingService : Service() {
     // Fuel burned this trip: rate × elapsed, integrated per fix. Millilitres as a
     // Double while accumulating; rounded to a Long on the saved trip.
     @Volatile private var fuelMlAccum = 0.0
+    @Volatile private var fuelSampledMeters = 0.0
     @Volatile private var lastFuelSampleMs = 0L
     @Volatile private var fuelWasEstimated = false
     @Volatile private var stopState = StopDetector.State()
@@ -956,6 +957,7 @@ class TripTrackingService : Service() {
         obdWideOpenThrottleSamples = 0
         obdThrottleSamples = 0
         fuelMlAccum = 0.0
+        fuelSampledMeters = 0.0
         lastFuelSampleMs = 0L
         fuelWasEstimated = false
         stopState = StopDetector.State()
@@ -1041,6 +1043,7 @@ class TripTrackingService : Service() {
                         obdWideOpenThrottleSamples * 100.0 / obdThrottleSamples else 0.0,
                     avgRpm = if (obdRpmSamples > 0) obdRpmSum / obdRpmSamples else 0.0,
                     fuelMilliliters = fuelMlAccum.roundToLong(),
+                    fuelSampledMeters = fuelSampledMeters.roundToLong(),
                     fuelEstimated = fuelWasEstimated,
                 ),
             )
@@ -1398,13 +1401,18 @@ class TripTrackingService : Service() {
             if (obd.hasFuelRate) {
                 // Fuel is a rate, so it's integrated over time, not averaged like
                 // RPM above: this fix's L/h held over the gap since the last fuel
-                // sample. Δt from the fix clock and capped at 15s, same as
-                // secondsOverLimit — a longer gap (tunnel, app backgrounded) is
-                // dropped rather than extrapolated across.
+                // sample. A gap outside 1..15s (a tunnel, a Doze window, a BT
+                // dropout) is dropped, not saturated — the same `in 1..15_000`
+                // rule secondsOverLimit uses, so the next real fix's own Δt spans
+                // the gap rather than 15s of fuel being invented.
                 val fixMs = location.time
-                if (lastFuelSampleMs > 0L) {
-                    val dtSec = (fixMs - lastFuelSampleMs).coerceIn(0L, 15_000L) / 1000.0
-                    fuelMlAccum += obd.fuelRateLph * (1000.0 / 3600.0) * dtSec
+                val dtMs = fixMs - lastFuelSampleMs
+                if (lastFuelSampleMs > 0L && dtMs in 1L..15_000L) {
+                    fuelMlAccum += obd.fuelRateLph * (1000.0 / 3600.0) * (dtMs / 1000.0)
+                    // Distance covered while a fuel reading was live — the L/100km
+                    // denominator, so a mid-trip disconnect can't make a partial
+                    // measurement look like a whole-trip figure.
+                    fuelSampledMeters += (distance - stats.distanceMeters).coerceAtLeast(0.0)
                 }
                 lastFuelSampleMs = fixMs
                 if (obd.fuelEstimated) fuelWasEstimated = true

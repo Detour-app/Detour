@@ -137,4 +137,68 @@ class Obd2PidsTest {
     fun fuelFromZeroAirflowIsZero() {
         assertEquals(0.0, Obd2Pids.fuelRateFromMafLph(0.0))
     }
+
+    // --- resolveFuelRate: source selection + deceleration fuel cut ----------
+
+    @Test
+    fun fuelRateUsesTheDirectPidWhenPresentAndIsNotFlaggedEstimated() {
+        val r = Obd2Pids.resolveFuelRate(
+            directLph = 6.4, mafGramsPerSec = 30.0, throttleClosed = false, rpm = 2000.0, speedKmh = 60.0,
+        )!!
+        assertEquals(6.4, r.lph, 0.0)
+        assertEquals(false, r.estimated)
+    }
+
+    @Test
+    fun fuelRateFallsBackToMafAndIsFlaggedEstimated() {
+        val r = Obd2Pids.resolveFuelRate(
+            directLph = null, mafGramsPerSec = 10.0, throttleClosed = false, rpm = 2000.0, speedKmh = 60.0,
+        )!!
+        assertEquals(Obd2Pids.fuelRateFromMafLph(10.0), r.lph, 1e-9)
+        assertTrue(r.estimated)
+    }
+
+    @Test
+    fun fuelRateIsNullWhenNeitherSourceIsAvailable() {
+        assertNull(Obd2Pids.resolveFuelRate(
+            directLph = null, mafGramsPerSec = null, throttleClosed = true, rpm = 2000.0, speedKmh = 60.0,
+        ))
+    }
+
+    @Test
+    fun mafEstimateIsZeroedUnderDecelerationFuelCut() {
+        // Closed pedal, engine spinning above idle, still rolling — the ECU has
+        // cut injection, so the MAF-implied rate is a lie.
+        val r = Obd2Pids.resolveFuelRate(
+            directLph = null, mafGramsPerSec = 8.0, throttleClosed = true, rpm = 2500.0, speedKmh = 40.0,
+        )!!
+        assertEquals(0.0, r.lph, 0.0)
+    }
+
+    @Test
+    fun fuelCutIsNotAppliedWhenTheThrottleSignalIsUnknown() {
+        // throttleClosed == null means only the absolute-throttle PID (0111) was
+        // available, which can't tell a closed pedal from an open one — don't
+        // guess a fuel cut.
+        val r = Obd2Pids.resolveFuelRate(
+            directLph = null, mafGramsPerSec = 8.0, throttleClosed = null, rpm = 2500.0, speedKmh = 40.0,
+        )!!
+        assertTrue(r.lph > 0.0)
+    }
+
+    @Test
+    fun fuelCutDoesNotZeroTheDirectPidReading() {
+        val r = Obd2Pids.resolveFuelRate(
+            directLph = 0.3, mafGramsPerSec = 8.0, throttleClosed = true, rpm = 2500.0, speedKmh = 40.0,
+        )!!
+        assertEquals(0.3, r.lph, 0.0)
+    }
+
+    @Test
+    fun aClosedThrottleAtIdleWhileStoppedIsNotAFuelCut() {
+        val r = Obd2Pids.resolveFuelRate(
+            directLph = null, mafGramsPerSec = 2.5, throttleClosed = true, rpm = 800.0, speedKmh = 0.0,
+        )!!
+        assertTrue(r.lph > 0.0)
+    }
 }

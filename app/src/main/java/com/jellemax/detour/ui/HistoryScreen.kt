@@ -464,13 +464,26 @@ fun tripBehaviorLine(trip: Trip): String? {
         val pct = ds.obd2SpeedPct.roundToInt()
         parts += if (pct == 0) "OBD2 <1%" else "OBD2 $pct%"
     }
-    // L/100km is nonsense over a few hundred metres; gate on distance.
-    if (ds.fuelMilliliters > 0 && trip.distanceMeters > 500) {
-        val litresPer100 = ds.fuelMilliliters * 100.0 / trip.distanceMeters
-        parts += (if (ds.fuelEstimated) "~" else "") + "%.1f L/100km".format(litresPer100)
+    tripFuelEconomyLper100Km(trip)?.let {
+        parts += (if (ds.fuelEstimated) "~" else "") + "%.1f L/100km".format(it)
     }
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
+
+/** Litres per 100 km over the distance a fuel reading was actually live, or null
+ *  when there was no fuel data, the trip was too short for the figure to mean
+ *  anything, or the adapter covered too little of it (a partial measurement
+ *  divided by the whole trip reads as an impossibly good number). */
+fun tripFuelEconomyLper100Km(trip: Trip): Double? {
+    val ds = trip.drivingStats
+    if (ds.fuelMilliliters <= 0 || ds.fuelSampledMeters < 500) return null
+    if (ds.fuelSampledMeters < trip.distanceMeters * FUEL_COVERAGE_MIN) return null
+    return ds.fuelMilliliters * 100.0 / ds.fuelSampledMeters
+}
+
+/** The adapter has to have fed a fuel reading over at least this fraction of the
+ *  trip's distance before the economy figure is shown. */
+private const val FUEL_COVERAGE_MIN = 0.8
 
 /** Draws the trip's trace as a simple normalized polyline — not a map, just a
  *  recognizable shape at a glance. Lat/lon are scaled independently to fill

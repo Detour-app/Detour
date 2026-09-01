@@ -77,4 +77,39 @@ object Obd2Pids {
      *  mass rate; dividing by density and scaling to the hour gives volume. */
     fun fuelRateFromMafLph(mafGramsPerSec: Double): Double =
         mafGramsPerSec / STOICH_AFR_PETROL / FUEL_DENSITY_G_PER_L * 3600.0
+
+    /** RPM above idle that, together with a closed throttle while still rolling,
+     *  means the ECU has cut injection. Only used for the MAF estimate — the
+     *  direct PID reports its own ~0 in fuel cut. */
+    private const val DFCO_MIN_RPM = 1200.0
+
+    /** One cycle's fuel rate and whether it's a MAF-derived estimate. */
+    data class FuelReading(val lph: Double, val estimated: Boolean)
+
+    /**
+     * This cycle's fuel rate in L/h: the direct PID if it answered, else the MAF
+     * estimate, else null.
+     *
+     * [throttleClosed] is null when the caller only has the absolute-throttle PID
+     * (0111), which idles well above 0 and can't tell a closed pedal from an
+     * open one — the deceleration-fuel-cut zero is then skipped and the estimate
+     * over-reads on a long downhill. It fires only when [throttleClosed] is
+     * explicitly true (a 0145 reading near 0) alongside an above-idle RPM and a
+     * non-zero speed.
+     */
+    fun resolveFuelRate(
+        directLph: Double?,
+        mafGramsPerSec: Double?,
+        throttleClosed: Boolean?,
+        rpm: Double?,
+        speedKmh: Double?,
+    ): FuelReading? {
+        if (directLph != null) return FuelReading(directLph, estimated = false)
+        if (mafGramsPerSec == null) return null
+        val fuelCut = throttleClosed == true &&
+            rpm != null && rpm > DFCO_MIN_RPM &&
+            speedKmh != null && speedKmh > 0.0
+        val lph = if (fuelCut) 0.0 else fuelRateFromMafLph(mafGramsPerSec)
+        return FuelReading(lph, estimated = true)
+    }
 }

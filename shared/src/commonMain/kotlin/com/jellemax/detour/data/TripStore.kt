@@ -55,11 +55,15 @@ data class DrivingStats(
     val pctWideOpenThrottle: Double = 0.0,
     val avgRpm: Double = 0.0,
     /** Total fuel burned over the trip, in millilitres (integer so a long
-     *  integration doesn't drift). 0 when no adapter fed a fuel reading, same
-     *  "recorded nothing" caveat as the fields above. [fuelEstimated] is true
-     *  when it came from the MAF estimate rather than the direct fuel-rate PID —
-     *  the estimate assumes petrol at the stoichiometric ratio. */
+     *  integration doesn't drift), and the distance in metres covered while a
+     *  fuel reading was actually live — the L/100km denominator, so a mid-trip
+     *  disconnect can't make a partial measurement look like a whole-trip
+     *  figure. Both 0 when no adapter fed a fuel reading, same "recorded nothing"
+     *  caveat as the fields above. [fuelEstimated] is true when the rate came
+     *  from the MAF estimate (petrol, stoichiometric) rather than the direct
+     *  fuel-rate PID. */
     val fuelMilliliters: Long = 0,
+    val fuelSampledMeters: Long = 0,
     val fuelEstimated: Boolean = false,
 )
 
@@ -171,6 +175,7 @@ object TripStore {
         put("pctWideOpenThrottle", d.pctWideOpenThrottle)
         put("avgRpm", d.avgRpm)
         put("fuelMilliliters", d.fuelMilliliters)
+        put("fuelSampledMeters", d.fuelSampledMeters)
         put("fuelEstimated", d.fuelEstimated)
     }
 
@@ -197,6 +202,7 @@ object TripStore {
             pctWideOpenThrottle = o.optDouble("pctWideOpenThrottle", 0.0),
             avgRpm = o.optDouble("avgRpm", 0.0),
             fuelMilliliters = o.optLong("fuelMilliliters"),
+            fuelSampledMeters = o.optLong("fuelSampledMeters"),
             fuelEstimated = o.optBoolean("fuelEstimated"),
         )
     }

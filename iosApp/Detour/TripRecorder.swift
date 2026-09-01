@@ -212,6 +212,7 @@ final class TripRecorder: NSObject, ObservableObject {
                 pctWideOpenThrottle: 0.0,
                 avgRpm: 0.0,
                 fuelMilliliters: 0,
+                fuelSampledMeters: 0,
                 fuelEstimated: false
             )
         )

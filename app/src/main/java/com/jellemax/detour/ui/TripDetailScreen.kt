@@ -601,7 +601,9 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    if (trip.drivingStats.fuelMilliliters > 0 && trip.drivingStats.fuelEstimated) {
+                    if (replaySample == null && trip.drivingStats.fuelEstimated &&
+                        tripFuelEconomyLper100Km(trip) != null
+                    ) {
                         Text(
                             "Fuel is a MAF-based estimate — this vehicle has no direct " +
                                 "fuel-rate PID, so it assumes petrol and can drift.",
