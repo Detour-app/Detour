@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Scoped to the one cache subdirectory GPX exports are written to. Trips and
-     traces live in filesDir and are deliberately not reachable from here. -->
+<!-- Scoped to the one cache subdirectory GPX exports are written to, and the
+     one files subdirectory update APKs are written to. Trips and traces live
+     at the filesDir root and are deliberately not reachable from here.
+
+     updates/ is under filesDir rather than cacheDir because the system can
+     evict cache at any moment, and an evicted APK is a 46 MB download thrown
+     away between the download finishing and the rider tapping install. -->
 <paths>
     <cache-path name="shared" path="shared/" />
+    <files-path name="updates" path="updates/" />
 </paths>
