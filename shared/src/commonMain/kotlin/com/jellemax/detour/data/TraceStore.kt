@@ -52,31 +52,33 @@ object TraceStore {
     }
 
     /**
-     * The parse of [FILE_NAME], keyed on the [version] it was read at.
+     * The one parse of [FILE_NAME], tail and all, keyed on the [version] it was
+     * read at.
      *
      * This file used to say "nothing is cached here", and that was true until
      * #82: MapScreen's `produceState` is keyed on [version], but a navigation
      * away and back disposes the composition, so the return re-read and
-     * re-parsed the whole file for a version it had already parsed. Every write
-     * path bumps [version], so a stale parse cannot be served.
+     * re-parsed the whole file for a version it had already parsed. #84 then
+     * added a second reader — the history screen's `readTraceSegments`, which
+     * needs the per-point timestamps [loadAll]'s coords projection drops — that
+     * had the same problem. Both go through [loadAllPoints] now; [loadAll]
+     * projects its result and caches that projection so the fog path still hits
+     * a ready coords list. Every write path bumps [version], so a stale parse
+     * cannot be served.
      *
-     * Held as one object rather than two fields so a concurrent reader cannot
-     * see a matching version paired with the previous parse — the same shape,
-     * and the same reason, as `Coverage.Cache`.
+     * Each held as one object rather than two fields so a concurrent reader
+     * cannot see a matching version paired with the previous parse — the same
+     * shape, and the same reason, as `Coverage.Cache`.
      */
-    private class Cache(val version: Int, val traces: List<List<LatLon>>)
-
-    @Volatile
-    private var cache: Cache? = null
-
-    /** The tail-preserving parse of [FILE_NAME], keyed on [version] exactly like
-     *  [Cache]. Separate from [cache] because [parsePoints] keeps time/speed/lean
-     *  that [parseLines] throws away, and the history screen, trip detail and GPX
-     *  export all need it. */
     private class PointsCache(val version: Int, val segments: List<List<TracePoint>>)
 
     @Volatile
     private var pointsCache: PointsCache? = null
+
+    private class Cache(val version: Int, val traces: List<List<LatLon>>)
+
+    @Volatile
+    private var cache: Cache? = null
 
     fun append(trace: List<TracePoint>) {
         if (trace.size < 2) return
@@ -100,7 +102,15 @@ object TraceStore {
         return kotlin.math.round(v * f) / f
     }
 
-    fun loadAll(): List<List<LatLon>> {
+    /**
+     * Every stored line parsed with its tail kept, one entry per line, cached on
+     * [version]. This is the one file read + JSON decode; [loadAll] projects
+     * from it. Before #84 the history screen's `readTraceSegments` re-read and
+     * re-parsed the whole file on every history open, every trip-detail open and
+     * every GPX export with nothing memoising it. A write bumps [version], so a
+     * stale parse is never served.
+     */
+    fun loadAllPoints(): List<List<TracePoint>> {
         val t = Perf.start()
         // Version read before the file, deliberately. A write landing between
         // the two stores newer content under the older key, so the next call
@@ -108,19 +118,19 @@ object TraceStore {
         // first would allow the opposite, which is a stale parse stamped with
         // the new version and served until the next write.
         val version = _version.value
-        cache?.let {
+        pointsCache?.let {
             if (it.version == version) {
-                Perf.end(t, "TraceStore.loadAll") {
-                    listOf("segments" to it.traces.size, "hit" to 1)
+                Perf.end(t, "TraceStore.loadAllPoints") {
+                    listOf("segments" to it.segments.size, "hit" to 1)
                 }
-                return it.traces
+                return it.segments
             }
         }
         val f = accountFile(FILE_NAME)
         val lines = if (!f.exists()) emptyList() else f.readLines()
-        val parsed = parseLines(lines)
-        cache = Cache(version, parsed)
-        Perf.end(t, "TraceStore.loadAll") {
+        val parsed = lines.mapNotNull { parsePoints(it) }
+        pointsCache = PointsCache(version, parsed)
+        Perf.end(t, "TraceStore.loadAllPoints") {
             listOf(
                 "segments" to parsed.size,
                 "points" to parsed.sumOf { it.size },
@@ -131,32 +141,27 @@ object TraceStore {
         return parsed
     }
 
-    /**
-     * Every stored line parsed with its tail kept, one entry per line, cached on
-     * [version] the same way [loadAll] caches the coords-only parse. Before this,
-     * `HistoryScreen.readTraceSegments` re-read and re-parsed the whole file on
-     * every history open, every trip-detail open and every GPX export, with
-     * nothing memoising it (#84). A write bumps [version], so a stale parse is
-     * never served.
-     */
-    fun loadAllPoints(): List<List<TracePoint>> {
+    /** Coords-only view of [loadAllPoints], for the fog overlay and coverage —
+     *  every older reader looks only at lat/lon. Projection cached separately so
+     *  a fog redraw doesn't re-walk the whole point list, but there is no second
+     *  file read or decode behind it. */
+    fun loadAll(): List<List<LatLon>> {
         val t = Perf.start()
-        val version = _version.value // read before the file, same reason as loadAll
-        pointsCache?.let {
+        val version = _version.value
+        cache?.let {
             if (it.version == version) {
-                Perf.end(t, "TraceStore.loadAllPoints") {
-                    listOf("segments" to it.segments.size, "hit" to 1)
+                Perf.end(t, "TraceStore.loadAll") {
+                    listOf("segments" to it.traces.size, "hit" to 1)
                 }
-                return it.segments
+                return it.traces
             }
         }
-        val f = accountFile(FILE_NAME)
-        val parsed = (if (!f.exists()) emptyList() else f.readLines()).mapNotNull { parsePoints(it) }
-        pointsCache = PointsCache(version, parsed)
-        Perf.end(t, "TraceStore.loadAllPoints") {
-            listOf("segments" to parsed.size, "points" to parsed.sumOf { it.size }, "hit" to 0)
+        val projected = loadAllPoints().map { seg -> seg.map { it.at } }
+        cache = Cache(version, projected)
+        Perf.end(t, "TraceStore.loadAll") {
+            listOf("segments" to projected.size, "points" to projected.sumOf { it.size }, "hit" to 0)
         }
-        return parsed
+        return projected
     }
 
     /** Decodes stored JSONL polylines, skipping any line that doesn't decode.

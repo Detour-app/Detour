@@ -523,12 +523,17 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                     )
                     // Hard events / stops / OBD2 — trimmed off the history row
                     // (see tripStatLine), shown here where the card can wrap.
-                    tripBehaviorLine(trip)?.let {
-                        Text(
-                            it,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    // Hidden during replay for the same reason the line above
+                    // swaps to the replay moment: whole-trip totals next to a
+                    // scrubbed-to instant read as if they belonged together.
+                    if (replaySample == null) {
+                        tripBehaviorLine(trip)?.let {
+                            Text(
+                                it,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     // Road-type mix: share of the *classified* distance on each
                     // highway class, skipping classes with nothing recorded.
