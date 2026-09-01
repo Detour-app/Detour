@@ -610,12 +610,25 @@ Expected: BUILD SUCCESSFUL. Then confirm the split:
 devcontainer-exec ./gradlew :app:processGithubReleaseMainManifest :app:processReleaseMainManifest
 for v in githubRelease release; do
   f=$(find app/build/intermediates/merged_manifest/$v -name AndroidManifest.xml 2>/dev/null | head -1)
-  if [ -z "$f" ]; then echo "$v: MANIFEST NOT FOUND — check failed, do not interpret as zero"; continue; fi
-  echo "$v: $(grep -c REQUEST_INSTALL_PACKAGES "$f") ($f)"
+  if [ -z "$f" ]; then echo "$v: MANIFEST NOT FOUND — check failed, do NOT interpret as zero"; continue; fi
+  echo "$v: $(python3 -c "
+import xml.etree.ElementTree as ET
+r=ET.parse('$f').getroot()
+ns='{http://schemas.android.com/apk/res/android}'
+print(sum(1 for e in r.findall('uses-permission') if e.get(ns+'name')=='android.permission.REQUEST_INSTALL_PACKAGES'))")"
 done
 ```
 
 Expected: `githubRelease: 1`, `release: 0`.
+
+**Parse the XML; do not grep the string.** Two ways a text search gets this wrong, both
+observed on this project. A bare `grep -c` on a glob prints nothing when the glob matches
+nothing, which reads exactly like a clean `0`. And the manifest merger preserves source XML
+comments verbatim — the comment in `app/src/githubRelease/AndroidManifest.xml` contains the
+words `REQUEST_INSTALL_PACKAGES`, so a plain-string count returns **2**, not 1. Counting
+`<uses-permission>` elements by their `android:name` is immune to both. This check is the
+entire argument that the Play artifact ships without a restricted permission, so it must not
+be able to pass by being wrong.
 
 **Do not use a bare `grep -c` on a glob here.** If the glob matches nothing, grep prints nothing and exits non-zero, which reads exactly like a clean `0` — and this check *is* the entire argument that the Play bundle ships without a restricted permission. The loop above fails loudly instead. The verified path shape is
 `app/build/intermediates/merged_manifest/<variant>/<task>/AndroidManifest.xml`, confirmed by running
