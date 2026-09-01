@@ -73,7 +73,7 @@ object UpdateCheck {
 
     fun parseManifest(text: String): UpdateManifest? = try {
         val o = jsonObjectOf(text)
-        val artifacts = o.optObject("artifacts") ?: throw IllegalArgumentException("no artifacts")
+        val artifacts = o.optObject("artifacts") ?: return null
         UpdateManifest(
             version = o.optString("version"),
             artifacts = artifacts.keys.mapNotNull { key ->

@@ -123,10 +123,13 @@ class UpdateCheckTest {
     """.trimIndent()
 
     /**
-     * The trap this whole manifest exists for: `detour-wear-1.87.0.apk` also
-     * begins with `detour-`, so any prefix match hands a phone the watch build
-     * — an APK that installs as a different application and looks like a
-     * corrupt update.
+     * Why selection is keyed by platform rather than by filename:
+     * `detour-wear-1.87.0.apk` shares the `detour-` prefix with the phone
+     * build, so any name-based match — the conventional-asset fallback below,
+     * or the glob this manifest replaces — could hand a phone the watch
+     * build. `artifactFor` looks up "android-phone" and "android-wear" as
+     * unrelated map keys, so this pins that the phone lookup never resolves
+     * to the wear entry.
      */
     @Test
     fun thePhoneArtifactIsNeverTheWatchBuild() {
