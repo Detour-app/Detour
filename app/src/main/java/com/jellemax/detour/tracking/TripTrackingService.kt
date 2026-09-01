@@ -77,6 +77,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlin.math.abs
+import kotlin.math.roundToLong
 import kotlin.math.atan2
 import kotlin.math.sqrt
 
@@ -444,6 +445,12 @@ class TripTrackingService : Service() {
     @Volatile private var obdRpmSamples = 0
     @Volatile private var obdWideOpenThrottleSamples = 0
     @Volatile private var obdThrottleSamples = 0
+    // Fuel burned this trip: rate × elapsed, integrated per fix. Millilitres as a
+    // Double while accumulating; rounded to a Long on the saved trip.
+    @Volatile private var fuelMlAccum = 0.0
+    @Volatile private var fuelSampledMeters = 0.0
+    @Volatile private var lastFuelSampleMs = 0L
+    @Volatile private var fuelWasEstimated = false
     @Volatile private var stopState = StopDetector.State()
     @Volatile private var tripLimitState = SpeedLimitTracker.State()
     @Volatile private var tripLimitFetchJob: kotlinx.coroutines.Job? = null
@@ -949,6 +956,10 @@ class TripTrackingService : Service() {
         obdRpmSamples = 0
         obdWideOpenThrottleSamples = 0
         obdThrottleSamples = 0
+        fuelMlAccum = 0.0
+        fuelSampledMeters = 0.0
+        lastFuelSampleMs = 0L
+        fuelWasEstimated = false
         stopState = StopDetector.State()
         tripLimitState = SpeedLimitTracker.State()
         tripLimitFetchJob?.cancel()
@@ -1031,6 +1042,9 @@ class TripTrackingService : Service() {
                     pctWideOpenThrottle = if (obdThrottleSamples > 0)
                         obdWideOpenThrottleSamples * 100.0 / obdThrottleSamples else 0.0,
                     avgRpm = if (obdRpmSamples > 0) obdRpmSum / obdRpmSamples else 0.0,
+                    fuelMilliliters = fuelMlAccum.roundToLong(),
+                    fuelSampledMeters = fuelSampledMeters.roundToLong(),
+                    fuelEstimated = fuelWasEstimated,
                 ),
             )
             // Two separate coroutines, not one: onDestroy's runBlocking joins
@@ -1383,6 +1397,25 @@ class TripTrackingService : Service() {
                 obdMaxThrottlePct = maxOf(obdMaxThrottlePct, obd.throttlePct)
                 obdThrottleSamples++
                 if (obd.throttlePct > WIDE_OPEN_THROTTLE_PCT) obdWideOpenThrottleSamples++
+            }
+            if (obd.hasFuelRate) {
+                // Fuel is a rate, so it's integrated over time, not averaged like
+                // RPM above: this fix's L/h held over the gap since the last fuel
+                // sample. A gap outside 1..15s (a tunnel, a Doze window, a BT
+                // dropout) is dropped, not saturated — the same `in 1..15_000`
+                // rule secondsOverLimit uses, so the next real fix's own Δt spans
+                // the gap rather than 15s of fuel being invented.
+                val fixMs = location.time
+                val dtMs = fixMs - lastFuelSampleMs
+                if (lastFuelSampleMs > 0L && dtMs in 1L..15_000L) {
+                    fuelMlAccum += obd.fuelRateLph * (1000.0 / 3600.0) * (dtMs / 1000.0)
+                    // Distance covered while a fuel reading was live — the L/100km
+                    // denominator, so a mid-trip disconnect can't make a partial
+                    // measurement look like a whole-trip figure.
+                    fuelSampledMeters += (distance - stats.distanceMeters).coerceAtLeast(0.0)
+                }
+                lastFuelSampleMs = fixMs
+                if (obd.fuelEstimated) fuelWasEstimated = true
             }
         }
 

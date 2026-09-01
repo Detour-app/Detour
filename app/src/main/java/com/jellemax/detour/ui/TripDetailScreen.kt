@@ -601,6 +601,16 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    if (replaySample == null && trip.drivingStats.fuelEstimated &&
+                        tripFuelEconomyLper100Km(trip) != null
+                    ) {
+                        Text(
+                            "Fuel is a MAF-based estimate — this vehicle has no direct " +
+                                "fuel-rate PID, so it assumes petrol and can drift.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     exportError?.let {
                         Text(
                             it,

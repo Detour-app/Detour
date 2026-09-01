@@ -31,8 +31,15 @@ data class ObdTelemetry(
     val hasSpeed: Boolean, val speedKmh: Double,
     val hasThrottle: Boolean, val throttlePct: Double,
     val hasRpm: Boolean, val rpmValue: Double,
+    /** L/h. [fuelEstimated] when it came from MAF rather than the direct PID. */
+    val hasFuelRate: Boolean, val fuelRateLph: Double, val fuelEstimated: Boolean,
     val receivedAtMs: Long,
 )
+
+/** Closed-throttle threshold for the deceleration-fuel-cut check — only
+ *  meaningful against the *relative* throttle PID (0145), which reads ~0 at a
+ *  closed pedal. See [Obd2Pids.resolveFuelRate]. */
+private const val DFCO_THROTTLE_PCT = 2.0
 
 enum class Obd2ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, FAILED }
 
@@ -78,6 +85,11 @@ object Obd2Connection {
     // (see PollResult.answered) before we give up on the connection and fall
     // through to the failure/backoff path.
     private const val MAX_CONSECUTIVE_EMPTY_POLLS = 5
+    // How many cycles the fuel-PID probe gets to reach a verdict. A clone that
+    // silently ignores an unsupported 015E (answered == false) would otherwise
+    // re-poll it — eating a read timeout — for the whole drive; after this many
+    // cycles the probe forces the MAF fallback, then gives up.
+    private const val FUEL_PROBE_MAX_CYCLES = 5
     // Bounds on draining a desynced adapter's already-buffered stale responses
     // back to a clean stream — see [drainStalePrompts].
     private const val DRAIN_TIMEOUT_MS = 200L
@@ -92,6 +104,10 @@ object Obd2Connection {
     // few frames the GPS top speed still covers.
     private const val MAX_PLAUSIBLE_SPEED_KMH = 250.0
     private const val MAX_PLAUSIBLE_RPM = 16_000.0
+    // Same idea for fuel rate: a garbled 015E frame is (256*255+255)/20 ≈ 3276
+    // L/h, and a garbled MAF frame runs the estimate to ~215 L/h. No road
+    // vehicle this app records burns 100 L/h; drop anything above it.
+    private const val MAX_PLAUSIBLE_FUEL_LPH = 100.0
 
     private val _telemetry = MutableStateFlow<ObdTelemetry?>(null)
     val telemetry: StateFlow<ObdTelemetry?> = _telemetry
@@ -271,6 +287,12 @@ object Obd2Connection {
         // supports neither won't start supporting one mid-drive, and re-probing
         // both every cycle is a permanent extra request on the 1 Hz loop.
         var throttlePid: String? = null
+        // Fuel rate: null = undecided, "" = neither PID supported (stop asking),
+        // else [Obd2Pids.PID_FUEL_RATE] (direct) or [Obd2Pids.PID_MAF] (the
+        // estimate). Probed and latched once per connection, same reasoning as
+        // throttlePid.
+        var fuelPid: String? = null
+        var fuelProbeCycles = 0
         // Speed changes fastest and is the one number the HUD eases toward, so it
         // is polled last of the three (freshest at the telemetry publish below)
         // and once more halfway through the inter-cycle wait. A first-order
@@ -297,11 +319,53 @@ object Obd2Connection {
                 }
             }
             val rpmResult = pollPid(input, output, Obd2Pids.PID_RPM)
+
+            // Fuel is polled before speed so speed stays the last poll before the
+            // telemetry publish (see the comment on `parseSpeed`). null = still
+            // probing, "" = neither PID supported (stop asking). One transient
+            // timeout must not latch "": that value never retries, so it's only
+            // set once a poll actually *answered* it as unsupported, or the probe
+            // budget (FUEL_PROBE_MAX_CYCLES) is spent — which also bounds the
+            // wasted 015E polls when a clone ignores an unsupported PID silently.
+            var fuelResult: PollResult? = null
+            if (fuelPid != "") {
+                fuelResult = pollPid(input, output, fuelPid ?: Obd2Pids.PID_FUEL_RATE)
+                if (fuelPid == null) {
+                    fuelProbeCycles++
+                    when {
+                        fuelResult.bytes != null -> fuelPid = Obd2Pids.PID_FUEL_RATE
+                        fuelResult.answered || fuelProbeCycles >= FUEL_PROBE_MAX_CYCLES -> {
+                            fuelResult = pollPid(input, output, Obd2Pids.PID_MAF)
+                            fuelPid = when {
+                                fuelResult.bytes != null -> Obd2Pids.PID_MAF
+                                fuelResult.answered || fuelProbeCycles >= FUEL_PROBE_MAX_CYCLES -> ""
+                                else -> null // MAF timed out; keep trying
+                            }
+                        }
+                        // else: 015E just timed out — retry next cycle, don't give up
+                    }
+                }
+            }
+
             val speedResult = pollPid(input, output, Obd2Pids.PID_SPEED)
             val speed = parseSpeed(speedResult)
             val throttle = throttleResult.bytes?.let { Obd2Pids.parseThrottlePct(it) }
             val rpm = rpmResult.bytes?.let { Obd2Pids.parseRpm(it) }
                 ?.takeIf { it <= MAX_PLAUSIBLE_RPM }
+
+            val directLph = if (fuelPid == Obd2Pids.PID_FUEL_RATE)
+                fuelResult?.bytes?.let { Obd2Pids.parseFuelRateLph(it) } else null
+            val mafGps = if (fuelPid == Obd2Pids.PID_MAF)
+                fuelResult?.bytes?.let { Obd2Pids.parseMafGramsPerSec(it) } else null
+            // DFCO needs a *pedal* signal: the absolute-throttle PID (0111) idles
+            // at 15-20% even fully closed, so pass null (skip the cut) unless the
+            // reading came from relative throttle (0145).
+            val throttleClosed = if (throttlePid == Obd2Pids.PID_THROTTLE_REL && throttle != null)
+                throttle < DFCO_THROTTLE_PCT else null
+            // Clamp like speed/rpm — an all-0xFF 015E frame decodes to ~3276 L/h.
+            val fuel = Obd2Pids.resolveFuelRate(directLph, mafGps, throttleClosed, rpm, speed)
+                ?.takeIf { it.lph <= MAX_PLAUSIBLE_FUEL_LPH }
+
             if (!speedResult.answered && !throttleResult.answered && !rpmResult.answered) {
                 consecutiveEmptyPolls++
                 if (consecutiveEmptyPolls >= MAX_CONSECUTIVE_EMPTY_POLLS) {
@@ -317,6 +381,8 @@ object Obd2Connection {
                 hasSpeed = speed != null, speedKmh = speed ?: 0.0,
                 hasThrottle = throttle != null, throttlePct = throttle ?: 0.0,
                 hasRpm = rpm != null, rpmValue = rpm ?: 0.0,
+                hasFuelRate = fuel != null, fuelRateLph = fuel?.lph ?: 0.0,
+                fuelEstimated = fuel?.estimated ?: false,
                 receivedAtMs = System.currentTimeMillis(),
             )
             delay(POLL_INTERVAL_MS / 2)
