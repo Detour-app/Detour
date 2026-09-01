@@ -47,9 +47,9 @@ final class TripRecorder: NSObject, ObservableObject {
     private static let probeWindowMs: Int64 = 3 * 60_000
     private static let stationaryEndMs: Int64 = 5 * 60_000
     private static let minAutoTripMeters = 500.0
-    private static let walkAvgMaxMps = 2.5           // ~9 km/h
-    private static let walkMinJudgeMs: Int64 = 90_000
-    private static let walkTopMaxMps = 6.0           // ~22 km/h
+    private static let slowNoVehicleAvgMaxMps = 2.5       // ~9 km/h
+    private static let slowNoVehicleMinJudgeMs: Int64 = 90_000
+    private static let slowNoVehicleTopMaxMps = 6.0       // ~22 km/h
 
     private static let maxPlausibleLeanDeg = 65.0
     private static let leanEmaAlpha = 0.3
@@ -162,10 +162,18 @@ final class TripRecorder: NSObject, ObservableObject {
         flushTrace()
 
         let elapsed = nowMs() - finished.startTimeMs
+        // A trip that never left walking pace wasn't a drive; don't save it
+        // under whatever mode the tab happened to have selected. Mirrors
+        // Android's TripTrackingService.endTrip().
+        let avg = finished.durationMs > 0
+            ? finished.distanceMeters / (Double(finished.durationMs) / 1000) : 0
+        let looksLikeAWalk = finished.durationMs > Self.slowNoVehicleMinJudgeMs
+            && avg < Self.slowNoVehicleAvgMaxMps
+            && finished.topSpeedMps < Self.slowNoVehicleTopMaxMps
         // An auto-detected trip that never went anywhere was a false positive:
         // a bus ride past the house, or a loose fix drifting indoors.
         let worthKeeping = !startedAutomatically
-            || finished.distanceMeters >= Self.minAutoTripMeters
+            || (finished.distanceMeters >= Self.minAutoTripMeters && !looksLikeAWalk)
 
         stats = nil
         destination = nil
@@ -431,15 +439,9 @@ final class TripRecorder: NSObject, ObservableObject {
 
     // MARK: Mode
 
-    /// Which vehicle this is. A walk gives itself away by pace, whatever tab
-    /// the user left selected.
+    /// Which vehicle this is. Whether the trip is worth keeping at all is
+    /// decided separately, in `endTrip()`.
     private func resolvedMode() -> TravelMode {
-        if let s = stats, s.durationMs > Self.walkMinJudgeMs {
-            let avg = s.durationMs > 0 ? s.distanceMeters / (Double(s.durationMs) / 1000) : 0
-            if avg < Self.walkAvgMaxMps && s.topSpeedMps < Self.walkTopMaxMps {
-                return .walk
-            }
-        }
         return SettingsValues.shared.tripMode
     }
 }

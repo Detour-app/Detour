@@ -103,16 +103,29 @@ object BadgeStore {
             100.0 to "Every last street",
         )
 
+    /**
+     * The four trip-derived fields come from [RiderTotals], which keeps them as
+     * a running record. This used to fold every trip in `trips.json` on every
+     * call, at six call sites, for numbers that change one trip at a time
+     * (#83). The two coverage-derived fields are still counted from [coverage]
+     * here, because `Coverage.compute()` already caches its own result and a
+     * second copy would be a second thing to invalidate.
+     *
+     * Still **non-suspending, and still blocks on disk** — Swift calls this
+     * straight through. See [RiderTotals.current].
+     */
     fun stats(coverage: List<Coverage.Entry>): RiderStats {
-        val trips = TripStore.load()
+        val t = Perf.start()
+        val totals = RiderTotals.current()
+        Perf.end(t, "BadgeStore.stats") { listOf("municipalities" to coverage.size) }
         return RiderStats(
-            totalDistanceMeters = trips.sumOf { it.distanceMeters },
-            topSpeedKmh = (trips.maxOfOrNull { it.topSpeedMps } ?: 0.0) * 3.6,
-            longestTripMeters = trips.maxOfOrNull { it.distanceMeters } ?: 0.0,
-            maxLeanDeg = trips.maxOfOrNull { it.maxLeanAngleDeg } ?: 0.0,
+            totalDistanceMeters = totals.totalDistanceMeters,
+            topSpeedKmh = totals.topSpeedMps * 3.6,
+            longestTripMeters = totals.longestTripMeters,
+            maxLeanDeg = totals.maxLeanDeg,
             municipalitiesVisited = coverage.count { it.exploredCells > 0 },
             bestCoveragePercent = coverage.maxOfOrNull { it.percent } ?: 0.0,
-            tripCount = trips.size,
+            tripCount = totals.tripCount,
         )
     }
 
@@ -132,6 +145,7 @@ object BadgeStore {
      * call repeatedly: a badge keeps the timestamp it was first earned at.
      */
     fun refresh(stats: RiderStats): Result {
+        val t = Perf.start()
         val earned = load().toMutableMap()
         val now = nowMs()
         val newlyEarned = ArrayList<BadgeDef>()
@@ -145,11 +159,12 @@ object BadgeStore {
             BadgeState(def, value, earned[def.id])
         }
         if (newlyEarned.isNotEmpty()) save(earned)
+        Perf.end(t, "BadgeStore.refresh") { listOf("badges" to earned.size) }
         return Result(states, newlyEarned)
     }
 
     private fun load(): Map<String, Long> {
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         if (!f.exists()) return emptyMap()
         return try {
             jsonObjectOf(f.readText()).mapValues { (_, v) -> v.toString().trim('"').toLong() }
@@ -160,12 +175,12 @@ object BadgeStore {
 
     private fun save(earned: Map<String, Long>) {
         val o = buildJsonObject { for ((id, at) in earned) put(id, at) }
-        appFile(FILE_NAME).writeText(o.string())
+        accountFile(FILE_NAME).writeText(o.string())
     }
 
     /** Raw stored JSON, for server sync. */
     fun rawJson(): String {
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         return if (f.exists()) f.readText() else "{}"
     }
 
@@ -173,6 +188,6 @@ object BadgeStore {
      *  earliest earnedAtMs per badge, so this only ever moves dates backwards. */
     fun replaceRaw(json: String) {
         jsonObjectOf(json) // validate before overwriting
-        appFile(FILE_NAME).writeText(json)
+        accountFile(FILE_NAME).writeText(json)
     }
 }

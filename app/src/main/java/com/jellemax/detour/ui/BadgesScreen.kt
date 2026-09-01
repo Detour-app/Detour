@@ -54,6 +54,7 @@ import com.jellemax.detour.data.BadgeState
 import com.jellemax.detour.data.BadgeStore
 import com.jellemax.detour.data.Coverage
 import com.jellemax.detour.data.RiderStats
+import com.jellemax.detour.data.RiderTotals
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -84,14 +85,18 @@ private data class ScreenData(
 @Composable
 fun BadgesScreen(onBack: () -> Unit, onOpenCoverageMap: () -> Unit) {
     val context = LocalContext.current
-    // Coverage walks every trace point against every boundary; keep it off the
-    // main thread, and off the composition's hot path.
+    // Coverage walks every trace point against every boundary, but caches the
+    // result — keep the first call off the main thread and off the
+    // composition's hot path; later calls just read the cache.
     val data by produceState<ScreenData?>(initialValue = null) {
         value = withContext(Dispatchers.IO) {
             val coverage = Coverage.compute()
             val stats = BadgeStore.stats(coverage)
             ScreenData(BadgeStore.refresh(stats).states, coverage, stats)
         }
+        // See HubScreen: the stale-record fold happens after the rider has
+        // their numbers, not in front of them.
+        withContext(Dispatchers.IO) { RiderTotals.refreshIfStale() }
     }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()

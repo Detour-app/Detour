@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import com.jellemax.detour.data.syncQuietly
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.SyncClient
+import com.jellemax.detour.data.Perf
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.Trip
@@ -79,8 +80,12 @@ internal data class TraceSegment(
  *  [TraceStore.loadAll], which drops the per-point timestamp — the one thing
  *  this screen needs to match a trace back to the trip that was running when it
  *  was recorded, and the one thing a GPX export can't be built without. */
-private fun readTraceSegments(context: android.content.Context): List<TraceSegment> =
-    TraceStore.rawLines().mapNotNull { line ->
+private fun readTraceSegments(context: android.content.Context): List<TraceSegment> {
+    // Uncached, unlike TraceStore.loadAll: this re-reads and re-parses the whole
+    // of traces.jsonl on every history open, trip detail and GPX export, so it
+    // grows with every ride and nothing memoises it. #84.
+    val t = Perf.start()
+    val segments = TraceStore.rawLines().mapNotNull { line ->
         val points = TraceStore.parsePoints(line) ?: return@mapNotNull null
         var start = Long.MAX_VALUE
         var end = Long.MIN_VALUE
@@ -91,6 +96,11 @@ private fun readTraceSegments(context: android.content.Context): List<TraceSegme
         }
         if (start == Long.MAX_VALUE) null else TraceSegment(points, start, end)
     }
+    Perf.end(t, "HistoryScreen.readTraceSegments") {
+        listOf("segments" to segments.size, "points" to segments.sumOf { it.points.size })
+    }
+    return segments
+}
 
 /** Slack added on both ends of a trip's window when matching it to trace
  *  lines, to cover the tracker's own startup lag between the trip actually
@@ -285,6 +295,8 @@ private fun TripCard(
     var menuOpen by remember { mutableStateOf(false) }
     var vehicleMenuOpen by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var cardDialogOpen by remember { mutableStateOf(false) }
+    var cardPoints by remember { mutableStateOf<List<LatLon>?>(null) }
     Card(
         // The overflow IconButton below has its own clickable, so a tap on it
         // is consumed there and never reaches this one.
@@ -344,6 +356,10 @@ private fun TripCard(
                             text = { Text("Change vehicle") },
                             onClick = { menuOpen = false; vehicleMenuOpen = true },
                         )
+                        DropdownMenuItem(
+                            text = { Text("Share trip card") },
+                            onClick = { menuOpen = false; cardDialogOpen = true },
+                        )
                         HorizontalDivider()
                         DropdownMenuItem(
                             text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
@@ -402,6 +418,19 @@ private fun TripCard(
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
             },
+        )
+    }
+
+    if (cardDialogOpen) {
+        val context = LocalContext.current
+        LaunchedEffect(Unit) {
+            if (cardPoints == null) {
+                cardPoints = withContext(Dispatchers.IO) { loadTripTrace(context, trip) }
+            }
+        }
+        TripCardShareDialog(
+            trip, cardPoints,
+            onDismiss = { cardDialogOpen = false; cardPoints = null },
         )
     }
 }

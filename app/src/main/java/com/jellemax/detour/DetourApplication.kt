@@ -3,6 +3,7 @@ package com.jellemax.detour
 import android.app.Application
 import com.jellemax.detour.data.BuildDefaults
 import com.jellemax.detour.data.initSharedCore
+import com.jellemax.detour.perf.PerfSink
 
 /**
  * Hands the shared core the two things it cannot get for itself on Android: an
@@ -20,6 +21,10 @@ class DetourApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         ColdStartTiming.timed("initSharedCore") { initSharedCore(this) }
+        // Before Settings.init, and timed like everything else here: this is the
+        // one place ahead of all four entry points, and it loads the settings
+        // bag a touch earlier than the activity would have. #84.
+        ColdStartTiming.timed("PerfSink.installIfEnabled") { PerfSink.installIfEnabled(this) }
         ColdStartTiming.timed("BuildDefaults.configure") {
             BuildDefaults.configure(
                 routingUrl = BuildConfig.ROUTING_URL,

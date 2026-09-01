@@ -137,6 +137,21 @@ public class TrackPointRepository(ICustomDbContextFactory<DetourDbContext> facto
         await Context.TrackPoints.AddRangeAsync(points, cancellationToken);
     }
 
+    public async Task<HashSet<long>> GetExistingTimestampsAsync(
+        Guid userId,
+        long fromMs,
+        long toMs,
+        CancellationToken cancellationToken)
+    {
+        var found = await Context.TrackPoints.AsNoTracking()
+            .TagWith("TrackPointRepository.GetExistingTimestampsAsync")
+            .Where(p => p.UserId == userId && p.TimestampMs >= fromMs && p.TimestampMs <= toMs)
+            .Select(p => p.TimestampMs)
+            .ToListAsync(cancellationToken);
+
+        return [.. found];
+    }
+
     public Task<List<TrackPoint>> GetInWindowAsync(
         Guid userId,
         long fromMs,

@@ -61,19 +61,19 @@ android {
     // R class, invisible outside the build. Only applicationId is the identity
     // Play and the device see, and Play fixes it permanently at first upload.
     namespace = "com.jellemax.detour"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         // Play rejects an upload whose code isn't higher than every previous
         // one, and the phone and watch artifacts share an applicationId, so
         // they also need codes distinct from each other. CI stamps both from
         // the run number (see .github/workflows/build.yml); a local build
         // keeps the literal.
         versionCode = System.getenv("VERSION_CODE")?.toInt() ?: 82
-        versionName = "1.77.0"
+        versionName = "1.90.0"
 
         buildConfigField("String", "ROUTING_URL",
             "\"${serviceUrl("routing.url", "ROUTING_SERVER_URL")}\"")
@@ -89,6 +89,13 @@ android {
         // needs its own scheme and path rather than the plain base URL. Nothing
         // serves it at the moment — see Features.liveRelay in shared/.
         buildConfigField("String", "LIVE_URL", "\"${liveUrl()}\"")
+        // The repository whose releases this build updates itself from, passed
+        // by CI as github.repository so a fork's build points at the fork.
+        // Blank everywhere else, which makes the whole feature inert — a local
+        // build is signed with a different key and could never install a CI
+        // APK anyway.
+        buildConfigField("String", "UPDATE_REPO",
+            "\"${System.getenv("UPDATE_REPO") ?: ""}\"")
     }
 
     // Release signing reads from the environment rather than local.properties:
@@ -128,6 +135,21 @@ android {
             if (releaseKeystore != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
+        }
+        // The APK published to GitHub Releases, and the only build allowed to
+        // update itself. Identical to release in every other way — same R8
+        // config, same signing, same applicationId — so the artifact a rider
+        // installs is the release build plus one permission.
+        //
+        // A separate build type because the permission has to be absent from
+        // the Play bundle, and a manifest source set keys off a variant. Play
+        // is built with bundleRelease, which stays on `release` and never sees
+        // REQUEST_INSTALL_PACKAGES. A build type rather than a flavor for the
+        // reason the automotive block below gives: a flavor dimension renames
+        // every existing variant task.
+        create("githubRelease") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
         }
         // A test harness for the car/ screens, never shipped. On a phone the
         // CarAppService is driven by the Android Auto host on the head unit, so

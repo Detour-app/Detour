@@ -107,8 +107,6 @@ private struct TripRow: View {
 
 func icon(for mode: TravelMode) -> String {
     switch mode {
-    case .walk: return "figure.walk"
-    case .bike: return "bicycle"
     case .moto: return "motorcycle"
     default: return "car.fill"
     }

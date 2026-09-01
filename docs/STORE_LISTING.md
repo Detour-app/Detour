@@ -31,8 +31,8 @@ candidates, and sends you off. Then it records what you actually rode.
 
 SPIN A DESTINATION
 • A random point on a genuine road, not an empty field in the middle of nowhere
-• Walk, bike, moto and car modes, each with its own radius range and its own
-  idea of which roads count
+• Moto and car modes, each with its own radius range and its own idea of
+  which roads count
 • Three candidates per spin, with routed distance and ETA
 • Navigate in the app, or hand the destination to Google Maps, Waze or whatever
   else you have installed

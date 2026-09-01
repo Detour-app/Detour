@@ -43,19 +43,15 @@ import com.jellemax.detour.R
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.ble.BoardTelemetry
 import com.jellemax.detour.data.syncQuietly
-import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.BadgeDef
 import com.jellemax.detour.data.BadgeStore
-import com.jellemax.detour.data.CircleEvents
-import com.jellemax.detour.data.CircleFixes
-import com.jellemax.detour.data.CirclePlaces
+import com.jellemax.detour.data.CirclePresence
 import com.jellemax.detour.data.Coverage
 import com.jellemax.detour.data.Curviness
 import com.jellemax.detour.data.DrivingStats
-import com.jellemax.detour.data.GeofenceEvaluator
-import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MunicipalityStore
+import com.jellemax.detour.data.RiderTotals
 import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
@@ -177,18 +173,19 @@ class TripTrackingService : Service() {
         private const val STATIONARY_END_MS = 5 * 60_000L
         private const val MIN_AUTO_TRIP_METERS = 500.0
         // A trip whose average pace stays under this, with no mapped vehicle
-        // connected, is a walk. Judged on average (not top) speed so one GPS
-        // spike can't upgrade a stroll, and only after enough of the trip to
-        // tell a real walk from the first slow seconds of a drive.
-        private const val WALK_AVG_MAX_MPS = 2.5           // ~9 km/h
-        private const val WALK_MIN_JUDGE_MS = 90_000L
-        /** ...but average pace alone calls a car stuck in town traffic a walk.
-         *  Nothing that has ever hit this speed is one, whatever its average. */
-        private const val WALK_TOP_MAX_MPS = 6.0           // ~22 km/h
+        // connected, was never a drive — a walk, a jog, pushing a bike. Judged
+        // on average (not top) speed so one GPS spike can't rescue it, and
+        // only after enough of the trip to tell a real walk from the first
+        // slow seconds of a drive. Dropped at endTrip() rather than saved
+        // under a mode that doesn't fit it.
+        private const val SLOW_NO_VEHICLE_AVG_MAX_MPS = 2.5    // ~9 km/h
+        private const val SLOW_NO_VEHICLE_MIN_JUDGE_MS = 90_000L
+        /** ...but average pace alone calls a car stuck in town traffic slow.
+         *  Nothing that has ever hit this speed gets dropped, whatever its average. */
+        private const val SLOW_NO_VEHICLE_TOP_MAX_MPS = 6.0    // ~22 km/h
         /** Which vehicle wins when several mapped devices are connected at
          *  once, weakest first. */
-        private val MODE_PRIORITY =
-            listOf(TravelMode.WALK, TravelMode.BIKE, TravelMode.CAR, TravelMode.MOTO)
+        private val MODE_PRIORITY = listOf(TravelMode.CAR, TravelMode.MOTO)
         /** Motion sensors fire ~60x/s; publish stats at 5 Hz. */
         private const val SENSOR_EMIT_INTERVAL_MS = 200L
         /** Past this the phone is being picked up or repositioned, not leaning
@@ -235,24 +232,6 @@ class TripTrackingService : Service() {
         /** 10% over the posted limit, provisional — a floor against GPS/rounding
          *  noise reading a steady legal speed as a violation. */
         private const val OVER_LIMIT_MARGIN = 1.10
-
-        /** Circles' position/geofence cadence (docs/CIRCLES_AND_CONVOYS.md
-         *  section 10): a circle is Life360-style presence, not a live ride
-         *  feed, so this deliberately stays on the order of minutes rather
-         *  than the convoy relay's ~2 second cadence - two minutes keeps
-         *  "last seen" reading as current without turning a background
-         *  circle into a battery cost anyone notices. */
-        private const val CIRCLE_SYNC_INTERVAL_MS = 2 * 60_000L
-
-        /** Cadence once a tick finds no circle to share with - the cost a
-         *  user who never touches the feature pays, and the delay before
-         *  joining their first circle starts working. */
-        private const val CIRCLE_IDLE_INTERVAL_MS = 30 * 60_000L
-
-        /** A fix older than this says where the phone was, not where it is;
-         *  it still gets posted (an honest "last seen") but is not allowed to
-         *  decide a geofence transition. */
-        private const val CIRCLE_FIX_TRUST_MS = 15 * 60_000L
 
         private val _stats = MutableStateFlow<TripStats?>(null)
         val stats: StateFlow<TripStats?> = _stats
@@ -367,10 +346,6 @@ class TripTrackingService : Service() {
     private var lastMovingMs = 0L
     private var transitionsRegistered = false
     private var circleSyncStarted = false
-    /** One evaluator per circle, kept across ticks - [GeofenceEvaluator] holds
-     *  per-place dwell/inside state between calls, so a fresh instance every
-     *  tick would never accumulate enough dwell time to fire "arrive". */
-    private val circleEvaluators = mutableMapOf<String, GeofenceEvaluator>()
 
     /** Activity recognition says the phone is STILL, and no trip is running. */
     private var stationary = false
@@ -707,30 +682,25 @@ class TripTrackingService : Service() {
     }
 
     /**
-     * What this trip should be logged as. Priority: a connected mapped device
-     * decides (Cardo → moto, infotainment → car, walking earbuds → walk); else,
-     * once we have enough of the trip to judge, a sustained walking pace with
-     * nothing mapped connected means a walk; else the spin tab's mode. The tab
-     * itself is never changed here — classification is the trip's, not the UI's.
+     * What this trip should be logged as. A connected mapped device decides
+     * (Cardo → moto, infotainment → car); else the spin tab's mode. The tab
+     * itself is never changed here — classification is the trip's, not the
+     * UI's. Whether the trip is worth keeping at all is decided separately,
+     * in [endTrip].
      */
     private fun resolvedMode(): TravelMode {
         val map = Settings.vehicleDevices.value
-        // The heaviest vehicle connected wins, not the last to connect: earbuds
-        // paired for a walk stay linked in the car, and the helmet intercom and
-        // the car radio can both be up while the bike sits in the garage.
+        // The heaviest vehicle connected wins, not the last to connect: the
+        // helmet intercom and the car radio can both be up while the bike
+        // sits in the garage.
         connectedVehicles.mapNotNull { map[it]?.mode }
             .maxByOrNull { MODE_PRIORITY.indexOf(it) }
             ?.let { return it }
-        val s = _stats.value
-        if (s != null && s.durationMs > WALK_MIN_JUDGE_MS) {
-            val avg = if (s.durationMs > 0) s.distanceMeters / (s.durationMs / 1000.0) else 0.0
-            if (avg < WALK_AVG_MAX_MPS && s.topSpeedMps < WALK_TOP_MAX_MPS) return TravelMode.WALK
-        }
         return Settings.tripMode.value
     }
 
-    /** Retag the running trip if its mode should change (device connected/left,
-     *  or a walk revealed itself by pace). Restarts motion sensors to match. */
+    /** Retag the running trip if its mode should change (a mapped device
+     *  connected or left). Restarts motion sensors to match. */
     private fun refreshTripMode() {
         val mode = resolvedMode()
         if (_stats.value != null && _stats.value?.mode != mode) {
@@ -864,8 +834,17 @@ class TripTrackingService : Service() {
         roadTypeFetchJob?.cancel()
         roadTypeFetchJob = null
         flushTrace()
+        // An auto trip with no mapped vehicle that never left walking pace
+        // wasn't a drive; don't save it under whatever mode the tab happened
+        // to have selected. Judged the same way MIN_AUTO_TRIP_METERS judges
+        // "never went anywhere" — a second false-positive filter, not a
+        // classification.
+        val looksLikeAWalk = stats.durationMs > SLOW_NO_VEHICLE_MIN_JUDGE_MS &&
+            connectedVehicles.mapNotNull { Settings.vehicleDevices.value[it]?.mode }.isEmpty() &&
+            (stats.distanceMeters / (stats.durationMs / 1000.0)) < SLOW_NO_VEHICLE_AVG_MAX_MPS &&
+            stats.topSpeedMps < SLOW_NO_VEHICLE_TOP_MAX_MPS
         val worthSaving =
-            if (wasAuto) stats.distanceMeters >= MIN_AUTO_TRIP_METERS
+            if (wasAuto) stats.distanceMeters >= MIN_AUTO_TRIP_METERS && !looksLikeAWalk
             else stats.durationMs > 0
         var saveJob: kotlinx.coroutines.Job? = null
         if (worthSaving) {
@@ -1331,7 +1310,7 @@ class TripTrackingService : Service() {
                 currentlyOverLimit = currentlyOverLimitNow ?: it.currentlyOverLimit,
             )
         }
-        // Now that pace is updated, a slow trip may reveal itself as a walk.
+        // Pick up a mode-bar change made while the trip is running.
         refreshTripMode()
     }
 
@@ -1400,65 +1379,26 @@ class TripTrackingService : Service() {
      * request above is already producing, the same way [ConvoyLiveClient]'s
      * `forwardLocation` does for convoys.
      *
-     * Each tick: for every circle where this device's own membership has
-     * sharing on, post the latest fix ([CircleFixes.postFix]) and run it
-     * through that circle's [GeofenceEvaluator], posting any arrive/depart
-     * transition ([CircleEvents.record]).
-     *
-     * A tick that finds nothing to share with backs off to
-     * [CIRCLE_IDLE_INTERVAL_MS], so someone who never uses circles pays one
-     * cheap `GET /circles` every half hour rather than 700 a day for an
-     * answer that is always "none".
+     * The decision every pass makes - which circles to post to, the geofence
+     * evaluation, the transition recording, the idle backoff - lives in
+     * [CirclePresence.tick] now (see its doc). This keeps only what
+     * `commonMain` cannot have: the `while`/`delay` itself, the guard that a
+     * fix actually exists to share, and [fixAgeMs] - monotonic, not wall
+     * clock, so a device clock that drifts or is corrected mid-drive doesn't
+     * answer "how old is this reading" wrong in whichever direction the
+     * correction went. [Fix.timeMs] is the opposite question - wall clock,
+     * what gets posted - and stays on the fix.
      */
     private suspend fun circleSyncLoop() {
-        var interval = CIRCLE_SYNC_INTERVAL_MS
+        var interval = CirclePresence.ACTIVE_INTERVAL_MS
         while (true) {
             delay(interval)
-            if (!SyncClient.configured() || !Account.signedIn) continue
             val fix = _lastFix.value ?: continue
-            val username = Account.username.value
-            val circles = try {
-                Groups.list("circle").filter { it.status == "accepted" }
-            } catch (e: Exception) {
-                continue // offline or server down; retried next tick
-            }
-            // Drop bookkeeping for circles we're no longer in, so rejoining a
-            // circle under the same id later doesn't inherit stale dwell state.
-            circleEvaluators.keys.retainAll(circles.map { it.id }.toSet())
-            val sharing = circles.filter { c ->
-                c.members.find { it.username == username }?.sharing == true
-            }
-            interval = if (sharing.isEmpty()) CIRCLE_IDLE_INTERVAL_MS else CIRCLE_SYNC_INTERVAL_MS
-            // In SLEEP mode the fused request is PRIORITY_PASSIVE, so a parked
-            // phone can go a long time between fixes. That is fine for a
-            // position nobody has moved, but a fix old enough that the phone
-            // could be anywhere by now must not drive a geofence decision.
-            // Monotonic, not wall clock: this asks how old the fix is, and a
-            // device clock that drifts or is corrected mid-drive would answer
-            // it wrong in whichever direction the correction went. The stamp
-            // posted below is the opposite question and stays on location.time.
             val fixAgeMs = SystemClock.elapsedRealtime() - fix.elapsedRealtimeMs
-            for (circle in sharing) {
-                try {
-                    CircleFixes.postFix(
-                        circle.id, fix.lat, fix.lon, fix.accuracyMeters.toDouble(), fix.timeMs)
-                    if (fixAgeMs > CIRCLE_FIX_TRUST_MS) continue
-                    val places = CirclePlaces.places(circle.id)
-                    // Dwell runs on wall clock, not the fix's own timestamp: a
-                    // phone standing still stops producing new fixes, so
-                    // timing dwell by fix timestamps would freeze the clock at
-                    // exactly the moment someone parked and arrival would
-                    // never fire - which is the one thing a circle is for.
-                    val evaluator = circleEvaluators.getOrPut(circle.id) { GeofenceEvaluator() }
-                    val now = System.currentTimeMillis()
-                    for (t in evaluator.evaluate(fix.lat, fix.lon, now, places)) {
-                        CircleEvents.record(circle.id, t.placeId, t.kind, t.tsMs)
-                    }
-                } catch (e: Exception) {
-                    // One circle failing (removed mid-loop, one bad request)
-                    // must not stop the others from posting this tick.
-                }
-            }
+            interval = CirclePresence.tick(
+                fix.lat, fix.lon, fix.accuracyMeters.toDouble(), fix.timeMs, fixAgeMs,
+                System.currentTimeMillis(),
+            )
         }
     }
 
@@ -1468,6 +1408,10 @@ class TripTrackingService : Service() {
             val coverage = Coverage.compute()
             val newly = BadgeStore.refresh(BadgeStore.stats(coverage)).newlyEarned
             if (newly.isNotEmpty()) notifyBadgesEarned(newly)
+            // The trip just saved was folded into the record incrementally, so
+            // the badge check above already read the right numbers. This is the
+            // TTL catching up, after the notification rather than before it.
+            RiderTotals.refreshIfStale()
         }
     }
 

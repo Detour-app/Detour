@@ -2,17 +2,12 @@ package com.jellemax.detour
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -25,17 +20,23 @@ import androidx.compose.runtime.setValue
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
-import com.jellemax.detour.auth.Oidc
+import com.jellemax.detour.data.Oidc
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.ble.BleNavServer
+import com.jellemax.detour.data.Auth
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
+import com.jellemax.detour.data.UpdateClient
 import com.jellemax.detour.notif.CircleNotifyService
 import com.jellemax.detour.notif.PendingCircleOpen
 import com.jellemax.detour.notif.PendingTripOpen
 import com.jellemax.detour.notif.PlaceNotifications
+import com.jellemax.detour.update.UpdateDownloader
+import com.jellemax.detour.update.UpdateNotification
+import com.jellemax.detour.update.UpdateState
+import com.jellemax.detour.update.UpdateStatus
 import com.jellemax.detour.ui.BadgesScreen
 import com.jellemax.detour.ui.CirclesScreen
 import com.jellemax.detour.ui.CoverageMapScreen
@@ -43,6 +44,7 @@ import com.jellemax.detour.ui.FriendsScreen
 import com.jellemax.detour.ui.HistoryScreen
 import com.jellemax.detour.ui.HubScreen
 import com.jellemax.detour.ui.MapScreen
+import com.jellemax.detour.ui.PushPopContent
 import com.jellemax.detour.ui.GraphiteDark
 import com.jellemax.detour.ui.GraphiteLight
 import com.jellemax.detour.ui.RouteEditorScreen
@@ -51,6 +53,7 @@ import com.jellemax.detour.ui.SavedPlacesScreen
 import com.jellemax.detour.ui.SettingsScreen
 import com.jellemax.detour.ui.TripDetailScreen
 import com.jellemax.detour.ui.isAppDarkTheme
+import com.jellemax.detour.ui.rememberRetainedMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -103,6 +106,51 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * onStart, not onResume. Returning from the install sheet, the unknown-
+     * sources settings screen or a browser all fire onResume, and re-entering
+     * the check on the way back from the thing the check just started is how a
+     * state machine chases its own tail. The hourly throttle would mask it.
+     */
+    override fun onStart() {
+        super.onStart()
+        checkForUpdate()
+    }
+
+    private fun checkForUpdate() {
+        val repo = BuildConfig.UPDATE_REPO
+        if (repo.isBlank()) return
+        val now = System.currentTimeMillis()
+        if (now - Settings.lastUpdateCheckMs() < 60 * 60 * 1000L) return
+        // Stamped before the request: a device with no connectivity would
+        // otherwise retry on every foreground.
+        Settings.setLastUpdateCheckMs(now)
+        lifecycleScope.launch(Dispatchers.IO) {
+            val update = runCatching {
+                UpdateClient.newerThan(repo, BuildConfig.VERSION_NAME)
+            }.getOrNull()
+            // Silent on failure. This is a background courtesy; a rider mid-ride
+            // is never told the update check could not reach GitHub.
+            // Never prune while a download is running. prune deletes by name;
+            // the downloader holds the file open, and unlinking an open file
+            // succeeds silently on Linux — the download then "completes",
+            // verify() passes on the in-memory digest, and the app reports
+            // Downloaded for a path that no longer exists. Needs a slow
+            // download alive past the hourly mark plus a failing check to
+            // coincide, which is rare and entirely silent when it happens.
+            if (UpdateState.status.value is UpdateStatus.Downloading) return@launch
+            if (update == null) {
+                UpdateDownloader.prune(this@MainActivity, keep = null)
+                return@launch
+            }
+            UpdateDownloader.prune(this@MainActivity, keep = update.asset)
+            if (UpdateState.current()?.version != update.version) {
+                UpdateState.set(UpdateStatus.Available(update))
+            }
+            UpdateNotification.notifyOnce(this@MainActivity, update.version)
+        }
+    }
+
+    /**
      * Spends the authorization code from a `detour://auth/callback` redirect.
      *
      * On the activity's own scope rather than a screen's: the redirect can land
@@ -111,27 +159,65 @@ class MainActivity : ComponentActivity() {
      * goes to [PendingSignIn], which is what the screen reads.
      */
     private fun takeSignInRedirect(intent: Intent?) {
-        val data = intent?.data ?: return
+        val data = intent?.data?.toString() ?: return
         if (!Oidc.isCallback(data)) return
         PendingSignIn.begin()
         lifecycleScope.launch {
             try {
                 Oidc.complete(data)
-                PendingSignIn.succeed()
+                // Read after complete(), never before: the handle is decoded out
+                // of the access token by Auth.store(), so it does not exist until
+                // the exchange has happened.
+                PendingSignIn.succeed(Auth.username.value)
             } catch (e: Exception) {
-                PendingSignIn.fail(e.message ?: "Sign-in failed")
+                val reason = e.message ?: "Sign-in failed"
+                // A failed sign-in leaves no other trace: there is no crash, the
+                // browser has closed, and the screen it used to report to may not
+                // be composed (see PendingSignIn). Logged so `adb logcat -s
+                // DetourAuth` answers "why" without a rebuild — ASVS 5.0.0
+                // V16.3.2 asks for failed authorization attempts to be logged.
+                //
+                // `reason` and the throwable, never `data`: the redirect URI is
+                // the one string here that carries the authorization code, and
+                // logging a credential is what V16.2.5 forbids. Oidc.complete's
+                // messages are written to be safe to print for the same reason.
+                Log.w(TAG, "sign-in redirect did not become a session: $reason", e)
+                PendingSignIn.fail(reason)
             }
         }
     }
 }
 
-private enum class Screen {
-    MAP, HUB, HISTORY, TRIP_DETAIL, BADGES, FRIENDS, CIRCLES, SETTINGS, SAVED, ROUTES,
-    ROUTE_EDITOR, COVERAGE_MAP,
+private const val TAG = "DetourAuth"
+
+/**
+ * The screens, each carrying how deep it sits in the navigation this app
+ * actually performs — the map, the hub over it, the destinations off the hub,
+ * and the three screens pushed from one of those.
+ *
+ * [depth] exists so an animation can tell a push from a pop. There is no back
+ * stack here (`screen` is a single value), so the direction of a transition is
+ * not otherwise recoverable: `SETTINGS -> HUB` and `HUB -> SETTINGS` are the
+ * same pair of values in the opposite order, and only the depths say which way
+ * the rider is travelling. It mirrors the BackHandler below, which is the other
+ * place this shape is written down; change one and change both.
+ *
+ * Declaration order is left alone deliberately — nothing reads `ordinal`, but
+ * reordering an enum to group it by depth would be a bigger diff than the fix.
+ */
+private enum class Screen(val depth: Int) {
+    MAP(0), HUB(1), HISTORY(2), TRIP_DETAIL(3), BADGES(2), FRIENDS(2), CIRCLES(2),
+    SETTINGS(2), SAVED(2), ROUTES(2), ROUTE_EDITOR(3), COVERAGE_MAP(3),
 }
 
 @Composable
 private fun AppRoot() {
+    // Created here, above the navigation swap, so it outlives MapScreen's
+    // composition — that is the whole point of it. AppRoot is composed for the
+    // Activity's life, which is the correct scope for a MapView's Context. See
+    // RetainedMap.
+    val themePref by Settings.theme.collectAsStateWithLifecycle()
+    val retainedMap = rememberRetainedMap(darkTheme = isAppDarkTheme(themePref))
     var screen by remember { mutableStateOf(Screen.MAP) }
     // The trip a TRIP_DETAIL screen is showing — set on the way in from
     // History, left stale (but unread) once we've navigated away from it.
@@ -180,18 +266,31 @@ private fun AppRoot() {
     }
     // Sub-screens slide in over the map from the right and slide back out the
     // same way, so opening/closing feels like a push/pop instead of a hard swap.
-    AnimatedContent(
-        targetState = screen,
-        transitionSpec = {
-            if (targetState == Screen.MAP) {
-                (slideInHorizontally { -it / 4 } + fadeIn()) togetherWith
-                    (slideOutHorizontally { it } + fadeOut())
-            } else {
-                (slideInHorizontally { it } + fadeIn()) togetherWith
-                    (slideOutHorizontally { -it / 4 } + fadeOut())
-            }
-        },
+    //
+    // Which of the two it is comes from the depths, not from the destination's
+    // identity. This used to ask `targetState == Screen.MAP`, which is true for
+    // exactly one of the five pops this app performs: every other one — Settings
+    // back to Hub, a trip back to History, the editor back to Routes, the
+    // coverage map back to Badges — took the push branch and slid in from the
+    // right, as though the rider were going somewhere new rather than returning.
+    // The business logic was right the whole time; only the direction was wrong.
+    // Two destinations show *a* trip and *a* route rather than a fixed page, and
+    // the saved-state slot has to say which one. Keyed on the enum alone,
+    // opening trip A, going back, then opening trip B would hand B's screen A's
+    // saved scroll offset — the enum is the same value both times. Everything
+    // else carries no argument and keys on itself.
+    val stateKeyOf: (Screen) -> Any = {
+        when (it) {
+            Screen.TRIP_DETAIL -> "TRIP_DETAIL:${detailTrip?.startTimeMs}"
+            Screen.ROUTE_EDITOR -> "ROUTE_EDITOR:${editingRoute?.id}"
+            else -> it.name
+        }
+    }
+    PushPopContent(
+        target = screen,
+        depthOf = { it.depth },
         label = "screen",
+        keyOf = stateKeyOf,
     ) { current ->
         when (current) {
             Screen.HUB -> HubScreen(
@@ -231,7 +330,10 @@ private fun AppRoot() {
                 onBack = { screen = Screen.ROUTES },
                 onSaved = { screen = Screen.ROUTES },
             )
-            Screen.MAP -> MapScreen(onOpenHub = { screen = Screen.HUB })
+            Screen.MAP -> MapScreen(
+                onOpenHub = { screen = Screen.HUB },
+                retained = retainedMap,
+            )
         }
     }
 }

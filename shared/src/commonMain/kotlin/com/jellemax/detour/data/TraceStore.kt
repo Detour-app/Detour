@@ -1,5 +1,7 @@
 package com.jellemax.detour.data
 
+import kotlin.concurrent.Volatile
+
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonNull
@@ -40,6 +42,32 @@ object TraceStore {
     private val _version = MutableStateFlow(0)
     val version: StateFlow<Int> = _version
 
+    /** Drops the parsed copy and tells the fog layer the ground moved — it
+     *  redraws off [version], so without the bump it keeps showing the previous
+     *  rider's territory until something else happens to change it. */
+    fun reset() {
+        cache = null
+        _version.value++
+    }
+
+    /**
+     * The parse of [FILE_NAME], keyed on the [version] it was read at.
+     *
+     * This file used to say "nothing is cached here", and that was true until
+     * #82: MapScreen's `produceState` is keyed on [version], but a navigation
+     * away and back disposes the composition, so the return re-read and
+     * re-parsed the whole file for a version it had already parsed. Every write
+     * path bumps [version], so a stale parse cannot be served.
+     *
+     * Held as one object rather than two fields so a concurrent reader cannot
+     * see a matching version paired with the previous parse — the same shape,
+     * and the same reason, as `Coverage.Cache`.
+     */
+    private class Cache(val version: Int, val traces: List<List<LatLon>>)
+
+    @Volatile
+    private var cache: Cache? = null
+
     fun append(trace: List<TracePoint>) {
         if (trace.size < 2) return
         val line = buildJsonArray {
@@ -51,7 +79,7 @@ object TraceStore {
                 add(p.leanDeg?.let { JsonPrimitive(round(it, 1)) } ?: JsonNull)
             }
         }
-        appFile(FILE_NAME).appendText(line.string() + "\n")
+        accountFile(FILE_NAME).appendText(line.string() + "\n")
         _version.value++
     }
 
@@ -63,9 +91,34 @@ object TraceStore {
     }
 
     fun loadAll(): List<List<LatLon>> {
-        val f = appFile(FILE_NAME)
-        if (!f.exists()) return emptyList()
-        return parseLines(f.readLines())
+        val t = Perf.start()
+        // Version read before the file, deliberately. A write landing between
+        // the two stores newer content under the older key, so the next call
+        // sees a mismatch and re-reads — one wasted parse. Reading the file
+        // first would allow the opposite, which is a stale parse stamped with
+        // the new version and served until the next write.
+        val version = _version.value
+        cache?.let {
+            if (it.version == version) {
+                Perf.end(t, "TraceStore.loadAll") {
+                    listOf("segments" to it.traces.size, "hit" to 1)
+                }
+                return it.traces
+            }
+        }
+        val f = accountFile(FILE_NAME)
+        val lines = if (!f.exists()) emptyList() else f.readLines()
+        val parsed = parseLines(lines)
+        cache = Cache(version, parsed)
+        Perf.end(t, "TraceStore.loadAll") {
+            listOf(
+                "segments" to parsed.size,
+                "points" to parsed.sumOf { it.size },
+                "bytes" to lines.sumOf { it.length + 1 },
+                "hit" to 0,
+            )
+        }
+        return parsed
     }
 
     /** Decodes stored JSONL polylines, skipping any line that doesn't decode.
@@ -101,17 +154,22 @@ object TraceStore {
     }
 
     fun clear() {
-        appFile(FILE_NAME).deleteIfExists()
+        accountFile(FILE_NAME).deleteIfExists()
         _version.value++
     }
 
     /** Raw JSONL lines, for server sync. */
-    fun rawLines(): List<String> = appFile(FILE_NAME).readLines().filter { it.isNotBlank() }
+    fun rawLines(): List<String> = accountFile(FILE_NAME).readLines().filter { it.isNotBlank() }
 
     /** Overwrite the store with merged lines from the sync server. */
     fun replaceLines(lines: List<String>) {
-        appFile(FILE_NAME).writeText(
-            lines.filter { it.isNotBlank() }.joinToString("\n", postfix = "\n"))
+        val t = Perf.start()
+        val kept = lines.filter { it.isNotBlank() }
+        val text = kept.joinToString("\n", postfix = "\n")
+        accountFile(FILE_NAME).writeText(text)
         _version.value++
+        Perf.end(t, "TraceStore.replaceLines") {
+            listOf("segments" to kept.size, "bytes" to text.length)
+        }
     }
 }

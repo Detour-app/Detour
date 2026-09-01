@@ -44,11 +44,87 @@ object SyncClient {
         return sync()
     }
 
+    /**
+     * `@Throws(Exception::class)`, here and on every other exported `suspend`
+     * function Swift calls directly: Kotlin/Native only turns a thrown
+     * `CancellationException` into an `NSError` on its own — anything else a
+     * `suspend` function throws aborts the process before a Swift `catch`
+     * ever runs (Kotlin/Native's own docs on Objective-C/Swift interop say so
+     * plainly). Every `try await` under `iosApp/Detour/` was one network
+     * error away from that until this annotation went in.
+     *
+     * `Exception` rather than [okio.IOException]: what this module's
+     * `suspend` functions actually raise is [AuthException] or
+     * [HttpStatusException] (both `IOException` — see `Api.kt`/`Http.kt`),
+     * but a server that answers something the wire format doesn't expect
+     * surfaces as a kotlinx-serialization failure, and that is an
+     * `IllegalArgumentException`, not an `IOException`. Naming only
+     * `IOException` would leave the app terminating on exactly the response
+     * an unfriendly server sends. `Exception` also lets a genuine
+     * programming error through, which then reaches the rider as "something
+     * went wrong" instead of crashing loudly into a bug report — a
+     * deliberate trade, made because every one of these call sites already
+     * has a `catch` that reports to the user, and a wrong-ish message on a
+     * phone beats an aborted process. A no-op on Android/JVM, where
+     * `@Throws` has nothing to attach to.
+     *
+     * Two more things this choice accepts, worth recording since that's this
+     * comment's whole job:
+     *
+     * `Exception` also covers `CancellationException` (it's an
+     * `IllegalStateException`), which is not a gap — it's why a coroutine
+     * cancelled out from under a Swift caller (a `.task(id:)` whose key
+     * changed mid-await, say) now arrives there as an ordinary `NSError`
+     * instead of as Swift's own `CancellationError`. A `catch` on the Swift
+     * side that doesn't check `Task.isCancelled` before reporting will treat
+     * the rider's own cancellation as a failure worth an alert. See
+     * `FriendsScreen.swift`'s `reload()` for where that actually bit, and
+     * its comment for the fix; the two comments should be read together.
+     *
+     * It does **not** cover `Error`/`Throwable` subclasses — only
+     * `Exception` and below. `OutOfMemoryError`, `AssertionError`, and the
+     * `NotImplementedError` a bare `TODO()` throws all still abort the
+     * process before reaching Swift. Deliberate: those are conditions a
+     * `catch` reporting "something went wrong" to the rider would only
+     * mislabel, not meaningfully recover from.
+     *
+     * Not repeated at every other site this reasoning applies to — read it
+     * here.
+     */
+    @Throws(Exception::class)
     suspend fun sync(): SyncResult {
         Settings.init()
 
+        // Signed in but with nothing to key a bucket on: the files being read
+        // below belong to the anonymous bucket, which is not this session's.
+        // Uploading them is precisely #73, so this refuses instead. A sync
+        // that does not happen is recoverable; one that puts another rider's
+        // history into this account is not.
+        if (Account.signedIn && AccountScope.current() == AccountScope.ANONYMOUS) {
+            throw AuthException("Sign out and sign in again to link this device's rides to your account.")
+        }
+
+        // The check above is point-in-time; the POST below suspends for a full
+        // history round trip, and the write-back after it re-resolves
+        // accountFile() fresh (deliberately — see Files.kt). Between the two,
+        // Auth.clear() or Auth.store() can move the bucket out from under this
+        // call: the launch sync runs on a scope that is never cancelled
+        // (app/data/AndroidSync.kt), so a sign-out mid-flight would write this
+        // rider's entire server-side history into `_local`, and a sign-in
+        // would write it into the next rider's bucket for their next sync to
+        // upload — #73 again, on the function this guard exists to protect.
+        // Same epoch capture FriendsStore.reload and CirclesStore use.
+        val epoch = Auth.sessionEpoch.value
+
         // Coverage is the only stat the server can't derive from the trips it
         // already holds — it needs the boundaries, which only we have.
+        // Two labels for this function, not one: the payload build is local work
+        // that grows with the rider's history, the round trip is a network cost
+        // that does not, and one number covering both would let mirror latency
+        // swamp the growth this is watching for. The comment below already says
+        // this leg "on a year of riding is seconds, not instants" — measured
+        // never, until now.
+        val buildMark = Perf.start()
         val stats = BadgeStore.stats(Coverage.compute())
 
         val payload = buildJsonObject {
@@ -64,12 +140,56 @@ object SyncClient {
             put("shareFog", Settings.shareFog.value)
         }
 
+        // Again, immediately before the POST. The capture above guards the
+        // write-back; it does not guard the upload, because every field in
+        // `payload` was read before Api.request resolves the bearer. A
+        // session change in between sends this rider's history under the next
+        // rider's token — #73 verbatim, and not a narrow window either:
+        // Coverage.compute() walks every trace point against every boundary
+        // and TraceStore.rawLines() reads a multi-megabyte file, which on a
+        // year of riding is seconds, not instants.
+        if (epoch != Auth.sessionEpoch.value) return SyncResult(0, 0, 0)
+
+        // Array sizes off the built payload, which are O(1). Re-serialising it
+        // for a byte count would repeat the multi-megabyte encode this call just
+        // paid for, purely to describe it.
+        Perf.end(buildMark, "SyncClient.sync.build") {
+            listOf(
+                "trips" to (payload.optArray("trips")?.size ?: 0),
+                "traces" to (payload.optArray("traces")?.size ?: 0),
+            )
+        }
+        val postMark = Perf.start()
         val merged = Api.requestJson("POST", "/sync", payload)
+        Perf.end(postMark, "SyncClient.sync.post") {
+            listOf(
+                "trips" to (merged.optArray("trips")?.size ?: 0),
+                "traces" to (merged.optArray("traces")?.size ?: 0),
+            )
+        }
+        if (epoch != Auth.sessionEpoch.value) {
+            // Whoever this response belongs to is no longer who this device is
+            // signed in as. Nothing is written — not the stores, and not
+            // lastSyncMs, which would otherwise let this discarded round trip
+            // suppress the new session's own launch sync for five minutes.
+            // Reported as a sync that brought nothing back rather than as a
+            // failure: the POST did succeed, the server has the upload, and
+            // the only untrue thing to say here would be a count of records
+            // that did not land.
+            return SyncResult(0, 0, 0)
+        }
         val trips = merged.optArray("trips") ?: JsonArrayEmpty
         val traces = merged.optArray("traces") ?: JsonArrayEmpty
         val badges = merged.optObject("badges") ?: jsonObjectOf("{}")
 
         TripStore.replaceRaw(trips.string())
+        // replaceRaw just invalidated the totals record — the merge is the
+        // server's union against ours, so the delta is not knowable here. Refold
+        // it now rather than leaving the bill for whichever screen opens next:
+        // sync is already off the main thread on both platforms (a
+        // Dispatchers.IO scope in AndroidSync, a Task on iOS), and a rider
+        // opening the Hub is not.
+        RiderTotals.refreshIfStale()
         TraceStore.replaceLines(traces.indices.map { traces.optString(it) })
         BadgeStore.replaceRaw(badges.string())
         // Absent on an older server: leave the local shortcuts untouched.

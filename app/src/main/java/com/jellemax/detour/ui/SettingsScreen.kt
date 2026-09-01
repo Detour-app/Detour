@@ -103,17 +103,25 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.atan2
 
-/** The six spokes off the Settings root. Internal to this screen — not new
- *  MainActivity screens — so the same push/pop feel as Hub-and-back applies
- *  without adding another layer to the app-wide Screen enum. */
-private enum class SettingsPage(val title: String) {
-    ROOT("Settings"),
-    APPEARANCE_MAP("Appearance & map"),
-    TRACKING_VEHICLES("Tracking & vehicles"),
-    NAVIGATION("Navigation"),
-    FOG("Fog of war"),
-    DISPLAYS_MEDIA("Displays & media"),
-    SERVERS_SYNC("Servers & sync"),
+/**
+ * The six spokes off the Settings root. Internal to this screen — not new
+ * MainActivity screens — so the same push/pop feel as Hub-and-back applies
+ * without adding another layer to the app-wide Screen enum.
+ *
+ * That claim was aspirational until now: the `when (page)` below sat in a plain
+ * Column, so opening a spoke and coming back were both instant swaps with no
+ * animation at all, while the app-wide screens around them slid. [depth] is
+ * what [PushPopContent] reads to tell the two directions apart, and it is the
+ * same idea the Screen enum in MainActivity carries.
+ */
+private enum class SettingsPage(val title: String, val depth: Int) {
+    ROOT("Settings", 0),
+    APPEARANCE_MAP("Appearance & map", 1),
+    TRACKING_VEHICLES("Tracking & vehicles", 1),
+    NAVIGATION("Navigation", 1),
+    FOG("Fog of war", 1),
+    DISPLAYS_MEDIA("Displays & media", 1),
+    SERVERS_SYNC("Servers & sync", 1),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -143,84 +151,91 @@ fun SettingsScreen(onBack: () -> Unit) {
             )
         },
     ) { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(if (page == SettingsPage.ROOT) 10.dp else 16.dp),
-        ) {
-            when (page) {
-                SettingsPage.ROOT -> {
-                    HubRow(
-                        icon = Icons.Outlined.Brightness6,
-                        title = SettingsPage.APPEARANCE_MAP.title,
-                        subtitle = theme.name.lowercase().replaceFirstChar { it.uppercase() } + " theme",
-                        onClick = { page = SettingsPage.APPEARANCE_MAP },
-                    )
-                    HubRow(
-                        icon = Icons.Outlined.DirectionsCar,
-                        title = SettingsPage.TRACKING_VEHICLES.title,
-                        subtitle = "Auto-detect drives: " + (if (autoDetect) "on" else "off"),
-                        onClick = { page = SettingsPage.TRACKING_VEHICLES },
-                    )
-                    HubRow(
-                        icon = Icons.Outlined.Navigation,
-                        title = SettingsPage.NAVIGATION.title,
-                        subtitle = "Avoid highways: " + (if (avoidHighways) "on" else "off"),
-                        onClick = { page = SettingsPage.NAVIGATION },
-                    )
-                    HubRow(
-                        icon = Icons.Outlined.VisibilityOff,
-                        title = SettingsPage.FOG.title,
-                        subtitle = "${fogRadius.toInt()} m reveal radius",
-                        onClick = { page = SettingsPage.FOG },
-                    )
-                    HubRow(
-                        icon = Icons.Outlined.Tv,
-                        title = SettingsPage.DISPLAYS_MEDIA.title,
-                        subtitle = "External display: " + (if (externalDisplayEnabled) "on" else "off"),
-                        onClick = { page = SettingsPage.DISPLAYS_MEDIA },
-                    )
-                    HubRow(
-                        icon = Icons.Outlined.Cloud,
-                        title = SettingsPage.SERVERS_SYNC.title,
-                        subtitle = if (authUsername.isBlank()) "Not signed in"
-                            else "Signed in as $authUsername",
-                        onClick = { page = SettingsPage.SERVERS_SYNC },
-                    )
-                    Text(
-                        "Detour ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                        textAlign = TextAlign.Center,
-                    )
-                }
-                SettingsPage.APPEARANCE_MAP -> {
-                    AppearanceSection(theme)
-                    MapIconSection()
-                    RouteColorSection(theme)
-                    MapSection()
-                }
-                SettingsPage.TRACKING_VEHICLES -> {
-                    TrackingSection(autoDetect, context)
-                    VehicleSection()
-                    LeanCalibrationSection()
-                }
-                SettingsPage.NAVIGATION -> NavigationSection()
-                SettingsPage.FOG -> FogSection(context)
-                SettingsPage.DISPLAYS_MEDIA -> {
-                    ExternalDisplaySection()
-                    NowPlayingSection()
-                }
-                SettingsPage.SERVERS_SYNC -> {
-                    ServerSection()
-                    SyncSection()
-                    ConfigFileSection()
+        PushPopContent(
+            target = page,
+            depthOf = { it.depth },
+            label = "settingsPage",
+        ) { current ->
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(if (current == SettingsPage.ROOT) 10.dp else 16.dp),
+            ) {
+                when (current) {
+                    SettingsPage.ROOT -> {
+                        HubRow(
+                            icon = Icons.Outlined.Brightness6,
+                            title = SettingsPage.APPEARANCE_MAP.title,
+                            subtitle = theme.name.lowercase().replaceFirstChar { it.uppercase() } + " theme",
+                            onClick = { page = SettingsPage.APPEARANCE_MAP },
+                        )
+                        HubRow(
+                            icon = Icons.Outlined.DirectionsCar,
+                            title = SettingsPage.TRACKING_VEHICLES.title,
+                            subtitle = "Auto-detect drives: " + (if (autoDetect) "on" else "off"),
+                            onClick = { page = SettingsPage.TRACKING_VEHICLES },
+                        )
+                        HubRow(
+                            icon = Icons.Outlined.Navigation,
+                            title = SettingsPage.NAVIGATION.title,
+                            subtitle = "Avoid highways: " + (if (avoidHighways) "on" else "off"),
+                            onClick = { page = SettingsPage.NAVIGATION },
+                        )
+                        HubRow(
+                            icon = Icons.Outlined.VisibilityOff,
+                            title = SettingsPage.FOG.title,
+                            subtitle = "${fogRadius.toInt()} m reveal radius",
+                            onClick = { page = SettingsPage.FOG },
+                        )
+                        HubRow(
+                            icon = Icons.Outlined.Tv,
+                            title = SettingsPage.DISPLAYS_MEDIA.title,
+                            subtitle = "External display: " + (if (externalDisplayEnabled) "on" else "off"),
+                            onClick = { page = SettingsPage.DISPLAYS_MEDIA },
+                        )
+                        HubRow(
+                            icon = Icons.Outlined.Cloud,
+                            title = SettingsPage.SERVERS_SYNC.title,
+                            subtitle = if (authUsername.isBlank()) "Not signed in"
+                                else "Signed in as $authUsername",
+                            onClick = { page = SettingsPage.SERVERS_SYNC },
+                        )
+                        Text(
+                            "Detour ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    SettingsPage.APPEARANCE_MAP -> {
+                        AppearanceSection(theme)
+                        MapIconSection()
+                        RouteColorSection(theme)
+                        MapSection()
+                    }
+                    SettingsPage.TRACKING_VEHICLES -> {
+                        TrackingSection(autoDetect, context)
+                        VehicleSection()
+                        LeanCalibrationSection()
+                    }
+                    SettingsPage.NAVIGATION -> NavigationSection()
+                    SettingsPage.FOG -> FogSection(context)
+                    SettingsPage.DISPLAYS_MEDIA -> {
+                        ExternalDisplaySection()
+                        NowPlayingSection()
+                    }
+                    SettingsPage.SERVERS_SYNC -> {
+                        ServerSection()
+                        SyncSection()
+                        ConfigFileSection()
+                        DiagnosticsSection()
+                    }
                 }
             }
         }
@@ -345,7 +360,7 @@ private fun NavigationSection() {
                 Text("Avoid highways", style = MaterialTheme.typography.bodyLarge)
                 Text(
                     "In-app navigation skips motorways (car mode; " +
-                        "moto and bike never use them)",
+                        "moto never uses them)",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -871,9 +886,9 @@ private fun NowPlayingSection() {
 
 /**
  * Map paired Bluetooth (Classic) devices to a vehicle. When one connects, the
- * tracking service logs the trip under that vehicle — a Cardo for the moto, the
- * car's infotainment for driving, walking earbuds for a walk. No scanning, so
- * it needs BLUETOOTH_CONNECT but never location.
+ * tracking service logs the trip under that vehicle — a Cardo for the moto,
+ * the car's infotainment for driving. No scanning, so it needs
+ * BLUETOOTH_CONNECT but never location.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -912,8 +927,8 @@ private fun VehicleSection() {
     SettingsSection("Vehicles") {
         Text(
             "Add a Bluetooth device to a vehicle. When it's connected, trips log " +
-                "under that vehicle automatically — and a walking device (or no " +
-                "connection at a walking pace) logs as a walk.",
+                "under that vehicle automatically. With nothing connected, a trip " +
+                "that never picks up real driving pace is dropped rather than saved.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -1093,8 +1108,11 @@ private fun LeanCalibrationSection() {
     }
 }
 
+/** internal, not private: SettingsDiagnostics.kt is a second file in this
+ *  package holding a section, because this one is already past the 1000-line
+ *  limit. Duplicating the card there would let the two drift. */
 @Composable
-private fun SettingsSection(title: String, content: @Composable () -> Unit) {
+internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(

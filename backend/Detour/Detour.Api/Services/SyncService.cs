@@ -159,6 +159,14 @@ public class SyncService(
         // history, so asking per line would make the hot path O(history) queries.
         var known = await traces.GetExistingHashesAsync(userId, [.. byHash.Keys], cancellationToken);
 
+        // Points are gathered across every new line and added once, rather than per line.
+        // Consecutive lines deliberately share their boundary sample: the device flushes its
+        // buffer mid-drive and re-emits the last point so the drawn trace has no break, and a
+        // point's key is (owner, instant). Adding per line handed the change tracker two
+        // instances of one key, which threw and rolled the whole sync back — so a first full
+        // sync failed on every flush boundary the history contained.
+        var fresh = new Dictionary<long, TrackPoint>();
+
         foreach (var (hash, line) in byHash)
         {
             if (known.Contains(hash))
@@ -172,10 +180,28 @@ public class SyncService(
 
             // Only a genuinely new line has points worth unpacking. Doing it on the
             // already-held path would re-parse the entire history on every sync.
-            var points = TraceLineReader.ReadPoints(userId, line);
-            if (points.Count > 0)
-                await trackPoints.AddRangeAsync(points, cancellationToken);
+            //
+            // First writer wins on a shared instant. The two copies are the same sample, so
+            // which one is kept does not matter — only that one is.
+            foreach (var point in TraceLineReader.ReadPoints(userId, line))
+                fresh.TryAdd(point.TimestampMs, point);
         }
+
+        if (fresh.Count == 0)
+            return;
+
+        // The other half of the same overlap: when the line that ended on the shared instant
+        // synced earlier, the hash check above skips it, so its stored sample is invisible here
+        // and inserting the instant again violates the key at commit rather than in the tracker.
+        var stored = await trackPoints.GetExistingTimestampsAsync(
+            userId,
+            fresh.Keys.Min(),
+            fresh.Keys.Max(),
+            cancellationToken);
+
+        var unseen = fresh.Values.Where(p => !stored.Contains(p.TimestampMs)).ToArray();
+        if (unseen.Length > 0)
+            await trackPoints.AddRangeAsync(unseen, cancellationToken);
     }
 
     private async Task MergeSavedPlacesAsync(

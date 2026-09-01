@@ -51,7 +51,15 @@ object TripStore {
     private const val EDITED_FILE_NAME = "edited_modes.json"
 
     fun save(trip: Trip) {
-        writeAll(listOf(trip) + load())
+        val t = Perf.start()
+        val existing = load()
+        writeAll(listOf(trip) + existing)
+        // Before recordSaved, so the number is this function's own cost — a full
+        // load plus a full re-encode — and not the totals record folded in.
+        Perf.end(t, "TripStore.save") { listOf("trips" to existing.size) }
+        // After the write, not before: a totals record counting a trip the
+        // file does not hold is the one drift the TTL would carry for a day.
+        RiderTotals.recordSaved(trip)
     }
 
     /**
@@ -101,13 +109,17 @@ object TripStore {
         tombstones.add(startTimeMs)
         writeTombstones(tombstones)
         writeAll(load().filterNot { it.startTimeMs == startTimeMs })
+        // The removed trip may have held the top speed, the longest ride or
+        // the deepest lean, and a maximum cannot be walked backwards from the
+        // record alone. A recompute is the only correct answer.
+        RiderTotals.invalidate()
     }
 
     private fun writeAll(trips: List<Trip>) {
         val array = buildJsonArray {
             for (t in trips) add(encode(t))
         }
-        appFile(FILE_NAME).writeText(array.string())
+        accountFile(FILE_NAME).writeText(array.string())
     }
 
     internal fun encode(t: Trip): JsonObject = buildJsonObject {
@@ -156,13 +168,22 @@ object TripStore {
     }
 
     fun load(): List<Trip> {
-        val f = appFile(FILE_NAME)
-        if (!f.exists()) return emptyList()
-        return try {
-            jsonArrayOf(f.readText()).objects().map { decodeTrip(it) }
+        val t = Perf.start()
+        val f = accountFile(FILE_NAME)
+        if (!f.exists()) {
+            Perf.end(t, "TripStore.load") { listOf("trips" to 0, "bytes" to 0) }
+            return emptyList()
+        }
+        val text = f.readText()
+        val trips = try {
+            jsonArrayOf(text).objects().map { decodeTrip(it) }
         } catch (e: Exception) {
             emptyList()
         }
+        Perf.end(t, "TripStore.load") {
+            listOf("trips" to trips.size, "bytes" to text.length)
+        }
+        return trips
     }
 
     internal fun decodeTrip(o: JsonObject): Trip = Trip(
@@ -182,7 +203,7 @@ object TripStore {
 
     /** Raw stored JSON array, for server sync. */
     fun rawJson(): String {
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         return if (f.exists()) f.readText() else "[]"
     }
 
@@ -199,11 +220,16 @@ object TripStore {
      * echoes the same value back, so it never masks a genuine later change.
      */
     fun replaceRaw(json: String) {
+        val t = Perf.start()
         val incoming = jsonArrayOf(json) // validate before overwriting
         val tombstones = tombstones()
         val overrides = modeOverrides()
         if (tombstones.isEmpty() && overrides.isEmpty()) {
-            appFile(FILE_NAME).writeText(json)
+            accountFile(FILE_NAME).writeText(json)
+            RiderTotals.invalidate()
+            Perf.end(t, "TripStore.replaceRaw") {
+                listOf("trips" to incoming.objects().count(), "bytes" to json.length)
+            }
             return
         }
         var overridesChanged = false
@@ -227,11 +253,19 @@ object TripStore {
             }
         }
         if (overridesChanged) writeModeOverrides(overrides)
-        appFile(FILE_NAME).writeText(kept.string())
+        val text = kept.string()
+        accountFile(FILE_NAME).writeText(text)
+        Perf.end(t, "TripStore.replaceRaw") {
+            listOf("trips" to kept.size, "bytes" to text.length)
+        }
+        // The merge is the server's union against ours: trips can arrive and
+        // trips can vanish, so no increment is even definable from here. Both
+        // exits invalidate.
+        RiderTotals.invalidate()
     }
 
     private fun tombstones(): MutableSet<Long> {
-        val f = appFile(DELETED_FILE_NAME)
+        val f = accountFile(DELETED_FILE_NAME)
         if (!f.exists()) return mutableSetOf()
         return try {
             val array = jsonArrayOf(f.readText())
@@ -243,13 +277,13 @@ object TripStore {
 
     private fun writeTombstones(ids: Set<Long>) {
         val array = buildJsonArray { ids.forEach { add(it) } }
-        appFile(DELETED_FILE_NAME).writeText(array.string())
+        accountFile(DELETED_FILE_NAME).writeText(array.string())
     }
 
     /** Local vehicle-mode corrections, startTimeMs → mode name, pending until
      *  the server echoes them back. */
     private fun modeOverrides(): MutableMap<Long, String> {
-        val f = appFile(EDITED_FILE_NAME)
+        val f = accountFile(EDITED_FILE_NAME)
         if (!f.exists()) return mutableMapOf()
         return try {
             jsonObjectOf(f.readText()).entries
@@ -263,6 +297,6 @@ object TripStore {
         val o = buildJsonObject {
             map.forEach { (start, mode) -> put(start.toString(), mode) }
         }
-        appFile(EDITED_FILE_NAME).writeText(o.string())
+        accountFile(EDITED_FILE_NAME).writeText(o.string())
     }
 }

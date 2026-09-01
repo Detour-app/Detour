@@ -99,7 +99,12 @@ trying, they are different code.
 
 Neither hook is much use with an empty history, and recording real trips to test
 a notification is the loop we are trying to avoid. `run-as` works on a debug
-build, so history can be written directly:
+build, so history can be written directly.
+
+> The directory is `sha256(sub)` truncated to 16 hex characters, so it cannot be guessed — list it
+> first: `adb shell run-as io.github.maxke24.detour.debug ls files/accounts`. A signed-out install
+> has exactly one, `_local`. A signed-in one has that account's hash, and possibly `_local` too if
+> anything was recorded before signing in.
 
 ```
 cat > /tmp/trips.json <<'JSON'
@@ -109,12 +114,17 @@ cat > /tmp/trips.json <<'JSON'
 JSON
 
 adb shell am force-stop io.github.maxke24.detour.debug
-adb shell "run-as io.github.maxke24.detour.debug sh -c 'cat > files/trips.json'" < /tmp/trips.json
+adb shell run-as io.github.maxke24.detour.debug mkdir -p files/accounts/_local
+adb shell "run-as io.github.maxke24.detour.debug sh -c 'cat > files/accounts/_local/trips.json'" < /tmp/trips.json
 ```
 
-The shape is whatever `TripStore.encode` writes; `mode` is one of `WALK`, `BIKE`,
-`MOTO`, `CAR`. Seeded trips have no GPS trace, so a detail screen's map is empty
-— that is the seed, not a bug.
+The `mkdir -p` is not optional: on a build that has never recorded anything, nothing has
+created `files/accounts/_local/` yet — it is written lazily, by the first real store write —
+so `cat >` alone fails with "No such file or directory". The shape is whatever
+`TripStore.encode` writes; `mode` is one of `MOTO`, `CAR`. The example above targets `_local`
+because that is also the bucket the next paragraph recommends seeding into; for a signed-in
+build, list `files/accounts` first and substitute the account's hash. Seeded trips have no GPS
+trace, so a detail screen's map is empty — that is the seed, not a bug.
 
 Two things to know before doing this on a signed-in build: `endTrip()` calls
 `SyncClient.syncQuietly()`, and a sync pushes local trips to your server, so
@@ -122,8 +132,43 @@ synthetic trips can escape onto it. Check `shared_prefs/` for an account first,
 or seed only on a build that has never signed in. To clear them again:
 
 ```
-adb shell run-as io.github.maxke24.detour.debug rm files/trips.json
+adb shell run-as io.github.maxke24.detour.debug rm files/accounts/_local/trips.json
 ```
+
+## Mode-swipe hint — `DebugSwipeHintReceiver`
+
+The spin dock's mode swipe plays a discoverability hint in one of two variants.
+There is no analytics in this app, so the two are compared by hand rather than
+measured. Switch between them without rebuilding:
+
+```
+adb shell am broadcast \
+  -n io.github.maxke24.detour.debug/com.jellemax.detour.debug.DebugSwipeHintReceiver \
+  --es variant arrows      # or: nudge
+```
+
+The hint fires once per map visit and retires permanently after three
+successful swipes. To see it again, re-arm the counter:
+
+```
+adb shell am broadcast \
+  -n io.github.maxke24.detour.debug/com.jellemax.detour.debug.DebugSwipeHintReceiver \
+  --ez reset true
+```
+
+Both arms can be sent in one broadcast. After either, leave the map screen and
+come back — the hint is scheduled once per visit.
+
+```
+adb logcat -s DebugSwipeHint   # the receiver logs what it set
+```
+
+Prefer this over editing `shared_prefs/settings.xml` directly. A `sed` sent
+through `adb shell` has its quotes re-parsed on the device; one that wrote
+malformed XML caused the app to discard the entire preferences file rather
+than fail to parse it.
+
+Deleted along with the losing variant once one of them wins.
 
 ## Related
 

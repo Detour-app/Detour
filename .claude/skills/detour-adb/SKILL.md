@@ -81,21 +81,31 @@ destroys data the user cannot get back, and none of them is ever actually requir
 skill was extracted so it could be run without retyping; these are left as prose precisely so
 that running one takes a deliberate act of typing it out.
 
-This has already happened here. `.superpowers/sdd/task-5-report.md` records an agent that,
-blocked by `pm revoke` on an OEM build, uninstalled and reinstalled the `.debug` variant to
-reach a clean "permission not granted" state. Its own "Concern: app data was wiped" section
-is the evidence: "any login session, cached routes, settings, or trip history that existed
-on this variant before I started is gone". The user had to log back in and reconfigure.
+This has already happened here. An agent blocked by `pm revoke` on an OEM build uninstalled
+and reinstalled the `.debug` variant to reach a clean "permission not granted" state. Its own
+report said, under "Concern: app data was wiped": *"any login session, cached routes,
+settings, or trip history that existed on this variant before I started is gone"*. The user
+had to log back in and reconfigure.
 
-**Do not count on a backup to undo it.** The backup set is two files —
-`app/src/main/res/xml/backup_rules.xml` and `data_extraction_rules.xml` include only
-`trips.json` and `traces.jsonl` in `<cloud-backup>`. Everything else in `filesDir`
-(`saved_places.json`, `badges.json`, `recent_searches.json`, `routes.json`,
-`municipalities.json`) and the login session in `shared_prefs/settings.xml` have **no cloud
-copy at all** — the credentials are excluded from cloud backup deliberately, and appear only
-under `<device-transfer>`, which is a phone-to-phone copy adb cannot trigger. You also cannot
-tell from a shell whether any backup has ever run for this package. Treat the on-device copy
-as the only copy.
+> The quotes above used to be a citation to `.superpowers/sdd/task-5-report.md`. That path is
+> **gitignored scratch, and every plan's Task 5 overwrites it** — so the reference resolved to
+> whatever the most recent plan happened to write, which is how a reader checking it ends up
+> at an unrelated report and concludes this section is wrong. The evidence is quoted inline
+> now. Do not cite `.superpowers/` from a skill: it is per-session scratch, it rotates, and it
+> is not in the repository a reader clones.
+
+**Do not count on a backup to undo it.** `app/src/main/res/xml/backup_rules.xml` and
+`data_extraction_rules.xml` now `<include>` the whole `files/accounts` subtree in
+`<cloud-backup>` — every account-scoped store (`trips.json`, `traces.jsonl`,
+`deleted_trips.json`, `edited_modes.json`, `badges.json`, `routes.json`, `saved_places.json`,
+`municipalities.json`), under whichever hashed or `_local` bucket each lives in. Only
+`recent_searches.json`, which stays at the `filesDir` root outside that subtree on purpose, has
+**no cloud copy at all**. The login session in `shared_prefs/settings.xml` and
+`shared_prefs/routing_server.xml` are excluded from cloud backup deliberately too, and appear
+only under `<device-transfer>`, which is a phone-to-phone copy adb cannot trigger. You also
+cannot tell from a shell whether any backup has ever run for this package, or whether the
+signed-in rider's bucket is even the one that got restored. Treat the on-device copy as the
+only copy.
 
 If a step appears to require a wiped install, it requires a throwaway emulator instead. Say
 that and stop. Do not improvise on the user's phone.
@@ -103,8 +113,8 @@ that and stop. Do not improvise on the user's phone.
 ## When a permission command is refused
 
 `pm grant`, `pm revoke` and `appops set` are not available to the `shell` user on every
-build. A OnePlus CPH2449 on Android 16 (SDK 36) refused all three
-(`.superpowers/sdd/task-5-report.md:75-84`):
+build. A OnePlus CPH2449 on Android 16 (SDK 36) refused all three — the errors below are
+quoted from that run's report rather than cited, for the reason given above:
 
 ```
 SecurityException: Neither user 2000 nor current process has
@@ -141,7 +151,7 @@ adb shell dumpsys package io.github.maxke24.detour.debug | grep -A20 'runtime pe
 ## Reading the app's data
 
 `run-as` works **only on a debuggable package** — here, the `.debug` variant. It is how
-`docs/DEBUG_INTENTS.md:98-126` seeds trip history, and it is the only route to app-private
+`docs/DEBUG_INTENTS.md:98-137` seeds trip history, and it is the only route to app-private
 files without root.
 
 ```sh
@@ -152,21 +162,33 @@ Lists `files/` and `shared_prefs/` with sizes and dates, and refuses cleanly if 
 not debuggable. It lists and never `cat`s — see the credential rule below. It also gets the
 quoting right, which is the trap: `adb shell run-as PKG sh -c 'ls -l files'` loses its
 arguments and lists the data directory root instead, which looks like a plausible answer to a
-different question. To read one file, do it deliberately:
+different question.
+
+Every file below except `recent_searches.json` lives under `files/accounts/<key>/`, where
+`<key>` is `sha256(sub)` truncated to 16 hex characters — it cannot be guessed, so list the
+directory first:
 
 ```sh
-adb shell run-as io.github.maxke24.detour.debug cat files/trips.json
+adb shell run-as io.github.maxke24.detour.debug ls files/accounts
+```
+
+A signed-out install has exactly one bucket, the literal `_local`. A signed-in one has that
+account's hash, and possibly `_local` too if anything was recorded before signing in. Then
+read one file deliberately:
+
+```sh
+adb shell run-as io.github.maxke24.detour.debug cat files/accounts/_local/trips.json
 ```
 
 | File in `filesDir` | Defined at | Notes |
 |---|---|---|
-| `trips.json`, `deleted_trips.json`, `edited_modes.json` | `shared/src/commonMain/kotlin/com/jellemax/detour/data/TripStore.kt:31-33` | trips are keyed by `startTimeMs`; `Trip` has no id field |
-| `traces.jsonl` | `.../data/TraceStore.kt:27` | one JSON **array per line = one segment**, each point `[lat, lon, timeMs, speedKmh, leanDeg]` (`TraceStore.kt:12-23`). `wc -l` counts segments, not points |
-| `saved_places.json` | `.../data/SavedPlaces.kt:24` | |
-| `badges.json` | `.../data/Badges.kt:61` | |
-| `recent_searches.json` | `.../data/RecentSearchStore.kt:10` | |
-| `routes.json` | `.../data/Routes.kt:106` | |
-| `municipalities.json` | `.../data/Coverage.kt:116` | learned boundaries, cached |
+| `accounts/<key>/trips.json`, `accounts/<key>/deleted_trips.json`, `accounts/<key>/edited_modes.json` | `shared/src/commonMain/kotlin/com/jellemax/detour/data/TripStore.kt:31-33` | trips are keyed by `startTimeMs`; `Trip` has no id field |
+| `accounts/<key>/traces.jsonl` | `.../data/TraceStore.kt:27` | one JSON **array per line = one segment**, each point `[lat, lon, timeMs, speedKmh, leanDeg]` (`TraceStore.kt:12-23`). `wc -l` counts segments, not points |
+| `accounts/<key>/saved_places.json` | `.../data/SavedPlaces.kt:24` | |
+| `accounts/<key>/badges.json` | `.../data/Badges.kt:61` | |
+| `recent_searches.json` | `.../data/RecentSearchStore.kt:10` | the one file **not** under `accounts/<key>/` — stays at the `filesDir` root on purpose, so it stays out of the backed-up subtree |
+| `accounts/<key>/routes.json` | `.../data/Routes.kt:106` | |
+| `accounts/<key>/municipalities.json` | `.../data/Coverage.kt:116` | learned boundaries, cached |
 | `shared_prefs/settings.xml` | `.../data/Settings.kt:146,160,221` | holds `auth_token` |
 | `shared_prefs/routing_server.xml` | `.../data/RoutingServer.kt:65` | holds the Cloudflare Access client secret |
 
@@ -224,7 +246,7 @@ adb logcat -s DebugTripEnded   # the receiver logs which trip it picked
 
 These exist only in the debug build — `app/src/debug/AndroidManifest.xml` is merged into
 debug variants only, so none of it reaches release. Seeding history is documented at
-`docs/DEBUG_INTENTS.md:98-126`; note the hazard it flags before you seed on a signed-in
+`docs/DEBUG_INTENTS.md:98-137`; note the hazard it flags before you seed on a signed-in
 build: `endTrip()` calls `SyncClient.syncQuietly()`, so synthetic trips can escape onto the
 user's real sync server.
 

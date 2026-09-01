@@ -20,10 +20,11 @@ import com.jellemax.detour.R
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MemberFix
 import com.jellemax.detour.data.NavEngine
+import com.jellemax.detour.data.Perf
 import com.jellemax.detour.data.RouteColors
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
-import com.jellemax.detour.net.FriendPosition
+import com.jellemax.detour.drive.FriendPosition
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -526,7 +527,15 @@ class FogView(context: Context) : View(context) {
     // last kept one are dropped — which cuts the projection work several-fold with
     // no visible change to the corridor.
     var traces: List<List<LatLon>> = emptyList()
-        set(value) { field = value.map { decimate(it) } }
+        set(value) {
+            // Re-decimates the whole stored set on every store write, so it grows
+            // with the rider's history. #84.
+            val t = Perf.start()
+            field = value.map { decimate(it) }
+            Perf.end(t, "FogView.traces") {
+                listOf("segments" to value.size, "points" to value.sumOf { it.size })
+            }
+        }
     // The in-progress trace, kept out of [traces] because it grows with every
     // GPS fix — folding it in re-decimated the whole stored set once a second.
     // This one small list is decimated alone instead.
@@ -667,6 +676,16 @@ class FogView(context: Context) : View(context) {
         val h = height
         if (w <= 0 || h <= 0) return
 
+        // Started after the bails, so the series measures paints and not
+        // no-ops. Every optimisation in this class — the 25 m decimation, the
+        // bounding-box cull, the 1/3-resolution buffer, the snapshot throttle —
+        // was tuned against a number measured once and then discarded, and a
+        // regression in any of them is invisible today. Per frame while the map
+        // pans, so this label aggregates; see PerfLog.isHot.
+        val perfMark = Perf.start()
+        var projected = 0
+        var drawnTraces = 0
+
         val bw = max(1, (w + FOG_DOWNSCALE - 1) / FOG_DOWNSCALE)
         val bh = max(1, (h + FOG_DOWNSCALE - 1) / FOG_DOWNSCALE)
         val buf = buffer?.takeIf { it.width == bw && it.height == bh }
@@ -723,6 +742,8 @@ class FogView(context: Context) : View(context) {
                 if (p.lon < tW) tW = p.lon
             }
             if (tS > north || tN < south || tW > east || tE < west) continue
+            drawnTraces++
+            projected += trace.size
             val path = Path()
             var first = true
             for (p in trace) {
@@ -740,6 +761,11 @@ class FogView(context: Context) : View(context) {
         }
         dst.set(0f, 0f, w.toFloat(), h.toFloat())
         canvas.drawBitmap(buf, null, dst, upscalePaint)
+        // Points projected, not points held: the cull is most of what keeps this
+        // affordable, so the covariate has to be the work actually done.
+        Perf.end(perfMark, "FogView.onDraw") {
+            listOf("points" to projected, "traces" to drawnTraces)
+        }
     }
 
     companion object {

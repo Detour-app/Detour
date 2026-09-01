@@ -37,6 +37,17 @@ object Settings {
     const val DEFAULT_ZOOM_DEFAULT = 16f
     const val DEFAULT_ZOOM_MIN = 12f
     const val DEFAULT_ZOOM_MAX = 19f
+    /** The hint variant a fresh install gets. See `Settings.swipeHintVariant`. */
+    const val SWIPE_HINT_VARIANT_DEFAULT = "nudge"
+
+    /** The bag every setting here lives in, and the one key inside it that has
+     *  to be readable before [init] has run: the #84 timing sink is installed
+     *  from `Application.onCreate`, which is the only place that runs ahead of
+     *  all four entry points that call [init] (the activity, the tracking
+     *  service, the car session, the notify service). Reading the key directly
+     *  there is what stops the install being written out four times. */
+    const val PREFS_NAME = "settings"
+    const val PERF_TRACING_KEY = "perf_tracing"
 
     private var store: Prefs? = null
     private val prefs: Prefs get() = store ?: error("Settings.init() not called")
@@ -85,6 +96,29 @@ object Settings {
     private val _tripMode = MutableStateFlow(TravelMode.CAR)
     val tripMode: StateFlow<TravelMode> = _tripMode
 
+    /** How many times the spin dock's mode swipe has been used successfully.
+     *  Drives the discoverability hint, which retires after
+     *  `ModeSwipePolicy.HINT_AFTER_USES` successful swipes (in the app module).
+     *
+     *  Persisted rather than remembered because `AppRoot` swaps screens with a
+     *  bare `AnimatedContent` and no `rememberSaveableStateHolder`: leaving the
+     *  map for the Hub disposes MapScreen's whole composition, so even
+     *  `rememberSaveable` would reset and a user who had already learned the
+     *  gesture would be taught it again on every visit.
+     *
+     *  Long rather than Int because [Prefs] has no Int overload. */
+    private val _modeSwipesUsed = MutableStateFlow(0L)
+    val modeSwipesUsed: StateFlow<Long> = _modeSwipesUsed
+
+    /** Which mode-swipe hint animation plays: "nudge" or "arrows". Deliberately
+     *  a raw String and not an enum like [Theme] or [MapIcon] beside it: this is
+     *  a temporary A/B knob, deleted along with the losing variant, and the enum
+     *  it maps to lives in the app module where it can be parsed tolerantly.
+     *  Parsed by `ModeSwipePolicy.HintVariant.of` (in the app module), which
+     *  falls back to the default rather than throwing on an unknown name. */
+    private val _swipeHintVariant = MutableStateFlow(SWIPE_HINT_VARIANT_DEFAULT)
+    val swipeHintVariant: StateFlow<String> = _swipeHintVariant
+
     /** A Bluetooth device the user assigned to a vehicle. [name] is kept so the
      *  Settings list can show it even when the device isn't currently reachable. */
     data class VehicleDevice(val address: String, val name: String, val mode: TravelMode)
@@ -100,6 +134,17 @@ object Settings {
      *  hands a friend's traces to someone who is also sharing theirs. */
     private val _shareFog = MutableStateFlow(false)
     val shareFog: StateFlow<Boolean> = _shareFog
+
+    /** Record per-function timings against the size of the data they ran over,
+     *  to `filesDir/perf.jsonl`. #84.
+     *
+     *  Off by default in every build, and shipped in release rather than gated
+     *  to debug on purpose: growth shows up in a real rider's history, which a
+     *  debug install does not have. With it off, `Perf` has no sink and costs a
+     *  volatile read; the file never exists until someone turns this on. Never
+     *  synced — see `app/.../perf/PerfSink.kt` for why it stays on one device. */
+    private val _perfTracing = MutableStateFlow(false)
+    val perfTracing: StateFlow<Boolean> = _perfTracing
 
     /** Whether search may retry via the public Photon instance (komoot.io) when
      *  a configured custom/baked geocoder is unreachable — sends the query and
@@ -162,10 +207,67 @@ object Settings {
         // while `secureStore` is still null, which would crash on the `secure`
         // accessor instead of on the intended `store != null` guard.
         secureStore = securePrefs()
-        store = prefs("settings")
-        // Guarded once-per-process, shared with RoutingServer.loadCustom() — see
-        // CredentialMigration.migrateOnce().
+        // Before the key is read below, not after it. access_token,
+        // refresh_token and auth_username are all in
+        // CredentialMigration.SESSION_GROUP, so on an install still holding
+        // plaintext credentials they live in the `settings` bag until this
+        // runs — reading them earlier would derive a key from three empty
+        // strings on precisely the installs the derivation exists for.
+        // Safe this early: migrateOnce() opens its own bags and touches
+        // neither `store`, nor AccountScope, nor any file.
+        // Guarded once-per-process, shared with RoutingServer.loadCustom().
         CredentialMigration.migrateOnce()
+        val persistedKey = secure.string("auth_scope_key")
+        val storedKey = AccountScope.keyAtLaunch(
+            storedKey = persistedKey,
+            refreshToken = secure.string("refresh_token"),
+            accessToken = secure.string("access_token"),
+            username = secure.string("auth_username"),
+        )
+        // A throw here must not propagate: it would take down whichever
+        // caller ran init() (Application.onCreate on Android) and skip
+        // everything hydrated below — including vehicle_devices, which
+        // TripTrackingService reads for trip classification. Same defence as
+        // SecretBox's runCatchings, for the same "one bad value must not
+        // abort init" reason.
+        val reconciled = runCatching {
+            AccountFiles.reconcileAtLaunch(fileSystem, appFilesDir(), storedKey)
+        }.isSuccess
+        // Only when the line above got the files where `storedKey` says they
+        // are. Two orderings matter here and they are different claims.
+        //
+        // After, never before: an install already signed in when it upgraded
+        // has never claimed its bucket, and pointing accountFile() at
+        // `storedKey` while the files are still in `_local` is what makes
+        // that split permanent — see AccountFiles.reconcileAtLaunch.
+        //
+        // Conditional, not unconditional: the alternative to setting the
+        // scope anyway is not an unhandled throw, it is this runCatching
+        // *and* skipping the set — which leaves the scope on `_local`, where
+        // the files actually are. That costs one session of SyncClient.sync
+        // refusing to upload, which is recoverable and cannot leak because
+        // the refusal is exactly the anonymous-bucket one. Setting it anyway
+        // costs a bucket that has never existed: history reads empty, the
+        // first write creates it, and adopt() refuses `_local` from then on.
+        // A recoverable failure over an unrecoverable one, the same trade
+        // sync() makes three files away.
+        if (reconciled) AccountScope.set(storedKey)
+        // Only when it was derived rather than read: securePrefs() is
+        // Keystore-backed, and a write on every cold start for a value that
+        // has not changed is one this project has already paid for once.
+        if (persistedKey.isEmpty() && storedKey.isNotEmpty()) {
+            secure.put("auth_scope_key", storedKey)
+        }
+        // Last, not first. This is the assignment the early-return above
+        // guards on, and everything between it and the top of the function
+        // has to have happened before another thread may skip past it and
+        // resolve a store path — securePrefs() alone measured 1.6-1.8s on a
+        // Galaxy S928B, so the window is a real one. Two threads running the
+        // body concurrently instead is harmless: migrateOnce() is guarded,
+        // reconcileAtLaunch() is idempotent and catches per file, and every
+        // line below is an assignment. `secure` is reachable throughout
+        // because it hangs off secureStore, not off this.
+        store = prefs(PREFS_NAME)
         _theme.value = runCatching {
             Theme.valueOf(prefs.string("theme", Theme.AUTO.name))
         }.getOrDefault(Theme.AUTO)
@@ -174,7 +276,10 @@ object Settings {
         _avoidSmallRoads.value = prefs.bool("avoid_small_roads", false)
         _externalDisplayEnabled.value = prefs.bool("external_display_enabled", false)
         _tripMode.value = TravelMode.of(prefs.string("trip_mode").takeIf { it.isNotEmpty() })
+        _modeSwipesUsed.value = prefs.long("mode_swipes_used", 0L)
+        _swipeHintVariant.value = prefs.string("swipe_hint_variant", SWIPE_HINT_VARIANT_DEFAULT)
         _shareFog.value = prefs.bool("share_fog", false)
+        _perfTracing.value = prefs.bool(PERF_TRACING_KEY, false)
         _fogEnabled.value = prefs.bool("fog_enabled", true)
         _fogRadiusMeters.value = prefs.float("fog_radius_m", FOG_RADIUS_DEFAULT)
         _defaultZoom.value = prefs.float("default_zoom", DEFAULT_ZOOM_DEFAULT)
@@ -200,16 +305,21 @@ object Settings {
     private fun readVehicleDevices(): Map<String, VehicleDevice> {
         val raw = prefs.string("vehicle_devices").takeIf { it.isNotEmpty() } ?: return emptyMap()
         return runCatching {
-            jsonObjectOf(raw).mapValues { (addr, v) ->
+            jsonObjectOf(raw).mapNotNull { (addr, v) ->
                 // New format: {address: {mode, name}}. Old format (v1.24):
                 // {address: "MODE"} with no name — fall back to the address.
-                when (v) {
-                    is kotlinx.serialization.json.JsonObject -> VehicleDevice(
-                        addr, v.optString("name", addr), TravelMode.of(v.optString("mode")))
-                    else -> VehicleDevice(
-                        addr, addr, TravelMode.of(v.toString().trim('"')))
+                // A mode name that no longer exists (e.g. a device mapped to
+                // the removed WALK/BIKE modes) is dropped rather than
+                // silently reassigned — a stale mapping to CAR would both
+                // mistag trips and defeat the slow-trip drop gate.
+                val modeName = when (v) {
+                    is kotlinx.serialization.json.JsonObject -> v.optString("mode")
+                    else -> v.toString().trim('"')
                 }
-            }
+                val mode = TravelMode.entries.firstOrNull { it.name == modeName } ?: return@mapNotNull null
+                val name = (v as? kotlinx.serialization.json.JsonObject)?.optString("name", addr) ?: addr
+                addr to VehicleDevice(addr, name, mode)
+            }.toMap()
         }.getOrDefault(emptyMap())
     }
 
@@ -247,8 +357,17 @@ object Settings {
         refreshToken: String,
         expiresAtMs: Long,
         username: String,
+        scopeKey: String,
     ) {
         _accessToken.value = accessToken
+        // `_refreshToken` before `_authUsername` is load-bearing: each
+        // `Watcher` (FlowWatcher.kt, iOS only) runs its own
+        // `Dispatchers.Main` collector, so the token watcher's callback is
+        // scheduled — and observes `signedIn` as already true — before the
+        // name watcher's runs. `FriendsModel.name.watch` in
+        // FriendsScreen.swift depends on that to tell "cleared" apart from
+        // "not yet caught up". Reordering these two silently reintroduces
+        // that bug.
         _refreshToken.value = refreshToken
         _accessTokenExpiresAtMs.value = expiresAtMs
         _authUsername.value = username
@@ -256,6 +375,7 @@ object Settings {
         secure.put("refresh_token", refreshToken)
         secure.put("access_token_expires_at", expiresAtMs)
         secure.put("auth_username", username)
+        secure.put("auth_scope_key", scopeKey)
     }
 
     fun setTheme(value: Theme) {
@@ -288,9 +408,34 @@ object Settings {
         prefs.put("trip_mode", value.name)
     }
 
+    fun setModeSwipesUsed(value: Long) {
+        _modeSwipesUsed.value = value
+        prefs.put("mode_swipes_used", value)
+    }
+
+    /** Increments from this object's own value rather than from a copy the
+     *  caller happens to be holding. The UI reads this counter through a
+     *  Compose snapshot, and a read-modify-write across that boundary is
+     *  correct only while the propagation has settled - which is a scheduling
+     *  detail, not a contract. The hint's whole retirement rule hangs off this
+     *  number. */
+    fun incrementModeSwipesUsed() {
+        setModeSwipesUsed(_modeSwipesUsed.value + 1)
+    }
+
+    fun setSwipeHintVariant(value: String) {
+        _swipeHintVariant.value = value
+        prefs.put("swipe_hint_variant", value)
+    }
+
     fun setShareFog(value: Boolean) {
         _shareFog.value = value
         prefs.put("share_fog", value)
+    }
+
+    fun setPerfTracing(value: Boolean) {
+        _perfTracing.value = value
+        prefs.put(PERF_TRACING_KEY, value)
     }
 
     fun setFogEnabled(value: Boolean) {
@@ -358,6 +503,23 @@ object Settings {
 
     fun setLastSyncMs(tsMs: Long) {
         prefs.put("last_sync_ms", tsMs)
+    }
+
+    /** When the update check last ran, throttling it to once an hour. Stamped
+     *  before the request, not after: a device with no connectivity would
+     *  otherwise retry on every foreground. */
+    fun lastUpdateCheckMs(): Long = prefs.long("last_update_check_ms", 0L)
+
+    fun setLastUpdateCheckMs(tsMs: Long) {
+        prefs.put("last_update_check_ms", tsMs)
+    }
+
+    /** The version a notification has already been posted for. One per version,
+     *  so a rider who declines an update is not told about it hourly. */
+    fun notifiedUpdateVersion(): String = prefs.string("notified_update_version", "")
+
+    fun setNotifiedUpdateVersion(version: String) {
+        prefs.put("notified_update_version", version)
     }
 
     /** Whether arrive/depart notifications are raised for circle [circleId].

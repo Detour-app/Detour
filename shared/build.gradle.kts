@@ -52,6 +52,12 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
+            // okio's own in-memory FileSystem, so the migration in
+            // AccountFiles is testable without touching a real disk. Test-only,
+            // and pinned to the version commonMain already uses for okio
+            // itself. This is what finally makes Platform.kt's "a fake in
+            // tests" true — nothing had ever supplied one.
+            implementation("com.squareup.okio:okio-fakefilesystem:3.9.0")
         }
     }
 }

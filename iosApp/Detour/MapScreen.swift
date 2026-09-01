@@ -19,6 +19,7 @@ struct MapScreen: View {
     /// Kept across polls even when a fetch fails, so a blip doesn't blank the
     /// map — see the `.task(id:)` below.
     @State private var circleFixes: [MemberFix] = []
+    @StateObject private var circleFixUsername = CircleFixUsernameModel()
     /// Convoy state, for the group spin below. Same shared singleton ConvoyBar
     /// observes — the vote round and the peer strip are two views of it.
     @ObservedObject private var live = ConvoyLiveClient.shared
@@ -88,15 +89,46 @@ struct MapScreen: View {
         // count — including dropping your own fix, which the server returns
         // like anyone else's and which would otherwise stack a second marker
         // on your own position.
-        .task(id: SettingsValues.shared.authUsername) {
-            let me = SettingsValues.shared.authUsername
-            guard !me.isEmpty else {
-                circleFixes = []  // signed out: nothing to ask the server for
-                return
-            }
+        //
+        // Keyed on `circleFixUsername.username`, an actual `@Published`
+        // mirror — not `SettingsValues.shared.authUsername` directly, which
+        // is a plain Kotlin getter nothing publishes on, so keying `.task(id:)`
+        // on it only re-evaluated when something else happened to recompute
+        // this view. That used to mean a sign-out never restarted this task
+        // on its own, so the previous rider's circle members' last-known
+        // positions — drawn as map markers and punched through the fog scrim
+        // — stayed on screen for the rest of the app session. Same shape as
+        // `FriendsModel`/`CirclesModel`: watch the StateFlow itself. Matches
+        // Android's `LaunchedEffect(accountUsername)` in MapScreen.kt, which
+        // is already keyed on a collected StateFlow.
+        .task(id: circleFixUsername.username) {
+            let me = circleFixUsername.username
+            // Cleared unconditionally, not only on the empty branch below.
+            // Sign-in and sign-out both happen on the Friends tab, so this
+            // `.task` can be torn down without ever running for the `""`
+            // transition in between — the Map tab was simply not selected
+            // for it. `circleFixes` is `@State`, which survives a TabView
+            // switch, so without this the new rider's first visit to the Map
+            // tab would start this loop with the previous rider's positions
+            // still drawn until the first round trip returns — or
+            // indefinitely if it fails, since the `catch` below deliberately
+            // keeps the last known positions.
+            circleFixes = []
+            guard !me.isEmpty else { return }  // signed out: nothing to ask the server for
             while !Task.isCancelled {
                 do {
-                    circleFixes = try await CircleFixes.shared.othersFixes(selfUsername: me)
+                    let fixes = try await CircleFixes.shared.othersFixes(selfUsername: me)
+                    // Cancelling this Task when the id changes does not cancel
+                    // the Kotlin coroutine behind `othersFixes` — an exported
+                    // suspend fun has no cancellation path through the ObjC
+                    // bridge, so a call already in flight always runs to
+                    // completion regardless. A sign-out (or a sign-in as
+                    // someone else) while this fetch was in flight must not
+                    // let its answer land after the id has moved on, the same
+                    // reason the shared stores guard their own commits on
+                    // Auth.sessionEpoch — this is that guard's Swift-side
+                    // equivalent for a value with no shared epoch to check.
+                    if circleFixUsername.username == me { circleFixes = fixes }
                 } catch {
                     // Offline or server down; keep the last known positions
                     // and retry on the next tick.
@@ -215,8 +247,13 @@ struct MapScreen: View {
                     id: index,
                     location: LatLon(lat: c.lat, lon: c.lon),
                     name: c.name,
-                    distanceM: c.distanceM,
-                    durationS: c.durationS)
+                    // c.distanceM/durationS are Kotlin Double? properties on
+                    // DetourShared.SpinCandidate, which arrive boxed
+                    // (KotlinDouble?) rather than as native Swift Double? —
+                    // .doubleValue is what actually unwraps one, same as
+                    // RouteResult.timeMs below.
+                    distanceM: c.distanceM?.doubleValue,
+                    durationS: c.durationS?.doubleValue)
             }
         }
         return spin.candidates.enumerated().map { index, c in
@@ -273,7 +310,8 @@ struct MapScreen: View {
             // resolveGroupSpin for why it cannot be everyone's.
             if let offer = live.spinOffer, offer.fromMe {
                 Button("Go with the lead") {
-                    live.sendSpinOffer([offer.candidates[leadingSpinIndex(of: offer.candidates.count)]])
+                    let lead = live.currentLeadIndex(candidateCount: offer.candidates.count)
+                    live.sendSpinOffer([offer.candidates[lead]])
                 }
                 .buttonStyle(.borderedProminent)
                 .frame(maxWidth: .infinity)
@@ -315,24 +353,42 @@ struct MapScreen: View {
 
     private func shareWithConvoy() {
         live.sendSpinOffer(spin.candidates.map { c in
-            SpinCandidate(
+            let distanceM = c.route?.distanceMeters?.doubleValue ?? c.straightLineMeters
+            let durationS = durationSeconds(c.route)
+            // DetourShared.SpinCandidate's distanceM/durationS are Kotlin
+            // Double? constructor parameters — passing a native Swift
+            // Double? does not bridge automatically (only String? does);
+            // a nullable Kotlin primitive needs its boxed wrapper explicitly,
+            // same as SectionAverage.swift's headingDeg: KotlinDouble(value:)
+            // call into SectionAverageHolder.onFix.
+            return SpinCandidate(
                 lat: c.destination.lat,
                 lon: c.destination.lon,
-                distanceM: c.route?.distanceMeters?.doubleValue ?? c.straightLineMeters,
-                durationS: durationSeconds(c.route),
+                // distanceM is c.route?.distanceMeters?.doubleValue ??
+                // c.straightLineMeters above - straightLineMeters is a
+                // non-null Kotlin Double (SpinPicker.kt's RouteCandidate),
+                // so the ?? collapses this to a plain Double, not a Double?,
+                // and it has no .map. durationS really is optional (there is
+                // no non-null fallback for it), so that one keeps .map.
+                distanceM: KotlinDouble(value: distanceM),
+                durationS: durationS.map { KotlinDouble(value: $0) },
                 name: c.name)
         })
     }
 
-    /// How a vote round ends, identical to Android's rule and deliberately so —
-    /// the two clients must agree or a convoy splits across two destinations.
+    /// How a vote round ends - the rule and its correctness argument live in
+    /// `ConvoyRelay.spinRoundOutcome` (shared/.../drive/ConvoyRelay.kt), read
+    /// here through `ConvoyLiveClient.spinRoundIsReadyToClose`/
+    /// `currentLeadIndex` rather than switched over directly - see those
+    /// wrappers' own docs for why. The two clients must agree on this or a
+    /// convoy splits across two destinations; both now call the same Kotlin
+    /// implementation rather than each carrying their own.
     ///
     /// A one-candidate offer is the sharer announcing the winner, and every
-    /// device commits it on sight. Only the sharer decides when that moment is,
-    /// once everyone still live has voted. Tallying independently on each phone
-    /// would be simpler and wrong: a peer quiet for 20 s is pruned from one
-    /// device's `peers` and not another's, so two members can call the round
-    /// complete on different vote counts.
+    /// device commits it on sight - that part is inherent to `GroupSpin`'s
+    /// own shape, not something `ConvoyRelay` decides, so it stays inline.
+    /// Only the sharer decides when a multi-candidate round is over, once
+    /// everyone still live has voted.
     private func resolveGroupSpin() {
         guard let offer = live.spinOffer else { return }
         if offer.candidates.count == 1 {
@@ -348,22 +404,9 @@ struct MapScreen: View {
         }
         guard offer.fromMe else { return }
         let me = SettingsValues.shared.authUsername
-        var expected = Set(live.peers.keys)
-        if !me.isEmpty { expected.insert(me) }
-        guard !expected.isEmpty, expected.isSubset(of: Set(live.spinVotes.keys)) else { return }
-        live.sendSpinOffer([offer.candidates[leadingSpinIndex(of: offer.candidates.count)]])
-    }
-
-    /// Ties — including "nobody has voted", every count zero — go to the lowest
-    /// index. `>` rather than `>=` is what makes that deterministic.
-    private func leadingSpinIndex(of count: Int) -> Int {
-        var counts = Array(repeating: 0, count: count)
-        for index in live.spinVotes.values where counts.indices.contains(index) {
-            counts[index] += 1
-        }
-        var lead = 0
-        for i in 1..<max(count, 1) where counts[i] > counts[lead] { lead = i }
-        return lead
+        guard live.spinRoundIsReadyToClose(myUsername: me) else { return }
+        let lead = live.currentLeadIndex(candidateCount: offer.candidates.count)
+        live.sendSpinOffer([offer.candidates[lead]])
     }
 
     private func rowDetail(_ row: CandidateRow) -> String {
@@ -502,6 +545,25 @@ private struct SearchSheet: View {
             }
         }
     }
+}
+
+/// An observable source of the signed-in rider's handle, for the circle-fix
+/// poll above. `SettingsValues.shared.authUsername` is a plain Kotlin
+/// getter — nothing publishes on it, so keying `.task(id:)` on it directly
+/// only re-evaluates when something else happens to recompute this view.
+/// Same shape as `FriendsModel`/`CirclesModel`/`LaunchSyncGate`: watch the
+/// StateFlow itself.
+@MainActor
+final class CircleFixUsernameModel: ObservableObject {
+    @Published var username = ""
+
+    private let watcher = SettingsFlows.shared.authUsername()
+
+    init() {
+        watcher.watch { [weak self] in self?.username = self?.watcher.value ?? "" }
+    }
+
+    deinit { watcher.cancel() }
 }
 
 /// The selected vehicle, which is persisted because the trip recorder reads it
