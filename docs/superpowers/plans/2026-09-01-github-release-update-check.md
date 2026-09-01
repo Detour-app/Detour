@@ -596,12 +596,20 @@ devcontainer-exec ./gradlew :app:assembleGithubRelease :app:bundleRelease
 Expected: BUILD SUCCESSFUL. Then confirm the split:
 
 ```bash
-devcontainer-exec ./gradlew :app:processGithubReleaseManifest :app:processReleaseManifest
-grep -c REQUEST_INSTALL_PACKAGES app/build/intermediates/merged_manifest/githubRelease/*/AndroidManifest.xml
-grep -c REQUEST_INSTALL_PACKAGES app/build/intermediates/merged_manifest/release/*/AndroidManifest.xml
+devcontainer-exec ./gradlew :app:processGithubReleaseMainManifest :app:processReleaseMainManifest
+for v in githubRelease release; do
+  f=$(find app/build/intermediates/merged_manifest/$v -name AndroidManifest.xml 2>/dev/null | head -1)
+  if [ -z "$f" ]; then echo "$v: MANIFEST NOT FOUND — check failed, do not interpret as zero"; continue; fi
+  echo "$v: $(grep -c REQUEST_INSTALL_PACKAGES "$f") ($f)"
+done
 ```
 
-Expected: `1` for githubRelease, `0` for release.
+Expected: `githubRelease: 1`, `release: 0`.
+
+**Do not use a bare `grep -c` on a glob here.** If the glob matches nothing, grep prints nothing and exits non-zero, which reads exactly like a clean `0` — and this check *is* the entire argument that the Play bundle ships without a restricted permission. The loop above fails loudly instead. The verified path shape is
+`app/build/intermediates/merged_manifest/<variant>/<task>/AndroidManifest.xml`, confirmed by running
+`:app:processDebugMainManifest` on 2026-09-01; note the task is `process<Variant>MainManifest`, not
+`process<Variant>Manifest`.
 
 - [ ] **Step 5: Commit**
 
@@ -1547,6 +1555,9 @@ Also confirm the permission split on the built artifacts:
 
 ```bash
 devcontainer-exec ./gradlew :app:assembleGithubRelease :app:bundleRelease
-grep -c REQUEST_INSTALL_PACKAGES app/build/intermediates/merged_manifest/githubRelease/*/AndroidManifest.xml   # 1
-grep -c REQUEST_INSTALL_PACKAGES app/build/intermediates/merged_manifest/release/*/AndroidManifest.xml         # 0
+for v in githubRelease release; do
+  f=$(find app/build/intermediates/merged_manifest/$v -name AndroidManifest.xml 2>/dev/null | head -1)
+  [ -n "$f" ] || { echo "$v: MANIFEST NOT FOUND"; continue; }
+  echo "$v: $(grep -c REQUEST_INSTALL_PACKAGES "$f")"
+done   # expect githubRelease: 1, release: 0
 ```
