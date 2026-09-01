@@ -28,10 +28,15 @@ import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
+import com.jellemax.detour.data.UpdateClient
 import com.jellemax.detour.notif.CircleNotifyService
 import com.jellemax.detour.notif.PendingCircleOpen
 import com.jellemax.detour.notif.PendingTripOpen
 import com.jellemax.detour.notif.PlaceNotifications
+import com.jellemax.detour.update.UpdateDownloader
+import com.jellemax.detour.update.UpdateNotification
+import com.jellemax.detour.update.UpdateState
+import com.jellemax.detour.update.UpdateStatus
 import com.jellemax.detour.ui.BadgesScreen
 import com.jellemax.detour.ui.CirclesScreen
 import com.jellemax.detour.ui.CoverageMapScreen
@@ -98,6 +103,51 @@ class MainActivity : ComponentActivity() {
         takeSignInRedirect(intent)
         PlaceNotifications.takeOpenCircleId(intent)
         PendingTripOpen.take(intent)
+    }
+
+    /**
+     * onStart, not onResume. Returning from the install sheet, the unknown-
+     * sources settings screen or a browser all fire onResume, and re-entering
+     * the check on the way back from the thing the check just started is how a
+     * state machine chases its own tail. The hourly throttle would mask it.
+     */
+    override fun onStart() {
+        super.onStart()
+        checkForUpdate()
+    }
+
+    private fun checkForUpdate() {
+        val repo = BuildConfig.UPDATE_REPO
+        if (repo.isBlank()) return
+        val now = System.currentTimeMillis()
+        if (now - Settings.lastUpdateCheckMs() < 60 * 60 * 1000L) return
+        // Stamped before the request: a device with no connectivity would
+        // otherwise retry on every foreground.
+        Settings.setLastUpdateCheckMs(now)
+        lifecycleScope.launch(Dispatchers.IO) {
+            val update = runCatching {
+                UpdateClient.newerThan(repo, BuildConfig.VERSION_NAME)
+            }.getOrNull()
+            // Silent on failure. This is a background courtesy; a rider mid-ride
+            // is never told the update check could not reach GitHub.
+            // Never prune while a download is running. prune deletes by name;
+            // the downloader holds the file open, and unlinking an open file
+            // succeeds silently on Linux — the download then "completes",
+            // verify() passes on the in-memory digest, and the app reports
+            // Downloaded for a path that no longer exists. Needs a slow
+            // download alive past the hourly mark plus a failing check to
+            // coincide, which is rare and entirely silent when it happens.
+            if (UpdateState.status.value is UpdateStatus.Downloading) return@launch
+            if (update == null) {
+                UpdateDownloader.prune(this@MainActivity, keep = null)
+                return@launch
+            }
+            UpdateDownloader.prune(this@MainActivity, keep = update.asset)
+            if (UpdateState.current()?.version != update.version) {
+                UpdateState.set(UpdateStatus.Available(update))
+            }
+            UpdateNotification.notifyOnce(this@MainActivity, update.version)
+        }
     }
 
     /**
