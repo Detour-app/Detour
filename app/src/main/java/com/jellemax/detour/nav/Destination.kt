@@ -86,33 +86,47 @@ sealed interface Destination : NavKey {
     @Serializable
     data class RouteEditor(val routeId: Long?) : Destination
 
-    /**
-     * Settings and its six spokes.
-     *
-     * The spokes are app-level destinations rather than a nested stack, so each
-     * owns its own `Scaffold` and `SubScreenTopBar` the way `HistoryScreen` and
-     * `BadgesScreen` do. Settings was the one push in this app where the top bar
-     * did not travel with the content, and that was a consequence of #66 keeping
-     * the spokes out of the `Screen` enum — a constraint this file removes.
-     */
+    /** The Settings root: the six rows that lead to the [SettingsSpoke]s. */
     @Serializable
     data object Settings : Destination
 
+    /**
+     * The pages under Settings.
+     *
+     * App-level destinations rather than a nested stack, so each owns its own
+     * `Scaffold` and `SubScreenTopBar` the way `HistoryScreen` and `BadgesScreen`
+     * do. Settings used to be the one push in this app where the top bar did not
+     * travel with the content — it animated inside the Scaffold, so the title
+     * snapped while the body slid. That was a consequence of #66 keeping the
+     * spokes out of the `Screen` enum, a constraint this file removes, and the
+     * outlier is gone with it.
+     *
+     * Their own sealed sub-interface so the `when` that renders them is
+     * exhaustive over the spokes rather than over every destination in the app.
+     * #102 added the seventh, OBD2, while this was in review — the exhaustive
+     * `when` in `spokeTitle` is what refused to compile until it had a title.
+     */
     @Serializable
-    data object SettingsAppearanceMap : Destination
+    sealed interface SettingsSpoke : Destination
 
     @Serializable
-    data object SettingsTrackingVehicles : Destination
+    data object SettingsAppearanceMap : SettingsSpoke
 
     @Serializable
-    data object SettingsNavigation : Destination
+    data object SettingsTrackingVehicles : SettingsSpoke
 
     @Serializable
-    data object SettingsFog : Destination
+    data object SettingsNavigation : SettingsSpoke
 
     @Serializable
-    data object SettingsDisplaysMedia : Destination
+    data object SettingsFog : SettingsSpoke
 
     @Serializable
-    data object SettingsServersSync : Destination
+    data object SettingsDisplaysMedia : SettingsSpoke
+
+    @Serializable
+    data object SettingsServersSync : SettingsSpoke
+
+    @Serializable
+    data object SettingsObd2 : SettingsSpoke
 }

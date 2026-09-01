@@ -37,6 +37,7 @@ class NavActionsTest {
         Destination.SettingsFog,
         Destination.SettingsDisplaysMedia,
         Destination.SettingsServersSync,
+        Destination.SettingsObd2,
     )
 
     // ---- the shape of a push and a pop -------------------------------------
@@ -163,6 +164,7 @@ class NavActionsTest {
 
     @Test
     fun `every settings spoke steps back to the settings root`() {
+        assertEquals("spoke count", 7, settingsSpokes.size)
         for (d in settingsSpokes) {
             val s = stack(Destination.Map, Destination.Hub, Destination.Settings)
             s.push(d)

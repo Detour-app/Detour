@@ -66,6 +66,7 @@ import com.jellemax.detour.ui.RouteEditorScreen
 import com.jellemax.detour.ui.RoutesScreen
 import com.jellemax.detour.ui.SavedPlacesScreen
 import com.jellemax.detour.ui.SettingsScreen
+import com.jellemax.detour.ui.SettingsSpokeScreen
 import com.jellemax.detour.ui.TripDetailScreen
 import com.jellemax.detour.ui.isAppDarkTheme
 import com.jellemax.detour.ui.rememberRetainedMap
@@ -331,7 +332,36 @@ private fun AppRoot() {
             entry<Destination.Circles> {
                 CirclesScreen(onBack = { backStack.pop() }, openCircleId = openCircleId)
             }
-            entry<Destination.Settings> { SettingsScreen(onBack = { backStack.pop() }) }
+            entry<Destination.Settings> {
+                SettingsScreen(
+                    onBack = { backStack.pop() },
+                    onOpenSpoke = { spoke -> backStack.push(spoke) },
+                )
+            }
+            // Six entries rather than one, because entryProvider dispatches on the
+            // concrete key type. Each renders through the same SettingsSpokeScreen,
+            // whose `when` is exhaustive over Destination.SettingsSpoke.
+            entry<Destination.SettingsAppearanceMap> { key ->
+                SettingsSpokeScreen(key, onBack = { backStack.pop() })
+            }
+            entry<Destination.SettingsTrackingVehicles> { key ->
+                SettingsSpokeScreen(key, onBack = { backStack.pop() })
+            }
+            entry<Destination.SettingsNavigation> { key ->
+                SettingsSpokeScreen(key, onBack = { backStack.pop() })
+            }
+            entry<Destination.SettingsFog> { key ->
+                SettingsSpokeScreen(key, onBack = { backStack.pop() })
+            }
+            entry<Destination.SettingsDisplaysMedia> { key ->
+                SettingsSpokeScreen(key, onBack = { backStack.pop() })
+            }
+            entry<Destination.SettingsServersSync> { key ->
+                SettingsSpokeScreen(key, onBack = { backStack.pop() })
+            }
+            entry<Destination.SettingsObd2> { key ->
+                SettingsSpokeScreen(key, onBack = { backStack.pop() })
+            }
             entry<Destination.SavedPlaces> { SavedPlacesScreen(onBack = { backStack.pop() }) }
             entry<Destination.Routes> {
                 RoutesScreen(
