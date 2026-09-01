@@ -118,6 +118,13 @@ object SyncClient {
 
         // Coverage is the only stat the server can't derive from the trips it
         // already holds — it needs the boundaries, which only we have.
+        // Two labels for this function, not one: the payload build is local work
+        // that grows with the rider's history, the round trip is a network cost
+        // that does not, and one number covering both would let mirror latency
+        // swamp the growth this is watching for. The comment below already says
+        // this leg "on a year of riding is seconds, not instants" — measured
+        // never, until now.
+        val buildMark = Perf.start()
         val stats = BadgeStore.stats(Coverage.compute())
 
         val payload = buildJsonObject {
@@ -143,7 +150,23 @@ object SyncClient {
         // year of riding is seconds, not instants.
         if (epoch != Auth.sessionEpoch.value) return SyncResult(0, 0, 0)
 
+        // Array sizes off the built payload, which are O(1). Re-serialising it
+        // for a byte count would repeat the multi-megabyte encode this call just
+        // paid for, purely to describe it.
+        Perf.end(buildMark, "SyncClient.sync.build") {
+            listOf(
+                "trips" to (payload.optArray("trips")?.size ?: 0),
+                "traces" to (payload.optArray("traces")?.size ?: 0),
+            )
+        }
+        val postMark = Perf.start()
         val merged = Api.requestJson("POST", "/sync", payload)
+        Perf.end(postMark, "SyncClient.sync.post") {
+            listOf(
+                "trips" to (merged.optArray("trips")?.size ?: 0),
+                "traces" to (merged.optArray("traces")?.size ?: 0),
+            )
+        }
         if (epoch != Auth.sessionEpoch.value) {
             // Whoever this response belongs to is no longer who this device is
             // signed in as. Nothing is written — not the stores, and not

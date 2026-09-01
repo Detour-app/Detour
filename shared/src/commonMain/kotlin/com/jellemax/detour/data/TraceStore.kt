@@ -91,16 +91,33 @@ object TraceStore {
     }
 
     fun loadAll(): List<List<LatLon>> {
+        val t = Perf.start()
         // Version read before the file, deliberately. A write landing between
         // the two stores newer content under the older key, so the next call
         // sees a mismatch and re-reads — one wasted parse. Reading the file
         // first would allow the opposite, which is a stale parse stamped with
         // the new version and served until the next write.
         val version = _version.value
-        cache?.let { if (it.version == version) return it.traces }
+        cache?.let {
+            if (it.version == version) {
+                Perf.end(t, "TraceStore.loadAll") {
+                    listOf("segments" to it.traces.size, "hit" to 1)
+                }
+                return it.traces
+            }
+        }
         val f = accountFile(FILE_NAME)
-        val parsed = if (!f.exists()) emptyList() else parseLines(f.readLines())
+        val lines = if (!f.exists()) emptyList() else f.readLines()
+        val parsed = parseLines(lines)
         cache = Cache(version, parsed)
+        Perf.end(t, "TraceStore.loadAll") {
+            listOf(
+                "segments" to parsed.size,
+                "points" to parsed.sumOf { it.size },
+                "bytes" to lines.sumOf { it.length + 1 },
+                "hit" to 0,
+            )
+        }
         return parsed
     }
 
@@ -146,8 +163,13 @@ object TraceStore {
 
     /** Overwrite the store with merged lines from the sync server. */
     fun replaceLines(lines: List<String>) {
-        accountFile(FILE_NAME).writeText(
-            lines.filter { it.isNotBlank() }.joinToString("\n", postfix = "\n"))
+        val t = Perf.start()
+        val kept = lines.filter { it.isNotBlank() }
+        val text = kept.joinToString("\n", postfix = "\n")
+        accountFile(FILE_NAME).writeText(text)
         _version.value++
+        Perf.end(t, "TraceStore.replaceLines") {
+            listOf("segments" to kept.size, "bytes" to text.length)
+        }
     }
 }

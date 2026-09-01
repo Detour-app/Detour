@@ -33,7 +33,12 @@ object TripStore {
     private const val EDITED_FILE_NAME = "edited_modes.json"
 
     fun save(trip: Trip) {
-        writeAll(listOf(trip) + load())
+        val t = Perf.start()
+        val existing = load()
+        writeAll(listOf(trip) + existing)
+        // Before recordSaved, so the number is this function's own cost — a full
+        // load plus a full re-encode — and not the totals record folded in.
+        Perf.end(t, "TripStore.save") { listOf("trips" to existing.size) }
         // After the write, not before: a totals record counting a trip the
         // file does not hold is the one drift the TTL would carry for a day.
         RiderTotals.recordSaved(trip)
@@ -94,10 +99,15 @@ object TripStore {
     }
 
     fun load(): List<Trip> {
+        val t = Perf.start()
         val f = accountFile(FILE_NAME)
-        if (!f.exists()) return emptyList()
-        return try {
-            jsonArrayOf(f.readText()).objects().map { o ->
+        if (!f.exists()) {
+            Perf.end(t, "TripStore.load") { listOf("trips" to 0, "bytes" to 0) }
+            return emptyList()
+        }
+        val text = f.readText()
+        val trips = try {
+            jsonArrayOf(text).objects().map { o ->
                 Trip(
                     startTimeMs = o.optLong("startTimeMs"),
                     endTimeMs = o.optLong("endTimeMs"),
@@ -115,6 +125,10 @@ object TripStore {
         } catch (e: Exception) {
             emptyList()
         }
+        Perf.end(t, "TripStore.load") {
+            listOf("trips" to trips.size, "bytes" to text.length)
+        }
+        return trips
     }
 
     /** Raw stored JSON array, for server sync. */
@@ -136,12 +150,16 @@ object TripStore {
      * echoes the same value back, so it never masks a genuine later change.
      */
     fun replaceRaw(json: String) {
+        val t = Perf.start()
         val incoming = jsonArrayOf(json) // validate before overwriting
         val tombstones = tombstones()
         val overrides = modeOverrides()
         if (tombstones.isEmpty() && overrides.isEmpty()) {
             accountFile(FILE_NAME).writeText(json)
             RiderTotals.invalidate()
+            Perf.end(t, "TripStore.replaceRaw") {
+                listOf("trips" to incoming.objects().count(), "bytes" to json.length)
+            }
             return
         }
         var overridesChanged = false
@@ -165,7 +183,11 @@ object TripStore {
             }
         }
         if (overridesChanged) writeModeOverrides(overrides)
-        accountFile(FILE_NAME).writeText(kept.string())
+        val text = kept.string()
+        accountFile(FILE_NAME).writeText(text)
+        Perf.end(t, "TripStore.replaceRaw") {
+            listOf("trips" to kept.size, "bytes" to text.length)
+        }
         // The merge is the server's union against ours: trips can arrive and
         // trips can vanish, so no increment is even definable from here. Both
         // exits invalidate.
