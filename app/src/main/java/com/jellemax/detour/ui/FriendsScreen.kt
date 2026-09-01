@@ -208,7 +208,9 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
     var signingOut by remember { mutableStateOf(false) }
 
     LaunchedEffect(username) {
-        FriendsStore.reload()
+        // See CirclesScreen: re-entering within the freshness window shows the
+        // list it already has rather than re-fetching it.
+        FriendsStore.reloadIfStale()
         // Coverage.compute() walks every trace point against every boundary;
         // keep it off the main thread, same reasoning as BadgesScreen/
         // HubScreen/CoverageMapScreen — see refreshOwn's own doc in
@@ -516,7 +518,7 @@ private fun ConvoysSection() {
     }
 
     LaunchedEffect(Unit) {
-        ConvoysStore.reload()
+        ConvoysStore.reloadIfStale()
     }
 
     Row(

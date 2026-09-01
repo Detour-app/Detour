@@ -22,6 +22,11 @@ data class FriendsState(
     val own: FriendStats? = null,
     val busy: Boolean = false,
     val error: String? = null,
+    /** When the server last answered. Drives [isStale], so re-entering a
+     *  screen seconds later shows what it showed instead of re-fetching.
+     *  Null until a load has actually succeeded — a failure must not stamp,
+     *  or it would suppress the next entry's attempt. */
+    val loadedAtMs: Long? = null,
 )
 
 /**
@@ -58,6 +63,25 @@ object FriendsStore {
 
     /** Both lists in one pass, so a screen never shows friends without their
      *  numbers or the other way round. */
+    /**
+     * The entry point a screen should use on open.
+     *
+     * [reload] is unconditional and stays that way — a pull-to-refresh and
+     * every mutation want the server's answer whatever the clock says. This is
+     * for the case a screen cannot distinguish: `LaunchedEffect(Unit)` fires on
+     * every entry, and stepping away and back within [SOCIAL_TTL_MS] is not a
+     * new visit.
+     *
+     * No parameters, so the generated Swift signature is unchanged and iOS can
+     * adopt it by swapping the call. The decision itself is [isStale], which is
+     * pure and tested; this only supplies the clock.
+     */
+    @Throws(Exception::class)
+    suspend fun reloadIfStale() {
+        if (!isStale(_state.value.loadedAtMs, nowMs())) return
+        reload()
+    }
+
     @Throws(Exception::class)
     suspend fun reload() {
         val epoch = Auth.sessionEpoch.value
@@ -75,7 +99,11 @@ object FriendsStore {
         val apply: (FriendsState) -> FriendsState = try {
             val lists = Friends.lists()
             val leaderboard = Friends.stats()
-            val transform: (FriendsState) -> FriendsState = { s -> s.loaded(lists, leaderboard) }
+            // Stamped where the answer arrived, not where it is committed: the
+            // update below can be deferred behind another caller's, and the
+            // freshness window belongs to the data, not to the commit.
+            val stampedAt = nowMs()
+            val transform: (FriendsState) -> FriendsState = { s -> s.loaded(lists, leaderboard, stampedAt) }
             transform
         } catch (e: CancellationException) {
             // A cancellation is the caller's own doing — a genuine Kotlin
@@ -213,8 +241,8 @@ internal fun FriendsState.starting() = copy(busy = true, error = null)
 
 /** Note what is *not* touched: [FriendsState.own]. It is expensive to compute
  *  and unrelated to the server's answer, so a reload keeps it. */
-internal fun FriendsState.loaded(lists: FriendLists, leaderboard: List<FriendStats>) =
-    copy(lists = lists, leaderboard = leaderboard, busy = false, error = null)
+internal fun FriendsState.loaded(lists: FriendLists, leaderboard: List<FriendStats>, nowMs: Long) =
+    copy(lists = lists, leaderboard = leaderboard, busy = false, error = null, loadedAtMs = nowMs)
 
 /** Keeps every data field. An error is a banner over the last known good
  *  screen, never a reason to blank it. */
