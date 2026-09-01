@@ -82,18 +82,16 @@ object Obd2Connection {
     // back to a clean stream — see [drainStalePrompts].
     private const val DRAIN_TIMEOUT_MS = 200L
     private const val MAX_DRAIN_ITERATIONS = 3
-    // Above any real posted speed limit or plausible driving speed. PID 0D is
-    // one byte (0..255), so this can't catch every garbled single-byte value —
-    // 0xFF (255) is a legal-looking reading and passes through — but it does
-    // catch a run-together/garbled multi-token response parsing to something
-    // physically impossible. Caps what can become the recorded topSpeedMps the
-    // same way MAX_PLAUSIBLE_G/MAX_PLAUSIBLE_LEAN_DEG cap those maxes.
-    private const val MAX_PLAUSIBLE_SPEED_KMH = 300.0
-    // Same guard for RPM: parseRpm is (256*A + B)/4, so a garbled two-byte
-    // response that keeps the 41 0C header decodes to as much as 16383.75, which
-    // then pins the trip's monotonic obdMaxRpm for the rest of the drive. Above
-    // any street bike or car redline.
-    private const val MAX_PLAUSIBLE_RPM = 20_000.0
+    // Caps what an OBD frame can push into the recorded topSpeedMps / obdMaxRpm,
+    // the same way MAX_PLAUSIBLE_G/MAX_PLAUSIBLE_LEAN_DEG cap those maxes. Both
+    // thresholds sit *below* their parser's ceiling on purpose: PID 0D is one
+    // byte so parseSpeedKmh tops out at 255, and parseRpm ((256*A+B)/4) at
+    // 16383.75 — an all-0xFF garbled frame decodes to exactly those. 250 / 16000
+    // reject that frame while still passing anything a street car or bike
+    // actually reaches; a genuine >250 km/h reading is dropped, which costs a
+    // few frames the GPS top speed still covers.
+    private const val MAX_PLAUSIBLE_SPEED_KMH = 250.0
+    private const val MAX_PLAUSIBLE_RPM = 16_000.0
 
     private val _telemetry = MutableStateFlow<ObdTelemetry?>(null)
     val telemetry: StateFlow<ObdTelemetry?> = _telemetry
@@ -327,11 +325,18 @@ object Obd2Connection {
             // toward without a second full three-PID cycle. Skipped silently if
             // it doesn't answer — the empty-poll watchdog is a whole-cycle signal.
             parseSpeed(pollPid(input, output, Obd2Pids.PID_SPEED))?.let { midSpeed ->
-                _telemetry.value?.let { prev ->
-                    _telemetry.value = prev.copy(
-                        hasSpeed = true, speedKmh = midSpeed,
-                        receivedAtMs = System.currentTimeMillis(),
-                    )
+                // disconnect() nulls _telemetry from its own thread; without this
+                // guard a poll that resolved just before that runs `prev.copy`
+                // straight after, resurrecting a stale reading with a fresh
+                // receivedAtMs that freshObdTelemetry() then trusts for ~3s past
+                // the adapter being gone.
+                if (coroutineContext.isActive) {
+                    _telemetry.value?.let { prev ->
+                        _telemetry.value = prev.copy(
+                            hasSpeed = true, speedKmh = midSpeed,
+                            receivedAtMs = System.currentTimeMillis(),
+                        )
+                    }
                 }
             }
             delay(POLL_INTERVAL_MS / 2)
@@ -344,14 +349,33 @@ object Obd2Connection {
      *  answering the previous command late, or a real "NO DATA" answer).
      *  [PollResult.answered] is true whenever the adapter produced any
      *  `>`-terminated response at all, regardless of whether it parsed. */
+    /** ELM327 replies that mean the adapter itself can't reach the ECU — a wrong
+     *  protocol, ignition off on a bus that still powers the port, a dead K-line.
+     *  Unlike "NO DATA" (adapter fine, that PID just isn't live) these never
+     *  recover on their own, so they count as an unanswered poll and let the
+     *  empty-poll watchdog fail the connection into the retry/backoff path
+     *  rather than sit on a permanent "Connected" with zero readings. */
+    private val ELM_BUS_ERRORS = listOf("UNABLE TO CONNECT", "BUS INIT", "CAN ERROR", "STOPPED", "BUS BUSY")
+
     internal fun pollPid(input: InputStream, output: OutputStream, pid: String): PollResult {
         sendCommand(output, pid)
         val raw = readUntilPrompt(input, POLL_TIMEOUT_MS) ?: return PollResult(bytes = null, answered = false)
+        if (ELM_BUS_ERRORS.any { raw.contains(it, ignoreCase = true) }) {
+            return PollResult(bytes = null, answered = false)
+        }
         val tokens = raw.trim().split(Regex("\\s+"))
             .mapNotNull { it.toIntOrNull(16) }
         val modeByte = ("4" + pid[1]).toIntOrNull(16) // request "010D" -> response mode byte 0x41
         val pidByte = pid.substring(2).toIntOrNull(16)
-        if (tokens.size < 2 || tokens[0] != modeByte || tokens[1] != pidByte) {
+        // Scan for the "41 <pid>" pair anywhere in the stream rather than
+        // demanding it at tokens[0]/[1]: a clone that ignored ATE0 prefixes the
+        // echoed request, and one left in headers-on mode prefixes the CAN
+        // address — both used to fail every poll as "answered but unparseable",
+        // which the watchdog never catches.
+        val headerIdx = (0 until tokens.size - 1).firstOrNull {
+            tokens[it] == modeByte && tokens[it + 1] == pidByte
+        }
+        if (headerIdx == null) {
             // This chunk didn't answer the PID we just asked for — almost certainly
             // a previous cycle's late response that was still sitting in the
             // socket's read buffer after a prior timeout, with our actual answer
@@ -362,7 +386,7 @@ object Obd2Connection {
             drainStalePrompts(input)
             return PollResult(bytes = null, answered = true)
         }
-        return PollResult(bytes = tokens.drop(2), answered = true)
+        return PollResult(bytes = tokens.drop(headerIdx + 2), answered = true)
     }
 
     /** Discards any additional `>`-terminated chunks already sitting in the

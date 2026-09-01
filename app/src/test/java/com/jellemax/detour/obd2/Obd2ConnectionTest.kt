@@ -206,4 +206,43 @@ class Obd2ConnectionTest {
             classifyObd2Failure(IOException("read failed, socket might closed")),
         )
     }
+
+    @Test
+    fun pollPidParsesThroughAnEchoedRequestPrefix() {
+        // Clone that ignored ATE0: the response leads with the echoed command
+        // before the real "41 0D ..".
+        val input = streamOf("010D\r41 0D 32\r\r>")
+        val output = ByteArrayOutputStream()
+
+        val result = Obd2Connection.pollPid(input, output, Obd2Pids.PID_SPEED)
+
+        assertEquals(listOf(0x32), result.bytes)
+        assertTrue(result.answered)
+    }
+
+    @Test
+    fun pollPidParsesThroughACanHeaderPrefix() {
+        // Adapter left in headers-on mode: "7E8 03 41 0D 32" — CAN address and
+        // length bytes ahead of the 41 0D pair.
+        val input = streamOf("7E8 03 41 0D 32\r\r>")
+        val output = ByteArrayOutputStream()
+
+        val result = Obd2Connection.pollPid(input, output, Obd2Pids.PID_SPEED)
+
+        assertEquals(listOf(0x32), result.bytes)
+    }
+
+    @Test
+    fun pollPidTreatsAnElmBusErrorAsUnanswered() {
+        // "UNABLE TO CONNECT" means the adapter can't reach the ECU — unlike
+        // "NO DATA" it never recovers, so it must count as an unanswered poll
+        // and let the empty-poll watchdog fail the connection.
+        val input = streamOf("UNABLE TO CONNECT\r\r>")
+        val output = ByteArrayOutputStream()
+
+        val result = Obd2Connection.pollPid(input, output, Obd2Pids.PID_SPEED)
+
+        assertNull(result.bytes)
+        assertFalse(result.answered)
+    }
 }

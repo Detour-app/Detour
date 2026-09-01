@@ -743,6 +743,21 @@ class TripTrackingService : Service() {
         }
     }
 
+    /** Config changed in Settings (ACTION_REFRESH) — a vehicle or its OBD
+     *  address was added or removed. Drop a live OBD link whose address is no
+     *  longer mapped to any vehicle before dialing the current set: otherwise
+     *  [Obd2Connection]'s retry loop keeps hammering an adapter the user just
+     *  unpaired every 5–60s for the life of the service. The pairing screen's
+     *  Forget button already disconnects for this reason; vehicle removal
+     *  routes here instead. */
+    private fun reconcileObd2Connections() {
+        val configured = Settings.vehicleDevices.value.values.mapNotNull { it.obd2Address }.toSet()
+        Obd2Connection.linkedAddress.value?.let {
+            if (it !in configured) Obd2Connection.disconnect()
+        }
+        connectConfiguredObd2Adapters()
+    }
+
     /**
      * Ask the headset/A2DP profiles which mapped devices are connected right
      * now, since ACL broadcasts only fire on change, not for existing links.
@@ -895,6 +910,7 @@ class TripTrackingService : Service() {
             }
             ACTION_END_TRIP -> endTrip()
             ACTION_TRANSITION -> handleTransition(intent)
+            ACTION_REFRESH -> reconcileObd2Connections()
         }
 
         ensureLocationUpdates()
