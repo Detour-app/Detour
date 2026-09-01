@@ -1063,7 +1063,7 @@ class TripTrackingService : Service() {
             serviceScope.launch {
                 save.join()
                 val twistiness = runCatching {
-                    Curviness.traceScore(loadTripPoints(this@TripTrackingService, trip).map { it.at })
+                    Curviness.traceScore(loadTripPoints(trip).map { it.at })
                 }.getOrDefault(0.0)
                 TripStore.updateDrivingStats(trip.startTimeMs, trip.drivingStats.copy(twistinessScore = twistiness))
                 SyncClient.syncQuietly()
