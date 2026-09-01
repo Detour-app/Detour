@@ -608,9 +608,15 @@ fun MapScreen(
 
     // Scheduled here rather than inside SpinDock because SpinDock is disposed
     // every time the sheet expands or a candidate round opens - a guard in there
-    // would replay the hint on every collapse. MapScreen's composition is the
-    // map visit: AppRoot has no rememberSaveableStateHolder, so leaving for the
-    // Hub disposes this whole screen.
+    // would replay the hint on every collapse.
+    //
+    // Once per Activity, not once per map visit. This used to be the latter,
+    // because AppRoot had no rememberSaveableStateHolder and leaving for the
+    // Hub therefore discarded even the saveable state - so the hint re-armed on
+    // every return to the map. #82 gave each destination its own saved-state
+    // slot, so this now survives a trip to the Hub and a rotation alike, and
+    // "already shown" means shown. Deliberate: re-teaching a gesture the rider
+    // has already been shown is what the flag exists to prevent.
     var hintShown by rememberSaveable { mutableStateOf(false) }
     var hintRequest by remember { mutableStateOf(false) }
     val hintDue = dockShown && ModeSwipePolicy.hintDue(
