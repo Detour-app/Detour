@@ -26,7 +26,7 @@ import org.maplibre.android.maps.Style
 /**
  * The map, kept alive across a navigation away from [MapScreen] and back.
  *
- * `PushPopContent` composes only the destination you are on, so leaving the map
+ * `NavDisplay` composes only the destination you are on, so leaving the map
  * used to dispose its composition and take the `MapView`, the GL surface, the
  * fetched-and-parsed OpenFreeMap style and every overlay source with it —
  * rebuilt from nothing on the way back, while a slide-in transition animated
