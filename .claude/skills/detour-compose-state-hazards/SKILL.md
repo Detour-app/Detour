@@ -268,17 +268,33 @@ in the normal Android way:
 accident: those
 five are what the user typed or chose, and losing them on a rotate is what a user notices.
 
-Rotation is not the only reset, and this is the part that surprises people:
+Leaving a screen is a second reset, and it is the part that surprises people:
 
-- `AppRoot` (`MainActivity.kt:118`) swaps screens with a bare `AnimatedContent` (`:172`) and
-  **no** `rememberSaveableStateHolder`. Leaving the map for the Hub disposes MapScreen's whole
-  composition, so even its `rememberSaveable` values come back at their defaults on return.
-- `screen` itself is plain `remember` (`:119`), so a rotation anywhere in the app returns you
-  to the map screen.
+- `AppRoot` (`MainActivity.kt`) swaps destinations with `NavDisplay`, which composes
+  only the entry on top of the stack. Leaving the map for the Hub therefore disposes
+  MapScreen's whole composition, exactly as the `AnimatedContent` before it did.
+- What survives that swap is *saveable* state only. Nav 3 gives each entry its own
+  saved-state slot, so returning to a destination restores its `rememberSaveable`
+  values — MapScreen's five included. Plain `remember`, `produceState` and every
+  `LaunchedEffect` still tear down and re-run on a return. That is the navigation
+  model, not a bug.
+- **A rotation now leaves the rider on the screen they were on.** The back stack is a
+  `rememberNavBackStack`, which is written to saved state. This is the one claim in
+  this section that changed with #68: `screen` used to be a plain `remember`, so a
+  rotation anywhere in the app returned to the map.
 
-So the ladder is: plain `remember` survives neither a rotate nor a screen swap;
-`rememberSaveable` survives a rotate but not a swap; only a store or a service outlives both
+So the ladder is: plain `remember` survives neither a rotate nor a destination swap;
+`rememberSaveable` survives both, the rotate through saved instance state and the
+swap through the entry's own slot; only a store or a service outlives a process death
 (`Settings`, `SpinResultHolder`, `TripTrackingService`).
+
+> This section was wrong twice before #68 and both errors are worth knowing about,
+> because they are the shape this file fails in. It claimed `AppRoot` used "a bare
+> `AnimatedContent` … and **no** `rememberSaveableStateHolder`", and that returning to
+> the map therefore lost even its `rememberSaveable` values — untrue from #66 onward,
+> which introduced `PushPopContent` with a state holder in it. It also cited
+> `MainActivity.kt:118` and `:119` for `AppRoot` and `screen`, both of which had
+> drifted. Re-derive a line number here before quoting it.
 
 **Check.** `rememberSaveable` requires the value to be Bundle-representable or to carry a
 `Saver`. The compiler does not check this — you get a runtime crash on rotate. If you add one,
