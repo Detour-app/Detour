@@ -29,6 +29,9 @@ posted-limit sign and the camera chime available to iOS at all.
    three external call sites have zero-line diffs.
 2. **Pure decisions** → `com.jellemax.detour.map`: `NavPolicy`, `GroupSpinRules`,
    `FollowCamera`, `CameraAuthority`. The car's duplicate arrival/reroute policy deleted.
+   (`GroupSpinRules` itself did not last here — see "What is not verified" below: the
+   shared-convoy-relay branch deleted it once both platforms were repointed at
+   `shared/…/drive/ConvoyRelay.kt`, the only implementation left.)
 3. **Road-hazard machines** → `shared/…/drive/`: `SectionAverageTracker`, `CameraWarner`,
    `SpeedLimitTracker`, with `commonTest` coverage that `ios.yml` gates on JVM and
    Kotlin/Native. Rewrites rather than moves — commonMain has no `Dispatchers.*`, so I/O is
@@ -63,8 +66,14 @@ lists it.
   missing debug lines — `NavVoice` logs the text it spoke, and the phone logs the tone separately
   because the spoken half is gated on the guidance setting. No replay has run since, so the
   machine still has no recorded baseline; what changed is that one is now possible.
-- **`GroupSpinRules` is extracted and tested but its call site is unchanged** — verifying a
-  convoy vote needs two devices transmitting to each other.
+- **`GroupSpinRules` was extracted and tested but its call site was unchanged** — true at the
+  time, no longer. The shared-convoy-relay branch ported the rule into
+  `shared/…/drive/ConvoyRelay.kt` and repointed both platforms' call sites at it, deleting
+  `GroupSpinRules.kt` and its own `GroupSpinRulesTest.kt` (its cases ported into
+  `ConvoyRelayTest.kt`). That closes the "extracted but not actually called" gap this bullet
+  described - production code now runs the tested rule, not a copy sitting next to it - but not
+  the verification gap underneath it: a convoy vote still needs two devices transmitting to each
+  other to see it resolve for real, which no host here has.
 - **The phone-audio convergence items landed without their device session**, so register
   entries 12 and 15 are resolved in code and open on hardware.
 - **Stage 4 costs recomposition during a drag.** The three camera variables were independent

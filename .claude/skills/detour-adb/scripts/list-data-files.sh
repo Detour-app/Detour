@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# List the debug variant's app-private files, with sizes and timestamps.
+# List the debug variant's app-private files, with sizes and timestamps, recursively.
 #
 # Why this exists: `run-as` is the only route to filesDir without root, it works only on the
 # .debug variant, and the quoting is a trap — `adb shell run-as PKG sh -c 'ls -l files'`
@@ -50,14 +50,27 @@ if ! "${ADB[@]}" shell run-as "$PKG" true >/dev/null 2>&1; then
 fi
 
 printf 'app-private files for %s on %s\n\n' "$PKG" "$SERIAL"
-"${ADB[@]}" shell "run-as $PKG sh -c 'ls -l files shared_prefs'" | tr -d '\r'
+# -R, not a bare -l. Every rider file except recent_searches.json now lives one
+# level down in files/accounts/<key>/, so a non-recursive listing shows the search
+# cache and a bare `accounts` directory and nothing else — plausible-looking output
+# for the wrong directory, which is the failure this script's own header warns about.
+"${ADB[@]}" shell "run-as $PKG sh -c 'ls -lR files; ls -l shared_prefs'" | tr -d '\r'
 
 cat <<'EOF'
 
 Shapes worth remembering before you read any of these (full table in SKILL.md):
-  trips.json    a single JSON array; trips are keyed by startTimeMs, there is no id field
-  traces.jsonl  one JSON array per line = one segment, each point
-                [lat, lon, timeMs, speedKmh, leanDeg] — `wc -l` counts segments, not points
+  files/accounts/<key>/         one directory per account that has signed in here; <key> is
+                                sha256(sub) truncated to 16 hex chars, so it names no rider
+  files/accounts/_local/        recorded with nobody signed in; adopted by the first account
+                                to sign in on the device
+  accounts/<key>/trips.json     a single JSON array; trips are keyed by startTimeMs, there
+                                is no id field
+  accounts/<key>/traces.jsonl   one JSON array per line = one segment, each point
+                                [lat, lon, timeMs, speedKmh, leanDeg] — `wc -l` counts
+                                segments, not points
+  files/recent_searches.json    the one rider file still at the root, deliberately: it stays
+                                out of the backed-up accounts subtree
   shared_prefs/settings.xml, shared_prefs/routing_server.xml
-                live credentials. Report "an auth_token key is present", never the value.
+                                live credentials. Report "an auth_token key is present",
+                                never the value.
 EOF

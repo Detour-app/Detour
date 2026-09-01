@@ -43,17 +43,13 @@ import com.jellemax.detour.R
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.ble.BoardTelemetry
 import com.jellemax.detour.data.syncQuietly
-import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.BadgeDef
 import com.jellemax.detour.data.BadgeStore
-import com.jellemax.detour.data.CircleEvents
-import com.jellemax.detour.data.CircleFixes
-import com.jellemax.detour.data.CirclePlaces
+import com.jellemax.detour.data.CirclePresence
 import com.jellemax.detour.data.Coverage
-import com.jellemax.detour.data.GeofenceEvaluator
-import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MunicipalityStore
+import com.jellemax.detour.data.RiderTotals
 import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
@@ -218,24 +214,6 @@ class TripTrackingService : Service() {
          *  every point misses) can't turn into a stream of Overpass queries. */
         private const val MUNICIPALITY_LOOKUP_COOLDOWN_MS = 60_000L
 
-        /** Circles' position/geofence cadence (docs/CIRCLES_AND_CONVOYS.md
-         *  section 10): a circle is Life360-style presence, not a live ride
-         *  feed, so this deliberately stays on the order of minutes rather
-         *  than the convoy relay's ~2 second cadence - two minutes keeps
-         *  "last seen" reading as current without turning a background
-         *  circle into a battery cost anyone notices. */
-        private const val CIRCLE_SYNC_INTERVAL_MS = 2 * 60_000L
-
-        /** Cadence once a tick finds no circle to share with - the cost a
-         *  user who never touches the feature pays, and the delay before
-         *  joining their first circle starts working. */
-        private const val CIRCLE_IDLE_INTERVAL_MS = 30 * 60_000L
-
-        /** A fix older than this says where the phone was, not where it is;
-         *  it still gets posted (an honest "last seen") but is not allowed to
-         *  decide a geofence transition. */
-        private const val CIRCLE_FIX_TRUST_MS = 15 * 60_000L
-
         private val _stats = MutableStateFlow<TripStats?>(null)
         val stats: StateFlow<TripStats?> = _stats
 
@@ -349,10 +327,6 @@ class TripTrackingService : Service() {
     private var lastMovingMs = 0L
     private var transitionsRegistered = false
     private var circleSyncStarted = false
-    /** One evaluator per circle, kept across ticks - [GeofenceEvaluator] holds
-     *  per-place dwell/inside state between calls, so a fresh instance every
-     *  tick would never accumulate enough dwell time to fire "arrive". */
-    private val circleEvaluators = mutableMapOf<String, GeofenceEvaluator>()
 
     /** Activity recognition says the phone is STILL, and no trip is running. */
     private var stationary = false
@@ -1185,65 +1159,26 @@ class TripTrackingService : Service() {
      * request above is already producing, the same way [ConvoyLiveClient]'s
      * `forwardLocation` does for convoys.
      *
-     * Each tick: for every circle where this device's own membership has
-     * sharing on, post the latest fix ([CircleFixes.postFix]) and run it
-     * through that circle's [GeofenceEvaluator], posting any arrive/depart
-     * transition ([CircleEvents.record]).
-     *
-     * A tick that finds nothing to share with backs off to
-     * [CIRCLE_IDLE_INTERVAL_MS], so someone who never uses circles pays one
-     * cheap `GET /circles` every half hour rather than 700 a day for an
-     * answer that is always "none".
+     * The decision every pass makes - which circles to post to, the geofence
+     * evaluation, the transition recording, the idle backoff - lives in
+     * [CirclePresence.tick] now (see its doc). This keeps only what
+     * `commonMain` cannot have: the `while`/`delay` itself, the guard that a
+     * fix actually exists to share, and [fixAgeMs] - monotonic, not wall
+     * clock, so a device clock that drifts or is corrected mid-drive doesn't
+     * answer "how old is this reading" wrong in whichever direction the
+     * correction went. [Fix.timeMs] is the opposite question - wall clock,
+     * what gets posted - and stays on the fix.
      */
     private suspend fun circleSyncLoop() {
-        var interval = CIRCLE_SYNC_INTERVAL_MS
+        var interval = CirclePresence.ACTIVE_INTERVAL_MS
         while (true) {
             delay(interval)
-            if (!SyncClient.configured() || !Account.signedIn) continue
             val fix = _lastFix.value ?: continue
-            val username = Account.username.value
-            val circles = try {
-                Groups.list("circle").filter { it.status == "accepted" }
-            } catch (e: Exception) {
-                continue // offline or server down; retried next tick
-            }
-            // Drop bookkeeping for circles we're no longer in, so rejoining a
-            // circle under the same id later doesn't inherit stale dwell state.
-            circleEvaluators.keys.retainAll(circles.map { it.id }.toSet())
-            val sharing = circles.filter { c ->
-                c.members.find { it.username == username }?.sharing == true
-            }
-            interval = if (sharing.isEmpty()) CIRCLE_IDLE_INTERVAL_MS else CIRCLE_SYNC_INTERVAL_MS
-            // In SLEEP mode the fused request is PRIORITY_PASSIVE, so a parked
-            // phone can go a long time between fixes. That is fine for a
-            // position nobody has moved, but a fix old enough that the phone
-            // could be anywhere by now must not drive a geofence decision.
-            // Monotonic, not wall clock: this asks how old the fix is, and a
-            // device clock that drifts or is corrected mid-drive would answer
-            // it wrong in whichever direction the correction went. The stamp
-            // posted below is the opposite question and stays on location.time.
             val fixAgeMs = SystemClock.elapsedRealtime() - fix.elapsedRealtimeMs
-            for (circle in sharing) {
-                try {
-                    CircleFixes.postFix(
-                        circle.id, fix.lat, fix.lon, fix.accuracyMeters.toDouble(), fix.timeMs)
-                    if (fixAgeMs > CIRCLE_FIX_TRUST_MS) continue
-                    val places = CirclePlaces.places(circle.id)
-                    // Dwell runs on wall clock, not the fix's own timestamp: a
-                    // phone standing still stops producing new fixes, so
-                    // timing dwell by fix timestamps would freeze the clock at
-                    // exactly the moment someone parked and arrival would
-                    // never fire - which is the one thing a circle is for.
-                    val evaluator = circleEvaluators.getOrPut(circle.id) { GeofenceEvaluator() }
-                    val now = System.currentTimeMillis()
-                    for (t in evaluator.evaluate(fix.lat, fix.lon, now, places)) {
-                        CircleEvents.record(circle.id, t.placeId, t.kind, t.tsMs)
-                    }
-                } catch (e: Exception) {
-                    // One circle failing (removed mid-loop, one bad request)
-                    // must not stop the others from posting this tick.
-                }
-            }
+            interval = CirclePresence.tick(
+                fix.lat, fix.lon, fix.accuracyMeters.toDouble(), fix.timeMs, fixAgeMs,
+                System.currentTimeMillis(),
+            )
         }
     }
 
@@ -1253,6 +1188,10 @@ class TripTrackingService : Service() {
             val coverage = Coverage.compute()
             val newly = BadgeStore.refresh(BadgeStore.stats(coverage)).newlyEarned
             if (newly.isNotEmpty()) notifyBadgesEarned(newly)
+            // The trip just saved was folded into the record incrementally, so
+            // the badge check above already read the right numbers. This is the
+            // TTL catching up, after the notification rather than before it.
+            RiderTotals.refreshIfStale()
         }
     }
 

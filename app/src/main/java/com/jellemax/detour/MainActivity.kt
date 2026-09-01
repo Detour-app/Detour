@@ -20,7 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
-import com.jellemax.detour.auth.Oidc
+import com.jellemax.detour.data.Oidc
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.Auth
@@ -48,6 +48,7 @@ import com.jellemax.detour.ui.SavedPlacesScreen
 import com.jellemax.detour.ui.SettingsScreen
 import com.jellemax.detour.ui.TripDetailScreen
 import com.jellemax.detour.ui.isAppDarkTheme
+import com.jellemax.detour.ui.rememberRetainedMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -108,7 +109,7 @@ class MainActivity : ComponentActivity() {
      * goes to [PendingSignIn], which is what the screen reads.
      */
     private fun takeSignInRedirect(intent: Intent?) {
-        val data = intent?.data ?: return
+        val data = intent?.data?.toString() ?: return
         if (!Oidc.isCallback(data)) return
         PendingSignIn.begin()
         lifecycleScope.launch {
@@ -161,6 +162,12 @@ private enum class Screen(val depth: Int) {
 
 @Composable
 private fun AppRoot() {
+    // Created here, above the navigation swap, so it outlives MapScreen's
+    // composition — that is the whole point of it. AppRoot is composed for the
+    // Activity's life, which is the correct scope for a MapView's Context. See
+    // RetainedMap.
+    val themePref by Settings.theme.collectAsStateWithLifecycle()
+    val retainedMap = rememberRetainedMap(darkTheme = isAppDarkTheme(themePref))
     var screen by remember { mutableStateOf(Screen.MAP) }
     // The trip a TRIP_DETAIL screen is showing — set on the way in from
     // History, left stale (but unread) once we've navigated away from it.
@@ -217,7 +224,24 @@ private fun AppRoot() {
     // coverage map back to Badges — took the push branch and slid in from the
     // right, as though the rider were going somewhere new rather than returning.
     // The business logic was right the whole time; only the direction was wrong.
-    PushPopContent(target = screen, depthOf = { it.depth }, label = "screen") { current ->
+    // Two destinations show *a* trip and *a* route rather than a fixed page, and
+    // the saved-state slot has to say which one. Keyed on the enum alone,
+    // opening trip A, going back, then opening trip B would hand B's screen A's
+    // saved scroll offset — the enum is the same value both times. Everything
+    // else carries no argument and keys on itself.
+    val stateKeyOf: (Screen) -> Any = {
+        when (it) {
+            Screen.TRIP_DETAIL -> "TRIP_DETAIL:${detailTrip?.startTimeMs}"
+            Screen.ROUTE_EDITOR -> "ROUTE_EDITOR:${editingRoute?.id}"
+            else -> it.name
+        }
+    }
+    PushPopContent(
+        target = screen,
+        depthOf = { it.depth },
+        label = "screen",
+        keyOf = stateKeyOf,
+    ) { current ->
         when (current) {
             Screen.HUB -> HubScreen(
                 onBack = { screen = Screen.MAP },
@@ -256,7 +280,10 @@ private fun AppRoot() {
                 onBack = { screen = Screen.ROUTES },
                 onSaved = { screen = Screen.ROUTES },
             )
-            Screen.MAP -> MapScreen(onOpenHub = { screen = Screen.HUB })
+            Screen.MAP -> MapScreen(
+                onOpenHub = { screen = Screen.HUB },
+                retained = retainedMap,
+            )
         }
     }
 }

@@ -1,0 +1,324 @@
+package com.jellemax.detour.data
+
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+/**
+ * Covers [AccountScope]'s key derivation. The key names a directory that ends
+ * up inside a Google Drive backup, so "does it contain a rider identifier" is
+ * part of what these assert, not just "is it stable".
+ */
+class AccountScopeTest {
+
+    /** Same reason [CirclePresenceTest] restores its own: [AccountScope] is
+     *  process-global, so a key set here outlives the test that set it and
+     *  points every later `accountFile()` in this JVM somewhere unexpected.
+     *  Nothing depends on that today — which is exactly when to stop relying
+     *  on it. */
+    @AfterTest
+    fun restoreTheAnonymousBucket() {
+        AccountScope.clear()
+    }
+
+    @Test
+    fun theSubjectIsPreferredOverTheUsername() {
+        val key = AccountScope.keyFrom(subject = "9f2b1a44-3c7e", username = "andre")
+        assertEquals(AccountScope.keyFrom(subject = "9f2b1a44-3c7e", username = "someone-else"), key)
+    }
+
+    @Test
+    fun theUsernameIsTheFallbackWhenThereIsNoSubject() {
+        val key = AccountScope.keyFrom(subject = "", username = "andre")
+        assertTrue(key.isNotEmpty())
+        assertEquals(AccountScope.keyFrom(subject = "", username = "andre"), key)
+    }
+
+    @Test
+    fun noSubjectAndNoUsernameYieldsNoKey() {
+        assertEquals("", AccountScope.keyFrom(subject = "", username = ""))
+    }
+
+    @Test
+    fun theKeyIsSixteenLowercaseHexCharacters() {
+        val key = AccountScope.keyFrom(subject = "9f2b1a44-3c7e", username = "")
+        assertEquals(16, key.length)
+        assertTrue(key.all { it in "0123456789abcdef" }, "not hex: $key")
+    }
+
+    @Test
+    fun theKeyIsAHashAndNotAnEncodingOfTheIdentifier() {
+        // A golden value, not a property. The assertion this replaces checked that
+        // the key does not contain "andre" — true of *any* hex string, since n and r
+        // are not hex digits, so it passed even with the hash removed entirely.
+        // Getting that wrong matters here specifically: an un-hashed key is the
+        // rider's own handle, reversible, in a directory name that reaches a Google
+        // Drive backup.
+        assertEquals("bd01b0b648c2c64e", AccountScope.keyFrom(subject = "", username = "andre"))
+        assertNotEquals(
+            "616e647265",
+            AccountScope.keyFrom(subject = "", username = "andre"),
+            "the identifier was hex-encoded rather than hashed",
+        )
+    }
+
+    @Test
+    fun differentSubjectsGetDifferentKeys() {
+        assertNotEquals(
+            AccountScope.keyFrom(subject = "rider-a", username = ""),
+            AccountScope.keyFrom(subject = "rider-b", username = ""),
+        )
+    }
+
+    @Test
+    fun currentIsTheAnonymousBucketUntilAKeyIsSet() {
+        AccountScope.clear()
+        assertEquals("_local", AccountScope.current())
+    }
+
+    @Test
+    fun currentIsTheKeyOnceSetAndTheBucketAgainAfterClear() {
+        AccountScope.set("a3f1c8e29b4d7061")
+        assertEquals("a3f1c8e29b4d7061", AccountScope.current())
+        AccountScope.clear()
+        assertEquals("_local", AccountScope.current())
+    }
+
+    @Test
+    fun aSecondKeyReplacesTheFirstRatherThanBeingIgnored() {
+        // Not a session switch — nothing here goes near Auth. It pins the one
+        // choice set() documents: a key arriving while another is already
+        // held replaces it, because ignoring it would leave the previous
+        // rider's key naming the directory the new rider writes into.
+        AccountScope.set("aaaaaaaaaaaaaaaa")
+        AccountScope.set("bbbbbbbbbbbbbbbb")
+        assertEquals("bbbbbbbbbbbbbbbb", AccountScope.current())
+    }
+
+    @Test
+    fun aBlankKeyIsRefusedRatherThanBecomingADirectoryNamedNothing() {
+        AccountScope.set("a3f1c8e29b4d7061")
+        AccountScope.set("")
+        assertEquals("_local", AccountScope.current())
+    }
+}
+
+/**
+ * Covers [AccountScope.keyAtLaunch] — the half of the launch key decision that
+ * can be asserted. Its caller, `Settings.init`, reads the four values out of
+ * the Keystore-backed store and cannot run in this target at all; what is
+ * pinned here is what it does with them once it has them.
+ */
+class KeyAtLaunchTest {
+
+    // header.payload.signature, the same fixture [SubjectFromTokenTest] uses:
+    // the payload decodes to {"sub":"9f2b1a44","preferred_username":"andre"}.
+    private val token =
+        "e30." +
+            "eyJzdWIiOiI5ZjJiMWE0NCIsInByZWZlcnJlZF91c2VybmFtZSI6ImFuZHJlIn0" +
+            ".sig"
+
+    @Test
+    fun aPersistedKeyIsUsedAsIsRatherThanReDerived() {
+        assertEquals(
+            "a3f1c8e29b4d7061",
+            AccountScope.keyAtLaunch(
+                storedKey = "a3f1c8e29b4d7061",
+                refreshToken = "rt",
+                accessToken = token,
+                username = "andre",
+            ),
+        )
+    }
+
+    @Test
+    fun anInstallAlreadySignedInWhenItUpgradedGetsItsKeyWithoutWaitingForARefresh() {
+        // The whole of C1. Only Auth.store writes auth_scope_key, and this
+        // install has never called exchangeCode — so without a derivation
+        // here, accounts/_local holds this rider's entire history unclaimed
+        // until some later token refresh, and any Auth.clear() in that window
+        // (sign-out, a 401, a refresh past the idle horizon, an issuer
+        // change) hands the whole bucket to the next account to sign in.
+        assertEquals(
+            AccountScope.keyFrom(subject = "9f2b1a44", username = "andre"),
+            AccountScope.keyAtLaunch(
+                storedKey = "",
+                refreshToken = "a-refresh-token",
+                accessToken = token,
+                username = "andre",
+            ),
+        )
+    }
+
+    @Test
+    fun theDerivedKeyMatchesWhatAuthStoreWouldHaveWritten() {
+        // Not the assertion above in different words: if these two ever
+        // disagree, the launch adopts accounts/<X> while the next refresh
+        // persists <Y>, and the rider's files split across two buckets.
+        val atLaunch = AccountScope.keyAtLaunch(
+            storedKey = "",
+            refreshToken = "a-refresh-token",
+            accessToken = token,
+            username = "andre",
+        )
+        val atStore = AccountScope.keyFrom(
+            subject = Auth.subjectFrom(token),
+            username = Auth.usernameFrom(token),
+        )
+        assertEquals(atStore, atLaunch)
+    }
+
+    @Test
+    fun aSignedOutInstallDerivesNothingSoItCannotAdoptOnADepartedRidersBehalf() {
+        // Auth.clear() blanks refresh_token and auth_scope_key in the same
+        // write. If this gate went, a signed-out device would claim `_local`
+        // for the rider who just left, and the next rider to sign in would be
+        // locked out of adoption for the life of the install.
+        assertEquals(
+            "",
+            AccountScope.keyAtLaunch(
+                storedKey = "",
+                refreshToken = "",
+                accessToken = token,
+                username = "andre",
+            ),
+        )
+    }
+
+    @Test
+    fun aSessionWithNothingToKeyOnStaysKeylessRatherThanInventingABucket() {
+        assertEquals(
+            "",
+            AccountScope.keyAtLaunch(
+                storedKey = "",
+                refreshToken = "a-refresh-token",
+                accessToken = "",
+                username = "",
+            ),
+        )
+    }
+
+    @Test
+    fun theUsernameCarriesTheDerivationWhenTheTokenHasNoSubject() {
+        assertEquals(
+            AccountScope.keyFrom(subject = "", username = "andre"),
+            AccountScope.keyAtLaunch(
+                storedKey = "",
+                refreshToken = "a-refresh-token",
+                accessToken = "notatoken",
+                username = "andre",
+            ),
+        )
+    }
+}
+
+class SubjectFromTokenTest {
+
+    // header.payload.signature. The payload segment is verified base64url of
+    // {"sub":"9f2b1a44","preferred_username":"andre"} — decoded and checked
+    // while writing this plan, so it does not need re-deriving. okio's
+    // decodeBase64() accepts url-safe input, which is what a JWT uses.
+    private val token =
+        "e30." +
+            "eyJzdWIiOiI5ZjJiMWE0NCIsInByZWZlcnJlZF91c2VybmFtZSI6ImFuZHJlIn0" +
+            ".sig"
+
+    @Test
+    fun readsTheSubjectClaim() {
+        assertEquals("9f2b1a44", Auth.subjectFrom(token))
+    }
+
+    @Test
+    fun aTokenWithNoPayloadSegmentYieldsNothing() {
+        assertEquals("", Auth.subjectFrom("notatoken"))
+    }
+
+    @Test
+    fun anUndecodablePayloadYieldsNothingRatherThanThrowing() {
+        assertEquals("", Auth.subjectFrom("e30.!!!not-base64!!!.sig"))
+    }
+}
+
+/**
+ * Covers exactly one of the five things this task does: the in-memory half of
+ * a session change, [Auth.resetAccountScopedStores]. Not the on-disk half
+ * ([AccountFilesTest] has that), not `Auth.store`/`Auth.clear`'s
+ * [AccountScope] moves, and not the persisted `auth_scope_key` — all three
+ * of those go through [Settings], which needs platform prefs this module's
+ * test target does not have, so nothing here can reach them. The function is
+ * `internal` and called directly for that same reason.
+ *
+ * Each store is asserted separately rather than through one combined flag, so
+ * a deleted call names which store stopped being cleared instead of just
+ * failing. The two caching stores are asserted by **value** as well as by
+ * their `loaded` latch: clearing the latch without emptying the list leaves
+ * the previous rider's places and routes on screen until something reloads,
+ * and a latch-only assertion passes with that line deleted.
+ */
+class SessionSwitchTest {
+
+    @Test
+    fun aSessionChangeDropsEveryStoreThatHoldsARidersFilesInMemory() {
+        // Set the cached state by hand — populating these for real writes to
+        // disk, and this module's tests have no file system.
+        SavedPlaces.loaded = true
+        SavedPlaces._places.value = listOf(
+            SavedPlace(1L, "Previous rider's home", LatLon(51.05, 3.72)),
+        )
+        RouteStore.loaded = true
+        RouteStore._routes.value = listOf(
+            SavedRoute(
+                id = 1L,
+                name = "Previous rider's Ardennes loop",
+                createdMs = 1L,
+                mode = TravelMode.MOTO,
+                stops = listOf(
+                    RouteStop(LatLon(50.5, 5.5)),
+                    RouteStop(LatLon(50.6, 5.6)),
+                ),
+                polyline = emptyList(),
+                distanceMeters = null,
+                timeMs = null,
+            ),
+        )
+        MunicipalityStore.cache = emptyList()
+        MunicipalityStore.misses = setOf(1L)
+        RiderTotals.memo = RiderTotals.EMPTY.copy(
+            totalDistanceMeters = 412_000.0,
+            topSpeedMps = 48.2,
+            tripCount = 37,
+        )
+        val traceVersionBefore = TraceStore.version.value
+
+        Auth.resetAccountScopedStores()
+
+        assertFalse(SavedPlaces.loaded, "SavedPlaces kept the previous rider's places")
+        assertEquals(
+            emptyList(),
+            SavedPlaces.places.value,
+            "the shortcut chips still hold the previous rider's places",
+        )
+        assertFalse(RouteStore.loaded, "RouteStore kept the previous rider's routes")
+        assertEquals(
+            emptyList(),
+            RouteStore.routes.value,
+            "the routes list still holds the previous rider's routes",
+        )
+        assertNull(MunicipalityStore.cache, "MunicipalityStore kept the previous rider's learned boundaries")
+        assertEquals(emptySet(), MunicipalityStore.misses, "MunicipalityStore kept the previous rider's misses")
+        // The record is per-account on disk (accountFile), so only the in-memory
+        // copy can outlive a session change — and it is the one Hub and Badges
+        // read, so keeping it shows the new rider the previous rider's lifetime
+        // distance, top speed and trip count. #73/#80's leak, one store later.
+        assertNull(RiderTotals.memo, "RiderTotals kept the previous rider's lifetime totals")
+        assertEquals(
+            traceVersionBefore + 1,
+            TraceStore.version.value,
+            "the fog layer was not told the ground moved, so it keeps drawing the previous rider's territory",
+        )
+    }
+}

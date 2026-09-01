@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import kotlin.concurrent.Volatile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonArray
@@ -23,9 +24,24 @@ object SavedPlaces {
 
     private const val FILE_NAME = "saved_places.json"
 
-    private val _places = MutableStateFlow<List<SavedPlace>>(emptyList())
+    // internal, not private, for the same reason `loaded` below is: the
+    // session-switch test has to seed a non-empty list and watch
+    // Auth.resetAccountScopedStores empty it. Asserting on `loaded` alone
+    // would leave the line that actually drops the previous rider's places
+    // deletable with the suite still green.
+    internal val _places = MutableStateFlow<List<SavedPlace>>(emptyList())
     val places: StateFlow<List<SavedPlace>> = _places
-    private var loaded = false
+    // internal, not private, so the session-switch test can set it and watch
+    // Auth.resetAccountScopedStores clear it again. See that function's doc.
+    //
+    // @Volatile because this latch became cross-thread when reset() gained a
+    // caller: Auth.clear()/Auth.store() run it on an IO coroutine while
+    // ensureLoaded() reads it on the main thread. Without it a thread may see
+    // `true` against an already-emptied list, return early from ensureLoaded()
+    // and let a mutation write that empty list over the file — the truncation
+    // 332d493 fixed, reachable again through the cache instead of the guard.
+    @Volatile
+    internal var loaded = false
 
     /** Read from disk once; safe to call on every screen entry. */
     fun ensureLoaded() {
@@ -34,27 +50,43 @@ object SavedPlaces {
         _places.value = read()
     }
 
+    /** Drops this rider's places so the next [ensureLoaded] reads the new
+     *  account's file. The read-through stores need no equivalent — they hit
+     *  the file on every call, so moving the directory is enough. */
+    fun reset() {
+        loaded = false
+        _places.value = emptyList()
+    }
+
     /** Add a place (or rename in place if [id] already exists) and persist. */
     fun add(name: String, location: LatLon, id: Long = nowMs()) {
+        ensureLoaded() // a mutation can arrive while the cache is empty and
+        // unloaded — a cold start, or [reset] having just run under a composed
+        // screen whose own ensureLoaded already fired — and without this,
+        // _places.value is still empty and write() below would truncate the
+        // file to this one place. Same guard and same reason as
+        // RouteStore.save; the two are one pattern.
         val cleaned = name.trim().ifEmpty { "Place" }
         val next = _places.value.filterNot { it.id == id } + SavedPlace(id, cleaned, location)
         write(next.sortedBy { it.name.lowercase() })
     }
 
     fun rename(id: Long, name: String) {
+        ensureLoaded() // see add(): a rename can be the first call to touch the store.
         val cleaned = name.trim().ifEmpty { return }
         write(_places.value.map { if (it.id == id) it.copy(name = cleaned) else it }
             .sortedBy { it.name.lowercase() })
     }
 
     fun remove(id: Long) {
+        ensureLoaded() // see add(): a remove can be the first call to touch the store.
         write(_places.value.filterNot { it.id == id })
     }
 
     /** Raw stored JSON array, uploaded to the sync server. Reads the file so it
      *  works even before any screen has triggered [ensureLoaded]. */
     fun rawJson(): String {
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         return if (f.exists()) f.readText() else "[]"
     }
 
@@ -80,11 +112,11 @@ object SavedPlaces {
                 put("lon", p.location.lon)
             }
         }
-        appFile(FILE_NAME).writeText(array.string())
+        accountFile(FILE_NAME).writeText(array.string())
     }
 
     private fun read(): List<SavedPlace> {
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         if (!f.exists()) return emptyList()
         return try {
             parse(jsonArrayOf(f.readText()))

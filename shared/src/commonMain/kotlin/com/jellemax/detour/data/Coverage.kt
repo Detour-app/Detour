@@ -115,7 +115,9 @@ object MunicipalityStore {
 
     private const val FILE_NAME = "municipalities.json"
 
-    @Volatile private var cache: List<Municipality>? = null
+    // internal, not private, so the session-switch test can set it and watch
+    // Auth.resetAccountScopedStores clear it again. See that function's doc.
+    @Volatile internal var cache: List<Municipality>? = null
 
     /**
      * Points Overpass had no admin_level=8 boundary for (sea, or outside our
@@ -126,7 +128,9 @@ object MunicipalityStore {
      * a @Volatile field needs no lock on either platform (Kotlin/Native has no
      * ConcurrentHashMap to borrow).
      */
-    @Volatile private var misses: Set<Long> = emptySet()
+    // internal, not private, so the session-switch test can set it and watch
+    // Auth.resetAccountScopedStores clear it again. See that function's doc.
+    @Volatile internal var misses: Set<Long> = emptySet()
 
     /** Serialises the read-modify-write in [discoverQuietly], which `synchronized`
      *  used to do; `synchronized` is JVM-only. */
@@ -134,7 +138,7 @@ object MunicipalityStore {
 
     fun load(): List<Municipality> {
         cache?.let { return it }
-        val f = appFile(FILE_NAME)
+        val f = accountFile(FILE_NAME)
         val loaded = if (!f.exists()) emptyList() else try {
             jsonArrayOf(f.readText()).objects().mapNotNull { parse(it) }
         } catch (e: Exception) {
@@ -144,23 +148,48 @@ object MunicipalityStore {
         return loaded
     }
 
+    /** Drops the learned boundaries and the not-found set, both of which are
+     *  derived from one rider's traces. */
+    fun reset() {
+        cache = null
+        misses = emptySet()
+    }
+
     /** True when [p] is in no known boundary and hasn't already missed. */
     fun needsLookup(p: LatLon): Boolean =
         missKey(p) !in misses && load().none { it.contains(p) }
 
-    /** Resolves [p] to its municipality and stores it. Never throws. */
+    /**
+     * Resolves [p] to its municipality and stores it. The network/parse leg
+     * is caught internally (below) and never escapes, but [save] on the
+     * write-lock path still can — see [SyncClient.sync]'s doc for why this
+     * carries `@Throws(Exception::class)` rather than nothing at all.
+     */
+    @Throws(Exception::class)
     suspend fun discoverQuietly(p: LatLon) {
         if (!needsLookup(p)) return
+        // Captured before the suspension below, and checked again after it.
+        // [fetch] resolves a boundary from *this* rider's fix; if the session
+        // moves while it is in flight, both writes below would land in the
+        // next rider's municipalities.json. `existing` is already re-read
+        // inside the lock, which keeps the file consistent — but consistent
+        // with the wrong rider's data. Same capture FriendsStore.reload and
+        // SyncClient.sync use.
+        val epoch = Auth.sessionEpoch.value
         val found = try {
             fetch(p)
         } catch (e: Exception) {
             return // offline or Overpass down; the next new cell tries again
         }
         if (found == null) {
-            misses = misses + missKey(p)
+            if (epoch == Auth.sessionEpoch.value) misses = misses + missKey(p)
             return
         }
         writeLock.withLock {
+            // Inside the lock, not before it: the lock is itself a suspension
+            // point, so a check outside it can go stale while this call waits
+            // its turn behind another discovery.
+            if (epoch != Auth.sessionEpoch.value) return
             val existing = load()
             if (existing.any { it.id == found.id }) return
             save(existing + found)
@@ -259,7 +288,7 @@ object MunicipalityStore {
                 }
             }
         }
-        appFile(FILE_NAME).writeText(array.string())
+        accountFile(FILE_NAME).writeText(array.string())
         cache = all
     }
 }
@@ -279,21 +308,41 @@ object Coverage {
             get() = if (totalCells == 0) 0.0 else 100.0 * exploredCells / totalCells
     }
 
+    // Hub, Badges, the coverage map and Friends each land on this independently
+    // as you navigate between them; cached here so the second and later calls
+    // are free instead of repeating the full trace walk. Keyed on TraceStore's
+    // own version counter, plus the municipality list's identity (it's only
+    // ever replaced wholesale, in MunicipalityStore.save) since municipalities
+    // have no version counter of their own. Held as one reference, not three
+    // separate @Volatile fields, so a concurrent reader (there are six callers
+    // across screens, sync and badge checks) can never observe matching keys
+    // paired with a stale/previous result.
+    private class Cache(val traceVersion: Int, val municipalities: List<Municipality>, val entries: List<Entry>)
+    @Volatile private var cache: Cache? = null
+
     /** Walks every trace point once per municipality it could belong to. Cheap
      *  enough for a screen open or a trip end; not for a GPS callback. */
     fun compute(): List<Entry> {
         val municipalities = MunicipalityStore.load()
-        if (municipalities.isEmpty()) return emptyList()
-        val points = TraceStore.loadAll().flatten()
+        val traceVersion = TraceStore.version.value
+        cache?.let { c ->
+            if (c.traceVersion == traceVersion && c.municipalities === municipalities) return c.entries
+        }
 
-        return municipalities.map { m ->
-            val explored = HashSet<Long>()
-            for (p in points) {
-                if (!m.boundingBoxContains(p)) continue
-                val cell = m.cellOf(p)
-                if (cell in m.insideCells) explored.add(cell)
-            }
-            Entry(m.name, explored.size, m.insideCells.size, m.id)
-        }.filter { it.totalCells > 0 }.sortedByDescending { it.percent }
+        val entries = if (municipalities.isEmpty()) emptyList() else {
+            val points = TraceStore.loadAll().flatten()
+            municipalities.map { m ->
+                val explored = HashSet<Long>()
+                for (p in points) {
+                    if (!m.boundingBoxContains(p)) continue
+                    val cell = m.cellOf(p)
+                    if (cell in m.insideCells) explored.add(cell)
+                }
+                Entry(m.name, explored.size, m.insideCells.size, m.id)
+            }.filter { it.totalCells > 0 }.sortedByDescending { it.percent }
+        }
+
+        cache = Cache(traceVersion, municipalities, entries)
+        return entries
     }
 }

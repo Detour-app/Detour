@@ -34,7 +34,12 @@ object RouteShare {
      * accounts aren't accepted friends, 400 on a route it can't parse, and
      * 413 past its 512 KB size cap — all three surface as [okio.IOException]
      * (or [AuthException] for an expired session) via [Api.request].
+     *
+     * `@Throws(Exception::class)`, same as [pullInbox] below, both called
+     * directly from iosApp/Detour — see the doc on [SyncClient.sync] for why
+     * `Exception` and not just `IOException`.
      */
+    @Throws(Exception::class)
     suspend fun share(username: String, route: SavedRoute) {
         Api.request(
             "POST", "/shared-routes",
@@ -96,6 +101,7 @@ object RouteShare {
      * whole fresh-id scheme exists to avoid). A duplicate the user can just
      * delete; a silently dropped or overwritten route can't be recovered.
      */
+    @Throws(Exception::class)
     suspend fun pullInbox(): Int {
         val entries = inbox()
         var nextId = nowMs()

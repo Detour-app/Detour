@@ -35,53 +35,15 @@ object PendingCircleOpen {
 }
 
 /**
- * Raises local notifications for circle arrival/departure events, and plans
- * which ones a catch-up batch should actually raise. [notificationText] is
- * shared/'s - see its doc for why the wording itself never gets written here.
+ * Raises local notifications for circle arrival/departure events. Which ones
+ * a catch-up batch should actually raise is [CircleNotifyPolicy][com.jellemax.detour.data.CircleNotifyPolicy]'s
+ * call now (shared/); [notificationText] is shared/'s too - see its doc for
+ * why the wording itself never gets written here.
  */
 object PlaceNotifications {
 
     private const val CHANNEL_ID = "circle_arrivals"
     private const val EXTRA_OPEN_CIRCLE_ID = "open_circle_id"
-
-    /** A caught-up transition older than this is stale history, not news -
-     *  an "earlier today" scale, well past the couple of minutes circles
-     *  normally sync on. */
-    const val STALE_AFTER_MS = 3 * 60 * 60_000L
-
-    /** Individual pings one catch-up batch may raise before the rest
-     *  collapse into a single summary notification instead. */
-    const val NOTIFY_CAP = 5
-
-    data class CatchUpPlan(val individual: List<PlaceEvent>, val collapsedCount: Int)
-
-    /**
-     * Turns raw catch-up events into what's worth surfacing: never the
-     * caller's own transitions (`GET /circles/{id}/events` returns those by
-     * design - see [com.jellemax.detour.data.CircleEvents]'s doc - but a
-     * user does not need telling where they themselves went), nothing older
-     * than [staleAfterMs], and at most [cap] individual notifications - a
-     * phone back from a week offline must not detonate into fifty pings.
-     * Anything past the cap is dropped from [CatchUpPlan.individual] but
-     * still counted in [CatchUpPlan.collapsedCount] rather than vanishing
-     * without a trace.
-     */
-    fun planCatchUp(
-        events: List<PlaceEvent>,
-        myUsername: String,
-        nowMs: Long,
-        staleAfterMs: Long = STALE_AFTER_MS,
-        cap: Int = NOTIFY_CAP,
-    ): CatchUpPlan {
-        val relevant = events
-            .filter { it.username != myUsername }
-            .filter { nowMs - it.tsMs <= staleAfterMs }
-            .sortedBy { it.tsMs }
-        if (relevant.size <= cap) return CatchUpPlan(relevant, 0)
-        // Newest first: if only a handful can be shown, the most recent
-        // arrivals are the ones still worth knowing about right now.
-        return CatchUpPlan(relevant.takeLast(cap), relevant.size - cap)
-    }
 
     fun ensureChannel(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)

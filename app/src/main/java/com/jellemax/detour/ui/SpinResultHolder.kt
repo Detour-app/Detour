@@ -19,6 +19,17 @@ internal data class SpinResult(
     val destinationName: String? = null,
     val route: RouteResult? = null,
     val candidates: List<RouteCandidate> = emptyList(),
+    /**
+     * Whether guidance is running along [route].
+     *
+     * Here rather than in MapScreen's own `remember` because [route] is here:
+     * a return to the map that restored the route but not this left the line
+     * drawn on the map with the turn banner, the voice and the navigation
+     * camera all silently off — a stopped navigation that looks like a running
+     * one, mid-ride. Rotation had the same effect, which is the reason the rest
+     * of this holder exists.
+     */
+    val navigating: Boolean = false,
 )
 
 internal object SpinResultHolder {
