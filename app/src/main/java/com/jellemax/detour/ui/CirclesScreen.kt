@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -65,7 +66,6 @@ import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.notif.CircleNotifySettings
 import com.jellemax.detour.notif.CircleNotifyService
-import com.jellemax.detour.notif.PendingCircleOpen
 import kotlinx.coroutines.launch
 
 /** A plain geofence radius suggestion — big enough that ordinary GPS jitter
@@ -84,52 +84,26 @@ private const val DEFAULT_CIRCLE_PLACE_RADIUS_M = 150.0
  * nothing visually in common once sharing state, places and events are on
  * screen.
  */
+/**
+ * The chrome both Circles destinations share.
+ *
+ * The two gates — no sync server, not signed in — sit here rather than in each
+ * screen, because they are the same message and returning early from either
+ * destination means the same thing.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CirclesScreen(onBack: () -> Unit, openCircleId: String? = null) {
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
+private fun CirclesScaffold(
+    title: String,
+    onBack: () -> Unit,
+    error: String?,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     val username by Account.username.collectAsStateWithLifecycle()
-    val state by CirclesStore.state.collectAsStateWithLifecycle()
-    var createOpen by remember { mutableStateOf(false) }
-    var inviteFor by remember { mutableStateOf<Group?>(null) }
-
-    // Fires on every entry, and stepping Hub -> Circles -> Hub -> Circles is
-    // not a new visit. reloadIfStale skips the round trip inside its window;
-    // every mutation on this screen still calls reload() unconditionally.
-    LaunchedEffect(Unit) { CirclesStore.reloadIfStale() }
-
-    // A tapped arrival/departure notification opens straight to its circle -
-    // CirclesStore.selectOnly is safe to call before the list has finished
-    // its own load, since CirclesStore.loaded drops a selectedId that turns
-    // out not to name a real circle. selectOnly, not select: once selectedId
-    // is set, CircleDetailSection enters composition below and its own
-    // LaunchedEffect(circle.id) calls CirclesStore.select itself - calling
-    // select here too would fire the same detail load twice.
-    LaunchedEffect(openCircleId) {
-        openCircleId?.let {
-            CirclesStore.selectOnly(it)
-            PendingCircleOpen.clear()
-        }
-    }
-
-    // The map no longer reads this: it draws every circle you're in, all the
-    // time, so there is nothing here for leaving the screen to disagree with.
-    val selected = state.circles.find { it.id == state.selectedId }
-
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            SubScreenTopBar(
-                selected?.name ?: "Circles",
-                onBack = {
-                    if (selected != null) scope.launch { CirclesStore.select(null) }
-                    else onBack()
-                },
-                scrollBehavior,
-            )
-        },
+        topBar = { SubScreenTopBar(title, onBack, scrollBehavior) },
     ) { padding ->
         Column(
             Modifier
@@ -154,49 +128,58 @@ fun CirclesScreen(onBack: () -> Unit, openCircleId: String? = null) {
                 )
                 return@Column
             }
-            state.error?.let {
+            error?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
-            if (selected == null) {
-                CircleListSection(
-                    circles = state.circles,
-                    busy = state.busy,
-                    // selectOnly, not select: CircleDetailSection's own
-                    // LaunchedEffect(circle.id) does the one load this pair
-                    // needs the moment this brings it into composition. No
-                    // scope.launch either - selectOnly does no I/O.
-                    onOpen = { c -> CirclesStore.selectOnly(c.id) },
-                    onCreate = { createOpen = true },
-                    onAccept = { c ->
-                        scope.launch {
-                            if (CirclesStore.respond(c.id, true)) CircleNotifyService.refresh(context)
-                        }
-                    },
-                    onDecline = { c ->
-                        scope.launch {
-                            if (CirclesStore.respond(c.id, false)) CircleNotifyService.refresh(context)
-                        }
-                    },
-                )
-            } else {
-                CircleDetailSection(
-                    circle = selected,
-                    username = username,
-                    state = state,
-                    onInvite = { inviteFor = selected },
-                    onLeave = {
-                        scope.launch {
-                            if (CirclesStore.leave(selected.id)) CircleNotifyService.refresh(context)
-                        }
-                    },
-                    onToggleSharing = { sharing ->
-                        scope.launch {
-                            if (CirclesStore.setSharing(selected.id, sharing)) CircleNotifyService.refresh(context)
-                        }
-                    },
-                )
-            }
+            content()
         }
+    }
+}
+
+/**
+ * The circles list.
+ *
+ * Opening one used to mean writing `CirclesStore.selectedId` and letting this
+ * screen re-render into a detail view — navigation state living in a store, and
+ * the third of the three single-value models #68 set out to remove. Back was
+ * intercepted in this screen's own top bar, which de-selected before it would let
+ * `onBack()` leave. Now [onOpenCircle] pushes a [Destination.CircleDetail] and
+ * back is an ordinary pop.
+ *
+ * `selectedId` itself stays, because it was never only navigation: it also scopes
+ * the store's `places` and `events` and drives `loadDetail`. What changed is the
+ * direction — the destination now tells the store what is selected, rather than
+ * the store telling the UI where it is.
+ */
+@Composable
+fun CirclesScreen(onBack: () -> Unit, onOpenCircle: (String) -> Unit) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val state by CirclesStore.state.collectAsStateWithLifecycle()
+    var createOpen by remember { mutableStateOf(false) }
+
+    // Fires on every entry, and stepping Hub -> Circles -> Hub -> Circles is
+    // not a new visit. reloadIfStale skips the round trip inside its window;
+    // every mutation on this screen still calls reload() unconditionally.
+    LaunchedEffect(Unit) { CirclesStore.reloadIfStale() }
+
+    CirclesScaffold("Circles", onBack, state.error) {
+        CircleListSection(
+            circles = state.circles,
+            busy = state.busy,
+            onOpen = { c -> onOpenCircle(c.id) },
+            onCreate = { createOpen = true },
+            onAccept = { c ->
+                scope.launch {
+                    if (CirclesStore.respond(c.id, true)) CircleNotifyService.refresh(context)
+                }
+            },
+            onDecline = { c ->
+                scope.launch {
+                    if (CirclesStore.respond(c.id, false)) CircleNotifyService.refresh(context)
+                }
+            },
+        )
     }
 
     if (createOpen) {
@@ -210,13 +193,79 @@ fun CirclesScreen(onBack: () -> Unit, openCircleId: String? = null) {
             },
         )
     }
-    inviteFor?.let { circle ->
+}
+
+/**
+ * One circle.
+ *
+ * Tells the store which circle is open rather than reading it from there.
+ * `selectOnly`, not `select`: [CircleDetailSection]'s own
+ * `LaunchedEffect(circle.id)` does the one detail load this pair needs the moment
+ * it enters composition, and calling `select` here too would fire it twice. That
+ * is the same pairing the notification path relied on before, moved to where the
+ * destination is.
+ *
+ * A [circleId] that names no real circle pops back to the list rather than
+ * showing a blank screen. The store used to absorb this — `loaded` drops a
+ * `selectedId` that turns out not to exist, and the screen then rendered the list
+ * because `selected` was null — but a stack entry has no such fallback, so it is
+ * written down. Only once the list has actually loaded, or a bogus id would pop
+ * during the first frame of a legitimate open.
+ */
+@Composable
+fun CircleDetailScreen(circleId: String, onBack: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val username by Account.username.collectAsStateWithLifecycle()
+    val state by CirclesStore.state.collectAsStateWithLifecycle()
+    var inviteFor by remember { mutableStateOf<Group?>(null) }
+
+    LaunchedEffect(circleId) {
+        CirclesStore.selectOnly(circleId)
+        CirclesStore.reloadIfStale()
+    }
+
+    val circle = state.circles.find { it.id == circleId }
+
+    LaunchedEffect(circle, state.circles, state.busy) {
+        if (circle == null && state.circles.isNotEmpty() && !state.busy) onBack()
+    }
+
+    // Nothing clears selectedId on the way out, and that matches what the app
+    // already did: the old top bar de-selected only when *it* was tapped, so a
+    // system back from a circle detail left selectedId set. The difference is
+    // that a stale selectedId is now inert — the list reads the stack, not the
+    // store, so it can no longer reopen a detail nobody asked for. It still
+    // scopes places and events, which is what it was always for.
+
+    CirclesScaffold(circle?.name ?: "Circle", onBack, state.error) {
+        circle?.let {
+            CircleDetailSection(
+                circle = it,
+                username = username,
+                state = state,
+                onInvite = { inviteFor = it },
+                onLeave = {
+                    scope.launch {
+                        if (CirclesStore.leave(it.id)) CircleNotifyService.refresh(context)
+                    }
+                },
+                onToggleSharing = { sharing ->
+                    scope.launch {
+                        if (CirclesStore.setSharing(it.id, sharing)) CircleNotifyService.refresh(context)
+                    }
+                },
+            )
+        }
+    }
+
+    inviteFor?.let { c ->
         InviteToCircleDialog(
-            circle = circle,
+            circle = c,
             onDismiss = { inviteFor = null },
             onInvite = { target ->
                 scope.launch {
-                    if (CirclesStore.invite(circle.id, target) != null) CircleNotifyService.refresh(context)
+                    if (CirclesStore.invite(c.id, target) != null) CircleNotifyService.refresh(context)
                 }
                 inviteFor = null
             },

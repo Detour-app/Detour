@@ -54,6 +54,7 @@ import com.jellemax.detour.update.UpdateNotification
 import com.jellemax.detour.update.UpdateState
 import com.jellemax.detour.update.UpdateStatus
 import com.jellemax.detour.ui.BadgesScreen
+import com.jellemax.detour.ui.CircleDetailScreen
 import com.jellemax.detour.ui.CirclesScreen
 import com.jellemax.detour.ui.CoverageMapScreen
 import com.jellemax.detour.ui.FriendsScreen
@@ -237,8 +238,15 @@ private fun AppRoot() {
     // interrupted.
     val openCircleId by PendingCircleOpen.circleId.collectAsStateWithLifecycle()
     LaunchedEffect(openCircleId) {
-        if (openCircleId == null) return@LaunchedEffect
-        backStack.resetTo(circleNotificationStack(null))
+        val id = openCircleId ?: return@LaunchedEffect
+        // Lands on the circle itself now that CircleDetail is a destination,
+        // where before it could only reach the Circles screen and hand it the id
+        // to select. Back walks Circles -> Hub -> Map, the chain the old
+        // `else -> Screen.HUB` branch produced implicitly.
+        backStack.resetTo(circleNotificationStack(id))
+        // Clearing is what lets a second tap navigate again. CirclesScreen used
+        // to do this once it had consumed the id; the destination carries it now.
+        PendingCircleOpen.clear()
     }
 
     // A tapped trip-ended notification opens that trip, not just the app.
@@ -330,7 +338,13 @@ private fun AppRoot() {
             }
             entry<Destination.Friends> { FriendsScreen(onBack = { backStack.pop() }) }
             entry<Destination.Circles> {
-                CirclesScreen(onBack = { backStack.pop() }, openCircleId = openCircleId)
+                CirclesScreen(
+                    onBack = { backStack.pop() },
+                    onOpenCircle = { id -> backStack.push(Destination.CircleDetail(id)) },
+                )
+            }
+            entry<Destination.CircleDetail> { key ->
+                CircleDetailScreen(circleId = key.circleId, onBack = { backStack.pop() })
             }
             entry<Destination.Settings> {
                 SettingsScreen(
