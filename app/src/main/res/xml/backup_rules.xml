@@ -20,6 +20,13 @@
          This deliberately broadens what is backed up: badges, saved places,
          routes and learned coverage had no cloud copy at all before, and now
          have one. recent_searches.json stays outside this subtree, at the
-         files/ root, so typed addresses do not travel to Google Drive. -->
+         files/ root, so typed addresses do not travel to Google Drive.
+
+         perf.jsonl (the #84 timing series) is at that same root and stays out
+         for a different reason: a series is only readable as a curve if every
+         point came from one device, and a restore that landed one phone's
+         timings on another would make the numbers relative to nothing. These
+         manifests are include-only allowlists, so never being named here is
+         what excludes it — an <exclude> element would be a no-op. -->
     <include domain="file" path="accounts" />
 </full-backup-content>

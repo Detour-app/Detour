@@ -191,7 +191,27 @@ final class TripRecorder: NSObject, ObservableObject {
             maxGForce: finished.maxGForce,
             destinationLat: destination.map { KotlinDouble(value: $0.lat) },
             destinationLon: destination.map { KotlinDouble(value: $0.lon) },
-            mode: finished.mode
+            mode: finished.mode,
+            // Driving-behaviour stats (incl. OBD2) are Android-only; iOS records
+            // an empty set, same as a pre-feature trip. Every field is spelled
+            // out because Kotlin default arguments don't cross into Swift — the
+            // same reason this call passes maxLeanAngleDeg etc.
+            drivingStats: DrivingStats(
+                hardBrakeCount: 0,
+                hardAccelCount: 0,
+                hardCornerCount: 0,
+                secondsOverLimit: 0,
+                pctOverLimit: 0.0,
+                roadTypeMeters: [:],
+                twistinessScore: 0.0,
+                stopCount: 0,
+                idleMs: 0,
+                obd2SpeedPct: 0.0,
+                maxRpm: 0.0,
+                maxThrottlePct: 0.0,
+                pctWideOpenThrottle: 0.0,
+                avgRpm: 0.0
+            )
         )
         TripStore.shared.save(trip: trip)
 
