@@ -146,7 +146,7 @@ class NavActionsTest {
             Destination.Map,
             Destination.Hub,
             Destination.Routes,
-            Destination.RouteEditor("r1"),
+            Destination.RouteEditor(1L),
         )
         s.returnToMap()
         assertEquals(listOf(Destination.Map), s)
@@ -242,7 +242,7 @@ class NavActionsTest {
     fun `a new route and an edited route are distinct destinations`() {
         org.junit.Assert.assertNotEquals(
             Destination.RouteEditor(null),
-            Destination.RouteEditor("r1"),
+            Destination.RouteEditor(1L),
         )
     }
 
