@@ -24,13 +24,24 @@ class PerfLogTest {
         sizes: List<Pair<String, Int>> = listOf("trips" to 61),
     ) = Perf.Sample(label, us, sizes)
 
+    /** A series spanning two builds is unreadable without knowing which build
+     *  each row came from, and epoch millis are unreadable by a person. Both are
+     *  per row rather than in a header, because the ring drops the oldest lines
+     *  and a header would be the first thing trimmed away. */
     @Test
-    fun `a row carries the label, the duration and every covariate`() {
-        val row = PerfLog.row(sample(), atMs = 1_700_000_000_000)
+    fun `a row carries the time, the build, the label, the duration and every covariate`() {
+        val row = PerfLog.row(sample(), atMs = 1_700_000_000_000, version = "1.89.0+82")
         assertEquals(
-            """{"t":1700000000000,"l":"TripStore.save","us":91234,"n":{"trips":61}}""",
+            """{"t":"2023-11-14T22:13:20Z","v":"1.89.0+82",""" +
+                """"l":"TripStore.save","us":91234,"n":{"trips":61}}""",
             row,
         )
+    }
+
+    @Test
+    fun `the time keeps millisecond precision when it has any`() {
+        val row = PerfLog.row(sample(), atMs = 1_700_000_000_409, version = "1.89.0+82")
+        assertTrue(row.contains(""""t":"2023-11-14T22:13:20.409Z""""))
     }
 
     @Test
@@ -38,9 +49,11 @@ class PerfLogTest {
         val row = PerfLog.row(
             sample(label = "Coverage.compute", us = 412, sizes = listOf("points" to 4210, "municipalities" to 7)),
             atMs = 1,
+            version = "1.89.0+82",
         )
         assertEquals(
-            """{"t":1,"l":"Coverage.compute","us":412,"n":{"points":4210,"municipalities":7}}""",
+            """{"t":"1970-01-01T00:00:00.001Z","v":"1.89.0+82",""" +
+                """"l":"Coverage.compute","us":412,"n":{"points":4210,"municipalities":7}}""",
             row,
         )
     }
@@ -48,8 +61,8 @@ class PerfLogTest {
     @Test
     fun `a row with no covariate is still valid json`() {
         assertEquals(
-            """{"t":1,"l":"x","us":5,"n":{}}""",
-            PerfLog.row(sample(label = "x", us = 5, sizes = emptyList()), atMs = 1),
+            """{"t":"1970-01-01T00:00:00.001Z","v":"1.89.0+82","l":"x","us":5,"n":{}}""",
+            PerfLog.row(sample(label = "x", us = 5, sizes = emptyList()), atMs = 1, version = "1.89.0+82"),
         )
     }
 
@@ -79,8 +92,11 @@ class PerfLogTest {
         agg.add(sample(label = "FogView.onDraw", us = 1200, sizes = listOf("points" to 1900)))
         agg.add(sample(label = "FogView.onDraw", us = 800, sizes = listOf("points" to 1030)))
         assertEquals(
-            listOf("""{"t":9,"l":"FogView.onDraw","count":3,"totalUs":2400,"maxUs":1200,"n":{"points":1024}}"""),
-            agg.drain(atMs = 9),
+            listOf(
+                """{"t":"1970-01-01T00:00:00.009Z","v":"1.89.0+82","l":"FogView.onDraw",""" +
+                    """"count":3,"totalUs":2400,"maxUs":1200,"n":{"points":1024}}""",
+            ),
+            agg.drain(atMs = 9, version = "1.89.0+82"),
         )
     }
 
@@ -91,7 +107,7 @@ class PerfLogTest {
         val agg = PerfAggregator()
         agg.add(sample(label = "FogView.onDraw", us = 400, sizes = listOf("points" to 1100)))
         agg.add(sample(label = "FogView.onDraw", us = 9000, sizes = listOf("points" to 9000)))
-        val rows = agg.drain(atMs = 9)
+        val rows = agg.drain(atMs = 9, version = "1.89.0+82")
         assertEquals(2, rows.size)
         assertTrue(rows.any { it.contains(""""n":{"points":1024}""") && it.contains(""""count":1""") })
         assertTrue(rows.any { it.contains(""""n":{"points":8192}""") && it.contains(""""maxUs":9000""") })
@@ -101,8 +117,8 @@ class PerfLogTest {
     fun `draining twice does not report the same samples again`() {
         val agg = PerfAggregator()
         agg.add(sample(label = "FogView.onDraw"))
-        assertEquals(1, agg.drain(atMs = 1).size)
-        assertEquals(emptyList<String>(), agg.drain(atMs = 2))
+        assertEquals(1, agg.drain(atMs = 1, version = "v").size)
+        assertEquals(emptyList<String>(), agg.drain(atMs = 2, version = "v"))
     }
 
     /** A ring, not a growing file: this ships in release builds, so it cannot
@@ -157,7 +173,7 @@ class PerfLogTest {
         // Same bucket, so one pending row — but not zero, which is the bug.
         assertEquals(1, agg.size)
         assertTrue(PerfLog.shouldFlush(nowMs = 10_000, lastFlushMs = 0, buffered = agg.size))
-        agg.drain(atMs = 1)
+        agg.drain(atMs = 1, version = "v")
         assertEquals(0, agg.size)
     }
 }

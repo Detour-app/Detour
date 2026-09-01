@@ -40,9 +40,16 @@ object PerfSink {
 
     private const val FILE_NAME = "perf.jsonl"
 
+    /** Stamped on every row. versionName plus the CI-stamped versionCode, so
+     *  two builds of the same version are still distinguishable. */
+    private val VERSION = "${BuildConfig.VERSION_NAME}+${BuildConfig.VERSION_CODE}"
+
     /** Ring cap. Roughly a fortnight of screen-open rows plus aggregated
-     *  buckets; small enough that a rider never notices it. */
-    private const val MAX_BYTES = 512 * 1024
+     *  buckets; small enough that a rider never notices it. 1 MB rather than
+     *  512 KB because the ISO instant and the build stamp cost ~35 bytes a row
+     *  over the epoch-millis form they replaced, and the depth of history is the
+     *  thing this file exists to hold. */
+    private const val MAX_BYTES = 1024 * 1024
 
     // One thread, so writes are serialised without a lock on the file and never
     // land on the caller's — samples arrive from the GPS callback, the draw
@@ -123,7 +130,7 @@ object PerfSink {
         val due: Boolean
         synchronized(lock) {
             if (PerfLog.isHot(sample.label)) aggregator.add(sample)
-            else rows.add(PerfLog.row(sample, now))
+            else rows.add(PerfLog.row(sample, now, VERSION))
             due = PerfLog.shouldFlush(now, lastFlushMs, rows.size + aggregator.size)
             if (due) lastFlushMs = now
         }
@@ -135,7 +142,7 @@ object PerfSink {
         val now = System.currentTimeMillis()
         val batch: List<String>
         synchronized(lock) {
-            batch = rows + aggregator.drain(now)
+            batch = rows + aggregator.drain(now, VERSION)
             rows.clear()
         }
         if (batch.isEmpty()) return

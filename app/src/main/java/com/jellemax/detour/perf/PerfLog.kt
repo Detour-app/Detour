@@ -1,6 +1,7 @@
 package com.jellemax.detour.perf
 
 import com.jellemax.detour.data.Perf
+import java.time.Instant
 
 /**
  * How a [Perf.Sample] becomes a line, and which samples are too frequent to get
@@ -59,17 +60,34 @@ object PerfLog {
         return b
     }
 
-    /** One measured call: `{"t":…,"l":…,"us":…,"n":{…}}`. */
-    fun row(sample: Perf.Sample, atMs: Long): String =
-        """{"t":$atMs,"l":"${sample.label}","us":${sample.durationUs},"n":${sizes(sample.sizes)}}"""
+    /**
+     * One measured call: `{"t":…,"v":…,"l":…,"us":…,"n":{…}}`.
+     *
+     * Both the instant and the build are on every row, not in a header: the ring
+     * drops the oldest lines, so a header would be the first thing trimmed away
+     * and every surviving row would be undated and unattributed. The build
+     * matters because the series exists to be read across versions, and a number
+     * from 1.89.0 beside one from 1.91.0 means nothing without knowing which is
+     * which.
+     */
+    fun row(sample: Perf.Sample, atMs: Long, version: String): String =
+        """{"t":"${instant(atMs)}","v":"$version",""" +
+            """"l":"${sample.label}","us":${sample.durationUs},"n":${sizes(sample.sizes)}}"""
+
+    /**
+     * ISO-8601 UTC, which sorts lexicographically as well as epoch millis did
+     * and can be read by a person, which epoch millis cannot. `Instant.toString`
+     * drops a `.000` fraction, so a whole second renders as `…:20Z`.
+     */
+    private fun instant(atMs: Long): String = Instant.ofEpochMilli(atMs).toString()
 
     /**
      * A bucket's worth of hot calls. `n` holds the bucket floor rather than a
      * real size, and `count` is what distinguishes an aggregated row from a
      * [row] when reading the file back.
      */
-    internal fun aggregateRow(key: Key, agg: Agg, atMs: Long): String =
-        """{"t":$atMs,"l":"${key.label}","count":${agg.count},""" +
+    internal fun aggregateRow(key: Key, agg: Agg, atMs: Long, version: String): String =
+        """{"t":"${instant(atMs)}","v":"$version","l":"${key.label}","count":${agg.count},""" +
             """"totalUs":${agg.totalUs},"maxUs":${agg.maxUs},"n":${sizes(key.buckets)}}"""
 
     private fun sizes(pairs: List<Pair<String, Int>>): String =
@@ -127,9 +145,9 @@ class PerfAggregator {
     }
 
     /** Everything collected since the last drain, as rows. Empties the buckets. */
-    fun drain(atMs: Long): List<String> {
+    fun drain(atMs: Long, version: String): List<String> {
         if (buckets.isEmpty()) return emptyList()
-        val rows = buckets.map { (key, agg) -> PerfLog.aggregateRow(key, agg, atMs) }
+        val rows = buckets.map { (key, agg) -> PerfLog.aggregateRow(key, agg, atMs, version) }
         buckets.clear()
         return rows
     }
