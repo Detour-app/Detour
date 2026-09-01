@@ -287,6 +287,11 @@ class SessionSwitchTest {
         )
         MunicipalityStore.cache = emptyList()
         MunicipalityStore.misses = setOf(1L)
+        RiderTotals.memo = RiderTotals.EMPTY.copy(
+            totalDistanceMeters = 412_000.0,
+            topSpeedMps = 48.2,
+            tripCount = 37,
+        )
         val traceVersionBefore = TraceStore.version.value
 
         Auth.resetAccountScopedStores()
@@ -305,6 +310,11 @@ class SessionSwitchTest {
         )
         assertNull(MunicipalityStore.cache, "MunicipalityStore kept the previous rider's learned boundaries")
         assertEquals(emptySet(), MunicipalityStore.misses, "MunicipalityStore kept the previous rider's misses")
+        // The record is per-account on disk (accountFile), so only the in-memory
+        // copy can outlive a session change — and it is the one Hub and Badges
+        // read, so keeping it shows the new rider the previous rider's lifetime
+        // distance, top speed and trip count. #73/#80's leak, one store later.
+        assertNull(RiderTotals.memo, "RiderTotals kept the previous rider's lifetime totals")
         assertEquals(
             traceVersionBefore + 1,
             TraceStore.version.value,

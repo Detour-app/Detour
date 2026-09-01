@@ -49,10 +49,10 @@ import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.BadgeStore
 import com.jellemax.detour.data.Coverage
 import com.jellemax.detour.data.RiderStats
+import com.jellemax.detour.data.RiderTotals
 import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.SyncClient
-import com.jellemax.detour.data.TripStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -95,9 +95,15 @@ fun HubScreen(
             val coverage = Coverage.compute()
             val stats = BadgeStore.stats(coverage)
             val earned = BadgeStore.refresh(stats).states.count { it.earned }
-            val trips = TripStore.load().size
-            HubData(stats, earned, trips)
+            // stats.tripCount is the same number this used to reopen and
+            // re-parse trips.json for — a second full read of the file, on the
+            // most-visited non-map screen.
+            HubData(stats, earned, stats.tripCount)
         }
+        // After the value is on screen, never before: if the record has aged
+        // past its TTL this folds the whole history, and the rider is not made
+        // to wait on it. No-op when the record is fresh.
+        withContext(Dispatchers.IO) { RiderTotals.refreshIfStale() }
     }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()

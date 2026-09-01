@@ -160,6 +160,13 @@ object SyncClient {
         val badges = merged.optObject("badges") ?: jsonObjectOf("{}")
 
         TripStore.replaceRaw(trips.string())
+        // replaceRaw just invalidated the totals record — the merge is the
+        // server's union against ours, so the delta is not knowable here. Refold
+        // it now rather than leaving the bill for whichever screen opens next:
+        // sync is already off the main thread on both platforms (a
+        // Dispatchers.IO scope in AndroidSync, a Task on iOS), and a rider
+        // opening the Hub is not.
+        RiderTotals.refreshIfStale()
         TraceStore.replaceLines(traces.indices.map { traces.optString(it) })
         BadgeStore.replaceRaw(badges.string())
         // Absent on an older server: leave the local shortcuts untouched.

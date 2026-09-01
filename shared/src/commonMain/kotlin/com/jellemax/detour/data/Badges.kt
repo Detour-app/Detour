@@ -103,16 +103,27 @@ object BadgeStore {
             100.0 to "Every last street",
         )
 
+    /**
+     * The four trip-derived fields come from [RiderTotals], which keeps them as
+     * a running record. This used to fold every trip in `trips.json` on every
+     * call, at six call sites, for numbers that change one trip at a time
+     * (#83). The two coverage-derived fields are still counted from [coverage]
+     * here, because `Coverage.compute()` already caches its own result and a
+     * second copy would be a second thing to invalidate.
+     *
+     * Still **non-suspending, and still blocks on disk** — Swift calls this
+     * straight through. See [RiderTotals.current].
+     */
     fun stats(coverage: List<Coverage.Entry>): RiderStats {
-        val trips = TripStore.load()
+        val totals = RiderTotals.current()
         return RiderStats(
-            totalDistanceMeters = trips.sumOf { it.distanceMeters },
-            topSpeedKmh = (trips.maxOfOrNull { it.topSpeedMps } ?: 0.0) * 3.6,
-            longestTripMeters = trips.maxOfOrNull { it.distanceMeters } ?: 0.0,
-            maxLeanDeg = trips.maxOfOrNull { it.maxLeanAngleDeg } ?: 0.0,
+            totalDistanceMeters = totals.totalDistanceMeters,
+            topSpeedKmh = totals.topSpeedMps * 3.6,
+            longestTripMeters = totals.longestTripMeters,
+            maxLeanDeg = totals.maxLeanDeg,
             municipalitiesVisited = coverage.count { it.exploredCells > 0 },
             bestCoveragePercent = coverage.maxOfOrNull { it.percent } ?: 0.0,
-            tripCount = trips.size,
+            tripCount = totals.tripCount,
         )
     }
 

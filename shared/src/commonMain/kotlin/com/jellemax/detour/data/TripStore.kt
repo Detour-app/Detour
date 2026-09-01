@@ -34,6 +34,9 @@ object TripStore {
 
     fun save(trip: Trip) {
         writeAll(listOf(trip) + load())
+        // After the write, not before: a totals record counting a trip the
+        // file does not hold is the one drift the TTL would carry for a day.
+        RiderTotals.recordSaved(trip)
     }
 
     /**
@@ -65,6 +68,10 @@ object TripStore {
         tombstones.add(startTimeMs)
         writeTombstones(tombstones)
         writeAll(load().filterNot { it.startTimeMs == startTimeMs })
+        // The removed trip may have held the top speed, the longest ride or
+        // the deepest lean, and a maximum cannot be walked backwards from the
+        // record alone. A recompute is the only correct answer.
+        RiderTotals.invalidate()
     }
 
     private fun writeAll(trips: List<Trip>) {
@@ -134,6 +141,7 @@ object TripStore {
         val overrides = modeOverrides()
         if (tombstones.isEmpty() && overrides.isEmpty()) {
             accountFile(FILE_NAME).writeText(json)
+            RiderTotals.invalidate()
             return
         }
         var overridesChanged = false
@@ -158,6 +166,10 @@ object TripStore {
         }
         if (overridesChanged) writeModeOverrides(overrides)
         accountFile(FILE_NAME).writeText(kept.string())
+        // The merge is the server's union against ours: trips can arrive and
+        // trips can vanish, so no increment is even definable from here. Both
+        // exits invalidate.
+        RiderTotals.invalidate()
     }
 
     private fun tombstones(): MutableSet<Long> {
