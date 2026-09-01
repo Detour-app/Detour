@@ -169,7 +169,14 @@ object Obd2Connection {
                 val device = context.getSystemService(BluetoothManager::class.java)
                     ?.adapter?.getRemoteDevice(address)
                     ?: throw IOException("Bluetooth adapter unavailable")
-                socket = device.createRfcommSocketToServiceRecord(SPP_UUID)
+                // Insecure (unauthenticated) RFCOMM on purpose: a secure socket
+                // forces an encrypted link, and cheap ELM327 clones (incl. the
+                // Vgate iCar Pro) drop their stored link key on every power-cycle
+                // with the car, so a secure connect re-triggers the OS pairing
+                // dialog on every drive even though Android still lists the
+                // adapter as paired. ELM327 SPP carries no sensitive data and
+                // needs physical port access, so there's nothing to protect.
+                socket = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
                 activeSocket = socket
                 socket.connect()
                 val input = socket.inputStream
@@ -194,7 +201,7 @@ object Obd2Connection {
                 // Broadened beyond IOException: getRemoteDevice() throws
                 // IllegalArgumentException on a malformed (e.g. lowercase) MAC
                 // address, and a Bluetooth permission revoked mid-connection
-                // throws SecurityException from createRfcommSocketToServiceRecord
+                // throws SecurityException from createInsecureRfcommSocketToServiceRecord
                 // or socket.connect(). Neither is an IOException, and since this
                 // coroutine runs under a SupervisorJob, leaving either uncaught
                 // would reach the thread's default handler and could crash the
@@ -254,9 +261,21 @@ object Obd2Connection {
         // answers "NO DATA" to every PID (e.g. parked, ignition off) must NOT
         // trip this either — the adapter is proven alive that cycle.
         var consecutiveEmptyPolls = 0
+        // Relative throttle (pedal) is preferred, but not every vehicle reports
+        // it. null = undecided: try 0145, and on a clean unsupported answer fall
+        // back to 0111 for the rest of this connection.
+        var throttlePid: String? = null
         while (coroutineContext.isActive) {
             val speedResult = pollPid(input, output, Obd2Pids.PID_SPEED)
-            val throttleResult = pollPid(input, output, Obd2Pids.PID_THROTTLE)
+            var throttleResult = pollPid(input, output, throttlePid ?: Obd2Pids.PID_THROTTLE_REL)
+            if (throttlePid == null) {
+                if (throttleResult.bytes != null) {
+                    throttlePid = Obd2Pids.PID_THROTTLE_REL
+                } else if (throttleResult.answered) {
+                    throttleResult = pollPid(input, output, Obd2Pids.PID_THROTTLE)
+                    if (throttleResult.bytes != null) throttlePid = Obd2Pids.PID_THROTTLE
+                }
+            }
             val rpmResult = pollPid(input, output, Obd2Pids.PID_RPM)
             val speed = speedResult.bytes?.let { Obd2Pids.parseSpeedKmh(it) }
                 // A single garbled byte can decode to a plausible-looking but
@@ -331,7 +350,11 @@ object Obd2Connection {
 
     /** Reads bytes until the `>` prompt ELM327 terminates every response
      *  with, or [timeoutMs] elapses — never a newline, which some firmwares
-     *  omit. Null on timeout with nothing usable read. */
+     *  omit. Returns null if the prompt never arrived before the deadline,
+     *  whatever partial text was buffered: a response without its `>` is a
+     *  timeout, not a completed answer. Returning the partial text instead
+     *  would let [handshake] carry on and every subsequent poll read one
+     *  prompt behind for the life of the connection. */
     internal fun readUntilPrompt(input: InputStream, timeoutMs: Long): String? {
         val deadline = System.currentTimeMillis() + timeoutMs
         val buffer = StringBuilder()
@@ -346,6 +369,6 @@ object Obd2Connection {
                 Thread.sleep(20)
             }
         }
-        return buffer.toString().takeIf { it.isNotBlank() }
+        return null
     }
 }

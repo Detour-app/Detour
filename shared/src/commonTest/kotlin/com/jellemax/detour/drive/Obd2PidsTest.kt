@@ -53,6 +53,13 @@ class Obd2PidsTest {
         assertNull(Obd2Pids.parseThrottlePct(emptyList()))
     }
 
+    @Test
+    fun relativeThrottleIsRequestedAsPid45AndDecodesLikeAbsolute() {
+        assertEquals("0145", Obd2Pids.PID_THROTTLE_REL)
+        assertEquals(100.0, Obd2Pids.parseThrottlePct(listOf(255)))
+        assertEquals(0.0, Obd2Pids.parseThrottlePct(listOf(0)))
+    }
+
     // --- RPM (mode 01 PID 0C): two bytes, (256*A + B)/4 ------------------------
 
     @Test

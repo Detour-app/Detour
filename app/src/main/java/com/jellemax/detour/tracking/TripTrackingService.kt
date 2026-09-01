@@ -244,7 +244,7 @@ class TripTrackingService : Service() {
          *  vehicle is moving — an always-hot ELM327 dongle keeps reporting 0 km/h from a
          *  parked car while its owner walks or cycles past, and _lastFix (unlike the
          *  trip pipeline) is live even with no trip running. */
-        private const val OBD_ZERO_OVERRIDE_MPS = 2.78  // ~10 km/h
+        internal const val OBD_ZERO_OVERRIDE_MPS = 2.78  // ~10 km/h
         /** Throttle position above which a sample counts toward
          *  [DrivingStats.pctWideOpenThrottle]. Provisional. */
         private const val WIDE_OPEN_THROTTLE_PCT = 90.0
@@ -375,6 +375,10 @@ class TripTrackingService : Service() {
     private lateinit var fusedClient: FusedLocationProviderClient
     private lateinit var sensorManager: SensorManager
     private var lastLocation: Location? = null
+    // The raw GPS speed of the last fix, kept for the OBD2 speed-refresh loop:
+    // between GPS callbacks it has no other way to re-run resolveDisplaySpeedMps'
+    // GPS-contradiction guard.
+    private var lastGpsSpeedMps = 0.0
     private var destLat: Double? = null
     private var destLon: Double? = null
     private val tracePoints = ArrayList<TraceStore.TracePoint>()
@@ -386,6 +390,7 @@ class TripTrackingService : Service() {
     private var lastMovingMs = 0L
     private var transitionsRegistered = false
     private var circleSyncStarted = false
+    private var obdSpeedRefreshStarted = false
     /** One evaluator per circle, kept across ticks - [GeofenceEvaluator] holds
      *  per-place dwell/inside state between calls, so a fresh instance every
      *  tick would never accumulate enough dwell time to fire "arrive". */
@@ -447,15 +452,14 @@ class TripTrackingService : Service() {
     @Volatile private var hardAccelCount = 0
     @Volatile private var obd2SpeedFixes = 0
     @Volatile private var speedFixesTotal = 0
-    // OBD2 engine summary, sampled from Obd2Connection.telemetry at its ~1 Hz
-    // poll rate by obd2EngineSampleJob for the duration of a trip.
+    // OBD2 engine summary, folded from each fix's telemetry snapshot in
+    // onTripLocation for the duration of a trip.
     @Volatile private var obdMaxRpm = 0.0
     @Volatile private var obdMaxThrottlePct = 0.0
     @Volatile private var obdRpmSum = 0.0
     @Volatile private var obdRpmSamples = 0
     @Volatile private var obdWideOpenThrottleSamples = 0
     @Volatile private var obdThrottleSamples = 0
-    @Volatile private var obd2EngineSampleJob: kotlinx.coroutines.Job? = null
     @Volatile private var stopState = StopDetector.State()
     @Volatile private var tripLimitState = SpeedLimitTracker.State()
     @Volatile private var tripLimitFetchJob: kotlinx.coroutines.Job? = null
@@ -491,43 +495,17 @@ class TripTrackingService : Service() {
         return if (age in 0..OBD_TELEMETRY_STALE_MS) telemetry else null
     }
 
-    /** Trip-scoped: folds every OBD2 poll into the engine-summary accumulators
-     *  ([obdMaxRpm] etc.) that [endTrip] turns into [DrivingStats.maxRpm] and
-     *  friends. Launched in [beginTrip], cancelled in [endTrip]. Collects the
-     *  live emissions, so each value is fresh by construction — no staleness
-     *  gate needed here. */
-    private suspend fun collectObdEngineSamples() {
-        Obd2Connection.telemetry.collect { t ->
-            t ?: return@collect
-            if (t.hasRpm) {
-                obdMaxRpm = maxOf(obdMaxRpm, t.rpmValue)
-                obdRpmSum += t.rpmValue
-                obdRpmSamples++
-            }
-            if (t.hasThrottle) {
-                obdMaxThrottlePct = maxOf(obdMaxThrottlePct, t.throttlePct)
-                obdThrottleSamples++
-                if (t.throttlePct > WIDE_OPEN_THROTTLE_PCT) obdWideOpenThrottleSamples++
-            }
-        }
-    }
-
-    /** Fresh OBD2 vehicle speed in m/s, or null when there is none to trust.
-     *  `mode.tracksGForce` is currently always true (only CAR and MOTO exist) —
-     *  it is kept for when a non-g-force mode returns, and is not the real
-     *  safeguard. The safeguard is [OBD_ZERO_OVERRIDE_MPS]: a hot dongle in a
-     *  parked car reports 0 km/h, and _lastFix is live with no trip running. */
-    private fun freshObdSpeedMps(gpsSpeedMps: Double, mode: TravelMode): Double? =
-        freshObdTelemetry()
-            ?.takeIf { mode.tracksGForce && it.hasSpeed }
-            ?.takeUnless { it.speedKmh < 1.0 && gpsSpeedMps > OBD_ZERO_OVERRIDE_MPS }
-            ?.let { it.speedKmh / 3.6 }
-
     /** OBD2 -> board telemetry -> phone GPS, highest priority first, each used
      *  only while fresh. Single definition of the priority chain that
-     *  onTripLocation's effectiveSpeedMps and _lastFix both read. */
-    private fun resolveDisplaySpeedMps(gpsSpeedMps: Double, mode: TravelMode): Double =
-        freshObdSpeedMps(gpsSpeedMps, mode)
+     *  onTripLocation's effectiveSpeedMps and _lastFix both read. [obd] defaults
+     *  to a fresh snapshot; onTripLocation passes the one it already took for
+     *  that fix so its speed, attribution and engine-summary reads agree. */
+    private fun resolveDisplaySpeedMps(
+        gpsSpeedMps: Double,
+        mode: TravelMode,
+        obd: ObdTelemetry? = freshObdTelemetry(),
+    ): Double =
+        obdSpeedMpsFrom(obd, gpsSpeedMps, mode)
             ?: freshBoardTelemetry()
                 ?.takeIf { it.hasSpeed }
                 ?.let { it.speedKmh / 3.6 }
@@ -713,7 +691,14 @@ class TripTrackingService : Service() {
                     }
                     Obd2Connection.disconnect()
                 }
-                BluetoothAdapter.STATE_ON -> seedConnectedVehicles()
+                BluetoothAdapter.STATE_ON -> {
+                    seedConnectedVehicles()
+                    // STATE_OFF called Obd2Connection.disconnect(); the adapter
+                    // is phone-initiated over SPP, so nothing re-dials it on its
+                    // own (no ACL_CONNECTED fires for a link we open). Re-attempt
+                    // it here the same way the initial watch seed does.
+                    connectConfiguredObd2Adapters()
+                }
             }
         }
     }
@@ -749,12 +734,17 @@ class TripTrackingService : Service() {
         )
         btRegistered = true
         seedConnectedVehicles()
-        // No ACL_CONNECTED-equivalent seed exists for OBD2: an ELM327 SPP device
-        // shows up in neither the HEADSET nor A2DP profiles seedConnectedVehicles()
-        // queries, so "already connected before the service started" can't be
-        // detected directly. Attempt every configured adapter unconditionally
-        // instead — Obd2Connection's own backoff/retry loop already handles an
-        // adapter that isn't actually there yet.
+        connectConfiguredObd2Adapters()
+    }
+
+    /** No ACL_CONNECTED-equivalent seed exists for OBD2: an ELM327 SPP device
+     *  shows up in neither the HEADSET nor A2DP profiles [seedConnectedVehicles]
+     *  queries, so "already connected" can't be detected directly. Attempt every
+     *  configured adapter unconditionally instead — [Obd2Connection.connect] is a
+     *  no-op if a loop is already running, and its own backoff/retry handles an
+     *  adapter that isn't there yet. Called on the initial watch seed and again
+     *  whenever Bluetooth is toggled back on (see [btStateReceiver]). */
+    private fun connectConfiguredObd2Adapters() {
         Settings.vehicleDevices.value.values.forEach { vehicle ->
             vehicle.obd2Address?.let { Obd2Connection.connect(applicationContext, it) }
         }
@@ -881,6 +871,25 @@ class TripTrackingService : Service() {
             serviceScope.launch { circleSyncLoop() }
         }
 
+        // The HUD, camera and relays all read _lastFix.speedMps, which onLocation
+        // only recomputes on a GPS callback. When fixes stretch out (tunnel, a
+        // phone in a pocket) an OBD2 adapter keeps reporting speed every ~1s;
+        // refresh the resolved speed off its telemetry so the map keeps pace
+        // with the pairing screen instead of freezing between fixes. Main
+        // dispatcher: same thread onLocation writes _lastFix on, so no race.
+        if (!obdSpeedRefreshStarted) {
+            obdSpeedRefreshStarted = true
+            serviceScope.launch(Dispatchers.Main.immediate) {
+                Obd2Connection.telemetry.collect { _ ->
+                    val cur = _lastFix.value ?: return@collect
+                    val refreshed = resolveDisplaySpeedMps(lastGpsSpeedMps, resolvedMode())
+                    if (refreshed != cur.speedMps) {
+                        _lastFix.value = cur.copy(speedMps = refreshed)
+                    }
+                }
+            }
+        }
+
         when (intent?.action) {
             ACTION_START_TRIP -> {
                 if (_stats.value == null) {
@@ -931,8 +940,6 @@ class TripTrackingService : Service() {
         obdRpmSamples = 0
         obdWideOpenThrottleSamples = 0
         obdThrottleSamples = 0
-        obd2EngineSampleJob?.cancel()
-        obd2EngineSampleJob = serviceScope.launch { collectObdEngineSamples() }
         stopState = StopDetector.State()
         tripLimitState = SpeedLimitTracker.State()
         tripLimitFetchJob?.cancel()
@@ -970,8 +977,6 @@ class TripTrackingService : Service() {
         tripLimitFetchJob = null
         roadTypeFetchJob?.cancel()
         roadTypeFetchJob = null
-        obd2EngineSampleJob?.cancel()
-        obd2EngineSampleJob = null
         flushTrace()
         // An auto trip with no mapped vehicle that never left walking pace
         // wasn't a drive; don't save it under whatever mode the tab happened
@@ -1206,6 +1211,7 @@ class TripTrackingService : Service() {
 
     private fun onLocation(location: Location) {
         val speed = speedOf(location)
+        lastGpsSpeedMps = speed
         _lastFix.value = Fix(
             lat = location.latitude,
             lon = location.longitude,
@@ -1325,20 +1331,45 @@ class TripTrackingService : Service() {
             return
         }
 
+        // One OBD2 snapshot for this fix: the speed chain, the attribution
+        // counter, the engine-summary fold and speedIsReal all read the same
+        // values, so a poll landing mid-function can't make them disagree.
+        val obd = freshObdTelemetry()
+
         // Best-available speed for the recorded-trip pipeline (hard-event / stop
         // detectors, SpeedLimitTracker, RoadTypeTracker, persisted topSpeedMps).
         // See resolveDisplaySpeedMps for the OBD2/board/GPS priority. `speed`
         // above still drives auto-start/stop and the fog trace, which stay on the
         // phone's own GPS pipeline regardless of what's paired.
-        val effectiveSpeedMps = resolveDisplaySpeedMps(speed, stats.mode)
+        val effectiveSpeedMps = resolveDisplaySpeedMps(speed, stats.mode, obd)
 
         // Which source actually drove that number, for the per-trip
-        // obd2SpeedPct. Same helper resolveDisplaySpeedMps uses for its OBD2
+        // obd2SpeedPct. Same decision resolveDisplaySpeedMps uses for its OBD2
         // arm — board telemetry winning does not count, GPS fallback does not
         // count.
         speedFixesTotal++
-        if (freshObdSpeedMps(speed, stats.mode) != null) {
+        if (obdSpeedMpsFrom(obd, speed, stats.mode) != null) {
             obd2SpeedFixes++
+        }
+
+        // Engine summary: fold this fix's OBD2 telemetry into the accumulators
+        // endTrip turns into DrivingStats.maxRpm/avgRpm/throttle. Sampled here
+        // on the same snapshot and the same mode/freshness gate as the speed arm
+        // above — it was a free-running Obd2Connection.telemetry collector, which
+        // raced endTrip's non-suspending read of these vars and recorded
+        // emissions the speed path would have rejected. onTripLocation only runs
+        // mid-trip, so this is trip-scoped by construction.
+        if (stats.mode.tracksGForce && obd != null) {
+            if (obd.hasRpm) {
+                obdMaxRpm = maxOf(obdMaxRpm, obd.rpmValue)
+                obdRpmSum += obd.rpmValue
+                obdRpmSamples++
+            }
+            if (obd.hasThrottle) {
+                obdMaxThrottlePct = maxOf(obdMaxThrottlePct, obd.throttlePct)
+                obdThrottleSamples++
+                if (obd.throttlePct > WIDE_OPEN_THROTTLE_PCT) obdWideOpenThrottleSamples++
+            }
         }
 
         // speedOf() hands back a fabricated 0.0 sentinel for a coarse/no-speed fix
@@ -1349,7 +1380,7 @@ class TripTrackingService : Service() {
         // or fresh OBD2/board telemetry supplied the number effectiveSpeedMps is using.
         val speedIsReal = location.hasSpeed() ||
             freshBoardTelemetry()?.takeIf { it.hasSpeed } != null ||
-            (stats.mode.tracksGForce && freshObdTelemetry()?.takeIf { it.hasSpeed } != null)
+            (stats.mode.tracksGForce && obd?.hasSpeed == true)
 
         // Thresholds here are scoped to car/moto (tracksGForce) — a bike or walk
         // decelerating normally must not print a "hard brake" meant for a vehicle.
@@ -1708,3 +1739,23 @@ class TripTrackingService : Service() {
         return builder.build()
     }
 }
+
+/** Fresh OBD2 vehicle speed in m/s from an already-taken [telemetry] snapshot,
+ *  or null when there is none to trust. Pulled out of the service so one fix
+ *  takes a single [com.jellemax.detour.obd2.Obd2Connection.telemetry] snapshot
+ *  and feeds it to both the display-speed chain and the attribution counter,
+ *  rather than each re-sampling and possibly disagreeing.
+ *
+ *  `mode.tracksGForce` is currently always true (only CAR and MOTO exist) and
+ *  is kept for a future non-g-force mode. The real safeguard is
+ *  [TripTrackingService.OBD_ZERO_OVERRIDE_MPS]: a hot dongle in a parked car
+ *  reports ~0 km/h, so a near-zero reading is dropped when the phone's own GPS
+ *  is sure the vehicle is moving. */
+internal fun obdSpeedMpsFrom(
+    telemetry: ObdTelemetry?,
+    gpsSpeedMps: Double,
+    mode: TravelMode,
+): Double? = telemetry
+    ?.takeIf { mode.tracksGForce && it.hasSpeed }
+    ?.takeUnless { it.speedKmh < 1.0 && gpsSpeedMps > TripTrackingService.OBD_ZERO_OVERRIDE_MPS }
+    ?.let { it.speedKmh / 3.6 }

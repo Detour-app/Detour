@@ -96,6 +96,19 @@ class Obd2ConnectionTest {
     }
 
     @Test
+    fun readUntilPromptReturnsNullWhenTextArrivesButThePromptNeverDoes() {
+        // A slow or echoing clone that emits a banner/partial frame but no '>'
+        // terminator before the deadline. Returning that partial text would let
+        // handshake() carry on and every poll read one prompt behind for the
+        // rest of the session; it must read as a timeout instead.
+        val input = streamOf("ELM327 v1.5\r")
+
+        val text = Obd2Connection.readUntilPrompt(input, 80L)
+
+        assertNull(text)
+    }
+
+    @Test
     fun handshakeHappyPathSendsAllThreeCommandsInOrder() {
         val input = streamOf("ELM327 v1.5\r\r>OK\r\r>OK\r\r>")
         val output = ByteArrayOutputStream()

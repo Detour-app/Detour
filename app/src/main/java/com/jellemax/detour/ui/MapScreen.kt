@@ -221,8 +221,6 @@ fun MapScreen(
     val stats by TripTrackingService.stats.collectAsStateWithLifecycle()
     val liveFix by TripTrackingService.lastFix.collectAsStateWithLifecycle()
     val liveTrace by TripTrackingService.liveTrace.collectAsStateWithLifecycle()
-    val obd2TachOnHud by Settings.obd2TachOnHud.collectAsStateWithLifecycle()
-    val obd2Telemetry by Obd2Connection.telemetry.collectAsStateWithLifecycle()
     val obd2State by Obd2Connection.connectionState.collectAsStateWithLifecycle()
     val obd2LastDataAtMs by Obd2Connection.lastDataAtMs.collectAsStateWithLifecycle()
     // Convoy: only present while ConvoyLiveService is running (started/stopped
@@ -1635,21 +1633,15 @@ fun MapScreen(
                                 averageKmh = sectionAvgKmh,
                                 averageLimitKmh = sectionLimitKmh,
                             )
-                            // Tach: opt-in, trip-only, and only while a paired
-                            // adapter is actually feeding RPM (3s freshness, same
-                            // window TripTrackingService uses for OBD2 speed).
-                            val tripMode = stats?.mode
-                            val freshRpm = obd2Telemetry?.takeIf { t ->
-                                t.hasRpm && System.currentTimeMillis() - t.receivedAtMs < 3_000L
-                            }
-                            if (obd2TachOnHud && tripMode != null && freshRpm != null) {
-                                RpmBar(freshRpm.rpmValue, tripMode, Modifier.fillMaxWidth())
-                            }
                             // Diagnostics: an adapter that fed this trip and has
                             // since dropped. Derived from timestamps, not a
                             // per-trip accumulator — clears itself on reconnect.
+                            // lastDataAtMs is never reset by Obd2Connection, so
+                            // this must be data seen *after* the trip started —
+                            // a previous trip's adapter that has since been
+                            // unplugged is not this trip's signal to lose.
                             val obd2FedThisTrip = stats?.let { s ->
-                                obd2LastDataAtMs?.let { it > s.startTimeMs - 120_000L }
+                                obd2LastDataAtMs?.let { it > s.startTimeMs }
                             } == true
                             Obd2SignalLostLabel(
                                 lost = obd2FedThisTrip &&

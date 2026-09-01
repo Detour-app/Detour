@@ -80,12 +80,6 @@ object Settings {
     private val _externalDisplayEnabled = MutableStateFlow(false)
     val externalDisplayEnabled: StateFlow<Boolean> = _externalDisplayEnabled
 
-    /** Draw a thin engine-RPM bar under the speed HUD while a trip is running and
-     *  a paired OBD2 adapter is feeding RPM. Off by default; only reachable from
-     *  the OBD2 pairing screen, and only shown there once an adapter is paired. */
-    private val _obd2TachOnHud = MutableStateFlow(false)
-    val obd2TachOnHud: StateFlow<Boolean> = _obd2TachOnHud
-
     /** The mode tab the user is on. The tracking service reads it to decide
      *  which motion sensors are worth registering, and stamps it on the trip —
      *  including an auto-detected one, which has no other way to know. */
@@ -189,7 +183,6 @@ object Settings {
         _avoidHighways.value = prefs.bool("avoid_highways", false)
         _avoidSmallRoads.value = prefs.bool("avoid_small_roads", false)
         _externalDisplayEnabled.value = prefs.bool("external_display_enabled", false)
-        _obd2TachOnHud.value = prefs.bool("obd2_tach_on_hud", false)
         _tripMode.value = TravelMode.of(prefs.string("trip_mode").takeIf { it.isNotEmpty() })
         _shareFog.value = prefs.bool("share_fog", false)
         _fogEnabled.value = prefs.bool("fog_enabled", true)
@@ -324,11 +317,6 @@ object Settings {
     fun setExternalDisplayEnabled(value: Boolean) {
         _externalDisplayEnabled.value = value
         prefs.put("external_display_enabled", value)
-    }
-
-    fun setObd2TachOnHud(value: Boolean) {
-        _obd2TachOnHud.value = value
-        prefs.put("obd2_tach_on_hud", value)
     }
 
     fun setTripMode(value: TravelMode) {
