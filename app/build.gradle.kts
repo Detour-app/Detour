@@ -61,12 +61,12 @@ android {
     // R class, invisible outside the build. Only applicationId is the identity
     // Play and the device see, and Play fixes it permanently at first upload.
     namespace = "com.jellemax.detour"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         // Play rejects an upload whose code isn't higher than every previous
         // one, and the phone and watch artifacts share an applicationId, so
         // they also need codes distinct from each other. CI stamps both from
