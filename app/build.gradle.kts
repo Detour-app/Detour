@@ -4,6 +4,10 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    // Navigation 3 persists the back stack through kotlinx-serialization, so the
+    // Destination keys need the serialization compiler plugin. The runtime
+    // library was already a dependency below; only the plugin is new.
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 // Routing server defaults baked into the APK. Read from local.properties
@@ -202,6 +206,12 @@ dependencies {
     // and the browser's own session, so the user can see who they are typing a
     // password into and does not type it again on the next device.
     implementation("androidx.browser:browser:1.8.0")
+    // Navigation 3: the app owns the back stack as a snapshot-state list and
+    // NavDisplay observes it, so a transition knows whether the list grew or
+    // shrank instead of inferring it from a hand-maintained depth. See
+    // app/.../nav/Destination.kt and #68.
+    implementation("androidx.navigation3:navigation3-runtime:1.1.7")
+    implementation("androidx.navigation3:navigation3-ui:1.1.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
     implementation("org.maplibre.gl:android-sdk:11.8.0")
