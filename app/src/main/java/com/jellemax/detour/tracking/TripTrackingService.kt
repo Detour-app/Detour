@@ -442,8 +442,17 @@ class TripTrackingService : Service() {
     private fun recordLean(deg: Double) {
         if (abs(deg) > MAX_PLAUSIBLE_LEAN_DEG) return
         // Below riding speed, "lean" is steering-head rake, not the bike
-        // actually leaning — see MIN_LEAN_SPEED_MPS.
-        if ((_stats.value?.currentSpeedMps ?: 0.0) < MIN_LEAN_SPEED_MPS) return
+        // actually leaning — see MIN_LEAN_SPEED_MPS. Skip the sample, but if the
+        // bike is also upright, drop the corner latch: onLeanSample never runs
+        // here to clear it, so a hard corner that bled off speed while leaned
+        // (slow hairpin, braking to a stop mid-lean) would otherwise leave
+        // leanCorneringNow stuck true and swallow the next corner. Still leaned
+        // past the threshold → keep the latch, same as onHeadingFix holds it
+        // through an unmeasurable fix rather than re-firing on a brief dip.
+        if ((_stats.value?.currentSpeedMps ?: 0.0) < MIN_LEAN_SPEED_MPS) {
+            if (abs(deg) < HardEventDetector.HARD_CORNER_LEAN_DEG) leanCorneringNow = false
+            return
+        }
         maxLeanDeg = maxOf(maxLeanDeg, abs(deg))
         if (abs(deg) > abs(segmentPeakLeanDeg)) segmentPeakLeanDeg = deg
         val (cornering, newEvent) = HardEventDetector.onLeanSample(leanCorneringNow, deg)
@@ -881,24 +890,27 @@ class TripTrackingService : Service() {
             // own Dispatchers.IO comment documents for the smaller trips.json).
             // `trip` above is already fully built from this-instant state, so
             // nothing here needs to run before the field resets below.
-            saveJob = serviceScope.launch {
+            val save = serviceScope.launch {
                 TripStore.save(trip)
                 checkBadges()
                 // Only tell the user about trips they didn't end themselves.
                 if (wasAuto) TripEndedNotification.show(this@TripTrackingService, stats.startTimeMs)
             }
-            // Unawaited — best-effort. onDestroy only joins saveJob above, so if
-            // the process dies before this finishes, the trip still exists (saved
-            // above) with twistinessScore at its placeholder default; only the
-            // expensive post-hoc score is lost, not the whole trip. Updates the
-            // already-saved trip via updateDrivingStats rather than a second
-            // TripStore.save call, which has no dedup and would duplicate the entry.
-            // syncQuietly() runs AFTER this update, not in saveJob above: a sync
-            // response applies via TripStore.replaceRaw (SyncClient.kt), which
-            // overwrites the local trips file wholesale — syncing before the
-            // twistiness write would let that response clobber it straight back
-            // to its placeholder on a signed-in device.
+            saveJob = save
+            // Unawaited — best-effort. onDestroy only joins saveJob above (and
+            // then syncs itself), so if the process dies before this finishes the
+            // trip still exists (saved above) with twistinessScore at its
+            // placeholder default; only the expensive post-hoc score is lost, not
+            // the whole trip. Joins `save` first: updateDrivingStats loads
+            // trips.json and no-ops if the trip isn't there yet, and a bare
+            // TripStore.save call has no dedup so it can't be used to race ahead.
+            // syncQuietly() runs AFTER the twistiness write, not in saveJob: a
+            // sync response applies via TripStore.replaceRaw (SyncClient.kt),
+            // which overwrites the local trips file wholesale — syncing before
+            // the write would let that response clobber it straight back to the
+            // placeholder on a signed-in device.
             serviceScope.launch {
+                save.join()
                 val twistiness = runCatching {
                     Curviness.traceScore(loadTripPoints(this@TripTrackingService, trip).map { it.at })
                 }.getOrDefault(0.0)
@@ -1447,6 +1459,13 @@ class TripTrackingService : Service() {
         val saveJob = endTrip()
         if (saveJob != null) {
             kotlinx.coroutines.runBlocking { saveJob.join() }
+            // endTrip's own syncQuietly() rides on the unawaited twistiness
+            // coroutine, which serviceScope.cancel() below kills mid-compute —
+            // so push the just-saved trip here instead. syncQuietly() runs on
+            // its own scope and returns immediately; the placeholder
+            // twistinessScore it carries is the same value that coroutine's
+            // loss leaves on this device anyway.
+            SyncClient.syncQuietly()
         }
         serviceScope.cancel()
         flushTrace()

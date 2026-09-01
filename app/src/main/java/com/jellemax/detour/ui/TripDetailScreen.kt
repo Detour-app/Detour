@@ -521,14 +521,20 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    // Road-type mix: share of this trip's distance on each highway
-                    // class, skipping classes with nothing recorded. Empty entirely
-                    // for an old trip, or one where the fetch never resolved.
-                    if (trip.drivingStats.roadTypeMeters.isNotEmpty() && trip.distanceMeters > 0) {
+                    // Road-type mix: share of the *classified* distance on each
+                    // highway class, skipping classes with nothing recorded.
+                    // Normalised against the sum of what was matched to a way, not
+                    // trip.distanceMeters — road-type accrual only starts once the
+                    // first Overpass fetch resolves and skips any fix that snaps to
+                    // no way, so dividing by the full trip distance makes the
+                    // shares silently sum to well under 100%. Empty entirely for an
+                    // old trip, or one where the fetch never resolved.
+                    val classifiedMeters = trip.drivingStats.roadTypeMeters.values.sum()
+                    if (trip.drivingStats.roadTypeMeters.isNotEmpty() && classifiedMeters > 0) {
                         Text(
                             HighwayClass.entries.mapNotNull { cls ->
                                 val meters = trip.drivingStats.roadTypeMeters[cls] ?: return@mapNotNull null
-                                val pct = (meters / trip.distanceMeters * 100.0).roundToInt()
+                                val pct = (meters / classifiedMeters * 100.0).roundToInt()
                                 "${cls.name.lowercase().replaceFirstChar { it.uppercase() }}: $pct%"
                             }.joinToString(" · "),
                             style = MaterialTheme.typography.labelSmall,
