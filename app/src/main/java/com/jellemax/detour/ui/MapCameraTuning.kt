@@ -34,8 +34,11 @@ internal const val CAM_ZOOM_TAU = 1.2
 // The speed readout is eased the same way, per frame rather than per fix: GPS
 // speed arrives about once a second, and a number that jumps once a second
 // reads as a laggy app even when the fix behind it is current. Short tau — the
-// readout has to be honest about braking, not just smooth.
-internal const val SPEED_TAU = 0.30
+// readout has to be honest about braking, not just smooth. Kept deliberately
+// low: a first-order filter trails a ramp by tau x rate, so at hard
+// acceleration every extra 0.1s here is a few km/h of visible lag before the
+// number snaps back.
+internal const val SPEED_TAU = 0.20
 // Below ~0.15 km/h of remaining gap the rounded number can't change; snap and
 // stop recomposing so a steady cruise doesn't repaint the HUD every frame.
 internal const val SPEED_EPS_KMH = 0.15

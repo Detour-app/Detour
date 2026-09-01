@@ -273,8 +273,20 @@ object Obd2Connection {
         // supports neither won't start supporting one mid-drive, and re-probing
         // both every cycle is a permanent extra request on the 1 Hz loop.
         var throttlePid: String? = null
+        // Speed changes fastest and is the one number the HUD eases toward, so it
+        // is polled last of the three (freshest at the telemetry publish below)
+        // and once more halfway through the inter-cycle wait. A first-order
+        // easing filter cannot lead its target, so a coarse 1 Hz staircase reads
+        // as the HUD lagging hard acceleration and then snapping — see
+        // MapCameraTuning.SPEED_TAU.
+        fun parseSpeed(r: PollResult) =
+            r.bytes?.let { Obd2Pids.parseSpeedKmh(it) }
+                // A single garbled byte can decode to a plausible-looking but
+                // impossible value (e.g. 0xFF -> 255 km/h); reject it the same
+                // as any other unparseable reading rather than let it become
+                // the trip's recorded topSpeedMps.
+                ?.takeIf { it <= MAX_PLAUSIBLE_SPEED_KMH }
         while (coroutineContext.isActive) {
-            val speedResult = pollPid(input, output, Obd2Pids.PID_SPEED)
             var throttleResult = pollPid(input, output, throttlePid ?: Obd2Pids.PID_THROTTLE_REL)
             if (throttlePid == null) {
                 if (throttleResult.bytes != null) {
@@ -287,12 +299,8 @@ object Obd2Connection {
                 }
             }
             val rpmResult = pollPid(input, output, Obd2Pids.PID_RPM)
-            val speed = speedResult.bytes?.let { Obd2Pids.parseSpeedKmh(it) }
-                // A single garbled byte can decode to a plausible-looking but
-                // impossible value (e.g. 0xFF -> 255 km/h); reject it the same
-                // as any other unparseable reading rather than let it become
-                // the trip's recorded topSpeedMps.
-                ?.takeIf { it <= MAX_PLAUSIBLE_SPEED_KMH }
+            val speedResult = pollPid(input, output, Obd2Pids.PID_SPEED)
+            val speed = parseSpeed(speedResult)
             val throttle = throttleResult.bytes?.let { Obd2Pids.parseThrottlePct(it) }
             val rpm = rpmResult.bytes?.let { Obd2Pids.parseRpm(it) }
                 ?.takeIf { it <= MAX_PLAUSIBLE_RPM }
@@ -313,7 +321,20 @@ object Obd2Connection {
                 hasRpm = rpm != null, rpmValue = rpm ?: 0.0,
                 receivedAtMs = System.currentTimeMillis(),
             )
-            delay(POLL_INTERVAL_MS)
+            delay(POLL_INTERVAL_MS / 2)
+            // Mid-cycle: refresh only speed, leaving this cycle's throttle/rpm in
+            // place. Halves the effective speed-sample spacing the HUD eases
+            // toward without a second full three-PID cycle. Skipped silently if
+            // it doesn't answer — the empty-poll watchdog is a whole-cycle signal.
+            parseSpeed(pollPid(input, output, Obd2Pids.PID_SPEED))?.let { midSpeed ->
+                _telemetry.value?.let { prev ->
+                    _telemetry.value = prev.copy(
+                        hasSpeed = true, speedKmh = midSpeed,
+                        receivedAtMs = System.currentTimeMillis(),
+                    )
+                }
+            }
+            delay(POLL_INTERVAL_MS / 2)
         }
     }
 

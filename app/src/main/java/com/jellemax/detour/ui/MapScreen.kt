@@ -1186,7 +1186,11 @@ fun MapScreen(
         var lastNs = withFrameNanos { it }
         while (true) {
             val ns = withFrameNanos { it }
-            val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.1)
+            // Cap only guards a post-resume gap (the frame clock pauses while
+            // backgrounded); 0.25s ~= one tau, enough that heavy frame jank
+            // during fast motion no longer starves the ease. exp() form is
+            // stable at any dt, so this is a smoothness knob, not a safety one.
+            val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.25)
             lastNs = ns
             val target = speedTarget.value
             val gap = target - retained.displaySpeedKmh
