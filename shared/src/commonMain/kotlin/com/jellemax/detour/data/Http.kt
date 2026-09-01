@@ -44,7 +44,18 @@ internal object Http {
         // Transparent gzip on responses, matching the old
         // "Accept-Encoding: gzip" + GZIPInputStream pair.
         install(ContentEncoding) { gzip() }
-        install(HttpTimeout) { connectTimeoutMillis = 5_000 }
+        install(HttpTimeout) {
+            connectTimeoutMillis = 5_000
+            // Without this the OkHttp/NSURLSession engine keeps its own ~10s
+            // read-timeout default, which a full-history sync blows through: the
+            // upload resends every trace (9 MB+ after a year) and the
+            // self-hosted server goes quiet for tens of seconds while it
+            // decompresses, merges and answers. This is the max gap between
+            // bytes, so it has to cover that whole silent stretch; per-request
+            // requestTimeoutMillis (30s default, 120s for /sync) is the ceiling
+            // that actually bounds a normal call.
+            socketTimeoutMillis = 120_000
+        }
     }
 
     /**

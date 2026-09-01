@@ -27,6 +27,10 @@ internal object Api {
         path: String,
         body: JsonObject? = null,
         auth: Boolean = true,
+        // The default suits the small social calls. /sync resends the whole
+        // trace history and merges it server-side, which on a self-hosted box
+        // runs well past 30s — SyncClient passes its own.
+        readTimeoutMs: Long = 30_000,
     ): String {
         val base = SyncClient.url() ?: throw IOException("No server configured")
         val bearer = if (auth) Auth.bearer() else null
@@ -52,6 +56,7 @@ internal object Api {
                 // Content-Encoding: gzip with a bound on the decompressed size,
                 // so this is unconditional rather than negotiated.
                 gzipBody = body != null,
+                readTimeoutMs = readTimeoutMs,
             )
         } catch (e: HttpStatusException) {
             val message = errorMessage(e.body) ?: "HTTP ${e.code}"
@@ -71,7 +76,8 @@ internal object Api {
         path: String,
         body: JsonObject? = null,
         auth: Boolean = true,
-    ): JsonObject = jsonObjectOf(request(method, path, body, auth))
+        readTimeoutMs: Long = 30_000,
+    ): JsonObject = jsonObjectOf(request(method, path, body, auth, readTimeoutMs))
 
     /**
      * The API answers errors as RFC 9457 problem details. `detail` carries the
