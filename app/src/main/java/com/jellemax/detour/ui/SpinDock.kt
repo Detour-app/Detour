@@ -393,6 +393,16 @@ internal fun SpinDock(
     Card(
         modifier = modifier
             .fillMaxWidth()
+            // The whole card rides the drag, not just the mode cell inside it.
+            // graphicsLayer, not offset/alpha modifiers: the lambda runs in the
+            // draw phase, so the per-frame read never triggers a recomposition.
+            // Outermost of the card's own modifiers so the glass border, the
+            // spin button and the nav button travel with it, and so the gesture
+            // below is hit-tested through the same transform.
+            .graphicsLayer {
+                translationX = swipe.offsetPx
+                alpha = 1f - (abs(swipe.offsetPx) / commitPx).coerceIn(0f, 1f) * DRAG_FADE
+            }
             .glassBorder(MaterialTheme.shapes.extraLarge)
             .modeSwitchAction(other, switchBlockedReason, onSwitchMode, onSwitchBlocked)
             .modeSwipeGesture(swipe, blockedRef, otherRef, onSwitchRef, onBlockedRef),
@@ -414,13 +424,6 @@ internal fun SpinDock(
                     directionDeg = directionDeg,
                     modifier = Modifier
                         .weight(1f)
-                        // graphicsLayer, not offset/alpha modifiers: the lambda runs
-                        // in the draw phase, so the per-frame read never triggers a
-                        // recomposition at all.
-                        .graphicsLayer {
-                            translationX = swipe.offsetPx
-                            alpha = 1f - (abs(swipe.offsetPx) / commitPx).coerceIn(0f, 1f) * DRAG_FADE
-                        }
                         .clickable(onClick = onExpand),
                 )
                 SpinButton(spinning = spinning, onSpin = onSpin)
