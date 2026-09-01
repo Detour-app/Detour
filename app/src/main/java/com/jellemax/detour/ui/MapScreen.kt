@@ -109,6 +109,8 @@ import com.jellemax.detour.map.FollowCamera
 import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.map.ModeSwipePolicy
 import com.jellemax.detour.map.NavPolicy
+import com.jellemax.detour.obd2.Obd2Connection
+import com.jellemax.detour.obd2.Obd2ConnectionState
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.wear.NavRelay
@@ -245,6 +247,8 @@ fun MapScreen(
     val stats by TripTrackingService.stats.collectAsStateWithLifecycle()
     val liveFix by TripTrackingService.lastFix.collectAsStateWithLifecycle()
     val liveTrace by TripTrackingService.liveTrace.collectAsStateWithLifecycle()
+    val obd2State by Obd2Connection.connectionState.collectAsStateWithLifecycle()
+    val obd2LastDataAtMs by Obd2Connection.lastDataAtMs.collectAsStateWithLifecycle()
     // Convoy: only present while ConvoyLiveService is running (started/stopped
     // from FriendsScreen's convoy list, see Convoys.join/leave there).
     val convoyConnected by ConvoyLiveClient.connected.collectAsStateWithLifecycle()
@@ -1172,15 +1176,21 @@ fun MapScreen(
         )
     }
 
-    // The speedometer, eased per frame toward the last fix. Keyed on nothing:
-    // it runs for as long as the map is composed, so the number is always
-    // gliding rather than stepping once per fix.
-    val speedTarget = rememberUpdatedState((liveFix?.speedMps ?: 0.0) * 3.6)
+    // The speedometer, eased per frame toward the display speed. Keyed on
+    // nothing: it runs for as long as the map is composed, so the number is
+    // always gliding rather than stepping once per fix. displaySpeedMps, not
+    // liveFix.speedMps — a paired OBD2 adapter refreshes it between GPS fixes.
+    val displaySpeedMps by TripTrackingService.displaySpeedMps.collectAsStateWithLifecycle()
+    val speedTarget = rememberUpdatedState(displaySpeedMps * 3.6)
     LaunchedEffect(Unit) {
         var lastNs = withFrameNanos { it }
         while (true) {
             val ns = withFrameNanos { it }
-            val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.1)
+            // Cap only guards a post-resume gap (the frame clock pauses while
+            // backgrounded); 0.25s ~= one tau, enough that heavy frame jank
+            // during fast motion no longer starves the ease. exp() form is
+            // stable at any dt, so this is a smoothness knob, not a safety one.
+            val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.25)
             lastNs = ns
             val target = speedTarget.value
             val gap = target - retained.displaySpeedKmh
@@ -1705,13 +1715,32 @@ fun MapScreen(
                     // stopping at a light fades the dial out instead of
                     // snatching it away mid-count.
                     liveFix?.takeIf { it.speedMps >= 1.4 || retained.displaySpeedKmh >= 2.0 }?.let {
-                        SpeedHud(
-                            speedKmh = retained.displaySpeedKmh,
-                            limitKmh = if (navigating) navProgress?.speedLimitKmh
-                                else retained.ambientSpeedLimitKmh,
-                            averageKmh = sectionAvgKmh,
-                            averageLimitKmh = sectionLimitKmh,
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            SpeedHud(
+                                speedKmh = retained.displaySpeedKmh,
+                                limitKmh = if (navigating) navProgress?.speedLimitKmh
+                                    else retained.ambientSpeedLimitKmh,
+                                averageKmh = sectionAvgKmh,
+                                averageLimitKmh = sectionLimitKmh,
+                            )
+                            // Diagnostics: an adapter that fed this trip and has
+                            // since dropped. Derived from timestamps, not a
+                            // per-trip accumulator — clears itself on reconnect.
+                            // lastDataAtMs is never reset by Obd2Connection, so
+                            // this must be data seen *after* the trip started —
+                            // a previous trip's adapter that has since been
+                            // unplugged is not this trip's signal to lose.
+                            val obd2FedThisTrip = stats?.let { s ->
+                                obd2LastDataAtMs?.let { it > s.startTimeMs }
+                            } == true
+                            Obd2SignalLostLabel(
+                                lost = obd2FedThisTrip &&
+                                    obd2State != Obd2ConnectionState.CONNECTED,
+                            )
+                        }
                     }
                 }
 

@@ -261,6 +261,19 @@ private fun SectionAverageChip(averageKmh: Double, limitKmh: Double?, modifier: 
     }
 }
 
+/** "OBD2 signal lost" — shown under the speed HUD when an adapter that was
+ *  feeding this trip has dropped and not yet reconnected (gated by the caller).
+ *  A no-op when [lost] is false so the caller can place it unconditionally. */
+@Composable
+internal fun Obd2SignalLostLabel(lost: Boolean) {
+    if (!lost) return
+    Text(
+        "OBD2 signal lost",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.error,
+    )
+}
+
 /** Live trip numbers, minus the ones already on screen: current speed is the
  *  HUD, and a car has no lean angle worth printing. */
 @Composable

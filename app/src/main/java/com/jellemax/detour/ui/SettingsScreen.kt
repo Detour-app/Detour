@@ -41,6 +41,7 @@ import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.Navigation
+import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -104,7 +105,7 @@ import kotlinx.coroutines.withContext
 import kotlin.math.atan2
 
 /**
- * The six spokes off the Settings root. Internal to this screen — not new
+ * The spokes off the Settings root. Internal to this screen — not new
  * MainActivity screens — so the same push/pop feel as Hub-and-back applies
  * without adding another layer to the app-wide Screen enum.
  *
@@ -122,6 +123,7 @@ private enum class SettingsPage(val title: String, val depth: Int) {
     FOG("Fog of war", 1),
     DISPLAYS_MEDIA("Displays & media", 1),
     SERVERS_SYNC("Servers & sync", 1),
+    OBD2("OBD2 adapter", 1),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -203,6 +205,12 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 else "Signed in as $authUsername",
                             onClick = { page = SettingsPage.SERVERS_SYNC },
                         )
+                        HubRow(
+                            icon = Icons.Outlined.Speed,
+                            title = SettingsPage.OBD2.title,
+                            subtitle = "Connect a vehicle's OBD2 adapter for accurate speed",
+                            onClick = { page = SettingsPage.OBD2 },
+                        )
                         Text(
                             "Detour ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                             style = MaterialTheme.typography.bodySmall,
@@ -236,6 +244,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                         ConfigFileSection()
                         DiagnosticsSection()
                     }
+                    SettingsPage.OBD2 -> Obd2PairingScreen()
                 }
             }
         }
