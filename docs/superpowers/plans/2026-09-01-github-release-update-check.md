@@ -1348,7 +1348,20 @@ Then in the `Column`, immediately before `AccountCard(`:
             )
 ```
 
-`scope` must exist in that composable. If it does not, add `val scope = rememberCoroutineScope()` beside the other `remember` calls, and import `androidx.compose.runtime.rememberCoroutineScope`, `kotlinx.coroutines.Dispatchers` and `kotlinx.coroutines.launch`.
+Verified on 2026-09-01: `HubScreen` already has `val context = LocalContext.current` (line 82)
+and already imports `kotlinx.coroutines.Dispatchers` and `kotlinx.coroutines.withContext`. It
+does **not** have a `CoroutineScope`. So add exactly:
+
+```kotlin
+    val scope = rememberCoroutineScope()
+```
+
+beside the other `remember` calls, plus these two imports:
+
+```kotlin
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+```
 
 - [ ] **Step 3: Verify it compiles**
 
@@ -1413,19 +1426,22 @@ Add to `MainActivity`:
     }
 ```
 
-Add the imports:
+Verified on 2026-09-01: `MainActivity` is `class MainActivity : ComponentActivity()` and
+already imports `androidx.lifecycle.lifecycleScope` (:22), `com.jellemax.detour.data.Settings`
+(:28), `kotlinx.coroutines.Dispatchers` (:52), `kotlinx.coroutines.launch` (:53). It overrides
+`onCreate` and `onNewIntent` but **not** `onStart`, so the new override is genuinely new.
+
+Add only the imports it does not already have:
 
 ```kotlin
-import androidx.lifecycle.lifecycleScope
-import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.UpdateClient
 import com.jellemax.detour.update.UpdateDownloader
 import com.jellemax.detour.update.UpdateNotification
 import com.jellemax.detour.update.UpdateState
 import com.jellemax.detour.update.UpdateStatus
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 ```
+
+`BuildConfig` is in this file's own package, so it needs no import.
 
 The `UpdateState.current()?.version != update.version` guard is what stops a
 re-check from throwing away an in-flight download of the same version.
