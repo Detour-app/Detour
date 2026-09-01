@@ -89,6 +89,11 @@ object Obd2Connection {
     // physically impossible. Caps what can become the recorded topSpeedMps the
     // same way MAX_PLAUSIBLE_G/MAX_PLAUSIBLE_LEAN_DEG cap those maxes.
     private const val MAX_PLAUSIBLE_SPEED_KMH = 300.0
+    // Same guard for RPM: parseRpm is (256*A + B)/4, so a garbled two-byte
+    // response that keeps the 41 0C header decodes to as much as 16383.75, which
+    // then pins the trip's monotonic obdMaxRpm for the rest of the drive. Above
+    // any street bike or car redline.
+    private const val MAX_PLAUSIBLE_RPM = 20_000.0
 
     private val _telemetry = MutableStateFlow<ObdTelemetry?>(null)
     val telemetry: StateFlow<ObdTelemetry?> = _telemetry
@@ -263,7 +268,10 @@ object Obd2Connection {
         var consecutiveEmptyPolls = 0
         // Relative throttle (pedal) is preferred, but not every vehicle reports
         // it. null = undecided: try 0145, and on a clean unsupported answer fall
-        // back to 0111 for the rest of this connection.
+        // back to 0111. Once either probe answers (with data or a sticky NO DATA)
+        // throttlePid is fixed for the rest of this connection — a vehicle that
+        // supports neither won't start supporting one mid-drive, and re-probing
+        // both every cycle is a permanent extra request on the 1 Hz loop.
         var throttlePid: String? = null
         while (coroutineContext.isActive) {
             val speedResult = pollPid(input, output, Obd2Pids.PID_SPEED)
@@ -273,7 +281,9 @@ object Obd2Connection {
                     throttlePid = Obd2Pids.PID_THROTTLE_REL
                 } else if (throttleResult.answered) {
                     throttleResult = pollPid(input, output, Obd2Pids.PID_THROTTLE)
-                    if (throttleResult.bytes != null) throttlePid = Obd2Pids.PID_THROTTLE
+                    throttlePid =
+                        if (throttleResult.bytes != null) Obd2Pids.PID_THROTTLE
+                        else Obd2Pids.PID_THROTTLE_REL // both unsupported; stop probing
                 }
             }
             val rpmResult = pollPid(input, output, Obd2Pids.PID_RPM)
@@ -285,6 +295,7 @@ object Obd2Connection {
                 ?.takeIf { it <= MAX_PLAUSIBLE_SPEED_KMH }
             val throttle = throttleResult.bytes?.let { Obd2Pids.parseThrottlePct(it) }
             val rpm = rpmResult.bytes?.let { Obd2Pids.parseRpm(it) }
+                ?.takeIf { it <= MAX_PLAUSIBLE_RPM }
             if (!speedResult.answered && !throttleResult.answered && !rpmResult.answered) {
                 consecutiveEmptyPolls++
                 if (consecutiveEmptyPolls >= MAX_CONSECUTIVE_EMPTY_POLLS) {

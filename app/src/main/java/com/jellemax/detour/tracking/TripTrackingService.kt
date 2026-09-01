@@ -257,6 +257,16 @@ class TripTrackingService : Service() {
         private val _lastFix = MutableStateFlow<Fix?>(null)
         val lastFix: StateFlow<Fix?> = _lastFix
 
+        /** Best-available display speed in m/s, on a faster cadence than [lastFix]:
+         *  a paired OBD2 adapter refreshes this every ~1s between GPS fixes so the
+         *  speed HUD keeps gliding through a tunnel or a pocketed phone. [lastFix]
+         *  stays on the GPS cadence on purpose — position and time there move
+         *  together, and a bare speed refresh on it would depress every section-
+         *  average / speed-limit / relay consumer that keys distance off the fix
+         *  position while keying time off the wall clock. */
+        private val _displaySpeedMps = MutableStateFlow(0.0)
+        val displaySpeedMps: StateFlow<Double> = _displaySpeedMps
+
         /** Trace points not yet flushed to [TraceStore]; live fog-of-war. */
         private val _liveTrace = MutableStateFlow<List<LatLon>>(emptyList())
         val liveTrace: StateFlow<List<LatLon>> = _liveTrace
@@ -845,21 +855,21 @@ class TripTrackingService : Service() {
             serviceScope.launch { circleSyncLoop() }
         }
 
-        // The HUD, camera and relays all read _lastFix.speedMps, which onLocation
-        // only recomputes on a GPS callback. When fixes stretch out (tunnel, a
-        // phone in a pocket) an OBD2 adapter keeps reporting speed every ~1s;
-        // refresh the resolved speed off its telemetry so the map keeps pace
-        // with the pairing screen instead of freezing between fixes. Main
-        // dispatcher: same thread onLocation writes _lastFix on, so no race.
+        // The speed HUD reads [displaySpeedMps], which onLocation only recomputes
+        // on a GPS callback. When fixes stretch out (tunnel, a phone in a pocket)
+        // an OBD2 adapter keeps reporting speed every ~1s; refresh the resolved
+        // speed off its telemetry so the dial keeps pace with the pairing screen
+        // instead of freezing between fixes. Only [displaySpeedMps] — never
+        // [_lastFix] — so section/limit/relay consumers keying off the fix
+        // position aren't fed a stale-position, fresh-time step. Main dispatcher:
+        // same thread onLocation writes on, so no race.
         if (!obdSpeedRefreshStarted) {
             obdSpeedRefreshStarted = true
             serviceScope.launch(Dispatchers.Main.immediate) {
                 Obd2Connection.telemetry.collect { _ ->
-                    val cur = _lastFix.value ?: return@collect
+                    if (_lastFix.value == null) return@collect
                     val refreshed = resolveDisplaySpeedMps(lastGpsSpeedMps, resolvedMode())
-                    if (refreshed != cur.speedMps) {
-                        _lastFix.value = cur.copy(speedMps = refreshed)
-                    }
+                    if (refreshed != _displaySpeedMps.value) _displaySpeedMps.value = refreshed
                 }
             }
         }
@@ -1024,6 +1034,11 @@ class TripTrackingService : Service() {
             // twistiness write would let that response clobber it straight back
             // to its placeholder on a signed-in device.
             serviceScope.launch {
+                // After the save above: updateDrivingStats no-ops if the trip
+                // isn't in trips.json yet, and serviceScope is a multi-thread
+                // pool, so without this join loadTripPoints+traceScore can beat
+                // TripStore.save's read/write and the score is silently dropped.
+                saveJob?.join()
                 val twistiness = runCatching {
                     Curviness.traceScore(loadTripPoints(this@TripTrackingService, trip).map { it.at })
                 }.getOrDefault(0.0)
@@ -1186,7 +1201,7 @@ class TripTrackingService : Service() {
     private fun onLocation(location: Location) {
         val speed = speedOf(location)
         lastGpsSpeedMps = speed
-        _lastFix.value = Fix(
+        val fix = Fix(
             lat = location.latitude,
             lon = location.longitude,
             speedMps = resolveDisplaySpeedMps(speed, resolvedMode()),
@@ -1195,6 +1210,8 @@ class TripTrackingService : Service() {
             timeMs = location.time,
             elapsedRealtimeMs = location.elapsedRealtimeNanos / 1_000_000L,
         )
+        _lastFix.value = fix
+        _displaySpeedMps.value = fix.speedMps
         val stats = _stats.value
         if (stats == null) {
             onIdleLocation(location, speed)

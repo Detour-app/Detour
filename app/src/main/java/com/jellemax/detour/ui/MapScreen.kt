@@ -1176,10 +1176,12 @@ fun MapScreen(
         )
     }
 
-    // The speedometer, eased per frame toward the last fix. Keyed on nothing:
-    // it runs for as long as the map is composed, so the number is always
-    // gliding rather than stepping once per fix.
-    val speedTarget = rememberUpdatedState((liveFix?.speedMps ?: 0.0) * 3.6)
+    // The speedometer, eased per frame toward the display speed. Keyed on
+    // nothing: it runs for as long as the map is composed, so the number is
+    // always gliding rather than stepping once per fix. displaySpeedMps, not
+    // liveFix.speedMps — a paired OBD2 adapter refreshes it between GPS fixes.
+    val displaySpeedMps by TripTrackingService.displaySpeedMps.collectAsStateWithLifecycle()
+    val speedTarget = rememberUpdatedState(displaySpeedMps * 3.6)
     LaunchedEffect(Unit) {
         var lastNs = withFrameNanos { it }
         while (true) {
