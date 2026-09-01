@@ -234,6 +234,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                         ServerSection()
                         SyncSection()
                         ConfigFileSection()
+                        DiagnosticsSection()
                     }
                 }
             }
@@ -1107,8 +1108,11 @@ private fun LeanCalibrationSection() {
     }
 }
 
+/** internal, not private: SettingsDiagnostics.kt is a second file in this
+ *  package holding a section, because this one is already past the 1000-line
+ *  limit. Duplicating the card there would let the two drift. */
 @Composable
-private fun SettingsSection(title: String, content: @Composable () -> Unit) {
+internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
     Card {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(

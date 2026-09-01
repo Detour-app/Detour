@@ -61,19 +61,19 @@ android {
     // R class, invisible outside the build. Only applicationId is the identity
     // Play and the device see, and Play fixes it permanently at first upload.
     namespace = "com.jellemax.detour"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         // Play rejects an upload whose code isn't higher than every previous
         // one, and the phone and watch artifacts share an applicationId, so
         // they also need codes distinct from each other. CI stamps both from
         // the run number (see .github/workflows/build.yml); a local build
         // keeps the literal.
         versionCode = System.getenv("VERSION_CODE")?.toInt() ?: 82
-        versionName = "1.88.1"
+        versionName = "1.89.1"
 
         buildConfigField("String", "ROUTING_URL",
             "\"${serviceUrl("routing.url", "ROUTING_SERVER_URL")}\"")

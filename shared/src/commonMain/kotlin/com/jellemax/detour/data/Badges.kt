@@ -115,7 +115,9 @@ object BadgeStore {
      * straight through. See [RiderTotals.current].
      */
     fun stats(coverage: List<Coverage.Entry>): RiderStats {
+        val t = Perf.start()
         val totals = RiderTotals.current()
+        Perf.end(t, "BadgeStore.stats") { listOf("municipalities" to coverage.size) }
         return RiderStats(
             totalDistanceMeters = totals.totalDistanceMeters,
             topSpeedKmh = totals.topSpeedMps * 3.6,
@@ -143,6 +145,7 @@ object BadgeStore {
      * call repeatedly: a badge keeps the timestamp it was first earned at.
      */
     fun refresh(stats: RiderStats): Result {
+        val t = Perf.start()
         val earned = load().toMutableMap()
         val now = nowMs()
         val newlyEarned = ArrayList<BadgeDef>()
@@ -156,6 +159,7 @@ object BadgeStore {
             BadgeState(def, value, earned[def.id])
         }
         if (newlyEarned.isNotEmpty()) save(earned)
+        Perf.end(t, "BadgeStore.refresh") { listOf("badges" to earned.size) }
         return Result(states, newlyEarned)
     }
 

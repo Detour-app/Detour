@@ -223,7 +223,16 @@ object RiderTotals {
     fun current(): TripTotals {
         val held = stored()
         if (freshness(held, nowMs()) != Freshness.INVALID) return held!!
-        return foldAll(TripStore.load(), nowMs()).also { store(it) }
+        // Only the INVALID path is measured, and under its own label: this is the
+        // fold happening on the rider's critical path, which is the thing #83
+        // moved off it. Sharing a label with [refreshIfStale] would hide whether
+        // that separation is still holding.
+        val t = Perf.start()
+        val trips = TripStore.load()
+        return foldAll(trips, nowMs()).also {
+            store(it)
+            Perf.end(t, "RiderTotals.current.fold") { listOf("trips" to trips.size) }
+        }
     }
 
     /**
@@ -247,7 +256,10 @@ object RiderTotals {
         if (refreshing) return
         refreshing = true
         try {
-            store(foldAll(TripStore.load(), nowMs()))
+            val t = Perf.start()
+            val trips = TripStore.load()
+            store(foldAll(trips, nowMs()))
+            Perf.end(t, "RiderTotals.refreshIfStale") { listOf("trips" to trips.size) }
         } finally {
             refreshing = false
         }

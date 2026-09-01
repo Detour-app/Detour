@@ -195,42 +195,6 @@ jobs:
           name: detour-mapping-${{ steps.version.outputs.name }}
           path: app/build/outputs/mapping/release/mapping.txt
 
-      # Play first, GitHub second: an upload Play rejects (duplicate code, a
-      # bundle that fails its checks) should stop the run before a tag and a
-      # release exist claiming that version shipped. When the gate above turns
-      # it off the step is skipped outright, so the GitHub release still cuts.
-      #
-      # internal: available to the testers on that list within minutes, no
-      # review queue. Promote to production from the Play Console when a build
-      # has earned it — nothing here writes to a public track.
-      #
-      # Phone bundle only. The two bundles used to go up in one release edit,
-      # which Play rejected outright:
-      #
-      #   The APK or bundle with version code 1189 requires the Wear OS system
-      #   feature android.hardware.type.watch. To publish this app on the
-      #   current track, remove this artifact.
-      #
-      # `internal` is a phone track and will not hold an artifact declaring
-      # <uses-feature android.hardware.type.watch>, no matter that the app has
-      # the Wear OS form factor — the form factor is what creates the separate
-      # `wear:` tracks the watch bundle belongs on. One rejected watch bundle
-      # therefore failed the phone upload too, and with it the tag and the
-      # GitHub release. They are two edits now, on their own tracks.
-      - name: Publish phone bundle to Play internal track
-        if: github.event_name == 'push' && steps.play.outputs.enabled == 'true'
-        uses: r0adkll/upload-google-play@v1
-        with:
-          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: io.github.maxke24.detour
-          # Comma-separated, on one line: this action splits releaseFiles on
-          # commas only, so a YAML block scalar hands it one glob with a
-          # newline in the middle and it matches nothing.
-          releaseFiles: app/build/outputs/bundle/release/app-release.aab
-          track: internal
-          status: completed
-          mappingFile: app/build/outputs/mapping/release/mapping.txt
-
       # Tagged per version, so old builds stay downloadable instead of being
       # overwritten. Pushing twice without bumping versionName in
       # app/build.gradle.kts replaces that version's release rather than
@@ -291,6 +255,54 @@ jobs:
             under Settings → Routing server and Settings → Backup sync, or
             import a saved config under Settings → Server config file. See
             `backend/README.md` to host one.
+
+      # GitHub first, Play second — the reverse of what this used to do.
+      #
+      # The old order existed so that an upload Play rejects would stop the run
+      # before a tag and a release existed claiming that version shipped. That
+      # reasoning assumed the GitHub release was the lesser channel. It is not
+      # any more: since the in-app update check landed, that release *is* how
+      # every sideloaded install learns a new version exists, so withholding it
+      # over a Play verdict withholds updates from the riders who cannot get
+      # them any other way.
+      #
+      # It also conflates two unrelated verdicts. Play rejected 1.88.0 for
+      # targeting API 35 when its policy had moved to 36 — a statement about
+      # store policy, not about whether the artifact is fit to sideload.
+      #
+      # A Play failure still fails the job, so it stays visible. It just no
+      # longer takes the release with it.
+      #
+      # internal: available to the testers on that list within minutes, no
+      # review queue. Promote to production from the Play Console when a build
+      # has earned it — nothing here writes to a public track.
+      #
+      # Phone bundle only. The two bundles used to go up in one release edit,
+      # which Play rejected outright:
+      #
+      #   The APK or bundle with version code 1189 requires the Wear OS system
+      #   feature android.hardware.type.watch. To publish this app on the
+      #   current track, remove this artifact.
+      #
+      # `internal` is a phone track and will not hold an artifact declaring
+      # <uses-feature android.hardware.type.watch>, no matter that the app has
+      # the Wear OS form factor — the form factor is what creates the separate
+      # `wear:` tracks the watch bundle belongs on. One rejected watch bundle
+      # therefore failed the phone upload too, and with it the tag and the
+      # GitHub release. They are two edits now, on their own tracks.
+      - name: Publish phone bundle to Play internal track
+        if: github.event_name == 'push' && steps.play.outputs.enabled == 'true'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: io.github.maxke24.detour
+          # Comma-separated, on one line: this action splits releaseFiles on
+          # commas only, so a YAML block scalar hands it one glob with a
+          # newline in the middle and it matches nothing.
+          releaseFiles: app/build/outputs/bundle/release/app-release.aab
+          track: internal
+          status: completed
+          mappingFile: app/build/outputs/mapping/release/mapping.txt
 
       # `wear:internal` — the internal track of the Wear OS form factor, a
       # different track from the `internal` above and the only one that accepts

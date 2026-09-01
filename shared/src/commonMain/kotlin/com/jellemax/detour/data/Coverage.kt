@@ -88,9 +88,18 @@ data class Municipality(
     }
 
     private fun gridInterior(): Set<Long> {
+        // Measured here rather than around [insideCells]: that is a `by lazy`, so
+        // wrapping the property would time a memo read on every call but the
+        // first, and the first is the only one that costs anything.
+        val t = Perf.start()
         val rows = ceil((maxLat - minLat) / cellDegLat).toInt()
         val cols = ceil((maxLon - minLon) / cellDegLon).toInt()
-        if (rows <= 0 || cols <= 0 || rows.toLong() * cols > MAX_CELLS) return emptySet()
+        if (rows <= 0 || cols <= 0 || rows.toLong() * cols > MAX_CELLS) {
+            Perf.end(t, "Municipality.gridInterior") {
+                listOf("ringPoints" to points.size, "cells" to 0)
+            }
+            return emptySet()
+        }
         val cells = HashSet<Long>(rows * cols / 2)
         for (row in 0 until rows) {
             val lat = minLat + (row + 0.5) * cellDegLat
@@ -98,6 +107,9 @@ data class Municipality(
                 val lon = minLon + (col + 0.5) * cellDegLon
                 if (contains(LatLon(lat, lon))) cells.add(row * 1_000_000L + col)
             }
+        }
+        Perf.end(t, "Municipality.gridInterior") {
+            listOf("ringPoints" to points.size, "cells" to cells.size)
         }
         return cells
     }
@@ -137,7 +149,13 @@ object MunicipalityStore {
     private val writeLock = Mutex()
 
     fun load(): List<Municipality> {
-        cache?.let { return it }
+        val t = Perf.start()
+        cache?.let {
+            Perf.end(t, "MunicipalityStore.load") {
+                listOf("boundaries" to it.size, "hit" to 1)
+            }
+            return it
+        }
         val f = accountFile(FILE_NAME)
         val loaded = if (!f.exists()) emptyList() else try {
             jsonArrayOf(f.readText()).objects().mapNotNull { parse(it) }
@@ -145,6 +163,9 @@ object MunicipalityStore {
             emptyList()
         }
         cache = loaded
+        Perf.end(t, "MunicipalityStore.load") {
+            listOf("boundaries" to loaded.size, "hit" to 0)
+        }
         return loaded
     }
 
@@ -155,9 +176,27 @@ object MunicipalityStore {
         misses = emptySet()
     }
 
-    /** True when [p] is in no known boundary and hasn't already missed. */
-    fun needsLookup(p: LatLon): Boolean =
-        missKey(p) !in misses && load().none { it.contains(p) }
+    /**
+     * True when [p] is in no known boundary and hasn't already missed.
+     *
+     * The only instrumented function on the GPS callback path
+     * (`TripTrackingService.kt:1150`, `TripRecorder.swift:367`), and the reason
+     * it is instrumented is the second clause: [load] is memoised, so what
+     * actually runs per fix is an even-odd ray cast over every ring of every
+     * boundary this rider has ever driven into. That grows with how far they
+     * have ridden. Aggregated rather than written per call — see
+     * `PerfLog.isHot`.
+     */
+    fun needsLookup(p: LatLon): Boolean {
+        val t = Perf.start()
+        val needs = missKey(p) !in misses && load().none { it.contains(p) }
+        // The memo, not load() — the covariate has to be O(1). Summing ring
+        // points per fix would cost more than the call being measured, and the
+        // per-boundary ring size is already carried by
+        // `Municipality.gridInterior`'s own record.
+        Perf.end(t, "MunicipalityStore.needsLookup") { listOf("boundaries" to (cache?.size ?: 0)) }
+        return needs
+    }
 
     /**
      * Resolves [p] to its municipality and stores it. The network/parse leg
@@ -323,14 +362,25 @@ object Coverage {
     /** Walks every trace point once per municipality it could belong to. Cheap
      *  enough for a screen open or a trip end; not for a GPS callback. */
     fun compute(): List<Entry> {
+        val t = Perf.start()
         val municipalities = MunicipalityStore.load()
         val traceVersion = TraceStore.version.value
         cache?.let { c ->
-            if (c.traceVersion == traceVersion && c.municipalities === municipalities) return c.entries
+            if (c.traceVersion == traceVersion && c.municipalities === municipalities) {
+                // Recorded as a hit rather than skipped: a cache hit is nearly
+                // free, and a series that silently omitted them would make the
+                // first call's cost look like the cost of every call.
+                Perf.end(t, "Coverage.compute") {
+                    listOf("points" to 0, "municipalities" to municipalities.size, "hit" to 1)
+                }
+                return c.entries
+            }
         }
 
+        var pointCount = 0
         val entries = if (municipalities.isEmpty()) emptyList() else {
             val points = TraceStore.loadAll().flatten()
+            pointCount = points.size
             municipalities.map { m ->
                 val explored = HashSet<Long>()
                 for (p in points) {
@@ -343,6 +393,12 @@ object Coverage {
         }
 
         cache = Cache(traceVersion, municipalities, entries)
+        // Two covariates, not one: this walks trace points *against*
+        // municipalities, and a record carrying a single scalar could not say
+        // which of the two moved.
+        Perf.end(t, "Coverage.compute") {
+            listOf("points" to pointCount, "municipalities" to municipalities.size, "hit" to 0)
+        }
         return entries
     }
 }

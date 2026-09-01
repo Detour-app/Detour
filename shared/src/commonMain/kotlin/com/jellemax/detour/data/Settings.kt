@@ -40,6 +40,15 @@ object Settings {
     /** The hint variant a fresh install gets. See `Settings.swipeHintVariant`. */
     const val SWIPE_HINT_VARIANT_DEFAULT = "nudge"
 
+    /** The bag every setting here lives in, and the one key inside it that has
+     *  to be readable before [init] has run: the #84 timing sink is installed
+     *  from `Application.onCreate`, which is the only place that runs ahead of
+     *  all four entry points that call [init] (the activity, the tracking
+     *  service, the car session, the notify service). Reading the key directly
+     *  there is what stops the install being written out four times. */
+    const val PREFS_NAME = "settings"
+    const val PERF_TRACING_KEY = "perf_tracing"
+
     private var store: Prefs? = null
     private val prefs: Prefs get() = store ?: error("Settings.init() not called")
 
@@ -125,6 +134,17 @@ object Settings {
      *  hands a friend's traces to someone who is also sharing theirs. */
     private val _shareFog = MutableStateFlow(false)
     val shareFog: StateFlow<Boolean> = _shareFog
+
+    /** Record per-function timings against the size of the data they ran over,
+     *  to `filesDir/perf.jsonl`. #84.
+     *
+     *  Off by default in every build, and shipped in release rather than gated
+     *  to debug on purpose: growth shows up in a real rider's history, which a
+     *  debug install does not have. With it off, `Perf` has no sink and costs a
+     *  volatile read; the file never exists until someone turns this on. Never
+     *  synced — see `app/.../perf/PerfSink.kt` for why it stays on one device. */
+    private val _perfTracing = MutableStateFlow(false)
+    val perfTracing: StateFlow<Boolean> = _perfTracing
 
     /** Whether search may retry via the public Photon instance (komoot.io) when
      *  a configured custom/baked geocoder is unreachable — sends the query and
@@ -247,7 +267,7 @@ object Settings {
         // reconcileAtLaunch() is idempotent and catches per file, and every
         // line below is an assignment. `secure` is reachable throughout
         // because it hangs off secureStore, not off this.
-        store = prefs("settings")
+        store = prefs(PREFS_NAME)
         _theme.value = runCatching {
             Theme.valueOf(prefs.string("theme", Theme.AUTO.name))
         }.getOrDefault(Theme.AUTO)
@@ -259,6 +279,7 @@ object Settings {
         _modeSwipesUsed.value = prefs.long("mode_swipes_used", 0L)
         _swipeHintVariant.value = prefs.string("swipe_hint_variant", SWIPE_HINT_VARIANT_DEFAULT)
         _shareFog.value = prefs.bool("share_fog", false)
+        _perfTracing.value = prefs.bool(PERF_TRACING_KEY, false)
         _fogEnabled.value = prefs.bool("fog_enabled", true)
         _fogRadiusMeters.value = prefs.float("fog_radius_m", FOG_RADIUS_DEFAULT)
         _defaultZoom.value = prefs.float("default_zoom", DEFAULT_ZOOM_DEFAULT)
@@ -410,6 +431,11 @@ object Settings {
     fun setShareFog(value: Boolean) {
         _shareFog.value = value
         prefs.put("share_fog", value)
+    }
+
+    fun setPerfTracing(value: Boolean) {
+        _perfTracing.value = value
+        prefs.put(PERF_TRACING_KEY, value)
     }
 
     fun setFogEnabled(value: Boolean) {
