@@ -278,8 +278,8 @@ private fun AppRoot() {
     // (AndroidManifest.xml:50), so the gesture was opted into with nothing
     // drawing it.
     //
-    // The two animation bodies are the ones ui/PushPopContent shipped, moved
-    // verbatim. Only the choice between them changed hands.
+    // The two animation bodies are the ones ui/PushPopContent shipped before it
+    // was deleted, moved verbatim. Only the choice between them changed hands.
     NavDisplay(
         backStack = backStack,
         onBack = { backStack.pop() },
