@@ -2,9 +2,7 @@ using Detour.Api.Configuration;
 using Detour.Api.Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
-using Shared.Api.RateLimiting;
 
 namespace Detour.Api.Controllers;
 
@@ -16,17 +14,26 @@ namespace Detour.Api.Controllers;
 /// answers is which realm mints them. Nothing here is a secret — the realm
 /// address is typed by riders and displayed by their browsers.
 ///
-/// Rate-limited where health is not, and deliberately so: health is polled by
-/// load balancers and uptime monitors on a fixed cadence, so the 20-token /
-/// 10-per-60s per-IP bucket would throttle exactly the caller that must never
-/// be throttled. This endpoint is hit once per interactive sign-in, a rate that
-/// budget fits.
+/// Covered by the global per-IP limiter only, exactly as <c>/api/health</c> is,
+/// and *not* by the tighter <c>RateLimitPolicies.Anonymous</c> policy — even
+/// though the shape of this endpoint is what that policy was written for.
+///
+/// The reason is #119: nothing in this service reads <c>X-Forwarded-*</c>, so
+/// behind a reverse proxy every caller resolves to the proxy's address and a
+/// per-IP bucket is one bucket for the whole deployment. A 20-token /
+/// 10-per-60s budget shared that way is roughly ten sign-ins a minute across
+/// every rider, and the client cannot tell the resulting 429 from "this server
+/// has no capability endpoint" — so a correctly configured server would report
+/// a configuration error for a transient one.
+///
+/// Apply the policy here once #119 lands and a per-IP bucket means one client
+/// again. Until then the tighter budget would cost sign-ins and buy nothing
+/// that the global limiter does not already provide.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 [Produces("application/json")]
 [AllowAnonymous]
-[EnableRateLimiting(RateLimitPolicies.Anonymous)]
 public class CapabilitiesController(IOptions<IdpSettings> idpSettings) : ControllerBase
 {
     [HttpGet]

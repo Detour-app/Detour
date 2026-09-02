@@ -40,8 +40,11 @@ separate dead ends say the same thing a different way:
 
 ### The endpoint
 
-`GET /api/capabilities`, unauthenticated, on the anonymous rate-limit bucket
-`docs/BACKEND_SPEC.md` §15.2 already defines for tokenless endpoints. Same trust level as
+`GET /api/capabilities`, unauthenticated, covered by the global per-IP limiter only. It is
+*not* on the tighter anonymous bucket `docs/BACKEND_SPEC.md` §15.2 defines for tokenless
+endpoints, even though that is the bucket's intended shape — see #119: nothing reads
+`X-Forwarded-*`, so behind a proxy a per-IP bucket is one bucket for the whole deployment, and
+a 429 is indistinguishable from "this server has no capability endpoint". Same trust level as
 `/api/health`, which §15.4 documents as unauthenticated on purpose and which
 `backend/Detour/Detour.InfraTests/Api/AuthenticationTests.cs:43` already reaches with no
 token.
