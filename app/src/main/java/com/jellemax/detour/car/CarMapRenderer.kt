@@ -422,7 +422,12 @@ class CarMapRenderer(
                 val map = mapLibreMap ?: continue
                 val ns = System.nanoTime()
                 // Clamp dt so a stalled render or a paused loop can't teleport.
-                val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.25)
+                // 0.1, matching the phone (MapScreen.kt's frame loops). At 0.25 a
+                // single tick closed ~51% of the remaining gap against ~25% at
+                // 0.1, so a resume after the loop was paused arrived as a lurch
+                // rather than an ease. The snap guard below is what handles a gap
+                // too large to ease at all; this bound is for the ordinary case.
+                val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.1)
                 lastNs = ns
                 if (camLat.isNaN()) continue
 
