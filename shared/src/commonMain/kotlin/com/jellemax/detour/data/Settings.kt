@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import com.jellemax.detour.drive.FuelType
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonElement
@@ -40,6 +41,9 @@ object Settings {
     const val DEFAULT_ZOOM_MAX = 19f
     /** The hint variant a fresh install gets. See `Settings.swipeHintVariant`. */
     const val SWIPE_HINT_VARIANT_DEFAULT = "nudge"
+
+    const val FUEL_CALIBRATION_MIN = 50
+    const val FUEL_CALIBRATION_MAX = 150
 
     /** The bag every setting here lives in, and the one key inside it that has
      *  to be readable before [init] has run: the #84 timing sink is installed
@@ -131,6 +135,12 @@ object Settings {
         val name: String,
         val mode: TravelMode,
         val obd2Address: String? = null,
+        /** For the MAF fuel estimate — see [com.jellemax.detour.drive.Obd2Pids]. */
+        val fuelType: FuelType = FuelType.PETROL,
+        /** Per-vehicle multiplier on the MAF fuel estimate, percent, clamped
+         *  [FUEL_CALIBRATION_MIN]..[FUEL_CALIBRATION_MAX]. Tuned against the
+         *  car's own trip computer / a pump fill-up. */
+        val fuelCalibrationPct: Int = 100,
     )
 
     /** Bluetooth devices mapped to a vehicle, keyed by address. When a mapped
@@ -340,6 +350,9 @@ object Settings {
             v.optString("name", address),
             TravelMode.of(v.optString("mode")),
             v.optString("obd2Address").takeIf { it.isNotBlank() },
+            fuelType = runCatching { FuelType.valueOf(v.optString("fuelType")) }.getOrDefault(FuelType.PETROL),
+            fuelCalibrationPct = v.optInt("fuelCalibrationPct", 100)
+                .coerceIn(FUEL_CALIBRATION_MIN, FUEL_CALIBRATION_MAX),
         )
         else -> VehicleDevice(address, address, TravelMode.of(v.toString().trim('"')), null)
     }
@@ -348,6 +361,8 @@ object Settings {
         put("mode", d.mode.name)
         put("name", d.name)
         d.obd2Address?.let { put("obd2Address", it) }
+        if (d.fuelType != FuelType.PETROL) put("fuelType", d.fuelType.name)
+        if (d.fuelCalibrationPct != 100) put("fuelCalibrationPct", d.fuelCalibrationPct)
     }
 
     /** Assign [address] ([name]) to [mode]. */
@@ -369,6 +384,25 @@ object Settings {
         val current = _vehicleDevices.value[address] ?: return
         val next = _vehicleDevices.value.toMutableMap()
         next[address] = current.copy(obd2Address = obd2Address)
+        writeVehicleDevices(next)
+    }
+
+    /** Set [address]'s fuel type for the MAF fuel estimate. */
+    fun setFuelType(address: String, fuelType: FuelType) {
+        val current = _vehicleDevices.value[address] ?: return
+        val next = _vehicleDevices.value.toMutableMap()
+        next[address] = current.copy(fuelType = fuelType)
+        writeVehicleDevices(next)
+    }
+
+    /** Set [address]'s fuel-estimate calibration, percent, clamped
+     *  [FUEL_CALIBRATION_MIN]..[FUEL_CALIBRATION_MAX]. */
+    fun setFuelCalibrationPct(address: String, pct: Int) {
+        val current = _vehicleDevices.value[address] ?: return
+        val next = _vehicleDevices.value.toMutableMap()
+        next[address] = current.copy(
+            fuelCalibrationPct = pct.coerceIn(FUEL_CALIBRATION_MIN, FUEL_CALIBRATION_MAX),
+        )
         writeVehicleDevices(next)
     }
 
