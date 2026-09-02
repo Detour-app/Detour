@@ -813,23 +813,18 @@ class TripTrackingService : Service() {
         if (pending == 0) commit()
     }
 
-    /**
-     * What this trip should be logged as. A connected mapped device decides
-     * (Cardo → moto, infotainment → car); else the spin tab's mode. The tab
-     * itself is never changed here — classification is the trip's, not the
-     * UI's. Whether the trip is worth keeping at all is decided separately,
-     * in [endTrip].
-     */
-    private fun resolvedMode(): TravelMode {
+    /** The connected mapped vehicle that classifies the trip. The heaviest
+     *  mode wins (see [MODE_PRIORITY]), not the last to connect: the helmet
+     *  intercom and the car radio can both be up while the bike sits in the
+     *  garage. Null when no mapped device is connected. */
+    private fun resolvedVehicle(): Settings.VehicleDevice? {
         val map = Settings.vehicleDevices.value
-        // The heaviest vehicle connected wins, not the last to connect: the
-        // helmet intercom and the car radio can both be up while the bike
-        // sits in the garage.
-        connectedVehicles.mapNotNull { map[it]?.mode }
-            .maxByOrNull { MODE_PRIORITY.indexOf(it) }
-            ?.let { return it }
-        return Settings.tripMode.value
+        return connectedVehicles.mapNotNull { map[it] }
+            .maxByOrNull { MODE_PRIORITY.indexOf(it.mode) }
     }
+
+    private fun resolvedMode(): TravelMode =
+        resolvedVehicle()?.mode ?: Settings.tripMode.value
 
     /** Retag the running trip if its mode should change (a mapped device
      *  connected or left). Restarts motion sensors to match. */
