@@ -33,41 +33,72 @@ internal object Api {
         readTimeoutMs: Long = 30_000,
     ): String {
         val base = SyncClient.url() ?: throw IOException("No server configured")
-        val bearer = if (auth) Auth.bearer() else null
-
         val cf = RoutingServer.load()
-        val headers = buildMap {
-            put("User-Agent", "Detour/${BuildDefaults.versionName}")
-            if (bearer != null) put("Authorization", "Bearer $bearer")
-            if (cf.clientId.isNotBlank()) {
-                put("CF-Access-Client-Id", cf.clientId)
-                put("CF-Access-Client-Secret", cf.clientSecret)
-            }
-        }
+        val url = base.trimEnd('/') + PREFIX + path
         return try {
-            Http.request(
-                method = method,
-                url = base.trimEnd('/') + PREFIX + path,
-                body = body?.string(),
-                headers = headers,
-                // A sync upload re-sends the whole trip/trace history every time
-                // (traces.jsonl alone is 1MB+ after a year of riding), and JSON
-                // compresses roughly 10:1. The server decompresses
-                // Content-Encoding: gzip with a bound on the decompressed size,
-                // so this is unconditional rather than negotiated.
-                gzipBody = body != null,
-                readTimeoutMs = readTimeoutMs,
-            )
+            // The token the most recent attempt actually sent. Auth.refreshAfterRefusal
+            // compares it against the current one to tell "nobody has refreshed yet"
+            // from "a concurrent caller already did", so it has to be what went on
+            // the wire rather than what was read before the call.
+            var sent = ""
+            retryingRefusedAuth(
+                auth = auth,
+                refresh = { Auth.refreshAfterRefusal(sent) },
+            ) {
+                // Headers are rebuilt per attempt. The retry exists precisely
+                // because the first token was refused, so re-reading the bearer
+                // is the point — hoisting this out would resend it.
+                val headers = buildMap {
+                    put("User-Agent", "Detour/${BuildDefaults.versionName}")
+                    if (auth) {
+                        sent = Auth.bearer()
+                        put("Authorization", "Bearer $sent")
+                    }
+                    if (cf.clientId.isNotBlank()) {
+                        put("CF-Access-Client-Id", cf.clientId)
+                        put("CF-Access-Client-Secret", cf.clientSecret)
+                    }
+                }
+                Http.request(
+                    method = method,
+                    url = url,
+                    body = body?.string(),
+                    headers = headers,
+                    // A sync upload re-sends the whole trip/trace history every
+                    // time (traces.jsonl alone is 1MB+ after a year of riding),
+                    // and JSON compresses roughly 10:1. The server decompresses
+                    // Content-Encoding: gzip with a bound on the decompressed
+                    // size, so this is unconditional rather than negotiated.
+                    gzipBody = body != null,
+                    readTimeoutMs = readTimeoutMs,
+                )
+            }
         } catch (e: HttpStatusException) {
-            val message = errorMessage(e.body) ?: "HTTP ${e.code}"
-            if (e.code != 401) throw IOException(message)
-
-            // The token was refreshed before this request left, so a 401 here is
-            // not a stale access token — the session itself is no longer
-            // accepted (revoked, or minted for a realm this server does not
-            // trust). Keeping it would fail the same way on every later request.
-            Auth.clear()
-            throw AuthException(message)
+            // Every non-2xx lands here, 401 included. A 401 reaching this point
+            // survived a successful token refresh, so the session is alive and
+            // this server is refusing the token for its own reasons — a wrong
+            // `aud`, an issuer it does not trust, a scope the endpoint wants.
+            //
+            // Auth.clear() is deliberately NOT called here any more. It is
+            // documented for "the one case where the provider has already told
+            // *us* the session is gone", and the provider has just said the
+            // opposite. Clearing also drops FriendsStore, ConvoysStore,
+            // CirclesStore and FriendFog, so a server-side misconfiguration used
+            // to cost the rider every cached account state as well as the login.
+            //
+            // The session-is-over path still clears, one level down:
+            // Auth.refresh() calls clear() when the token endpoint rejects the
+            // refresh token, and the AuthException it throws is not an
+            // HttpStatusException, so it passes straight through this catch.
+            val detail = errorMessage(e.body) ?: "HTTP ${e.code}"
+            if (e.code != 401) throw IOException(detail)
+            // Which of the two 401s this was, named so a rider can report it.
+            // Reaching here at all means the session survived: the provider
+            // either vouched for it (SERVER_REFUSED) or was never asked
+            // (NO_SESSION). The third code, SESSION_ENDED, is raised by
+            // Auth.refresh as an AuthException and never lands in this catch.
+            val code = if (auth) AuthRefusal.SERVER_REFUSED else AuthRefusal.NO_SESSION
+            throw IOException(AuthRefusal.message(detail, code))
         }
     }
 
