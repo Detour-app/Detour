@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.drive.FuelType
 import com.jellemax.detour.obd2.Obd2Connection
 import com.jellemax.detour.obd2.Obd2ConnectionState
 import com.jellemax.detour.obd2.Obd2Failure
@@ -70,7 +71,12 @@ fun Obd2PairingScreen() {
     val readoutAddress = mapping.values.firstNotNullOfOrNull { it.obd2Address }
     DisposableEffect(readoutAddress) {
         if (readoutAddress != null && Obd2Connection.linkedAddress.value == null) {
-            Obd2Connection.connect(context.applicationContext, readoutAddress)
+            val v = mapping.values.firstOrNull { it.obd2Address == readoutAddress }
+            Obd2Connection.connect(
+                context.applicationContext, readoutAddress,
+                fuelType = v?.fuelType ?: FuelType.PETROL,
+                calibrationPct = v?.fuelCalibrationPct ?: 100,
+            )
         }
         onDispose {
             // Hand back to the service's reconciler (ACTION_REFRESH ->
@@ -165,7 +171,12 @@ fun Obd2PairingScreen() {
         ) {
             OutlinedButton(onClick = {
                 Obd2Connection.disconnect()
-                Obd2Connection.connect(context.applicationContext, retryAddress)
+                val v = mapping.values.firstOrNull { it.obd2Address == retryAddress }
+                Obd2Connection.connect(
+                    context.applicationContext, retryAddress,
+                    fuelType = v?.fuelType ?: FuelType.PETROL,
+                    calibrationPct = v?.fuelCalibrationPct ?: 100,
+                )
             }) { Text("Retry now") }
         }
         // Every address already spoken for — as some vehicle's own auto-detect
@@ -200,7 +211,11 @@ fun Obd2PairingScreen() {
                                 // silently do nothing. Force a fresh attempt for the
                                 // newly-selected device.
                                 Obd2Connection.disconnect()
-                                Obd2Connection.connect(context.applicationContext, device.address)
+                                Obd2Connection.connect(
+                                    context.applicationContext, device.address,
+                                    fuelType = vehicle.fuelType,
+                                    calibrationPct = vehicle.fuelCalibrationPct,
+                                )
                             }) { Text("Use $name") }
                         }
                     }
