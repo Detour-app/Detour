@@ -44,7 +44,6 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
-import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
@@ -64,12 +63,12 @@ private const val CAM_ZOOM_TAU = 1.2
 // panning and turning slowly.
 private const val CAM_FRAME_MS = 33L
 
-// Below these an eased step isn't worth a redraw: ~0.2 m of pan (sub-pixel at
-// driving zooms), a hair of zoom, a tenth of a degree of rotation. Once the
-// ease settles inside all three the camera is left alone, so a car stopped at a
-// light stops re-rendering entirely.
-private const val CAM_POS_EPS_DEG = 2e-6
-private const val CAM_ZOOM_EPS = 2e-3
+// A tenth of a degree of marker rotation isn't worth a redraw. The camera's own
+// equivalents — position and zoom — used to live here beside it and are gone:
+// MapMotion.shouldPush owns that question now, against MapCameraTuning's copies,
+// and the "a car stopped at a light stops re-rendering entirely" property they
+// existed for is the one shouldPush keeps by asking whether the camera has
+// converged rather than whether this tick moved far enough.
 private const val CAM_BEARING_EPS_DEG = 0.1f
 
 /** Below this the GPS bearing is noise, so the map keeps the heading it had
@@ -414,10 +413,17 @@ class CarMapRenderer(
         easeJob?.cancel()
         easeJob = scope.launch {
             var lastNs = System.nanoTime()
-            var appliedLat = Double.NaN
-            var appliedLon = 0.0
-            var appliedZoom = 0.0
-            var appliedBearing = 0f
+            // Whether anything has been pushed at all. This replaces the
+            // appliedLat.isNaN() sentinel, and it is the only part of the old
+            // last-pushed bookkeeping that survives: MapMotion.shouldPush asks
+            // whether the camera has converged on its *target*, so the values
+            // previously pushed are not an input to the question any more.
+            var neverPushed = true
+            // Whether the *target* moved since the last tick, which is the half of
+            // the push question the old gate could not ask.
+            var lastTargetLat = Double.NaN
+            var lastTargetLon = Double.NaN
+            var lastTargetZoom = Double.NaN
             while (isActive) {
                 delay(CAM_FRAME_MS)
                 val map = mapLibreMap ?: continue
@@ -456,20 +462,34 @@ class CarMapRenderer(
                 }
                 camZoom += (targetZoom - camZoom) * (1.0 - exp(-dt / CAM_ZOOM_TAU))
 
-                var dBearing = (camBearing - appliedBearing) % 360f
-                if (dBearing > 180f) dBearing -= 360f
-                if (dBearing < -180f) dBearing += 360f
-                val moved = appliedLat.isNaN() ||
-                    abs(camLat - appliedLat) > CAM_POS_EPS_DEG ||
-                    abs(camLon - appliedLon) > CAM_POS_EPS_DEG ||
-                    abs(camZoom - appliedZoom) > CAM_ZOOM_EPS ||
-                    abs(dBearing) > CAM_BEARING_EPS_DEG
-                if (!moved) continue
+                val tgt = targetPos
+                val targetMoved = tgt != null && (
+                    lastTargetLat.isNaN() ||
+                        tgt.lat != lastTargetLat ||
+                        tgt.lon != lastTargetLon ||
+                        targetZoom != lastTargetZoom
+                    )
+                if (tgt != null) {
+                    lastTargetLat = tgt.lat
+                    lastTargetLon = tgt.lon
+                    lastTargetZoom = targetZoom
+                }
+
+                val push = MapMotion.shouldPush(
+                    camLat = camLat,
+                    camLon = camLon,
+                    camZoom = camZoom,
+                    camBearing = camBearing,
+                    tgtLat = tgt?.lat ?: camLat,
+                    tgtLon = tgt?.lon ?: camLon,
+                    tgtZoom = targetZoom,
+                    tgtBearing = targetBearing ?: camBearing,
+                    targetMoved = targetMoved,
+                    neverPushed = neverPushed,
+                )
+                if (!push) continue
                 applyCamera(map)
-                appliedLat = camLat
-                appliedLon = camLon
-                appliedZoom = camZoom
-                appliedBearing = camBearing
+                neverPushed = false
             }
         }
     }
