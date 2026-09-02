@@ -38,13 +38,23 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Capabilities_state_the_current_schema_version()
+    {
+        var payload = await _factory.CreateClient()
+            .GetFromJsonAsync<CapabilitiesPayload>("/api/capabilities");
+
+        payload.Should().NotBeNull();
+        payload!.Schema.Should().Be(1);
+    }
+
+    [Fact]
     public async Task Capabilities_announce_the_idp_discovery_feature()
     {
         var payload = await _factory.CreateClient()
             .GetFromJsonAsync<CapabilitiesPayload>("/api/capabilities");
 
-        payload!.Schema.Should().Be(1);
-        payload.Features.Should().Contain("idp-discovery",
+        payload.Should().NotBeNull();
+        payload!.Features.Should().Contain("idp-discovery",
             "the app skips features it does not know, so the name is the contract");
     }
 
