@@ -1,8 +1,5 @@
 package com.jellemax.detour.data
 
-import kotlin.concurrent.atomics.AtomicBoolean
-import kotlin.concurrent.atomics.ExperimentalAtomicApi
-
 /** Whether a secret is stored as text or as a number, so it is read back the same way. */
 internal enum class SecretType { Text, Number }
 
@@ -53,7 +50,6 @@ internal data class SecretGroup(
  * Pure: it takes both stores as parameters and touches nothing else, so it is testable
  * in commonTest against a fake.
  */
-@OptIn(ExperimentalAtomicApi::class) // for [migratedOnce]; see the note there
 internal object CredentialMigration {
 
     const val MARKER_VALUE = "v1"
@@ -80,24 +76,14 @@ internal object CredentialMigration {
 
     enum class Outcome { Copied, Verified, NothingToDo }
 
-    // Compare-and-set, not a plain `var`. Two coroutines at cold start could both
-    // read `false` and both run the migration, and RoutingServer.load() is on the
-    // hot path from IO coroutines. The consequence was mild — step() is idempotent,
-    // as its own doc says — but this is the guard that keeps it once per process,
-    // and a guard that does not hold under the concurrency it is actually called
-    // under is not one.
-    //
-    // Made atomic without a new dependency: kotlin.concurrent.atomics is
-    // stdlib-common as of the Kotlin this project pins (2.1.20), so it resolves in
-    // commonMain for every target — which the metadata compile is what proves.
-    // Still experimental there, hence the opt-in on the object; that is a
-    // compile-time risk on a Kotlin upgrade, not a runtime one.
-    //
-    // What it does not buy: the loser of the CAS returns immediately rather than
-    // waiting, so it can still return while the winner's migration is in flight.
-    // That was equally true of the plain `var`, and closing it needs a real lock
-    // — which commonMain still has no primitive for.
-    private val migratedOnce = AtomicBoolean(false)
+    // Guarded by [migrationLock] rather than by an atomic compare-and-swap.
+    // Two coroutines at cold start could both read `false` and both run the
+    // migration, and RoutingServer.load() is on the hot path from IO coroutines
+    // — but mutual exclusion alone was never the whole requirement. A plain
+    // `var` read and written under the lock is correct here precisely because
+    // no caller ever observes it from outside the lock.
+    private val migrationLock = PlatformLock()
+    private var migrated = false
 
     /**
      * Runs both credential groups' migration exactly once per process, whichever of
@@ -111,9 +97,24 @@ internal object CredentialMigration {
      * documents that a Service may start the process without `Settings.init()` ever
      * running first, so `RoutingServer` cannot rely on `Settings` having gone first,
      * and vice versa.
+     *
+     * Holds [PlatformLock] for the whole migration rather than winning a
+     * compare-and-swap, because a caller has to know the migration is *finished*
+     * when this returns. `Settings.init()` reads `access_token`, `refresh_token`
+     * and `auth_username` out of the secure store on its very next lines, and on
+     * an install still holding plaintext those values are not there until this
+     * has run. A loser that returned early would read three empty strings,
+     * derive an empty account-scope key, and land the rider on `accounts/_local`
+     * — which is #73: the next account to sign in adopts that history as its own.
+     *
+     * The cost is that the loser blocks, up to the 1.6-1.8s Keystore read [step]
+     * measures, and on the upgrade path that can be the main thread. Once per
+     * process, only on installs that still hold plaintext, and correct — where
+     * returning early is fast and wrong.
      */
-    fun migrateOnce() {
-        if (!migratedOnce.compareAndSet(false, true)) return
+    fun migrateOnce() = migrationLock.withLock {
+        if (migrated) return@withLock
+        migrated = true
         migrateGroup(prefs("settings"), SESSION_GROUP)
         migrateGroup(prefs(RoutingServer.PREFS), SERVER_GROUP)
     }
