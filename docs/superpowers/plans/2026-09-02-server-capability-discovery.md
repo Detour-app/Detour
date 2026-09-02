@@ -1034,6 +1034,10 @@ Claude-Session: https://claude.ai/code/session_01Gjxrtw5G2FQWgkFsdz7Vwi"
 
 No test. This is the one function in the feature that cannot have one, for the reason recorded in Task 3, and it is deliberately thin enough that reading it is the review.
 
+**A known limitation, surfaced by Task 1's code review and deliberately not fixed here.** Collapsing every non-answer to null means a `429` from the anonymous rate limiter is indistinguishable from "this server predates the endpoint", so a throttled probe reports "your server did not say which realm" — a configuration error for a transient condition. The limiter's budget is 20 tokens replenishing 10 per 60s **per client IP**, so behind CGNAT or a shared hotspot on a group ride, every rider on that address shares it. The rejection handler already sets `Retry-After` (`RateLimitingExtensions.cs:158-162`) and nothing reads it.
+
+It stays unfixed because the harm is narrow: a returning rider falls back to the stored issuer and signs in normally, so only a *first* sign-in on a saturated shared address is affected, and telling that rider to try again needs a reason channel `resolveIssuer(): String` does not have. Distinguishing it means either a result type or an out-of-band signal, which is more API surface than the case earns today. Do not add it in this task. If it needs solving, it is its own issue.
+
 **Files:**
 - Modify: `shared/src/commonMain/kotlin/com/jellemax/detour/data/Capabilities.kt`
 
@@ -2103,7 +2107,10 @@ Claude-Session: https://claude.ai/code/session_01Gjxrtw5G2FQWgkFsdz7Vwi"
 Three things belong in the description rather than in a comment, and `CONTRIBUTING.md` asks for the third explicitly.
 
 1. **`ASVS 5.0.0 V10.2.2` is partially met.** The token-response `iss` check is implemented; the authorization-response leg (RFC 9207) is not, because requiring `iss` on the callback would break an older Keycloak and tolerating its absence is the bypass.
-2. **First consumer of `RateLimitPolicies.Anonymous`.** The policy was registered at `RateLimitingExtensions.cs:74` and consumed nowhere, so this change also exercises wiring nothing had used.
+2. **First consumer of `RateLimitPolicies.Anonymous`.** The policy was registered at `RateLimitingExtensions.cs:74` and consumed nowhere, so this change also exercises wiring nothing had used. Two consequences of being first, both worth stating rather than discovering later:
+   - A `429` reaches the app as "no realm advertised", because the probe collapses every non-answer to one (see Task 5's note). Narrow in practice — a returning rider falls back to the stored issuer — but real for a first sign-in on a saturated shared address.
+   - `RateLimitSettings.cs:36-46` justifies the bucket's size with "the legacy server capped auth attempts at 10 per 5 minutes per address". The first actual consumer is not an auth attempt, and the policy is one shared bucket per IP across every endpoint that later carries it. When an auth-adjacent anonymous endpoint arrives, benign discovery probes and brute-force attempts will compete for a budget sized for the latter. Worth splitting the policy at that point, not now.
+   - `HealthController` deliberately does **not** carry the policy: it is polled by load balancers and uptime monitors on a fixed cadence, and this budget would throttle the one caller that must never be throttled. That reasoning is recorded in `CapabilitiesController`'s own doc so the divergence does not read as an oversight.
 3. **This is security-relevant code.** `CONTRIBUTING.md`'s pull-request section asks that credential-storage and auth changes be called out for a closer look. State the trust delta plainly: a compromised API server previously received the rider's tokens, and can now also choose the page the rider types their password into.
 
 Also worth saying: `iosApp/` changes were not compiled locally, because Xcode is unavailable in the devcontainer and `shared`'s iOS targets cannot be built on Linux. The iOS workflow is the gate.
