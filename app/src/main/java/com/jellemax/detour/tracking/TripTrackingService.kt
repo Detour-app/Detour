@@ -1392,8 +1392,12 @@ class TripTrackingService : Service() {
         // obd2SpeedPct. Same decision resolveDisplaySpeedMps uses for its OBD2
         // arm — board telemetry winning does not count, GPS fallback does not
         // count.
+        // Non-null iff effectiveSpeedMps below is the OBD adapter's reading
+        // (not board telemetry, not the GPS fallback). Drives both the per-trip
+        // attribution counter and the recorded-trip fix clock (#98).
+        val obdSpeedMps = obdSpeedMpsFrom(obd, speed, stats.mode)
         speedFixesTotal++
-        if (obdSpeedMpsFrom(obd, speed, stats.mode) != null) {
+        if (obdSpeedMps != null) {
             obd2SpeedFixes++
         }
 
@@ -1419,7 +1423,14 @@ class TripTrackingService : Service() {
                 // Fuel is a rate, so it's integrated over time, not averaged like
                 // RPM above: this fix's L/h held over the gap since the last fuel
                 // sample, dropped (not saturated) when that gap is outside 1..15s.
-                val fixMs = location.time
+                // The gap is measured on the OBD reading's own arrival clock
+                // (receivedAtMs), not the GPS fix clock: fuelRateLph was valid at
+                // that instant, and the ~1 Hz OBD poll cadence is not the GPS
+                // fix cadence. It also keeps integrating correctly through a
+                // short GPS-staleness window (a redelivered stale fix freezes
+                // location.time) as long as the adapter is alive and the gap is
+                // inside the 15s cap (#98).
+                val fixMs = obd.receivedAtMs
                 cappedFixDtSec(fixMs, lastFuelSampleMs)?.let { dtSec ->
                     fuelMlAccum += obd.fuelRateLph * (1000.0 / 3600.0) * dtSec
                     // Distance covered while a fuel reading was live — the L/100km
@@ -1442,13 +1453,21 @@ class TripTrackingService : Service() {
             freshBoardTelemetry()?.takeIf { it.hasSpeed } != null ||
             (stats.mode.tracksGForce && obd?.hasSpeed == true)
 
+        // The hard-brake/accel and stop detectors derive Δt from the timestamp
+        // passed here. When the speed reading came from the OBD adapter, use
+        // that reading's own arrival clock so PID 0D's ~1 Hz jitter lands in
+        // the Δt rather than being flattened to a nominal second (#98). A GPS
+        // speed keeps the GPS clock. Heading-rate cornering stays on
+        // location.time — its signal is the GPS bearing.
+        val recordedFixMs = if (obdSpeedMps != null && obd != null) obd.receivedAtMs else location.time
+
         // Thresholds here are scoped to car/moto (tracksGForce) — a bike or walk
         // decelerating normally must not print a "hard brake" meant for a vehicle.
         // Cornering is separately gated: heading-rate below to CAR, lean-based
         // cornering (recordLean) to tracksLean.
         if (stats.mode.tracksGForce) {
             if (speedIsReal) {
-                val speedResult = HardEventDetector.onSpeedFix(speedEventState, effectiveSpeedMps, location.time)
+                val speedResult = HardEventDetector.onSpeedFix(speedEventState, effectiveSpeedMps, recordedFixMs)
                 speedEventState = speedResult.state
                 if (speedResult.hardBrake) hardBrakeCount++
                 if (speedResult.hardAccel) hardAccelCount++
@@ -1468,7 +1487,7 @@ class TripTrackingService : Service() {
         // than feeding the sentinel) lets the state's stale lastFixMs carry
         // forward, so the next real fix's own Δt naturally spans the gap.
         if (speedIsReal) {
-            stopState = StopDetector.onFix(stopState, effectiveSpeedMps, location.time)
+            stopState = StopDetector.onFix(stopState, effectiveSpeedMps, recordedFixMs)
         }
 
         val here = LatLon(location.latitude, location.longitude)
