@@ -90,6 +90,16 @@ So name the proxy:
 }
 ```
 
+Both values are parsed at startup and a malformed address or CIDR fails the boot
+with a `FormatException`. That is deliberate: a typo that was quietly ignored
+would leave the proxy untrusted and every caller sharing one rate-limit bucket,
+on a deployment whose operator believes this is configured.
+
+Only one proxy hop is trusted (`ForwardLimit` is 1). If you run a chain — a CDN
+in front of your own reverse proxy — the address you get is the one the nearest
+trusted hop reported, which is what you want unless you have deliberately
+decided otherwise.
+
 Do not reach for the usual container advice of clearing the lists to trust
 everything. It trades one shared rate-limit bucket for a fresh bucket per spoofed
 header, which is worse.
