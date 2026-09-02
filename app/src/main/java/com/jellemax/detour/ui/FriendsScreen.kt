@@ -140,6 +140,11 @@ fun FriendsScreen(onBack: () -> Unit) {
 @Composable
 private fun SignInSection() {
     val context = LocalContext.current
+    // Sign-in is a suspending call now: the realm may have to be asked for.
+    // This scope is the composition's, so the launched body runs on the main
+    // thread — which is what Oidc's single-thread contract requires of
+    // begin()/abandon(). Do not move this to Dispatchers.IO.
+    val scope = rememberCoroutineScope()
     // Set by MainActivity when a redirect fails to become a session; consumed
     // here because this is the screen the rider is looking at.
     val error by PendingSignIn.error.collectAsStateWithLifecycle()
@@ -153,8 +158,8 @@ private fun SignInSection() {
     )
     if (!AuthBrowser.configured) {
         Text(
-            "No identity provider is configured, so there is nobody to sign " +
-                "in to. Set the sign-in realm URL under Settings → Servers & sync.",
+            "No server or sign-in realm is configured, so there is nobody to " +
+                "sign in to. Set your server address under Settings → Servers & sync.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -166,20 +171,35 @@ private fun SignInSection() {
     }
     Button(
         onClick = {
-            PendingSignIn.clear()
-            when (AuthBrowser.start(context)) {
-                null -> {}
-                AuthBrowser.StartFailure.InvalidRealmUrl -> PendingSignIn.fail(
-                    "The sign-in realm address is not a valid URL. Check it " +
-                        "under Settings → Servers & sync."
-                )
-                AuthBrowser.StartFailure.NoBrowserAvailable ->
-                    PendingSignIn.fail("No browser available to sign in with.")
-                AuthBrowser.StartFailure.NotConfigured ->
-                    PendingSignIn.fail(
-                        "No identity provider is configured. Set the sign-in " +
-                            "realm URL under Settings → Servers & sync."
+            // begin() is reached from inside this launch, so PendingSignIn.begin()
+            // marks the screen busy for the probe as well as the browser trip:
+            // on a slow server the resolve is the part the rider waits through.
+            // It also sets error to null, so no separate clear() is needed.
+            PendingSignIn.begin()
+            scope.launch {
+                val failure = AuthBrowser.start(context)
+                when (failure) {
+                    // The browser is open; MainActivity's redirect handler owns
+                    // the rest, including clearing busy.
+                    null -> {}
+                    AuthBrowser.StartFailure.InvalidRealmUrl -> PendingSignIn.fail(
+                        "The sign-in realm address is not a valid URL. Check it " +
+                            "under Settings → Servers & sync."
                     )
+                    AuthBrowser.StartFailure.NoBrowserAvailable ->
+                        PendingSignIn.fail("No browser available to sign in with.")
+                    AuthBrowser.StartFailure.NoRealmAdvertised ->
+                        PendingSignIn.fail(
+                            "Your server did not say which realm to sign in to. " +
+                                "Update the server, or set the sign-in realm URL " +
+                                "under Settings → Servers & sync."
+                        )
+                    AuthBrowser.StartFailure.NotConfigured ->
+                        PendingSignIn.fail(
+                            "No identity provider is configured. Set the sign-in " +
+                                "realm URL under Settings → Servers & sync."
+                        )
+                }
             }
         },
         enabled = !busy,

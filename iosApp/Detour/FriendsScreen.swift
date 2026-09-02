@@ -392,9 +392,14 @@ private struct SignInForm: View {
                     }
                     .disabled(signIn.busy)
                 } else {
+                    // Reached only when there is neither a realm nor a server
+                    // to ask for one — `signIn.configured` is optimistic now.
+                    // A server that has an address but names no realm keeps the
+                    // button and reports it on tap, which is actionable where a
+                    // missing button is not.
                     Text("""
-                        No identity provider is configured, so there is nobody to \
-                        sign in to. Set the sign-in realm under Settings → Own server.
+                        No server or sign-in realm is configured, so there is nobody \
+                        to sign in to. Set your server address under Settings → Own server.
                         """)
                         .font(.footnote)
                         .foregroundStyle(.secondary)

@@ -1218,17 +1218,17 @@ private fun ServerSection() {
         )
         CredentialTextField(
             value = idpIssuer, onValueChange = { idpIssuer = it; saved = false },
-            label = "Sign-in realm URL",
+            label = "Sign-in realm URL (deprecated)",
             keyboardType = KeyboardType.Uri,
             placeholder = "https://idp.example.com/realms/detour",
             modifier = Modifier.fillMaxWidth(),
         )
         Text(
-            "Your identity provider's realm, which issues the tokens the API " +
-                "trusts. It has no default from the server address above — a realm " +
-                "URL is never the same host — so signing in stays off until it is " +
-                "filled in. Changing it signs this device out: tokens from one " +
-                "realm mean nothing to another.",
+            "Deprecated — newer servers tell the app which realm to use, so " +
+                "leave this empty unless your server has not been updated. " +
+                "Anything typed here still wins over what the server says. " +
+                "Changing it signs this device out: tokens from one realm mean " +
+                "nothing to another.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

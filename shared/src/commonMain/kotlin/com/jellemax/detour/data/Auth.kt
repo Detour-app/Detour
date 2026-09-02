@@ -68,7 +68,12 @@ object Auth {
      * action was still running. (A server switch that keeps the same issuer
      * does *not* bump this — [RoutingServer.save] only calls [clear] on an
      * issuer change, see its own doc — but that is still the same rider, so
-     * it is not a case this guard needs to catch.)
+     * it is not a case this guard needs to catch.) One exception since realm
+     * discovery: a rider whose issuer came from the server, not from the
+     * settings field, does bump this on a server change, because [save] cannot
+     * probe the new server to find out whether it names the same realm. Failing
+     * closed is deliberate — a needless re-sign-in beats a refresh token
+     * presented to a realm that did not mint it.
      *
      * That last case is what a bump on [clear] alone cannot catch: without it,
      * one epoch value spans "rider A signed out" through the whole of rider
@@ -182,6 +187,31 @@ object Auth {
             // "HTTP 401", which reads identically whether the realm refused the
             // client, refused the code, or was never reached at all.
             throw AuthException(tokenFailureMessage(e.code, e.body))
+        }
+        // The realm that answered must be the realm we pinned. Checked here and
+        // not in [store] because [refresh] also calls store, and a refresh
+        // response carries no ID token.
+        //
+        // ASVS 5.0.0 V10.2.2: discovering the issuer at runtime makes this a
+        // client that can interact with more than one authorization server,
+        // which is what a mix-up attack needs. Only the token-response leg is
+        // implemented; the authorization-response `iss` (RFC 9207) is not,
+        // because requiring it would break an older Keycloak and tolerating its
+        // absence is the bypass. That gap is recorded in the pull request, not
+        // closed here.
+        val pinned = RoutingServer.issuer(RoutingServer.loadCustom())
+        val signed = idTokenIssuer(response)
+        if (signed != pinned) {
+            throw AuthException(
+                if (signed.isBlank()) {
+                    "The realm returned no usable ID token, so this sign-in " +
+                        "could not be verified. Try again."
+                } else {
+                    "Sign-in came back from a different realm than the one " +
+                        "configured, so it was refused. Check the sign-in realm " +
+                        "under Settings."
+                }
+            )
         }
         store(response, establishesSession = true)
     }
@@ -455,6 +485,31 @@ object Auth {
         val payload = accessToken.split(".").getOrNull(1) ?: return ""
         val json = payload.decodeBase64()?.utf8() ?: return ""
         return runCatching { jsonObjectOf(json).optString("preferred_username") }.getOrDefault("")
+    }
+
+    /**
+     * The `iss` the realm signed into the ID token, or `""` when the response
+     * carries none or it does not parse.
+     *
+     * Read unverified, exactly as [usernameFrom] and [subjectFrom] are, and for
+     * a narrower purpose than it might look: this is not standing in for
+     * signature validation, which the API performs and which is what actually
+     * protects the session. It answers one question — did this token come back
+     * from the realm we sent the rider to — and that question is only worth
+     * asking because the issuer is now stated by the API server rather than
+     * typed by a person. See ASVS 5.0.0 V10.2.2.
+     *
+     * Normalised like every other issuer in this codebase, so a realm that
+     * emits a trailing slash does not fail a comparison that is a match.
+     */
+    internal fun idTokenIssuer(tokenResponse: String): String {
+        val idToken = runCatching { jsonObjectOf(tokenResponse).optString("id_token") }
+            .getOrDefault("")
+        val payload = idToken.split(".").getOrNull(1) ?: return ""
+        val json = payload.decodeBase64()?.utf8() ?: return ""
+        return normalisedAddress(
+            runCatching { jsonObjectOf(json).optString("iss") }.getOrDefault("")
+        )
     }
 
     /**

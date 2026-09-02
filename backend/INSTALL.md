@@ -66,7 +66,7 @@ form too (`Idp__Authority`, `ConnectionStrings__DefaultConnection`, and so on).
 | Key | Notes |
 | --- | --- |
 | `ConnectionStrings:DefaultConnection` | The API applies its own migrations at startup. Point it at a role that may create tables, or run migrations separately and use a narrower one. |
-| `Idp:Authority` | The exact `iss` claim to require, e.g. `https://idp.example/realms/detour`. Exact, not a prefix. |
+| `Idp:Authority` | The exact `iss` claim to require, e.g. `https://idp.example/realms/detour`. Exact, not a prefix. The API also states this value on the unauthenticated `/api/capabilities`, so riders configuring the app against your deployment do not have to retype it — set it correctly and they get it for free. |
 | `Idp:Audience` | `detour-api` unless you renamed the client. |
 | `Idp:RequireHttpsMetadata` | Leave `true`. Off is for a local stack on plain HTTP. |
 | `Cors:AllowedOrigins` | Only needed for a browser origin. The app is not one. |

@@ -23,9 +23,15 @@ final class SignIn: NSObject, ObservableObject {
     /// `AuthException`, which crosses as an `NSError` carrying the message.
     @Published var error: String?
 
-    /// False when no realm is configured, which is how a build shipping no
-    /// baked issuer behaves until one is set under Settings.
+    /// True when there is a realm *or* a server that might name one — see
+    /// `Oidc.configured`, which is optimistic now. A server that turns out not
+    /// to name one surfaces as a message when Sign in is tapped, rather than as
+    /// a button that was never drawn.
     var configured: Bool { Oidc.shared.configured }
+
+    /// Whether there is a server a probe could ask. Distinguishes "your server
+    /// did not say" from "nothing is configured at all".
+    var hasApiServer: Bool { Oidc.shared.hasApiServer }
 
     /// Held for the life of the attempt: a session that is only a local in
     /// `present(_:)` can be released before it calls back.
@@ -36,14 +42,29 @@ final class SignIn: NSObject, ObservableObject {
         busy = true
         defer { busy = false }
 
+        // Before the entropy, deliberately: a sign-in that is going to be
+        // refused should not have drawn from the CSPRNG, and on a self-hosted
+        // deployment this is the refusal most likely to happen.
+        //
+        // `try?` rather than `try`: resolveIssuer is @Throws so a failure
+        // arrives as an error instead of terminating the process, and there is
+        // nothing to tell the rider about a failed probe that the blank-issuer
+        // message below does not already say better.
+        let issuer = (try? await Oidc.shared.resolveIssuer()) ?? ""
+        guard !issuer.isEmpty else {
+            error = hasApiServer
+                ? "Your server did not say which realm to sign in to. Update "
+                    + "the server, or set the sign-in realm under Settings → Own server."
+                : "No server or sign-in realm is configured, so there is nobody "
+                    + "to sign in to. Set your server address under Settings → Own server."
+            return
+        }
+
         guard let secureEntropy = entropy() else {
             // SecRandomCopyBytes failing is undocumented on iOS, but checked
             // rather than trusted — see entropy()'s doc. Reported distinctly
-            // from "no realm configured" below: proceeding with begin() here
-            // would either refuse on length (a true but misleading "no
-            // identity provider" message) or, if that guard were ever
-            // loosened, sign in with a guessable verifier. Neither is what
-            // actually happened, so the rider is told the truth instead.
+            // from the realm failures above: proceeding with begin() here would
+            // refuse on length and report a realm problem that did not happen.
             error = "Could not generate a secure sign-in request. Please try again."
             return
         }
@@ -55,16 +76,15 @@ final class SignIn: NSObject, ObservableObject {
         // this back into the handler.
         defer { session = nil }
 
-        let authorize = Oidc.shared.begin(entropy: secureEntropy)
+        let authorize = Oidc.shared.begin(entropy: secureEntropy, issuer: issuer)
         guard !authorize.isEmpty else {
             // begin() returns blank rather than throwing: it is not a suspend
             // function, and a throw out of one of those terminates this process
-            // instead of arriving as an error. secureEntropy is always full
-            // length by this point (entropy() guarantees it), so a blank
-            // result here can only be the other thing begin() refuses on: no
-            // realm configured.
-            error = "No identity provider is configured, so there is nobody to "
-                + "sign in to. Set the sign-in realm under Settings → Own server."
+            // instead of arriving as an error. The issuer is non-blank by this
+            // point and secureEntropy is always full length (entropy()
+            // guarantees it), so this is unreachable in practice — kept because
+            // a silent empty URL would be worse than a redundant check.
+            error = "Could not start sign-in. Please try again."
             return
         }
         guard let url = URL(string: authorize) else {

@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import com.jellemax.detour.data.RoutingServer.accessHeaders
 import io.ktor.http.formUrlEncode
 import io.ktor.http.parametersOf
 import io.ktor.http.parseQueryString
@@ -58,31 +59,90 @@ object Oidc {
     private var pendingVerifier: String? = null
     private var pendingState: String? = null
 
-    /** Whether signing in is possible at all — false when no realm is
-     *  configured, which is how a build shipping no baked issuer behaves until
-     *  the rider sets one under Settings. */
-    val configured: Boolean get() = issuer().isNotBlank()
+    /**
+     * Whether signing in is worth offering.
+     *
+     * Optimistic, and it has to be: a realm may be known only after asking the
+     * API server, and asking needs a network call this non-suspending property
+     * cannot make. Reporting `false` for a fresh install that has a server
+     * address would hide the Sign in control, and hiding it means the probe that
+     * would have found the realm never runs.
+     *
+     * So the honest reading is "there is either a realm or somewhere to ask",
+     * and a rider whose server turns out not to answer learns that from
+     * [resolveIssuer] at tap time — which is a message they can act on, unlike
+     * a button that was never drawn.
+     */
+    val configured: Boolean get() = issuer().isNotBlank() || hasApiServer
+
+    /**
+     * Whether there is an API server a probe could ask.
+     *
+     * Exposed so the two platforms can tell "your server did not name a realm"
+     * from "nothing is configured at all". Both surface as a blank issuer, and
+     * they need different messages: one says update your server, the other says
+     * fill in a field.
+     */
+    val hasApiServer: Boolean
+        get() = RoutingServer.apiBase(RoutingServer.loadCustom()).isNotBlank()
 
     /** Resolved rather than read off [BuildDefaults]: a store build ships no
      *  baked issuer, so the saved one is the only one there will ever be. */
     private fun issuer(): String = RoutingServer.issuer(RoutingServer.loadCustom())
 
     /**
-     * Parks a fresh verifier and state and returns the realm's authorize URL,
-     * or `""` when there is no realm configured or [entropy] is shorter than
-     * [ENTROPY_BYTES].
+     * The realm to sign in to, asking the API server when the rider has not
+     * named one. Blank when there is no realm to be had.
      *
-     * Blank rather than an exception because this is not a `suspend` function:
-     * Kotlin/Native turns a throw out of one of those into a terminated
-     * process on the Swift side, not something `catch` can see. The two
-     * callers both already have a "cannot sign in" path to fall into.
+     * A typed issuer short-circuits the network entirely — the field still
+     * wins, which is what its deprecation copy promises.
+     *
+     * Otherwise this probes on **every** interactive sign-in rather than
+     * trusting what it stored. That is the point rather than an oversight: a
+     * stored issuer whose realm has since moved produces a 404 on the authorize
+     * URL, and the rider has no lever to pull. Fetching at the moment of use
+     * means the value is seconds old. The stored copy is still written, because
+     * [Auth.refresh] runs on a cold start that may have no network and still
+     * has to build a token endpoint from something.
+     *
+     * `@Throws(Exception::class)`: called from Swift, where an unannotated
+     * escaping exception terminates the process rather than arriving as an
+     * error. See the doc on [SyncClient.sync] for the full reasoning.
      */
-    fun begin(entropy: ByteArray): String = begin(entropy, issuer())
+    @Throws(Exception::class)
+    suspend fun resolveIssuer(): String {
+        val custom = RoutingServer.loadCustom()
+        val typed = custom?.idpIssuer.orEmpty()
+        if (typed.isNotBlank()) return RoutingServer.issuer(custom)
 
-    /** `internal` so a test can supply an issuer without going near `prefs` —
-     *  `RoutingServer.loadCustom()` reaches a Context that does not exist in a
-     *  unit test. Same reason [Auth.tokenFailureMessage] is internal. */
-    internal fun begin(entropy: ByteArray, issuer: String): String {
+        val fetched = Capabilities
+            .fetch(RoutingServer.apiBase(custom), custom.accessHeaders())
+            ?.idpIssuer
+            .orEmpty()
+        val discovered = Capabilities.preferredDiscovered(
+            fetched = fetched,
+            stored = RoutingServer.discoveredIssuer(),
+        )
+        // Writes only on a change, and clears the session when the change is a
+        // change of realm — see [RoutingServer.rememberDiscoveredIssuer].
+        RoutingServer.rememberDiscoveredIssuer(discovered)
+        return RoutingServer.issuer(custom, discovered)
+    }
+
+    /**
+     * Public, and the only way in: the issuer is now something a caller has to
+     * go and get, so it is an argument rather than something read from here.
+     *
+     * The single-argument overload this replaced is deleted deliberately. Left
+     * in place it would be a path that compiles, skips [resolveIssuer] and
+     * silently never discovers a realm — and there are two callers, so making
+     * the compiler point at both of them is cheap.
+     *
+     * Taking the issuer as a parameter is also what lets a test supply one
+     * without going near `prefs`, which reaches a Context no unit test has.
+     * Same reason [Auth.tokenFailureMessage] is internal.
+     */
+    fun begin(entropy: ByteArray, issuer: String): String {
         if (issuer.isBlank() || entropy.size < ENTROPY_BYTES) {
             // A refused start must not leave the previous attempt's secrets
             // parked, or a stale callback stays spendable.

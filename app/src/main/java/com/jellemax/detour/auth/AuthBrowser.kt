@@ -21,10 +21,15 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
  */
 object AuthBrowser {
 
-    /** Whether signing in is possible at all — false when no realm is
-     *  configured, which is how a build with no secrets behaves until the rider
-     *  sets one under Settings. */
+    /** Whether signing in is worth offering — see [Oidc.configured], which is
+     *  optimistic now: true when there is a realm *or* a server that might name
+     *  one. A deployment that turns out not to answer surfaces as
+     *  [StartFailure.NoRealmAdvertised] at tap time rather than as a missing
+     *  button. */
     val configured: Boolean get() = Oidc.configured
+
+    /** Whether there is a server a probe could ask; see [Oidc.hasApiServer]. */
+    val hasApiServer: Boolean get() = Oidc.hasApiServer
 
     /**
      * Why [start] did not open the browser.
@@ -47,25 +52,46 @@ object AuthBrowser {
         /** The URL is valid; nothing on the device can open it. */
         data object NoBrowserAvailable : StartFailure
 
-        /** No realm is configured, so there is no authorize URL to open.
-         *  Unreachable while the caller gates its button on [configured] — but
-         *  it has its own case rather than borrowing another failure's message,
-         *  because a gate moving one day should not silently start telling
-         *  riders their browser is missing. */
+        /** No realm is configured — neither typed nor discoverable — so there
+         *  is no authorize URL to open. `configured` is optimistic now, so a
+         *  rider can reach this at tap time rather than the button never
+         *  appearing; see [NoRealmAdvertised] for the other way a blank issuer
+         *  happens. */
         data object NotConfigured : StartFailure
+
+        /** There is an API server, but it did not name a realm — either it
+         *  predates the capability endpoint or it was unreachable. Separate
+         *  from [NotConfigured] because the rider's next move is different:
+         *  update the server, rather than fill in a field. */
+        data object NoRealmAdvertised : StartFailure
     }
 
     /**
      * Opens the realm's login page. Returns `null` on success, or the reason
      * it did not open, so the caller can report the actual cause instead of
      * defaulting every failure to "no browser available".
+     *
+     * `suspend` because the realm may have to be asked for: a deployment states
+     * its own issuer, and finding out is a request. Must still be called from
+     * the main thread — [Oidc]'s parked verifier and state are guarded by a
+     * single-thread contract, not a lock, and the caller's
+     * `rememberCoroutineScope()` satisfies it.
      */
-    fun start(context: Context): StartFailure? {
+    suspend fun start(context: Context): StartFailure? {
+        // Before the entropy, deliberately: a refused start should not have
+        // drawn from the CSPRNG, and this is the failure most likely to happen
+        // on a self-hosted deployment.
+        val issuer = Oidc.resolveIssuer()
+        if (issuer.isBlank()) {
+            return if (Oidc.hasApiServer) StartFailure.NoRealmAdvertised
+            else StartFailure.NotConfigured
+        }
+
         val entropy = ByteArray(Oidc.ENTROPY_BYTES).also { SecureRandom().nextBytes(it) }
-        val authorize = Oidc.begin(entropy)
-        // Blank here is "no realm configured" (or, in principle, entropy too
-        // short). begin() already dropped anything it parked in that case, so
-        // there is nothing to abandon.
+        val authorize = Oidc.begin(entropy, issuer)
+        // Blank here is now only "entropy too short", since the issuer was
+        // checked above. begin() already dropped anything it parked in that
+        // case, so there is nothing to abandon.
         if (authorize.isBlank()) return StartFailure.NotConfigured
 
         if (authorize.toHttpUrlOrNull() == null) {

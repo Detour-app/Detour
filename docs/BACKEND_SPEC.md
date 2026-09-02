@@ -501,6 +501,45 @@ per request by spoofing it. See
 answers with a per-dependency breakdown: Postgres is critical, Redis is
 degraded-only.
 
+### 15.5 Capabilities
+
+`/api/capabilities` is unauthenticated, for the same reason `/api/health` is: a
+client needs it *before* it can hold a token, because one of the things it
+answers is which realm mints them.
+
+```json
+{
+  "schema": 1,
+  "features": ["idp-discovery"],
+  "idp": { "issuer": "https://idp.example/realms/detour" }
+}
+```
+
+`idp.issuer` is `Idp:Authority` verbatim — the same string §4.2 requires as
+`iss`, exactly and not as a prefix. Stating it unchanged is what makes it
+impossible for a deployment to advertise a realm whose tokens it would then
+refuse.
+
+Two rules make the document usable by clients both newer and older than the
+server, which matters because anyone self-hosting updates on their own
+schedule and there is no coordination point with the app:
+
+- **Unknown is ignored.** A client skips feature strings and fields it does
+  not know. An old app against a new server reads what it recognises and
+  behaves as it did.
+- **`schema` bumps only on a breaking change to an existing field.** Adding a
+  feature string or a field is additive and does not bump it. A client seeing
+  a `schema` higher than it knows still reads the fields it recognises rather
+  than refusing the document.
+
+It is a version-fingerprinting surface. That is accepted — the realm address
+is already public, and a self-hosted open-source server's version is
+discoverable regardless — and what follows from it is a content rule: this
+document carries feature names and the values a client needs to configure
+itself against, and nothing else. No dependency versions, no build strings,
+no counts, no dependency health. §15.4 is where operational detail lives, and
+it stays there.
+
 ## 16. Limits and defaults
 
 | Setting | Default |
