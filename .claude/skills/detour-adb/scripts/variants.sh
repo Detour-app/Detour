@@ -66,7 +66,7 @@ report() { # report <package> <role>
 }
 
 report io.github.maxke24.detour.debug debug
-report io.github.maxke24.detour release/wear
+report io.github.maxke24.detour release
 report com.jellemax.mocklocation harness
 
 cat <<'EOF'

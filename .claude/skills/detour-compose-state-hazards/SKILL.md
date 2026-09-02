@@ -7,7 +7,7 @@ description: >-
   touching anything that collects TripTrackingService.lastFix or any other StateFlow, before
   moving state or an effect body out of a composable into a function or class, before adding
   rememberSaveable, and before touching a withFrameNanos loop or the camera follow/park
-  state — anywhere under app/src/main/java/com/jellemax/detour/ui/, /car/ or wear/. Read it
+  state — anywhere under app/src/main/java/com/jellemax/detour/ui/ or /car/. Read it
   while proposing the edit, not while reviewing it.
 ---
 

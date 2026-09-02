@@ -24,7 +24,8 @@ still advertises finished work is worse than no list.
   (`car/NavVoice.kt`) and so does iOS (`NavVoice.swift`); in-app turn-by-turn on
   an Android phone is still silent, even though the *Spoken guidance* setting is
   right there. Wiring the same prompts into the phone's nav path is small.
-- **A watchOS companion.** Nothing reuses from `wear/`.
+- **A watchOS companion.** There is no Android watch app to port from any
+  more (#57), so this would be built from scratch.
 - **Avoid repeating roads** across consecutive moto loops.
 
 ## Shipped, and how it turned out

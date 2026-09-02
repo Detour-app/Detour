@@ -27,7 +27,6 @@ Ghent. Nothing in them is a real location.</sub>
 - [Routes](#routes)
 - [You: history, badges, friends](#you-history-badges-friends)
 - [Settings reference](#settings-reference)
-- [On your wrist](#on-your-wrist)
 - [On the car screen](#on-the-car-screen)
 - [On iPhone](#on-iphone)
 - [Stack](#stack)
@@ -43,8 +42,7 @@ everything else lives in [docs/](docs/README.md).
 ## Install
 
 Grab the APK from the latest release and install it, or build it yourself (see
-[Build](#build)). Min SDK 26 (Android 8.0). A Wear OS APK ships alongside if you
-want the watch companion.
+[Build](#build)). Min SDK 26 (Android 8.0).
 
 There is an iPhone app too, sharing the same core — it has no release download,
 because putting an iOS build on a phone needs a paid Apple Developer
@@ -419,12 +417,6 @@ and fog from the server.
 - *Server config file* — export the whole server setup to a file and import it
   on another device, so you configure this once.
 
-## On your wrist
-
-A Wear OS companion shows the next maneuver and the distance to it, and wakes
-itself on the watch when navigation starts on the phone. Install the watch APK
-from the same release.
-
 ## On the car screen
 
 Android Auto gets a car-sized spin: pick a radius, spin a destination, and drive
@@ -459,10 +451,10 @@ simulator and gets screenshotted. CI cannot reach a private Keycloak, so
 nobody has yet watched an iPhone finish the browser leg against a real realm.
 Treat that leg as untested, not working, until someone has.
 
-Three things are Android-only and are not coming to iOS: **Android Auto**
+Two things are Android-only and are not coming to iOS: **Android Auto**
 (CarPlay navigation needs an entitlement Apple grants on application, and
-routinely refuses for hobby apps), **now-playing media** on an external display
-(iOS exposes no equivalent), and the **Wear OS** companion.
+routinely refuses for hobby apps) and **now-playing media** on an external
+display (iOS exposes no equivalent).
 
 Where the platforms behave differently — trip auto-detection, how lean and g
 are measured, guidance audio ducking — the reasoning for each is in
@@ -481,9 +473,9 @@ kotlinx-serialization, kotlinx-datetime and okio. The core is handed its
 location fixes, audio and Bluetooth by whichever platform is running it — it
 never reaches for them — which is why only three things are `expect`.
 
-**Android** (`app/`, `wear/`): Jetpack Compose, Material 3, MapLibre GL
-(OpenFreeMap vector tiles), fused location provider, Android for Cars App
-Library, Wearable Message API. Min SDK 26 (Android 8.0).
+**Android** (`app/`): Jetpack Compose, Material 3, MapLibre GL (OpenFreeMap
+vector tiles), fused location provider, Android for Cars App Library. Min SDK
+26 (Android 8.0).
 
 **iOS** (`iosApp/`): SwiftUI, MapLibre GL Native, CoreLocation,
 `CMMotionActivityManager` for the automotive hint and `CMDeviceMotion` for lean
@@ -500,7 +492,6 @@ Everything below works on Linux or Windows. Only the last section needs a Mac.
 shared/     Kotlin Multiplatform core. All roulette/routing/trip logic.
 app/        Android app — UI and platform services only.
 iosApp/     SwiftUI app — UI and platform services only.
-wear/       Wear OS companion.
 ```
 
 **Android:**
@@ -509,8 +500,7 @@ wear/       Wear OS companion.
 ./gradlew assembleDebug
 ```
 
-Phone APK lands in `app/build/outputs/apk/debug/app-debug.apk`, watch APK in
-`wear/build/outputs/apk/debug/wear-debug.apk`. Install with
+The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. Install with
 `adb install app/build/outputs/apk/debug/app-debug.apk`.
 
 A debug build carries a few `adb` hooks for behaviour that is otherwise slow to
@@ -544,7 +534,7 @@ uploads a simulator app, an unsigned `.ipa` and a screenshot — see
 [docs/IOS_PORT.md](docs/IOS_PORT.md).
 
 Releases published from CI are signed and minified (R8), and a push to `main`
-also uploads the phone and watch bundles to Play's internal testing track — see
+also uploads the app bundle to Play's internal testing track — see
 [docs/RELEASING.md](docs/RELEASING.md) for the version-code scheme and the
 one-time Play Console setup. To verify a downloaded release APK's signature
 yourself:

@@ -2,14 +2,14 @@
 name: detour-shared-core
 description: >-
   Decide which of Detour's surfaces a piece of logic belongs to — shared/ (Kotlin
-  Multiplatform commonMain), app/, app/.../car/ (Android Auto), wear/ or iosApp/ — and write
+  Multiplatform commonMain), app/, app/.../car/ (Android Auto) or iosApp/ — and write
   it correctly once it is there. Use this before adding any new logic, before extracting or
   moving logic between modules, when a change would otherwise land only in app/, when you are
   about to write a second copy of a rule that already exists on another surface, when you
   notice two surfaces have drifted, when proposing an interface or an expect declaration, and
   when deciding where a test is worth putting. It carries the module dependency graph as it
-  actually is (wear/ does NOT depend on shared/), commonMain's verified constraints, the
-  measured cross-surface duplication, and which CI job gates which source set.
+  actually is, commonMain's verified constraints, the measured cross-surface duplication,
+  and which CI job gates which source set.
 ---
 
 # Where code belongs in Detour, and how to write it once it is there
@@ -28,11 +28,10 @@ re-derive it before trusting the body.
 .claude/skills/detour-shared-core/scripts/check-preconditions.sh
 ```
 
-Seven assertions, `PASS`/`FAIL` per line, non-zero exit if any failed: the four `expect`s all
+Six assertions, `PASS`/`FAIL` per line, non-zero exit if any failed: the four `expect`s all
 in `Platform.kt`, **zero** `Dispatchers` in `commonMain` code, **exactly three** non-sealed
 `interface` there (`Prefs`, `RelaySocket` and `BearerSource`, pinned to their three files so a
-fourth is still caught), `wear/`
-still **not** depending on `:shared`, `app/` still depending on it, and `nowMs()` still in
+fourth is still caught), `app/` still depending on `:shared`, and `nowMs()` still in
 `Angles.kt`. Two of those are inverted-to-zero assertions, which is why they are worth running
 rather than eyeballing — a grep that prints nothing looks the same whether the claim holds or
 the path was mistyped. The script reports `nowMs()`'s current line rather than asserting it,
@@ -40,30 +39,28 @@ because line drift is not staleness.
 
 ## 1. The surfaces, and which ones `shared/` actually reaches
 
-`settings.gradle.kts:16,17,20` declares **three** Gradle modules: `:app`, `:wear`, `:shared`.
-Everything else is either a separate build or not a Gradle project at all.
+`settings.gradle.kts` declares **two** Gradle modules: `:app` and `:shared`. Everything else
+is either a separate build or not a Gradle project at all.
 
 | Surface | Path | Depends on `:shared`? | Verified at |
 |---|---|---|---|
 | Phone app | `app/src/main/java/com/jellemax/detour/` | **yes** | `app/build.gradle.kts:135` |
 | Android Auto | `app/src/main/java/com/jellemax/detour/car/` | yes — **same Gradle module as the phone** | not a module boundary |
-| Wear OS | `wear/src/main/java/com/jellemax/detour/wear/` | **NO** | `wear/build.gradle.kts` dependency block lists six androidx/GMS artifacts and no project |
 | iOS | `iosApp/Detour/` (SwiftUI) | yes, as a static framework | `iosApp/project.yml` `FRAMEWORK_SEARCH_PATHS` + `OTHER_LDFLAGS: -framework DetourShared`, built by the `packForXcode` preBuild script |
 | .NET backend | `backend/` (18 `.csproj`) | no — HTTP only | `backend/README.md:3` calls it "The .NET replacement for `server/sync/sync_server.py`" |
 | Legacy sync server | `server/sync/sync_server.py` | no — **superseded by `backend/`** | same line |
 
 Two consequences that change decisions:
 
-- **"Shared" means phone + Android Auto + iOS. It does not mean Wear.** Putting logic in
-  `shared/` does not give `wear/` access to it; `wear/` would need a new Gradle edge first.
-  If a task says "share this with the watch", that is a build-file change, not a move.
+- **"Shared" means phone + Android Auto + iOS**, and today that is every client surface the
+  repo has — the Wear OS module, which had no `:shared` edge, was removed in #57.
 - **`app/` ↔ `car/` needs no port and no `shared/` move at all.** They are the same module and
   the same package root. De-duplicating between them is a plain extraction into a new file
   under `app/`. Do not reach for `shared/` (or an interface) to solve an `app/`↔`car/` copy.
 
 Measured today (whole-file line counts, `find … | xargs cat | wc -l`):
 `shared/src/commonMain` 4,927 lines in 36 files · `app/src/main/java` 16,940 in 56 ·
-`iosApp/Detour/*.swift` 5,078 in 25 · `wear/src` 185.
+`iosApp/Detour/*.swift` 5,078 in 25.
 
 > Note: `docs/refactor/mapscreen/13-surface-independence-audit.md` reports `app/` as 45 files
 > / 16,705 lines. That was before the MapScreen mechanical split added eleven files under
@@ -139,7 +136,7 @@ change; `Platform.kt:11-14` is a documented decision and reversing it is its own
 | Wall clock | **Exists.** `internal fun nowMs(): Long` at `shared/src/commonMain/kotlin/com/jellemax/detour/data/Angles.kt:16`, over `kotlinx.datetime.Clock.System` | See the warning below |
 | `kotlin.random.Random` | Available (common stdlib), used at `RoadRoulette.kt`, `PoiRoulette.kt`, `RoundTripPlanner.kt` | no obstacle |
 | `kotlin.math` | Available; `Angles.kt:11,13` supplies the two `java.lang.Math` degree/radian converters common Kotlin lacks | no obstacle |
-| JSON | kotlinx-serialization plus `Json.kt`'s lenient `org.json`-shaped shim | `org.json.JSONObject` (still used in `app/net/` and `wear/`) must be ported to `Json.kt` before that code can move |
+| JSON | kotlinx-serialization plus `Json.kt`'s lenient `org.json`-shaped shim | `org.json.JSONObject` (still used in `app/net/`) must be ported to `Json.kt` before that code can move |
 | File I/O | okio, via `Files.kt` over `expect val fileSystem` | works; the strongest seam in the repo, and `Platform.kt:46` notes it takes a fake in tests |
 | HTTP | `internal object Http` — a concrete Ktor client, engine chosen per target in `shared/build.gradle.kts` | not injectable and not fakeable from `commonTest`; test the parsing, not the fetch |
 | Logging | **Zero.** No logger, no `println` | a move out of `app/` drops its `android.util.Log` calls; there is no port to keep them |
@@ -193,9 +190,11 @@ there; the totals are what matter here).
 |---|---|---|
 | Phone ↔ iOS | **≈1,150 Kotlin / ≈1,070 Swift lines**, 10 items | ≈21% of the whole iOS app, ≈55% of its non-UI code |
 | Phone ↔ Android Auto | **≈199 / ≈186 lines**, 11 items | ≈10% of `car/` |
-| Phone ↔ Wear | **≈45 lines**, 2 items | 24% of the 185-line `wear/` module |
-| Android Auto ↔ iOS, Wear ↔ iOS | 0 | no CarPlay or watchOS target |
+| Android Auto ↔ iOS | 0 | no CarPlay target |
 | **Total** | **≈1,300 duplicated lines**, ≈11% of client logic | |
+
+> The ≈45-line phone ↔ Wear pair this table used to carry went away with the watch module
+> (#57). The total above is the pre-removal figure and has not been re-measured since.
 
 The largest single item, verified: `iosApp/Detour/TripRecorder.swift` is a function-for-function
 parallel of `app/.../tracking/TripTrackingService.kt`, with **nineteen tuning constants copied
@@ -203,11 +202,10 @@ verbatim** at `TripRecorder.swift:41-60` against `TripTrackingService.kt:141-202
 header comment at `TripRecorder.swift:39` says so outright: *"Auto-detection thresholds
 (identical to the Android service)"*.
 
-And the four-copy case `CONTRIBUTING.md:46-52` already names — the GraphHopper sign table — is
-still four copies today, three of them byte-identical bodies:
+And the multi-copy case `CONTRIBUTING.md` already names — the GraphHopper sign table — is
+still three copies today:
 
 - `app/src/main/java/com/jellemax/detour/ui/Navigation.kt:57-71` `signIcon`
-- `wear/src/main/java/com/jellemax/detour/wear/MainActivity.kt:53-67` `signIcon` (identical)
 - `app/src/main/java/com/jellemax/detour/car/NavScreen.kt:575-593` `maneuverType` (same
   sign codes, mapped to `Maneuver.TYPE_*` instead of an icon)
 - `iosApp/Detour/NavScreen.swift:232-248` `maneuverIcon`
