@@ -51,7 +51,7 @@ class RelayProtocolTest {
         kind: String = "arrive",
         tsMs: Long = 1_700_000_000_000L,
     ) = """{"type":"place_event","groupId":"$groupId","placeId":$placeId,"placeName":"$placeName",""" +
-        """"user":"$user","kind":"$kind","tsMs":$tsMs}"""
+        """"user":"$user","kind":"$kind","ts":$tsMs}"""
 
     /** One `peers` row - the shape the `positions` frame batches. A `null`
      *  optional field is omitted from the row entirely, not sent as JSON

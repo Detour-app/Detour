@@ -238,7 +238,7 @@ public class CircleService(
                 caller.Username,
                 placeEvent.ClientPlaceId,
                 placeName ?? string.Empty,
-                placeEvent.Kind.Name,
+                placeEvent.Kind.Wire(),
                 placeEvent.TimestampMs);
 
             return Task.CompletedTask;
