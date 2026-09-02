@@ -96,18 +96,20 @@ jobs:
       # Play refuses any upload whose versionCode isn't higher than every code
       # it has already seen, so a hand-edited number in build.gradle.kts is one
       # forgotten bump away from a rejected release. The run number only ever
-      # increases, which is the single property Play cares about. Doubling it
-      # leaves an odd slot for the watch artifact: phone and watch share an
-      # applicationId, and Play requires their codes to differ. The +1000 floor
-      # clears the codes already published as GitHub-release APKs (66 at the
-      # time of writing), so an existing sideloaded install still sees Play's
-      # copy as newer.
-      - name: Stamp version codes
+      # increases, which is the single property Play cares about. The +1000
+      # floor clears the codes already published as GitHub-release APKs (66 at
+      # the time of writing), so an existing sideloaded install still sees
+      # Play's copy as newer.
+      #
+      # The stride of 2 is vestigial - it used to leave an odd slot for the
+      # watch artifact, which shared the phone's applicationId and so needed a
+      # different code. The watch app is gone (#57), but the stride stays:
+      # halving it would emit codes Play has already accepted, and Play only
+      # ever takes a higher one.
+      - name: Stamp version code
         if: github.event_name == 'push'
         run: |
-          base=$(( 1000 + GITHUB_RUN_NUMBER * 2 ))
-          echo "VERSION_CODE=$base" >> "$GITHUB_ENV"
-          echo "WEAR_VERSION_CODE=$(( base + 1 ))" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$(( 1000 + GITHUB_RUN_NUMBER * 2 ))" >> "$GITHUB_ENV"
 
       # #7 was one missing line on an OutlinedTextField, and nothing in the
       # toolchain noticed: there is no Robolectric, no compose-ui-test and no
@@ -125,11 +127,9 @@ jobs:
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest :shared:testDebugUnitTest
 
-      # One invocation, so the version codes stamped above are read once and
-      # every artifact in this release agrees on them. The watch app is built
-      # both ways: .aab for Play, .apk for sideloading off the GitHub release
-      # (it used to ride along inside the phone APK — see the note in
-      # app/build.gradle.kts for why it no longer does).
+      # One invocation, so the version code stamped above is read once and
+      # every artifact in this release agrees on it. Both ways: .aab for Play,
+      # .apk for sideloading off the GitHub release.
       - name: Build release artifacts
         env:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
@@ -140,8 +140,7 @@ jobs:
           # which is what keeps the update check inert everywhere else.
           UPDATE_REPO: ${{ github.repository }}
         run: |
-          ./gradlew :app:assembleGithubRelease :app:bundleRelease \
-                    :wear:assembleRelease :wear:bundleRelease
+          ./gradlew :app:assembleGithubRelease :app:bundleRelease
 
       # The APK carries the version in its name, so a downloaded file still says
       # what it is once it's sitting in a Downloads folder next to four others.
@@ -156,12 +155,10 @@ jobs:
       # Glob because the artifact name depends on signing: app-release.apk
       # when signed (always, on push — see the decode step), or
       # app-release-unsigned.apk on an unsigned PR build.
-      - name: Rename APKs
+      - name: Rename APK
         run: |
           cp app/build/outputs/apk/githubRelease/app-githubRelease*.apk \
              detour-${{ steps.version.outputs.name }}.apk
-          cp wear/build/outputs/apk/release/wear-release*.apk \
-             detour-wear-${{ steps.version.outputs.name }}.apk
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -174,14 +171,12 @@ jobs:
       # .apk, so without this there is nothing in a run to upload by hand. Named
       # with the version code as well as the name: Play rejects a code it has
       # already seen, and the code comes from the run number, not the file.
-      - name: Rename bundles
+      - name: Rename bundle
         run: |
           cp app/build/outputs/bundle/release/app-release.aab \
              detour-${{ steps.version.outputs.name }}-${{ steps.version.outputs.code }}.aab
-          cp wear/build/outputs/bundle/release/wear-release.aab \
-             detour-wear-${{ steps.version.outputs.name }}-${{ steps.version.outputs.code }}.aab
 
-      - name: Upload bundles
+      - name: Upload bundle
         uses: actions/upload-artifact@v4
         with:
           name: detour-aab-${{ steps.version.outputs.name }}
@@ -201,15 +196,15 @@ jobs:
       # creating a second one. PRs build the same release artifacts to prove
       # they still compile/minify clean, but a PR has nothing worth tagging and
       # publishing — only a push to main cuts a release.
-      # The app reads this to learn which asset belongs to its platform. Not a
-      # glob on the release's asset list: detour-wear-<ver>.apk also starts with
-      # detour-, so a prefix match hands a phone the watch build. The sha256 is
-      # what lets the app refuse a download that did not arrive intact.
+      # The app reads this to learn which asset belongs to its platform, keyed
+      # rather than globbed: a prefix match on the release's asset list is one
+      # similarly-named artifact away from handing a phone something else. The
+      # sha256 is what lets the app refuse a download that did not arrive
+      # intact.
       - name: Generate update manifest
         if: github.event_name == 'push'
         run: |
           phone="detour-${{ steps.version.outputs.name }}.apk"
-          wear="detour-wear-${{ steps.version.outputs.name }}.apk"
           cat > update.json <<EOF
           {
             "version": "${{ steps.version.outputs.name }}",
@@ -218,11 +213,6 @@ jobs:
                 "asset": "$phone",
                 "size": $(stat -c%s "$phone"),
                 "sha256": "$(sha256sum "$phone" | cut -d' ' -f1)"
-              },
-              "android-wear": {
-                "asset": "$wear",
-                "size": $(stat -c%s "$wear"),
-                "sha256": "$(sha256sum "$wear" | cut -d' ' -f1)"
               }
             }
           }
@@ -238,7 +228,6 @@ jobs:
           make_latest: true
           files: |
             detour-${{ steps.version.outputs.name }}.apk
-            detour-wear-${{ steps.version.outputs.name }}.apk
             app/build/outputs/mapping/githubRelease/mapping.txt
             update.json
           body: |
@@ -247,9 +236,7 @@ jobs:
             ${{ github.sha }}.${{ steps.play.outputs.enabled == 'true' && ' Also published to the Play internal testing track.' || '' }}
 
             Download the `.apk` below and install it on your phone (allow
-            installs from unknown sources). `detour-wear-*.apk` is the watch
-            app — sideload it separately with `adb`, or take it from Play once
-            you're on the internal testers list.
+            installs from unknown sources).
 
             This build ships with no server configured. Point it at your own
             under Settings → Routing server and Settings → Backup sync, or
@@ -276,20 +263,6 @@ jobs:
       # internal: available to the testers on that list within minutes, no
       # review queue. Promote to production from the Play Console when a build
       # has earned it — nothing here writes to a public track.
-      #
-      # Phone bundle only. The two bundles used to go up in one release edit,
-      # which Play rejected outright:
-      #
-      #   The APK or bundle with version code 1189 requires the Wear OS system
-      #   feature android.hardware.type.watch. To publish this app on the
-      #   current track, remove this artifact.
-      #
-      # `internal` is a phone track and will not hold an artifact declaring
-      # <uses-feature android.hardware.type.watch>, no matter that the app has
-      # the Wear OS form factor — the form factor is what creates the separate
-      # `wear:` tracks the watch bundle belongs on. One rejected watch bundle
-      # therefore failed the phone upload too, and with it the tag and the
-      # GitHub release. They are two edits now, on their own tracks.
       - name: Publish phone bundle to Play internal track
         if: github.event_name == 'push' && steps.play.outputs.enabled == 'true'
         uses: r0adkll/upload-google-play@v1
@@ -303,28 +276,3 @@ jobs:
           track: internal
           status: completed
           mappingFile: app/build/outputs/mapping/release/mapping.txt
-
-      # `wear:internal` — the internal track of the Wear OS form factor, a
-      # different track from the `internal` above and the only one that accepts
-      # an artifact declaring android.hardware.type.watch. The action validates
-      # the name against the tracks Play reports for this app, so a missing or
-      # renamed form factor fails here with the list of tracks that do exist
-      # rather than a vague rejection.
-      #
-      # Last, after the GitHub release, on purpose: the phone build is the
-      # product, and the watch app is downloadable as a sideloadable APK from
-      # the release either way. A watch upload Play turns down still marks the
-      # run failed — visible, not swallowed — but by then the APKs are
-      # published and the tag stands.
-      #
-      # No mappingFile: the watch build sets isMinifyEnabled = false
-      # (wear/build.gradle.kts), so there is no mapping.txt to send.
-      - name: Publish watch bundle to Play wear:internal track
-        if: github.event_name == 'push' && steps.play.outputs.enabled == 'true'
-        uses: r0adkll/upload-google-play@v1
-        with:
-          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: io.github.maxke24.detour
-          releaseFiles: wear/build/outputs/bundle/release/wear-release.aab
-          track: wear:internal
-          status: completed
