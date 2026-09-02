@@ -136,7 +136,7 @@ struct SettingsScreen: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
             SecureField("CF-Access-Client-Secret", text: $clientSecret)
-            TextField("https://your.realm/realms/detour", text: $idpIssuer)
+            TextField("Sign-in realm (deprecated)", text: $idpIssuer)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
@@ -153,8 +153,9 @@ struct SettingsScreen: View {
             Text("""
                 One address reaches routing, search, sync and convoys — the tunnel \
                 routes by path. Leave blank to use the built-in defaults. The realm \
-                address is separate and never derived from the others: it is where \
-                signing in happens.
+                field is deprecated: newer servers tell the app which realm to use, \
+                so leave it empty unless your server has not been updated. Anything \
+                typed there still wins over what the server says.
                 """)
         }
     }
