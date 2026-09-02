@@ -9,6 +9,7 @@ import android.graphics.Rect
 import android.graphics.Shader
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.Surface
 import android.view.View
@@ -196,6 +197,12 @@ class CarMapRenderer(
 
     // Where the camera is being eased to, and where it currently is.
     private var targetPos: LatLon? = null
+
+    // The last fix's own motion, kept so the camera loop can dead-reckon from it
+    // between fixes rather than easing toward a position that is already stale.
+    private var fixBearingDeg: Float? = null
+    private var fixSpeedMps: Double = 0.0
+    private var fixElapsedMs: Long = 0L
     private var targetBearing: Float? = null
     private var targetZoom = 16.0
     private var camLat = Double.NaN
@@ -205,9 +212,23 @@ class CarMapRenderer(
     private var easeJob: Job? = null
 
     /** Where to point the camera, from the latest fix. The camera itself eases
-     *  there over the following frames rather than jumping on each fix. */
-    fun follow(pos: LatLon, bearingDeg: Float?, speedMps: Double, zoom: Double) {
+     *  there over the following frames rather than jumping on each fix.
+     *
+     *  [fixElapsedMs] is the fix's own `SystemClock.elapsedRealtime()` stamp, not
+     *  the time it arrived here. The loop dead-reckons from it, so it needs to know
+     *  how old the fix already is — a fix handed over 400 ms after it was taken is
+     *  400 ms of travel behind before any easing happens. */
+    fun follow(
+        pos: LatLon,
+        bearingDeg: Float?,
+        speedMps: Double,
+        zoom: Double,
+        fixElapsedMs: Long,
+    ) {
         targetPos = pos
+        fixBearingDeg = bearingDeg
+        fixSpeedMps = speedMps
+        this.fixElapsedMs = fixElapsedMs
         if (bearingDeg != null && speedMps > BEARING_HOLD_MPS) targetBearing = bearingDeg
         targetZoom = zoom
         if (camLat.isNaN()) {
@@ -438,7 +459,22 @@ class CarMapRenderer(
                 lastNs = ns
                 if (camLat.isNaN()) continue
 
-                targetPos?.let { target ->
+                // Dead reckoning, defect 1 of #37. Easing toward the raw fix
+                // settles the camera v*tau behind the vehicle *plus* the fix's own
+                // age — at 100 km/h and CAM_POS_TAU = 0.35 that is ~10 m of lag
+                // before latency. Leading the target by tau cancels the ease's own
+                // lag, exactly as MapScreen does.
+                val predicted = targetPos?.let { raw ->
+                    MapMotion.predict(
+                        at = raw,
+                        bearingDeg = fixBearingDeg,
+                        speedMps = fixSpeedMps,
+                        fixElapsedMs = fixElapsedMs,
+                        nowElapsedMs = SystemClock.elapsedRealtime(),
+                        leadSeconds = CAM_POS_TAU,
+                    )
+                }
+                predicted?.let { target ->
                     if (MapMotion.shouldSnap(LatLon(camLat, camLon), target)) {
                         // Too far to be continuous motion — the session was
                         // backgrounded while the car kept driving, or the host
@@ -462,7 +498,7 @@ class CarMapRenderer(
                 }
                 camZoom += (targetZoom - camZoom) * (1.0 - exp(-dt / CAM_ZOOM_TAU))
 
-                val tgt = targetPos
+                val tgt = predicted
                 val targetMoved = tgt != null && (
                     lastTargetLat.isNaN() ||
                         tgt.lat != lastTargetLat ||
