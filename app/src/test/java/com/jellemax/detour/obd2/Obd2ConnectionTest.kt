@@ -156,6 +156,35 @@ class Obd2ConnectionTest {
         }
     }
 
+    /** Serves each response only after the previous one is fully read AND the
+     *  stream has reported empty at least once — models ELM327 responses arriving
+     *  over the wire one at a time, so [Obd2Connection.pollPid]'s drainStalePrompts
+     *  (which bails the instant available() is 0) cannot sweep up a response that
+     *  "hasn't arrived yet". */
+    private class SequentialResponseStream(responses: List<String>) : InputStream() {
+        private val chunks = ArrayDeque(responses.map { it.toByteArray(Charsets.US_ASCII) })
+        private var current: ByteArray = chunks.removeFirstOrNull() ?: ByteArray(0)
+        private var pos = 0
+        private var sawEmpty = false
+
+        override fun available(): Int {
+            if (pos < current.size) return current.size - pos
+            if (sawEmpty && chunks.isNotEmpty()) {
+                current = chunks.removeFirst()
+                pos = 0
+                sawEmpty = false
+                return current.size
+            }
+            sawEmpty = true
+            return 0
+        }
+
+        override fun read(): Int {
+            if (pos >= current.size && available() <= 0) return -1
+            return current[pos++].toInt() and 0xFF
+        }
+    }
+
     @Test
     fun drainLetsASubsequentPollForTheCorrectPidSucceedAfterAStaleMismatch() {
         val stale = "41 0C 1A F8\r\r>" // leftover RPM response from an earlier timed-out cycle
@@ -244,5 +273,98 @@ class Obd2ConnectionTest {
 
         assertNull(result.bytes)
         assertFalse(result.answered)
+    }
+
+    // --- probePidCycle: probe-and-latch state machine (#103) ------------------
+
+    private val PROBING = Obd2Connection.PidProbe.Probing()
+
+    @Test
+    fun probeLatchesToPrimaryOnADataFrame() {
+        val input = streamOf("41 5E 00 40\r\r>") // a 015E fuel-rate frame
+        val cycle = Obd2Connection.probePidCycle(
+            input, ByteArrayOutputStream(), PROBING,
+            primary = Obd2Pids.PID_FUEL_RATE, fallback = Obd2Pids.PID_MAF,
+            maxCycles = Obd2Connection.PID_PROBE_MAX_CYCLES,
+        )
+        assertEquals(Obd2Connection.PidProbe.Latched(Obd2Pids.PID_FUEL_RATE), cycle.state)
+        assertEquals(listOf(0x00, 0x40), cycle.result?.bytes)
+    }
+
+    @Test
+    fun probeFallsBackToSecondaryWhenPrimaryAnswersUnsupported() {
+        // Primary (015E) answers "NO DATA"; the fallback (0110) frame arrives
+        // only after that poll returns, so the same cycle re-polls and latches it.
+        val input = SequentialResponseStream(listOf("NO DATA\r\r>", "41 10 1A F0\r\r>"))
+        val cycle = Obd2Connection.probePidCycle(
+            input, ByteArrayOutputStream(), PROBING,
+            primary = Obd2Pids.PID_FUEL_RATE, fallback = Obd2Pids.PID_MAF,
+            maxCycles = Obd2Connection.PID_PROBE_MAX_CYCLES,
+        )
+        assertEquals(Obd2Connection.PidProbe.Latched(Obd2Pids.PID_MAF), cycle.state)
+        assertEquals(listOf(0x1A, 0xF0), cycle.result?.bytes)
+    }
+
+    @Test
+    fun probeGoesUnsupportedWhenBothPidsAnswerUnsupported() {
+        val input = SequentialResponseStream(listOf("NO DATA\r\r>", "NO DATA\r\r>"))
+        val cycle = Obd2Connection.probePidCycle(
+            input, ByteArrayOutputStream(), PROBING,
+            primary = Obd2Pids.PID_THROTTLE_REL, fallback = Obd2Pids.PID_THROTTLE,
+            maxCycles = Obd2Connection.PID_PROBE_MAX_CYCLES,
+        )
+        assertEquals(Obd2Connection.PidProbe.Unsupported, cycle.state)
+        assertNull(cycle.result)
+    }
+
+    @Test
+    fun probeGoesUnsupportedWhenPrimaryUnsupportedAndNoFallback() {
+        // lambda (0144) has no alternative PID — fallback is null.
+        val input = streamOf("NO DATA\r\r>")
+        val cycle = Obd2Connection.probePidCycle(
+            input, ByteArrayOutputStream(), PROBING,
+            primary = "0144", fallback = null,
+            maxCycles = Obd2Connection.PID_PROBE_MAX_CYCLES,
+        )
+        assertEquals(Obd2Connection.PidProbe.Unsupported, cycle.state)
+    }
+
+    @Test
+    fun probeKeepsProbingOnABareTimeoutWithinBudget() {
+        val input = ByteArrayInputStream(ByteArray(0)) // primary times out
+        val cycle = Obd2Connection.probePidCycle(
+            input, ByteArrayOutputStream(), Obd2Connection.PidProbe.Probing(cycles = 1),
+            primary = Obd2Pids.PID_FUEL_RATE, fallback = Obd2Pids.PID_MAF,
+            maxCycles = Obd2Connection.PID_PROBE_MAX_CYCLES,
+        )
+        assertEquals(Obd2Connection.PidProbe.Probing(cycles = 2), cycle.state)
+        assertNull(cycle.result)
+    }
+
+    @Test
+    fun probeForcesResolutionWhenTheCycleBudgetIsSpent() {
+        // Budget spent and primary still just times out: force the fallback, and
+        // with the fallback also silent, give up rather than probe 015E forever.
+        val input = ByteArrayInputStream(ByteArray(0))
+        val cycle = Obd2Connection.probePidCycle(
+            input, ByteArrayOutputStream(),
+            Obd2Connection.PidProbe.Probing(cycles = Obd2Connection.PID_PROBE_MAX_CYCLES - 1),
+            primary = Obd2Pids.PID_FUEL_RATE, fallback = Obd2Pids.PID_MAF,
+            maxCycles = Obd2Connection.PID_PROBE_MAX_CYCLES,
+        )
+        assertEquals(Obd2Connection.PidProbe.Unsupported, cycle.state)
+    }
+
+    @Test
+    fun probeInLatchedStateJustPollsTheLatchedPidEveryCycle() {
+        val input = streamOf("41 10 1A F0\r\r>")
+        val cycle = Obd2Connection.probePidCycle(
+            input, ByteArrayOutputStream(),
+            Obd2Connection.PidProbe.Latched(Obd2Pids.PID_MAF),
+            primary = Obd2Pids.PID_FUEL_RATE, fallback = Obd2Pids.PID_MAF,
+            maxCycles = Obd2Connection.PID_PROBE_MAX_CYCLES,
+        )
+        assertEquals(Obd2Connection.PidProbe.Latched(Obd2Pids.PID_MAF), cycle.state)
+        assertEquals(listOf(0x1A, 0xF0), cycle.result?.bytes)
     }
 }

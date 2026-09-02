@@ -85,11 +85,11 @@ object Obd2Connection {
     // (see PollResult.answered) before we give up on the connection and fall
     // through to the failure/backoff path.
     private const val MAX_CONSECUTIVE_EMPTY_POLLS = 5
-    // How many cycles the fuel-PID probe gets to reach a verdict. A clone that
-    // silently ignores an unsupported 015E (answered == false) would otherwise
+    // How many cycles a probe-and-latch PID slot gets to reach a verdict. A clone
+    // that silently ignores an unsupported PID (answered == false) would otherwise
     // re-poll it — eating a read timeout — for the whole drive; after this many
-    // cycles the probe forces the MAF fallback, then gives up.
-    private const val FUEL_PROBE_MAX_CYCLES = 5
+    // cycles the probe forces the fallback, then gives up.
+    internal const val PID_PROBE_MAX_CYCLES = 5
     // Bounds on draining a desynced adapter's already-buffered stale responses
     // back to a clean stream — see [drainStalePrompts].
     private const val DRAIN_TIMEOUT_MS = 200L
@@ -270,6 +270,67 @@ object Obd2Connection {
      *  reporting unsupported PIDs. */
     internal data class PollResult(val bytes: List<Int>?, val answered: Boolean)
 
+    /** Per-connection state of one probe-and-latch PID slot.
+     *  - [Probing] — still deciding; [cycles] counts probe attempts so far.
+     *  - [Latched] — settled on [pid]; poll it every cycle from here.
+     *  - [Unsupported] — neither the primary nor the fallback PID answered; stop
+     *    asking for the life of this connection. */
+    internal sealed interface PidProbe {
+        data class Probing(val cycles: Int = 0) : PidProbe
+        data class Latched(val pid: String) : PidProbe
+        data object Unsupported : PidProbe
+    }
+
+    /** The outcome of one [probePidCycle]: the slot's new [state] and this cycle's
+     *  reading for it. [result] is null only while [PidProbe.Unsupported] (nothing
+     *  is polled) or on a bare timeout that left the slot still [PidProbe.Probing]. */
+    internal data class ProbeCycle(val state: PidProbe, val result: PollResult?)
+
+    /**
+     * One poll cycle of a probe-and-latch PID slot (#103) — the shared shape the
+     * throttle probe (0145 → 0111) and the fuel probe (015E → 0110) both need, and
+     * that the commanded-lambda probe (0144, no fallback) will reuse.
+     *
+     * While [PidProbe.Probing]:
+     * - poll [primary]; a data frame latches the slot to it;
+     * - an *answered* "unsupported" (NO DATA / header mismatch) re-polls [fallback]
+     *   the same cycle — data latches it, an answered-unsupported gives up
+     *   ([PidProbe.Unsupported]); a null [fallback] (lambda) gives up immediately;
+     * - a bare read timeout latches nothing: stay [PidProbe.Probing] and retry next
+     *   cycle, until [maxCycles] attempts have been spent, after which the slot is
+     *   forced through the fallback and then to [PidProbe.Unsupported] rather than
+     *   eating a timeout on every cycle for the rest of the drive.
+     */
+    internal fun probePidCycle(
+        input: InputStream,
+        output: OutputStream,
+        state: PidProbe,
+        primary: String,
+        fallback: String?,
+        maxCycles: Int,
+    ): ProbeCycle = when (state) {
+        is PidProbe.Unsupported -> ProbeCycle(state, null)
+        is PidProbe.Latched -> ProbeCycle(state, pollPid(input, output, state.pid))
+        is PidProbe.Probing -> {
+            val cycles = state.cycles + 1
+            val budgetSpent = cycles >= maxCycles
+            val primaryResult = pollPid(input, output, primary)
+            when {
+                primaryResult.bytes != null -> ProbeCycle(PidProbe.Latched(primary), primaryResult)
+                !primaryResult.answered && !budgetSpent -> ProbeCycle(PidProbe.Probing(cycles), null)
+                fallback == null -> ProbeCycle(PidProbe.Unsupported, null)
+                else -> {
+                    val fallbackResult = pollPid(input, output, fallback)
+                    when {
+                        fallbackResult.bytes != null -> ProbeCycle(PidProbe.Latched(fallback), fallbackResult)
+                        fallbackResult.answered || budgetSpent -> ProbeCycle(PidProbe.Unsupported, null)
+                        else -> ProbeCycle(PidProbe.Probing(cycles), null)
+                    }
+                }
+            }
+        }
+    }
+
     private suspend fun pollLoop(input: InputStream, output: OutputStream) {
         // Counts consecutive cycles where all three PIDs went entirely unanswered
         // (genuine timeouts, not "NO DATA" or other unparseable-but-real answers).
@@ -334,11 +395,11 @@ object Obd2Connection {
                     fuelProbeCycles++
                     when {
                         fuelResult.bytes != null -> fuelPid = Obd2Pids.PID_FUEL_RATE
-                        fuelResult.answered || fuelProbeCycles >= FUEL_PROBE_MAX_CYCLES -> {
+                        fuelResult.answered || fuelProbeCycles >= PID_PROBE_MAX_CYCLES -> {
                             fuelResult = pollPid(input, output, Obd2Pids.PID_MAF)
                             fuelPid = when {
                                 fuelResult.bytes != null -> Obd2Pids.PID_MAF
-                                fuelResult.answered || fuelProbeCycles >= FUEL_PROBE_MAX_CYCLES -> ""
+                                fuelResult.answered || fuelProbeCycles >= PID_PROBE_MAX_CYCLES -> ""
                                 else -> null // MAF timed out; keep trying
                             }
                         }
