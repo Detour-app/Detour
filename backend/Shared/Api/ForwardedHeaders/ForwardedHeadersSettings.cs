@@ -55,9 +55,11 @@ public sealed class ForwardedHeadersSettings
     /// list stays empty, <see cref="IsConfigured"/> stays false, and the proxy is never
     /// trusted. That is why this parsing lives here instead of on the property.
     /// <para>
-    /// Delimited scalars are supported for the several-proxies case, and the entries are
-    /// trimmed: <c>IPAddress.Parse(" 172.18.0.5 ")</c> throws, so a value with stray
-    /// whitespace around a separator would otherwise fail the boot.
+    /// Delimited scalars are supported for the several-proxies case, and entries from both
+    /// shapes are trimmed. <c>IPAddress.Parse(" 172.18.0.5 ")</c> throws, so surrounding
+    /// whitespace has to go somewhere: the scalar split treats a space as a separator itself,
+    /// which leaves the indexed-children path as the one where the <c>Trim</c> is what stands
+    /// between a stray space in a JSON array and a failed boot.
     /// </para>
     /// </remarks>
     private static string[] ReadList(IConfigurationSection section)
