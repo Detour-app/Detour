@@ -60,7 +60,42 @@
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `Obd2ConnectionTest.kt` (the helper lives in the `object`, so call it `Obd2Connection.probePidCycle(...)` like the other tests call `Obd2Connection.pollPid(...)`):
+Add to `Obd2ConnectionTest.kt` (the helper lives in the `object`, so call it `Obd2Connection.probePidCycle(...)` like the other tests call `Obd2Connection.pollPid(...)`).
+
+**Multi-poll cases need a sequential stream, not `streamOf("resp1>resp2>")`:** after the primary poll's header mismatch, `pollPid` calls `drainStalePrompts`, which swallows an already-buffered second `>`-frame — so a concatenated two-response `ByteArrayInputStream` leaves the fallback poll reading nothing. The existing suite solves this with `GatedInputStream`; add a self-advancing variant near it (~line 137):
+
+```kotlin
+/** Serves each response only after the previous one is fully read AND the
+ *  stream has reported empty at least once — models ELM327 responses arriving
+ *  over the wire one at a time, so [Obd2Connection.pollPid]'s drainStalePrompts
+ *  (which bails the instant available() is 0) cannot sweep up a response that
+ *  "hasn't arrived yet". */
+private class SequentialResponseStream(responses: List<String>) : InputStream() {
+    private val chunks = ArrayDeque(responses.map { it.toByteArray(Charsets.US_ASCII) })
+    private var current: ByteArray = chunks.removeFirstOrNull() ?: ByteArray(0)
+    private var pos = 0
+    private var sawEmpty = false
+
+    override fun available(): Int {
+        if (pos < current.size) return current.size - pos
+        if (sawEmpty && chunks.isNotEmpty()) {
+            current = chunks.removeFirst()
+            pos = 0
+            sawEmpty = false
+            return current.size
+        }
+        sawEmpty = true
+        return 0
+    }
+
+    override fun read(): Int {
+        if (pos >= current.size && available() <= 0) return -1
+        return current[pos++].toInt() and 0xFF
+    }
+}
+```
+
+Then the probe test group:
 
 ```kotlin
 // --- probePidCycle: probe-and-latch state machine (#103) ------------------
@@ -81,9 +116,9 @@ fun probeLatchesToPrimaryOnADataFrame() {
 
 @Test
 fun probeFallsBackToSecondaryWhenPrimaryAnswersUnsupported() {
-    // primary answers "NO DATA" (answered, unparseable), then the same cycle
-    // re-polls the fallback which returns a MAF frame.
-    val input = streamOf("NO DATA\r\r>41 10 1A F0\r\r>")
+    // Primary (015E) answers "NO DATA"; the fallback (0110) frame arrives only
+    // after that poll returns, so the same cycle re-polls and latches it.
+    val input = SequentialResponseStream(listOf("NO DATA\r\r>", "41 10 1A F0\r\r>"))
     val cycle = Obd2Connection.probePidCycle(
         input, ByteArrayOutputStream(), PROBING,
         primary = Obd2Pids.PID_FUEL_RATE, fallback = Obd2Pids.PID_MAF,
@@ -95,7 +130,7 @@ fun probeFallsBackToSecondaryWhenPrimaryAnswersUnsupported() {
 
 @Test
 fun probeGoesUnsupportedWhenBothPidsAnswerUnsupported() {
-    val input = streamOf("NO DATA\r\r>NO DATA\r\r>")
+    val input = SequentialResponseStream(listOf("NO DATA\r\r>", "NO DATA\r\r>"))
     val cycle = Obd2Connection.probePidCycle(
         input, ByteArrayOutputStream(), PROBING,
         primary = Obd2Pids.PID_THROTTLE_REL, fallback = Obd2Pids.PID_THROTTLE,
