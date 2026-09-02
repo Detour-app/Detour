@@ -176,6 +176,22 @@ public class ForwardedHeadersTests
     }
 
     [Fact]
+    public async Task A_second_trusted_hop_in_the_chain_is_not_followed()
+    {
+        // ForwardLimit is 1, so the walk stops after one hop even when the next entry along
+        // names another trusted proxy. That is the single-hop assumption INSTALL.md documents,
+        // and it is what stops a caller who has learned a proxy address from chaining its way
+        // to an address of its choosing. `null` here would mean unlimited and resolve to
+        // 203.0.113.7.
+        var resolved = await ResolvedAddress(
+            new ForwardedHeadersSettings { KnownProxies = ["10.0.0.9", "10.0.0.10"] },
+            peer: "10.0.0.9",
+            forwardedFor: "203.0.113.7, 10.0.0.10");
+
+        resolved.Should().Be("10.0.0.10");
+    }
+
+    [Fact]
     public async Task No_middleware_is_added_when_no_proxy_is_configured()
     {
         // Distinct from the spoofed-header test: there the options were never configured
@@ -269,6 +285,16 @@ public class ForwardedHeadersTests
         var settings = BoundFrom(new() { ["ForwardedHeaders:KnownProxies:0"] = "10.0.0.9" });
 
         settings.IsConfigured.Should().BeTrue();
+        settings.KnownProxies.Should().Equal("10.0.0.9");
+    }
+
+    [Fact]
+    public void Indexed_children_are_trimmed()
+    {
+        // A JSON array with a stray space round a value. Nothing splits this shape, so the
+        // trim is the only thing between it and IPAddress.Parse(" 10.0.0.9 "), which throws.
+        var settings = BoundFrom(new() { ["ForwardedHeaders:KnownProxies:0"] = " 10.0.0.9 " });
+
         settings.KnownProxies.Should().Equal("10.0.0.9");
     }
 
