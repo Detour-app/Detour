@@ -1078,6 +1078,13 @@ Then have `RoutingServer.pick` call it, replacing its own `?.trim()?.trimEnd('/'
 
 Do not change `Capabilities.parse` in this task beyond having it call the shared function; its behaviour is unchanged either way.
 
+**Two comments in `Capabilities.kt` go stale the moment this task lands, and must be updated in it.** Both currently assert something this task makes false:
+
+- `preferredDiscovered`'s KDoc says "nothing on the `Auth.refresh()` path re-vets it … so a value written under looser rules would otherwise outlive the tightening". After this task, `discoveredIssuer()` vets on read, so the refresh path *is* covered. Rewrite it to say what stays true: the re-vet here is now redundant with the read-time vet and kept as a local guarantee, so the function is correct read in isolation.
+- `parse`'s inline comment says the issuer is "normalised exactly as `RoutingServer.pick` normalises a typed address". Once both call `normalisedAddress`, say that instead — a shared function is a stronger statement than a claim of agreement, and it is the reason the claim can be dropped.
+
+A comment asserting an invariant that has since moved is worse than no comment, because it tells a reader the guarantee is somewhere it is not.
+
 - [ ] **Step 10: Make the Cloudflare Access headers reusable**
 
 `Capabilities.fetch` (Task 5) needs the same service-token headers every other client sends, or an Access-fronted deployment answers the probe with its login page. The headers are built by hand in three places already (`Api.kt:58`, `Geocoder.kt:73`, and here); rather than add a fourth, promote this one. At `RoutingServer.kt:196`, change:
