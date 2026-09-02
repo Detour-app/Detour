@@ -606,7 +606,8 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                     ) {
                         Text(
                             "Fuel is a MAF-based estimate — this vehicle has no direct " +
-                                "fuel-rate PID, so it assumes petrol and can drift.",
+                                "fuel-rate PID, so it tracks engine load, not the injectors, " +
+                                "and can drift. Tune it per vehicle under the OBD2 adapter settings.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

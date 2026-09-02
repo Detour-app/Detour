@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.util.Log
+import com.jellemax.detour.drive.FuelType
 import com.jellemax.detour.drive.Obd2Pids
 import java.io.IOException
 import java.io.InputStream
@@ -160,10 +161,10 @@ object Obd2Connection {
     // launched underneath it would never get cancelled by disconnect() and
     // would leak its socket and coroutine.
     @Synchronized
-    fun connect(context: Context, address: String) {
+    fun connect(context: Context, address: String, fuelType: FuelType, calibrationPct: Int) {
         if (job?.isActive == true) return
         _linkedAddress.value = address
-        job = scope.launch { runConnectionLoop(context, address) }
+        job = scope.launch { runConnectionLoop(context, address, fuelType, calibrationPct) }
     }
 
     @Synchronized
@@ -179,7 +180,9 @@ object Obd2Connection {
         _lastFailure.value = Obd2Failure.NONE
     }
 
-    private suspend fun runConnectionLoop(context: Context, address: String) {
+    private suspend fun runConnectionLoop(
+        context: Context, address: String, fuelType: FuelType, calibrationPct: Int,
+    ) {
         var failures = 0
         while (coroutineContext.isActive) {
             _connectionState.value = Obd2ConnectionState.CONNECTING
@@ -209,7 +212,7 @@ object Obd2Connection {
                 _connectionState.value = Obd2ConnectionState.CONNECTED
                 _lastFailure.value = Obd2Failure.NONE
                 failures = 0
-                pollLoop(input, output)
+                pollLoop(input, output, fuelType, calibrationPct)
             } catch (e: CancellationException) {
                 // Let cancellation propagate — it's not a connection failure, and
                 // swallowing it here would keep this SupervisorJob-launched loop
@@ -332,7 +335,9 @@ object Obd2Connection {
         }
     }
 
-    private suspend fun pollLoop(input: InputStream, output: OutputStream) {
+    private suspend fun pollLoop(
+        input: InputStream, output: OutputStream, fuelType: FuelType, calibrationPct: Int,
+    ) {
         // Counts consecutive cycles where all three PIDs went entirely unanswered
         // (genuine timeouts, not "NO DATA" or other unparseable-but-real answers).
         // Catches an adapter that's gone silent (out of range, powered off) —
@@ -350,6 +355,11 @@ object Obd2Connection {
         // reports neither won't start mid-drive, and re-probing both every cycle is
         // a permanent extra request on the 1 Hz loop.
         var fuelProbe: PidProbe = PidProbe.Probing()
+        // Commanded lambda (0144): probe once, then poll every cycle like MAF —
+        // it varies with load. No fallback PID; an adapter that doesn't answer
+        // it leaves lambda at 1.0 (fuelRateFromMafLph's default) and the diesel
+        // estimate falls back to a density/AFR-only correction.
+        var lambdaProbe: PidProbe = PidProbe.Probing()
         // Speed changes fastest and is the one number the HUD eases toward, so it
         // is polled last of the three (freshest at the telemetry publish below)
         // and once more halfway through the inter-cycle wait. A first-order
@@ -383,6 +393,23 @@ object Obd2Connection {
             fuelProbe = fuelCycle.state
             val fuelResult = fuelCycle.result
 
+            val lambdaCycle = probePidCycle(
+                input, output, lambdaProbe,
+                primary = Obd2Pids.PID_EQUIV_RATIO, fallback = null,
+                maxCycles = PID_PROBE_MAX_CYCLES,
+            )
+            lambdaProbe = lambdaCycle.state
+            val lambda = lambdaCycle.result?.bytes
+                ?.let { Obd2Pids.parseCommandedEquivRatio(it) }
+                ?.takeIf { it > 0.0 }
+                // A petrol engine in closed loop commands λ ≈ 1.0 (down to ~0.75
+                // under wide-open-throttle enrichment); a clone that echoes
+                // 41 44 FF FF for a pseudo-supported PID would otherwise latch
+                // λ ≈ 2.0 and halve the estimate. Diesels genuinely run this
+                // lean, so only petrol is bounded.
+                ?.takeIf { fuelType != FuelType.PETROL || it in 0.5..1.5 }
+                ?: 1.0
+
             val speedResult = pollPid(input, output, Obd2Pids.PID_SPEED)
             val speed = parseSpeed(speedResult)
             val throttle = throttleResult.bytes?.let { Obd2Pids.parseThrottlePct(it) }
@@ -401,8 +428,10 @@ object Obd2Connection {
             val throttleClosed = if (throttleLatched?.pid == Obd2Pids.PID_THROTTLE_REL && throttle != null)
                 throttle < DFCO_THROTTLE_PCT else null
             // Clamp like speed/rpm — an all-0xFF 015E frame decodes to ~3276 L/h.
-            val fuel = Obd2Pids.resolveFuelRate(directLph, mafGps, throttleClosed, rpm, speed)
-                ?.takeIf { it.lph <= MAX_PLAUSIBLE_FUEL_LPH }
+            val fuel = Obd2Pids.resolveFuelRate(
+                directLph, mafGps, throttleClosed, rpm, speed,
+                fuelType = fuelType, lambda = lambda, calibrationPct = calibrationPct,
+            )?.takeIf { it.lph <= MAX_PLAUSIBLE_FUEL_LPH }
 
             if (!speedResult.answered && !throttleResult.answered && !rpmResult.answered) {
                 consecutiveEmptyPolls++

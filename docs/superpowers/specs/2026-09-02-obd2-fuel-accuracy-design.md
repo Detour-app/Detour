@@ -317,11 +317,7 @@ accuracy fixed". Next: stage 2.
 
 ## Stage 2 — fuel type + calibration + commanded lambda
 
-**State** | not started. Preconditions **checked 2026-09-02** right after Stage 1
-landed on `refactor/obd2-probe-helper` (not yet merged): `probePidCycle` count 4
-(≥3 ✓), `STOICH_AFR_PETROL` 2 ✓, old `fuelRateFromMafLph` sig 1 ✓, `enum class
-FuelType` 0 ✓, `fuelType`/`fuelCalibrationPct` in Settings 0 ✓, `0144` 0 ✓ — all
-green, spec current. Re-run against the merged branch before writing the plan.
+**State** | **done** 2026-09-02, branch feat/obd2-fuel-type-calibration. `FuelType` enum + diesel AFR/density constants + PID 0144 decoder in `shared/Obd2Pids`; `fuelRateFromMafLph` / `resolveFuelRate` gain `fuelType` / `lambda` / `calibrationPct` params (defaulted, petrol path bit-identical); `VehicleDevice` fields additive JSON; `connect()` threads config to `pollLoop` (no Settings dep); `pollLoop` probes 0144 via `probePidCycle` with null fallback; pairing-screen Petrol/Diesel segmented + calibration stepper; trip-detail caveat reworded generic (TripStore unchanged, trip has no fuel-type link). Decode uses `optInt` per decision Task 3 Step 4. Commits a8ae4e6..(this commit). Live-0144 unverified — no adapter this session.
 
 ### Preconditions
 
@@ -426,8 +422,7 @@ clock — independent of this, ships separately.
 
 ## Stage 3 — OBD-clock Δt for the fuel integrator and hard-event detectors
 
-**State** | not started. Preconditions to be run against the merged stage-2
-branch immediately before writing this stage's plan.
+**State** | not started. Stage 3 preconditions checked 2026-09-02 after Stage 2: cappedFixDtSec 3 (≥2 ✓), parseCommandedEquivRatio 1 (==1 ✓), onSpeedFix/onHeadingFix 4 (≥1 ✓), freshObdTelemetry() 3 (≥2 ✓) — all green.
 
 ### Preconditions
 

@@ -35,11 +35,21 @@ object Obd2Pids {
      *  stoichiometric assumption. */
     const val PID_MAF = "0110"
 
-    /** Stoichiometric air-fuel mass ratio for petrol, and petrol density. Used
-     *  only by [fuelRateFromMafLph] — the MAF path is an estimate; a diesel or a
-     *  car running rich/lean will read off. */
+    /** Commanded air-fuel equivalence ratio (lambda) — 1.0 at stoichiometric,
+     *  >1 lean. A petrol engine in closed loop commands ~1.0; a diesel at
+     *  cruise commands 2.0-2.5, and PID 0144 saturates at ≈2.0. Used only by
+     *  the MAF fuel estimate to divide out the lean-burn air the stoichiometric
+     *  assumption would otherwise count as fuel. */
+    const val PID_EQUIV_RATIO = "0144"
+
+    /** Stoichiometric air-fuel mass ratio and fuel density. Petrol vs diesel —
+     *  [fuelRateFromMafLph] picks by [FuelType]. The MAF path is still an
+     *  estimate; the commanded-lambda term is what makes a lean diesel land
+     *  near its dash figure. */
     private const val STOICH_AFR_PETROL = 14.7
-    private const val FUEL_DENSITY_G_PER_L = 745.0
+    private const val FUEL_DENSITY_PETROL_G_PER_L = 745.0
+    private const val STOICH_AFR_DIESEL = 14.5
+    private const val FUEL_DENSITY_DIESEL_G_PER_L = 832.0
 
     /** One byte, km/h direct. 0 is a valid reading (stopped), not absence —
      *  absence is an empty [dataBytes], not any particular byte value. */
@@ -72,11 +82,33 @@ object Obd2Pids {
         return (256.0 * a + b) / 100.0
     }
 
-    /** Fuel rate in L/h implied by an intake air-mass flow, assuming the engine
-     *  burns petrol at the stoichiometric ratio. `mass air / AFR` is the fuel
-     *  mass rate; dividing by density and scaling to the hour gives volume. */
-    fun fuelRateFromMafLph(mafGramsPerSec: Double): Double =
-        mafGramsPerSec / STOICH_AFR_PETROL / FUEL_DENSITY_G_PER_L * 3600.0
+    /** Two bytes, `(2 / 65536) * (256*A + B)` — dimensionless lambda. */
+    fun parseCommandedEquivRatio(dataBytes: List<Int>): Double? {
+        val a = dataBytes.getOrNull(0) ?: return null
+        val b = dataBytes.getOrNull(1) ?: return null
+        return (2.0 / 65536.0) * (256.0 * a + b)
+    }
+
+    /** Fuel rate in L/h implied by intake air-mass flow.
+     *
+     *  `mass air / (AFR_stoich · λ)` is the fuel mass rate — dividing the air
+     *  by the *actual* air-fuel ratio (stoichiometric scaled by the commanded
+     *  equivalence ratio) rather than the stoichiometric one is what keeps a
+     *  lean diesel from reading its excess air as fuel. Then / density / to
+     *  the hour, and a per-vehicle [calibrationPct] trims what the model can't
+     *  see (injector wear, MAF drift, fuel blend, the residual past PID 0144's
+     *  ≈2.0 ceiling). Petrol at λ=1.0, calibration 100 is the old formula
+     *  exactly. */
+    fun fuelRateFromMafLph(
+        mafGramsPerSec: Double,
+        fuelType: FuelType = FuelType.PETROL,
+        lambda: Double = 1.0,
+        calibrationPct: Int = 100,
+    ): Double {
+        val afr = if (fuelType == FuelType.DIESEL) STOICH_AFR_DIESEL else STOICH_AFR_PETROL
+        val density = if (fuelType == FuelType.DIESEL) FUEL_DENSITY_DIESEL_G_PER_L else FUEL_DENSITY_PETROL_G_PER_L
+        return mafGramsPerSec / (afr * lambda) / density * 3600.0 * (calibrationPct / 100.0)
+    }
 
     /** RPM above idle that, together with a closed throttle while still rolling,
      *  means the ECU has cut injection. Only used for the MAF estimate — the
@@ -96,6 +128,11 @@ object Obd2Pids {
      * over-reads on a long downhill. It fires only when [throttleClosed] is
      * explicitly true (a 0145 reading near 0) alongside an above-idle RPM and a
      * non-zero speed.
+     *
+     * [fuelType], [lambda] and [calibrationPct] only steer the MAF estimate —
+     * the direct PID already accounts for all of it. [lambda] defaults to 1.0
+     * when the adapter doesn't report PID 0144; [calibrationPct] is the
+     * per-vehicle trim (100 = untouched).
      */
     fun resolveFuelRate(
         directLph: Double?,
@@ -103,13 +140,17 @@ object Obd2Pids {
         throttleClosed: Boolean?,
         rpm: Double?,
         speedKmh: Double?,
+        fuelType: FuelType = FuelType.PETROL,
+        lambda: Double = 1.0,
+        calibrationPct: Int = 100,
     ): FuelReading? {
         if (directLph != null) return FuelReading(directLph, estimated = false)
         if (mafGramsPerSec == null) return null
         val fuelCut = throttleClosed == true &&
             rpm != null && rpm > DFCO_MIN_RPM &&
             speedKmh != null && speedKmh > 0.0
-        val lph = if (fuelCut) 0.0 else fuelRateFromMafLph(mafGramsPerSec)
+        val lph = if (fuelCut) 0.0
+            else fuelRateFromMafLph(mafGramsPerSec, fuelType, lambda, calibrationPct)
         return FuelReading(lph, estimated = true)
     }
 }

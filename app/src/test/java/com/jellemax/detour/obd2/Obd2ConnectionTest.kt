@@ -262,6 +262,15 @@ class Obd2ConnectionTest {
     }
 
     @Test
+    fun pollPidParsesACommandedEquivRatioFrame() {
+        // "41 44 80 00" → λ 1.0
+        val input = streamOf("41 44 80 00\r\r>")
+        val result = Obd2Connection.pollPid(input, ByteArrayOutputStream(), Obd2Pids.PID_EQUIV_RATIO)
+        assertEquals(listOf(0x80, 0x00), result.bytes)
+        assertEquals(1.0, Obd2Pids.parseCommandedEquivRatio(result.bytes!!)!!, 1e-9)
+    }
+
+    @Test
     fun pollPidTreatsAnElmBusErrorAsUnanswered() {
         // "UNABLE TO CONNECT" means the adapter can't reach the ECU — unlike
         // "NO DATA" it never recovers, so it must count as an unanswered poll

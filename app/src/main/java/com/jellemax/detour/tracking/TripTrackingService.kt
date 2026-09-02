@@ -59,6 +59,7 @@ import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
+import com.jellemax.detour.drive.FuelType
 import com.jellemax.detour.drive.HardEventDetector
 import com.jellemax.detour.drive.RoadTypeTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
@@ -770,7 +771,12 @@ class TripTrackingService : Service() {
             Obd2Connection.disconnect()
         }
         if (target != null && Obd2Connection.linkedAddress.value == null) {
-            Obd2Connection.connect(applicationContext, target)
+            val v = Settings.vehicleDevices.value.values.firstOrNull { it.obd2Address == target }
+            Obd2Connection.connect(
+                applicationContext, target,
+                fuelType = v?.fuelType ?: FuelType.PETROL,
+                calibrationPct = v?.fuelCalibrationPct ?: 100,
+            )
         }
     }
 

@@ -117,6 +117,36 @@ class Obd2PidsTest {
         assertNull(Obd2Pids.parseMafGramsPerSec(listOf(0x1A)))
     }
 
+    // --- Commanded equivalence ratio / lambda (mode 01 PID 44): (2/65536)(256A+B)
+
+    @Test
+    fun equivRatioOfStoichiometricIsOne() {
+        // λ = 1.0 ⇔ (256A+B) = 32768 = 0x8000 ⇔ A=0x80, B=0x00
+        assertEquals(1.0, Obd2Pids.parseCommandedEquivRatio(listOf(0x80, 0x00))!!, 1e-9)
+    }
+
+    @Test
+    fun equivRatioOfADieselCruiseIsWellAboveOne() {
+        // A lean diesel cruise commands λ ≈ 2.0; PID 44 saturates near there.
+        // (256*0xFF + 0xFF) * 2 / 65536 = 65535 * 2 / 65536 ≈ 1.99997
+        assertEquals(2.0, Obd2Pids.parseCommandedEquivRatio(listOf(0xFF, 0xFF))!!, 1e-3)
+    }
+
+    @Test
+    fun equivRatioMissingTheSecondByteIsNull() {
+        assertNull(Obd2Pids.parseCommandedEquivRatio(listOf(0x80)))
+    }
+
+    @Test
+    fun equivRatioWithNoBytesIsNull() {
+        assertNull(Obd2Pids.parseCommandedEquivRatio(emptyList()))
+    }
+
+    @Test
+    fun theEquivRatioPidIsRequestedAs0144() {
+        assertEquals("0144", Obd2Pids.PID_EQUIV_RATIO)
+    }
+
     // --- Fuel rate derived from MAF (petrol, stoichiometric) -----------------
 
     @Test
@@ -136,6 +166,75 @@ class Obd2PidsTest {
     @Test
     fun fuelFromZeroAirflowIsZero() {
         assertEquals(0.0, Obd2Pids.fuelRateFromMafLph(0.0))
+    }
+
+    // --- Fuel type / commanded lambda / calibration on the MAF estimate -----
+
+    @Test
+    fun petrolAtDefaultsIsIdenticalToTheOldFormula() {
+        // Explicit defaults == the 2-arg call the rest of the suite makes.
+        assertEquals(
+            Obd2Pids.fuelRateFromMafLph(10.0),
+            Obd2Pids.fuelRateFromMafLph(10.0, FuelType.PETROL, lambda = 1.0, calibrationPct = 100),
+            1e-12,
+        )
+    }
+
+    @Test
+    fun dieselWithACruiseLambdaLandsNearTheDashFigure() {
+        // Field report: MAF-implied petrol estimate ≈ 14.1 units, dash ≈ 6.2.
+        // Ratio (14.7·745)/(14.5·2.0·832) ≈ 0.454 → 14.1 · 0.454 ≈ 6.4.
+        val petrol = Obd2Pids.fuelRateFromMafLph(40.0)
+        val diesel = Obd2Pids.fuelRateFromMafLph(40.0, FuelType.DIESEL, lambda = 2.0, calibrationPct = 100)
+        assertEquals(0.454, diesel / petrol, 1e-3)
+    }
+
+    @Test
+    fun dieselWithoutLambdaCorrectsOnlyDensityAndAfr() {
+        // No 0144 → λ defaults to 1.0. Ratio (14.7·745)/(14.5·832) ≈ 0.908.
+        val petrol = Obd2Pids.fuelRateFromMafLph(40.0)
+        val diesel = Obd2Pids.fuelRateFromMafLph(40.0, FuelType.DIESEL)
+        assertEquals(0.908, diesel / petrol, 1e-3)
+    }
+
+    @Test
+    fun calibrationScalesTheEstimateLinearly() {
+        val base = Obd2Pids.fuelRateFromMafLph(20.0, FuelType.DIESEL, lambda = 2.0, calibrationPct = 100)
+        assertEquals(base * 0.80, Obd2Pids.fuelRateFromMafLph(20.0, FuelType.DIESEL, lambda = 2.0, calibrationPct = 80), 1e-9)
+        assertEquals(base * 1.20, Obd2Pids.fuelRateFromMafLph(20.0, FuelType.DIESEL, lambda = 2.0, calibrationPct = 120), 1e-9)
+    }
+
+    @Test
+    fun resolveFuelRateThreadsFuelTypeLambdaAndCalibrationIntoTheMafPath() {
+        val r = Obd2Pids.resolveFuelRate(
+            directLph = null, mafGramsPerSec = 40.0, throttleClosed = false, rpm = 2000.0, speedKmh = 90.0,
+            fuelType = FuelType.DIESEL, lambda = 2.0, calibrationPct = 110,
+        )!!
+        assertEquals(
+            Obd2Pids.fuelRateFromMafLph(40.0, FuelType.DIESEL, lambda = 2.0, calibrationPct = 110),
+            r.lph, 1e-9,
+        )
+        assertTrue(r.estimated)
+    }
+
+    @Test
+    fun resolveFuelRateDirectPidIgnoresFuelTypeAndCalibration() {
+        // The ECU's own 015E reading already accounts for everything.
+        val r = Obd2Pids.resolveFuelRate(
+            directLph = 6.2, mafGramsPerSec = 40.0, throttleClosed = false, rpm = 2000.0, speedKmh = 90.0,
+            fuelType = FuelType.DIESEL, lambda = 2.0, calibrationPct = 50,
+        )!!
+        assertEquals(6.2, r.lph, 0.0)
+        assertEquals(false, r.estimated)
+    }
+
+    @Test
+    fun decelerationFuelCutStillZerosRegardlessOfFuelType() {
+        val r = Obd2Pids.resolveFuelRate(
+            directLph = null, mafGramsPerSec = 8.0, throttleClosed = true, rpm = 2500.0, speedKmh = 40.0,
+            fuelType = FuelType.DIESEL, lambda = 2.0, calibrationPct = 120,
+        )!!
+        assertEquals(0.0, r.lph, 0.0)
     }
 
     // --- resolveFuelRate: source selection + deceleration fuel cut ----------
