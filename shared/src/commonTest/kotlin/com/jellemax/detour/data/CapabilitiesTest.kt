@@ -94,10 +94,13 @@ class CapabilitiesTest {
     @Test
     fun loopbackOverPlainHttpStaysAcceptableForTheDevStack() {
         // BuildDefaults.idpIssuer documents http://localhost:7580/realms/detour
-        // as the dev value. The carve-out is for loopback traffic never
-        // leaving the device, not an OAuth native-client allowance — RFC 8252
-        // §7.3's loopback carve-out is for a client's own redirect URI, and
-        // §8.6 in fact requires TLS on the authorization server's endpoints.
+        // as the dev value. HTTPS-or-nothing is RFC 8414 §2's own rule for an
+        // issuer identifier ("a URL that uses the 'https' scheme"); the
+        // loopback carve-out is not that rule relaxed for OAuth native clients
+        // — RFC 8252 §7.3's loopback carve-out is for a client's own redirect
+        // URI, not a cleartext authorization server — but the same §8.3
+        // reasoning by analogy: loopback traffic never leaves the device, so
+        // there is no on-path attacker to defend against.
         // Any port, because a dev stack picks its own.
         assertTrue(Capabilities.acceptable("http://localhost:7580/realms/detour"))
         assertTrue(Capabilities.acceptable("http://127.0.0.1:8080/realms/detour"))
@@ -124,6 +127,25 @@ class CapabilitiesTest {
     }
 
     @Test
+    fun anAtSignOutsideTheAuthorityIsStillAcceptable() {
+        // The `@` rejection is scoped to the authority, and that scoping is what
+        // makes it correct rather than over-broad. Someone hardening it to a
+        // whole-string `'@' in issuer` would refuse legitimate issuer paths, and
+        // without this assertion nothing would catch it.
+        assertTrue(Capabilities.acceptable("https://idp.example/realms/detour@x"))
+    }
+
+    @Test
+    fun anInvalidPortIsAcceptedHereButFailsClosedDownstream() {
+        // The port is never checked for being numeric, deliberately: an
+        // invalid one cannot resolve anywhere, so AuthBrowser's
+        // toHttpUrlOrNull() fails closed on it with no route to a foreign
+        // host. Pinning this so nobody "closes the gap" by adding port
+        // validation that buys nothing.
+        assertTrue(Capabilities.acceptable("http://localhost:evil.example/realms/detour"))
+    }
+
+    @Test
     fun aSchemeWithNoHostIsRefused() {
         // A prefix check on the scheme alone would accept a bare "https://",
         // which reaches Auth.endpoint() as "https:///protocol/..." and fails
@@ -135,10 +157,16 @@ class CapabilitiesTest {
 
     @Test
     fun controlCharactersInTheAuthorityAreRefused() {
-        // trim() only strips the ends; a header-injection payload sitting in
-        // the middle of the string survives it. This value is later used to
-        // build request URLs, so interior control characters must be caught
-        // here rather than trusted downstream.
+        // trim() only strips the ends; an interior tab, CR or LF survives it.
+        // The sink is a URL, not a header: WHATWG requires tab/CR/LF to be
+        // stripped *before* parsing, so "https://idp.example\r\nX-Injected: 1"
+        // actually resolves to host "idp.examplex-injected" while still
+        // reading as "idp.example" in a log line or a settings field. This
+        // check closes that gap between what the value looks like and what it
+        // resolves to, and RFC 8414 §2 independently forbids it in an issuer
+        // identifier. Not load-bearing against the bypass itself, honestly:
+        // the reviewer measured that disabling this check alone still finds
+        // zero fail-opens. It buys legibility, not safety.
         assertFalse(Capabilities.acceptable("https://idp.example\r\nX-Injected: 1"))
     }
 
@@ -160,6 +188,10 @@ class CapabilitiesTest {
         assertFalse(Capabilities.acceptable("http://[::1]:7580/realms/detour"))
         assertFalse(Capabilities.acceptable("http://127.1/realms/detour"))
         assertFalse(Capabilities.acceptable("http://127.0.0.2/realms/detour"))
+        // The integer-collapsed forms the comment above names: decimal and
+        // octal spellings of 127.0.0.1, both genuinely loopback, both refused.
+        assertFalse(Capabilities.acceptable("http://2130706433/realms/detour"))
+        assertFalse(Capabilities.acceptable("http://0177.0.0.1/realms/detour"))
     }
 
     @Test

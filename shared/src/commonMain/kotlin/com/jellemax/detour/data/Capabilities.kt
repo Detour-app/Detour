@@ -89,6 +89,11 @@ internal object Capabilities {
         // `trim()` upstream only strips the ends, so an interior newline
         // survives into a string that becomes a URL.
         if (authority.any { it.isWhitespace() || it.isISOControl() }) return false
+        // Whatever follows a colon here is treated as a port and never checked
+        // for being numeric — deliberately: an invalid port cannot resolve
+        // anywhere, so `toHttpUrlOrNull()` in `AuthBrowser` fails closed on it
+        // with no route to a foreign host, and validating it here would buy
+        // nothing.
         val host = authority.substringBefore(':')
         // A prefix check alone would accept a bare `https://`, which reaches
         // Auth.endpoint() as `https:///protocol/...` and fails as a malformed
