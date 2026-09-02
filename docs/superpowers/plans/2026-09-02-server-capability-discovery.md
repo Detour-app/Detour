@@ -596,19 +596,48 @@ internal object Capabilities {
      * Whether a discovered issuer may be used at all.
      *
      * HTTPS or nothing: this string becomes the page a rider types their
-     * password into, and over plain HTTP the realm's signing keys can be
-     * swapped in transit — which is the same thing `IdpSettings`'
-     * `RequireHttpsMetadata` says on the server side.
+     * password into and the token endpoint the authorization code is sent to,
+     * and over plain HTTP the realm's signing keys can be swapped in transit —
+     * which is what `IdpSettings.RequireHttpsMetadata` says on the server side.
      *
-     * Loopback is the one carve-out, because OAuth guidance makes it for native
-     * clients and because `BuildDefaults.idpIssuer` documents
-     * `http://localhost:7580/realms/detour` as the dev value. Matched on the
-     * host, not as a substring: `http://localhost.evil.example` is not loopback.
+     * This is the *only* substantive control on a server-supplied issuer. The
+     * ID-token `iss` check in Task 6 cannot stand in for it: that compares
+     * `iss` against this very value, so a hostile realm that echoes what it
+     * advertised passes. Anything this function accepts is trusted from here on.
      */
     fun acceptable(issuer: String): Boolean {
-        if (issuer.startsWith("https://")) return true
-        val host = issuer.removePrefix("http://").substringBefore('/').substringBefore(':')
-        return issuer.startsWith("http://") && (host == "localhost" || host == "127.0.0.1")
+        val scheme = when {
+            issuer.startsWith("https://") -> "https://"
+            issuer.startsWith("http://") -> "http://"
+            // Case-sensitive, so `HTTPS://` is refused. Fail-closed and
+            // deliberate: a realm whose issuer is spelled that way already
+            // fails the backend's own exact `iss` comparison.
+            else -> return false
+        }
+        val authority = issuer.removePrefix(scheme).substringBefore('/')
+        // Userinfo is what turns a host check into a host *prefix* check:
+        // `localhost:8080@evil.example` has userinfo `localhost:8080` and host
+        // `evil.example`, so truncating at the first colon reads an attacker's
+        // credentials as the hostname. No OIDC issuer identifier carries
+        // userinfo, so refusing the shape outright is both correct and simpler
+        // than parsing it properly.
+        if ('@' in authority) return false
+        if (authority.any { it.isWhitespace() || it.isISOControl() }) return false
+        // A prefix check would accept a bare `https://`, which reaches
+        // Auth.endpoint() as `https:///protocol/...` and fails as a malformed
+        // URL instead of as "no realm advertised".
+        val host = authority.substringBefore(':')
+        if (host.isEmpty()) return false
+        // Loopback over cleartext is the one carve-out, and the reason is that
+        // the traffic never leaves the device, so there is no on-path attacker
+        // to defend against. `BuildDefaults.idpIssuer` documents
+        // http://localhost:7580/realms/detour as the dev value.
+        //
+        // Deliberately narrower than the full loopback set: `[::1]`,
+        // `127.0.0.2`, `127.1` and the integer-collapsed forms are all refused.
+        // That is the safe direction, and widening it needs a reason better
+        // than symmetry.
+        return scheme == "https://" || host == "localhost" || host == "127.0.0.1"
     }
 
     /**
@@ -622,8 +651,16 @@ internal object Capabilities {
      * starts answering with a plain-HTTP realm cannot downgrade a rider who
      * already had an HTTPS one.
      */
-    fun preferredDiscovered(fetched: String, stored: String): String =
-        if (fetched.isNotBlank() && acceptable(fetched)) fetched else stored
+    fun preferredDiscovered(fetched: String, stored: String): String = when {
+        fetched.isNotBlank() && acceptable(fetched) -> fetched
+        // Vetted again on the way out, not only on the way in. The store is
+        // written by one caller and only ever with a value that passed this
+        // check, but nothing on the [Auth.refresh] path re-vets it and the store
+        // survives until the API address changes — so a value written under
+        // looser rules would otherwise outlive the tightening.
+        stored.isNotBlank() && acceptable(stored) -> stored
+        else -> ""
+    }
 }
 ```
 
@@ -964,7 +1001,30 @@ Then replace the body of `save` (currently `:163-184`) with:
 Run: `devcontainer-exec ./gradlew :shared:testDebugUnitTest --tests '*ServerResolutionTest*'`
 Expected: PASS, 12 tests.
 
-- [ ] **Step 9: Make the Cloudflare Access headers reusable**
+- [ ] **Step 9: Consolidate the URL normalisation**
+
+Task 3's review flagged this and it comes due here, because this task owns `RoutingServer.kt`. The rule `.trim().trimEnd('/')` now lives in `Capabilities.parse`, in `RoutingServer.pick` (`:107-108`), and Task 6 adds a third copy in `Auth.idTokenIssuer`. A sign-in refusal depends on all three agreeing — if one drifts, a discovered issuer stops comparing equal to an identical typed one and a correct sign-in is refused. Three copies is where documentary coupling becomes structural coupling.
+
+Add to `Capabilities.kt`, beside the functions that already use it:
+
+```kotlin
+/**
+ * One address, normalised for comparison: trimmed, with trailing slashes gone.
+ *
+ * Extracted because three call sites depend on agreeing exactly —
+ * [Capabilities.parse], [RoutingServer.pick] and [Auth.idTokenIssuer] — and a
+ * sign-in is refused when they disagree: a realm emitting a trailing slash in
+ * `iss` would fail a comparison that is actually a match. Documentary agreement
+ * was enough at two copies and is not at three.
+ */
+internal fun normalisedAddress(raw: String): String = raw.trim().trimEnd('/')
+```
+
+Then have `RoutingServer.pick` call it, replacing its own `?.trim()?.trimEnd('/')`. Keep `pick`'s existing doc comment about why the trailing slash matters for Photon's `/api/?q=` — that reasoning is specific to `pick` and is not duplicated by the new function's doc.
+
+Do not change `Capabilities.parse` in this task beyond having it call the shared function; its behaviour is unchanged either way.
+
+- [ ] **Step 10: Make the Cloudflare Access headers reusable**
 
 `Capabilities.fetch` (Task 5) needs the same service-token headers every other client sends, or an Access-fronted deployment answers the probe with its login page. The headers are built by hand in three places already (`Api.kt:58`, `Geocoder.kt:73`, and here); rather than add a fourth, promote this one. At `RoutingServer.kt:196`, change:
 
@@ -993,7 +1053,7 @@ Then update its two call sites in the same file — `fetchRoute` and `snapToRoad
 
 Leave `Api.kt` and `Geocoder.kt` alone. Their duplication predates this change and consolidating it is not this issue's job.
 
-- [ ] **Step 10: Run the full shared suite and the metadata check**
+- [ ] **Step 11: Run the full shared suite and the metadata check**
 
 Run: `devcontainer-exec ./gradlew :shared:testDebugUnitTest`
 Expected: PASS, all tests. Nothing outside `ServerResolutionTest` should change behaviour.
@@ -1001,10 +1061,11 @@ Expected: PASS, all tests. Nothing outside `ServerResolutionTest` should change 
 Run: `devcontainer-exec ./gradlew :shared:compileCommonMainKotlinMetadata`
 Expected: BUILD SUCCESSFUL.
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 12: Commit**
 
 ```bash
-git add shared/src/commonMain/kotlin/com/jellemax/detour/data/RoutingServer.kt \
+git add shared/src/commonMain/kotlin/com/jellemax/detour/data/Capabilities.kt \
+        shared/src/commonMain/kotlin/com/jellemax/detour/data/RoutingServer.kt \
         shared/src/commonTest/kotlin/com/jellemax/detour/data/ServerResolutionTest.kt
 git commit -m "feat(shared): resolve the issuer through a discovered candidate
 
@@ -1227,10 +1288,9 @@ In `Auth.kt`, immediately after `usernameFrom` (which ends at `:458`), add:
             .getOrDefault("")
         val payload = idToken.split(".").getOrNull(1) ?: return ""
         val json = payload.decodeBase64()?.utf8() ?: return ""
-        return runCatching { jsonObjectOf(json).optString("iss") }
-            .getOrDefault("")
-            .trim()
-            .trimEnd('/')
+        return normalisedAddress(
+            runCatching { jsonObjectOf(json).optString("iss") }.getOrDefault("")
+        )
     }
 ```
 

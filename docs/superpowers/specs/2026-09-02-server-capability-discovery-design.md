@@ -165,17 +165,37 @@ than recalled.
 
 | Control | Citation |
 |---|---|
-| The discovered issuer becomes the pinned expected issuer; every later comparison is exact, never a prefix | `ASVS 5.0.0 V10.5.3` |
+| The discovered issuer becomes the pinned expected issuer; every later comparison is exact, never a prefix | `ASVS 5.0.0 V10.5.3`, in spirit — see below |
 | The ID token's `iss` must equal the pinned issuer before a session is established | `ASVS 5.0.0 V10.2.2` (partial) |
-| A non-HTTPS discovered issuer is refused, except the documented localhost dev value | `OAuth2_Cheat_Sheet#other-recommendations` item 19 |
+| A discovered issuer is refused unless it is HTTPS, or loopback over cleartext; userinfo and hostless authorities are refused on both | `OAuth2_Cheat_Sheet#other-recommendations` item 19 |
 | An issuer change clears the session | existing rule, `RoutingServer.kt:163-170` |
+
+**`V10.5.3` is not satisfied so much as made inapplicable, and that is the honest reading.**
+The requirement is that a client reject authorization-server metadata whose issuer "does not
+exactly match the **pre-configured** issuer URL expected by the client". This feature removes
+the pre-configuration — that is its entire purpose. What survives is the *pinning* half: once
+discovered and stored, the value is compared exactly and never as a prefix. What does not
+survive is the part that gave the comparison its authority, namely that a human chose the
+expected value out of band.
+
+**So `Capabilities.acceptable()` inherits the whole job `V10.5.3` had assigned to
+pre-configuration**, and is the only substantive control on a server-supplied issuer. In
+particular the ID-token `iss` check cannot stand in for it: that compares `iss` against the
+discovered value itself, so a hostile realm echoing what it advertised passes. Treat anything
+`acceptable()` admits as trusted from that point on, and change it with that in mind. This is
+why it refuses userinfo in the authority (`http://localhost:8080@evil.example` has host
+`evil.example`, and truncating at the first colon would read the attacker's credentials as the
+hostname) and refuses a hostless `https://`.
 
 **The trust delta is real and worth naming.** Today a human pre-configures the issuer. After
 this change the server names it, so a compromised API server — which already receives the
 rider's tokens — can also choose the page the rider types their **password** into. Token
 theft becomes credential theft. The mitigations are that the rider chose to trust that server
 with their data in the first place, that both platforms' sign-in browsers display the host,
-and that the controls above bound what a wrong answer can do.
+and that the controls above bound what a wrong answer can do. Note the second mitigation holds
+by grace of the browser rather than by anything in this codebase — Custom Tabs and
+`ASWebAuthenticationSession` strip userinfo and show the real origin — which is a further
+reason `acceptable()` refuses that shape itself rather than relying on the display.
 
 **`V10.2.2` is partially met, deliberately.** The requirement asks a client that can interact
 with more than one authorization server to defend against mix-up attacks, "for example, it
@@ -206,11 +226,26 @@ session, which is what the `iss` check above adds.
 ### The localhost carve-out
 
 `BuildDefaults.idpIssuer` documents `http://localhost:7580/realms/detour` as the dev value
-(`BuildDefaults.kt:34-39`). `Capabilities.acceptable()` refuses a non-HTTPS issuer except
-that documented loopback shape. Loopback is the one case OAuth 2.0 guidance carves out for
-native clients, and a plain-HTTP realm anywhere else is an invitation to swap the signing keys
-in transit — which `IdpSettings.RequireHttpsMetadata`'s own doc comment already says on the
-server side.
+(`BuildDefaults.kt:34-39`). `Capabilities.acceptable()` refuses a non-HTTPS issuer except that
+documented loopback shape, because a plain-HTTP realm anywhere else is an invitation to swap
+the signing keys in transit — which `IdpSettings.RequireHttpsMetadata`'s own doc comment
+already says on the server side.
+
+**The reason for the carve-out is that loopback traffic never leaves the device**, so there is
+no on-path attacker to defend against. It is worth being precise about that, because the
+obvious-looking justification is wrong: OAuth's cleartext carve-out
+(`OAuth2_Cheat_Sheet#other-recommendations` item 19, RFC 8252 §7.3) is for a native client's
+own loopback **redirect URI**, not for an authorization server being reachable over cleartext
+— RFC 8252 §8.6 in fact requires TLS on AS endpoints. There is no standards carve-out here to
+lean on. The device-local argument is the real one, and it is also self-limiting, which the
+misattributed one is not: a future reader cannot use it to widen the carve-out to a
+non-loopback host.
+
+The set is deliberately narrower than "loopback": `http://[::1]`, `http://127.0.0.2`,
+`http://127.1` and the integer-collapsed forms are all refused even though each is genuinely
+loopback. Fail-closed is the safe direction, only the `localhost` form is documented, and a
+loopback issuer on a real phone points at the phone rather than at anyone's dev machine.
+Widening it needs a better reason than symmetry.
 
 ### User-facing copy
 
