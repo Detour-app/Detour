@@ -51,7 +51,7 @@ If nothing is running, stop and ask the user to start their devcontainer. Never 
 | `iosApp/Detour/SignIn.swift` | **Modify.** `resolveIssuer()` before `begin`; new message. |
 | `iosApp/Detour/SettingsScreen.swift` | **Modify.** Deprecation copy. |
 | `iosApp/Detour/FriendsScreen.swift` | **Modify.** New message in the `else` branch. |
-| `app/build.gradle.kts:80` | **Modify.** `versionName` `1.93.2` → `1.94.0`. |
+| `app/build.gradle.kts:80` | **Modify.** `versionName` `1.93.1` → `1.94.0`. |
 
 Two decisions locked here rather than left to the implementer:
 
@@ -2189,7 +2189,7 @@ Claude-Session: https://claude.ai/code/session_01Gjxrtw5G2FQWgkFsdz7Vwi"
 `app/build.gradle.kts:80` reads:
 
 ```kotlin
-        versionName = "1.93.2"
+        versionName = "1.93.1"
 ```
 
 Change to:
@@ -2199,6 +2199,8 @@ Change to:
 ```
 
 A backward-compatible feature, per `CLAUDE.md`'s table. Do not touch `versionCode` — it is CI-stamped from the run number.
+
+**Re-read the line before editing it.** `1.93.2` exists only on the unmerged `fix/car-map-motion` branch, so `main` is at `1.93.1` and that is what this branch was cut from. `1.94.0` is the right target either way — a minor bump clears both bases — but if that branch lands first the literal above will not match.
 
 - [ ] **Step 2: Run every check this machine can run**
 
