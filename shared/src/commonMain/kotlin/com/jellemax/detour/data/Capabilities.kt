@@ -86,11 +86,13 @@ internal object Capabilities {
         // userinfo, so refusing the shape outright is both correct and simpler
         // than parsing it properly.
         if ('@' in authority) return false
-        // A prefix check would accept a bare `https://`, which reaches
-        // Auth.endpoint() as `https:///protocol/...` and fails as a malformed
-        // URL instead of as "no realm advertised".
+        // `trim()` upstream only strips the ends, so an interior newline
+        // survives into a string that becomes a URL.
         if (authority.any { it.isWhitespace() || it.isISOControl() }) return false
         val host = authority.substringBefore(':')
+        // A prefix check alone would accept a bare `https://`, which reaches
+        // Auth.endpoint() as `https:///protocol/...` and fails as a malformed
+        // URL instead of as the actionable "no realm advertised".
         if (host.isEmpty()) return false
         // Loopback over cleartext is the one carve-out, and the reason is that
         // the traffic never leaves the device, so there is no on-path attacker
