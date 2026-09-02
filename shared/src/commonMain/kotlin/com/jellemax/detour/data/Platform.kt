@@ -4,9 +4,9 @@ import okio.FileSystem
 import okio.Path
 
 /**
- * The three things the shared core needs from whatever OS it is running on:
- * a small key-value store, a private directory to write files into, and a
- * file system to reach that directory with.
+ * The four things the shared core needs from whatever OS it is running on:
+ * a small key-value store, a private directory to write files into, a file
+ * system to reach that directory with, and mutual exclusion.
  *
  * Deliberately not a general "platform services" interface. Anything bigger
  * than this — location, audio, Bluetooth — stays on the platform side of the
@@ -52,8 +52,9 @@ expect fun prefs(name: String): Prefs
  * the Keystore and never leaves it.
  *
  * No name parameter: there is exactly one secure bag, and a name would be a second
- * way to say the same thing. Still four expects in this file — [Prefs] became an
- * interface, so the platform surface did not grow.
+ * way to say the same thing. That kept this file at four expects — [Prefs] became
+ * an interface, so the platform surface did not grow. [PlatformLock] is the fifth,
+ * and its own doc says why it was worth one.
  */
 expect fun securePrefs(): Prefs
 
@@ -62,3 +63,21 @@ expect fun appFilesDir(): Path
 
 /** The real file system on both platforms; a fake in tests. */
 expect val fileSystem: FileSystem
+
+/**
+ * Mutual exclusion, for the one thing in the shared core that needs it.
+ *
+ * This is the fourth concern in a file whose doc used to say three, and it is
+ * added deliberately rather than by drift. [CredentialMigration.migrateOnce]
+ * has to be *finished*, not merely started, before `Settings.init()` reads the
+ * secure store on its next line — and no primitive already available to
+ * `commonMain` provides that. `kotlinx.coroutines.sync.Mutex` is suspending and
+ * both call sites are not; an atomic compare-and-swap makes one caller win but
+ * lets the other return early, which is the bug this closes.
+ *
+ * Deliberately minimal: no tryLock, no timeout, no reentrancy contract beyond
+ * what the two actuals happen to give. One caller, one use.
+ */
+expect class PlatformLock() {
+    fun <T> withLock(block: () -> T): T
+}

@@ -4,6 +4,7 @@ import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
 import platform.Foundation.NSDocumentDirectory
+import platform.Foundation.NSLock
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSUserDefaults
 import platform.Foundation.NSUserDomainMask
@@ -75,3 +76,24 @@ actual fun appFilesDir(): Path =
     ).first() as String).toPath()
 
 actual val fileSystem: FileSystem get() = FileSystem.SYSTEM
+
+/**
+ * An [NSLock]. Not recursive — NSRecursiveLock would be — which is fine:
+ * [PlatformLock] promises no reentrancy and the one caller does not recurse
+ * (`migrateGroup` reaches only `prefs`, `securePrefs` and `groupHasPlaintext`).
+ *
+ * `withLock` is written out rather than borrowed from an extension because
+ * Kotlin/Native has no `Lock.withLock` for `NSLocking`.
+ */
+actual class PlatformLock actual constructor() {
+    private val lock = NSLock()
+
+    actual fun <T> withLock(block: () -> T): T {
+        lock.lock()
+        try {
+            return block()
+        } finally {
+            lock.unlock()
+        }
+    }
+}

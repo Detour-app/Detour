@@ -41,7 +41,13 @@ After the stack is up, at `https://idp.example.com/admin`:
    **off**, PKCE `S256`. Redirect URI `detour://auth/callback`.
 5. Set the username policy to match what the backend enforces, or riders will
    register handles the API then rejects.
-6. Create your own administrator, then clear `KC_ADMIN_*` from `.env`.
+6. Leave `editUsernameAllowed` **off** — Keycloak's default, so a realm created by
+   hand already has it. Friend relationships and circle membership are stored
+   against the username, so a rider who renames themselves is detached from their
+   own relationships until the server keys them on `sub` instead (tracked
+   separately). Note that `loginWithEmailAllowed: true` already means the handle a
+   rider thinks of as theirs is not necessarily the one the system keys on.
+7. Create your own administrator, then clear `KC_ADMIN_*` from `.env`.
 
 `docker/dev/config/keycloak/detour-realm.json` is a useful shape to copy from.
 Copy the clients and roles; never the users.

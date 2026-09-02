@@ -3,6 +3,8 @@ package com.jellemax.detour.data
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
@@ -56,3 +58,10 @@ internal const val SECURE_STORE = "secure"
 actual fun appFilesDir(): Path = requireContext().filesDir.absolutePath.toPath()
 
 actual val fileSystem: FileSystem get() = FileSystem.SYSTEM
+
+/** A [ReentrantLock]. Reentrancy is not part of [PlatformLock]'s contract and
+ *  nothing relies on it; it is simply what the JDK's own `Lock` gives. */
+actual class PlatformLock actual constructor() {
+    private val lock = ReentrantLock()
+    actual fun <T> withLock(block: () -> T): T = lock.withLock(block)
+}

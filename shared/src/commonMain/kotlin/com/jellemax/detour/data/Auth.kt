@@ -444,8 +444,10 @@ object Auth {
 
         if (establishesSession) _sessionEpoch.update { it + 1 }
 
-        val username = usernameFrom(access).ifBlank { Settings.authUsername.value }
-        val scopeKey = AccountScope.keyFrom(subject = subjectFrom(access), username = username)
+        val subject = subjectFrom(access)
+        val username = usernameFrom(access)
+            .ifBlank { carriedUsername(subject, securePrefs().string("auth_scope_key"), Settings.authUsername.value) }
+        val scopeKey = AccountScope.keyFrom(subject = subject, username = username)
         // `auth_scope_key` is persisted on both paths while the live
         // AccountScope only moves on the establish path below, and that
         // divergence is deliberate: an install that was already signed in
@@ -531,5 +533,32 @@ object Auth {
         val payload = accessToken.split(".").getOrNull(1) ?: return ""
         val json = payload.decodeBase64()?.utf8() ?: return ""
         return runCatching { jsonObjectOf(json).optString("sub") }.getOrDefault("")
+    }
+
+    /**
+     * The stored username, but only when [subject] identifies the same rider the
+     * stored bucket belongs to — blank otherwise.
+     *
+     * [usernameFrom] reads `preferred_username` out of the **access token**, and
+     * an access token is the resource server's artifact: RFC 9068 and the OAuth
+     * 2.0 BCP both tell clients to treat it as opaque, so its shape is not a
+     * contract this client can rely on. An opaque or encrypted token, a realm
+     * that drops the claim, or a provider that changes the payload all make that
+     * read come back blank without anything in this repo changing.
+     *
+     * What must not happen then is the previous value being carried forward: on
+     * an account switch that names the second rider as the first, and every
+     * `isMe` comparison and the `place.owner` ownership check in the app agrees
+     * with it. A blank name is a visible bug; a wrong name is a silent one.
+     *
+     * Same-rider is decided through the account-scope key rather than by storing
+     * the subject: [AccountScope.keyFrom] is `subject.ifEmpty { username }`
+     * hashed, so with a subject present the username is not an input and the key
+     * for this token can be compared against the one already persisted.
+     */
+    internal fun carriedUsername(subject: String, storedScopeKey: String, stored: String): String {
+        if (subject.isEmpty() || storedScopeKey.isEmpty()) return ""
+        val keyForThisToken = AccountScope.keyFrom(subject = subject, username = "")
+        return if (keyForThisToken == storedScopeKey) stored else ""
     }
 }
