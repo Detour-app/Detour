@@ -90,6 +90,7 @@ import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RoundTripPlanner
 import com.jellemax.detour.ColdStartTiming
 import com.jellemax.detour.data.RouteResult
+import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.pickCandidate
 import com.jellemax.detour.data.SavedPlaces
@@ -113,7 +114,6 @@ import com.jellemax.detour.obd2.Obd2Connection
 import com.jellemax.detour.obd2.Obd2ConnectionState
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ble.BleNavServer
-import com.jellemax.detour.wear.NavRelay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -854,7 +854,6 @@ fun MapScreen(
         // this it would keep the driven part greyed out with nothing following
         // it any more.
         mapOverlays?.setDrivenFraction(null)
-        NavRelay.clear(context)
         BleNavServer.clear(context)
     }
 
@@ -887,7 +886,7 @@ fun MapScreen(
         scope.launch {
             try {
                 route = withContext(Dispatchers.IO) {
-                    RoutingServer.route(serverConfig, loc, dest, mode.ghProfile,
+                    RoutingClient.route(serverConfig, loc, dest, mode.ghProfile,
                         Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
                 }
                 navigating = true
@@ -1406,7 +1405,6 @@ fun MapScreen(
         // the overlay drops an update that wouldn't move the line (see
         // MapOverlays.setDrivenFraction).
         mapOverlays?.setDrivenFraction(progress.drivenFraction)
-        NavRelay.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
         BleNavServer.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
 
         // Same policy the head unit and iOS read, so the three surfaces cannot
@@ -1440,7 +1438,7 @@ fun MapScreen(
                 scope.launch {
                     try {
                         route = withContext(Dispatchers.IO) {
-                            RoutingServer.route(serverConfig, pos, target, mode.ghProfile,
+                            RoutingClient.route(serverConfig, pos, target, mode.ghProfile,
                                 Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
                         }
                         // Instruction indices belong to the old polyline; start
@@ -1487,7 +1485,7 @@ fun MapScreen(
                                 (1..CURVY_CANDIDATES).map {
                                     async(Dispatchers.IO) {
                                         runCatching {
-                                            val loop = RoutingServer.roundTrip(
+                                            val loop = RoutingClient.roundTrip(
                                                 serverConfig, loc, tripMeters, Random.nextLong(),
                                                 headingDeg = directionDeg?.toDouble(),
                                                 avoidSmallRoads = Settings.avoidSmallRoads.value)

@@ -56,6 +56,7 @@ import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RouteStop
 import com.jellemax.detour.data.RouteStore
+import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
@@ -146,7 +147,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
         routingError = null
         try {
             val result = withContext(Dispatchers.IO) {
-                RoutingServer.routeVia(
+                RoutingClient.routeVia(
                     serverConfig, stops.map { it.at }, mode.ghProfile, avoidHighways, avoidSmallRoads)
             }
             polyline = result.polyline

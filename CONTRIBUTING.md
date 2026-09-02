@@ -17,7 +17,6 @@
 shared/     Kotlin Multiplatform core. Roulette, routing, trips, badges, sync.
 app/        Android app — UI and platform services only.
 iosApp/     SwiftUI app — UI and platform services only.
-wear/       Wear OS companion.
 backend/    .NET sync + social service, its database and tests.
 docker/     Local development stack: Postgres, Redis, Keycloak, Traefik, LGTM.
 server/     Home Assistant package for the read-only dashboard API.
@@ -52,9 +51,9 @@ this rule warns about — collapsed into one implementation,
 `shared/.../drive/ConvoyRelay.kt`, which both platforms now call instead of
 each carrying their own. The GraphHopper maneuver sign table shows what the
 day still looks like for a rule that has not moved yet: the same
-sign-to-icon switch, written four times (`app/.../ui/Navigation.kt:57-71`,
-`wear/.../MainActivity.kt:53-67`, `app/.../car/NavScreen.kt:575-593`,
-`iosApp/Detour/NavScreen.swift`), and it diverged three ways on iOS — sharp
+sign-to-icon switch, written three times (`app/.../ui/Navigation.kt:57-71`,
+`app/.../car/NavScreen.kt:575-593`, `iosApp/Detour/NavScreen.swift`), and it
+diverged three ways on iOS — sharp
 turns drawn as U-turns, real U-turns and the motorway keep-left/right forks
 both silently falling back to "carry on" — until the fix in the immediately
 preceding commit (c7ef627).
@@ -67,13 +66,12 @@ above: an interface with one implementation is indirection, not a boundary.
 All Gradle modules build from the repo root:
 
 ```bash
-./gradlew assembleDebug          # phone + watch debug APKs
-./gradlew :app:assembleDebug     # phone only
-./gradlew :wear:assembleDebug    # watch only
+./gradlew assembleDebug          # every module
+./gradlew :app:assembleDebug     # the phone app only
 ```
 
-Phone APK lands in `app/build/outputs/apk/debug/app-debug.apk`, watch APK in
-`wear/build/outputs/apk/debug/wear-debug.apk`. `assembleRelease` also works
+The APK lands in `app/build/outputs/apk/debug/app-debug.apk`.
+`assembleRelease` also works
 locally without any signing environment set — you'll get an unsigned,
 minified release build; see `README.md` for how CI produces a signed one.
 
@@ -177,8 +175,8 @@ are fine — delete them once they're merged rather than leaving them on origin.
 
 - **One topic per PR.** A security fix and a UI tweak are two PRs, even if
   they're both small.
-- **The build must pass.** CI builds the phone and watch release APKs and
-  bundles on every change — a red build blocks review, don't ask for an
+- **The build must pass.** CI builds the release APK and bundle on every
+  change — a red build blocks review, don't ask for an
   exception. A push to `main` additionally signs them, publishes a GitHub
   release, and uploads to Play's internal track (see
   [docs/RELEASING.md](docs/RELEASING.md)); PRs stop at the build.
@@ -217,9 +215,9 @@ Bump it in the same commit/PR that lands the change, not as an afterthought.
 number on every build (`VERSION_CODE` in `build.yml`), so it always increases
 regardless of what `versionName` says. Only `versionName` is yours to bump.
 
-The watch app (`wear/build.gradle.kts`) and the mock-location harness
-(`tools/mocklocation/build.gradle.kts`) version independently — this rule is
-about `app/build.gradle.kts`, the phone app people actually install.
+The mock-location harness (`tools/mocklocation/build.gradle.kts`) versions
+independently — this rule is about `app/build.gradle.kts`, the app people
+actually install.
 
 ## Documentation
 

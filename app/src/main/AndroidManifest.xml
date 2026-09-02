@@ -106,8 +106,8 @@
             android:exported="false" />
 
         <!-- Android Auto: "Spin" from the car screen, hand off to the phone's
-             default nav app. Same APK/process as the phone UI — no separate
-             module, unlike the genuinely standalone :wear app. -->
+             default nav app. Same APK/process as the phone UI — no
+             separate module. -->
         <service
             android:name=".car.DetourCarAppService"
             android:exported="true">

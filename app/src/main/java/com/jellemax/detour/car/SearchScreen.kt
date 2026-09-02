@@ -19,6 +19,7 @@ import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RecentSearchStore
+import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
@@ -168,10 +169,10 @@ class SearchScreen(
                     // Both flags, because `NavScreen`'s reroute passes them
                     // (NavScreen.kt:257-258) and a trip whose first reroute
                     // changes its own routing policy is worse than either
-                    // setting applied consistently. RoutingServer.route
+                    // setting applied consistently. RoutingClient.route
                     // defaults both to false, so omitting them silently
                     // requested a default route.
-                    RoutingServer.route(config, from, result.location, TravelMode.CAR.ghProfile,
+                    RoutingClient.route(config, from, result.location, TravelMode.CAR.ghProfile,
                         Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
                 }
                 withContext(Dispatchers.IO) { RecentSearchStore.save(result) }

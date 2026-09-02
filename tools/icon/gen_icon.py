@@ -12,7 +12,7 @@ The road and its dashes are emitted as a single even-odd path, so the dashes
 are holes. One silhouette therefore serves both the gradient foreground and the
 tinted monochrome (themed icon) layer.
 
-Run from anywhere; writes into the app/ and wear/ res directories:
+Run from anywhere; writes into the app/ res directory:
 
     python3 tools/icon/gen_icon.py
 """
@@ -140,15 +140,14 @@ ADAPTIVE = ('<?xml version="1.0" encoding="utf-8"?>\n'
 
 def main():
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    for module in ("app", "wear"):
-        res = os.path.join(root, module, "src", "main", "res")
-        for rel, body in (("drawable/ic_launcher_foreground.xml", FOREGROUND),
-                          ("drawable/ic_launcher_background.xml", BACKGROUND),
-                          ("drawable/ic_launcher_monochrome.xml", MONOCHROME),
-                          ("mipmap-anydpi-v26/ic_launcher.xml", ADAPTIVE)):
-            with open(os.path.join(res, rel), "w") as fh:
-                fh.write(body)
-        print("wrote %s icons" % module)
+    res = os.path.join(root, "app", "src", "main", "res")
+    for rel, body in (("drawable/ic_launcher_foreground.xml", FOREGROUND),
+                      ("drawable/ic_launcher_background.xml", BACKGROUND),
+                      ("drawable/ic_launcher_monochrome.xml", MONOCHROME),
+                      ("mipmap-anydpi-v26/ic_launcher.xml", ADAPTIVE)):
+        with open(os.path.join(res, rel), "w") as fh:
+            fh.write(body)
+    print("wrote app icons")
 
 
 if __name__ == "__main__":

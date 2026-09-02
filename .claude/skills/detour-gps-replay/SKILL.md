@@ -5,7 +5,7 @@ description: >-
   at a desk instead of by driving. Use this whenever a task needs the app to move — trip
   auto-detection, auto-stop, mode classification, fog of war, the speed HUD, camera
   follow/park, speed-limit signs, average-speed sections, reroute, arrival, the Android Auto
-  screens, the Wear relay, convoy live location — or asks for a before/after comparison of
+  screens, convoy live location — or asks for a before/after comparison of
   anything that reads a GPS fix. Also read it before claiming a GPS-dependent change cannot
   be verified without driving; most of it can. Covers building tools/mocklocation, the
   designated-mock-app dance, the route file format, converting a real trace or GPX into a
@@ -43,15 +43,14 @@ them.
 Every GPS-fed surface, not just the map. Fixes enter through `TripTrackingService` and are
 published as one `StateFlow` (`_lastFix` / `lastFix`, `TripTrackingService.kt:233-234`), whose
 consumers are `ui/MapScreen.kt`, `car/NavScreen.kt`, `car/SpinScreen.kt` and
-`net/ConvoyLiveClient.kt`; the watch is fed from the same pipeline via
-`wear/NavRelay.send(context, progress, currentSpeedKmh)`. So one replay exercises the phone
-map, the Android Auto screens, the Wear relay and convoy live location simultaneously — and
+`net/ConvoyLiveClient.kt`. So one replay exercises the phone map, the Android Auto screens,
+the BLE external-display relay and convoy live location simultaneously — and
 a regression in the shared pipeline shows up on all of them, which is useful signal about
 where a bug lives.
 
 What replay cannot reach: anything needing a second device or radio — convoy with a real
 peer, BLE board telemetry (`freshBoardTelemetry()` overrides the replayed speed when a board
-is paired, `TripTrackingService.kt:1091-1094`), a paired watch's own sensors, real battery
+is paired, `TripTrackingService.kt:1091-1094`), real battery
 behaviour, and real GPS accuracy degradation (the harness reports a constant 4 m).
 
 ## One-time setup

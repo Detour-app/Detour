@@ -21,9 +21,9 @@
 #                 and a function type gives @Throws nowhere to attach — which is how Auth.bearer
 #                 once reached Swift unannotated, where an unmarked throw terminates the process.
 #
-# The wear/ edge is the one that changes decisions most often: "shared" here means phone +
-# Android Auto + iOS, NOT the watch. Putting logic in shared/ does not give wear/ access to
-# it; that would need a new Gradle edge first, which is a build-file change, not a move.
+# "Shared" here means phone + Android Auto + iOS. The Wear OS module used to be the surface
+# that caught people out — it had no :shared edge — but it was removed in #57, so every
+# surface the repo still has does consume shared/.
 #
 # Read-only: greps the working tree.
 set -euo pipefail
@@ -83,8 +83,6 @@ check 'commonMain has ZERO Dispatchers in code — make the function suspend and
     '' "$(files_with_code 'Dispatchers')"
 check 'commonMain has exactly THREE non-sealed interfaces (Prefs, RelaySocket, BearerSource — each with >1 implementation, CONTRIBUTING.md:40)' \
     "$CONVOYRELAY $RELAYSOCKET $PLATFORM" "$(files_with_open_interface)"
-check 'wear/ does NOT depend on :shared (so "shared" does not reach the watch)' \
-    0 "$(count 'project(":shared")' wear/build.gradle.kts)"
 check 'app/ DOES depend on :shared' 1 "$(count 'project(":shared")' app/build.gradle.kts)"
 check 'commonMain has a wall clock: internal fun nowMs() exists in Angles.kt' \
     1 "$(count 'internal fun nowMs' "$ANGLES")"
@@ -92,7 +90,7 @@ check 'commonMain has a wall clock: internal fun nowMs() exists in Angles.kt' \
 # Line numbers drift and drift is not staleness — report it rather than asserting it.
 printf '\nnowMs() is currently at %s\n' \
     "$(grep -n 'internal fun nowMs' "$ANGLES" | cut -d: -f1 | sed "s|^|$ANGLES:|")"
-printf '%d checks, %d failed\n' 7 "$fails"
+printf '%d checks, %d failed\n' 6 "$fails"
 if [ "$fails" -ne 0 ]; then
     echo "The section of SKILL.md that depends on the failed assertion is stale." >&2
     echo "Re-derive it from the tree before trusting the body." >&2

@@ -24,14 +24,15 @@ still advertises finished work is worse than no list.
   (`car/NavVoice.kt`) and so does iOS (`NavVoice.swift`); in-app turn-by-turn on
   an Android phone is still silent, even though the *Spoken guidance* setting is
   right there. Wiring the same prompts into the phone's nav path is small.
-- **A watchOS companion.** Nothing reuses from `wear/`.
+- **A watchOS companion.** There is no Android watch app to port from any
+  more (#57), so this would be built from scratch.
 - **Avoid repeating roads** across consecutive moto loops.
 
 ## Shipped, and how it turned out
 
 **Real routing for moto round trips.** Self-hosted GraphHopper with a `moto`
 profile weighted on the built-in `curvature` encoded value, `round_trip` loops
-from `RoutingServer.roundTrip`, and in-app turn-by-turn (`NavEngine.kt`,
+from `RoutingClient.roundTrip`, and in-app turn-by-turn (`NavEngine.kt`,
 `car/NavScreen.kt`). The Google Maps handoff this file once planned around is
 only the fallback now.
 

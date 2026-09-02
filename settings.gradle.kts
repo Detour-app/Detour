@@ -17,7 +17,6 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Detour"
 include(":app")
-include(":wear")
 // Platform-free core (roulette/routing/trip logic), shared by the Android app
 // and the iOS app in iosApp/. See docs/IOS_PORT.md.
 include(":shared")

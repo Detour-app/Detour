@@ -11,7 +11,6 @@ shared/     Kotlin Multiplatform. All roulette/routing/trip logic.
             commonMain compiles for Android and iOS alike.
 app/        Android app. UI + platform services only; logic comes from :shared.
 iosApp/     SwiftUI app. UI + platform services only; same :shared.
-wear/       Wear OS app, unchanged.
 ```
 
 The rule the split follows: **the core is handed things, it never reaches for
@@ -186,7 +185,7 @@ Not gaps — decisions, and the places to look first if behaviour diverges.
    `CircleFixes.fixes`, `Friends.remove`, `PoiRoulette.randomPoi`,
    `RoadRoulette`'s `randomRoadPoint`/`fetchRoads`/`nearestSpeedLimitKmh`/
    `speedLimitWays`/`rawQuery`, `RoundTripPlanner.plan`, `RouteShare.inbox`/
-   `.delete`, `RoutingServer.roundTrip`/`.randomRoadDestination`,
+   `.delete`, `RoutingClient.roundTrip`/`.randomRoadDestination`,
    `SpinPicker.pickCandidate` and `SyncClient.syncIfDue`. None of these is
    called from Swift today, so there is no live gap for them — but
    `Auth.bearer` was on this same list until the convoy relay gave Swift a
@@ -219,7 +218,8 @@ Not gaps — decisions, and the places to look first if behaviour diverges.
    converts an abort into a throw each site must then handle, mostly by
    catching and degrading. These back features that already shipped, so they
    are their own change.
-3. **watchOS app.** Small, but nothing reuses from `wear/`.
+3. **watchOS app.** Small, and starting from nothing — the Android watch
+   companion was removed in #57.
 4. **Signed device builds.** CI builds for the simulator only.
 
 ### Will not port

@@ -37,8 +37,6 @@ tidied up — plan around it.
 | Kotlin package / namespace | `com.jellemax.detour` | source, `app/build.gradle.kts:47` |
 | Release applicationId | `io.github.maxke24.detour` | `app/build.gradle.kts:51` |
 | Debug applicationId | `io.github.maxke24.detour.debug` | `applicationIdSuffix`, `app/build.gradle.kts:100` |
-| Wear applicationId | `io.github.maxke24.detour` (same as the phone, on purpose — `MessageClient` routes by matching applicationId) | `wear/build.gradle.kts:15` |
-| Wear namespace | `com.jellemax.detour.wear` | `wear/build.gradle.kts:8` |
 | Mock-location harness | `com.jellemax.mocklocation` | `tools/mocklocation/build.gradle.kts:11` |
 
 A component name mixes both halves — applicationId first, then the fully-qualified class:

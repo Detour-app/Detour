@@ -1,5 +1,6 @@
 package com.jellemax.detour.ui
 
+import android.view.WindowManager
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -40,10 +41,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
@@ -112,6 +115,30 @@ internal fun SearchDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
+        // A Compose Dialog is its own window and carries FLAG_DIM_BEHIND, which
+        // puts a 0.6 dim layer over everything behind it — here, the map's
+        // SurfaceView. The content below is opaque and fills the window, so that
+        // dim is invisible under the dialog itself and buys nothing.
+        //
+        // It is not invisible everywhere, which is why this is worth clearing
+        // rather than leaving alone: the dialog window is `fillxwrap` and fits
+        // the insets, so it does not cover the status bar. The dim does. Measured
+        // on an API 35 emulator, the status-bar strip drops from mean luma 224.45
+        // to 95.92 the moment search opens — exactly the 0.6 applied to the map
+        // showing through a translucent bar — and springs back on dismissal. That
+        // dark band flashing in at the top of every search is the whole effect
+        // this removes.
+        //
+        // Related: #30 reports the dim *persisting* after dismissal on a Fold 3.
+        // That did not reproduce here or on a OnePlus CPH2449 — six open/dismiss
+        // cycles left no dim layer and the map's mean luma unchanged to 0.000%.
+        // Removing the dim outright means there is no longer a dim to persist,
+        // but that is reasoning, not a measurement, and #30 stays open until
+        // someone confirms it on the hardware that showed it.
+        (LocalView.current.parent as? DialogWindowProvider)
+            ?.window
+            ?.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+
         Surface(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().statusBarsPadding()) {
                 Row(

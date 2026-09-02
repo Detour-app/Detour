@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Flat fallback for anything that cannot use the gradient background. -->
-    <color name="launcher_bg">#1B1F14</color>
-</resources>

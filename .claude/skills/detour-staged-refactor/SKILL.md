@@ -212,7 +212,7 @@ not by how large or how safe it feels.
 | A pure move, no body edited | Tier 0 + the stage's desk checklist |
 | Anything inside a composable body | Tier 0 + Tier 1 (desk, stationary, ~15 min) |
 | A `lastFix` consumer, or the camera | Tier 2 — mock GPS replay, A/B against the baseline |
-| Convoy, navigation session, BLE/Wear relay | Tier 3 — two devices, or a paired watch |
+| Convoy, navigation session, BLE relay | Tier 3 — two devices, or a paired board |
 
 **Tier 0 is free and belongs on every commit:**
 

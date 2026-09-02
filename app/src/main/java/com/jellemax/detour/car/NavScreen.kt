@@ -36,7 +36,7 @@ import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.NavInstruction
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
-import com.jellemax.detour.data.RoutingServer
+import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
@@ -68,7 +68,7 @@ private const val FALLBACK_MPS = 14.0
  * Compose-local navigation state (see the plan's Context: a shared session
  * would be a bigger, riskier refactor for no v1 benefit, since starting nav
  * here doesn't need to know what the phone screen is doing, same as the
- * existing wear/BLE relays each drive themselves).
+ * existing BLE relay, which drives itself).
  *
  * Turn-by-turn on a head unit is three separate things, and this screen owes
  * all three:
@@ -292,7 +292,7 @@ class NavScreen(
                 lifecycleScope.launch {
                     try {
                         val fresh = withContext(Dispatchers.IO) {
-                            RoutingServer.route(serverConfig, pos, destination, TravelMode.CAR.ghProfile,
+                            RoutingClient.route(serverConfig, pos, destination, TravelMode.CAR.ghProfile,
                                 Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
                         }
                         route = fresh

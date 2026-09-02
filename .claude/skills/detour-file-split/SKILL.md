@@ -3,7 +3,7 @@ name: detour-file-split
 description: >-
   Split an oversized Kotlin or Compose file in this repo into several files without changing
   behaviour. Use this for any task phrased as splitting, extracting, relocating, "breaking up"
-  or "moving X out of Y" in app/, wear/ or shared/ — MapScreen, SettingsScreen, FriendsScreen,
+  or "moving X out of Y" in app/ or shared/ — MapScreen, SettingsScreen, FriendsScreen,
   CirclesScreen, TripTrackingService, a stage of the MapScreen refactor chain, or any file
   someone calls too long. It carries the same-package rule that makes a move free, the grep
   that decides visibility, the proof that a move changed nothing, and the two traps in the

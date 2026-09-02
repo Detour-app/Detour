@@ -77,7 +77,7 @@ android {
         // the run number (see .github/workflows/build.yml); a local build
         // keeps the literal.
         versionCode = System.getenv("VERSION_CODE")?.toInt() ?: 82
-        versionName = "1.96.0"
+        versionName = "1.97.0"
 
         buildConfigField("String", "ROUTING_URL",
             "\"${serviceUrl("routing.url", "ROUTING_SERVER_URL")}\"")
@@ -216,7 +216,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
     implementation("org.maplibre.gl:android-sdk:11.8.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
-    implementation("com.google.android.gms:play-services-wearable:19.0.0")
     // Android Auto: projects a car-screen "Spin" flow onto the head unit.
     implementation("androidx.car.app:app:1.7.0")
     // Only for the `automotive` build type: app-automotive adds CarAppActivity,
@@ -239,11 +238,4 @@ dependencies {
     // with no extra plugin - app/ had no unit tests before PlaceNotifications'
     // catch-up planning logic, which is pure Kotlin and worth covering.
     testImplementation("junit:junit:4.13.2")
-    // No wearApp(project(":wear")) here on purpose. Embedding the watch APK
-    // inside the phone one only ever auto-installed on Wear OS 1.x, and this
-    // watch app is minSdk 30 (Wear OS 3) — so the embedded copy was 40 MB of
-    // payload that never ran, and Play refuses a bundle that carries one. The
-    // watch app ships as its own artifact instead: same applicationId, its own
-    // versionCode, uploaded alongside the phone bundle in the same Play
-    // release and attached to the GitHub release for sideloading.
 }

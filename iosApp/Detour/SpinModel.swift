@@ -75,7 +75,7 @@ final class SpinModel: ObservableObject {
         setDestination(target)
         let server = RoutingServer.shared.load()
         guard server.usable else { return }
-        let result = try? await RoutingServer.shared.route(
+        let result = try? await RoutingClient.shared.route(
             config: server,
             from: LatLon(lat: here.latitude, lon: here.longitude),
             to: target,

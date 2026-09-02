@@ -56,9 +56,8 @@ Distance, top speed, single ride, places and coverage. Coverage is measured
 honestly: the share of a municipality's actual road network you have driven,
 resolved from OpenStreetMap boundaries.
 
-ON YOUR WRIST AND IN THE CAR
-A Wear OS companion for spinning and controlling a ride from the watch, and an
-Android Auto screen for the car.
+IN THE CAR
+An Android Auto screen for spinning and driving a ride on the head unit.
 
 YOURS, NOT OURS
 Detour needs no account and no server. Trips, traces and fog live in private
@@ -94,7 +93,6 @@ routing and search only. Until one is picked, the paragraph stays as written and
 | App icon | 512×512 PNG, 32-bit | `docs/play/icon-512.png` |
 | Feature graphic | 1024×500 PNG, no alpha | `docs/play/feature-graphic.png` |
 | Phone screenshots | 2–8, min 1080px on the short side | `docs/screenshots/` — map, spin, route, fog, history |
-| Wear OS screenshots | ≥1, square or round | Needed once the Wear form factor is added |
 
 The first two are generated from the launcher icon's own geometry by
 `python3 tools/icon/gen_play_assets.py`, so they follow any change made in
@@ -144,9 +142,3 @@ later, declare instead:
   server administrator deletes an account through the administration endpoints,
   which removes every row it owns.
 
-## Wear OS
-
-The release carries a watch bundle that shares the phone package name, so Play
-needs the Wear OS form factor added under Store listing before an edit
-containing it can be committed. Wear listings need their own short description
-and at least one watch screenshot.
