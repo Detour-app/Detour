@@ -65,10 +65,22 @@ services:
     healthcheck:
       # The runtime image carries no curl, so this opens the socket by hand rather
       # than adding a package purely so the container can probe itself.
+      #
+      # `CMD` with an explicit bash, not `CMD-SHELL`: /dev/tcp is a bash builtin and
+      # /bin/sh in mcr.microsoft.com/dotnet/aspnet is dash, which has neither that
+      # nor `echo -e`. Under CMD-SHELL this probe never ran — it failed every time
+      # with `cannot create /dev/tcp/localhost/7500: Directory nonexistent`, which
+      # reads like a missing path rather than the wrong shell. bash is present in the
+      # image; only /bin/sh is not it.
+      #
+      # `printf` rather than `echo -e` for the same class of reason: echo's escape
+      # handling is shell-dependent, printf's is not.
       test:
         [
-          "CMD-SHELL",
-          "exec 3<>/dev/tcp/localhost/7500 && echo -e 'GET /api/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q 'Healthy'",
+          "CMD",
+          "bash",
+          "-c",
+          "exec 3<>/dev/tcp/localhost/7500 && printf 'GET /api/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q Healthy <&3",
         ]
       interval: 30s
       timeout: 10s
