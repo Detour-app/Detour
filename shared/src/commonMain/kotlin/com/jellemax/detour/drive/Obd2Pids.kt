@@ -35,11 +35,21 @@ object Obd2Pids {
      *  stoichiometric assumption. */
     const val PID_MAF = "0110"
 
-    /** Stoichiometric air-fuel mass ratio for petrol, and petrol density. Used
-     *  only by [fuelRateFromMafLph] — the MAF path is an estimate; a diesel or a
-     *  car running rich/lean will read off. */
+    /** Commanded air-fuel equivalence ratio (lambda) — 1.0 at stoichiometric,
+     *  >1 lean. A petrol engine in closed loop commands ~1.0; a diesel at
+     *  cruise commands 2.0-2.5, and PID 0144 saturates at ≈2.0. Used only by
+     *  the MAF fuel estimate to divide out the lean-burn air the stoichiometric
+     *  assumption would otherwise count as fuel. */
+    const val PID_EQUIV_RATIO = "0144"
+
+    /** Stoichiometric air-fuel mass ratio and fuel density. Petrol vs diesel —
+     *  [fuelRateFromMafLph] picks by [FuelType]. The MAF path is still an
+     *  estimate; the commanded-lambda term is what makes a lean diesel land
+     *  near its dash figure. */
     private const val STOICH_AFR_PETROL = 14.7
-    private const val FUEL_DENSITY_G_PER_L = 745.0
+    private const val FUEL_DENSITY_PETROL_G_PER_L = 745.0
+    private const val STOICH_AFR_DIESEL = 14.5
+    private const val FUEL_DENSITY_DIESEL_G_PER_L = 832.0
 
     /** One byte, km/h direct. 0 is a valid reading (stopped), not absence —
      *  absence is an empty [dataBytes], not any particular byte value. */
@@ -72,11 +82,18 @@ object Obd2Pids {
         return (256.0 * a + b) / 100.0
     }
 
+    /** Two bytes, `(2 / 65536) * (256*A + B)` — dimensionless lambda. */
+    fun parseCommandedEquivRatio(dataBytes: List<Int>): Double? {
+        val a = dataBytes.getOrNull(0) ?: return null
+        val b = dataBytes.getOrNull(1) ?: return null
+        return (2.0 / 65536.0) * (256.0 * a + b)
+    }
+
     /** Fuel rate in L/h implied by an intake air-mass flow, assuming the engine
      *  burns petrol at the stoichiometric ratio. `mass air / AFR` is the fuel
      *  mass rate; dividing by density and scaling to the hour gives volume. */
     fun fuelRateFromMafLph(mafGramsPerSec: Double): Double =
-        mafGramsPerSec / STOICH_AFR_PETROL / FUEL_DENSITY_G_PER_L * 3600.0
+        mafGramsPerSec / STOICH_AFR_PETROL / FUEL_DENSITY_PETROL_G_PER_L * 3600.0
 
     /** RPM above idle that, together with a closed throttle while still rolling,
      *  means the ECU has cut injection. Only used for the MAF estimate — the

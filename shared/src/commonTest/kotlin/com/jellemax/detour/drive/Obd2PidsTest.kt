@@ -117,6 +117,36 @@ class Obd2PidsTest {
         assertNull(Obd2Pids.parseMafGramsPerSec(listOf(0x1A)))
     }
 
+    // --- Commanded equivalence ratio / lambda (mode 01 PID 44): (2/65536)(256A+B)
+
+    @Test
+    fun equivRatioOfStoichiometricIsOne() {
+        // λ = 1.0 ⇔ (256A+B) = 32768 = 0x8000 ⇔ A=0x80, B=0x00
+        assertEquals(1.0, Obd2Pids.parseCommandedEquivRatio(listOf(0x80, 0x00))!!, 1e-9)
+    }
+
+    @Test
+    fun equivRatioOfADieselCruiseIsWellAboveOne() {
+        // A lean diesel cruise commands λ ≈ 2.0; PID 44 saturates near there.
+        // (256*0xFF + 0xFF) * 2 / 65536 = 65535 * 2 / 65536 ≈ 1.99997
+        assertEquals(2.0, Obd2Pids.parseCommandedEquivRatio(listOf(0xFF, 0xFF))!!, 1e-3)
+    }
+
+    @Test
+    fun equivRatioMissingTheSecondByteIsNull() {
+        assertNull(Obd2Pids.parseCommandedEquivRatio(listOf(0x80)))
+    }
+
+    @Test
+    fun equivRatioWithNoBytesIsNull() {
+        assertNull(Obd2Pids.parseCommandedEquivRatio(emptyList()))
+    }
+
+    @Test
+    fun theEquivRatioPidIsRequestedAs0144() {
+        assertEquals("0144", Obd2Pids.PID_EQUIV_RATIO)
+    }
+
     // --- Fuel rate derived from MAF (petrol, stoichiometric) -----------------
 
     @Test
