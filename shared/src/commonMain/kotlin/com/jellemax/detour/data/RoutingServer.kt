@@ -28,6 +28,19 @@ data class ServerConfig(
     val usable: Boolean get() = enabled && (routingUrl.isNotBlank() || url.isNotBlank())
 }
 
+/**
+ * Where this install's server addresses come from, and where they are kept.
+ *
+ * Resolution is the whole subject: a rider's typed address, the realm a
+ * server stated on its last probe, and the values baked into the build are
+ * three sources for the same field, and every [pick]-based accessor below is
+ * one precedence order over them. The requests those addresses are used for
+ * live in [RoutingClient].
+ *
+ * Keeps the name it had before the split, because that is what callers
+ * outside `shared/` mean by it: `Api.kt`, `Auth.kt`, `Oidc.kt` and the
+ * settings screens all reach `RoutingServer` for configuration.
+ */
 object RoutingServer {
 
     // internal, not private: CredentialMigration.migrateOnce() needs the same bag
