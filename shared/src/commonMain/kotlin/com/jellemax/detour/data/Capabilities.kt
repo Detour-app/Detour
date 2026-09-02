@@ -147,4 +147,37 @@ internal object Capabilities {
         stored.isNotBlank() && acceptable(stored) -> stored
         else -> ""
     }
+
+    /**
+     * Asks one deployment what it supports, or null when it does not say.
+     *
+     * Null covers every way that can happen and does not distinguish them,
+     * because the caller's next move is the same for all of them: a server
+     * predating this endpoint answers 404, an unreachable one throws, and a
+     * gateway in front of it may answer with HTML. All three mean "no issuer
+     * from this server right now", and the stored value is what carries the
+     * gap.
+     *
+     * There is no test for this function. `Http`'s client is private with no
+     * injection seam and this source set has no `MockEngine`, so it is kept as
+     * close to no logic as it can be — every decision it would otherwise make
+     * lives in [parse], [acceptable] and [preferredDiscovered], which are
+     * covered.
+     */
+    suspend fun fetch(apiBase: String, headers: Map<String, String>): ServerCapabilities? {
+        if (apiBase.isBlank()) return null
+        val body = try {
+            // Shorter than the 30s default: this runs between a rider tapping
+            // Sign in and the browser opening, and a server that is not going
+            // to answer should not hold that gap open.
+            Http.get("$apiBase/api/capabilities", headers, readTimeoutMs = 10_000)
+        } catch (e: Exception) {
+            // Broad on purpose, and it must stay broad: this is reached from a
+            // function Swift calls, where an escaping exception terminates the
+            // process rather than arriving as an error. Nothing about a failed
+            // probe is worth that.
+            return null
+        }
+        return parse(body)
+    }
 }
