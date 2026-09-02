@@ -22,7 +22,9 @@ namespace Detour.InfraTests.Api;
 /// </summary>
 public sealed class DetourApiFactory(PostgresFixture postgres) : WebApplicationFactory<Program>
 {
-    private const string Issuer = "https://test-issuer.detour.invalid/realms/detour";
+    // Public so a test can assert that the API advertises exactly what it was
+    // configured with, rather than repeating the literal and drifting from it.
+    public const string Issuer = "https://test-issuer.detour.invalid/realms/detour";
     private const string Audience = "detour-api";
 
     private readonly RsaSecurityKey _signingKey =
