@@ -67,6 +67,14 @@ class CapabilitiesTest {
     }
 
     @Test
+    fun aZeroSchemaIsNotACapabilityDocumentEither() {
+        // optInt's own default for "absent", so a document that spells out
+        // schema: 0 must be refused exactly like one with no schema field at
+        // all — it cannot be told apart from "not a capability document".
+        assertNull(Capabilities.parse("""{"schema":0,"features":[]}"""))
+    }
+
+    @Test
     fun aDocumentWithNoIssuerParsesButOffersNothing() {
         // A server that has the endpoint but states no realm. Distinct from an
         // unparseable body: the document is real, it just cannot help.
@@ -76,7 +84,7 @@ class CapabilitiesTest {
     }
 
     @Test
-    fun onlyAnHttpsIssuerIsAcceptable() {
+    fun onlyHttpsIsAcceptableForARemoteRealm() {
         assertTrue(Capabilities.acceptable("https://idp.example/realms/detour"))
         assertFalse(Capabilities.acceptable("http://idp.example/realms/detour"))
         assertFalse(Capabilities.acceptable(""))
@@ -86,12 +94,72 @@ class CapabilitiesTest {
     @Test
     fun loopbackOverPlainHttpStaysAcceptableForTheDevStack() {
         // BuildDefaults.idpIssuer documents http://localhost:7580/realms/detour
-        // as the dev value, and OAuth guidance carves out loopback for native
-        // clients. Any port, because a dev stack picks its own.
+        // as the dev value. The carve-out is for loopback traffic never
+        // leaving the device, not an OAuth native-client allowance — RFC 8252
+        // §7.3's loopback carve-out is for a client's own redirect URI, and
+        // §8.6 in fact requires TLS on the authorization server's endpoints.
+        // Any port, because a dev stack picks its own.
         assertTrue(Capabilities.acceptable("http://localhost:7580/realms/detour"))
         assertTrue(Capabilities.acceptable("http://127.0.0.1:8080/realms/detour"))
         // Not a carve-out for anything that merely mentions localhost.
         assertFalse(Capabilities.acceptable("http://localhost.evil.example/realms/detour"))
+        // Same trap the other way round: a suffix match would let a hostile
+        // domain masquerade as loopback by embedding it as a subdomain label.
+        assertFalse(Capabilities.acceptable("http://127.0.0.1.evil.example/realms/detour"))
+    }
+
+    @Test
+    fun userinfoIsRefusedOnBothSchemes() {
+        // `localhost:8080@evil.example` has userinfo `localhost:8080` and
+        // host `evil.example` — browsers, OkHttp and ktor all resolve it that
+        // way. Truncating at the first colon (the naive approach) reads the
+        // userinfo as the hostname, which turns the loopback host check into
+        // a host *prefix* check and accepts any host at all over cleartext.
+        // No OIDC issuer identifier carries userinfo, so the shape is refused
+        // outright rather than parsed correctly.
+        assertFalse(Capabilities.acceptable("http://localhost:@evil.example/realms/detour"))
+        assertFalse(Capabilities.acceptable("http://localhost:8080@evil.example/realms/detour"))
+        assertFalse(Capabilities.acceptable("http://127.0.0.1:8080@evil.example/realms/detour"))
+        assertFalse(Capabilities.acceptable("https://user:pw@evil.example/realms/detour"))
+    }
+
+    @Test
+    fun aSchemeWithNoHostIsRefused() {
+        // A prefix check on the scheme alone would accept a bare "https://",
+        // which reaches Auth.endpoint() as "https:///protocol/..." and fails
+        // as a malformed URL rather than as "no realm advertised" — the wrong
+        // failure mode for what is really a missing value.
+        assertFalse(Capabilities.acceptable("https://"))
+        assertFalse(Capabilities.acceptable("http://"))
+    }
+
+    @Test
+    fun controlCharactersInTheAuthorityAreRefused() {
+        // trim() only strips the ends; a header-injection payload sitting in
+        // the middle of the string survives it. This value is later used to
+        // build request URLs, so interior control characters must be caught
+        // here rather than trusted downstream.
+        assertFalse(Capabilities.acceptable("https://idp.example\r\nX-Injected: 1"))
+    }
+
+    @Test
+    fun uppercaseSchemesAreRefused() {
+        // Deliberate fail-closed, not an oversight: a realm whose issuer is
+        // spelled with an uppercase scheme already fails the backend's own
+        // exact `iss` comparison, so accepting it here would buy nothing.
+        assertFalse(Capabilities.acceptable("HTTPS://idp.example/realms/detour"))
+        assertFalse(Capabilities.acceptable("HtTp://localhost:7580/realms/detour"))
+    }
+
+    @Test
+    fun theNarrowLoopbackSetIsDeliberate() {
+        // These are all genuinely loopback addresses, and all refused on
+        // purpose — the match is exactly "localhost" or "127.0.0.1", nothing
+        // wider. Do not "fix" this by loosening it to cover the rest of the
+        // loopback range; that widening needs its own justification.
+        assertFalse(Capabilities.acceptable("http://[::1]:7580/realms/detour"))
+        assertFalse(Capabilities.acceptable("http://127.1/realms/detour"))
+        assertFalse(Capabilities.acceptable("http://127.0.0.2/realms/detour"))
     }
 
     @Test
@@ -126,6 +194,19 @@ class CapabilitiesTest {
                 fetched = "http://idp.example/realms/detour",
                 stored = "https://old.example/realms/detour",
             ),
+        )
+    }
+
+    @Test
+    fun anUnacceptableStoredIssuerIsNeverReturnedEither() {
+        // The store is only ever written with a value that passed acceptable()
+        // today, but nothing re-vets it on the Auth.refresh() path and it
+        // survives until the API address changes — so a value written under
+        // looser rules must not outlive the tightening just because it is
+        // sitting there unfetched.
+        assertEquals(
+            "",
+            Capabilities.preferredDiscovered(fetched = "", stored = "http://evil.example/realms/detour"),
         )
     }
 
