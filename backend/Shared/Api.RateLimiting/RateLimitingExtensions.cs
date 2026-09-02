@@ -133,10 +133,12 @@ public static class RateLimitingExtensions
 
     private static string ResolveClientIp(HttpContext context)
     {
-        // Prefer the immediate connection IP. Proxies are configured via ForwardedHeaders
-        // middleware upstream so RemoteIpAddress reflects the real client — the legacy server's
-        // TRUST_CF_HEADER switch exists for exactly this reason and must not be reintroduced as
-        // an unconditional header read.
+        // The connection IP, and only ever that. Behind a proxy it is the forwarded-headers
+        // middleware that rewrites RemoteIpAddress before this runs — see
+        // Shared.Api.ForwardedHeaders, which installs it only when the operator has named a
+        // trusted proxy. Reading a header here instead would be the legacy server's
+        // TRUST_CF_HEADER switch, which let any caller pick its own partition key, and must
+        // not be reintroduced.
         var ip = context.Connection.RemoteIpAddress?.ToString();
         return string.IsNullOrWhiteSpace(ip) ? "unknown" : ip;
     }
