@@ -2200,7 +2200,7 @@ Change to:
 
 A backward-compatible feature, per `CLAUDE.md`'s table. Do not touch `versionCode` — it is CI-stamped from the run number.
 
-**Re-read the line before editing it.** `1.93.2` exists only on the unmerged `fix/car-map-motion` branch, so `main` is at `1.93.1` and that is what this branch was cut from. `1.94.0` is the right target either way — a minor bump clears both bases — but if that branch lands first the literal above will not match.
+**Re-read the line before editing it.** This moved twice while the branch was open. It was `1.93.1` when the branch was cut; `1.93.2` then landed on `main` as #112 (the car-map-motion work, which was on an unmerged branch at planning time), and the rebase onto it conflicted on exactly this line. `1.94.0` was the right target throughout — a minor bump clears any `1.93.x` base — which is the argument for pinning the *target* in a plan and reading the current value off the file rather than recording both.
 
 - [ ] **Step 2: Run every check this machine can run**
 
