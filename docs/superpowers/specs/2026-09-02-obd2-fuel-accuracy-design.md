@@ -422,7 +422,27 @@ clock — independent of this, ships separately.
 
 ## Stage 3 — OBD-clock Δt for the fuel integrator and hard-event detectors
 
-**State** | not started. Stage 3 preconditions checked 2026-09-02 after Stage 2: cappedFixDtSec 3 (≥2 ✓), parseCommandedEquivRatio 1 (==1 ✓), onSpeedFix/onHeadingFix 4 (≥1 ✓), freshObdTelemetry() 3 (≥2 ✓) — all green.
+**State** | **done** 2026-09-02, branch `fix/obd2-telemetry-dt` (PR stacks on #126).
+The fuel integrator now measures its gap on `obd.receivedAtMs` deltas (a batched
+GPS burst shares one `location.time`; the fuel readings across it did not); and
+`HardEventDetector.onSpeedFix` / `StopDetector.onFix` take an OBD-clock `fixMs`
+when `effectiveSpeedMps` is the adapter's reading, so PID 0D's 0–1000 ms arrival
+jitter lands in the Δt instead of being flattened to a nominal second. **Deviation
+from the Scope bullet:** `onHeadingFix` is kept on `location.time` — its signal is
+the GPS bearing, so its Δt must track the heading-sample spacing, not the OBD
+speed-reading spacing. Commits `e8e4c3b` (fuel), `c95bb80` (detectors),
+`versionName` stays `1.96.0` (inherited from #126 — the stack lands as one minor bump). No `shared/` change; no new unit test (a
+which-timestamp change in the untested `onTripLocation`; the source predicate
+`obdSpeedMpsFrom` is already covered by `ObdSpeedResolutionTest`). Suites +
+`assembleRelease` (R8) green. **Tier-2 GPS-replay A/B against
+`tools/mocklocation/baseline/` NOT run this session** — no device; it is the
+field check for "OBD-sourced segments no longer synthesise acceleration from
+clock jitter, GPS-sourced behaviour unchanged".
+
+Chain complete: **#96, #97 (#114) · #103 (#121) · #100, #101 (#126) · #98 (this
+PR)** — all six deferred OBD2 issues closed. The remaining OBD2-adjacent open
+question, driving-behaviour threshold calibration, is #61 and is not part of
+this chain.
 
 ### Preconditions
 
@@ -463,7 +483,8 @@ grep -n 'receivedAtMs' $T                             # INFO — where the OBD s
 2. OBD-clock Δt for `HardEventDetector` / `StopDetector` when speed is
    OBD-sourced. **Its own commit** — a `lastFix`/telemetry consumer change
    never shares a commit (`DECISION.md:367-373`).
-3. `versionName` patch bump + `docs/` Status + PR body closing #98.
+3. `docs/` Status + PR body closing #98. **No `versionName` bump** — this stage
+   is stacked on S2 and inherits its `1.96.0`; the stack lands as one minor bump.
 
 ### Done criteria and verification
 
@@ -528,7 +549,7 @@ child PR to `main` automatically and only the rebase + force-push is needed.
 | #114 | design change to shipped behaviour | `1.94.0` → shipped; `main` now `1.95.0` (#106) |
 | S1 | refactor | `1.95.0` (unchanged) |
 | S2 | feature, additive data format | `1.96.0` |
-| S3 | latent-bug fix | `1.96.1` |
+| S3 | latent-bug fix | `1.96.0` (no second bump — stacked on S2, lands in the same minor) |
 
 `versionCode` is CI-stamped — never touched here.
 
