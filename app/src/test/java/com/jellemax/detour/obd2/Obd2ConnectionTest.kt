@@ -367,4 +367,17 @@ class Obd2ConnectionTest {
         assertEquals(Obd2Connection.PidProbe.Latched(Obd2Pids.PID_MAF), cycle.state)
         assertEquals(listOf(0x1A, 0xF0), cycle.result?.bytes)
     }
+
+    @Test
+    fun probeDoesNotLatchThrottleUnsupportedOnATransientTimeout() {
+        // Early cycle, primary (0145) just times out: the slot must keep probing,
+        // not conclude the pedal PID is unsupported.
+        val cycle = Obd2Connection.probePidCycle(
+            ByteArrayInputStream(ByteArray(0)), ByteArrayOutputStream(),
+            Obd2Connection.PidProbe.Probing(cycles = 0),
+            primary = Obd2Pids.PID_THROTTLE_REL, fallback = Obd2Pids.PID_THROTTLE,
+            maxCycles = Obd2Connection.PID_PROBE_MAX_CYCLES,
+        )
+        assertEquals(Obd2Connection.PidProbe.Probing(cycles = 1), cycle.state)
+    }
 }

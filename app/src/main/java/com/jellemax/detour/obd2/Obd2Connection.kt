@@ -341,13 +341,9 @@ object Obd2Connection {
         // answers "NO DATA" to every PID (e.g. parked, ignition off) must NOT
         // trip this either — the adapter is proven alive that cycle.
         var consecutiveEmptyPolls = 0
-        // Relative throttle (pedal) is preferred, but not every vehicle reports
-        // it. null = undecided: try 0145, and on a clean unsupported answer fall
-        // back to 0111. Once either probe answers (with data or a sticky NO DATA)
-        // throttlePid is fixed for the rest of this connection — a vehicle that
-        // supports neither won't start supporting one mid-drive, and re-probing
-        // both every cycle is a permanent extra request on the 1 Hz loop.
-        var throttlePid: String? = null
+        // Relative throttle (pedal, 0145) is preferred; fall back to absolute
+        // throttle (plate, 0111). Latched once per connection — see fuelProbe.
+        var throttleProbe: PidProbe = PidProbe.Probing()
         // Fuel rate: probe 015E (a direct ECU L/h reading), fall back to 0110 (MAF,
         // turned into an estimate). Latched once per connection — a vehicle that
         // reports neither won't start mid-drive, and re-probing both every cycle is
@@ -367,17 +363,13 @@ object Obd2Connection {
                 // the trip's recorded topSpeedMps.
                 ?.takeIf { it <= MAX_PLAUSIBLE_SPEED_KMH }
         while (coroutineContext.isActive) {
-            var throttleResult = pollPid(input, output, throttlePid ?: Obd2Pids.PID_THROTTLE_REL)
-            if (throttlePid == null) {
-                if (throttleResult.bytes != null) {
-                    throttlePid = Obd2Pids.PID_THROTTLE_REL
-                } else if (throttleResult.answered) {
-                    throttleResult = pollPid(input, output, Obd2Pids.PID_THROTTLE)
-                    throttlePid =
-                        if (throttleResult.bytes != null) Obd2Pids.PID_THROTTLE
-                        else Obd2Pids.PID_THROTTLE_REL // both unsupported; stop probing
-                }
-            }
+            val throttleCycle = probePidCycle(
+                input, output, throttleProbe,
+                primary = Obd2Pids.PID_THROTTLE_REL, fallback = Obd2Pids.PID_THROTTLE,
+                maxCycles = PID_PROBE_MAX_CYCLES,
+            )
+            throttleProbe = throttleCycle.state
+            val throttleResult = throttleCycle.result ?: PollResult(bytes = null, answered = false)
             val rpmResult = pollPid(input, output, Obd2Pids.PID_RPM)
 
             // Fuel is polled before speed so speed stays the last poll before the
@@ -404,7 +396,8 @@ object Obd2Connection {
             // DFCO needs a *pedal* signal: the absolute-throttle PID (0111) idles
             // at 15-20% even fully closed, so pass null (skip the cut) unless the
             // reading came from relative throttle (0145).
-            val throttleClosed = if (throttlePid == Obd2Pids.PID_THROTTLE_REL && throttle != null)
+            val throttleLatched = throttleProbe as? PidProbe.Latched
+            val throttleClosed = if (throttleLatched?.pid == Obd2Pids.PID_THROTTLE_REL && throttle != null)
                 throttle < DFCO_THROTTLE_PCT else null
             // Clamp like speed/rpm — an all-0xFF 015E frame decodes to ~3276 L/h.
             val fuel = Obd2Pids.resolveFuelRate(directLph, mafGps, throttleClosed, rpm, speed)
