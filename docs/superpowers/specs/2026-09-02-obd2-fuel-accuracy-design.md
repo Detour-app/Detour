@@ -176,24 +176,26 @@ Only the wording changes; the row still gates on `fuelEstimated`.
 
 # The chain
 
-Four stages. Stage 0 is already in flight. Each later stage is its own branch,
-its own PR, and its own version decision, and **each PR targets the previous
-stage's branch, not `main`** (see "PR stacking" below) so they physically
-cannot merge out of order.
+> **Update 2026-09-02:** #114 (Stage 0) squash-merged to `main` as `f4d12f5`, and
+> `main` moved to `versionName 1.95.0` via #106. The stacking scheme below is now
+> moot — **each stage branches straight off current `main` and its PR targets
+> `main`.** Ordering is enforced by each stage's executable Preconditions (a stage
+> whose predecessor has not landed fails its precondition grep) rather than by a
+> PR base chain. Versions shift up one: S1 no bump (stays `1.95.0`), **S2 →
+> `1.96.0`**, **S3 → `1.96.1`**.
+
+Four stages. Each is its own branch off `main`, its own PR against `main`, and
+its own version decision.
 
 ```
-#114  fix/obd2-connection-lifecycle   → main     closes #96 #97   [OPEN]
-  ↓ base
-S1    refactor/obd2-probe-helper      → #114     closes #103      no version bump
-  ↓ base
-S2    feat/obd2-fuel-type-calibration → S1       closes #100 #101 minor bump
-  ↓ base
-S3    fix/obd2-telemetry-dt           → S2       closes #98       patch bump
+#114  fix/obd2-connection-lifecycle   → main     closes #96 #97   MERGED (f4d12f5)
+S1    refactor/obd2-probe-helper      → main     closes #103      no version bump   DONE (rebased)
+S2    feat/obd2-fuel-type-calibration → main     closes #100 #101 minor → 1.96.0
+S3    fix/obd2-telemetry-dt           → main     closes #98       patch → 1.96.1
 ```
 
-Rebase each branch onto its new base as the base merges; retarget the child PR
-to `main` at the same time (GitHub does this automatically when the base
-branch is deleted on merge).
+Land each stage before branching the next (its Preconditions assume the prior
+one is on `main`).
 
 Every stage: **one work item ⇒ one commit**, no work item spanning two commits.
 The "never in one commit" rules from
@@ -204,18 +206,23 @@ The "never in one commit" rules from
 
 ## Stage 1 — probe helper + `cappedFixDtSec`
 
-**State** | **done** 2026-09-02, branch `refactor/obd2-probe-helper`. `probePidCycle`
-+ the `PidProbe` sealed state replace both inline probe ladders in `pollLoop`
-(commits `ebc68f6` the `probePidCycle` primitive + tests + the constant rename,
-`111ee1e` fuel wiring, `b991c98` throttle
-wiring — the throttle probe picked up the fuel probe's cycle budget + stopped the
-idle 0145 re-poll, as called out); `cappedFixDtSec` folds the fuel + `secondsOverLimit`
-gap guards (`c3f4326`), operands still the GPS clock. Plan:
+**State** | **done** 2026-09-02, branch `refactor/obd2-probe-helper`, rebased onto
+`main` after #114 (Stage 0) squash-merged as `f4d12f5` — so this branch's PR targets
+`main` directly, not a stacked base. `probePidCycle` + the `PidProbe` sealed state
+replace both inline probe ladders in `pollLoop` (`probePidCycle` primitive + tests +
+the `FUEL_PROBE_MAX_CYCLES`→`PID_PROBE_MAX_CYCLES` rename; fuel wiring zero-delta;
+throttle wiring carrying the three intended #103 deltas — cycle budget, no idle 0145
+re-poll, watchdog no longer fed by it); `cappedFixDtSec` folds the fuel +
+`secondsOverLimit` gap guards, operands still the GPS clock. Post-rebase commits
+`5ff2c6c..7112a34` (code: `7d1e4d8` primitive, `07f602e` fuel, `df1942b` throttle,
+`ebbe295` cappedFixDtSec). Plan:
 `docs/superpowers/plans/2026-09-02-obd2-probe-helper.md`. Each task spec-reviewed;
-one fix round on the throttle commit body. Suites + `assembleDebug` + `assembleRelease`
-(R8) green. `:app:lintDebug` is pre-existing-red on `notif/PlaceNotifications.kt`
-(untouched here) and is not a CI gate — this chain's four files add zero lint
-findings. Live-adapter path unverified — no dongle this session.
+one fix round on the throttle commit body; whole-branch review clean (one added test
++ doc nits). Suites + `assembleDebug` + `assembleRelease` (R8) green on the rebased
+tree. `:app:lintDebug` is pre-existing-red on `notif/PlaceNotifications.kt`
+(untouched here) and is not a CI gate — this chain's four code files add zero lint
+findings. Live-adapter path unverified — no dongle this session. **No version bump**
+(`main` is at `1.95.0` after #106 — Stage 2 now bumps to `1.96.0`, Stage 3 `1.96.1`).
 
 ### Preconditions
 
@@ -406,7 +413,7 @@ grep -c 'obd2Address.*takeIf.*isNotBlank' $S          # expect >= 1  (decode pat
 
 ### Version
 
-Minor. `1.94.0` → `1.95.0`. New user-facing feature (per-vehicle fuel type +
+Minor. `1.95.0` → `1.96.0` (`main` moved to 1.95.0 via #106). New user-facing feature (per-vehicle fuel type +
 calibration), backward-compatible additive data-format change.
 
 ### Stop-point
@@ -478,7 +485,7 @@ grep -n 'receivedAtMs' $T                             # INFO — where the OBD s
 
 ### Version
 
-Patch. `1.95.0` → `1.95.1`. Fixes a latent miscalculation in a shipped
+Patch. `1.96.0` → `1.96.1`. Fixes a latent miscalculation in a shipped
 feature, no API or data-format change.
 
 ### Stop-point
@@ -523,10 +530,10 @@ child PR to `main` automatically and only the rebase + force-push is needed.
 
 | Stage | Change class | `versionName` |
 | --- | --- | --- |
-| #114 | design change to shipped behaviour | `1.94.0` (already on the branch) |
-| S1 | refactor | `1.94.0` (unchanged) |
-| S2 | feature, additive data format | `1.95.0` |
-| S3 | latent-bug fix | `1.95.1` |
+| #114 | design change to shipped behaviour | `1.94.0` → shipped; `main` now `1.95.0` (#106) |
+| S1 | refactor | `1.95.0` (unchanged) |
+| S2 | feature, additive data format | `1.96.0` |
+| S3 | latent-bug fix | `1.96.1` |
 
 `versionCode` is CI-stamped — never touched here.
 
