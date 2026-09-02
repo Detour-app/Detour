@@ -90,8 +90,8 @@ object Settings {
     val avoidSmallRoads: StateFlow<Boolean> = _avoidSmallRoads
 
     /** Broadcast turn-by-turn state over BLE for an external display (e.g. a
-     *  handlebar-mounted screen), alongside the existing Wear OS relay. Off by
-     *  default: it advertises the phone over Bluetooth while on. */
+     *  handlebar-mounted screen). Off by default: it advertises the phone over
+     *  Bluetooth while on. */
     private val _externalDisplayEnabled = MutableStateFlow(false)
     val externalDisplayEnabled: StateFlow<Boolean> = _externalDisplayEnabled
 

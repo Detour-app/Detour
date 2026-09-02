@@ -795,8 +795,7 @@ private fun ConfigFileSection() {
 
 /**
  * Broadcasts turn-by-turn state over BLE for an external display (e.g. a
- * handlebar-mounted screen), mirroring the Wear OS relay but over Bluetooth
- * Low Energy instead of the Wearable Message API. Needs BLUETOOTH_CONNECT
+ * handlebar-mounted screen). Needs BLUETOOTH_CONNECT
  * (Android 12+ split BLUETOOTH into scoped runtime permissions) and
  * BLUETOOTH_ADVERTISE to advertise the phone as a connectable peripheral.
  */

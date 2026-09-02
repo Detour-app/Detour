@@ -68,7 +68,7 @@ private const val FALLBACK_MPS = 14.0
  * Compose-local navigation state (see the plan's Context: a shared session
  * would be a bigger, riskier refactor for no v1 benefit, since starting nav
  * here doesn't need to know what the phone screen is doing, same as the
- * existing wear/BLE relays each drive themselves).
+ * existing BLE relay, which drives itself).
  *
  * Turn-by-turn on a head unit is three separate things, and this screen owes
  * all three:

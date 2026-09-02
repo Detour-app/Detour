@@ -63,10 +63,9 @@ private const val TAG = "BleNavServer"
 /**
  * BLE GATT peripheral broadcasting state to an external display (a
  * handlebar-mounted screen): turn-by-turn navigation and, separately,
- * now-playing media info. One service, two characteristics — nav mirrors
- * NavRelay's Wear OS payload with a few extra fields the bigger screen has
- * room for; music mirrors what MediaListenerService reads off the active
- * media session. The central is expected to negotiate a larger MTU before
+ * now-playing media info. One service, two characteristics — nav carries the
+ * maneuver, the distance to it, the current speed and the speed limit; music
+ * mirrors what MediaListenerService reads off the active media session. The central is expected to negotiate a larger MTU before
  * subscribing — neither payload fits in the default 23-byte ATT MTU.
  */
 /** One packet off the board's own sensors — see TELEMETRY_CHARACTERISTIC_UUID. */
@@ -377,7 +376,7 @@ object BleNavServer {
         if (!hasPermissions(context)) return
         val instruction = progress.nextInstruction
         val now = System.currentTimeMillis()
-        // Throttle like NavRelay: only push on a new maneuver, or at most once/second otherwise.
+        // Throttle: only push on a new maneuver, or at most once/second otherwise.
         if (instruction?.sign == lastSign && now - lastSentAt < 1000) return
         lastSentAt = now
         lastSign = instruction?.sign

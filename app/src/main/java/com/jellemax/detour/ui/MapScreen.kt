@@ -114,7 +114,6 @@ import com.jellemax.detour.obd2.Obd2Connection
 import com.jellemax.detour.obd2.Obd2ConnectionState
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ble.BleNavServer
-import com.jellemax.detour.wear.NavRelay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -855,7 +854,6 @@ fun MapScreen(
         // this it would keep the driven part greyed out with nothing following
         // it any more.
         mapOverlays?.setDrivenFraction(null)
-        NavRelay.clear(context)
         BleNavServer.clear(context)
     }
 
@@ -1407,7 +1405,6 @@ fun MapScreen(
         // the overlay drops an update that wouldn't move the line (see
         // MapOverlays.setDrivenFraction).
         mapOverlays?.setDrivenFraction(progress.drivenFraction)
-        NavRelay.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
         BleNavServer.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
 
         // Same policy the head unit and iOS read, so the three surfaces cannot
