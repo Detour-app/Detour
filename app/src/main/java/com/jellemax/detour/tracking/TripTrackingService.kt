@@ -1419,7 +1419,11 @@ class TripTrackingService : Service() {
                 // Fuel is a rate, so it's integrated over time, not averaged like
                 // RPM above: this fix's L/h held over the gap since the last fuel
                 // sample, dropped (not saturated) when that gap is outside 1..15s.
-                val fixMs = location.time
+                // The gap is measured on the OBD reading's own arrival clock
+                // (receivedAtMs), not the GPS fix clock — a batched burst of
+                // GPS fixes shares one location.time but the fuel readings that
+                // arrived across it did not (#98).
+                val fixMs = obd.receivedAtMs
                 cappedFixDtSec(fixMs, lastFuelSampleMs)?.let { dtSec ->
                     fuelMlAccum += obd.fuelRateLph * (1000.0 / 3600.0) * dtSec
                     // Distance covered while a fuel reading was live — the L/100km
