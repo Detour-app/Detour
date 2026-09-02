@@ -1,4 +1,5 @@
 using Detour.Database.Configuration;
+using Shared.Api.ForwardedHeaders;
 using Shared.Logging;
 using Shared.OpenTelemetry;
 
@@ -16,6 +17,7 @@ public class ApiConfiguration
     public required OpenTelemetrySettings OpenTelemetry { get; set; }
     public CacheSettings Cache { get; set; } = new();
     public CorsSettings Cors { get; set; } = new();
+    public ForwardedHeadersSettings ForwardedHeaders { get; set; } = new();
 }
 
 /// <summary>

@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Shared.Api;
+using Shared.Api.ForwardedHeaders;
 using Shared.Api.Middlewares;
 using Shared.Api.OpenApi;
 using Shared.Api.RateLimiting;
@@ -38,6 +39,8 @@ public class Startup(IConfiguration configuration)
         services.Configure<IdpSettings>(configuration.GetSection(IdpSettings.SectionName));
         services.AddSingleton<IOptions<IdpSettings>>(
             new OptionsWrapper<IdpSettings>(MappedConfiguration.Idp));
+
+        services.AddTrustedProxies(MappedConfiguration.ForwardedHeaders);
 
         services.AddDetourDatabase(configuration);
         services.AddPostCommitActionScheduler();
@@ -108,8 +111,15 @@ public class Startup(IConfiguration configuration)
     /// Order here is the security boundary, not a style choice. Each comment records what
     /// breaks when a piece moves.
     /// </summary>
-    public static void Configure(WebApplication app)
+    public void Configure(WebApplication app)
     {
+        // First, because everything below reads either the client address or the scheme.
+        // UseRateLimiter's per-IP partitions need the rewritten address, and
+        // UseHttpsRedirection needs the forwarded scheme — without it, a request that reached
+        // the proxy over https is answered with a redirect to http. Adds nothing at all
+        // unless a proxy is configured; see ForwardedHeadersSettings.
+        app.UseTrustedProxies(MappedConfiguration.ForwardedHeaders);
+
         app.UseCors();
         app.UseRequestLocalization();
 

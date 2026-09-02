@@ -37,7 +37,7 @@ var app = builder.Build();
     }
 }
 
-Startup.Configure(app);
+startup.Configure(app);
 
 await app.RunAsync();
 
