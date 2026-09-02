@@ -868,7 +868,7 @@ Add the key constant next to `PREFS` at `:69`:
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `devcontainer-exec ./gradlew :shared:testDebugUnitTest --tests '*ServerResolutionTest*'`
-Expected: PASS, 9 tests — the three base-address tests that were already there, plus the six issuer tests.
+Expected: PASS, 10 tests — the four base-address/normalisation tests already there, plus the six issuer tests.
 
 - [ ] **Step 5: Write the failing test for save-time invalidation**
 
@@ -1053,7 +1053,7 @@ Then replace the body of `save` (currently `:163-184`) with:
 - [ ] **Step 8: Run the tests to verify they pass**
 
 Run: `devcontainer-exec ./gradlew :shared:testDebugUnitTest --tests '*ServerResolutionTest*'`
-Expected: PASS, 12 tests.
+Expected: PASS, 14 tests.
 
 - [ ] **Step 9: Consolidate the URL normalisation**
 
