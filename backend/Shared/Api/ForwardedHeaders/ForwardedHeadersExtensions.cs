@@ -19,8 +19,10 @@ public static class ForwardedHeadersExtensions
     /// <list type="bullet">
     /// <item><c>ForwardedHeaders</c> defaults to <c>None</c>, so the middleware would run and
     /// do nothing.</item>
-    /// <item><c>KnownProxies</c> defaults to the IPv6 loopback address rather than an empty
-    /// list, so the defaults are cleared before the configured entries are added.</item>
+    /// <item><c>KnownProxies</c> defaults to <c>::1</c> and <c>KnownIPNetworks</c> to
+    /// <c>127.0.0.0/8</c> rather than to empty lists, so both are cleared before the
+    /// configured entries are added — otherwise naming one proxy silently trusts anything on
+    /// the loopback interface too.</item>
     /// <item><c>ForwardLimit</c> is left at its default of 1: one proxy, one hop. A chained
     /// deployment needs a deliberate change here, not a silently larger number.</item>
     /// </list>
@@ -58,10 +60,12 @@ public static class ForwardedHeadersExtensions
     /// when one is not.
     /// </summary>
     /// <remarks>
-    /// Nothing at all, rather than middleware configured to trust an empty list, because the
-    /// framework's <c>KnownProxies</c> default is the IPv6 loopback address — so "configured
-    /// with nothing" still believes a loopback peer's header. Absence is the only formulation
-    /// that ignores forwarded headers by construction.
+    /// Nothing at all, rather than middleware configured to trust an empty list. Measured on
+    /// net10.0: an enabled middleware whose trust lists are both empty honours
+    /// <c>X-Forwarded-For</c> from any peer at all — peer <c>203.0.113.99</c> claiming
+    /// <c>1.2.3.4</c> resolves to <c>1.2.3.4</c>. "Configured to trust nobody" is therefore
+    /// the opposite of what empty lists produce, and absence is the only formulation that
+    /// ignores forwarded headers by construction.
     /// </remarks>
     public static IApplicationBuilder UseTrustedProxies(
         this IApplicationBuilder app,

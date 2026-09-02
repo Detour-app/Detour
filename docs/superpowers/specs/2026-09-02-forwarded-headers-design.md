@@ -73,8 +73,8 @@ security-considerations documentation:
 | Option | Framework default | Consequence here |
 |---|---|---|
 | `ForwardedHeaders` | `None` | **Must be set explicitly.** Left alone, `UseForwardedHeaders()` is registered, runs, and does nothing — the bug would look fixed and stay open. |
-| `KnownProxies` | `IPAddress.IPv6Loopback` (`::1`) | **Not empty.** A config section with empty lists does not produce "trust nobody"; it leaves `::1` trusted. |
-| `KnownIPNetworks` | empty | `KnownNetworks` is the obsolete pre-.NET-8 form. This project targets `net10.0` (`backend/Directory.Build.props:4`), so `KnownIPNetworks` is the property to use. |
+| `KnownProxies` | `IPAddress.IPv6Loopback` (`::1`) | **Not empty.** Clearing it is not the same as "trust nobody" — see below. |
+| `KnownIPNetworks` | `127.0.0.0/8` | Also not empty. `KnownNetworks` is the obsolete pre-.NET-8 form. This project targets `net10.0` (`backend/Directory.Build.props:4`), so `KnownIPNetworks` is the property to use. |
 | `ForwardLimit` | `1` | Correct for one proxy. `null` means unlimited and is documented as dangerous. Left at the default. |
 
 The documentation also warns that the `ASPNETCORE_FORWARDEDHEADERS_ENABLED`
@@ -97,18 +97,33 @@ this fixes, because it converts a coarse limit into no limit. That property is
 what `RateLimitingExtensions.cs:136`'s comment was protecting; what is missing is
 the opt-in, not the default.
 
-Given the `::1` default above, "ignored entirely" cannot be achieved by
-configuring the options with empty lists. **When neither list is configured, the
-middleware is not added to the pipeline at all.** That is the only formulation
-that is safe by construction rather than by a correctly-guessed default.
+"Ignored entirely" cannot be achieved by configuring the options with empty
+lists, and not for the reason the defaults table might suggest. Measured on
+`net10.0` with the middleware enabled and both trust lists cleared:
+
+```
+peer 203.0.113.99, X-Forwarded-For: 1.2.3.4  ->  1.2.3.4
+```
+
+Empty lists do not mean "trust nobody" and they do not mean "trust loopback"
+either: **an enabled middleware with empty trust lists honours any peer's
+header.** The `::1` and `127.0.0.0/8` defaults matter for a different reason —
+they must be cleared before the configured entries are added, or naming one
+proxy silently trusts the loopback interface as well — but clearing them is not
+what makes the unconfigured case safe.
+
+**When neither list is configured, the middleware is not added to the pipeline
+at all.** That is the only formulation that is safe by construction rather than
+by a correctly-guessed default.
 
 ## Approaches considered
 
 **A — bind the section straight onto `ForwardedHeadersOptions` and always call
 `app.UseForwardedHeaders()`.** What the issue's "proposed fix" literally
 describes. Rejected on all three framework dimensions above: `ForwardedHeaders`
-would stay `None` (no-op), the `::1` default would survive an empty config, and
-the `IPAddress` lists would not bind at all.
+would stay `None` (no-op), an empty config would not mean "trust nobody" —
+enabled with empty lists the middleware honours any peer's header — and the
+`IPAddress` lists would not bind at all.
 
 **B — a settings class, explicit parsing, and the middleware added only when a
 proxy is actually configured.** Chosen. Every dimension above becomes an
@@ -125,17 +140,19 @@ leaving `UseHttpsRedirection` broken, and it reimplements a framework middleware
 ### 1. `backend/Shared/Api/ForwardedHeaders/ForwardedHeadersSettings.cs` (new)
 
 ```csharp
-public class ForwardedHeadersSettings
+public sealed class ForwardedHeadersSettings
 {
     public const string SectionName = "ForwardedHeaders";
 
     /// <summary>Exact proxy addresses to trust, e.g. "172.18.0.5".</summary>
-    public string[] KnownProxies { get; set; } = [];
+    public string[] KnownProxies { get; init; } = [];
 
     /// <summary>Proxy networks in CIDR form, e.g. "172.18.0.0/16".</summary>
-    public string[] KnownNetworks { get; set; } = [];
+    public string[] KnownNetworks { get; init; } = [];
 
     public bool IsConfigured => KnownProxies.Length > 0 || KnownNetworks.Length > 0;
+
+    public static ForwardedHeadersSettings From(IConfiguration configuration) => ...;
 }
 ```
 
@@ -143,6 +160,23 @@ The public name stays `KnownNetworks`, matching what `docker-compose.yml` and
 `INSTALL.md` already tell operators to set. It maps onto the framework's
 `KnownIPNetworks`. Renaming the operator-facing key to match a framework
 rename would break the documented deployment for no gain.
+
+#### A fifth framework dimension: the section has two shapes
+
+`configuration.Get<T>()` fills a `string[]` only from indexed child keys —
+`ForwardedHeaders:KnownNetworks:0`, which is what a JSON array becomes. An
+environment variable is a single scalar leaf, and that is the shape
+`docker/prod/docker-compose.yml:57-58` passes
+(`ForwardedHeaders__KnownNetworks: ${FORWARDED_KNOWN_NETWORKS:-}`), with
+`.env.example` shipping `172.16.0.0/12` pre-filled. Binding alone is therefore a
+silent no-op on every containerised deployment — the operator sets the variable
+and `IsConfigured` stays false.
+
+So `From(IConfiguration)` reads either shape: indexed children when there are
+any, otherwise the scalar split on `,`, `;` or a space, with the entries
+trimmed. Moving compose to `__0` instead is not an option: an unset variable
+would expand to one empty entry and `IPNetwork.Parse("")` would fail the boot
+for every deployment that legitimately has no proxy.
 
 ### 2. `backend/Shared/Api/ForwardedHeaders/ForwardedHeadersExtensions.cs` (new)
 
@@ -164,15 +198,23 @@ degrades to the shared-bucket bug this fixes. This matches `ApiConfiguration`'s
 documented stance that "a missing or malformed section is a boot failure rather
 than a null reference on the first request that needs it".
 
-### 3. `ApiConfiguration` gains the section
+### 3. `ApiConfiguration` does not gain the section
 
-```csharp
-public ForwardedHeadersSettings ForwardedHeaders { get; set; } = new();
-```
+Deliberately: a `ForwardedHeadersSettings` property there would bind from the
+JSON shape and quietly ignore the environment-variable one, which is the trap
+described above.
 
 ### 4. `Startup.cs`
 
-`ConfigureServices`: `services.AddTrustedProxies(MappedConfiguration.ForwardedHeaders);`
+A member built in the primary constructor, so the add-side and use-side guards
+read the same instance:
+
+```csharp
+private ForwardedHeadersSettings ForwardedHeaders { get; } =
+    ForwardedHeadersSettings.From(configuration);
+```
+
+`ConfigureServices`: `services.AddTrustedProxies(ForwardedHeaders);`
 
 `Configure`: first line of the method, above `app.UseCors()`:
 
@@ -182,7 +224,7 @@ public ForwardedHeadersSettings ForwardedHeaders { get; set; } = new();
 // UseHttpsRedirection needs the forwarded scheme or it answers a redirect to
 // http for a request that arrived over https. Does nothing unless a proxy is
 // configured — see ForwardedHeadersSettings.
-app.UseTrustedProxies(MappedConfiguration.ForwardedHeaders);
+app.UseTrustedProxies(ForwardedHeaders);
 ```
 
 ### 5. Correct the comment that started this
@@ -214,9 +256,19 @@ reaching into a private method.
 | 3 | `KnownProxies: ["10.0.0.9"]` | peer `10.0.0.250`, `X-Forwarded-For: 203.0.113.7` | `10.0.0.250` — untrusted hop, ignored |
 | 4 | `KnownNetworks: ["10.0.0.0/24"]` | peer `10.0.0.9`, `X-Forwarded-For: 203.0.113.7` | `203.0.113.7` — CIDR form works |
 | 5 | neither list set | any | `UseTrustedProxies` adds no middleware |
+| 6 | `KnownProxies: ["10.0.0.9"]` | peer `127.0.0.1`, spoofed header | `127.0.0.1` — the framework's `::1` / `127.0.0.0/8` seeds were cleared |
+| 7 | `KnownProxies: ["10.0.0.9"]` | `X-Forwarded-Proto: https` | scheme `https` |
+| 8 | `KnownProxies: ["10.0.0.9", "10.0.0.10"]` | `X-Forwarded-For: 203.0.113.7, 10.0.0.10` | `10.0.0.10` — `ForwardLimit` is 1, so the second trusted hop is not followed |
+| 9 | neither list set | any | `AddTrustedProxies` leaves `ForwardedHeaders` at `None` |
+| 10 | both shapes of the config section | — | scalar, indexed children, delimited scalar, empty scalar and absent section all bind as intended |
 
-Case 1 is the regression guard for the safe default and is the one that fails if
-someone later "simplifies" the conditional registration away.
+Case 1 is the regression guard for the safe default. Cases 5 and 9 are the two
+guards separately: case 1 only fails when *both* are removed, so on its own it
+leaves each individually undefended.
+
+Cases 6 to 10 exist because the first round of tests was mutation-checked and
+six of eight mutations survived it — including deleting either `Clear()` call,
+dropping `XForwardedProto`, and the binding gap that case 10 covers.
 
 ## Documentation
 
