@@ -267,4 +267,47 @@ class CredentialMigrationTest {
         assertEquals("cid", secure.string("clientId", ""))
         assertEquals("csecret", secure.string("clientSecret", ""))
     }
+
+    // The two markers that are already written to real devices' secure stores. A
+    // marker that changed would read back blank on an install whose migration is
+    // done, which puts that install back on the copy phase for credentials whose
+    // plaintext was deleted runs ago. Asserted as literals rather than as
+    // "__migration_" + name so that deriving the marker differently one day fails
+    // here instead of on somebody's phone.
+    @Test
+    fun theTwoShippedMarkersKeepTheirExactStrings() {
+        assertEquals("__migration_session", CredentialMigration.SESSION_GROUP.marker)
+        assertEquals("__migration_server", CredentialMigration.SERVER_GROUP.marker)
+    }
+
+    // The copy-paste defect, which the two real groups can no longer express: a third
+    // group added by copying an existing one and editing only the keys would, with a
+    // hand-written marker, arm on the first group's run and take the delete branch
+    // immediately — destroying plaintext it had never copied. Deriving the marker from
+    // the name makes distinct groups distinct by construction, so this test uses two
+    // groups that exist nowhere else to prove the construction and not the two
+    // declarations.
+    @Test
+    fun twoAdHocGroupsAgainstOneStoreDoNotArmEachOther() {
+        val alpha = SecretGroup("alpha", listOf(SecretKey("alpha_token", SecretType.Text)))
+        val beta = SecretGroup("beta", listOf(SecretKey("beta_token", SecretType.Text)))
+        assertTrue(alpha.marker != beta.marker, "distinct names must give distinct markers")
+
+        val alphaPlain = FakePrefs().apply { put("alpha_token", "a") }
+        val betaPlain = FakePrefs().apply { put("beta_token", "b") }
+        val secure = FakePrefs() // one shared secure store, exactly as the real code uses
+
+        // Alpha goes first and arms its own marker. Beta must not read that as its own.
+        assertEquals(CredentialMigration.Outcome.Copied, CredentialMigration.step(alphaPlain, secure, alpha))
+        assertEquals(CredentialMigration.Outcome.Copied, CredentialMigration.step(betaPlain, secure, beta))
+
+        // Copied, not deleted: beta's plaintext survives its first run.
+        assertEquals("b", betaPlain.string("beta_token", ""))
+        assertEquals("b", secure.string("beta_token", ""))
+
+        // Only on a later run, once its own marker has read back, does beta's go.
+        assertEquals(CredentialMigration.Outcome.Verified, CredentialMigration.step(betaPlain, secure, beta))
+        assertEquals("", betaPlain.string("beta_token", ""))
+        assertEquals("b", secure.string("beta_token", ""))
+    }
 }

@@ -1,5 +1,8 @@
 package com.jellemax.detour.data
 
+import kotlin.concurrent.atomics.AtomicBoolean
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
+
 /** Whether a secret is stored as text or as a number, so it is read back the same way. */
 internal enum class SecretType { Text, Number }
 
@@ -18,11 +21,21 @@ internal data class SecretKey(val name: String, val type: SecretType)
  * The marker is per-group and not shared. Both groups migrate into the same secure store,
  * so a single marker would let the first group to run arm the second — which would then
  * take the delete branch and remove its plaintext without ever having copied it.
+ *
+ * Derived from [name] rather than passed in, so that defect cannot come back through a
+ * third group added by copy-paste with the marker left pointing at the group it was
+ * copied from. Two groups can now only collide by also being called the same thing.
+ * Deriving it costs nothing here because the two markers already on real devices,
+ * `__migration_session` and `__migration_server`, are exactly what this formula produces
+ * from the names `session` and `server` — a marker that changed would read back blank on
+ * an install that had already migrated, and re-run a completed migration.
  */
 internal data class SecretGroup(
-    val marker: String,
+    val name: String,
     val keys: List<SecretKey>,
-)
+) {
+    val marker: String get() = "__migration_$name"
+}
 
 /**
  * Moves credentials from the plaintext stores into the encrypted one, in two phases,
@@ -40,13 +53,14 @@ internal data class SecretGroup(
  * Pure: it takes both stores as parameters and touches nothing else, so it is testable
  * in commonTest against a fake.
  */
+@OptIn(ExperimentalAtomicApi::class) // for [migratedOnce]; see the note there
 internal object CredentialMigration {
 
     const val MARKER_VALUE = "v1"
 
     /** The session, from the `settings` bag. */
     val SESSION_GROUP = SecretGroup(
-        marker = "__migration_session",
+        name = "session",
         keys = listOf(
             SecretKey("access_token", SecretType.Text),
             SecretKey("refresh_token", SecretType.Text),
@@ -57,7 +71,7 @@ internal object CredentialMigration {
 
     /** The Cloudflare Access service token, from the `routing_server` bag. */
     val SERVER_GROUP = SecretGroup(
-        marker = "__migration_server",
+        name = "server",
         keys = listOf(
             SecretKey("clientId", SecretType.Text),
             SecretKey("clientSecret", SecretType.Text),
@@ -66,12 +80,24 @@ internal object CredentialMigration {
 
     enum class Outcome { Copied, Verified, NothingToDo }
 
-    // Plain var, not a lock: commonMain has no synchronisation primitive available
-    // (no java.*, no Dispatchers), so this cannot be made atomic here. A race
-    // between two threads both seeing `false` runs step() for a group twice in the
-    // same process, which step()'s own doc says is safe against — worst case it
-    // repeats a phase with correct, idempotent inputs.
-    private var migratedOnce = false
+    // Compare-and-set, not a plain `var`. Two coroutines at cold start could both
+    // read `false` and both run the migration, and RoutingServer.load() is on the
+    // hot path from IO coroutines. The consequence was mild — step() is idempotent,
+    // as its own doc says — but this is the guard that keeps it once per process,
+    // and a guard that does not hold under the concurrency it is actually called
+    // under is not one.
+    //
+    // Made atomic without a new dependency: kotlin.concurrent.atomics is
+    // stdlib-common as of the Kotlin this project pins (2.1.20), so it resolves in
+    // commonMain for every target — which the metadata compile is what proves.
+    // Still experimental there, hence the opt-in on the object; that is a
+    // compile-time risk on a Kotlin upgrade, not a runtime one.
+    //
+    // What it does not buy: the loser of the CAS returns immediately rather than
+    // waiting, so it can still return while the winner's migration is in flight.
+    // That was equally true of the plain `var`, and closing it needs a real lock
+    // — which commonMain still has no primitive for.
+    private val migratedOnce = AtomicBoolean(false)
 
     /**
      * Runs both credential groups' migration exactly once per process, whichever of
@@ -87,8 +113,7 @@ internal object CredentialMigration {
      * and vice versa.
      */
     fun migrateOnce() {
-        if (migratedOnce) return
-        migratedOnce = true
+        if (!migratedOnce.compareAndSet(false, true)) return
         migrateGroup(prefs("settings"), SESSION_GROUP)
         migrateGroup(prefs(RoutingServer.PREFS), SERVER_GROUP)
     }
