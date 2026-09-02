@@ -1403,7 +1403,31 @@ Replace those two lines with:
     }
 ```
 
-- [ ] **Step 6: Run the full shared suite**
+- [ ] **Step 6: Correct the `sessionEpoch` parenthetical this feature invalidated**
+
+Task 4's review found this, and Task 6 owns `Auth.kt`. The doc on `Auth.sessionEpoch`
+(`Auth.kt:68-71`) says:
+
+> (A server switch that keeps the same issuer does *not* bump this — [RoutingServer.save] only
+> calls [clear] on an issuer change, see its own doc — but that is still the same rider, so it
+> is not a case this guard needs to catch.)
+
+That is no longer true for a rider whose only issuer was discovered. `save()` is not
+suspending and cannot probe, so it discards the discovered value on a server change and the
+effective issuer moves — bumping the epoch even when the new server would have advertised the
+identical realm. Failing closed is the right trade (a needless re-sign-in beats a refresh that
+reads as a replay), so change the comment, not the behaviour. Add a clause:
+
+```kotlin
+     * it is not a case this guard needs to catch.) One exception since realm
+     * discovery: a rider whose issuer came from the server, not from the
+     * settings field, does bump this on a server change, because [save] cannot
+     * probe the new server to find out whether it names the same realm. Failing
+     * closed is deliberate — a needless re-sign-in beats a refresh token
+     * presented to a realm that did not mint it.
+```
+
+- [ ] **Step 7: Run the full shared suite**
 
 Run: `devcontainer-exec ./gradlew :shared:testDebugUnitTest`
 Expected: PASS, all tests.
@@ -1411,7 +1435,7 @@ Expected: PASS, all tests.
 Run: `devcontainer-exec ./gradlew :shared:compileCommonMainKotlinMetadata`
 Expected: BUILD SUCCESSFUL.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add shared/src/commonMain/kotlin/com/jellemax/detour/data/Auth.kt \
@@ -1524,7 +1548,7 @@ Replace all of it — from `val configured` through the single-argument `begin` 
         if (typed.isNotBlank()) return RoutingServer.issuer(custom)
 
         val fetched = Capabilities
-            .fetch(RoutingServer.apiBase(custom), RoutingServer.accessHeaders(custom ?: ServerConfig()))
+            .fetch(RoutingServer.apiBase(custom), custom.accessHeaders())
             ?.idpIssuer
             .orEmpty()
         val discovered = Capabilities.preferredDiscovered(
