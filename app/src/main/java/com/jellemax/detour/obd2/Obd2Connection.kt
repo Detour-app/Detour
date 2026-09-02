@@ -402,6 +402,12 @@ object Obd2Connection {
             val lambda = lambdaCycle.result?.bytes
                 ?.let { Obd2Pids.parseCommandedEquivRatio(it) }
                 ?.takeIf { it > 0.0 }
+                // A petrol engine in closed loop commands λ ≈ 1.0 (down to ~0.75
+                // under wide-open-throttle enrichment); a clone that echoes
+                // 41 44 FF FF for a pseudo-supported PID would otherwise latch
+                // λ ≈ 2.0 and halve the estimate. Diesels genuinely run this
+                // lean, so only petrol is bounded.
+                ?.takeIf { fuelType != FuelType.PETROL || it in 0.5..1.5 }
                 ?: 1.0
 
             val speedResult = pollPid(input, output, Obd2Pids.PID_SPEED)

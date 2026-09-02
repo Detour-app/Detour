@@ -247,11 +247,13 @@ fun Obd2PairingScreen() {
                                 selected = vehicle.fuelType == ft,
                                 onClick = {
                                     Settings.setFuelType(vehicle.address, ft)
-                                    Obd2Connection.disconnect()
-                                    Obd2Connection.connect(
-                                        context.applicationContext, vehicle.obd2Address!!,
-                                        fuelType = ft, calibrationPct = vehicle.fuelCalibrationPct,
-                                    )
+                                    vehicle.obd2Address?.let { addr ->
+                                        Obd2Connection.disconnect()
+                                        Obd2Connection.connect(
+                                            context.applicationContext, addr,
+                                            fuelType = ft, calibrationPct = vehicle.fuelCalibrationPct,
+                                        )
+                                    }
                                 },
                                 shape = SegmentedButtonDefaults.itemShape(index, FuelType.entries.size),
                                 label = { Text(ft.name.lowercase().replaceFirstChar { it.uppercase() }) },
