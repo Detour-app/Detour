@@ -51,7 +51,7 @@ If nothing is running, stop and ask the user to start their devcontainer. Never 
 | `iosApp/Detour/SignIn.swift` | **Modify.** `resolveIssuer()` before `begin`; new message. |
 | `iosApp/Detour/SettingsScreen.swift` | **Modify.** Deprecation copy. |
 | `iosApp/Detour/FriendsScreen.swift` | **Modify.** New message in the `else` branch. |
-| `app/build.gradle.kts:80` | **Modify.** `versionName` `1.93.1` → `1.94.0`. |
+| `app/build.gradle.kts:80` | **Modify.** `versionName` → one minor above whatever `main` holds; read the file. |
 
 Two decisions locked here rather than left to the implementer:
 
@@ -2200,7 +2200,7 @@ Change to:
 
 A backward-compatible feature, per `CLAUDE.md`'s table. Do not touch `versionCode` — it is CI-stamped from the run number.
 
-**Re-read the line before editing it.** This moved twice while the branch was open. It was `1.93.1` when the branch was cut; `1.93.2` then landed on `main` as #112 (the car-map-motion work, which was on an unmerged branch at planning time), and the rebase onto it conflicted on exactly this line. `1.94.0` was the right target throughout — a minor bump clears any `1.93.x` base — which is the argument for pinning the *target* in a plan and reading the current value off the file rather than recording both.
+**Do not trust any version number written in this plan. Read the file.** This moved three times while the branch was open: `1.93.1` at planning time, `1.93.2` when #112 merged, `1.94.0` when #114 merged — and #114 claimed the very number this task had already written, so `git rebase` dropped this task's commit as "patch contents already upstream" and the branch silently had no bump at all. The target is *one minor above whatever `main` currently holds*, because this is a backward-compatible feature. Compute it at the moment you make the commit; a literal recorded here is wrong by the time anyone reads it.
 
 - [ ] **Step 2: Run every check this machine can run**
 
