@@ -259,7 +259,10 @@ class NavScreen(
             nowMs = System.currentTimeMillis(),
         )
         renderer.updateHud(currentSpeedKmh, p.speedLimitKmh, sectionState.reading)
-        renderer.setPosition(pos, bearingDeg?.takeIf { speedMps > 2.0 })
+        // No setPosition here any more: the renderer's camera loop interpolates the
+        // marker per tick from the same fix `follow` above just handed it. A per-fix
+        // write would fight that, hopping the marker a second of travel at 1 Hz
+        // under a camera that glides.
         renderer.setDrivenFraction(p.drivenFraction)
 
         announce(p)

@@ -117,7 +117,8 @@ class SpinScreen(
                     fix ?: return@collect
                     val pos = LatLon(fix.lat, fix.lon)
                     myLocation = pos
-                    renderer.setPosition(pos, fix.bearingDeg?.takeIf { fix.speedMps > 2.0 })
+                    // No setPosition: the renderer interpolates the marker per tick
+                    // from the fix `follow` receives below. See NavScreen's note.
                     renderer.follow(
                         pos, fix.bearingDeg, fix.speedMps,
                         Settings.defaultZoom.value.toDouble(),

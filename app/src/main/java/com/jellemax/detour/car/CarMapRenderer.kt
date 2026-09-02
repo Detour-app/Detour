@@ -45,6 +45,7 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
@@ -200,6 +201,12 @@ class CarMapRenderer(
 
     // The last fix's own motion, kept so the camera loop can dead-reckon from it
     // between fixes rather than easing toward a position that is already stale.
+    // The marker's own eased heading and the values last drawn for it. Separate
+    // from the camera's: the camera leads the vehicle, the marker sits on it.
+    private var markerBearing: Float? = null
+    private var pushedMarkerPos: LatLon? = null
+    private var pushedMarkerBearing: Float = 0f
+
     private var fixBearingDeg: Float? = null
     private var fixSpeedMps: Double = 0.0
     private var fixElapsedMs: Long = 0L
@@ -271,9 +278,15 @@ class CarMapRenderer(
         withOverlays { it.setDrivenFraction(fraction) }
     }
 
-    /** The own-position marker. The cheap per-fix update: one point of GeoJSON,
-     *  leaving the route line the map has already tessellated alone. */
-    fun setPosition(pos: LatLon, bearingDeg: Float? = null) {
+    /** Draws the own-position marker: one point of GeoJSON, leaving the route line
+     *  the map has already tessellated alone.
+     *
+     *  Called from the camera loop once per tick, not once per fix — the loop
+     *  interpolates between fixes so the marker glides with the camera instead of
+     *  hopping a second of travel at a time. It also keeps [position] and
+     *  [positionBearing] current, which is what a replacement surface refills the
+     *  marker from. */
+    private fun setPosition(pos: LatLon, bearingDeg: Float? = null) {
         position = pos
         positionBearing = bearingDeg?.toDouble() ?: positionBearing
         withOverlays { it.setPosition(pos, positionBearing) }
@@ -474,6 +487,63 @@ class CarMapRenderer(
                         leadSeconds = CAM_POS_TAU,
                     )
                 }
+                // The marker, interpolated per tick like the camera. It used to be
+                // written once per fix from NavScreen/SpinScreen, so at 1 Hz fixes it
+                // hopped a whole second of travel at a time under a camera that was
+                // gliding — the two disagreed visibly. leadSeconds = 0.0: the marker
+                // is drawn where the vehicle is believed to *be*, not where the
+                // camera should aim, so it takes the fix's age and no lead.
+                targetPos?.let { raw ->
+                    val here = MapMotion.predict(
+                        at = raw,
+                        bearingDeg = fixBearingDeg,
+                        speedMps = fixSpeedMps,
+                        fixElapsedMs = fixElapsedMs,
+                        nowElapsedMs = SystemClock.elapsedRealtime(),
+                        leadSeconds = 0.0,
+                    )
+                    // #38's fix, on this surface: ease the heading instead of
+                    // writing each fix's bearing straight through, so the marker
+                    // turns rather than snapping. Held below BEARING_HOLD_MPS for
+                    // the same reason the camera bearing is — GPS bearing is noise
+                    // at a standstill and the marker would spin at a junction.
+                    val wantBearing = fixBearingDeg?.takeIf { fixSpeedMps > BEARING_HOLD_MPS }
+                    if (wantBearing != null) {
+                        markerBearing = smoothBearing(
+                            markerBearing ?: wantBearing,
+                            wantBearing,
+                            (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat(),
+                        )
+                    }
+                    var dMarkerBearing = (markerBearing ?: 0f) - pushedMarkerBearing
+                    dMarkerBearing = (dMarkerBearing % 360f).let {
+                        when {
+                            it > 180f -> it - 360f
+                            it < -180f -> it + 360f
+                            else -> it
+                        }
+                    }
+                    val markerMoved = pushedMarkerPos == null ||
+                        pushedMarkerPos != here ||
+                        abs(dMarkerBearing) > CAM_BEARING_EPS_DEG
+                    if (markerMoved) {
+                        pushedMarkerPos = here
+                        // Advanced on every push, not only on a turn: #38's phone
+                        // fix found that holding the reference until the delta
+                        // crossed the epsilon let the eased bearing creep away in
+                        // sub-threshold steps and never be drawn.
+                        pushedMarkerBearing = markerBearing ?: pushedMarkerBearing
+                        // Through setPosition rather than withOverlays directly, so
+                        // `position`/`positionBearing` stay current. A replacement
+                        // surface refills the marker from those two, and writing
+                        // the overlay behind their backs would leave a fresh
+                        // surface showing wherever the marker was when the last
+                        // per-fix call happened — or nothing at all, now that
+                        // nothing else calls this.
+                        setPosition(here, markerBearing)
+                    }
+                }
+
                 predicted?.let { target ->
                     if (MapMotion.shouldSnap(LatLon(camLat, camLon), target)) {
                         // Too far to be continuous motion — the session was
@@ -523,9 +593,10 @@ class CarMapRenderer(
                     targetMoved = targetMoved,
                     neverPushed = neverPushed,
                 )
-                if (!push) continue
-                applyCamera(map)
-                neverPushed = false
+                if (push) {
+                    applyCamera(map)
+                    neverPushed = false
+                }
             }
         }
     }
