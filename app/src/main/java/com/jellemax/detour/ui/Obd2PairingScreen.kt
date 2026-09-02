@@ -66,16 +66,21 @@ fun Obd2PairingScreen() {
     // (see reconcileObd2Connections); this screen is neither, so open the
     // readout link ourselves while it is on screen. `readoutAddress` is the
     // same adapter the "Retry now" button targets. On exit, hand back to the
-    // service — but leave a link it still wants (a trip is running) alone.
+    // service's reconciler; only disconnect directly when nothing wants it.
     val readoutAddress = mapping.values.firstNotNullOfOrNull { it.obd2Address }
     DisposableEffect(readoutAddress) {
         if (readoutAddress != null && Obd2Connection.linkedAddress.value == null) {
             Obd2Connection.connect(context.applicationContext, readoutAddress)
         }
         onDispose {
-            if (Obd2Connection.linkedAddress.value == readoutAddress &&
-                !TripTrackingService.obdWantedByService()
-            ) {
+            // Hand back to the service's reconciler (ACTION_REFRESH ->
+            // reconcileObd2Connections): it keeps the link if a trip or the
+            // map still wants it, switches it, or drops it — correct whatever
+            // address the assign/forget buttons last left linked. Only when
+            // the service wants nothing do we tear down here directly.
+            if (TripTrackingService.obdWantedByService()) {
+                TripTrackingService.refresh(context)
+            } else {
                 Obd2Connection.disconnect()
             }
         }
