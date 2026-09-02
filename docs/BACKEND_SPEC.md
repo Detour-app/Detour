@@ -481,7 +481,10 @@ Token buckets, chained so one caller cannot exhaust everyone else's budget:
 
 The client address is taken from a proxy header **only when the deployment is
 explicitly configured to trust one**; otherwise anyone could reset the limiter
-per request by spoofing it. See
+per request by spoofing it. Naming a proxy under `ForwardedHeaders:KnownProxies`
+or `ForwardedHeaders:KnownNetworks` trusts exactly one hop, so the address is the
+one the nearest trusted proxy reported rather than the furthest entry a caller
+managed to prepend. See
 [`backend/INSTALL.md`](../backend/INSTALL.md#behind-a-reverse-proxy).
 
 ### 15.3 Errors

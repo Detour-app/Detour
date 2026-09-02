@@ -90,6 +90,41 @@ So name the proxy:
 }
 ```
 
+Both keys also take the environment-variable form, which is what
+`docker/prod/docker-compose.yml` passes:
+
+```properties
+ForwardedHeaders__KnownNetworks=172.18.0.0/16
+ForwardedHeaders__KnownProxies=172.18.0.5, 172.18.0.6
+```
+
+Several entries are separated by a comma, a semicolon or a space. Both shapes
+work; an empty variable is the same as not setting the key at all, so leaving
+`FORWARDED_KNOWN_NETWORKS` blank in `.env` leaves the API ignoring
+`X-Forwarded-*`, as intended.
+
+Both values are parsed at startup and a malformed address or CIDR fails the boot
+with a `FormatException` — through either shape:
+
+```
+$ ForwardedHeaders__KnownNetworks=172.16.0.0/99 dotnet run --project backend/Detour/Detour.Api
+Unhandled exception. System.FormatException: An invalid IP network was specified.
+```
+
+That is deliberate: a typo that was quietly ignored would leave the proxy
+untrusted and every caller sharing one rate-limit bucket, on a deployment whose
+operator believes this is configured.
+
+Only one proxy hop is trusted (`ForwardLimit` is 1), so the address you get is
+whatever the *nearest* trusted hop reported. On a chain — a CDN or a tunnel in
+front of your own reverse proxy — that is the client only if the nearest hop is
+the one that recorded the client. If it is not, you are back to one rate-limit
+bucket for everyone behind it, with nothing in the logs to say so. That includes
+`docker/prod/docker-compose.cloudflare.yml`: check it rather than assume it, by
+watching whether requests from two different networks partition into two
+buckets. Raising the limit is not a free fix — every extra hop you trust is one
+more entry a caller can supply.
+
 Do not reach for the usual container advice of clearing the lists to trust
 everything. It trades one shared rate-limit bucket for a fresh bucket per spoofed
 header, which is worse.
