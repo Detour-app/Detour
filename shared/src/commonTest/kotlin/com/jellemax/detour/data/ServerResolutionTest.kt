@@ -236,10 +236,30 @@ class ServerResolutionTest {
     }
 
     @Test
+    fun removingNothingStillDropsASessionBoundToADiscoveredRealm() {
+        // Reachable with no custom server ever saved: ConfigFile.import calls
+        // clearCustom() for a blank routingUrl whether or not one exists, and
+        // every interactive sign-in probe stores a discovered realm. So a rider
+        // on a stock install is signed in against the discovered realm rather
+        // than the baked one, and dropping it moves them.
+        BuildDefaults.configure(idpIssuer = "https://baked.example/realms/detour")
+        assertTrue(
+            RoutingServer.clearDropsSession(
+                previous = null,
+                discovered = "https://discovered.example/realms/detour",
+            ),
+        )
+    }
+
+    @Test
     fun removingNothingDropsNothing() {
         // clearCustom() on an install that never had a custom server is a no-op,
         // and must stay one — the settings screen can reach it in that state.
-        noBakedDefaults()
+        // A baked default is configured rather than left blank so both sides of
+        // the comparison are a real address, not the empty string twice over,
+        // which would pass against an implementation comparing anything to
+        // itself.
+        BuildDefaults.configure(idpIssuer = "https://baked.example/realms/detour")
         assertFalse(RoutingServer.clearDropsSession(previous = null, discovered = ""))
     }
 

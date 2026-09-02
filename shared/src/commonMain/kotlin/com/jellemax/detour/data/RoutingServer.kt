@@ -212,7 +212,7 @@ object RoutingServer {
      * in to, given the [previous] config and the stored [discovered] issuer.
      *
      * Extracted from [clearCustom] for the same reason [issuerAfterSave] is
-     * extracted from [save]: the clear itself calls [Auth.clear] behind `prefs`
+     * extracted from [save]: [clearCustom] reaches [Auth.clear] through `prefs`
      * and is unreachable from a unit test, but the comparison that drives it is
      * the part worth protecting.
      *

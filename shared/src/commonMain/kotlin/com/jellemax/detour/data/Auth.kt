@@ -332,11 +332,14 @@ object Auth {
      *  spinner or an error banner, since every one of those screens shows
      *  last-known-good data while it reloads (see [FriendsState]'s own doc).
      *  This lives here, once, rather than in each screen's own effect,
-     *  because [clear] is called from every path that ends a session —
-     *  [signOut], a 401 in [Api], and the three realm changes in
-     *  `RoutingServer` (`save`, `rememberDiscoveredIssuer`, `clearCustom`) —
-     *  and a screen that forgets to reset on any one of them is a screen that leaks
-     *  another rider's data. */
+     *  because [clear] is called from five places — [signOut], [refresh] when
+     *  the token endpoint rejects the refresh token, and the three realm
+     *  changes in `RoutingServer` (`save`, `rememberDiscoveredIssuer`,
+     *  `clearCustom`) — and a screen that forgets to reset on any one of them
+     *  is a screen that leaks another rider's data.
+     *
+     *  Note [Api] is deliberately *not* on that list: a 401 there used to clear
+     *  and no longer does, for the reason its own comment gives. */
     fun clear() {
         // Bumped before the write, the same discipline [store] uses for the
         // establish side of this same guard (see its own doc) — kept
