@@ -23,8 +23,8 @@ import DetourShared
 /// evaluation, the transition recording, the idle backoff — lives in
 /// `CirclePresence.tick` now (see its KDoc). This keeps only what
 /// `commonMain` cannot have: the `while`/`Task.sleep` itself, the guard that
-/// a fix actually exists to share, and the fix's age — see the divergence
-/// noted at its computation below.
+/// a fix actually exists to share, and the fix's age, which `LocationBroadcast`
+/// stamps on the monotonic clock.
 @MainActor
 final class CircleSync {
 
@@ -55,23 +55,18 @@ final class CircleSync {
         var intervalSeconds = Self.syncIntervalSeconds
         while true {
             try? await Task.sleep(for: .seconds(intervalSeconds))
-            guard let fix = LocationBroadcast.shared.last else { continue }
+            guard let sample = LocationBroadcast.shared.lastSample else { continue }
 
+            let fix = sample.fix
+            // Wall clock, deliberately: `fixTimeMs` answers "when was this fix
+            // taken" and is what gets posted to the server as the fix's own
+            // timestamp. Only `fixAgeMs` is monotonic — see "The three clocks"
+            // in `CirclePresence.tick`'s KDoc, which is explicit that these
+            // must never collapse into one value.
             let fixTsMs = Int64(fix.timestamp.timeIntervalSince1970 * 1000)
-            // DIVERGENCE FROM ANDROID, left unfixed in this slice: this is
-            // wall clock minus wall clock (`nowMs()` and `fix.timestamp` are
-            // both `Date`-based), not monotonic. Android computes
-            // `SystemClock.elapsedRealtime() - fix.elapsedRealtimeMs`
-            // instead, so a device clock corrected mid-drive can't answer
-            // "how old is this reading" wrong in whichever direction the
-            // correction went — see `CirclePresence.tick`'s KDoc, "The three
-            // clocks". A real fix needs an uptime-stamped fix time, and
-            // `CLLocation.timestamp` doesn't offer one; that means stamping
-            // `ProcessInfo.processInfo.systemUptime` where a fix is
-            // *received* in the location plumbing (`LocationProvider` /
-            // `TripRecorder` / `LocationBroadcast`), which is out of scope
-            // here — tracked as issue #75.
-            let fixAgeMs = nowMs() - fixTsMs
+            // Monotonic, stamped where the fix was published. A device clock
+            // corrected mid-drive cannot move this.
+            let fixAgeMs = sample.ageMs
 
             do {
                 let intervalMs = try await CirclePresence.shared.tick(
