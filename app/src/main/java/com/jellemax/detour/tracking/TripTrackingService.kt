@@ -1773,3 +1773,29 @@ internal fun obdSpeedMpsFrom(
     ?.takeIf { mode.tracksGForce && it.hasSpeed }
     ?.takeUnless { it.speedKmh < 1.0 && gpsSpeedMps > TripTrackingService.OBD_ZERO_OVERRIDE_MPS }
     ?.let { it.speedKmh / 3.6 }
+
+/** Which OBD2 adapter the connection loop should be on right now, or null to
+ *  stay disconnected. Pure so the connect/disconnect decision is testable
+ *  without a service; the caller ([TripTrackingService.desiredObd2Address])
+ *  gathers the inputs and acts on the result.
+ *
+ *  - nothing while parked with the app closed and no trip running (#96);
+ *  - a running trip polls its resolved vehicle's adapter — that is the vehicle
+ *    you are in, so the one-connection singleton never has to choose (#97) —
+ *    or, if that vehicle has none, the sole configured adapter if there is
+ *    exactly one; two-or-more is ambiguous, so nothing;
+ *  - otherwise, while the UI is up, the first connected mapped vehicle that
+ *    has an adapter. */
+internal fun pickObd2Address(
+    tripActive: Boolean,
+    uiVisible: Boolean,
+    tripVehicleObd2Address: String?,
+    connectedObd2Addresses: List<String>,
+    configuredObd2Addresses: List<String>,
+): String? {
+    if (!tripActive && !uiVisible) return null
+    if (tripActive) {
+        return tripVehicleObd2Address ?: configuredObd2Addresses.singleOrNull()
+    }
+    return connectedObd2Addresses.firstOrNull()
+}
