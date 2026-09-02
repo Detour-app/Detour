@@ -11,8 +11,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Button
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -235,6 +239,48 @@ fun Obd2PairingScreen() {
                             Text("Forget")
                         }
                     }
+                    // Fuel type + calibration only matter for the MAF estimate,
+                    // and only once an adapter is paired.
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        FuelType.entries.forEachIndexed { index, ft ->
+                            SegmentedButton(
+                                selected = vehicle.fuelType == ft,
+                                onClick = {
+                                    Settings.setFuelType(vehicle.address, ft)
+                                    Obd2Connection.disconnect()
+                                    Obd2Connection.connect(
+                                        context.applicationContext, vehicle.obd2Address!!,
+                                        fuelType = ft, calibrationPct = vehicle.fuelCalibrationPct,
+                                    )
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(index, FuelType.entries.size),
+                                label = { Text(ft.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                            )
+                        }
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Calibration: ${vehicle.fuelCalibrationPct}%",
+                            style = MaterialTheme.typography.bodyMedium)
+                        Row {
+                            IconButton(
+                                enabled = vehicle.fuelCalibrationPct > Settings.FUEL_CALIBRATION_MIN,
+                                onClick = { adjustCalibration(vehicle, -1, context) },
+                            ) { Text("−") }
+                            IconButton(
+                                enabled = vehicle.fuelCalibrationPct < Settings.FUEL_CALIBRATION_MAX,
+                                onClick = { adjustCalibration(vehicle, +1, context) },
+                            ) { Text("+") }
+                        }
+                    }
+                    Text(
+                        "If the trip fuel figure reads high or low against your car's own display, nudge this.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
@@ -245,6 +291,17 @@ fun Obd2PairingScreen() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+private fun adjustCalibration(vehicle: Settings.VehicleDevice, delta: Int, context: android.content.Context) {
+    val next = (vehicle.fuelCalibrationPct + delta)
+        .coerceIn(Settings.FUEL_CALIBRATION_MIN, Settings.FUEL_CALIBRATION_MAX)
+    if (next == vehicle.fuelCalibrationPct) return
+    Settings.setFuelCalibrationPct(vehicle.address, next)
+    vehicle.obd2Address?.let { addr ->
+        Obd2Connection.disconnect()
+        Obd2Connection.connect(context.applicationContext, addr, vehicle.fuelType, next)
     }
 }
 
