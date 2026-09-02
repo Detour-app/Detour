@@ -348,12 +348,11 @@ object Obd2Connection {
         // supports neither won't start supporting one mid-drive, and re-probing
         // both every cycle is a permanent extra request on the 1 Hz loop.
         var throttlePid: String? = null
-        // Fuel rate: null = undecided, "" = neither PID supported (stop asking),
-        // else [Obd2Pids.PID_FUEL_RATE] (direct) or [Obd2Pids.PID_MAF] (the
-        // estimate). Probed and latched once per connection, same reasoning as
-        // throttlePid.
-        var fuelPid: String? = null
-        var fuelProbeCycles = 0
+        // Fuel rate: probe 015E (a direct ECU L/h reading), fall back to 0110 (MAF,
+        // turned into an estimate). Latched once per connection — a vehicle that
+        // reports neither won't start mid-drive, and re-probing both every cycle is
+        // a permanent extra request on the 1 Hz loop.
+        var fuelProbe: PidProbe = PidProbe.Probing()
         // Speed changes fastest and is the one number the HUD eases toward, so it
         // is polled last of the three (freshest at the telemetry publish below)
         // and once more halfway through the inter-cycle wait. A first-order
@@ -382,31 +381,14 @@ object Obd2Connection {
             val rpmResult = pollPid(input, output, Obd2Pids.PID_RPM)
 
             // Fuel is polled before speed so speed stays the last poll before the
-            // telemetry publish (see the comment on `parseSpeed`). null = still
-            // probing, "" = neither PID supported (stop asking). One transient
-            // timeout must not latch "": that value never retries, so it's only
-            // set once a poll actually *answered* it as unsupported, or the probe
-            // budget (FUEL_PROBE_MAX_CYCLES) is spent — which also bounds the
-            // wasted 015E polls when a clone ignores an unsupported PID silently.
-            var fuelResult: PollResult? = null
-            if (fuelPid != "") {
-                fuelResult = pollPid(input, output, fuelPid ?: Obd2Pids.PID_FUEL_RATE)
-                if (fuelPid == null) {
-                    fuelProbeCycles++
-                    when {
-                        fuelResult.bytes != null -> fuelPid = Obd2Pids.PID_FUEL_RATE
-                        fuelResult.answered || fuelProbeCycles >= PID_PROBE_MAX_CYCLES -> {
-                            fuelResult = pollPid(input, output, Obd2Pids.PID_MAF)
-                            fuelPid = when {
-                                fuelResult.bytes != null -> Obd2Pids.PID_MAF
-                                fuelResult.answered || fuelProbeCycles >= PID_PROBE_MAX_CYCLES -> ""
-                                else -> null // MAF timed out; keep trying
-                            }
-                        }
-                        // else: 015E just timed out — retry next cycle, don't give up
-                    }
-                }
-            }
+            // telemetry publish (see the comment on `parseSpeed`).
+            val fuelCycle = probePidCycle(
+                input, output, fuelProbe,
+                primary = Obd2Pids.PID_FUEL_RATE, fallback = Obd2Pids.PID_MAF,
+                maxCycles = PID_PROBE_MAX_CYCLES,
+            )
+            fuelProbe = fuelCycle.state
+            val fuelResult = fuelCycle.result
 
             val speedResult = pollPid(input, output, Obd2Pids.PID_SPEED)
             val speed = parseSpeed(speedResult)
@@ -414,9 +396,10 @@ object Obd2Connection {
             val rpm = rpmResult.bytes?.let { Obd2Pids.parseRpm(it) }
                 ?.takeIf { it <= MAX_PLAUSIBLE_RPM }
 
-            val directLph = if (fuelPid == Obd2Pids.PID_FUEL_RATE)
+            val fuelLatched = fuelProbe as? PidProbe.Latched
+            val directLph = if (fuelLatched?.pid == Obd2Pids.PID_FUEL_RATE)
                 fuelResult?.bytes?.let { Obd2Pids.parseFuelRateLph(it) } else null
-            val mafGps = if (fuelPid == Obd2Pids.PID_MAF)
+            val mafGps = if (fuelLatched?.pid == Obd2Pids.PID_MAF)
                 fuelResult?.bytes?.let { Obd2Pids.parseMafGramsPerSec(it) } else null
             // DFCO needs a *pedal* signal: the absolute-throttle PID (0111) idles
             // at 15-20% even fully closed, so pass null (skip the cut) unless the
