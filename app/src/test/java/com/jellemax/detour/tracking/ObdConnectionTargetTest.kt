@@ -18,6 +18,7 @@ class ObdConnectionTargetTest {
             pickObd2Address(
                 tripActive = false,
                 uiVisible = false,
+                tripVehicleResolved = true,
                 tripVehicleObd2Address = "AA:BB",
                 connectedObd2Addresses = listOf("AA:BB"),
                 configuredObd2Addresses = listOf("AA:BB"),
@@ -32,6 +33,7 @@ class ObdConnectionTargetTest {
             pickObd2Address(
                 tripActive = true,
                 uiVisible = false,
+                tripVehicleResolved = true,
                 tripVehicleObd2Address = "CAR:AD",
                 connectedObd2Addresses = listOf("CAR:AD", "BIKE:AD"),
                 configuredObd2Addresses = listOf("CAR:AD", "BIKE:AD"),
@@ -40,12 +42,13 @@ class ObdConnectionTargetTest {
     }
 
     @Test
-    fun tripActiveWithNoResolvedAdapterFallsBackToTheSoleConfiguredOne() {
+    fun tripActiveWithNoResolvedVehicleFallsBackToTheSoleConfiguredOne() {
         assertEquals(
             "ONLY:AD",
             pickObd2Address(
                 tripActive = true,
                 uiVisible = false,
+                tripVehicleResolved = false,
                 tripVehicleObd2Address = null,
                 connectedObd2Addresses = emptyList(),
                 configuredObd2Addresses = listOf("ONLY:AD"),
@@ -54,14 +57,32 @@ class ObdConnectionTargetTest {
     }
 
     @Test
-    fun tripActiveWithNoResolvedAdapterAndTwoConfiguredIsAmbiguousSoNothing() {
+    fun tripActiveWithNoResolvedVehicleAndTwoConfiguredIsAmbiguousSoNothing() {
         assertNull(
             pickObd2Address(
                 tripActive = true,
                 uiVisible = false,
+                tripVehicleResolved = false,
                 tripVehicleObd2Address = null,
                 connectedObd2Addresses = emptyList(),
                 configuredObd2Addresses = listOf("A:AD", "B:AD"),
+            ),
+        )
+    }
+
+    @Test
+    fun tripActiveResolvedVehicleWithoutAnAdapterDoesNotDialAnother() {
+        // Riding the bike (mapped, no dongle); the car's dongle is the only
+        // one configured. Old code fell back to singleOrNull() = the car's
+        // dongle and retried it for the whole ride (#96). Now: null.
+        assertNull(
+            pickObd2Address(
+                tripActive = true,
+                uiVisible = true,
+                tripVehicleResolved = true,
+                tripVehicleObd2Address = null,
+                connectedObd2Addresses = emptyList(),
+                configuredObd2Addresses = listOf("CAR:AD"),
             ),
         )
     }
@@ -73,6 +94,7 @@ class ObdConnectionTargetTest {
             pickObd2Address(
                 tripActive = false,
                 uiVisible = true,
+                tripVehicleResolved = false,
                 tripVehicleObd2Address = null,
                 connectedObd2Addresses = listOf("NEAR:AD"),
                 configuredObd2Addresses = listOf("NEAR:AD", "FAR:AD"),
@@ -87,6 +109,7 @@ class ObdConnectionTargetTest {
             pickObd2Address(
                 tripActive = false,
                 uiVisible = true,
+                tripVehicleResolved = false,
                 tripVehicleObd2Address = null,
                 connectedObd2Addresses = listOf("A:AD", "B:AD"),
                 configuredObd2Addresses = listOf("A:AD", "B:AD"),
@@ -100,6 +123,7 @@ class ObdConnectionTargetTest {
             pickObd2Address(
                 tripActive = false,
                 uiVisible = true,
+                tripVehicleResolved = false,
                 tripVehicleObd2Address = null,
                 connectedObd2Addresses = emptyList(),
                 configuredObd2Addresses = listOf("FAR:AD"),
@@ -115,6 +139,7 @@ class ObdConnectionTargetTest {
             pickObd2Address(
                 tripActive = true,
                 uiVisible = true,
+                tripVehicleResolved = true,
                 tripVehicleObd2Address = null,
                 connectedObd2Addresses = listOf("BIKE:AD"),
                 configuredObd2Addresses = listOf("BIKE:AD", "CAR:AD"),

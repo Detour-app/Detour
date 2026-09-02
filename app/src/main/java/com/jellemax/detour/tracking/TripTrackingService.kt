@@ -744,12 +744,14 @@ class TripTrackingService : Service() {
      *  disconnected. See [pickObd2Address] for the rules. */
     private fun desiredObd2Address(): String? {
         val map = Settings.vehicleDevices.value
+        val tripVehicle = resolvedVehicle()
         return pickObd2Address(
             tripActive = _stats.value != null,
             uiVisible = uiVisible,
-            tripVehicleObd2Address = resolvedVehicle()?.obd2Address,
+            tripVehicleResolved = tripVehicle != null,
+            tripVehicleObd2Address = tripVehicle?.obd2Address,
             connectedObd2Addresses = connectedVehicles.mapNotNull { map[it]?.obd2Address },
-            configuredObd2Addresses = map.values.mapNotNull { it.obd2Address },
+            configuredObd2Addresses = map.values.mapNotNull { it.obd2Address }.distinct(),
         )
     }
 
@@ -830,6 +832,10 @@ class TripTrackingService : Service() {
             .maxByOrNull { MODE_PRIORITY.indexOf(it.mode) }
     }
 
+    /** What the running trip is logged as — the resolved vehicle's mode
+     *  (Cardo → moto, infotainment → car), else the spin tab's mode. The tab
+     *  itself is never changed here: classification is the trip's, not the
+     *  UI's. Whether a trip is worth keeping at all is decided in [endTrip]. */
     private fun resolvedMode(): TravelMode =
         resolvedVehicle()?.mode ?: Settings.tripMode.value
 
@@ -1792,21 +1798,27 @@ internal fun obdSpeedMpsFrom(
  *
  *  - nothing while parked with the app closed and no trip running (#96);
  *  - a running trip polls its resolved vehicle's adapter — that is the vehicle
- *    you are in, so the one-connection singleton never has to choose (#97) —
- *    or, if that vehicle has none, the sole configured adapter if there is
- *    exactly one; two-or-more is ambiguous, so nothing;
+ *    you are in, so the one-connection singleton never has to choose (#97). A
+ *    resolved vehicle with no adapter means "no OBD for this trip"; only when
+ *    NO vehicle resolved do we fall back to the sole configured adapter (and
+ *    two-or-more configured is ambiguous, so nothing);
  *  - otherwise, while the UI is up, the first connected mapped vehicle that
  *    has an adapter. */
 internal fun pickObd2Address(
     tripActive: Boolean,
     uiVisible: Boolean,
+    tripVehicleResolved: Boolean,
     tripVehicleObd2Address: String?,
     connectedObd2Addresses: List<String>,
     configuredObd2Addresses: List<String>,
 ): String? {
     if (!tripActive && !uiVisible) return null
     if (tripActive) {
-        return tripVehicleObd2Address ?: configuredObd2Addresses.singleOrNull()
+        // A resolved vehicle without a dongle means "no OBD for this trip",
+        // NOT "guess from the configured set" — guessing dials some other
+        // vehicle's adapter for the whole drive (#96).
+        return if (tripVehicleResolved) tripVehicleObd2Address
+        else configuredObd2Addresses.singleOrNull()
     }
     return connectedObd2Addresses.firstOrNull()
 }
