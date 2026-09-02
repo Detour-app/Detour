@@ -136,7 +136,7 @@ class GroupsTest {
         put("placeName", "School")
         put("user", "alice")
         put("kind", "arrive")
-        put("tsMs", 1_700_000_002_000L)
+        put("ts", 1_700_000_002_000L)
     }
 
     @Test
@@ -153,6 +153,22 @@ class GroupsTest {
     }
 
     @Test
+    fun relayFrameAcceptsACapitalisedKind() {
+        // The relay push historically sent the enum's Name ("Arrive"/"Depart")
+        // while the feed and the apps use the lowercase wire spelling. Parsing is
+        // case-insensitive so an old relay can't silently drop every arrival.
+        val json = buildJsonObject {
+            put("type", "place_event")
+            put("groupId", "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c11")
+            put("placeId", 42L)
+            put("user", "alice")
+            put("kind", "Arrive")
+            put("ts", 1L)
+        }
+        assertEquals("arrive", placeEventFromRelayFrame(json)?.event?.kind)
+    }
+
+    @Test
     fun relayFrameDefaultsPlaceNameToEmptyWhenAbsent() {
         val json = buildJsonObject {
             put("type", "place_event")
@@ -160,7 +176,7 @@ class GroupsTest {
             put("placeId", 42L)
             put("user", "alice")
             put("kind", "arrive")
-            put("tsMs", 1L)
+            put("ts", 1L)
         }
         assertEquals("", placeEventFromRelayFrame(json)?.event?.placeName)
     }
@@ -179,7 +195,7 @@ class GroupsTest {
     @Test
     fun relayFrameMissingARequiredFieldIsNull() {
         // Drop one required field at a time from an otherwise-valid frame.
-        for (missing in listOf("groupId", "placeId", "user", "kind", "tsMs")) {
+        for (missing in listOf("groupId", "placeId", "user", "kind", "ts")) {
             val json = JsonObject(validRelayFrame().filterKeys { it != missing })
             assertEquals(null, placeEventFromRelayFrame(json), "expected null with '$missing' missing")
         }
@@ -196,7 +212,7 @@ class GroupsTest {
             put("placeId", "forty-two")
             put("user", "alice")
             put("kind", "arrive")
-            put("tsMs", 1L)
+            put("ts", 1L)
         }
         assertEquals(null, placeEventFromRelayFrame(json))
     }
@@ -209,7 +225,7 @@ class GroupsTest {
             put("placeId", 42L)
             put("user", "alice")
             put("kind", "loiter")
-            put("tsMs", 1L)
+            put("ts", 1L)
         }
         assertEquals(null, placeEventFromRelayFrame(json))
     }

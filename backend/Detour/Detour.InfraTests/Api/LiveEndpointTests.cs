@@ -335,7 +335,7 @@ public class LiveEndpointTests(PostgresFixture postgres) : IAsyncLifetime
         await JoinAsync(blakeSocket, circle);
 
         (await alex.PostAsJsonAsync($"/api/circles/{circle}/events",
-                new { placeId = 42L, kind = "Arrive", timestampMs = 1_754_923_456_789L }))
+                new { placeId = 42L, kind = "arrive", timestampMs = 1_754_923_456_789L }))
             .EnsureSuccessStatusCode();
 
         var frame = await blakeSocket.ReceiveAsync();
@@ -343,7 +343,10 @@ public class LiveEndpointTests(PostgresFixture postgres) : IAsyncLifetime
         frame.GetProperty("user").GetString().Should().Be(alexName);
         frame.GetProperty("placeId").GetInt64().Should().Be(42);
         frame.GetProperty("placeName").GetString().Should().Be("Home");
-        frame.GetProperty("kind").GetString().Should().Be("Arrive");
+        // Lowercase wire vocabulary and the short `ts` key — the mobile client's
+        // relay parser rejects the frame on either mismatch (issue #74).
+        frame.GetProperty("kind").GetString().Should().Be("arrive");
+        frame.GetProperty("ts").GetInt64().Should().Be(1_754_923_456_789L);
     }
 
     [Fact]

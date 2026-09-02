@@ -99,9 +99,11 @@ fun placeEventFromRelayFrame(o: JsonObject): RelayPlaceEvent? {
     if (o.optString("type") != "place_event") return null
     val groupId = o.optString("groupId").takeIf { it.isNotEmpty() } ?: return null
     val placeId = (o["placeId"] as? JsonPrimitive)?.longOrNull ?: return null
-    val tsMs = (o["tsMs"] as? JsonPrimitive)?.longOrNull ?: return null
+    val tsMs = (o["ts"] as? JsonPrimitive)?.longOrNull ?: return null
     val username = o.optString("user").takeIf { it.isNotEmpty() } ?: return null
-    val kind = o.optString("kind")
+    // Lowercased to match the feed's wire vocabulary (docs/CIRCLES_AND_CONVOYS.md
+    // §6.3) — an older relay push sent the enum's "Arrive"/"Depart" here.
+    val kind = o.optString("kind").lowercase()
     if (kind != "arrive" && kind != "depart") return null
     return RelayPlaceEvent(
         groupId = groupId,
