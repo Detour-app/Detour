@@ -1412,14 +1412,10 @@ class TripTrackingService : Service() {
             if (obd.hasFuelRate) {
                 // Fuel is a rate, so it's integrated over time, not averaged like
                 // RPM above: this fix's L/h held over the gap since the last fuel
-                // sample. A gap outside 1..15s (a tunnel, a Doze window, a BT
-                // dropout) is dropped, not saturated — the same `in 1..15_000`
-                // rule secondsOverLimit uses, so the next real fix's own Δt spans
-                // the gap rather than 15s of fuel being invented.
+                // sample, dropped (not saturated) when that gap is outside 1..15s.
                 val fixMs = location.time
-                val dtMs = fixMs - lastFuelSampleMs
-                if (lastFuelSampleMs > 0L && dtMs in 1L..15_000L) {
-                    fuelMlAccum += obd.fuelRateLph * (1000.0 / 3600.0) * (dtMs / 1000.0)
+                cappedFixDtSec(fixMs, lastFuelSampleMs)?.let { dtSec ->
+                    fuelMlAccum += obd.fuelRateLph * (1000.0 / 3600.0) * dtSec
                     // Distance covered while a fuel reading was live — the L/100km
                     // denominator, so a mid-trip disconnect can't make a partial
                     // measurement look like a whole-trip figure.
@@ -1492,11 +1488,8 @@ class TripTrackingService : Service() {
         // a skipped fix so the next real fix's Δt naturally spans the gap.
         var currentlyOverLimitNow: Boolean? = null
         if (speedIsReal) {
-            val overLimitDtMs = location.time - lastLimitFixMs
             val over = limitKmh != null && effectiveSpeedMps * 3.6 > limitKmh * OVER_LIMIT_MARGIN
-            if (overLimitDtMs in 1..15_000 && over) {
-                secondsOverLimit += overLimitDtMs / 1000.0
-            }
+            if (over) cappedFixDtSec(location.time, lastLimitFixMs)?.let { secondsOverLimit += it }
             lastLimitFixMs = location.time
             currentlyOverLimitNow = over
         }
@@ -1790,6 +1783,15 @@ internal fun obdSpeedMpsFrom(
     ?.takeIf { mode.tracksGForce && it.hasSpeed }
     ?.takeUnless { it.speedKmh < 1.0 && gpsSpeedMps > TripTrackingService.OBD_ZERO_OVERRIDE_MPS }
     ?.let { it.speedKmh / 3.6 }
+
+/** Seconds between [lastMs] and [nowMs], or null when [lastMs] is unset (0) or
+ *  the gap is outside 1..15_000 ms — a tunnel, a Doze window, a BT dropout.
+ *  Dropping the Δt (rather than clamping it) means the *next* real fix's own
+ *  gap spans the lost interval, instead of this fix inventing a saturated 15 s
+ *  of fuel burn or over-limit time. Shared by the fuel integrator and
+ *  secondsOverLimit; the trace-distance gate keeps its own GPS-clock check. */
+internal fun cappedFixDtSec(nowMs: Long, lastMs: Long): Double? =
+    (nowMs - lastMs).takeIf { lastMs > 0L && it in 1L..15_000L }?.let { it / 1000.0 }
 
 /** Which OBD2 adapter the connection loop should be on right now, or null to
  *  stay disconnected. Pure so the connect/disconnect decision is testable

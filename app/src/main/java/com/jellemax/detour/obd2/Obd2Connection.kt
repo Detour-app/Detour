@@ -85,11 +85,11 @@ object Obd2Connection {
     // (see PollResult.answered) before we give up on the connection and fall
     // through to the failure/backoff path.
     private const val MAX_CONSECUTIVE_EMPTY_POLLS = 5
-    // How many cycles the fuel-PID probe gets to reach a verdict. A clone that
-    // silently ignores an unsupported 015E (answered == false) would otherwise
+    // How many cycles a probe-and-latch PID slot gets to reach a verdict. A clone
+    // that silently ignores an unsupported PID (answered == false) would otherwise
     // re-poll it — eating a read timeout — for the whole drive; after this many
-    // cycles the probe forces the MAF fallback, then gives up.
-    private const val FUEL_PROBE_MAX_CYCLES = 5
+    // cycles the probe forces the fallback, then gives up.
+    internal const val PID_PROBE_MAX_CYCLES = 5
     // Bounds on draining a desynced adapter's already-buffered stale responses
     // back to a clean stream — see [drainStalePrompts].
     private const val DRAIN_TIMEOUT_MS = 200L
@@ -270,6 +270,68 @@ object Obd2Connection {
      *  reporting unsupported PIDs. */
     internal data class PollResult(val bytes: List<Int>?, val answered: Boolean)
 
+    /** Per-connection state of one probe-and-latch PID slot.
+     *  - [Probing] — still deciding; [cycles] counts probe attempts so far.
+     *  - [Latched] — settled on [pid]; poll it every cycle from here.
+     *  - [Unsupported] — neither the primary nor the fallback PID answered; stop
+     *    asking for the life of this connection. */
+    internal sealed interface PidProbe {
+        data class Probing(val cycles: Int = 0) : PidProbe
+        data class Latched(val pid: String) : PidProbe
+        data object Unsupported : PidProbe
+    }
+
+    /** The outcome of one [probePidCycle]: the slot's new [state] and this cycle's
+     *  reading for it. [result] is the poll reading only on a cycle that latches (or
+     *  is already [PidProbe.Latched]); it is null on any cycle that does not latch —
+     *  [PidProbe.Unsupported], or still [PidProbe.Probing]. */
+    internal data class ProbeCycle(val state: PidProbe, val result: PollResult?)
+
+    /**
+     * One poll cycle of a probe-and-latch PID slot (#103) — the shared shape the
+     * throttle probe (0145 → 0111) and the fuel probe (015E → 0110) both need, and
+     * that the commanded-lambda probe (0144, no fallback) will reuse.
+     *
+     * While [PidProbe.Probing]:
+     * - poll [primary]; a data frame latches the slot to it;
+     * - an *answered* "unsupported" (NO DATA / header mismatch) re-polls [fallback]
+     *   the same cycle — data latches it, an answered-unsupported gives up
+     *   ([PidProbe.Unsupported]); a null [fallback] (lambda) gives up immediately;
+     * - a bare read timeout latches nothing: stay [PidProbe.Probing] and retry next
+     *   cycle, until [maxCycles] attempts have been spent, after which the slot is
+     *   forced through the fallback and then to [PidProbe.Unsupported] rather than
+     *   eating a timeout on every cycle for the rest of the drive.
+     */
+    internal fun probePidCycle(
+        input: InputStream,
+        output: OutputStream,
+        state: PidProbe,
+        primary: String,
+        fallback: String?,
+        maxCycles: Int,
+    ): ProbeCycle = when (state) {
+        is PidProbe.Unsupported -> ProbeCycle(state, null)
+        is PidProbe.Latched -> ProbeCycle(state, pollPid(input, output, state.pid))
+        is PidProbe.Probing -> {
+            val cycles = state.cycles + 1
+            val budgetSpent = cycles >= maxCycles
+            val primaryResult = pollPid(input, output, primary)
+            when {
+                primaryResult.bytes != null -> ProbeCycle(PidProbe.Latched(primary), primaryResult)
+                !primaryResult.answered && !budgetSpent -> ProbeCycle(PidProbe.Probing(cycles), null)
+                fallback == null -> ProbeCycle(PidProbe.Unsupported, null)
+                else -> {
+                    val fallbackResult = pollPid(input, output, fallback)
+                    when {
+                        fallbackResult.bytes != null -> ProbeCycle(PidProbe.Latched(fallback), fallbackResult)
+                        fallbackResult.answered || budgetSpent -> ProbeCycle(PidProbe.Unsupported, null)
+                        else -> ProbeCycle(PidProbe.Probing(cycles), null)
+                    }
+                }
+            }
+        }
+    }
+
     private suspend fun pollLoop(input: InputStream, output: OutputStream) {
         // Counts consecutive cycles where all three PIDs went entirely unanswered
         // (genuine timeouts, not "NO DATA" or other unparseable-but-real answers).
@@ -280,19 +342,14 @@ object Obd2Connection {
         // answers "NO DATA" to every PID (e.g. parked, ignition off) must NOT
         // trip this either — the adapter is proven alive that cycle.
         var consecutiveEmptyPolls = 0
-        // Relative throttle (pedal) is preferred, but not every vehicle reports
-        // it. null = undecided: try 0145, and on a clean unsupported answer fall
-        // back to 0111. Once either probe answers (with data or a sticky NO DATA)
-        // throttlePid is fixed for the rest of this connection — a vehicle that
-        // supports neither won't start supporting one mid-drive, and re-probing
-        // both every cycle is a permanent extra request on the 1 Hz loop.
-        var throttlePid: String? = null
-        // Fuel rate: null = undecided, "" = neither PID supported (stop asking),
-        // else [Obd2Pids.PID_FUEL_RATE] (direct) or [Obd2Pids.PID_MAF] (the
-        // estimate). Probed and latched once per connection, same reasoning as
-        // throttlePid.
-        var fuelPid: String? = null
-        var fuelProbeCycles = 0
+        // Relative throttle (pedal, 0145) is preferred; fall back to absolute
+        // throttle (plate, 0111). Latched once per connection — see fuelProbe.
+        var throttleProbe: PidProbe = PidProbe.Probing()
+        // Fuel rate: probe 015E (a direct ECU L/h reading), fall back to 0110 (MAF,
+        // turned into an estimate). Latched once per connection — a vehicle that
+        // reports neither won't start mid-drive, and re-probing both every cycle is
+        // a permanent extra request on the 1 Hz loop.
+        var fuelProbe: PidProbe = PidProbe.Probing()
         // Speed changes fastest and is the one number the HUD eases toward, so it
         // is polled last of the three (freshest at the telemetry publish below)
         // and once more halfway through the inter-cycle wait. A first-order
@@ -307,45 +364,24 @@ object Obd2Connection {
                 // the trip's recorded topSpeedMps.
                 ?.takeIf { it <= MAX_PLAUSIBLE_SPEED_KMH }
         while (coroutineContext.isActive) {
-            var throttleResult = pollPid(input, output, throttlePid ?: Obd2Pids.PID_THROTTLE_REL)
-            if (throttlePid == null) {
-                if (throttleResult.bytes != null) {
-                    throttlePid = Obd2Pids.PID_THROTTLE_REL
-                } else if (throttleResult.answered) {
-                    throttleResult = pollPid(input, output, Obd2Pids.PID_THROTTLE)
-                    throttlePid =
-                        if (throttleResult.bytes != null) Obd2Pids.PID_THROTTLE
-                        else Obd2Pids.PID_THROTTLE_REL // both unsupported; stop probing
-                }
-            }
+            val throttleCycle = probePidCycle(
+                input, output, throttleProbe,
+                primary = Obd2Pids.PID_THROTTLE_REL, fallback = Obd2Pids.PID_THROTTLE,
+                maxCycles = PID_PROBE_MAX_CYCLES,
+            )
+            throttleProbe = throttleCycle.state
+            val throttleResult = throttleCycle.result ?: PollResult(bytes = null, answered = false)
             val rpmResult = pollPid(input, output, Obd2Pids.PID_RPM)
 
             // Fuel is polled before speed so speed stays the last poll before the
-            // telemetry publish (see the comment on `parseSpeed`). null = still
-            // probing, "" = neither PID supported (stop asking). One transient
-            // timeout must not latch "": that value never retries, so it's only
-            // set once a poll actually *answered* it as unsupported, or the probe
-            // budget (FUEL_PROBE_MAX_CYCLES) is spent — which also bounds the
-            // wasted 015E polls when a clone ignores an unsupported PID silently.
-            var fuelResult: PollResult? = null
-            if (fuelPid != "") {
-                fuelResult = pollPid(input, output, fuelPid ?: Obd2Pids.PID_FUEL_RATE)
-                if (fuelPid == null) {
-                    fuelProbeCycles++
-                    when {
-                        fuelResult.bytes != null -> fuelPid = Obd2Pids.PID_FUEL_RATE
-                        fuelResult.answered || fuelProbeCycles >= FUEL_PROBE_MAX_CYCLES -> {
-                            fuelResult = pollPid(input, output, Obd2Pids.PID_MAF)
-                            fuelPid = when {
-                                fuelResult.bytes != null -> Obd2Pids.PID_MAF
-                                fuelResult.answered || fuelProbeCycles >= FUEL_PROBE_MAX_CYCLES -> ""
-                                else -> null // MAF timed out; keep trying
-                            }
-                        }
-                        // else: 015E just timed out — retry next cycle, don't give up
-                    }
-                }
-            }
+            // telemetry publish (see the comment on `parseSpeed`).
+            val fuelCycle = probePidCycle(
+                input, output, fuelProbe,
+                primary = Obd2Pids.PID_FUEL_RATE, fallback = Obd2Pids.PID_MAF,
+                maxCycles = PID_PROBE_MAX_CYCLES,
+            )
+            fuelProbe = fuelCycle.state
+            val fuelResult = fuelCycle.result
 
             val speedResult = pollPid(input, output, Obd2Pids.PID_SPEED)
             val speed = parseSpeed(speedResult)
@@ -353,14 +389,16 @@ object Obd2Connection {
             val rpm = rpmResult.bytes?.let { Obd2Pids.parseRpm(it) }
                 ?.takeIf { it <= MAX_PLAUSIBLE_RPM }
 
-            val directLph = if (fuelPid == Obd2Pids.PID_FUEL_RATE)
+            val fuelLatched = fuelProbe as? PidProbe.Latched
+            val directLph = if (fuelLatched?.pid == Obd2Pids.PID_FUEL_RATE)
                 fuelResult?.bytes?.let { Obd2Pids.parseFuelRateLph(it) } else null
-            val mafGps = if (fuelPid == Obd2Pids.PID_MAF)
+            val mafGps = if (fuelLatched?.pid == Obd2Pids.PID_MAF)
                 fuelResult?.bytes?.let { Obd2Pids.parseMafGramsPerSec(it) } else null
             // DFCO needs a *pedal* signal: the absolute-throttle PID (0111) idles
             // at 15-20% even fully closed, so pass null (skip the cut) unless the
             // reading came from relative throttle (0145).
-            val throttleClosed = if (throttlePid == Obd2Pids.PID_THROTTLE_REL && throttle != null)
+            val throttleLatched = throttleProbe as? PidProbe.Latched
+            val throttleClosed = if (throttleLatched?.pid == Obd2Pids.PID_THROTTLE_REL && throttle != null)
                 throttle < DFCO_THROTTLE_PCT else null
             // Clamp like speed/rpm — an all-0xFF 015E frame decodes to ~3276 L/h.
             val fuel = Obd2Pids.resolveFuelRate(directLph, mafGps, throttleClosed, rpm, speed)
