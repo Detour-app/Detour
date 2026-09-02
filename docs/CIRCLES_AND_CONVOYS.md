@@ -127,7 +127,7 @@ answer, so ids cannot be enumerated.
 | `app/…/tracking/TripTrackingService.kt` | Drives the circle tick — one collector, two sinks (§10). Owns the loop and the monotonic fix age; the decisions are `CirclePresence`'s. |
 | `iosApp/Detour/UrlSessionRelaySocket.swift` | iOS's `RelaySocket`, over `URLSessionWebSocketTask` |
 | `iosApp/Detour/ConvoyLiveClient.swift` | iOS glue around `ConvoyRelay`, the same shape as the Android object above, `ObservableObject`-published for SwiftUI |
-| `iosApp/Detour/CircleSync.swift` | The same, on iOS. Note its fix age is wall clock, not monotonic — `CLLocation` carries no uptime-stamped time, so it cannot answer "how old is this reading" as safely as Android can. |
+| `iosApp/Detour/CircleSync.swift` | The same, on iOS. Its fix age is monotonic: `CLLocation` carries no uptime-stamped time, so `LocationBroadcast` stamps each fix against `ProcessInfo.systemUptime` on receipt, back-dated by the delivery lag. One residual gap versus Android — `systemUptime` does not advance across device sleep, so a fix held over a suspend reads younger than it is. |
 | `app/…/notif/CircleNotifyService.kt`, `PlaceNotifications.kt` | Android's notification delivery: the foreground service, the channel, the `PendingIntent`. Policy comes from `CircleNotifyPolicy`. |
 | `iosApp/Detour/CircleNotifications.swift` | iOS's delivery: `UNUserNotificationCenter`, authorization, the foreground catch-up sweep. Same policy source. |
 
