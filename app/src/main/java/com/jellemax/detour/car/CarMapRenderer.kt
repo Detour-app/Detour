@@ -9,6 +9,7 @@ import android.graphics.Rect
 import android.graphics.Shader
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.Surface
 import android.view.View
@@ -20,6 +21,7 @@ import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleFixes
 import com.jellemax.detour.data.CirclePresence
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.data.MemberFix
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
@@ -63,12 +65,12 @@ private const val CAM_ZOOM_TAU = 1.2
 // panning and turning slowly.
 private const val CAM_FRAME_MS = 33L
 
-// Below these an eased step isn't worth a redraw: ~0.2 m of pan (sub-pixel at
-// driving zooms), a hair of zoom, a tenth of a degree of rotation. Once the
-// ease settles inside all three the camera is left alone, so a car stopped at a
-// light stops re-rendering entirely.
-private const val CAM_POS_EPS_DEG = 2e-6
-private const val CAM_ZOOM_EPS = 2e-3
+// A tenth of a degree of marker rotation isn't worth a redraw. The camera's own
+// equivalents — position and zoom — used to live here beside it and are gone:
+// MapMotion.shouldPush owns that question now, against MapCameraTuning's copies,
+// and the "a car stopped at a light stops re-rendering entirely" property they
+// existed for is the one shouldPush keeps by asking whether the camera has
+// converged rather than whether this tick moved far enough.
 private const val CAM_BEARING_EPS_DEG = 0.1f
 
 /** Below this the GPS bearing is noise, so the map keeps the heading it had
@@ -196,6 +198,18 @@ class CarMapRenderer(
 
     // Where the camera is being eased to, and where it currently is.
     private var targetPos: LatLon? = null
+
+    // The last fix's own motion, kept so the camera loop can dead-reckon from it
+    // between fixes rather than easing toward a position that is already stale.
+    // The marker's own eased heading and the values last drawn for it. Separate
+    // from the camera's: the camera leads the vehicle, the marker sits on it.
+    private var markerBearing: Float? = null
+    private var pushedMarkerPos: LatLon? = null
+    private var pushedMarkerBearing: Float = 0f
+
+    private var fixBearingDeg: Float? = null
+    private var fixSpeedMps: Double = 0.0
+    private var fixElapsedMs: Long = 0L
     private var targetBearing: Float? = null
     private var targetZoom = 16.0
     private var camLat = Double.NaN
@@ -205,9 +219,23 @@ class CarMapRenderer(
     private var easeJob: Job? = null
 
     /** Where to point the camera, from the latest fix. The camera itself eases
-     *  there over the following frames rather than jumping on each fix. */
-    fun follow(pos: LatLon, bearingDeg: Float?, speedMps: Double, zoom: Double) {
+     *  there over the following frames rather than jumping on each fix.
+     *
+     *  [fixElapsedMs] is the fix's own `SystemClock.elapsedRealtime()` stamp, not
+     *  the time it arrived here. The loop dead-reckons from it, so it needs to know
+     *  how old the fix already is — a fix handed over 400 ms after it was taken is
+     *  400 ms of travel behind before any easing happens. */
+    fun follow(
+        pos: LatLon,
+        bearingDeg: Float?,
+        speedMps: Double,
+        zoom: Double,
+        fixElapsedMs: Long,
+    ) {
         targetPos = pos
+        fixBearingDeg = bearingDeg
+        fixSpeedMps = speedMps
+        this.fixElapsedMs = fixElapsedMs
         if (bearingDeg != null && speedMps > BEARING_HOLD_MPS) targetBearing = bearingDeg
         targetZoom = zoom
         if (camLat.isNaN()) {
@@ -250,9 +278,15 @@ class CarMapRenderer(
         withOverlays { it.setDrivenFraction(fraction) }
     }
 
-    /** The own-position marker. The cheap per-fix update: one point of GeoJSON,
-     *  leaving the route line the map has already tessellated alone. */
-    fun setPosition(pos: LatLon, bearingDeg: Float? = null) {
+    /** Draws the own-position marker: one point of GeoJSON, leaving the route line
+     *  the map has already tessellated alone.
+     *
+     *  Called from the camera loop once per tick, not once per fix — the loop
+     *  interpolates between fixes so the marker glides with the camera instead of
+     *  hopping a second of travel at a time. It also keeps [position] and
+     *  [positionBearing] current, which is what a replacement surface refills the
+     *  marker from. */
+    private fun setPosition(pos: LatLon, bearingDeg: Float? = null) {
         position = pos
         positionBearing = bearingDeg?.toDouble() ?: positionBearing
         withOverlays { it.setPosition(pos, positionBearing) }
@@ -413,23 +447,120 @@ class CarMapRenderer(
         easeJob?.cancel()
         easeJob = scope.launch {
             var lastNs = System.nanoTime()
-            var appliedLat = Double.NaN
-            var appliedLon = 0.0
-            var appliedZoom = 0.0
-            var appliedBearing = 0f
+            // Whether anything has been pushed at all. This replaces the
+            // appliedLat.isNaN() sentinel, and it is the only part of the old
+            // last-pushed bookkeeping that survives: MapMotion.shouldPush asks
+            // whether the camera has converged on its *target*, so the values
+            // previously pushed are not an input to the question any more.
+            var neverPushed = true
+            // Whether the *target* moved since the last tick, which is the half of
+            // the push question the old gate could not ask.
+            var lastTargetLat = Double.NaN
+            var lastTargetLon = Double.NaN
+            var lastTargetZoom = Double.NaN
             while (isActive) {
                 delay(CAM_FRAME_MS)
                 val map = mapLibreMap ?: continue
                 val ns = System.nanoTime()
                 // Clamp dt so a stalled render or a paused loop can't teleport.
-                val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.25)
+                // 0.1, matching the phone (MapScreen.kt's frame loops). At 0.25 a
+                // single tick closed ~51% of the remaining gap against ~25% at
+                // 0.1, so a resume after the loop was paused arrived as a lurch
+                // rather than an ease. The snap guard below is what handles a gap
+                // too large to ease at all; this bound is for the ordinary case.
+                val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.1)
                 lastNs = ns
                 if (camLat.isNaN()) continue
 
-                targetPos?.let { target ->
-                    val a = 1.0 - exp(-dt / CAM_POS_TAU)
-                    camLat += (target.lat - camLat) * a
-                    camLon += (target.lon - camLon) * a
+                // Dead reckoning, defect 1 of #37. Easing toward the raw fix
+                // settles the camera v*tau behind the vehicle *plus* the fix's own
+                // age — at 100 km/h and CAM_POS_TAU = 0.35 that is ~10 m of lag
+                // before latency. Leading the target by tau cancels the ease's own
+                // lag, exactly as MapScreen does.
+                val predicted = targetPos?.let { raw ->
+                    MapMotion.predict(
+                        at = raw,
+                        bearingDeg = fixBearingDeg,
+                        speedMps = fixSpeedMps,
+                        fixElapsedMs = fixElapsedMs,
+                        nowElapsedMs = SystemClock.elapsedRealtime(),
+                        leadSeconds = CAM_POS_TAU,
+                    )
+                }
+                // The marker, interpolated per tick like the camera. It used to be
+                // written once per fix from NavScreen/SpinScreen, so at 1 Hz fixes it
+                // hopped a whole second of travel at a time under a camera that was
+                // gliding — the two disagreed visibly. leadSeconds = 0.0: the marker
+                // is drawn where the vehicle is believed to *be*, not where the
+                // camera should aim, so it takes the fix's age and no lead.
+                targetPos?.let { raw ->
+                    val here = MapMotion.predict(
+                        at = raw,
+                        bearingDeg = fixBearingDeg,
+                        speedMps = fixSpeedMps,
+                        fixElapsedMs = fixElapsedMs,
+                        nowElapsedMs = SystemClock.elapsedRealtime(),
+                        leadSeconds = 0.0,
+                    )
+                    // #38's fix, on this surface: ease the heading instead of
+                    // writing each fix's bearing straight through, so the marker
+                    // turns rather than snapping. Held below BEARING_HOLD_MPS for
+                    // the same reason the camera bearing is — GPS bearing is noise
+                    // at a standstill and the marker would spin at a junction.
+                    val wantBearing = fixBearingDeg?.takeIf { fixSpeedMps > BEARING_HOLD_MPS }
+                    if (wantBearing != null) {
+                        markerBearing = smoothBearing(
+                            markerBearing ?: wantBearing,
+                            wantBearing,
+                            (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat(),
+                        )
+                    }
+                    var dMarkerBearing = (markerBearing ?: 0f) - pushedMarkerBearing
+                    dMarkerBearing = (dMarkerBearing % 360f).let {
+                        when {
+                            it > 180f -> it - 360f
+                            it < -180f -> it + 360f
+                            else -> it
+                        }
+                    }
+                    val markerMoved = pushedMarkerPos == null ||
+                        pushedMarkerPos != here ||
+                        abs(dMarkerBearing) > CAM_BEARING_EPS_DEG
+                    if (markerMoved) {
+                        pushedMarkerPos = here
+                        // Advanced on every push, not only on a turn: #38's phone
+                        // fix found that holding the reference until the delta
+                        // crossed the epsilon let the eased bearing creep away in
+                        // sub-threshold steps and never be drawn.
+                        pushedMarkerBearing = markerBearing ?: pushedMarkerBearing
+                        // Through setPosition rather than withOverlays directly, so
+                        // `position`/`positionBearing` stay current. A replacement
+                        // surface refills the marker from those two, and writing
+                        // the overlay behind their backs would leave a fresh
+                        // surface showing wherever the marker was when the last
+                        // per-fix call happened — or nothing at all, now that
+                        // nothing else calls this.
+                        setPosition(here, markerBearing)
+                    }
+                }
+
+                predicted?.let { target ->
+                    if (MapMotion.shouldSnap(LatLon(camLat, camLon), target)) {
+                        // Too far to be continuous motion — the session was
+                        // backgrounded while the car kept driving, or the host
+                        // paused the surface. Easing across that distance walks the
+                        // camera over ground the driver never saw. Bearing and zoom
+                        // re-anchor with it so the whole camera teleports as one
+                        // rather than arriving and then rotating.
+                        camLat = target.lat
+                        camLon = target.lon
+                        targetBearing?.let { camBearing = it }
+                        camZoom = targetZoom
+                    } else {
+                        val a = 1.0 - exp(-dt / CAM_POS_TAU)
+                        camLat += (target.lat - camLat) * a
+                        camLon += (target.lon - camLon) * a
+                    }
                 }
                 targetBearing?.let { target ->
                     camBearing = smoothBearing(
@@ -437,20 +568,35 @@ class CarMapRenderer(
                 }
                 camZoom += (targetZoom - camZoom) * (1.0 - exp(-dt / CAM_ZOOM_TAU))
 
-                var dBearing = (camBearing - appliedBearing) % 360f
-                if (dBearing > 180f) dBearing -= 360f
-                if (dBearing < -180f) dBearing += 360f
-                val moved = appliedLat.isNaN() ||
-                    abs(camLat - appliedLat) > CAM_POS_EPS_DEG ||
-                    abs(camLon - appliedLon) > CAM_POS_EPS_DEG ||
-                    abs(camZoom - appliedZoom) > CAM_ZOOM_EPS ||
-                    abs(dBearing) > CAM_BEARING_EPS_DEG
-                if (!moved) continue
-                applyCamera(map)
-                appliedLat = camLat
-                appliedLon = camLon
-                appliedZoom = camZoom
-                appliedBearing = camBearing
+                val tgt = predicted
+                val targetMoved = tgt != null && (
+                    lastTargetLat.isNaN() ||
+                        tgt.lat != lastTargetLat ||
+                        tgt.lon != lastTargetLon ||
+                        targetZoom != lastTargetZoom
+                    )
+                if (tgt != null) {
+                    lastTargetLat = tgt.lat
+                    lastTargetLon = tgt.lon
+                    lastTargetZoom = targetZoom
+                }
+
+                val push = MapMotion.shouldPush(
+                    camLat = camLat,
+                    camLon = camLon,
+                    camZoom = camZoom,
+                    camBearing = camBearing,
+                    tgtLat = tgt?.lat ?: camLat,
+                    tgtLon = tgt?.lon ?: camLon,
+                    tgtZoom = targetZoom,
+                    tgtBearing = targetBearing ?: camBearing,
+                    targetMoved = targetMoved,
+                    neverPushed = neverPushed,
+                )
+                if (push) {
+                    applyCamera(map)
+                    neverPushed = false
+                }
             }
         }
     }

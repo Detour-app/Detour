@@ -117,9 +117,13 @@ class SpinScreen(
                     fix ?: return@collect
                     val pos = LatLon(fix.lat, fix.lon)
                     myLocation = pos
-                    renderer.setPosition(pos, fix.bearingDeg?.takeIf { fix.speedMps > 2.0 })
-                    renderer.follow(pos, fix.bearingDeg, fix.speedMps,
-                        Settings.defaultZoom.value.toDouble())
+                    // No setPosition: the renderer interpolates the marker per tick
+                    // from the fix `follow` receives below. See NavScreen's note.
+                    renderer.follow(
+                        pos, fix.bearingDeg, fix.speedMps,
+                        Settings.defaultZoom.value.toDouble(),
+                        fixElapsedMs = fix.elapsedRealtimeMs,
+                    )
                     // Never suspends — the network side runs on its own job, see
                     // updateSpeedLimit. Still wrapped for the same reason
                     // NavScreen wraps its own fix handler: an exception out of a

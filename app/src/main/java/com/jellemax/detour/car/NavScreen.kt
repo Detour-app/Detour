@@ -212,7 +212,12 @@ class NavScreen(
                 // escaping here reaches the coroutine's default handler, which
                 // means the process dies in the middle of a drive.
                 try {
-                    onFix(LatLon(fix.lat, fix.lon), fix.bearingDeg, fix.speedMps)
+                    onFix(
+                        LatLon(fix.lat, fix.lon),
+                        fix.bearingDeg,
+                        fix.speedMps,
+                        fix.elapsedRealtimeMs,
+                    )
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -222,7 +227,12 @@ class NavScreen(
         }
     }
 
-    private fun onFix(pos: LatLon, bearingDeg: Float?, speedMps: Double) {
+    private fun onFix(
+        pos: LatLon,
+        bearingDeg: Float?,
+        speedMps: Double,
+        fixElapsedMs: Long,
+    ) {
         currentSpeedKmh = speedMps * 3.6
         val p = NavEngine.progress(route, pos) ?: return
         progress = p
@@ -231,6 +241,7 @@ class NavScreen(
             pos, bearingDeg, speedMps,
             NavEngine.cameraZoom(
                 Settings.defaultZoom.value.toDouble(), speedMps, p.distanceToTurnMeters),
+            fixElapsedMs = fixElapsedMs,
         )
         // The running trajectcontrole average, off the same fix stream and the
         // same prefetch the camera warning uses. Stepped here rather than down
@@ -248,7 +259,10 @@ class NavScreen(
             nowMs = System.currentTimeMillis(),
         )
         renderer.updateHud(currentSpeedKmh, p.speedLimitKmh, sectionState.reading)
-        renderer.setPosition(pos, bearingDeg?.takeIf { speedMps > 2.0 })
+        // No setPosition here any more: the renderer's camera loop interpolates the
+        // marker per tick from the same fix `follow` above just handed it. A per-fix
+        // write would fight that, hopping the marker a second of travel at 1 Hz
+        // under a camera that glides.
         renderer.setDrivenFraction(p.drivenFraction)
 
         announce(p)
