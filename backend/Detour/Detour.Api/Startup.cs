@@ -27,6 +27,14 @@ public class Startup(IConfiguration configuration)
         configuration.Get<ApiConfiguration>()
         ?? throw new InvalidOperationException("Configuration is missing or invalid.");
 
+    /// <summary>
+    /// Read separately rather than off <see cref="MappedConfiguration"/>: the lists arrive as a
+    /// scalar from an environment variable, which the binder cannot put into a
+    /// <c>string[]</c>. One instance, so the add-side and use-side guards cannot disagree.
+    /// </summary>
+    private ForwardedHeadersSettings ForwardedHeaders { get; } =
+        ForwardedHeadersSettings.From(configuration);
+
     public void ConfigureLogging(ConfigureHostBuilder hostBuilder) =>
         hostBuilder.ConfigureSerilog(MappedConfiguration.Serilog);
 
@@ -40,7 +48,7 @@ public class Startup(IConfiguration configuration)
         services.AddSingleton<IOptions<IdpSettings>>(
             new OptionsWrapper<IdpSettings>(MappedConfiguration.Idp));
 
-        services.AddTrustedProxies(MappedConfiguration.ForwardedHeaders);
+        services.AddTrustedProxies(ForwardedHeaders);
 
         services.AddDetourDatabase(configuration);
         services.AddPostCommitActionScheduler();
@@ -118,7 +126,7 @@ public class Startup(IConfiguration configuration)
         // UseHttpsRedirection needs the forwarded scheme — without it, a request that reached
         // the proxy over https is answered with a redirect to http. Adds nothing at all
         // unless a proxy is configured; see ForwardedHeadersSettings.
-        app.UseTrustedProxies(MappedConfiguration.ForwardedHeaders);
+        app.UseTrustedProxies(ForwardedHeaders);
 
         app.UseCors();
         app.UseRequestLocalization();
