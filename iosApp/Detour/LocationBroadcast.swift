@@ -63,7 +63,7 @@ final class LocationBroadcast {
     /// a stale fix still held, is bounded by how long the device slept, and any
     /// new fix corrects it, whereas a clock correction is unbounded and
     /// persists. iOS exposes no public monotonic clock that counts sleep;
-    /// tracked as a follow-up issue.
+    /// tracked as issue #123.
     var lastSample: Sample? {
         guard let last, let lastFixUptime else { return nil }
         let ageSeconds = max(0, ProcessInfo.processInfo.systemUptime - lastFixUptime)
