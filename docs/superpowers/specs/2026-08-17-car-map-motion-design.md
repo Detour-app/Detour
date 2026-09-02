@@ -52,12 +52,25 @@ uses them. No new functions, no signature changes.
 1. **Dead reckoning.** `MapMotion.predict(at, bearingDeg, speedMps, fixElapsedMs,
    nowElapsedMs, leadSeconds = CAM_POS_TAU)` for the camera target.
 
-   This needs the fix's speed, bearing and monotonic timestamp, which the renderer
-   does not currently receive — `follow()` gives it a position and a bearing only.
-   `NavScreen` already collects `TripTrackingService.lastFix`, so it passes the
-   `Fix` through rather than the renderer opening a second subscription on a
-   conflating `StateFlow`. That choice matters: `MapScreen` holds six independent
-   subscriptions and the compose-state-hazards skill's §4 exists because of it.
+   This needs the fix's speed, bearing and monotonic timestamp. **Two of the three
+   are already there**: `follow(pos, bearingDeg, speedMps, zoom)` takes speed and
+   bearing today (`CarMapRenderer.kt:209`), and uses `speedMps` for the
+   `BEARING_HOLD_MPS` gate. Only the fix's **monotonic timestamp** is missing, so
+   the plumbing is one parameter rather than three.
+
+   > Corrected 2026-09-02. This section previously read "which the renderer does
+   > not currently receive — `follow()` gives it a position and a bearing only",
+   > which was wrong when written: `speedMps` has been a parameter since the
+   > renderer was introduced. The conclusion is unchanged and the change is
+   > smaller than the original text implies.
+
+   `NavScreen` already collects `TripTrackingService.lastFix` (`NavScreen.kt:207`),
+   so it passes the timestamp through rather than the renderer opening a second
+   subscription on a conflating `StateFlow`. That choice matters: `MapScreen` holds
+   six independent subscriptions and the compose-state-hazards skill's §4 exists
+   because of it. `SpinScreen.kt:116` holds the car's other one — §4's "never change
+   two `lastFix` consumers in one commit" means this work touches `NavScreen`'s and
+   leaves `SpinScreen`'s alone.
 
 2. **Push gate.** `MapMotion.shouldPush(...)`, with `neverPushed` replacing the
    `appliedLat.isNaN()` sentinel and `targetMoved` tracked as the phone does.
@@ -71,9 +84,26 @@ uses them. No new functions, no signature changes.
 
 5. **Marker heading.** The loop owns an eased `markerBearing`, at `CAM_BEARING_TAU`
    through `smoothBearing`, and the marker push gate gains a bearing term against
-   `CAM_BEARING_EPS_DEG` via `bearingDelta` — the same shape #38 landed on the
-   phone, including advancing the pushed-bearing reference on every push rather
-   than only on a turn.
+   `CAM_BEARING_EPS_DEG` — the same shape #38 landed on the phone, including
+   advancing the pushed-bearing reference on every push rather than only on a turn.
+
+   > Corrected 2026-09-02. This section read as though those three were shared with
+   > the phone. They are **duplicated**: `CarMapRenderer.kt` has its own private
+   > `smoothBearing` (`:499`), `CAM_BEARING_TAU` (`:57`) and `CAM_BEARING_EPS_DEG`
+   > (`:72`), while `ui/MapCameraTuning.kt` has `internal` copies (`:9`, `:31`,
+   > `:56`) plus `bearingDelta` (`:19`) which the car has no equivalent of. Same
+   > values, same arithmetic, two files. `MapMotion` already imports the `ui` copy
+   > of `CAM_BEARING_EPS_DEG`, so calling `MapMotion.shouldPush` from the car means
+   > the camera gate reads `ui`'s constant while the marker gate reads the car's —
+   > identical values today, and a trap the moment one is retuned.
+   >
+   > **Collapsing them is deliberately NOT part of this work.** `CONTRIBUTING.md`'s
+   > "a policy earns the core when it is written more than once" says they should
+   > collapse, but doing it here would put a de-duplication refactor in the same
+   > branch as a behaviour fix, which `DECISION.md`'s never-in-one-commit table
+   > forbids for exactly the reason that the extraction and the bug it reveals stop
+   > being separately revertable. Filed separately instead; this branch leaves both
+   > copies in place and the values are identical, so nothing changes behaviourally.
 
 6. **`dt` clamp** `0.25` → `0.1`, matching the phone.
 
