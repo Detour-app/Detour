@@ -284,6 +284,12 @@ class TripTrackingService : Service() {
             refresh(context)
         }
 
+        /** True when [Obd2Connection] should be held open for something other
+         *  than the OBD2 pairing screen's own readout — a running trip or a
+         *  visible map. The pairing screen reads this to decide whether to tear
+         *  its link down on exit. */
+        fun obdWantedByService(): Boolean = uiVisible || _stats.value != null
+
         /** True while a convoy is joined. A live-shared position is only worth
          *  anything to friends watching it if it's actually live, so joining a
          *  convoy earns the same [LocationMode.LIVE] cadence as having the map
@@ -406,6 +412,10 @@ class TripTrackingService : Service() {
     }
 
     private val rotationMatrix = FloatArray(9)
+
+    /** Set in [onDestroy] before teardown so a late [reconcileObd2Connections]
+     *  (via [endTrip]) can't re-dial an adapter as the service dies. */
+    @Volatile private var destroyed = false
 
     // Written on the sensor thread, read when the trip is saved.
     @Volatile private var currentLeanDeg = 0.0
@@ -662,17 +672,11 @@ class TripTrackingService : Service() {
                         connectedVehicles.add(address)
                         refreshTripMode()
                     }
-                    // Obd2Connection tracks only "an" OBD2 link, not which vehicle it
-                    // belongs to; with two configured vehicles both nearby this can
-                    // mis-attribute connect/disconnect. Known v1 limitation (Task 4
-                    // review, finding 3) — not fixed here since it needs a public API
-                    // change in Obd2Connection.
-                    if (Settings.vehicleDevices.value.values.any { it.obd2Address == address }) {
-                        Obd2Connection.connect(context.applicationContext, address)
-                    }
+                    reconcileObd2Connections()
                 }
                 BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
                     if (connectedVehicles.remove(address)) refreshTripMode()
+                    reconcileObd2Connections()
                 }
             }
         }
@@ -693,11 +697,10 @@ class TripTrackingService : Service() {
                 }
                 BluetoothAdapter.STATE_ON -> {
                     seedConnectedVehicles()
-                    // STATE_OFF called Obd2Connection.disconnect(); the adapter
-                    // is phone-initiated over SPP, so nothing re-dials it on its
-                    // own (no ACL_CONNECTED fires for a link we open). Re-attempt
-                    // it here the same way the initial watch seed does.
-                    connectConfiguredObd2Adapters()
+                    // STATE_OFF called Obd2Connection.disconnect(); nothing
+                    // re-dials a phone-initiated SPP link on its own. Reconcile
+                    // picks it back up if a trip or the UI still wants it.
+                    reconcileObd2Connections()
                 }
             }
         }
@@ -734,35 +737,39 @@ class TripTrackingService : Service() {
         )
         btRegistered = true
         seedConnectedVehicles()
-        connectConfiguredObd2Adapters()
+        reconcileObd2Connections()
     }
 
-    /** No ACL_CONNECTED-equivalent seed exists for OBD2: an ELM327 SPP device
-     *  shows up in neither the HEADSET nor A2DP profiles [seedConnectedVehicles]
-     *  queries, so "already connected" can't be detected directly. Attempt every
-     *  configured adapter unconditionally instead — [Obd2Connection.connect] is a
-     *  no-op if a loop is already running, and its own backoff/retry handles an
-     *  adapter that isn't there yet. Called on the initial watch seed and again
-     *  whenever Bluetooth is toggled back on (see [btStateReceiver]). */
-    private fun connectConfiguredObd2Adapters() {
-        Settings.vehicleDevices.value.values.forEach { vehicle ->
-            vehicle.obd2Address?.let { Obd2Connection.connect(applicationContext, it) }
-        }
+    /** Which OBD2 adapter [Obd2Connection] should be on, or null to stay
+     *  disconnected. See [pickObd2Address] for the rules. */
+    private fun desiredObd2Address(): String? {
+        val map = Settings.vehicleDevices.value
+        return pickObd2Address(
+            tripActive = _stats.value != null,
+            uiVisible = uiVisible,
+            tripVehicleObd2Address = resolvedVehicle()?.obd2Address,
+            connectedObd2Addresses = connectedVehicles.mapNotNull { map[it]?.obd2Address },
+            configuredObd2Addresses = map.values.mapNotNull { it.obd2Address },
+        )
     }
 
-    /** Config changed in Settings (ACTION_REFRESH) — a vehicle or its OBD
-     *  address was added or removed. Drop a live OBD link whose address is no
-     *  longer mapped to any vehicle before dialing the current set: otherwise
-     *  [Obd2Connection]'s retry loop keeps hammering an adapter the user just
-     *  unpaired every 5–60s for the life of the service. The pairing screen's
-     *  Forget button already disconnects for this reason; vehicle removal
-     *  routes here instead. */
+    /** Bring [Obd2Connection] in line with [desiredObd2Address]: drop a link to
+     *  the wrong adapter (or any link at all when none is wanted), open one to
+     *  the right adapter when idle. Called from every edge that can change the
+     *  answer — trip start/stop, UI visibility ([ACTION_REFRESH]), a Bluetooth
+     *  connect/disconnect/toggle, and a Settings change. Replaces the old
+     *  unconditional dial-every-configured-adapter seed: a parked adapter is no
+     *  longer retried around the clock (#96), and only the vehicle being driven
+     *  is ever dialled, so an absent adapter can't block a present one (#97). */
     private fun reconcileObd2Connections() {
-        val configured = Settings.vehicleDevices.value.values.mapNotNull { it.obd2Address }.toSet()
-        Obd2Connection.linkedAddress.value?.let {
-            if (it !in configured) Obd2Connection.disconnect()
+        if (destroyed) return
+        val target = desiredObd2Address()
+        if (Obd2Connection.linkedAddress.value.let { it != null && it != target }) {
+            Obd2Connection.disconnect()
         }
-        connectConfiguredObd2Adapters()
+        if (target != null && Obd2Connection.linkedAddress.value == null) {
+            Obd2Connection.connect(applicationContext, target)
+        }
     }
 
     /**
@@ -836,6 +843,7 @@ class TripTrackingService : Service() {
             startMotionSensors(mode)
             updateNotification()
         }
+        reconcileObd2Connections()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -972,6 +980,7 @@ class TripTrackingService : Service() {
         _stats.value = TripStats(startTimeMs = startTimeMs, distanceMeters = initialDistanceMeters)
         val mode = resolvedMode()
         _stats.value = _stats.value?.copy(mode = mode)
+        reconcileObd2Connections()
         ensureLocationUpdates()
         startMotionSensors(mode)
         updateNotification()
@@ -1079,6 +1088,7 @@ class TripTrackingService : Service() {
             }
         }
         _stats.value = null
+        reconcileObd2Connections()
         destLat = null
         destLon = null
         autoStarted = false
@@ -1657,6 +1667,7 @@ class TripTrackingService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onDestroy() {
+        destroyed = true
         if (::fusedClient.isInitialized) {
             fusedClient.removeLocationUpdates(locationCallback)
         }

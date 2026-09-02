@@ -81,6 +81,20 @@ class ObdConnectionTargetTest {
     }
 
     @Test
+    fun appVisibleNoTripPicksTheFirstConnectedAdapter() {
+        assertEquals(
+            "A:AD",
+            pickObd2Address(
+                tripActive = false,
+                uiVisible = true,
+                tripVehicleObd2Address = null,
+                connectedObd2Addresses = listOf("A:AD", "B:AD"),
+                configuredObd2Addresses = listOf("A:AD", "B:AD"),
+            ),
+        )
+    }
+
+    @Test
     fun appVisibleNoTripNoConnectedVehiclePollsNothing() {
         assertNull(
             pickObd2Address(
