@@ -827,8 +827,26 @@ Replace it with:
     internal fun issuer(custom: ServerConfig?, discovered: String): String =
         pick(custom?.idpIssuer ?: "", discovered, BuildDefaults.idpIssuer)
 
-    /** The realm the API server last stated, or blank. See [rememberDiscoveredIssuer]. */
-    internal fun discoveredIssuer(): String = prefs(PREFS).string(KEY_DISCOVERED_ISSUER)
+    /**
+     * What is actually on disk, unvetted. Only [discoveredIssuer] and
+     * [rememberDiscoveredIssuer] may call this — the first to vet it, the second
+     * to evict it. Everything else must read through [discoveredIssuer].
+     */
+    private fun storedIssuerRaw(): String = prefs(PREFS).string(KEY_DISCOVERED_ISSUER)
+
+    /**
+     * The realm the API server last stated, or blank. See [rememberDiscoveredIssuer].
+     *
+     * Vetted on **read**, not only on write, and that placement is load-bearing
+     * rather than belt-and-braces. This is the single read point for the stored
+     * issuer, and [Auth.refresh] reaches it through [Auth.endpoint] on a cold
+     * start without going anywhere near [Capabilities.preferredDiscovered],
+     * which runs only at an interactive sign-in. Vetting at the sign-in read
+     * alone would leave a value written by an older, looser build receiving a
+     * refresh token on every launch, forever.
+     */
+    internal fun discoveredIssuer(): String =
+        storedIssuerRaw().takeIf { Capabilities.acceptable(it) } ?: ""
 ```
 
 Add the key constant next to `PREFS` at `:69`:
@@ -898,6 +916,26 @@ The spec requires `commonTest` coverage of "issuer-change-clears-session", and t
             RoutingServer.issuer(before, discovered),
             RoutingServer.issuerAfterSave(after, before, discovered),
         )
+    }
+
+    @Test
+    fun anUnacceptableStoredIssuerIsNeverTheEffectiveOne() {
+        // The refresh path reads the stored issuer without going through
+        // Capabilities.preferredDiscovered, so the vet has to sit on the read
+        // itself. Asserted through the pure overload, since discoveredIssuer()
+        // touches prefs: what this pins is that an unacceptable value passed as
+        // the discovered candidate still loses to nothing at all.
+        noBakedDefaults()
+        val c = ServerConfig(url = "https://all.example", enabled = true)
+        assertEquals("", RoutingServer.issuer(c, discovered = ""))
+        // And the value the vet exists to catch, had it reached this far.
+        assertEquals(
+            "http://localhost:8080@evil.example/realms/detour",
+            RoutingServer.issuer(c, discovered = "http://localhost:8080@evil.example/realms/detour"),
+        )
+        // ^ deliberately NOT filtered here: issuer() composes candidates and does
+        // not judge them. The filtering is discoveredIssuer()'s job, and putting
+        // it in both places would hide which one is the control.
     }
 
     @Test
@@ -989,9 +1027,25 @@ Then replace the body of `save` (currently `:163-184`) with:
      * case, since every interactive sign-in probes.
      */
     internal fun rememberDiscoveredIssuer(discovered: String) {
-        if (discovered.isBlank() || discovered == discoveredIssuer()) return
+        val previous = discoveredIssuer()
         val custom = loadCustom()
-        if (issuer(custom, discovered) != issuer(custom, discoveredIssuer())) Auth.clear()
+
+        // A blank argument evicts rather than returning early. Blank means the
+        // probe found nothing usable, and that includes the case where what was
+        // already stored is no longer acceptable — so returning early here would
+        // strand exactly the value the caller just refused. Compared on the raw
+        // read, because a value the vetted read already filters to blank still
+        // occupies the key and should still go.
+        if (discovered.isBlank()) {
+            if (storedIssuerRaw().isNotEmpty()) {
+                if (issuer(custom, "") != issuer(custom, previous)) Auth.clear()
+                prefs(PREFS).remove(KEY_DISCOVERED_ISSUER)
+            }
+            return
+        }
+
+        if (discovered == previous) return
+        if (issuer(custom, discovered) != issuer(custom, previous)) Auth.clear()
         prefs(PREFS).put(KEY_DISCOVERED_ISSUER, discovered)
     }
 ```

@@ -167,7 +167,7 @@ than recalled.
 |---|---|
 | The discovered issuer becomes the pinned expected issuer; every later comparison is exact, never a prefix | `ASVS 5.0.0 V10.5.3`, in spirit — see below |
 | The ID token's `iss` must equal the pinned issuer before a session is established | `ASVS 5.0.0 V10.2.2` (partial) |
-| A discovered issuer is refused unless it is HTTPS, or loopback over cleartext; userinfo and hostless authorities are refused on both | `OAuth2_Cheat_Sheet#other-recommendations` item 19 |
+| A discovered issuer is refused unless it is HTTPS, or loopback over cleartext; userinfo and hostless authorities are refused on both | RFC 8414 §2, `OAuth2_Cheat_Sheet#other-recommendations` item 19 |
 | An issuer change clears the session | existing rule, `RoutingServer.kt:163-170` |
 
 **`V10.5.3` is not satisfied so much as made inapplicable, and that is the honest reading.**
@@ -231,15 +231,27 @@ documented loopback shape, because a plain-HTTP realm anywhere else is an invita
 the signing keys in transit — which `IdpSettings.RequireHttpsMetadata`'s own doc comment
 already says on the server side.
 
-**The reason for the carve-out is that loopback traffic never leaves the device**, so there is
-no on-path attacker to defend against. It is worth being precise about that, because the
-obvious-looking justification is wrong: OAuth's cleartext carve-out
-(`OAuth2_Cheat_Sheet#other-recommendations` item 19, RFC 8252 §7.3) is for a native client's
-own loopback **redirect URI**, not for an authorization server being reachable over cleartext
-— RFC 8252 §8.6 in fact requires TLS on AS endpoints. There is no standards carve-out here to
-lean on. The device-local argument is the real one, and it is also self-limiting, which the
-misattributed one is not: a future reader cannot use it to widen the carve-out to a
-non-loopback host.
+**The requirement HTTPS-or-nothing comes from is RFC 8414 §2**, verified verbatim: an issuer
+identifier "is a URL that uses the `https` scheme and has no query or fragment components"
+(the same rule appears in OIDC Discovery 1.0 §3). That is worth citing precisely rather than
+by feel, because it also settles a case that would otherwise look merely fail-closed: an
+issuer carrying a query component is refused *by definition*, not as a judgement call.
+
+**The reason for the loopback carve-out is that the traffic never leaves the device**, so there
+is no on-path attacker to defend against. RFC 8252 §8.3 states exactly that rationale —
+"acceptable for loopback interface redirect URIs as the HTTP request never leaves the device"
+— so the argument has a standards basis by analogy, though only by analogy: §7.3 and §8.3
+govern a native client's own loopback **redirect URI**, not an authorization server reachable
+over cleartext, and nothing in RFC 8252 requires TLS on an authorization server's endpoints.
+
+Two things this replaces, both of which were wrong in an earlier draft of this document and are
+recorded here because a security rationale that was confidently wrong once will be trusted
+again. RFC 8252 §8.6 was cited as requiring TLS on AS endpoints; §8.6 is "Client
+Impersonation" and says nothing about transport. And this section claimed there was no
+standards carve-out to lean on at all, which understated §8.3. The device-local argument was
+always the right one — it is self-limiting, where an appeal to a redirect-URI carve-out is
+not, since a future reader cannot stretch "never leaves the device" to cover a non-loopback
+host.
 
 The set is deliberately narrower than "loopback": `http://[::1]`, `http://127.0.0.2`,
 `http://127.1` and the integer-collapsed forms are all refused even though each is genuinely
