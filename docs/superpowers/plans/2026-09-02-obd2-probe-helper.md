@@ -600,7 +600,7 @@ EOF
 
 **Equivalence (Stage 1 keeps the operands as-is — Stage 3 swaps the clock):**
 - Fuel: `lastFuelSampleMs > 0L && dtMs in 1L..15_000L` ⇒ `cappedFixDtSec(location.time, lastFuelSampleMs) != null`. Same guard.
-- `secondsOverLimit`: `overLimitDtMs in 1..15_000` with `lastLimitFixMs` starting at 0 ⇒ first fix has `overLimitDtMs ≈ location.time` (huge) so it's already excluded; `cappedFixDtSec`'s explicit `lastMs > 0L` makes that skip intentional instead of incidental. Same guard for every real fix.
+- `secondsOverLimit`: `lastLimitFixMs` is seeded to `startTimeMs` at trip start (`TripTrackingService.kt:~977`), not 0, so `overLimitDtMs = location.time - lastLimitFixMs` is already a small in-range value on the first fix and `overLimitDtMs in 1..15_000` gates it exactly as `cappedFixDtSec(location.time, lastLimitFixMs)` does (`lastMs > 0L` is trivially true for an epoch `startTimeMs`; only the `1..15_000` range check bites). Same guard, every fix. The `lastMs > 0L` clause matters for the **fuel** site, where `lastFuelSampleMs` starts at 0.
 
 - [ ] **Step 1: Write the failing test**
 
