@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -31,6 +32,7 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.obd2.Obd2Connection
 import com.jellemax.detour.obd2.Obd2ConnectionState
 import com.jellemax.detour.obd2.Obd2Failure
+import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.delay
 
 /**
@@ -57,6 +59,30 @@ fun Obd2PairingScreen() {
         while (true) {
             nowMs = System.currentTimeMillis()
             delay(1_000)
+        }
+    }
+
+    // The service only holds the OBD2 link during a trip or with the map up
+    // (see reconcileObd2Connections); this screen is neither, so open the
+    // readout link ourselves while it is on screen. `readoutAddress` is the
+    // same adapter the "Retry now" button targets. On exit, hand back to the
+    // service's reconciler; only disconnect directly when nothing wants it.
+    val readoutAddress = mapping.values.firstNotNullOfOrNull { it.obd2Address }
+    DisposableEffect(readoutAddress) {
+        if (readoutAddress != null && Obd2Connection.linkedAddress.value == null) {
+            Obd2Connection.connect(context.applicationContext, readoutAddress)
+        }
+        onDispose {
+            // Hand back to the service's reconciler (ACTION_REFRESH ->
+            // reconcileObd2Connections): it keeps the link if a trip or the
+            // map still wants it, switches it, or drops it — correct whatever
+            // address the assign/forget buttons last left linked. Only when
+            // the service wants nothing do we tear down here directly.
+            if (TripTrackingService.obdWantedByService()) {
+                TripTrackingService.refresh(context)
+            } else {
+                Obd2Connection.disconnect()
+            }
         }
     }
 
