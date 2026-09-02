@@ -204,8 +204,17 @@ The "never in one commit" rules from
 
 ## Stage 1 — probe helper + `cappedFixDtSec`
 
-**State** | not started. Preconditions below verified against
-`fix/obd2-connection-lifecycle` @ `e256257` on 2026-09-02.
+**State** | **done** 2026-09-02, branch `refactor/obd2-probe-helper`. `probePidCycle`
++ the `PidProbe` sealed state replace both inline probe ladders in `pollLoop`
+(commits `ebc68f6` fuel-helper+tests, `111ee1e` fuel wiring, `b991c98` throttle
+wiring — the throttle probe picked up the fuel probe's cycle budget + stopped the
+idle 0145 re-poll, as called out); `cappedFixDtSec` folds the fuel + `secondsOverLimit`
+gap guards (`c3f4326`), operands still the GPS clock. Plan:
+`docs/superpowers/plans/2026-09-02-obd2-probe-helper.md`. Each task spec-reviewed;
+one fix round on the throttle commit body. Suites + `assembleDebug` + `assembleRelease`
+(R8) green. `:app:lintDebug` is pre-existing-red on `notif/PlaceNotifications.kt`
+(untouched here) and is not a CI gate — this chain's four files add zero lint
+findings. Live-adapter path unverified — no dongle this session.
 
 ### Preconditions
 
@@ -300,8 +309,11 @@ accuracy fixed". Next: stage 2.
 
 ## Stage 2 — fuel type + calibration + commanded lambda
 
-**State** | not started. Preconditions to be run against the merged stage-1
-branch immediately before writing this stage's plan.
+**State** | not started. Preconditions **checked 2026-09-02** right after Stage 1
+landed on `refactor/obd2-probe-helper` (not yet merged): `probePidCycle` count 4
+(≥3 ✓), `STOICH_AFR_PETROL` 2 ✓, old `fuelRateFromMafLph` sig 1 ✓, `enum class
+FuelType` 0 ✓, `fuelType`/`fuelCalibrationPct` in Settings 0 ✓, `0144` 0 ✓ — all
+green, spec current. Re-run against the merged branch before writing the plan.
 
 ### Preconditions
 

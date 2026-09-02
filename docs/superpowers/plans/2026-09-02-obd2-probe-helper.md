@@ -29,7 +29,7 @@
 - Single test class: `./gradlew :app:testDebugUnitTest --tests "com.jellemax.detour.obd2.Obd2ConnectionTest"`
 - Full unit suites: `./gradlew :app:testDebugUnitTest :shared:testDebugUnitTest`
 - R8 / release: `./gradlew :app:assembleDebug :app:assembleRelease`
-- Lint: `./gradlew :app:lintDebug`
+- Lint: `./gradlew :app:lintDebug` — NB pre-existing-red on `notif/PlaceNotifications.kt` (untouched by this chain); not a CI gate, informational only
 
 ## File Structure
 
@@ -750,7 +750,7 @@ with:
 
 - [ ] **Step 7: Full suites + build**
 
-Run: `./gradlew :app:testDebugUnitTest :shared:testDebugUnitTest :app:assembleDebug :app:assembleRelease :app:lintDebug`
+Run: `./gradlew :app:testDebugUnitTest :shared:testDebugUnitTest :app:assembleDebug :app:assembleRelease` (`:app:lintDebug` is pre-existing-red on `notif/PlaceNotifications.kt`, untouched here — not a gate)
 Expected: all green. Grep-check: `grep -c '15_000' app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt` ⇒ **1** (only the trace-distance guard `:~1332` keeps a `1..15_000` literal; the fuel and over-limit sites, and the old fuel comment that spelled out `in 1..15_000`, are all gone).
 
 - [ ] **Step 8: Commit**
@@ -867,7 +867,7 @@ direct/MAF parse, not the watchdog).
 
 - `probePidCycle` and `cappedFixDtSec` unit-covered (`Obd2ConnectionTest`,
   `CappedFixDtSecTest`).
-- `./gradlew :app:testDebugUnitTest :shared:testDebugUnitTest :app:assembleDebug :app:assembleRelease :app:lintDebug` green.
+- `./gradlew :app:testDebugUnitTest :shared:testDebugUnitTest :app:assembleDebug :app:assembleRelease` green (`:app:lintDebug` pre-existing-red on unrelated `PlaceNotifications.kt`; not a CI gate).
 - **Unverified-live** — no physical adapter this session; `pollLoop` has no
   device-free test (pre-existing).
 
