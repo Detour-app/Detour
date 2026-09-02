@@ -126,6 +126,37 @@ object Auth {
         }
     }
 
+    /**
+     * Forces a refresh after a request came back `401`, and reports whether the
+     * access token actually changed.
+     *
+     * [bearer] cannot do this: it short-circuits on [expiringSoon], and a token
+     * refused for a reason other than expiry is not expiring. This is the only
+     * way to establish which of the two things a `401` meant — see [Api].
+     *
+     * [staleToken] is the token the refused request carried. Inside the lock it
+     * is compared against the current one: if another caller already refreshed
+     * while this one waited, the token has moved on and there is nothing to do
+     * but retry with it. Without that check, N concurrent requests meeting the
+     * same `401` would each spend a refresh, and on a rotating refresh token
+     * (ASVS 5.0.0 V10.4.5) the losers would invalidate the winner's.
+     *
+     * Returns false when there is no session to refresh, so the caller reports
+     * the server's own error rather than inventing a sign-in problem.
+     *
+     * Throws [AuthException] when the *provider* rejects the refresh token,
+     * because [refresh] clears the session in that case — which is the one case
+     * [clear] is documented for.
+     */
+    internal suspend fun refreshAfterRefusal(staleToken: String): Boolean {
+        if (!signedIn) return false
+        refreshLock.withLock {
+            if (Settings.accessToken.value != staleToken) return true
+            refresh()
+            return Settings.accessToken.value != staleToken
+        }
+    }
+
     private fun expiringSoon(): Boolean =
         Settings.accessToken.value.isBlank() ||
             Settings.accessTokenExpiresAtMs.value - REFRESH_SKEW_MS <= nowMs()
@@ -323,7 +354,12 @@ object Auth {
             // failure on every later request.
             if (e.code == 400 || e.code == 401) {
                 clear()
-                throw AuthException("Session expired — sign in again")
+                throw AuthException(
+                    AuthRefusal.message(
+                        "Session expired — sign in again",
+                        AuthRefusal.SESSION_ENDED,
+                    ),
+                )
             }
             // Anything else is the realm or whatever sits in front of it, and the
             // session is still good. Same translation as the sign-in leg gets:

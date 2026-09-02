@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.jellemax.detour.wear"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         // MessageClient.sendMessage() routes by matching applicationId across
@@ -60,10 +60,10 @@ android {
 }
 
 dependencies {
-    implementation("androidx.activity:activity-compose:1.9.2")
+    implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.core:core-ktx:1.13.1")
-    implementation("androidx.compose.material:material-icons-extended:1.7.4")
-    implementation("androidx.wear.compose:compose-material:1.4.0")
-    implementation("androidx.wear.compose:compose-foundation:1.4.0")
+    implementation("androidx.compose.material:material-icons-extended:1.7.8")
+    implementation("androidx.wear.compose:compose-material:1.6.2")
+    implementation("androidx.wear.compose:compose-foundation:1.6.2")
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
 }

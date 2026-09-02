@@ -8,8 +8,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import kotlin.system.measureTimeMillis
 import kotlin.test.Test
+import kotlin.time.measureTime
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
@@ -232,7 +232,10 @@ class ConvoyRelayTest {
         socket.push(joinedFrame())
         relay.connected.first { it }
 
-        val elapsedMs = measureTimeMillis {
+        // measureTime, not measureTimeMillis: the latter is deprecated as of
+        // Kotlin 2.1.20 and is an error on the Kotlin/Native targets, a warning
+        // only on the JVM.
+        val elapsed = measureTime {
             // Drops the connection the way a network blip or a server
             // restart would - not relay.stop(), a different exit path
             // covered by the test above.
@@ -242,7 +245,10 @@ class ConvoyRelayTest {
         }
         // MIN_BACKOFF_MS is 1000ms; a reconnect faster than that would mean
         // the wait was skipped rather than honoured.
-        assertTrue(elapsedMs >= 900, "expected the reconnect to wait out a backoff, took ${elapsedMs}ms")
+        assertTrue(
+            elapsed.inWholeMilliseconds >= 900,
+            "expected the reconnect to wait out a backoff, took $elapsed",
+        )
 
         socket.push(joinedFrame())
         relay.connected.first { it }

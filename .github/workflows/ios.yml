@@ -15,9 +15,25 @@ on:
       - '*.gradle.kts'
       - 'gradle.properties'
   pull_request:
+    # Must list the same files as push, above: that list is this workflow's own
+    # statement of what can affect the iOS build, and a narrower pull_request
+    # list only validates a change after it has already landed on main. That is
+    # exactly what happened on #105 — a Kotlin bump broke
+    # :shared:compileTestKotlinIosSimulatorArm64 on Kotlin/Native only, and
+    # every Android check stayed green because no Mac is in the local loop.
+    #
+    # shared/build.gradle.kts is already covered by shared/**, so the root
+    # *.gradle.kts here is deliberately not **/*.gradle.kts: the root file is
+    # where the Kotlin and AGP versions live and is the actual risk, while
+    # app/build.gradle.kts changes often and cannot affect the iOS build.
+    # `*` does not cross `/` in a GitHub path filter, so *.gradle.kts matches
+    # only root-level files and app/build.gradle.kts would not trip it anyway.
     paths:
       - 'shared/**'
       - 'iosApp/**'
+      - '.github/workflows/ios.yml'
+      - '*.gradle.kts'
+      - 'gradle.properties'
   workflow_dispatch:
 
 concurrency:
