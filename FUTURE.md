@@ -31,7 +31,7 @@ still advertises finished work is worse than no list.
 
 **Real routing for moto round trips.** Self-hosted GraphHopper with a `moto`
 profile weighted on the built-in `curvature` encoded value, `round_trip` loops
-from `RoutingServer.roundTrip`, and in-app turn-by-turn (`NavEngine.kt`,
+from `RoutingClient.roundTrip`, and in-app turn-by-turn (`NavEngine.kt`,
 `car/NavScreen.kt`). The Google Maps handoff this file once planned around is
 only the fallback now.
 

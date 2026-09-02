@@ -90,6 +90,7 @@ import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RoundTripPlanner
 import com.jellemax.detour.ColdStartTiming
 import com.jellemax.detour.data.RouteResult
+import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.pickCandidate
 import com.jellemax.detour.data.SavedPlaces
@@ -887,7 +888,7 @@ fun MapScreen(
         scope.launch {
             try {
                 route = withContext(Dispatchers.IO) {
-                    RoutingServer.route(serverConfig, loc, dest, mode.ghProfile,
+                    RoutingClient.route(serverConfig, loc, dest, mode.ghProfile,
                         Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
                 }
                 navigating = true
@@ -1440,7 +1441,7 @@ fun MapScreen(
                 scope.launch {
                     try {
                         route = withContext(Dispatchers.IO) {
-                            RoutingServer.route(serverConfig, pos, target, mode.ghProfile,
+                            RoutingClient.route(serverConfig, pos, target, mode.ghProfile,
                                 Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
                         }
                         // Instruction indices belong to the old polyline; start
@@ -1487,7 +1488,7 @@ fun MapScreen(
                                 (1..CURVY_CANDIDATES).map {
                                     async(Dispatchers.IO) {
                                         runCatching {
-                                            val loop = RoutingServer.roundTrip(
+                                            val loop = RoutingClient.roundTrip(
                                                 serverConfig, loc, tripMeters, Random.nextLong(),
                                                 headingDeg = directionDeg?.toDouble(),
                                                 avoidSmallRoads = Settings.avoidSmallRoads.value)

@@ -162,7 +162,7 @@ struct RouteEditorScreen: View {
         routeError = nil
         let config = RoutingServer.shared.load()
         do {
-            let result = try await RoutingServer.shared.routeVia(
+            let result = try await RoutingClient.shared.routeVia(
                 config: config,
                 points: stops.map(\.stop.at),
                 profile: mode.ghProfile,

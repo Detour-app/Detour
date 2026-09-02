@@ -81,7 +81,7 @@ suspend fun pickCandidate(
         // profile; Overpass fallback below.
         val server = if (config.usable) {
             try {
-                RoutingServer.randomRoadDestination(
+                RoutingClient.randomRoadDestination(
                     config, loc, radiusMeters, bearing, explored, mode.ghProfile, minRadiusMeters)
             } catch (e: CancellationException) {
                 throw e
@@ -94,7 +94,7 @@ suspend fun pickCandidate(
         d to null
     }
     val route = try {
-        RoutingServer.route(config, loc, dest, mode.ghProfile,
+        RoutingClient.route(config, loc, dest, mode.ghProfile,
             Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
     } catch (e: CancellationException) {
         throw e

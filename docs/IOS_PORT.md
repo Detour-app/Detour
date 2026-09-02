@@ -186,7 +186,7 @@ Not gaps — decisions, and the places to look first if behaviour diverges.
    `CircleFixes.fixes`, `Friends.remove`, `PoiRoulette.randomPoi`,
    `RoadRoulette`'s `randomRoadPoint`/`fetchRoads`/`nearestSpeedLimitKmh`/
    `speedLimitWays`/`rawQuery`, `RoundTripPlanner.plan`, `RouteShare.inbox`/
-   `.delete`, `RoutingServer.roundTrip`/`.randomRoadDestination`,
+   `.delete`, `RoutingClient.roundTrip`/`.randomRoadDestination`,
    `SpinPicker.pickCandidate` and `SyncClient.syncIfDue`. None of these is
    called from Swift today, so there is no live gap for them — but
    `Auth.bearer` was on this same list until the convoy relay gave Swift a

@@ -36,7 +36,7 @@ import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.NavInstruction
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
-import com.jellemax.detour.data.RoutingServer
+import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
@@ -292,7 +292,7 @@ class NavScreen(
                 lifecycleScope.launch {
                     try {
                         val fresh = withContext(Dispatchers.IO) {
-                            RoutingServer.route(serverConfig, pos, destination, TravelMode.CAR.ghProfile,
+                            RoutingClient.route(serverConfig, pos, destination, TravelMode.CAR.ghProfile,
                                 Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
                         }
                         route = fresh

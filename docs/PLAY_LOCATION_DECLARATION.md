@@ -285,7 +285,7 @@ Three things had to be right, and each one cost a take:
 2. **The mock route must come from the app's own router.** Feeding an OSRM line
    while the app routes through the self-hosted GraphHopper puts a red
    "Off route" banner on screen within seconds. Query the same `/route`
-   endpoint the app uses (`RoutingServer.route`) and densify *that* geometry —
+   endpoint the app uses (`RoutingClient.route`) and densify *that* geometry —
    config is in `local.properties`, and the request needs a `User-Agent` header
    or Cloudflare Access answers 403.
 3. **Feed fixes at 2 Hz, and mock `network` and `passive` as well as
