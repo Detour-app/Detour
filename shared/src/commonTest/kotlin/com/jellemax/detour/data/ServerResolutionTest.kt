@@ -191,22 +191,23 @@ class ServerResolutionTest {
 
     @Test
     fun anUnacceptableStoredIssuerIsNeverTheEffectiveOne() {
-        // The refresh path reads the stored issuer without going through
-        // Capabilities.preferredDiscovered, so the vet has to sit on the read
-        // itself. Asserted through the pure overload, since discoveredIssuer()
-        // touches prefs: what this pins is that an unacceptable value passed as
-        // the discovered candidate still loses to nothing at all.
+        // The vet sits on the read rather than on the composition, because
+        // Auth.refresh() reaches the stored value through Auth.endpoint() and
+        // RoutingServer.issuer() without passing Capabilities.preferredDiscovered,
+        // which runs only at an interactive sign-in.
         noBakedDefaults()
-        val c = ServerConfig(url = "https://all.example", enabled = true)
-        assertEquals("", RoutingServer.issuer(c, discovered = ""))
-        // And the value the vet exists to catch, had it reached this far.
+        val poisoned = "http://localhost:8080@evil.example/realms/detour"
+        assertEquals("", RoutingServer.vettedIssuer(poisoned))
+        assertEquals("", RoutingServer.vettedIssuer(""))
         assertEquals(
-            "http://localhost:8080@evil.example/realms/detour",
-            RoutingServer.issuer(c, discovered = "http://localhost:8080@evil.example/realms/detour"),
+            "https://idp.example/realms/detour",
+            RoutingServer.vettedIssuer("https://idp.example/realms/detour"),
         )
-        // ^ deliberately NOT filtered here: issuer() composes candidates and does
-        // not judge them. The filtering is discoveredIssuer()'s job, and putting
-        // it in both places would hide which one is the control.
+        // issuer() composes candidates and does not judge them -- that is
+        // vettedIssuer's job, and putting the filter in both places would hide
+        // which one is the control.
+        val c = ServerConfig(url = "https://all.example", enabled = true)
+        assertEquals(poisoned, RoutingServer.issuer(c, discovered = poisoned))
     }
 
     @Test

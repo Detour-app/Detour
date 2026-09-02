@@ -18,11 +18,13 @@ internal data class ServerCapabilities(
 /**
  * One address, normalised for comparison: trimmed, with trailing slashes gone.
  *
- * Extracted because three call sites depend on agreeing exactly —
- * [Capabilities.parse], [RoutingServer.pick] and [Auth.idTokenIssuer] — and a
- * sign-in is refused when they disagree: a realm emitting a trailing slash in
- * `iss` would fail a comparison that is actually a match. Documentary agreement
- * was enough at two copies and is not at three.
+ * Two call sites share this today — [Capabilities.parse] and
+ * [RoutingServer.pick] — and a third is coming: `Auth.idTokenIssuer` will need
+ * the same rule to compare a `iss` claim against this same value. Given a home
+ * now rather than after that lands, because a sign-in is refused when the
+ * copies disagree — a realm emitting a trailing slash in `iss` would fail a
+ * comparison that is actually a match — and documentary agreement is enough at
+ * two copies but not at three.
  */
 internal fun normalisedAddress(raw: String): String = raw.trim().trimEnd('/')
 
@@ -59,11 +61,12 @@ internal object Capabilities {
         return ServerCapabilities(
             schema = schema,
             features = features,
-            // Shared with RoutingServer.pick and Auth.idTokenIssuer via
-            // normalisedAddress, rather than merely agreeing with them. Without
-            // this a discovered issuer and the identical typed one compare
-            // unequal, and the ID token's `iss` — which carries no trailing
-            // slash — would refuse a sign-in that is correct.
+            // Shared with RoutingServer.pick via normalisedAddress, and Task 6
+            // will route Auth.idTokenIssuer through the same function rather
+            // than a separate copy. Without this a discovered issuer and the
+            // identical typed one compare unequal, and the ID token's `iss` —
+            // which carries no trailing slash — would refuse a sign-in that is
+            // correct.
             idpIssuer = normalisedAddress(o.optObject("idp")?.optString("issuer").orEmpty()),
         )
     }
