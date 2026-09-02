@@ -20,6 +20,7 @@ import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleFixes
 import com.jellemax.detour.data.CirclePresence
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.data.MemberFix
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
@@ -432,9 +433,22 @@ class CarMapRenderer(
                 if (camLat.isNaN()) continue
 
                 targetPos?.let { target ->
-                    val a = 1.0 - exp(-dt / CAM_POS_TAU)
-                    camLat += (target.lat - camLat) * a
-                    camLon += (target.lon - camLon) * a
+                    if (MapMotion.shouldSnap(LatLon(camLat, camLon), target)) {
+                        // Too far to be continuous motion — the session was
+                        // backgrounded while the car kept driving, or the host
+                        // paused the surface. Easing across that distance walks the
+                        // camera over ground the driver never saw. Bearing and zoom
+                        // re-anchor with it so the whole camera teleports as one
+                        // rather than arriving and then rotating.
+                        camLat = target.lat
+                        camLon = target.lon
+                        targetBearing?.let { camBearing = it }
+                        camZoom = targetZoom
+                    } else {
+                        val a = 1.0 - exp(-dt / CAM_POS_TAU)
+                        camLat += (target.lat - camLat) * a
+                        camLon += (target.lon - camLon) * a
+                    }
                 }
                 targetBearing?.let { target ->
                     camBearing = smoothBearing(
