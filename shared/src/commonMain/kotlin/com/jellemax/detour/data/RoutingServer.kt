@@ -208,6 +208,21 @@ object RoutingServer {
     ): String = issuer(config, if (serverChanged(config, previous)) "" else discovered)
 
     /**
+     * Whether clearing the custom server changes which realm this device signs
+     * in to, given the [previous] config and the stored [discovered] issuer.
+     *
+     * Extracted from [clearCustom] for the same reason [issuerAfterSave] is
+     * extracted from [save]: the clear itself calls [Auth.clear] behind `prefs`
+     * and is unreachable from a unit test, but the comparison that drives it is
+     * the part worth protecting.
+     *
+     * The "after" side takes neither a config nor a discovered value because
+     * [clearCustom] drops both — what survives it is the baked default.
+     */
+    internal fun clearDropsSession(previous: ServerConfig?, discovered: String): Boolean =
+        issuer(null, "") != issuer(previous, discovered)
+
+    /**
      * Whether [config] points at a different API host than [previous].
      *
      * Extracted so [issuerAfterSave] and [save] cannot drift apart on it: both

@@ -2,6 +2,8 @@ package com.jellemax.detour.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * Covers how a request's base address is chosen in RoutingServer.kt.
@@ -187,6 +189,58 @@ class ServerResolutionTest {
             RoutingServer.issuer(before, discovered),
             RoutingServer.issuerAfterSave(after, before, discovered),
         )
+    }
+
+    @Test
+    fun removingTheCustomServerDropsASessionBoundToADiscoveredRealm() {
+        // The #106 shape: the rider never typed an issuer, so the realm they
+        // signed in against came from the server they are now removing.
+        noBakedDefaults()
+        assertTrue(
+            RoutingServer.clearDropsSession(
+                previous = ServerConfig(url = "https://mine.example", enabled = true),
+                discovered = "https://mine.example/realms/detour",
+            ),
+        )
+    }
+
+    @Test
+    fun removingTheCustomServerDropsASessionBoundToATypedRealm() {
+        // The pre-#106 form of the same defect: clearCustom() already dropped a
+        // typed idp_issuer without dropping the session it was bound to.
+        noBakedDefaults()
+        assertTrue(
+            RoutingServer.clearDropsSession(
+                previous = ServerConfig(
+                    url = "https://mine.example",
+                    idpIssuer = "https://typed.example/realms/detour",
+                    enabled = true,
+                ),
+                discovered = "",
+            ),
+        )
+    }
+
+    @Test
+    fun removingTheCustomServerKeepsASessionTheBakedRealmAlreadyMinted() {
+        // The rule recorded on Auth.sessionEpoch: a change that leaves the
+        // effective issuer alone must not sign the rider out. Written as a test
+        // so the fix cannot be simplified into an unconditional Auth.clear().
+        BuildDefaults.configure(idpIssuer = "https://same.example/realms/detour")
+        assertFalse(
+            RoutingServer.clearDropsSession(
+                previous = ServerConfig(url = "https://mine.example", enabled = true),
+                discovered = "https://same.example/realms/detour",
+            ),
+        )
+    }
+
+    @Test
+    fun removingNothingDropsNothing() {
+        // clearCustom() on an install that never had a custom server is a no-op,
+        // and must stay one — the settings screen can reach it in that state.
+        noBakedDefaults()
+        assertFalse(RoutingServer.clearDropsSession(previous = null, discovered = ""))
     }
 
     @Test
