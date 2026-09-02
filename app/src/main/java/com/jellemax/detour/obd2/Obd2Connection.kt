@@ -355,6 +355,11 @@ object Obd2Connection {
         // reports neither won't start mid-drive, and re-probing both every cycle is
         // a permanent extra request on the 1 Hz loop.
         var fuelProbe: PidProbe = PidProbe.Probing()
+        // Commanded lambda (0144): probe once, then poll every cycle like MAF —
+        // it varies with load. No fallback PID; an adapter that doesn't answer
+        // it leaves lambda at 1.0 (fuelRateFromMafLph's default) and the diesel
+        // estimate falls back to a density/AFR-only correction.
+        var lambdaProbe: PidProbe = PidProbe.Probing()
         // Speed changes fastest and is the one number the HUD eases toward, so it
         // is polled last of the three (freshest at the telemetry publish below)
         // and once more halfway through the inter-cycle wait. A first-order
@@ -388,6 +393,17 @@ object Obd2Connection {
             fuelProbe = fuelCycle.state
             val fuelResult = fuelCycle.result
 
+            val lambdaCycle = probePidCycle(
+                input, output, lambdaProbe,
+                primary = Obd2Pids.PID_EQUIV_RATIO, fallback = null,
+                maxCycles = PID_PROBE_MAX_CYCLES,
+            )
+            lambdaProbe = lambdaCycle.state
+            val lambda = lambdaCycle.result?.bytes
+                ?.let { Obd2Pids.parseCommandedEquivRatio(it) }
+                ?.takeIf { it > 0.0 }
+                ?: 1.0
+
             val speedResult = pollPid(input, output, Obd2Pids.PID_SPEED)
             val speed = parseSpeed(speedResult)
             val throttle = throttleResult.bytes?.let { Obd2Pids.parseThrottlePct(it) }
@@ -408,7 +424,7 @@ object Obd2Connection {
             // Clamp like speed/rpm — an all-0xFF 015E frame decodes to ~3276 L/h.
             val fuel = Obd2Pids.resolveFuelRate(
                 directLph, mafGps, throttleClosed, rpm, speed,
-                fuelType = fuelType, calibrationPct = calibrationPct,
+                fuelType = fuelType, lambda = lambda, calibrationPct = calibrationPct,
             )?.takeIf { it.lph <= MAX_PLAUSIBLE_FUEL_LPH }
 
             if (!speedResult.answered && !throttleResult.answered && !rpmResult.answered) {
