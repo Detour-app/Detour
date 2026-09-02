@@ -68,7 +68,10 @@ class UpdateCheckTest {
     // --- release parsing --------------------------------------------------
 
     /** Trimmed from the real response for maxke24/Detour v1.87.0, captured
-     *  2026-09-01. The asset list order and the wear entry are as published. */
+     *  2026-09-01, asset order as published. Releases from then still carry a
+     *  watch APK — Wear OS support was dropped in #57, long after v1.87.0 —
+     *  and an installed app still has to parse them, so the fixture keeps it
+     *  rather than describing a release GitHub does not have. */
     private fun releaseJson() = """
         {
           "tag_name": "v1.87.0",
@@ -126,13 +129,16 @@ class UpdateCheckTest {
      * Why selection is keyed by platform rather than by filename:
      * `detour-wear-1.87.0.apk` shares the `detour-` prefix with the phone
      * build, so any name-based match — the conventional-asset fallback below,
-     * or the glob this manifest replaces — could hand a phone the watch
-     * build. `artifactFor` looks up "android-phone" and "android-wear" as
-     * unrelated map keys, so this pins that the phone lookup never resolves
-     * to the wear entry.
+     * or the glob this manifest replaces — could hand a phone the wrong APK.
+     * `artifactFor` looks up unrelated map keys instead.
+     *
+     * CI stopped emitting `android-wear` when Wear OS support was dropped
+     * (#57), but the second entry stays in this fixture: it is what makes the
+     * assertion mean anything, and a manifest carrying a sibling platform is
+     * exactly what the next surface would produce.
      */
     @Test
-    fun thePhoneArtifactIsNeverTheWatchBuild() {
+    fun thePhoneArtifactIsNeverASiblingPlatformsBuild() {
         val m = UpdateCheck.parseManifest(manifestJson())
         assertNotNull(m)
         val phone = UpdateCheck.artifactFor(m, UpdateCheck.PLATFORM_ANDROID_PHONE)
