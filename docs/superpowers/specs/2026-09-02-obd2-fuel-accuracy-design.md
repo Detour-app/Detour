@@ -206,7 +206,8 @@ The "never in one commit" rules from
 
 **State** | **done** 2026-09-02, branch `refactor/obd2-probe-helper`. `probePidCycle`
 + the `PidProbe` sealed state replace both inline probe ladders in `pollLoop`
-(commits `ebc68f6` fuel-helper+tests, `111ee1e` fuel wiring, `b991c98` throttle
+(commits `ebc68f6` the `probePidCycle` primitive + tests + the constant rename,
+`111ee1e` fuel wiring, `b991c98` throttle
 wiring — the throttle probe picked up the fuel probe's cycle budget + stopped the
 idle 0145 re-poll, as called out); `cappedFixDtSec` folds the fuel + `secondsOverLimit`
 gap guards (`c3f4326`), operands still the GPS clock. Plan:

@@ -282,8 +282,9 @@ object Obd2Connection {
     }
 
     /** The outcome of one [probePidCycle]: the slot's new [state] and this cycle's
-     *  reading for it. [result] is null only while [PidProbe.Unsupported] (nothing
-     *  is polled) or on a bare timeout that left the slot still [PidProbe.Probing]. */
+     *  reading for it. [result] is the poll reading only on a cycle that latches (or
+     *  is already [PidProbe.Latched]); it is null on any cycle that does not latch —
+     *  [PidProbe.Unsupported], or still [PidProbe.Probing]. */
     internal data class ProbeCycle(val state: PidProbe, val result: PollResult?)
 
     /**

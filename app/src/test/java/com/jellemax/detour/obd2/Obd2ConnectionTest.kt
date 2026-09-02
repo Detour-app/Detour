@@ -342,6 +342,21 @@ class Obd2ConnectionTest {
     }
 
     @Test
+    fun probeKeepsProbingWhenPrimaryUnsupportedButFallbackTimesOutWithBudgetLeft() {
+        // Primary (015E) answers "NO DATA"; the fallback (0110) poll then bare-times-out
+        // this cycle. Budget remains, so the slot stays Probing and retries next cycle
+        // rather than concluding either PID is unsupported.
+        val input = SequentialResponseStream(listOf("NO DATA\r\r>"))
+        val cycle = Obd2Connection.probePidCycle(
+            input, ByteArrayOutputStream(), PROBING,
+            primary = Obd2Pids.PID_FUEL_RATE, fallback = Obd2Pids.PID_MAF,
+            maxCycles = Obd2Connection.PID_PROBE_MAX_CYCLES,
+        )
+        assertEquals(Obd2Connection.PidProbe.Probing(cycles = 1), cycle.state)
+        assertNull(cycle.result)
+    }
+
+    @Test
     fun probeForcesResolutionWhenTheCycleBudgetIsSpent() {
         // Budget spent and primary still just times out: force the fallback, and
         // with the fallback also silent, give up rather than probe 015E forever.

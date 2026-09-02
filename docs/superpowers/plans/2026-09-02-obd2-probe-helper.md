@@ -751,7 +751,7 @@ with:
 - [ ] **Step 7: Full suites + build**
 
 Run: `./gradlew :app:testDebugUnitTest :shared:testDebugUnitTest :app:assembleDebug :app:assembleRelease` (`:app:lintDebug` is pre-existing-red on `notif/PlaceNotifications.kt`, untouched here — not a gate)
-Expected: all green. Grep-check: `grep -c '15_000' app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt` ⇒ **1** (only the trace-distance guard `:~1332` keeps a `1..15_000` literal; the fuel and over-limit sites, and the old fuel comment that spelled out `in 1..15_000`, are all gone).
+Expected: all green. Grep-check: `grep -c '15_000' app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt` ⇒ **3** (the untouched trace-distance guard `:~1332` keeps its `1..15_000` literal, and the new `cappedFixDtSec` adds two — its KDoc and its `1L..15_000L` body; the fuel and over-limit call sites, and the old fuel comment that spelled out `in 1..15_000`, are all gone).
 
 - [ ] **Step 8: Commit**
 
