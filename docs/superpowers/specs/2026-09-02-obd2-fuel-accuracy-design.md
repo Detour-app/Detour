@@ -423,9 +423,12 @@ clock — independent of this, ships separately.
 ## Stage 3 — OBD-clock Δt for the fuel integrator and hard-event detectors
 
 **State** | **done** 2026-09-02, branch `fix/obd2-telemetry-dt` (PR stacks on #126).
-The fuel integrator now measures its gap on `obd.receivedAtMs` deltas (a batched
-GPS burst shares one `location.time`; the fuel readings across it did not); and
-`HardEventDetector.onSpeedFix` / `StopDetector.onFix` take an OBD-clock `fixMs`
+The fuel integrator now measures its gap on `obd.receivedAtMs` deltas —
+`fuelRateLph` was valid at that instant, the ~1 Hz OBD poll cadence is not the
+GPS fix cadence, and the integral keeps advancing correctly through a short
+GPS-staleness window (a redelivered stale fix freezes `location.time`) while the
+adapter stays alive; and `HardEventDetector.onSpeedFix` / `StopDetector.onFix`
+take an OBD-clock `fixMs`
 when `effectiveSpeedMps` is the adapter's reading, so PID 0D's 0–1000 ms arrival
 jitter lands in the Δt instead of being flattened to a nominal second. **Deviation
 from the Scope bullet:** `onHeadingFix` is kept on `location.time` — its signal is

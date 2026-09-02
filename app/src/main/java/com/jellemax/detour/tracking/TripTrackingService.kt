@@ -1424,9 +1424,12 @@ class TripTrackingService : Service() {
                 // RPM above: this fix's L/h held over the gap since the last fuel
                 // sample, dropped (not saturated) when that gap is outside 1..15s.
                 // The gap is measured on the OBD reading's own arrival clock
-                // (receivedAtMs), not the GPS fix clock — a batched burst of
-                // GPS fixes shares one location.time but the fuel readings that
-                // arrived across it did not (#98).
+                // (receivedAtMs), not the GPS fix clock: fuelRateLph was valid at
+                // that instant, and the ~1 Hz OBD poll cadence is not the GPS
+                // fix cadence. It also keeps integrating correctly through a
+                // short GPS-staleness window (a redelivered stale fix freezes
+                // location.time) as long as the adapter is alive and the gap is
+                // inside the 15s cap (#98).
                 val fixMs = obd.receivedAtMs
                 cappedFixDtSec(fixMs, lastFuelSampleMs)?.let { dtSec ->
                     fuelMlAccum += obd.fuelRateLph * (1000.0 / 3600.0) * dtSec
