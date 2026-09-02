@@ -208,6 +208,21 @@ object RoutingServer {
     ): String = issuer(config, if (serverChanged(config, previous)) "" else discovered)
 
     /**
+     * Whether clearing the custom server changes which realm this device signs
+     * in to, given the [previous] config and the stored [discovered] issuer.
+     *
+     * Extracted from [clearCustom] for the same reason [issuerAfterSave] is
+     * extracted from [save]: [clearCustom] reaches [Auth.clear] through `prefs`
+     * and is unreachable from a unit test, but the comparison that drives it is
+     * the part worth protecting.
+     *
+     * The "after" side takes neither a config nor a discovered value because
+     * [clearCustom] drops both — what survives it is the baked default.
+     */
+    internal fun clearDropsSession(previous: ServerConfig?, discovered: String): Boolean =
+        issuer(null, "") != issuer(previous, discovered)
+
+    /**
      * Whether [config] points at a different API host than [previous].
      *
      * Extracted so [issuerAfterSave] and [save] cannot drift apart on it: both
@@ -338,6 +353,18 @@ object RoutingServer {
     /** Clearing the secure store wholesale would take the session with it, so the two
      *  Cloudflare keys are removed by name. */
     fun clearCustom() {
+        // Read before the wipe: both inputs live in the prefs this is about to
+        // clear. And cleared above it, not below, matching the discipline [save]
+        // documents for its own eviction — each put/remove is its own async
+        // commit on Android, so a process death between them must not be able to
+        // leave a cleared config paired with a live session.
+        //
+        // The rule is [save]'s: tokens are minted by one realm and meaningless to
+        // another, and a refresh presented to the wrong realm reads as a replay
+        // rather than as a mistake. Dropping the custom server is a realm change
+        // whenever what it resolved to differs from the baked default.
+        if (clearDropsSession(loadCustom(), discoveredIssuer())) Auth.clear()
+
         prefs(PREFS).clear()
         securePrefs().apply {
             CredentialMigration.SERVER_GROUP.keys.forEach { remove(it.name) }
