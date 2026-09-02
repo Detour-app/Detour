@@ -217,7 +217,7 @@ git merge-base --is-ancestor origin/main HEAD || echo "FAIL: not on the #114 bra
 grep -c 'var throttlePid: String? = null' $M          # expect 1
 grep -c 'var fuelPid: String? = null' $M              # expect 1
 grep -c 'FUEL_PROBE_MAX_CYCLES' $M                    # expect >= 3
-grep -c 'probeLatchedPid' $M                          # expect 0  (helper does not exist yet)
+grep -c 'probePidCycle' $M                            # expect 0  (helper does not exist yet)
 grep -c '15_000' $T                                   # expect 4  (trace-distance + fuel + secondsOverLimit guards, plus 1 comment referencing them)
 grep -c 'cappedFixDtSec' $T                           # expect 0
 ```
@@ -233,19 +233,22 @@ answered-unsupported and has no budget. A third copy is not acceptable.
 
 ### Scope
 
-- New `private fun probeLatchedPid(input, output, state, primary, fallback, giveUp, ...)`
-  in `Obd2Connection`, collapsing both probe blocks. Signature carries the
-  per-connection latch state (an enum or a small holder), the primary PID, an
-  optional `fallback` PID (null ⇒ no fallback, e.g. lambda), a `giveUp`
-  sentinel, and the shared cycle budget (`FUEL_PROBE_MAX_CYCLES`, rename to
-  `PID_PROBE_MAX_CYCLES`).
+- New `internal fun probePidCycle(input, output, state, primary, fallback, maxCycles)`
+  in `Obd2Connection`, collapsing both probe blocks. It runs one poll cycle and
+  returns `(newState, PollResult?)`. State is a `PidProbe` sealed interface —
+  `Probing(cycles)` / `Latched(pid)` / `Unsupported` — which replaces the two
+  ad-hoc sentinels (`null` / `""` for fuel, a re-latched real PID for throttle).
+  `fallback` is nullable (lambda has no alternative PID). Shared cycle budget
+  `FUEL_PROBE_MAX_CYCLES` renamed `PID_PROBE_MAX_CYCLES`. Exact signature and
+  the equivalence argument are in the plan.
 - Rewrite the `throttlePid` and `fuelPid` blocks to call it. The throttle
   probe **gains** the fuel probe's robustness — a budget, and no give-up latch
   on a bare timeout. This is the one intended behaviour delta in an otherwise
   structural stage; it is a strict hardening (a transient can no longer
   misclassify throttle support) and is called out in the PR body.
-- New `private fun cappedFixDtSec(nowMs: Long, lastMs: Long): Double?` in
-  `TripTrackingService` — returns the gap in seconds when `lastMs > 0` and the
+- New top-level `internal fun cappedFixDtSec(nowMs: Long, lastMs: Long): Double?`
+  in `TripTrackingService.kt` (beside `obdSpeedMpsFrom` / `pickObd2Address`, so
+  it is unit-testable) — returns the gap in seconds when `lastMs > 0` and the
   gap is in `1..15_000` ms, else null. Fold the **fuel** (`:1421`) and
   **secondsOverLimit** (`:1497`) sites onto it. Leave the trace-distance gate
   (`:1332`) alone — it keys off the GPS fix clock deliberately and stage 3
@@ -261,7 +264,7 @@ answered-unsupported and has no budget. A third copy is not acceptable.
 
 ### Work items
 
-1. `probeLatchedPid` helper + `PID_PROBE_MAX_CYCLES` rename — helper added, not
+1. `probePidCycle` helper + `PidProbe` state + `PID_PROBE_MAX_CYCLES` rename — added, not
    yet called. Compiles, unused-function warning expected.
 2. Route `fuelPid` through the helper. `Obd2ConnectionTest` green.
 3. Route `throttlePid` through the helper (carries the behaviour delta).
@@ -272,7 +275,7 @@ answered-unsupported and has no budget. A third copy is not acceptable.
 
 ### Done criteria and verification
 
-- `grep -c 'probeLatchedPid' $M` ⇒ 3 (definition + two call sites).
+- `grep -c 'probePidCycle' $M` ⇒ 3 (definition + two call sites).
 - `grep -c 'var fuelPid\|var throttlePid' $M` unchanged shape or replaced by the
   holder — the two ad-hoc `when` ladders gone.
 - `./gradlew :app:testDebugUnitTest :shared:testDebugUnitTest` green.
@@ -307,7 +310,7 @@ P=shared/src/commonMain/kotlin/com/jellemax/detour/drive/Obd2Pids.kt
 S=shared/src/commonMain/kotlin/com/jellemax/detour/data/Settings.kt
 M=app/src/main/java/com/jellemax/detour/obd2/Obd2Connection.kt
 
-grep -c 'probeLatchedPid' $M                          # expect 3   (stage 1 landed)
+grep -c 'probePidCycle' $M                            # expect 3   (stage 1 landed)
 grep -c 'STOICH_AFR_PETROL' $P                        # expect 2   (still petrol-only)
 grep -c 'fun fuelRateFromMafLph(mafGramsPerSec: Double)' $P   # expect 1  (old signature)
 grep -c 'enum class FuelType' $P $S                   # expect 0
@@ -331,8 +334,8 @@ grep -c 'obd2Address.*takeIf.*isNotBlank' $S          # expect >= 1  (decode pat
     the petrol number.
   - `resolveFuelRate(...)` gains `fuelType`, `lambda`, `calibrationPct` and
     threads them into the non-cut branch (`:112`).
-- `Obd2Connection.pollLoop`: probe + per-cycle poll 0144 via `probeLatchedPid`
-  (no fallback PID, `giveUp` sentinel). Feed the parsed λ (or 1.0) plus the
+- `Obd2Connection.pollLoop`: probe + per-cycle poll 0144 via `probePidCycle`
+  (fallback = null). Feed the parsed λ (or 1.0) plus the
   trip vehicle's `fuelType` / `fuelCalibrationPct` into `resolveFuelRate`.
   - the vehicle config reaches `Obd2Connection` the same way the target
     address does — `Obd2Connection.connect(context, address)` already knows
