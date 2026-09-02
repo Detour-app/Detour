@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -31,6 +32,7 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.obd2.Obd2Connection
 import com.jellemax.detour.obd2.Obd2ConnectionState
 import com.jellemax.detour.obd2.Obd2Failure
+import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.delay
 
 /**
@@ -57,6 +59,25 @@ fun Obd2PairingScreen() {
         while (true) {
             nowMs = System.currentTimeMillis()
             delay(1_000)
+        }
+    }
+
+    // The service only holds the OBD2 link during a trip or with the map up
+    // (see reconcileObd2Connections); this screen is neither, so open the
+    // readout link ourselves while it is on screen. `readoutAddress` is the
+    // same adapter the "Retry now" button targets. On exit, hand back to the
+    // service — but leave a link it still wants (a trip is running) alone.
+    val readoutAddress = mapping.values.firstNotNullOfOrNull { it.obd2Address }
+    DisposableEffect(readoutAddress) {
+        if (readoutAddress != null && Obd2Connection.linkedAddress.value == null) {
+            Obd2Connection.connect(context.applicationContext, readoutAddress)
+        }
+        onDispose {
+            if (Obd2Connection.linkedAddress.value == readoutAddress &&
+                !TripTrackingService.obdWantedByService()
+            ) {
+                Obd2Connection.disconnect()
+            }
         }
     }
 
