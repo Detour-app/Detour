@@ -86,6 +86,18 @@ object RoutingServer {
     // same value would just be a second way to get it wrong.
     internal const val PREFS = "routing_server"
 
+    /**
+     * The realm the API server stated on its last successful probe.
+     *
+     * Not part of [ServerConfig], which stays the rider's own input. This is
+     * *not* a cache in front of the probe — an interactive sign-in always asks
+     * the server again, so a realm that moved cannot produce a 404 on an
+     * authorize URL built from a stale value. What it is for is [Auth.refresh],
+     * which runs on a cold start that may have no network and still has to
+     * build a token endpoint from something.
+     */
+    private const val KEY_DISCOVERED_ISSUER = "idp_issuer_discovered"
+
     fun bakedDefaults(): ServerConfig = ServerConfig(
         url = BuildDefaults.routingUrl,
         apiUrl = BuildDefaults.apiUrl,
@@ -108,7 +120,7 @@ object RoutingServer {
      * which answers 404 rather than a search result.
      */
     private fun pick(vararg candidates: String): String =
-        candidates.firstOrNull { it.isNotBlank() }?.trim()?.trimEnd('/') ?: ""
+        candidates.firstOrNull { it.isNotBlank() }?.let { normalisedAddress(it) } ?: ""
 
     /** Base of the sync + social API, which serves everything under `/api`. */
     fun apiBase(custom: ServerConfig?): String =
@@ -130,8 +142,60 @@ object RoutingServer {
      * exchange at a host with no discovery document — which surfaces as sign-in
      * appearing to work and the app landing back on "not signed in".
      */
-    fun issuer(custom: ServerConfig?): String =
-        pick(custom?.idpIssuer ?: "", BuildDefaults.idpIssuer)
+    fun issuer(custom: ServerConfig?): String = issuer(custom, discoveredIssuer())
+
+    /**
+     * `internal` with the discovered value passed in, for the same reason
+     * [Oidc.begin] has an overload taking the issuer: reading it means touching
+     * `prefs`, and `prefs` reaches a Context that does not exist in a unit test.
+     * The precedence order lives here so a test can assert it.
+     *
+     * [discovered] sits between the typed value and the baked one on purpose. A
+     * rider who typed an address is overruling their server deliberately and
+     * keeps winning; a rider who pointed at their own server should reach their
+     * own realm rather than whichever one this build was compiled against.
+     */
+    internal fun issuer(custom: ServerConfig?, discovered: String): String =
+        pick(custom?.idpIssuer ?: "", discovered, BuildDefaults.idpIssuer)
+
+    /**
+     * What is actually on disk, unvetted. Only [discoveredIssuer] and
+     * [rememberDiscoveredIssuer] may call this — the first to vet it, the second
+     * to evict it. Everything else must read through [discoveredIssuer].
+     */
+    private fun storedIssuerRaw(): String = prefs(PREFS).string(KEY_DISCOVERED_ISSUER)
+
+    /**
+     * The realm the API server last stated, or blank. See [rememberDiscoveredIssuer].
+     *
+     * Vetted on **read**, not only on write, and that placement is load-bearing
+     * rather than belt-and-braces. This is the single read point for the stored
+     * issuer, and [Auth.refresh] reaches it through [Auth.endpoint] on a cold
+     * start without going anywhere near [Capabilities.preferredDiscovered],
+     * which runs only at an interactive sign-in. Vetting at the sign-in read
+     * alone would leave a value written by an older, looser build receiving a
+     * refresh token on every launch, forever.
+     */
+    internal fun discoveredIssuer(): String =
+        storedIssuerRaw().takeIf { Capabilities.acceptable(it) } ?: ""
+
+    /**
+     * The effective issuer a [save] of [config] would leave behind, given the
+     * currently stored [discovered] value and the [previous] config.
+     *
+     * Extracted from [save] so it can be asserted: the clear itself calls
+     * [Auth.clear] behind `prefs` and is unreachable from a unit test, but the
+     * comparison that drives it is the part worth protecting.
+     *
+     * The rule is that a new API address discards the discovered issuer, since
+     * it belonged to the server that stated it. Carried across it would aim
+     * sign-in at the old deployment's realm.
+     */
+    internal fun issuerAfterSave(
+        config: ServerConfig,
+        previous: ServerConfig?,
+        discovered: String,
+    ): String = issuer(config, if (apiBase(config) != apiBase(previous)) "" else discovered)
 
     /** The user's own server settings, or null when using built-in defaults. */
     fun loadCustom(): ServerConfig? {
@@ -161,13 +225,20 @@ object RoutingServer {
     }
 
     fun save(config: ServerConfig) {
+        val previous = loadCustom()
+        val discovered = discoveredIssuer()
+        val serverChanged = apiBase(config) != apiBase(previous)
+
         // Tokens are minted by one realm and meaningless to another, and a
         // refresh presented to the wrong realm reads as a replay rather than as
-        // a mistake. Dropping the session here rather than in each platform's
-        // settings screen keeps the rule in one place — Auth.clear() is local
-        // only, which is what this needs: the old realm is already unreachable
-        // by the time the new issuer is saved.
-        if (issuer(config) != issuer(loadCustom())) Auth.clear()
+        // a mistake. Compared on the *effective* issuer, which is why the
+        // discarded discovered value is folded in through [issuerAfterSave]: a
+        // rider whose only issuer was discovered, changing servers, is changing
+        // realms. A server switch that leaves the effective issuer alone still
+        // does not clear — see the note on [Auth.sessionEpoch].
+        if (issuerAfterSave(config, previous, discovered) != issuer(previous, discovered)) {
+            Auth.clear()
+        }
 
         prefs(PREFS).apply {
             put("saved", true)
@@ -176,11 +247,44 @@ object RoutingServer {
             put("routing_url", config.routingUrl.trim())
             put("geocoder_url", config.geocoderUrl.trim())
             put("idp_issuer", config.idpIssuer.trim())
+            if (serverChanged) remove(KEY_DISCOVERED_ISSUER)
         }
         securePrefs().apply {
             put("clientId", config.clientId.trim())
             put("clientSecret", config.clientSecret.trim())
         }
+    }
+
+    /**
+     * Records the realm the API server just stated, dropping the session if
+     * that changes which realm this device signs in to.
+     *
+     * The clear goes through the same rule [save] applies, and for the same
+     * reason: a refresh token presented to a realm that did not mint it reads
+     * as a replay. Cheap to call with an unchanged value, which is the common
+     * case, since every interactive sign-in probes.
+     */
+    internal fun rememberDiscoveredIssuer(discovered: String) {
+        val previous = discoveredIssuer()
+        val custom = loadCustom()
+
+        // A blank argument evicts rather than returning early. Blank means the
+        // probe found nothing usable, and that includes the case where what was
+        // already stored is no longer acceptable — so returning early here would
+        // strand exactly the value the caller just refused. Compared on the raw
+        // read, because a value the vetted read already filters to blank still
+        // occupies the key and should still go.
+        if (discovered.isBlank()) {
+            if (storedIssuerRaw().isNotEmpty()) {
+                if (issuer(custom, "") != issuer(custom, previous)) Auth.clear()
+                prefs(PREFS).remove(KEY_DISCOVERED_ISSUER)
+            }
+            return
+        }
+
+        if (discovered == previous) return
+        if (issuer(custom, discovered) != issuer(custom, previous)) Auth.clear()
+        prefs(PREFS).put(KEY_DISCOVERED_ISSUER, discovered)
     }
 
     /** Clearing the secure store wholesale would take the session with it, so the two
@@ -192,8 +296,15 @@ object RoutingServer {
         }
     }
 
-    /** Cloudflare Access service-token headers, absent when not behind Access. */
-    private fun headers(config: ServerConfig): Map<String, String> = buildMap {
+    /**
+     * Cloudflare Access service-token headers, absent when not behind Access.
+     *
+     * `internal` rather than private because the capability probe needs the
+     * same ones: without them an Access-fronted deployment answers the probe
+     * with its own sign-in page, and the app would read that as "this server
+     * has no capability endpoint".
+     */
+    internal fun accessHeaders(config: ServerConfig): Map<String, String> = buildMap {
         put("User-Agent", "Detour/${BuildDefaults.versionName}")
         if (config.clientId.isNotBlank()) {
             put("CF-Access-Client-Id", config.clientId)
@@ -382,7 +493,7 @@ object RoutingServer {
                 method = if (postBody != null) "POST" else "GET",
                 url = url,
                 body = postBody,
-                headers = headers(config),
+                headers = accessHeaders(config),
                 readTimeoutMs = 20_000,
             )
         } catch (e: HttpStatusException) {
@@ -483,7 +594,7 @@ object RoutingServer {
             "&point=${to.lat},${to.lon}" +
             "&points_encoded=false"
         val body = try {
-            Http.get(url, headers(config), readTimeoutMs = 15_000)
+            Http.get(url, accessHeaders(config), readTimeoutMs = 15_000)
         } catch (e: HttpStatusException) {
             return null // unroutable target: caller retries
         }

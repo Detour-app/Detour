@@ -16,6 +16,17 @@ internal data class ServerCapabilities(
 )
 
 /**
+ * One address, normalised for comparison: trimmed, with trailing slashes gone.
+ *
+ * Extracted because three call sites depend on agreeing exactly —
+ * [Capabilities.parse], [RoutingServer.pick] and [Auth.idTokenIssuer] — and a
+ * sign-in is refused when they disagree: a realm emitting a trailing slash in
+ * `iss` would fail a comparison that is actually a match. Documentary agreement
+ * was enough at two copies and is not at three.
+ */
+internal fun normalisedAddress(raw: String): String = raw.trim().trimEnd('/')
+
+/**
  * Asking a deployment which realm to sign in against, instead of the rider
  * typing an address their server already knows.
  *
@@ -48,11 +59,12 @@ internal object Capabilities {
         return ServerCapabilities(
             schema = schema,
             features = features,
-            // Normalised exactly as RoutingServer.pick normalises a typed
-            // address. Without this a discovered issuer and the identical typed
-            // one compare unequal, and the ID token's `iss` — which carries no
-            // trailing slash — would refuse a sign-in that is correct.
-            idpIssuer = o.optObject("idp")?.optString("issuer").orEmpty().trim().trimEnd('/'),
+            // Shared with RoutingServer.pick and Auth.idTokenIssuer via
+            // normalisedAddress, rather than merely agreeing with them. Without
+            // this a discovered issuer and the identical typed one compare
+            // unequal, and the ID token's `iss` — which carries no trailing
+            // slash — would refuse a sign-in that is correct.
+            idpIssuer = normalisedAddress(o.optObject("idp")?.optString("issuer").orEmpty()),
         )
     }
 
@@ -124,11 +136,11 @@ internal object Capabilities {
      */
     fun preferredDiscovered(fetched: String, stored: String): String = when {
         fetched.isNotBlank() && acceptable(fetched) -> fetched
-        // Vetted again on the way out, not only on the way in. The store is
-        // written by one caller today and only ever with a value that passed
-        // this check, but nothing on the Auth.refresh() path re-vets it and the
-        // store survives until the API address changes — so a value written
-        // under looser rules would otherwise outlive the tightening.
+        // Vetted again on the way out, not only on the way in. RoutingServer's
+        // discoveredIssuer() now also vets on read, which is what actually
+        // guards the Auth.refresh() path -- this re-vet is redundant with that
+        // and kept anyway, so this function stays correct read in isolation
+        // rather than depending on a caller applying the same check.
         stored.isNotBlank() && acceptable(stored) -> stored
         else -> ""
     }
