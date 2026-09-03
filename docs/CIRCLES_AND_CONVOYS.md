@@ -292,8 +292,9 @@ Cadences, and why:
 | Tick | Interval | Why |
 |---|---|---|
 | Convoy position | ~2 s | It is a live ride feed; anything slower reads as a frozen map |
-| Circle position + geofence check | 2 min | Presence, not a trail. "Last seen" stays current without a cost anyone notices |
-| Circle tick with no circle to share with | 30 min | What a rider who never touches the feature pays, and the delay before their first circle starts working |
+| Circle position + geofence check, tracker up | 2 min | Presence, not a trail. "Last seen" stays current without a cost anyone notices, and the tick is a second sink on a location stream a trip, a joined convoy or a foregrounded map already pays for |
+| Circle position + geofence check, parked | 15 min | Not a battery choice — WorkManager's minimum period. Since #90 `TripTrackingService` stops while parked, so `CircleSyncWorker` carries the tick, and 15 min is the shortest period the platform allows for periodic work |
+| Circle tick with no circle to share with | 30 min, tracker up | What a rider who never touches the feature pays, and the delay before their first circle starts working. Parked, they get the 15-minute floor instead: `tick()` returns this longer interval but `CircleSyncWorker`'s period is fixed, so the backoff has nothing to act on |
 
 Transport follows from that: a circle at minute cadence does not justify holding
 a socket open all day, so the low-cadence path is a plain `POST` of the latest
