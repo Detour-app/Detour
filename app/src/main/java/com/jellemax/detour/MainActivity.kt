@@ -46,6 +46,7 @@ import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
 import com.jellemax.detour.data.UpdateClient
 import com.jellemax.detour.notif.CircleNotifyService
+import com.jellemax.detour.notif.CircleSyncWorker
 import com.jellemax.detour.notif.PendingCircleOpen
 import com.jellemax.detour.notif.PendingTripOpen
 import com.jellemax.detour.notif.PlaceNotifications
@@ -92,6 +93,7 @@ class MainActivity : ComponentActivity() {
         // every app start, same as TripTrackingService.startMonitoring's own
         // call site would be if MapScreen didn't already own that one.
         ColdStartTiming.timed("CircleNotifyService.refresh") { CircleNotifyService.refresh(this) }
+        CircleSyncWorker.schedule(this)
         // MapLibre must be initialised before any MapView is created. No API key:
         // OpenFreeMap tiles are keyless, so no token provider is needed.
         ColdStartTiming.timed("MapLibre.getInstance") { MapLibre.getInstance(this) }

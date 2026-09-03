@@ -13,6 +13,21 @@ import UIKit
 @MainActor
 final class LocationBroadcast {
 
+    /// The two clocks `publish` and `lastSample` read. Injected rather than
+    /// called directly so the age arithmetic is unit-testable — see
+    /// `LocationBroadcastTests` (#124). Production always uses `.system`.
+    struct Clock {
+        /// A monotonic seconds counter; `ProcessInfo.systemUptime` in production.
+        var uptime: () -> TimeInterval
+        /// Wall time, read once per fix to back-date it by the delivery lag.
+        var wallNow: () -> Date
+
+        static let system = Clock(
+            uptime: { ProcessInfo.processInfo.systemUptime },
+            wallNow: { Date() }
+        )
+    }
+
     /// A fix together with how old it is, read as one value.
     ///
     /// One value rather than two properties because the age belongs to *this*
@@ -28,7 +43,15 @@ final class LocationBroadcast {
 
     static let shared = LocationBroadcast()
 
-    private init() {
+    private let clock: Clock
+
+    /// The `didBecomeActiveNotification` registration, released on deinit so a
+    /// short-lived instance (a test's) does not leave one behind.
+    private var foregroundObserver: NSObjectProtocol?
+
+    init(clock: Clock = .system) {
+        self.clock = clock
+
         // `systemUptime` freezes while the device is suspended, so a fix held
         // across a sleep would report an age far short of the truth and could
         // pass a staleness gate it should have failed. There is no public iOS
@@ -37,12 +60,23 @@ final class LocationBroadcast {
         // tick, which is the safe direction — until the next fix re-stamps the
         // clock. A resume with a fresh fix already in hand re-stamps it in
         // `publish` before this fires and loses nothing. #123
-        NotificationCenter.default.addObserver(
+        //
+        // Clears *this* instance rather than `LocationBroadcast.shared`: the
+        // injectable clock (#124) means `shared` is no longer the only
+        // instance, and an instance clearing the singleton's state would be
+        // reaching across to an object it does not own.
+        foregroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
-        ) { _ in
-            MainActor.assumeIsolated { LocationBroadcast.shared.lastFixUptime = nil }
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.lastFixUptime = nil }
+        }
+    }
+
+    deinit {
+        if let foregroundObserver {
+            NotificationCenter.default.removeObserver(foregroundObserver)
         }
     }
 
@@ -67,8 +101,8 @@ final class LocationBroadcast {
         //
         // Clamped at zero because a clock correction landing inside that
         // sub-second window would otherwise stamp the fix in the future.
-        let deliveryLagSeconds = max(0, Date().timeIntervalSince(fix.timestamp))
-        lastFixUptime = ProcessInfo.processInfo.systemUptime - deliveryLagSeconds
+        let deliveryLagSeconds = max(0, clock.wallNow().timeIntervalSince(fix.timestamp))
+        lastFixUptime = clock.uptime() - deliveryLagSeconds
 
         for continuation in continuations.values { continuation.yield(fix) }
     }
@@ -83,7 +117,7 @@ final class LocationBroadcast {
     /// the clock. #123
     var lastSample: Sample? {
         guard let last, let lastFixUptime else { return nil }
-        let ageSeconds = max(0, ProcessInfo.processInfo.systemUptime - lastFixUptime)
+        let ageSeconds = max(0, clock.uptime() - lastFixUptime)
         return Sample(fix: last, ageMs: Int64(ageSeconds * 1000))
     }
 

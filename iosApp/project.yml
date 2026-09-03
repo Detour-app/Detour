@@ -76,3 +76,32 @@ targets:
             -Pxcode.configuration="${CONFIGURATION}" \
             -Pxcode.sdk="${SDK_NAME}"
         basedOnDependencyAnalysis: false
+    # The generated `Detour` scheme's Test action runs DetourTests. XcodeGen
+    # auto-creates the scheme; this only adds the test bundle to it, so
+    # `xcodebuild test -scheme Detour` picks it up (see .github/workflows/ios.yml).
+    scheme:
+      testTargets:
+        - DetourTests
+
+  # The repo's only Swift test target (#124). Everything else in iosApp/ is
+  # verified by compilation and review. A hosted unit-test bundle: it links the
+  # app so a test can `@testable import Detour` and reach any file, at the cost
+  # of needing a booted simulator to run.
+  DetourTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: DetourTests
+    dependencies:
+      # Sets TEST_HOST and BUNDLE_LOADER to the app automatically.
+      - target: Detour
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.maxke24.detour.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.9"
+        # The app links DetourShared this way; the test bundle inherits the
+        # search path so `@testable import Detour` resolves the framework too.
+        FRAMEWORK_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/../shared/build/xcode-frameworks

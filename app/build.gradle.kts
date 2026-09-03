@@ -224,6 +224,12 @@ dependencies {
     // transitive graph — it is the host half of a library the app already uses.
     "automotiveImplementation"("androidx.car.app:app-automotive:1.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+    // Parked-state circle position sync (#90): the 2-min loop inside
+    // TripTrackingService dies when the service stops while parked, so a
+    // 15-min periodic worker carries the "still here" post + on-device
+    // circle geofence evaluation from then on. WorkManager's own persistence
+    // survives reboot.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
     // WebSocket client for the convoy live-location/PTT relay - Android has
     // no built-in WS client and hand-rolling RFC 6455 framing isn't worth it.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
