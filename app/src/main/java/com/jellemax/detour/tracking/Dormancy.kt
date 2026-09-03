@@ -13,11 +13,12 @@ enum class DormancyDecision {
 
 /**
  * The stop-path decision. Ordered so that anything actively using the service
- * wins first; then auto-detect being off ends the service unconditionally
- * (issue #90 AC 2 — "no service and no geofence registered at all"); then a
- * stationary phone with auto-detect on parks behind a geofence; otherwise the
- * rider is moving on foot and the service stays up in IDLE to catch a drive
- * starting.
+ * wins first — a running trip, a joined convoy or a visible map keeps it up
+ * whatever [autoDetect] says; then auto-detect being off ends the service in
+ * every remaining case (issue #90 AC 2 — "no service and no geofence
+ * registered at all"); then a stationary phone with auto-detect on parks
+ * behind a geofence; otherwise the rider is moving on foot and the service
+ * stays up in IDLE to catch a drive starting.
  */
 fun dormancyDecision(
     autoDetect: Boolean,
