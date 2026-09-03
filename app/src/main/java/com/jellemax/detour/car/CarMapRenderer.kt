@@ -21,12 +21,16 @@ import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleFixes
 import com.jellemax.detour.data.CirclePresence
 import com.jellemax.detour.data.LatLon
-import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.data.MemberFix
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.drive.FriendPosition
 import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
+import com.jellemax.detour.map.CAM_BEARING_TAU
+import com.jellemax.detour.map.MapMotion
+import com.jellemax.detour.map.bearingDelta
+import com.jellemax.detour.map.smoothBearing
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.ui.MapOverlays
 import com.jellemax.detour.ui.PositionMarker
@@ -45,7 +49,6 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
-import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
@@ -56,22 +59,16 @@ import kotlin.math.min
 // moves when a fix lands reads as a broken app even when the fix behind it is
 // current — on the car screen doubly so, because there is nothing else on it.
 private const val CAM_POS_TAU = 0.35
-private const val CAM_BEARING_TAU = 0.5
 private const val CAM_ZOOM_TAU = 1.2
+// CAM_BEARING_TAU and CAM_BEARING_EPS_DEG (the marker's own tenth-of-a-degree
+// redraw gate) come from map/BearingMath.kt — shared with MapMotion.shouldPush
+// and the phone loop, so a retune can't split the camera from the marker.
 
 // Driven by a plain timer rather than Choreographer/withFrameNanos: the map
 // lives on a VirtualDisplay that keeps running with the phone's own screen off,
 // and vsync callbacks do not. ~30 fps is smooth for a camera that is only ever
 // panning and turning slowly.
 private const val CAM_FRAME_MS = 33L
-
-// A tenth of a degree of marker rotation isn't worth a redraw. The camera's own
-// equivalents — position and zoom — used to live here beside it and are gone:
-// MapMotion.shouldPush owns that question now, against MapCameraTuning's copies,
-// and the "a car stopped at a light stops re-rendering entirely" property they
-// existed for is the one shouldPush keeps by asking whether the camera has
-// converged rather than whether this tick moved far enough.
-private const val CAM_BEARING_EPS_DEG = 0.1f
 
 /** Below this the GPS bearing is noise, so the map keeps the heading it had
  *  instead of spinning while you wait at a junction. */
@@ -510,22 +507,14 @@ class CarMapRenderer(
                     val wantBearing = fixBearingDeg?.takeIf { fixSpeedMps > BEARING_HOLD_MPS }
                     if (wantBearing != null) {
                         markerBearing = smoothBearing(
-                            markerBearing ?: wantBearing,
+                            markerBearing,
                             wantBearing,
                             (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat(),
                         )
                     }
-                    var dMarkerBearing = (markerBearing ?: 0f) - pushedMarkerBearing
-                    dMarkerBearing = (dMarkerBearing % 360f).let {
-                        when {
-                            it > 180f -> it - 360f
-                            it < -180f -> it + 360f
-                            else -> it
-                        }
-                    }
                     val markerMoved = pushedMarkerPos == null ||
                         pushedMarkerPos != here ||
-                        abs(dMarkerBearing) > CAM_BEARING_EPS_DEG
+                        bearingDelta(markerBearing ?: 0f, pushedMarkerBearing) > CAM_BEARING_EPS_DEG
                     if (markerMoved) {
                         pushedMarkerPos = here
                         // Advanced on every push, not only on a turn: #38's phone
@@ -637,16 +626,6 @@ class CarMapRenderer(
         virtualDisplay?.release()
         virtualDisplay = null
     }
-}
-
-/** Exponentially smooths a compass bearing toward [target], taking the shortest
- *  way round the 0/360 wrap, so heading-up rotation eases instead of snapping to
- *  each noisy raw GPS fix. Same as the phone map's. */
-private fun smoothBearing(current: Float, target: Float, alpha: Float): Float {
-    var delta = (target - current) % 360f
-    if (delta > 180f) delta -= 360f
-    if (delta < -180f) delta += 360f
-    return (current + delta * alpha + 360f) % 360f
 }
 
 // Sign diameter as a fraction of the visible height, clamped to a sane band in
