@@ -2,7 +2,6 @@ package com.jellemax.detour.map
 
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RoadRoulette
-import com.jellemax.detour.ui.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.ui.CAM_POS_EPS_DEG
 import com.jellemax.detour.ui.CAM_SNAP_METERS
 import com.jellemax.detour.ui.CAM_ZOOM_EPS
@@ -107,13 +106,10 @@ object MapMotion {
         neverPushed: Boolean,
     ): Boolean {
         if (neverPushed || targetMoved) return true
-        var dBearing = (camBearing - tgtBearing) % 360f
-        if (dBearing > 180f) dBearing -= 360f
-        if (dBearing < -180f) dBearing += 360f
         val converged = abs(camLat - tgtLat) <= CAM_POS_EPS_DEG &&
             abs(camLon - tgtLon) <= CAM_POS_EPS_DEG &&
             abs(camZoom - tgtZoom) <= CAM_ZOOM_EPS &&
-            abs(dBearing) <= CAM_BEARING_EPS_DEG
+            bearingDelta(camBearing, tgtBearing) <= CAM_BEARING_EPS_DEG
         return !converged
     }
 }
