@@ -289,7 +289,7 @@ private struct SendToFriendSheet: View {
                     Text("Add a friend first, on the Friends tab.")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(friends, id: \.id.value) { rider in
+                    ForEach(friends, id: \.idValue) { rider in
                         Button(rider.username) { send(to: rider.username) }
                             .disabled(busy)
                     }

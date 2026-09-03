@@ -385,14 +385,14 @@ private struct CircleDetailView: View {
     /// as nobody's handle has changed since the member list was last fetched,
     /// and disagrees the moment it has.
     private var mine: GroupMember? {
-        circle.members.first { $0.id.value == riderId }
+        circle.members.first { $0.riderIdValue == riderId }
     }
 
     var body: some View {
         List {
             Section("Members") {
-                ForEach(circle.members, id: \.id.value) { member in
-                    CircleMemberRow(member: member, isMe: member.id.value == riderId)
+                ForEach(circle.members, id: \.riderIdValue) { member in
+                    CircleMemberRow(member: member, isMe: member.riderIdValue == riderId)
                 }
                 if let mine {
                     Toggle(isOn: Binding(
@@ -476,12 +476,12 @@ private struct CircleDetailView: View {
                                 // their handle (#133) — resolved from this
                                 // circle's own membership, same as an event's
                                 // author below.
-                                Text("Shared by \(GroupsKt.handleFor(circle.members, riderId: place.ownerId)) · \(Int(place.radiusM)) m radius")
+                                Text("Shared by \(GroupsKt.handleFor(circle.members, riderId: place.ownerIdValue)) · \(Int(place.radiusM)) m radius")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            if place.ownerId.value == riderId {
+                            if place.ownerIdValue == riderId {
                                 Button(role: .destructive) {
                                     Task { _ = try? await CirclesStore.shared.unsharePlace(serverId: place.serverId) }
                                 } label: {
@@ -519,7 +519,7 @@ private struct CircleDetailView: View {
                         // `PlaceEvent` names its rider by id only now (#133) —
                         // resolved from this circle's own membership, same as
                         // a shared place's owner above.
-                        Text("\(GroupsKt.handleFor(circle.members, riderId: event.riderId)) \(verb) \(placeName) — \(relativeAge(event.tsMs))")
+                        Text("\(GroupsKt.handleFor(circle.members, riderId: event.riderIdValue)) \(verb) \(placeName) — \(relativeAge(event.tsMs))")
                             .font(.footnote)
                     }
                 }

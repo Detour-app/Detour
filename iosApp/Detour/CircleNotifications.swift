@@ -87,7 +87,7 @@ final class CircleNotifications: NSObject {
             let members = (try? await Groups.shared.list(kind: "circle"))?
                 .first(where: { $0.id == groupId })?.members ?? []
             raise(event: event, circleId: groupId,
-                  displayName: GroupsKt.handleFor(members, riderId: event.riderId))
+                  displayName: GroupsKt.handleFor(members, riderId: event.riderIdValue))
             CircleEvents.shared.setLastSeenEventTsMs(circleId: groupId, tsMs: event.tsMs)
         }
     }
@@ -149,7 +149,12 @@ final class CircleNotifications: NSObject {
             // eat a quiet one's only arrival.
             let plan = CircleNotifyPolicy.shared.planCatchUp(
                 events: events,
-                myId: RiderId(value: myId),
+                // `myId` is already the plain String Swift gets for a
+                // `RiderId` parameter (Kotlin lowers it to the underlying
+                // type at the ABI boundary) — `RiderId` itself has no
+                // Swift-visible spelling to construct one with. See
+                // FlowWatcher.kt's "Model properties..." section.
+                myId: myId,
                 nowMs: nowMs(),
                 staleAfterMs: Enums.shared.circleStaleAfterMs,
                 cap: Enums.shared.circleCatchUpCap
@@ -164,7 +169,7 @@ final class CircleNotifications: NSObject {
             // CircleNotifyDeliveryOrderTest.
             for event in plan.individual.reversed() {
                 raise(event: event, circleId: circle.id,
-                      displayName: GroupsKt.handleFor(circle.members, riderId: event.riderId))
+                      displayName: GroupsKt.handleFor(circle.members, riderId: event.riderIdValue))
             }
             if plan.collapsedCount > 0 {
                 raiseSummary(circleId: circle.id, collapsed: Int(plan.collapsedCount))

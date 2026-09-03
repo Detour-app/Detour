@@ -165,7 +165,11 @@ final class ConvoyLiveClient: ObservableObject {
             // whole chunk rather than rekeying it (see FlowWatcher.kt), and
             // `PttAudio.play` never draws this value, only ignores it (see
             // its own doc), so the id is passed through unresolved.
-            PttAudio.shared.play(chunk.pcm.toData(), from: chunk.riderId.value)
+            // `.riderIdValue`, not `.riderId.value` — the property itself is
+            // `RiderId`-typed and arrives in Swift erased to `Any` with no
+            // `.value` on it; `riderIdValue` is the iosMain accessor that
+            // unwraps it (see FlowWatcher.kt's "Model properties..." section).
+            PttAudio.shared.play(chunk.pcm.toData(), from: chunk.riderIdValue)
         }
         placeEventWatcher.watch { [weak self] in
             guard let relayEvent = self?.placeEventWatcher.value else { return }
@@ -285,7 +289,7 @@ final class ConvoyLiveClient: ObservableObject {
     /// `Settings.authRiderId` itself; see `ConvoyRelay.sendSpinVote`'s own
     /// doc. Compares on the account id now (#133), not the handle.
     func sendSpinVote(_ index: Int) {
-        relay.sendSpinVote(myId: RiderId(value: SettingsValues.shared.authRiderId), index: Int32(index))
+        relay.sendSpinVote(myId: SettingsValues.shared.authRiderId, index: Int32(index))
     }
 
     func clearSpinOffer() { relay.clearSpinOffer() }
@@ -303,7 +307,7 @@ final class ConvoyLiveClient: ObservableObject {
     /// `ConvoyRelay.spinRoundOutcome`'s own `SpinRoundOutcome` directly, the
     /// way `net/ConvoyLiveClient.kt`'s Android counterpart now does.
     func spinRoundIsReadyToClose(myId: String) -> Bool {
-        relay.spinRoundIsReadyToClose(myId: RiderId(value: myId))
+        relay.spinRoundIsReadyToClose(myId: myId)
     }
 
     // MARK: Running

@@ -378,6 +378,38 @@ object SettingsValues {
     val authRiderId: String get() = Settings.authRiderId.value.value
 }
 
+// --- Model properties that hand Swift the id as a string -----------------
+//
+// Same reasoning as `RiderIdWatcher`/`SettingsValues.authRiderId` above, just
+// for a value read once off a model instead of collected off a flow:
+// Kotlin/Native's Objective-C export does not give `RiderId` a Swift-visible
+// type at all — a property typed `RiderId` arrives in Swift erased to `Any`,
+// with no `.value` to call on it and no way to spell `RiderId` there to cast
+// it back. A *parameter* typed `RiderId` is a different story — Kotlin
+// already lowers a value-class parameter to its underlying representation at
+// the ABI boundary, so `GroupsKt.handleFor(riderId:)`,
+// `ConvoyRelay.sendSpinVote(myId:)` and the rest already take the plain
+// `String` a caller has on hand; passing one of these values straight
+// through needs no accessor and no `RiderId(value:)` wrapper, which is
+// itself unconstructible from Swift for the same reason its properties are
+// unreadable. Only *reading* the id back off one of these five model types
+// needs the unwrap below.
+
+/** See this file's "Model properties..." section above. */
+val GroupMember.riderIdValue: String get() = id.value
+
+/** See this file's "Model properties..." section above. */
+val RiderRef.idValue: String get() = id.value
+
+/** See this file's "Model properties..." section above. */
+val CirclePlace.ownerIdValue: String get() = ownerId.value
+
+/** See this file's "Model properties..." section above. */
+val PlaceEvent.riderIdValue: String get() = riderId.value
+
+/** See this file's "Model properties..." section above. */
+val IncomingAudioChunk.riderIdValue: String get() = riderId.value
+
 /**
  * Values that exist in Kotlin but not in the Objective-C header.
  *

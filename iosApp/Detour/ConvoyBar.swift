@@ -120,9 +120,13 @@ struct ConvoyBar: View {
     /// export lands it on the file's `...Kt` facade instead of as a member —
     /// same shape as `CircleEventsKt.placeEventFromRelayFrame` elsewhere in
     /// this app. `""` for an id membership doesn't (yet) know, same as
-    /// everywhere else `handleFor` is used.
+    /// everywhere else `handleFor` is used. `riderId` is passed straight
+    /// through, not wrapped in a `RiderId` — that type has no Swift-visible
+    /// spelling to construct one with; `handleFor`'s `riderId:` parameter
+    /// already takes the plain `String` Kotlin lowers a value-class
+    /// parameter to (see FlowWatcher.kt's "Model properties..." section).
     private func handle(for riderId: String) -> String {
-        GroupsKt.handleFor(members.members(of: live.activeConvoyId), riderId: RiderId(value: riderId))
+        GroupsKt.handleFor(members.members(of: live.activeConvoyId), riderId: riderId)
     }
 
     private func startTalking() {

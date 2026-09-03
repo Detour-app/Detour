@@ -124,7 +124,13 @@ struct MapScreen: View {
             guard !me.isEmpty else { return }  // signed out: nothing to ask the server for
             while !Task.isCancelled {
                 do {
-                    let fixes = try await CircleFixes.shared.othersFixes(selfId: RiderId(value: me))
+                    // `me` is already the plain String Swift gets for a
+                    // `RiderId` parameter — `othersFixes(selfId:)` lowers it
+                    // at the ABI boundary the same way every value-class
+                    // parameter does, and `RiderId` itself has no
+                    // Swift-visible spelling to construct one with (see
+                    // FlowWatcher.kt's "Model properties..." section).
+                    let fixes = try await CircleFixes.shared.othersFixes(selfId: me)
                     // Cancelling this Task when the id changes does not cancel
                     // the Kotlin coroutine behind `othersFixes` — an exported
                     // suspend fun has no cancellation path through the ObjC
@@ -431,7 +437,7 @@ struct MapScreen: View {
         let voterIds = live.spinVotes.filter { $0.value == row.id }.keys
         guard !voterIds.isEmpty else { return "No votes yet" }
         let members = convoyMembers.members(of: live.activeConvoyId)
-        let names = voterIds.map { GroupsKt.handleFor(members, riderId: RiderId(value: $0)) }.sorted()
+        let names = voterIds.map { GroupsKt.handleFor(members, riderId: $0) }.sorted()
         return "\(names.count) vote\(names.count == 1 ? "" : "s") · \(names.joined(separator: ", "))"
     }
 

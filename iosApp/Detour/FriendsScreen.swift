@@ -119,17 +119,23 @@ struct FriendsScreen: View {
         let incoming = model.friendsState.lists?.incoming ?? []
         if !incoming.isEmpty {
             Section("Requests") {
-                ForEach(incoming, id: \.id.value) { rider in
+                // `\.idValue`/`rider.idValue`, not `\.id.value`/`rider.id` —
+                // `RiderRef.id` is `RiderId`-typed and arrives in Swift erased
+                // to `Any`; `idValue` is the iosMain accessor that unwraps it
+                // (see FlowWatcher.kt's "Model properties..." section), and
+                // `respond`'s `riderId:` parameter already wants the plain
+                // `String` a value-class parameter lowers to.
+                ForEach(incoming, id: \.idValue) { rider in
                     HStack {
                         Text(rider.username)
                         Spacer()
                         Button("Accept") {
-                            Task { _ = try? await FriendsStore.shared.respond(riderId: rider.id, accept: true) }
+                            Task { _ = try? await FriendsStore.shared.respond(riderId: rider.idValue, accept: true) }
                         }
                         .buttonStyle(.borderless)
                         .disabled(model.friendsState.busy || signingOut)
                         Button("Decline") {
-                            Task { _ = try? await FriendsStore.shared.respond(riderId: rider.id, accept: false) }
+                            Task { _ = try? await FriendsStore.shared.respond(riderId: rider.idValue, accept: false) }
                         }
                         .buttonStyle(.borderless)
                         .tint(.secondary)
@@ -151,7 +157,7 @@ struct FriendsScreen: View {
     private struct LeaderboardEntry: Identifiable {
         let friend: FriendStats
         let isMe: Bool
-        var id: String { friend.rider.id.value }
+        var id: String { friend.rider.idValue }
     }
 
     /// The signed-in user's own row — `FriendsStore.refreshOwn`'s
@@ -212,7 +218,7 @@ struct FriendsScreen: View {
             if let addStatus {
                 Text(addStatus).font(.caption).foregroundStyle(.secondary)
             }
-            ForEach(model.friendsState.lists?.outgoing ?? [], id: \.id.value) { rider in
+            ForEach(model.friendsState.lists?.outgoing ?? [], id: \.idValue) { rider in
                 HStack {
                     Text(rider.username)
                     Spacer()
@@ -553,7 +559,12 @@ final class FriendsModel: ObservableObject {
         // `String`s across the concurrency boundary — a Kotlin-bridged object
         // has no known `Sendable` conformance to capture instead.
         _ = await Task.detached {
-            let rider = RiderRef(id: RiderId(value: currentRiderId), username: currentName)
+            // `RiderRef.init(id:username:)`'s `id:` is `RiderId`-typed in
+            // Kotlin but, like any value-class parameter, already lowers to
+            // `String` at the ABI boundary — there is no Swift-visible
+            // `RiderId` to construct here (see FlowWatcher.kt's "Model
+            // properties..." section), so `currentRiderId` is passed as-is.
+            let rider = RiderRef(id: currentRiderId, username: currentName)
             try? await FriendsStore.shared.refreshOwn(rider: rider)
         }.value
         try? await ConvoysStore.shared.reload()
