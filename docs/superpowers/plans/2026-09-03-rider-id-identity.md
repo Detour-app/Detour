@@ -831,7 +831,9 @@ In `LiveConnection.cs`, drop the `username` constructor parameter and the `Usern
 pending.RemoveAll(p => p.User == position.User);
 ```
 
-In `LiveLocationService.cs`, replace line 12 with `internal readonly record struct LiveRider(Guid Id);` and line 123's `caller.Username` with `caller.Id`.
+In `LiveLocationService.cs`, drop `Username` from `LiveRider` at line 12 and change nothing else about it — `public sealed record LiveRider(Guid Id);`. Then line 123's `caller.Username` becomes `caller.Id`.
+
+**Keep it `public`, and keep `ILiveLocationService` public.** An earlier draft of this plan said `internal readonly record struct`, which is wrong twice over: neither the visibility nor the struct-ness has anything to do with #133, and `internal` does not compile as a bare retype. It cascades — `ILiveLocationService` takes a `LiveRider`, so it must go internal too, and then `MeController.ReportPosition` is a public action whose signature cannot expose a less-accessible parameter type (CS0051). The only ways out are a service-locator call in the action body or an accessibility rewrite, and both are worse than the `public` this type already had. Drop the field; leave the declaration alone.
 
 In `LiveRelay.cs`, change `PublishPlaceEvent`'s `string username` parameter to `Guid riderId` (`:22-29`, `:129-140`) and line 92's `new LeftFrame(connection.Username)` to `new LeftFrame(connection.UserId)`.
 
