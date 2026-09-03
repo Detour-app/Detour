@@ -65,8 +65,11 @@ object ParkGeofence {
                     // this line a parked service is indistinguishable from one that
                     // stopped and armed nothing. Pairs with GeofenceWakeReceiver's
                     // delivery log to give #140 its wake latency.
-                    Log.i(TAG, "armed r=${RADIUS_M}m ert=${SystemClock.elapsedRealtime()}" +
-                        if (BuildConfig.DEBUG) " at $lat,$lon" else "")
+                    Log.i(
+                        TAG,
+                        "armed r=${RADIUS_M}m ert=${SystemClock.elapsedRealtime()}" +
+                            if (BuildConfig.DEBUG) " at $lat,$lon" else "",
+                    )
                 }
                 .addOnFailureListener { Log.w(TAG, "arm failed", it) }
         } catch (e: SecurityException) {

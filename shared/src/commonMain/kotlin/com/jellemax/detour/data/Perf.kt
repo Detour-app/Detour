@@ -94,4 +94,21 @@ object Perf {
         val s = sink ?: return
         s(Sample(label, from.elapsedNow().inWholeMicroseconds, sizes()))
     }
+
+    /**
+     * Records an interval this process did **not** time itself.
+     *
+     * [start]/[end] assume the measured work happens between two marks on our
+     * own clock. Some of the intervals worth a series do not: the OS batches a
+     * geofence transition and reports how stale the triggering fix was by the
+     * time the callback ran (`GeofenceWakeReceiver`, #90/#140), and the
+     * interesting part of that interval is over before this process is even
+     * awake to mark it. Timing it here would measure the wake, not the delay.
+     *
+     * Same [Sample], same sink, so such an interval joins the ordinary series
+     * and needs no second file — see `PerfSink`.
+     */
+    fun record(label: String, durationUs: Long, sizes: List<Pair<String, Int>>) {
+        sink?.invoke(Sample(label, durationUs, sizes))
+    }
 }

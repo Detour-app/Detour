@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import com.jellemax.detour.data.Perf
 import android.util.Log
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
@@ -56,5 +57,22 @@ class GeofenceWakeReceiver : BroadcastReceiver() {
             "EXIT delivered ert=${SystemClock.elapsedRealtime()} wall=${System.currentTimeMillis()} " +
                 "batchedMs=$batchedMs speed=${loc?.speed}m/s acc=${loc?.accuracy}m",
         )
+        // Into the existing Perf series rather than a log file of its own: an
+        // unattended ride outlives the logcat ring, and PerfSink already solves
+        // that - device-local, ring-capped, excluded from both backup manifests,
+        // and exportable from Settings on a release build where run-as cannot
+        // reach. Covariates rather than a bare duration for the reason Perf's
+        // own doc gives: this latency only means something against the speed it
+        // was travelled at.
+        if (batchedMs != null && loc != null) {
+            Perf.record(
+                "ParkGeofence.wakeLatency",
+                batchedMs * 1000L,
+                listOf(
+                    "speedCmS" to (loc.speed * 100).toInt(),
+                    "accCm" to (loc.accuracy * 100).toInt(),
+                ),
+            )
+        }
     }
 }
