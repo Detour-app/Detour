@@ -61,6 +61,20 @@ class CircleNotifyPolicyTest {
         assertEquals(listOf("alice"), plan.individual.map { it.riderId.value })
     }
 
+    @Test
+    fun aBlankMyIdFailsClosedRatherThanNotifyingAboutYourself() {
+        // `it.riderId != myId` matches everything when myId is blank, which
+        // is fail-*open* - the caller would be notified about their own
+        // arrivals. An unresolved id must produce no plan at all instead.
+        val plan = CircleNotifyPolicy.planCatchUp(
+            events = listOf(event("alice", 1_000L), event("bob", 1_000L)),
+            myId = RiderId(""),
+            nowMs = 1_000L,
+        )
+        assertEquals(emptyList(), plan.individual)
+        assertEquals(0, plan.collapsedCount)
+    }
+
     // --- planCatchUp: the cap boundary, both directions ------------------------
 
     @Test

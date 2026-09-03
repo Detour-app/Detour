@@ -64,6 +64,15 @@ struct CirclesScreen: View {
                         unavailable("No sync server configured. Set one in Settings first — circles live on your own server.")
                     } else if !model.signedIn {
                         unavailable("Sign in under Friends first — circles share that same friends list.")
+                    } else if model.riderId.isEmpty {
+                        // Signed in, but /me hasn't answered yet (#133) — matches
+                        // Android's CirclesScaffold gate, which the same defect used
+                        // to fold into the "sign in" message above even though this
+                        // rider already is signed in. Every check past this point
+                        // (isMe, ownership) compares by id, so showing the list or
+                        // detail view here would just show those fail closed with
+                        // nothing on screen to explain why.
+                        unavailable("Setting up your account — check back in a moment.")
                     } else if let selected = selectedCircle {
                         CircleDetailView(
                             circle: selected,

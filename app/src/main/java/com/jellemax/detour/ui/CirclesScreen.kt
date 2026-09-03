@@ -101,10 +101,15 @@ private fun CirclesScaffold(
     error: String?,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    // A blank id, not a blank username: every screen this chrome gates on to
-    // draws from circle membership by id (isMe, ownership), so letting a
-    // rider in before /me has answered would just show those fail closed
-    // instead of the honest "not ready yet" this gate already is.
+    // Two different reasons a rider can't be shown circles yet, gated
+    // separately rather than folded into one blank-id check: signed out
+    // (blank username) gets the sign-in nudge below; signed in but /me
+    // hasn't answered yet (blank riderId, non-blank username) gets an
+    // honest "still loading" message instead of the same "sign in" text,
+    // which would be false — every check past this gate (isMe, ownership)
+    // compares by id, so letting a rider in before it resolves would just
+    // show those fail closed with nothing on screen to explain why.
+    val username by Account.username.collectAsStateWithLifecycle()
     val riderId by Account.riderId.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
@@ -127,9 +132,16 @@ private fun CirclesScaffold(
                 )
                 return@Column
             }
-            if (riderId.value.isBlank()) {
+            if (username.isBlank()) {
                 Text(
                     "Sign in under Friends first — circles share that same friends list.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                return@Column
+            }
+            if (riderId.value.isBlank()) {
+                Text(
+                    "Setting up your account — check back in a moment.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 return@Column

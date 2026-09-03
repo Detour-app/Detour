@@ -1,9 +1,13 @@
 package com.jellemax.detour.data
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import io.ktor.http.parametersOf
@@ -50,6 +54,29 @@ object Auth {
      * losers re-read what the winner stored.
      */
     private val refreshLock = Mutex()
+
+    /**
+     * Backs the opportunistic [resolveRiderId] call [bearer] fires on its fast
+     * path. Not the caller's scope — unlike [ConvoysStore.watchPeers], which
+     * borrows a platform lifecycle scope for a collector that runs for the
+     * life of the process, this is a one-shot background task and [bearer]
+     * has no scope of its own to offer it: it is called directly from Swift
+     * across the Kotlin/Native bridge as well as from Kotlin, and blocking
+     * either caller on a `/me` round trip just to return a token that has
+     * nothing to do with it is the thing this exists to avoid. `SupervisorJob`
+     * so a failed resolve can never take a later one down with it;
+     * `Dispatchers.Default` because nothing here does I/O that benefits from
+     * a dedicated pool, and Platform.kt has no IO dispatcher of its own to
+     * reach for anyway.
+     */
+    private val riderIdResolveScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** Bounds [riderIdResolveScope] to one resolve in flight, the same
+     *  debounce shape [ConvoysStore.resolveUnknown] uses for the same reason:
+     *  without it, a burst of [bearer] calls before the first `/me` answers
+     *  would each open their own request instead of the one in flight
+     *  finishing and closing the window for all of them. */
+    private val riderIdResolveGate = Mutex()
 
     val username: StateFlow<String> = Settings.authUsername
 
@@ -118,10 +145,30 @@ object Auth {
      * own note for the rule, and `docs/IOS_PORT.md` for why the earlier sweep
      * missed this one: it annotated what Swift called *at the time*, and
      * nothing called `bearer` from Swift until the relay did.
+     *
+     * Also where an install that was already signed in when it upgraded gets
+     * its rider id filled in. [resolveRiderId] otherwise only runs after
+     * [exchangeCode] or [refresh] — an install with a still-valid access
+     * token can go the full 15 minutes to its next refresh, or longer, before
+     * either fires, and every id comparison in the app (`isMe`, ownership,
+     * the circle self-filter) stays blank the whole time. Firing it here,
+     * unawaited, closes that window on the very next call instead. See
+     * [riderIdResolveScope] for why this is fire-and-forget rather than
+     * awaited: a `/me` round trip has nothing to do with the token this
+     * function actually needs to return, and must not delay or fail it.
      */
     @Throws(Exception::class)
     suspend fun bearer(): String {
         if (!signedIn) throw AuthException("Sign in to sync")
+        if (Settings.authRiderId.value.value.isEmpty() && riderIdResolveGate.tryLock()) {
+            riderIdResolveScope.launch {
+                try {
+                    resolveRiderId()
+                } finally {
+                    riderIdResolveGate.unlock()
+                }
+            }
+        }
         if (!expiringSoon()) return Settings.accessToken.value
 
         refreshLock.withLock {
@@ -225,16 +272,27 @@ object Auth {
      * circle member list does not broadcast every rider's identity-provider
      * subject to every peer, and this request is the price of that choice.
      *
-     * A failure is not fatal and is not retried here. Everything that compares an
-     * id fails closed while it is blank — no delete affordance, no self-filter —
-     * which is the harmless direction, and the next successful session fills it.
+     * A failure is not fatal and is not retried here. Most of what compares an
+     * id fails closed while it is blank — no delete affordance, no `isMe` —
+     * but not everything did: `CircleNotifyPolicy.planCatchUp`'s self-filter
+     * compared `it.riderId != myId`, and a blank `myId` matched nothing, so
+     * it let a rider's own arrivals and departures back through instead of
+     * dropping them — fail *open*, the same defect this codebase already
+     * shipped once with handle-based comparisons. `planCatchUp` now refuses
+     * to plan anything at all on a blank id (see its own doc) rather than
+     * depending on every caller getting this right, but resolving the id
+     * promptly is still what keeps it — and every other id comparison — from
+     * running blank for longer than it has to, which is why [bearer] now
+     * calls this from its fast path too, not just after a token exchange or
+     * refresh.
      *
      * Skipped once the id is already known, so this does not re-fetch `/me` on
-     * every refresh (roughly every 15 minutes) for nothing. Safe because
-     * [clear] blanks the id in the same write that blanks `refreshToken` and
-     * `auth_scope_key` — on sign-out, on a 401, and on an issuer change — so a
-     * new session always starts from a blank id and resolves exactly once,
-     * and a stale id can never survive into a different rider's session.
+     * every refresh (roughly every 15 minutes), nor on every call through
+     * [bearer], for nothing. Safe because [clear] blanks the id in the same
+     * write that blanks `refreshToken` and `auth_scope_key` — on sign-out, on a
+     * 401, and on an issuer change — so a new session always starts from a
+     * blank id and resolves exactly once, and a stale id can never survive into
+     * a different rider's session.
      */
     private suspend fun resolveRiderId() {
         if (Settings.authRiderId.value.value.isNotEmpty()) return
