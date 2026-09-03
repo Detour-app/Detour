@@ -1401,23 +1401,35 @@ if (!votes.keys.containsAll(expected)) return null
 
 The TTL prune at `:931` touches no keys and needs no change.
 
-- [ ] **Step 4: Add the unknown-id refresh for the relay path**
+- [ ] **Step 4: Add the unknown-id refresh, resolved centrally in the store**
 
-`ConvoyRelay` stays free of network — it is a parser and a state holder. The lookup belongs where the member lists already live. In `ConvoysStore` (and `CirclesStore` for the circle case), add:
+Taking a name off the position frame turns "who is this peer" into a cache-coherence problem the client has to close. The client cannot hold it locally in advance — a peer who joins mid-ride is genuinely new information — so something has to notice an unknown id and go ask. The choice is where.
+
+**The store subscribes; no screen wires anything.** `ConvoysStore` (and `CirclesStore`) collects `ConvoyRelay.peers` itself and self-heals. The alternative — each screen noticing and calling in — means writing it in `MapScreen`, `CarMapRenderer` and iOS separately, which is the same argument that put `handleFor` in `shared/`, and it would add a Compose effect key to `MapScreen` for a job that is not the UI's.
+
+`ConvoyRelay` stays free of network: a parser and a state holder, nothing more.
 
 ```kotlin
 /**
- * Reloads the member list when a relay frame names an id this device has never
- * seen, which happens for a peer who joined since the last reload. The relay
- * cannot answer it: positions arrive push-style with no roster, and adding one
- * would make a second id-to-name source alongside this list.
+ * Keeps the member list able to name every peer the relay reports.
  *
- * Debounced to one reload in flight, and an id still unknown after a completed
- * reload is not retried — it means the peer left between the frame and the
- * response, which the relay's own TTL expires.
+ * Positions carry an id and no handle (#133): the label lives in membership,
+ * so one source names a rider rather than every frame repeating it. The cost is
+ * that a peer who joined since the last reload arrives unnameable, and this is
+ * what closes that — centrally, so the phone map, the car renderer and iOS all
+ * get it without each wiring up its own.
+ *
+ * Not a roster frame on the relay, which would put a second id-to-name source
+ * beside this list and leave the two to disagree.
+ *
+ * Debounced to one reload in flight. An id still unknown after a *completed*
+ * reload is not retried: it means the peer left between the frame and the
+ * response, and the relay's own TTL expires them. Retrying would turn one
+ * departed rider into an unbounded reload loop.
  */
-suspend fun resolveIfUnknown(riderId: RiderId) {
-    if (state.value.groups.any { g -> g.members.any { it.id == riderId } }) return
+private suspend fun resolveUnknown(ids: Set<RiderId>) {
+    val known = state.value.groups.flatMap { it.members }.map { it.id }.toSet()
+    if (ids.all { it in known }) return
     if (!refreshGate.tryLock()) return
     try {
         reload()
@@ -1425,9 +1437,24 @@ suspend fun resolveIfUnknown(riderId: RiderId) {
         refreshGate.unlock()
     }
 }
+
+/** Started once, for the life of the process. The scope is the caller's —
+ *  `commonMain` has no `Dispatchers` of its own (Platform.kt's ceiling), same
+ *  reason every action in this store is `suspend`. */
+fun watchPeers(scope: CoroutineScope) {
+    scope.launch {
+        ConvoyRelay.peers.collect { resolveUnknown(it.keys) }
+    }
+}
 ```
 
-`refreshGate` is a `Mutex()` field, matching the `writeLock` pattern already in `Coverage.kt:149`. Follow whichever `reload`/`loaded` convention the store already uses rather than introducing a second one — `CirclesStore.kt:290` and `ConvoysStore.kt:114` show the existing `block()` shape.
+`refreshGate` is a `Mutex()` field, matching the `writeLock` already in `Coverage.kt:149`. Use whichever `reload`/`loaded` convention the store has rather than adding a second — `CirclesStore.kt:290` and `ConvoysStore.kt:114` show the existing `block()` shape.
+
+`watchPeers` needs one call site per platform, since the scope comes from the platform: Android in the same place the other long-lived collectors start, iOS from the app's startup path. Find them:
+
+Run: `devcontainer-exec grep -rn "ConvoysStore\|CirclesStore" app/src/main/java/com/jellemax/detour/DetourApp.kt app/src/main/java/com/jellemax/detour/MainActivity.kt iosApp/Detour/DetourApp.swift`
+
+If no such startup seam exists, do not invent an application-wide singleton scope for this — report `DONE_WITH_CONCERNS` naming what you found, and the controller will decide. A wrong lifecycle here leaks a collector for the life of the process.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
