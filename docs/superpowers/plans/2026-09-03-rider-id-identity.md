@@ -22,6 +22,53 @@
 - **Test scope:** plain JUnit4/kotlin.test over Android-free logic only. No Robolectric. Compose and SwiftUI edits are verified by hand, not by test.
 - **`.github/local-workflows/` does not exist in this repo yet.** `local-ci-act` will refuse. Before the first push on this branch, either invoke `c7-github-workflow:authoring-local-workflows` or open the PR as a draft — a push to a ready PR bills every runner.
 
+## Execution order — not the task numbering
+
+The tasks below are numbered by subsystem, but Kotlin's type checking imposes an order the
+numbering does not reflect. **Run Task 7 before Tasks 4, 5 and 6.** Full order:
+
+```
+1, 2, 3   backend        (done in numbered order)
+7         own id          MUST precede 4-6
+4, 5, 6   shared/
+8, 9      app/ and Android Auto
+10        iosApp/
+11, 12    docs and version
+```
+
+Two couplings force it, both found after the backend was finished:
+
+**Task 7 must come first.** `CirclePresence.kt:157` reads `Account.username`, and Task 5 re-keys
+that comparison to `Account.riderId` — which Task 7 is what creates. Task 7 is also purely
+additive: a new value class, a new `Settings` field, a new `/me` call, a new migration key. It
+breaks nothing, so it is safe to land before any model changes.
+
+**Task 4 owns compilation of the entire test source set.** Kotlin type-checks a whole source set
+at once, so the moment Task 4 retypes `GroupMember`, `MemberFix`, `PlaceEvent`, `CirclePlace`,
+`FriendStats` or `FriendLists`, every test file naming one of them stops compiling — and Task 4
+cannot then run even its own tests. Seven files are affected:
+
+```
+shared/src/commonTest/.../data/GroupsTest.kt
+shared/src/commonTest/.../data/CircleNotifyPolicyTest.kt
+shared/src/commonTest/.../data/CirclePresenceTest.kt
+shared/src/commonTest/.../data/StoresTest.kt
+shared/src/commonTest/.../drive/ConvoyRelayTest.kt
+shared/src/commonTest/.../drive/RelayProtocolTest.kt
+shared/src/androidUnitTest/.../data/AuthEpochTest.kt
+```
+
+Task 4 must update the **fixtures and constructor calls** in all seven so the source set compiles,
+even though Tasks 5 and 6 own the *assertions* about the rules those files test. Mechanical
+retyping in Task 4; behavioural re-keying in 5 and 6. An earlier draft assigned `StoresTest.kt` to
+Task 5 Step 3c, which cannot work — by then the module would already not build.
+
+**What keeps 4, 5 and 6 separable at all** is that `FriendPosition`, `IncomingAudioChunk` and
+`RelayEvent.*` live in `drive/RelayProtocol.kt`, not `data/`. Task 4 leaves those as `String` and
+touches only the one `RelayProtocol.kt` site that consumes a `PlaceEvent`. Task 6 then retypes
+them together with `ConvoyRelay`'s three collections and the quorum. Splitting them the other way
+does not compile.
+
 ## File Structure
 
 **Backend — new files**
