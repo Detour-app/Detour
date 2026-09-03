@@ -228,8 +228,16 @@ object Auth {
      * A failure is not fatal and is not retried here. Everything that compares an
      * id fails closed while it is blank — no delete affordance, no self-filter —
      * which is the harmless direction, and the next successful session fills it.
+     *
+     * Skipped once the id is already known, so this does not re-fetch `/me` on
+     * every refresh (roughly every 15 minutes) for nothing. Safe because
+     * [clear] blanks the id in the same write that blanks `refreshToken` and
+     * `auth_scope_key` — on sign-out, on a 401, and on an issuer change — so a
+     * new session always starts from a blank id and resolves exactly once,
+     * and a stale id can never survive into a different rider's session.
      */
     private suspend fun resolveRiderId() {
+        if (Settings.authRiderId.value.value.isNotEmpty()) return
         val id = runCatching { Rider.me().id.value }.getOrDefault("")
         if (id.isNotEmpty()) Settings.setRiderId(id)
     }

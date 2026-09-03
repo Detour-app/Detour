@@ -81,18 +81,21 @@ class StringWatcher internal constructor(private val flow: StateFlow<String>) : 
         flow.collect { value = it; onChange() }
 }
 
-/** This device's own account id — see [Auth.resolveRiderId]. One subclass for
- *  the same reason [RouteColorWatcher] gets one and [StringWatcher] can't be
- *  reused here: [RiderId] is its own concrete type, not the [String] it
- *  wraps. */
+/** This device's own account id — see [Auth.resolveRiderId]. Not a
+ *  [StringWatcher] wrapping [Settings.authRiderId] directly: that flow is
+ *  typed [RiderId], and a value class buys nothing at the Swift boundary —
+ *  Swift gets no compile-time check either way — while Kotlin/Native's
+ *  Objective-C export can silently drop a declaration whose signature uses an
+ *  inline value class. So this unwraps to the [String] Swift actually gets,
+ *  same shape as [StringWatcher]. */
 class RiderIdWatcher internal constructor(
     private val flow: StateFlow<RiderId>,
 ) : Watcher() {
-    var value: RiderId = flow.value
+    var value: String = flow.value.value
         private set
 
     override suspend fun collect(onChange: () -> Unit) =
-        flow.collect { value = it; onChange() }
+        flow.collect { value = it.value; onChange() }
 }
 
 class TravelModeWatcher internal constructor(
@@ -358,7 +361,11 @@ object SettingsValues {
     val leanOffsetDeg: Float get() = Settings.leanOffsetDeg.value
     val authToken: String get() = Settings.refreshToken.value
     val authUsername: String get() = Settings.authUsername.value
-    val authRiderId: RiderId get() = Settings.authRiderId.value
+    // Swift gets the primitive deliberately — see [RiderIdWatcher]'s doc:
+    // [RiderId]'s compile-time safety has no Swift-side counterpart to pay
+    // for it, and an inline value class can be dropped silently from the
+    // generated Objective-C header.
+    val authRiderId: String get() = Settings.authRiderId.value.value
 }
 
 /**
