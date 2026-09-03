@@ -1,9 +1,11 @@
 package com.jellemax.detour.net
 
+import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.Auth
+import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.Features
 import com.jellemax.detour.data.RelayPlaceEvent
-import com.jellemax.detour.data.Settings
+import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.drive.BearerSource
 import com.jellemax.detour.drive.ConvoyRelay
 import com.jellemax.detour.drive.FriendPosition
@@ -116,10 +118,10 @@ object ConvoyLiveClient {
             .stateIn(scope, SharingStarted.Eagerly, null)
 
     val connected: StateFlow<Boolean> get() = relay.connected
-    val peers: StateFlow<Map<String, FriendPosition>> get() = relay.peers
-    val talking: StateFlow<Set<String>> get() = relay.talking
+    val peers: StateFlow<Map<RiderId, FriendPosition>> get() = relay.peers
+    val talking: StateFlow<Set<RiderId>> get() = relay.talking
     val spinOffer: StateFlow<GroupSpin?> get() = relay.spinOffer
-    val spinVotes: StateFlow<Map<String, Int>> get() = relay.spinVotes
+    val spinVotes: StateFlow<Map<RiderId, Int>> get() = relay.spinVotes
     val audioChunks: SharedFlow<IncomingAudioChunk> get() = relay.audioChunks
     val placeEvents: SharedFlow<RelayPlaceEvent> get() = relay.placeEvents
 
@@ -140,6 +142,27 @@ object ConvoyLiveClient {
             // off the wire as FriendPosition.tsMs.
             relay.sendLocation(fix.lat, fix.lon, fix.bearingDeg?.toDouble(), fix.speedMps * 3.6, fix.timeMs)
         }
+    }
+
+    /** Keeps [ConvoysStore]'s membership able to name every peer this socket
+     *  reports - see [ConvoysStore.watchPeers]'s own doc for the self-heal
+     *  this drives: a peer who joins mid-ride arrives on [peers] by id before
+     *  any member list names them. Wired here, on [scope], for the same
+     *  "life of the process" reason [locationForwarder] is above - a
+     *  screen's own `rememberCoroutineScope()` is torn down the moment that
+     *  screen leaves composition (Nav 3 disposes a destination on navigating
+     *  away from it), so a peer joining while nobody has the map open would
+     *  otherwise never get named once someone does look.
+     *
+     *  [CirclesStore][com.jellemax.detour.data.CirclesStore] has the same
+     *  `watchPeers` and gets no matching call here on purpose: a circle's
+     *  position never rides this socket (see [com.jellemax.detour.data.CircleFixes]'s
+     *  own doc - it's a low-cadence HTTP poll, not a relay frame), so
+     *  [relay.peers] only ever carries convoy peers, and nothing in this app
+     *  holds a `StateFlow<Map<RiderId, FriendPosition>>` for circle members
+     *  to give that store instead. */
+    init {
+        ConvoysStore.watchPeers(scope, relay.peers)
     }
 
     /** Effective live-relay URL - see [OkHttpRelaySocket.liveUrl], which
@@ -201,11 +224,11 @@ object ConvoyLiveClient {
     fun sendAudioChunk(pcm: ByteArray) = relay.sendAudioChunk(pcm)
     fun sendSpinOffer(candidates: List<SpinCandidate>) = relay.sendSpinOffer(candidates)
 
-    /** Casts this device's vote - [username] is read here, not inside
+    /** Casts this device's vote - the rider id is read here, not inside
      *  [ConvoyRelay], which takes it as a parameter rather than reaching for
-     *  [Settings.authUsername] itself; see [ConvoyRelay.sendSpinVote]'s own
+     *  [Account.riderId] itself; see [ConvoyRelay.sendSpinVote]'s own
      *  doc. */
-    fun sendSpinVote(index: Int) = relay.sendSpinVote(Settings.authUsername.value, index)
+    fun sendSpinVote(index: Int) = relay.sendSpinVote(Account.riderId.value, index)
 
     fun clearSpinOffer() = relay.clearSpinOffer()
 
@@ -213,7 +236,7 @@ object ConvoyLiveClient {
      *  `MapScreen`'s own vote-round effect calls, in place of the hand-rolled
      *  version that effect used to carry (and `map/GroupSpinRules.kt`'s
      *  matching, never-called copy). */
-    fun spinRoundOutcome(myUsername: String) = relay.spinRoundOutcome(myUsername)
+    fun spinRoundOutcome(myId: RiderId) = relay.spinRoundOutcome(myId)
 
     /** Delegates to [ConvoyRelay.currentLeadIndex] - see its own doc. What
      *  `MapScreen`'s "Go with the lead" button calls. */

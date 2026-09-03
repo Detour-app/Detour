@@ -61,9 +61,11 @@ import com.jellemax.detour.data.CirclesStore
 import com.jellemax.detour.data.Features
 import com.jellemax.detour.data.Group
 import com.jellemax.detour.data.GroupMember
+import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.SyncClient
+import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.notif.CircleNotifySettings
 import com.jellemax.detour.notif.CircleNotifyService
 import kotlinx.coroutines.launch
@@ -99,7 +101,11 @@ private fun CirclesScaffold(
     error: String?,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val username by Account.username.collectAsStateWithLifecycle()
+    // A blank id, not a blank username: every screen this chrome gates on to
+    // draws from circle membership by id (isMe, ownership), so letting a
+    // rider in before /me has answered would just show those fail closed
+    // instead of the honest "not ready yet" this gate already is.
+    val riderId by Account.riderId.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -121,7 +127,7 @@ private fun CirclesScaffold(
                 )
                 return@Column
             }
-            if (username.isBlank()) {
+            if (riderId.value.isBlank()) {
                 Text(
                     "Sign in under Friends first — circles share that same friends list.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -216,7 +222,7 @@ fun CirclesScreen(onBack: () -> Unit, onOpenCircle: (String) -> Unit) {
 fun CircleDetailScreen(circleId: String, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val username by Account.username.collectAsStateWithLifecycle()
+    val riderId by Account.riderId.collectAsStateWithLifecycle()
     val state by CirclesStore.state.collectAsStateWithLifecycle()
     var inviteFor by remember { mutableStateOf<Group?>(null) }
 
@@ -242,7 +248,7 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit) {
         circle?.let {
             CircleDetailSection(
                 circle = it,
-                username = username,
+                riderId = riderId,
                 state = state,
                 onInvite = { inviteFor = it },
                 onLeave = {
@@ -359,7 +365,7 @@ private fun CircleListSection(
 @Composable
 private fun CircleDetailSection(
     circle: Group,
-    username: String,
+    riderId: RiderId,
     state: CirclesState,
     onInvite: () -> Unit,
     onLeave: () -> Unit,
@@ -439,11 +445,11 @@ private fun CircleDetailSection(
         CirclesStore.select(circle.id)
     }
 
-    val mine = circle.members.find { it.username == username }
+    val mine = circle.members.find { it.id == riderId }
 
     Text("Members", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
     for (member in circle.members) {
-        MemberRow(member, isMe = member.username == username)
+        MemberRow(member, isMe = member.id == riderId)
     }
 
     if (mine != null) {
@@ -533,12 +539,13 @@ private fun CircleDetailSection(
                     Column {
                         Text(place.place.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                         Text(
-                            "Shared by ${place.owner} · ${place.radiusM.toInt()} m radius",
+                            "Shared by ${circle.members.handleFor(place.ownerId)} · " +
+                                "${place.radiusM.toInt()} m radius",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    if (place.owner == username) {
+                    if (place.ownerId == riderId) {
                         IconButton(
                             enabled = !state.detailBusy,
                             onClick = { scope.launch { CirclesStore.unsharePlace(place.serverId) } },
@@ -566,7 +573,7 @@ private fun CircleDetailSection(
             val placeName = state.places.find { it.place.id == event.placeId }?.place?.name ?: "a since-removed place"
             val verb = if (event.kind == "arrive") "arrived at" else "left"
             Text(
-                "${event.username} $verb $placeName — ${relativeAge(event.tsMs)}",
+                "${circle.members.handleFor(event.riderId)} $verb $placeName — ${relativeAge(event.tsMs)}",
                 style = MaterialTheme.typography.bodySmall,
             )
         }

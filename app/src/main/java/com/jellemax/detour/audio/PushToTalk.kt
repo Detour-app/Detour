@@ -7,6 +7,7 @@ import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import androidx.annotation.RequiresPermission
+import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.net.ConvoyLiveClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,7 +41,7 @@ object PushToTalk {
     @Volatile private var activeRecord: AudioRecord? = null
 
     private var playbackJob: Job? = null
-    private val tracks = HashMap<String, AudioTrack>()
+    private val tracks = HashMap<RiderId, AudioTrack>()
 
     /** Starts capturing and streaming the mic while the PTT button is held.
      *  Call [stopTalking] on release. */
@@ -96,7 +97,7 @@ object PushToTalk {
         if (playbackJob != null) return
         playbackJob = scope.launch(Dispatchers.Default) {
             ConvoyLiveClient.audioChunks.collect { chunk ->
-                trackFor(chunk.username).write(chunk.pcm, 0, chunk.pcm.size)
+                trackFor(chunk.riderId).write(chunk.pcm, 0, chunk.pcm.size)
             }
         }
     }
@@ -125,8 +126,8 @@ object PushToTalk {
         }
     }
 
-    private fun trackFor(username: String): AudioTrack = synchronized(tracks) {
-        tracks.getOrPut(username) {
+    private fun trackFor(riderId: RiderId): AudioTrack = synchronized(tracks) {
+        tracks.getOrPut(riderId) {
             val minBuf = AudioTrack.getMinBufferSize(
                 SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT,
             )

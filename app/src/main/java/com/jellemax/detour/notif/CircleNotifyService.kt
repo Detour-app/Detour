@@ -18,9 +18,12 @@ import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleEvents
 import com.jellemax.detour.data.CircleNotifyPolicy
 import com.jellemax.detour.data.Features
+import com.jellemax.detour.data.Group
 import com.jellemax.detour.data.Groups
+import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
+import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.net.ConvoyLiveClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -85,6 +88,20 @@ class CircleNotifyService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var loopsStarted = false
 
+    /** The circle list as of the last [refreshNotifyCircles] or
+     *  [collectCatchUpOnReconnect] fetch - the same call this service already
+     *  makes to decide which circles want delivery, kept around so
+     *  [displayNameFor] has membership to resolve a rider id against without
+     *  a second network round trip per notification. Stale between fetches
+     *  in exactly the way [CirclesStore][com.jellemax.detour.data.CirclesStore]'s
+     *  own membership is between its reloads - a rider who joined since the
+     *  last fetch draws a blank handle until the next one, never a crash.
+     *  `@Volatile`: written from whichever `Dispatchers.IO` thread the
+     *  refresh/reconnect coroutines happen to land on, read from
+     *  [displayNameFor] on another - same cross-thread visibility reason
+     *  [ConvoyLiveClient]'s `runJob` carries the same annotation. */
+    @Volatile private var circles: List<Group> = emptyList()
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -133,11 +150,13 @@ class CircleNotifyService : Service() {
             stopSelf()
             return
         }
-        val ids = try {
-            CircleNotifyPolicy.circlesWantingDelivery(Groups.list("circle"))
+        val fetched = try {
+            Groups.list("circle")
         } catch (e: Exception) {
             return // offline or server hiccup; whatever's already joined stays joined, retried next tick
         }
+        circles = fetched
+        val ids = CircleNotifyPolicy.circlesWantingDelivery(fetched)
         if (ids.isEmpty()) {
             stopSelf()
             return
@@ -159,8 +178,8 @@ class CircleNotifyService : Service() {
             // Defensive only - the server already excludes the mover from
             // its own broadcast; this just
             // means a bug on that side can never surface as self-spam here.
-            if (relay.event.username == Account.username.value) return@collect
-            PlaceNotifications.notify(this, relay.groupId, relay.event)
+            if (relay.event.riderId == Account.riderId.value) return@collect
+            PlaceNotifications.notify(this, relay.groupId, relay.event, displayNameFor(relay.groupId, relay.event.riderId))
             CircleEvents.setLastSeenEventTsMs(relay.groupId, relay.event.tsMs)
         }
     }
@@ -172,31 +191,44 @@ class CircleNotifyService : Service() {
     private suspend fun collectCatchUpOnReconnect() {
         ConvoyLiveClient.connected.collect { connected ->
             if (!connected) return@collect
-            val ids = try {
+            val fetched = try {
                 // Same rule as [refreshNotifyCircles] and as iOS's own sweep,
                 // so it is asked once rather than spelled out per caller -
                 // this filter was inline here until the policy moved to
                 // shared/, and two copies of "which circles want delivery"
                 // is how the two platforms drifted in the first place.
-                CircleNotifyPolicy.circlesWantingDelivery(Groups.list("circle"))
+                Groups.list("circle")
             } catch (e: Exception) {
                 return@collect
             }
+            circles = fetched
+            val ids = CircleNotifyPolicy.circlesWantingDelivery(fetched)
             for (id in ids) catchUp(id)
         }
     }
+
+    /** The handle to draw beside [riderId] in [groupId]'s notifications, from
+     *  [circles] - the same list this service already fetches to decide
+     *  which circles want delivery. Blank for an id that list doesn't know
+     *  (a member who joined since the last fetch), same as
+     *  [com.jellemax.detour.data.handleFor] everywhere else in the app: a
+     *  placeholder to draw, not a reason to fail the notification. */
+    private fun displayNameFor(groupId: String, riderId: RiderId): String =
+        circles.firstOrNull { it.id == groupId }?.members.orEmpty().handleFor(riderId)
 
     private suspend fun catchUp(circleId: String) {
         try {
             val since = CircleEvents.lastSeenEventTsMs(circleId)
             val events = CircleEvents.events(circleId, since)
             if (events.isEmpty()) return
-            val plan = CircleNotifyPolicy.planCatchUp(events, Account.username.value, System.currentTimeMillis())
+            val plan = CircleNotifyPolicy.planCatchUp(events, Account.riderId.value, System.currentTimeMillis())
             // Reversed: the plan is newest-first because that is how it
             // picks which five survive, but this tray has no sort key
             // (PlaceNotifications.show sets none), so it ranks by post time
             // and the last one posted sits on top - see planCatchUp's doc.
-            plan.individual.asReversed().forEach { PlaceNotifications.notify(this, circleId, it) }
+            plan.individual.asReversed().forEach {
+                PlaceNotifications.notify(this, circleId, it, displayNameFor(circleId, it.riderId))
+            }
             if (plan.collapsedCount > 0) PlaceNotifications.notifySummary(this, circleId, plan.collapsedCount)
             // Advance past everything returned, not just what got shown - a
             // self-transition or a stale one still must not be re-fetched

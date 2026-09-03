@@ -54,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.Friends
+import com.jellemax.detour.data.RiderRef
 import com.jellemax.detour.data.RouteFiles
 import com.jellemax.detour.data.RouteGpx
 import com.jellemax.detour.data.RouteShare
@@ -426,7 +427,7 @@ private fun RenameRouteDialog(initial: String, onSave: (String) -> Unit, onDismi
  *  ever having visited that screen. */
 @Composable
 private fun ShareRouteToFriendDialog(onDismiss: () -> Unit, onShare: (String) -> Unit) {
-    var friends by remember { mutableStateOf<List<String>?>(null) }
+    var friends by remember { mutableStateOf<List<RiderRef>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         try {
@@ -447,13 +448,13 @@ private fun ShareRouteToFriendDialog(onDismiss: () -> Unit, onShare: (String) ->
                     list == null -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     err != null -> Text(err, color = MaterialTheme.colorScheme.error)
                     list.isEmpty() -> Text("Add a friend first, on the Friends screen.")
-                    else -> list.forEach { name ->
+                    else -> list.forEach { friend ->
                         Text(
-                            name,
+                            friend.username,
                             style = MaterialTheme.typography.bodyLarge,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onShare(name) }
+                                .clickable { onShare(friend.username) }
                                 .padding(vertical = 10.dp),
                         )
                     }

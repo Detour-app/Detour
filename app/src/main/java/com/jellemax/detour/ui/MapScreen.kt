@@ -76,12 +76,14 @@ import com.jellemax.detour.data.Features
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleFixes
+import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.ExploredArea
 import com.jellemax.detour.data.FriendFog
 import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.LatLon
-import com.jellemax.detour.data.MemberFix
+import com.jellemax.detour.data.NamedMemberFix
 import com.jellemax.detour.data.NavAnnouncer
+import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.PoiKind
 import com.jellemax.detour.data.RoadRoulette
@@ -226,7 +228,13 @@ fun MapScreen(
     var directionDeg by rememberSaveable { mutableStateOf<Float?>(null) }
     var destinationName by remember { mutableStateOf(savedSpin.destinationName) }
     val fogEnabled by Settings.fogEnabled.collectAsStateWithLifecycle()
+    // The handle to draw (MapTopChrome's avatar) and the id to compare
+    // (the spin-round self-check, the circle self-filter below) are two
+    // different things this screen legitimately needs at once - see
+    // RiderId's own doc for why #133 keeps them as separate types rather
+    // than one string doing both jobs.
     val accountUsername by Account.username.collectAsStateWithLifecycle()
+    val accountRiderId by Account.riderId.collectAsStateWithLifecycle()
     var searchOpen by remember { mutableStateOf(false) }
     // The map layers panel. Lives here rather than in MapTopChrome so the map's
     // own click listeners can close it — see where they clear it below.
@@ -264,6 +272,12 @@ fun MapScreen(
     val convoyPeers by ConvoyLiveClient.peers.collectAsStateWithLifecycle()
     val spinOffer by ConvoyLiveClient.spinOffer.collectAsStateWithLifecycle()
     val spinVotes by ConvoyLiveClient.spinVotes.collectAsStateWithLifecycle()
+    // convoyPeers/spinVotes carry an id and no handle now (#133) — this is
+    // the membership ConvoyLiveClient's own watchPeers self-heals, so a peer
+    // who joined mid-ride still gets a name once the store catches up rather
+    // than staying a raw id forever.
+    val convoysState by ConvoysStore.state.collectAsStateWithLifecycle()
+    val activeConvoyMembers = convoysState.convoys.firstOrNull { it.id == activeConvoyId }?.members.orEmpty()
     // ConvoyLiveClient only knows the id it's connected to; resolve it to a
     // name for display by asking the same list FriendsScreen uses.
     var convoyName by remember { mutableStateOf<String?>(null) }
@@ -660,13 +674,13 @@ fun MapScreen(
 
     // How a vote round ends: the rule and its correctness argument are
     // ConvoyRelay.spinRoundOutcome (shared/.../drive/ConvoyRelay.kt).
-    LaunchedEffect(spinOffer, spinVotes, convoyPeers, accountUsername) {
+    LaunchedEffect(spinOffer, spinVotes, convoyPeers, accountRiderId) {
         val offer = spinOffer ?: return@LaunchedEffect
         if (offer.candidates.size == 1) {
             commitSpinCandidate(0)
             return@LaunchedEffect
         }
-        when (val outcome = ConvoyLiveClient.spinRoundOutcome(accountUsername)) {
+        when (val outcome = ConvoyLiveClient.spinRoundOutcome(accountRiderId)) {
             SpinRoundOutcome.Wait, SpinRoundOutcome.CommitOnly -> Unit
             is SpinRoundOutcome.CloseRound ->
                 ConvoyLiveClient.sendSpinOffer(listOf(offer.candidates[outcome.leadIndex]))
@@ -1035,9 +1049,16 @@ fun MapScreen(
 
     // Convoy friend markers, on ConvoyLiveClient's own relay-driven cadence —
     // same reasoning as the camera markers above. (convoyPeers itself is
-    // collected further up, alongside the other convoy state.)
-    LaunchedEffect(mapOverlays, convoyPeers) {
-        mapOverlays?.setFriends(convoyPeers.values)
+    // collected further up, alongside the other convoy state.) Also keyed on
+    // activeConvoyMembers, unlike the camera effect above: a position frame
+    // repeats every couple of seconds and would eventually pick up a
+    // membership reload on its own, but there is no reason to wait out that
+    // window when the peer list itself hasn't changed — the redraw here is
+    // idempotent, so re-running it the moment a name resolves costs nothing.
+    LaunchedEffect(mapOverlays, convoyPeers, activeConvoyMembers) {
+        mapOverlays?.setFriends(
+            convoyPeers.map { (id, fix) -> NamedFriendPosition(fix, activeConvoyMembers.handleFor(id)) },
+        )
     }
 
     // Circle member markers: every circle you're in, always — not just
@@ -1047,15 +1068,15 @@ fun MapScreen(
     // of it, and the selection lived in memory, so every app restart lost it.
     // Polled rather than socketed: a circle fix only changes once a minute or
     // so server-side, so polling faster would just repeat the same row.
-    var circleFixes by remember { mutableStateOf<List<MemberFix>>(emptyList()) }
-    LaunchedEffect(accountUsername) {
-        if (accountUsername.isBlank()) {
+    var circleFixes by remember { mutableStateOf<List<NamedMemberFix>>(emptyList()) }
+    LaunchedEffect(accountRiderId) {
+        if (accountRiderId.value.isBlank()) {
             circleFixes = emptyList()  // signed out: nothing to ask the server for
             return@LaunchedEffect
         }
         while (true) {
             circleFixes = try {
-                withContext(Dispatchers.IO) { CircleFixes.othersFixes(accountUsername) }
+                withContext(Dispatchers.IO) { CircleFixes.othersFixes(accountRiderId) }
             } catch (e: Exception) {
                 circleFixes // offline or server down; keep the last known positions
             }
@@ -1071,7 +1092,7 @@ fun MapScreen(
     // the map just drew stay invisible on any ground you haven't driven —
     // which is most of where a circle member actually is.
     LaunchedEffect(circleFixes, convoyPeers) {
-        fogView.peers = circleFixes.map { LatLon(it.lat, it.lon) } +
+        fogView.peers = circleFixes.map { LatLon(it.fix.lat, it.fix.lon) } +
             convoyPeers.values.map { LatLon(it.lat, it.lon) }
         fogView.invalidate()
     }
@@ -1823,6 +1844,7 @@ fun MapScreen(
                             // Non-null only once a spin has actually been shared - that's
                             // also what tells the card to show votes instead of Reroll.
                             convoyVotes = spinOffer?.let { spinVotes },
+                            members = activeConvoyMembers,
                             onShare = if (activeConvoyId != null && spinOffer == null && candidates.isNotEmpty()) {
                                 { ConvoyLiveClient.sendSpinOffer(candidates.asSpinCandidates()) }
                             } else null,
