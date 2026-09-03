@@ -150,6 +150,27 @@ jobs:
             ARCHS=arm64 \
             | xcbeautify
 
+      # Swift unit tests (#124). A hosted test bundle, so it needs a booted
+      # simulator rather than the generic destination the build step uses.
+      # Reuses build/DerivedData from the step above.
+      - name: Run Swift unit tests
+        run: |
+          set -o pipefail
+          DEVICE=$(xcrun simctl list devices available --json \
+            | python3 -c 'import json,sys; ds=json.load(sys.stdin)["devices"]; print(next(d["udid"] for v in ds.values() for d in v if "iPhone" in d["name"]))')
+          xcrun simctl boot "$DEVICE" || true
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcodebuild test \
+            -project iosApp/Detour.xcodeproj \
+            -scheme Detour \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$DEVICE" \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=NO \
+            ARCHS=arm64 \
+            | xcbeautify
+
       # The simulator build, kept. Runnable with `xcrun simctl install` on any
       # Mac, which is what a reviewer wants; useless on a phone.
       - name: Package the simulator app
