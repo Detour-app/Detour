@@ -12,6 +12,21 @@ import CoreLocation
 @MainActor
 final class LocationBroadcast {
 
+    /// The two clocks `publish` and `lastSample` read. Injected rather than
+    /// called directly so the age arithmetic is unit-testable — see
+    /// `LocationBroadcastTests` (#124). Production always uses `.system`.
+    struct Clock {
+        /// A monotonic seconds counter; `ProcessInfo.systemUptime` in production.
+        var uptime: () -> TimeInterval
+        /// Wall time, read once per fix to back-date it by the delivery lag.
+        var wallNow: () -> Date
+
+        static let system = Clock(
+            uptime: { ProcessInfo.processInfo.systemUptime },
+            wallNow: { Date() }
+        )
+    }
+
     /// A fix together with how old it is, read as one value.
     ///
     /// One value rather than two properties because the age belongs to *this*
@@ -26,6 +41,12 @@ final class LocationBroadcast {
     }
 
     static let shared = LocationBroadcast()
+
+    private let clock: Clock
+
+    init(clock: Clock = .system) {
+        self.clock = clock
+    }
 
     private var continuations: [UUID: AsyncStream<CLLocation>.Continuation] = [:]
 
@@ -48,8 +69,8 @@ final class LocationBroadcast {
         //
         // Clamped at zero because a clock correction landing inside that
         // sub-second window would otherwise stamp the fix in the future.
-        let deliveryLagSeconds = max(0, Date().timeIntervalSince(fix.timestamp))
-        lastFixUptime = ProcessInfo.processInfo.systemUptime - deliveryLagSeconds
+        let deliveryLagSeconds = max(0, clock.wallNow().timeIntervalSince(fix.timestamp))
+        lastFixUptime = clock.uptime() - deliveryLagSeconds
 
         for continuation in continuations.values { continuation.yield(fix) }
     }
@@ -66,7 +87,7 @@ final class LocationBroadcast {
     /// tracked as issue #123.
     var lastSample: Sample? {
         guard let last, let lastFixUptime else { return nil }
-        let ageSeconds = max(0, ProcessInfo.processInfo.systemUptime - lastFixUptime)
+        let ageSeconds = max(0, clock.uptime() - lastFixUptime)
         return Sample(fix: last, ageMs: Int64(ageSeconds * 1000))
     }
 
