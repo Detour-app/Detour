@@ -282,8 +282,10 @@ would mean a stale build keeps broadcasting after the user believes they stopped
 independent location subscriptions — the convoy's and the circle's — running
 together during a ride and doubling the cost of the app's most expensive feature.
 There is one location stream; convoys and circles are both sinks on it, and the
-highest active cadence wins. Neither platform opens a second subscription, and
-neither registers OS geofences.
+highest active cadence wins. Neither platform opens a second subscription. Circle arrive/depart uses no OS
+geofence — it is on-device `GeofenceEvaluator` arithmetic. (Android separately
+registers one unrelated geofence for parked-state service dormancy, issue #90;
+it plays no part in circle presence.)
 
 Cadences, and why:
 
