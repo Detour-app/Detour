@@ -240,27 +240,46 @@ the screens keep the three-list shape they render without the wire encoding it p
 
 **Unknown-id resolution lives in the stores, not the relay.** `ConvoyRelay` stays a parser and
 a state holder with no network of its own — it exposes peers keyed by `RiderId` and nothing else.
-`CirclesStore` and `ConvoysStore` already own the member lists and already know how to reload
-them, so the id→name lookup and the "this id is unknown, reload" trigger belong there, behind
-the same `loaded`/refresh bookkeeping their other reloads use. A screen renders a peer with no
-known name as a neutral placeholder for the one frame it takes to arrive.
+`ConvoysStore` already owns the member list and already knows how to reload it, so the id→name
+lookup and the "this id is unknown, reload" trigger belong there, behind the same `loaded`/refresh
+bookkeeping its other reloads use. A screen renders a peer with no known name as a neutral
+placeholder — `handleFor` (`Groups.kt`) returns `"Someone"` for any id membership doesn't know,
+not only the one frame a newly joined peer takes to resolve. *(Shipped: only `ConvoysStore` got
+this — a circle's position never rides the relay, so a copy was written on `CirclesStore` anyway
+and later deleted as unreachable, commit `9143d38`. And `handleFor` shipped first returning `""`
+here, which a later whole-branch review found landing as a blank name in every one of its callers
+before it was corrected to the placeholder this paragraph already called for.)*
 
 Debounced: an unknown id must not turn a burst of position frames from a newly joined peer into
-a burst of member-list requests. One refresh in flight at a time, and an id that is still unknown
-after a completed refresh is not retried — it means the peer left the group between the frame and
-the reload, which the relay's own TTL then expires.
+a burst of member-list requests. One refresh in flight at a time, and an id still unknown after a
+completed refresh is remembered and not retried on the next frame that names it. *(Shipped
+differently: this was originally reasoned as "an id still unknown after a completed refresh means
+the peer left the group", and coded to never retry it at all. Commit `52eb51d` found that
+reasoning wrong — a peer whose membership simply hasn't propagated yet looks identical to a
+departed one from here — and added `ignoredIds`, cleared the moment a reload actually changes
+membership, so a peer written off gets a fresh look rather than staying unresolved for the rest of
+the ride. The relay's own TTL is what actually retires a departed peer; this bookkeeping only
+bounds how often an unresolved one is retried.)*
 
 ### 6. The client's own id
 
 The one genuine cost of choosing `User.Id` over `sub`: only the server knows it. So after token
-exchange the client fetches `/me` and persists `auth_account_id` in the secure store beside
+exchange the client fetches `/me` and persists `auth_rider_id` in the secure store beside
 `auth_username` (`Settings.kt:194,310,438-443`), with the key added to
-`CredentialMigration.kt:64`'s list.
+`CredentialMigration.kt:64`'s list. *(Shipped under `auth_rider_id`, not `auth_account_id` as
+first planned here.)*
 
-Before that fetch lands — offline first run, or a failed `/me` — every `isMe` is false. That
-fails closed: no delete affordance, no self-suppression, and a rider may briefly see their own
-pin among the peers. Wrong in the harmless direction, and it clears on the next successful
-`/me`.
+Before that fetch lands — offline first run, or a failed `/me` — every `isMe` is false: no
+delete affordance, and a rider may briefly see their own pin among the peers. It clears on the
+next successful `/me`, and a repeated failure is closed by fetching again opportunistically
+rather than only after a token exchange or refresh — see below. *(Most of this fails closed, but
+not everything did, which is not the harmless direction this paragraph originally claimed:
+`CircleNotifyPolicy.planCatchUp`'s self-filter compared `it.riderId != myId`, and a blank `myId`
+matched nothing, so it let a rider's own arrivals and departures back through instead of
+suppressing them — fail *open*. A later whole-branch review caught this; `planCatchUp` now
+refuses to plan anything at all on a blank id, and `bearer()` now resolves the id opportunistically
+on its own fast path rather than waiting on the next token exchange or refresh, closing most of
+the window this section describes.)*
 
 `AccountScope` is untouched. Its `keyFrom(subject, username)` (`AccountScope.kt:77`) already
 prefers `sub`, is about on-disk bucketing rather than peer identity, and its username fallback

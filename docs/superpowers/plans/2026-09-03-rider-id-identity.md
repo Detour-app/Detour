@@ -1499,11 +1499,15 @@ fun watchPeers(scope: CoroutineScope) {
 
 `refreshGate` is a `Mutex()` field, matching the `writeLock` already in `Coverage.kt:149`. Use whichever `reload`/`loaded` convention the store has rather than adding a second — `CirclesStore.kt:290` and `ConvoysStore.kt:114` show the existing `block()` shape.
 
+*(Shipped differently from the quote above, on `ConvoysStore` only — see this task's own note earlier in this document about `CirclesStore`'s copy being deleted as unreachable. `watchPeers` takes the peers flow as a second parameter — `fun watchPeers(scope: CoroutineScope, peers: StateFlow<Map<RiderId, FriendPosition>>)` — rather than reading `ConvoyRelay.peers` itself, since the one live `ConvoyRelay` instance belongs to a platform call site, not to `commonMain`. `resolveUnknown` calls a new `reloadQuietly()`, not `reload()` — a self-heal firing on every unrecognised peer must not flip `busy` and disturb whatever the screen is already showing. And "not retried" turned out to be wrong: commit `52eb51d` found that an id unresolved after a reload does not necessarily mean the peer left — membership can simply not have propagated yet — and added an `ignoredIds` set that remembers an unresolved id without retrying it on every frame, but clears the moment a reload actually changes membership.)*
+
 `watchPeers` needs one call site per platform, since the scope comes from the platform: Android in the same place the other long-lived collectors start, iOS from the app's startup path. Find them:
 
 Run: `devcontainer-exec grep -rn "ConvoysStore\|CirclesStore" app/src/main/java/com/jellemax/detour/DetourApp.kt app/src/main/java/com/jellemax/detour/MainActivity.kt iosApp/Detour/DetourApp.swift`
 
 If no such startup seam exists, do not invent an application-wide singleton scope for this — report `DONE_WITH_CONCERNS` naming what you found, and the controller will decide. A wrong lifecycle here leaks a collector for the life of the process.
+
+*(Shipped asymmetrically, not one call site per platform: Android's `ConvoyLiveClient.kt` calls `ConvoysStore.watchPeers(scope, relay.peers)` from the coroutine scope its live-relay connection already runs in. iOS has no call site at all, and could not have one as this step assumed — there is no Kotlin `CoroutineScope` anywhere in `iosApp`, which is Swift-native `Task`/`async` throughout, not a platform-side wrapper around a shared-module scope. iOS instead resolves an unnamed peer by reading `handleFor` fresh at render time — `ConvoyBar.swift` and `MapScreen.swift` — which self-heals the next time membership updates without a proactive reload being wired up at all.)*
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -1602,6 +1606,18 @@ private suspend fun resolveRiderId() {
     if (id.isNotEmpty()) Settings.setRiderId(id)
 }
 ```
+
+*(The "harmless direction" claim above did not hold: `CircleNotifyPolicy.planCatchUp`'s
+self-filter compared `it.riderId != myId`, and a blank `myId` matched nothing, so it let a
+rider's own arrivals and departures back through instead of suppressing them — fail *open*, not
+harmless. A later whole-branch review caught this. The shipped fix has three parts:
+`planCatchUp` refuses to plan anything at all on a blank id rather than trusting every caller's
+comparison to be written correctly; `bearer()` now calls `resolveRiderId()` from its own fast
+path — behind a debounced background launch, not awaited, so a `/me` round trip already in
+flight can't block or fail the token request that triggered it — so an install that upgraded
+already signed in stops running blank the moment it makes its next request, rather than waiting
+out its current access token; and this doc comment was corrected to stop asserting the direction
+was harmless.)*
 
 Add `Rider.me()` beside `Friends` in `Social.kt`:
 
