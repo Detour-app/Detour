@@ -34,14 +34,14 @@ public class LiveRelayTests
         var harness = new Harness();
         harness.WithCircles(sharing, paused);
 
-        var watcher = harness.Connect(watching, "watcher");
-        var other = harness.Connect(ignored, "other");
+        var watcher = harness.Connect(watching);
+        var other = harness.Connect(ignored);
 
         await harness.Ingest(rider, LivePositionSource.Socket);
 
         // The pause switch is the privacy gate, and it is per membership: the same fix reaches one
         // circle and is withheld from the other in the same call.
-        (await watcher.ReadFrameAsync()).Should().Contain("\"u\":\"rider\"");
+        (await watcher.ReadFrameAsync()).Should().Contain($"\"u\":\"{rider.Id}\"");
         other.HasPendingFrames.Should().BeFalse();
     }
 
@@ -55,11 +55,11 @@ public class LiveRelayTests
         var harness = new Harness();
         harness.WithConvoys(convoy);
 
-        var peer = harness.Connect(peerId, "peer");
+        var peer = harness.Connect(peerId);
 
         await harness.Ingest(rider, LivePositionSource.Socket);
 
-        (await peer.ReadFrameAsync()).Should().Contain("\"u\":\"rider\"");
+        (await peer.ReadFrameAsync()).Should().Contain($"\"u\":\"{rider.Id}\"");
 
         // A convoy rider who is in no circle leaves nothing behind, however long they ride. This
         // is the property that keeps "relay-only" true now that one ingest serves both kinds.
@@ -79,12 +79,12 @@ public class LiveRelayTests
         harness.WithConvoys(ConvoyWith(rider.Id, peerId));
         harness.WithCircles(CircleWith(rider.Id, peerId, riderIsSharing: true));
 
-        var peer = harness.Connect(peerId, "peer");
+        var peer = harness.Connect(peerId);
 
         await harness.Ingest(rider, LivePositionSource.Socket);
 
         var frame = await peer.ReadFrameAsync();
-        var positions = CountOccurrences(frame, "\"u\":\"rider\"");
+        var positions = CountOccurrences(frame, $"\"u\":\"{rider.Id}\"");
 
         // Riding with someone who is also in your circle must not double their traffic. Fan-out
         // targets riders, not memberships, which is what makes this fall out for free.
@@ -100,7 +100,7 @@ public class LiveRelayTests
 
         var harness = new Harness();
         harness.WithCircles(CircleWith(rider.Id, peerId, riderIsSharing: true));
-        var peer = harness.Connect(peerId, "peer");
+        var peer = harness.Connect(peerId);
 
         await harness.Ingest(rider, LivePositionSource.Http);
 
@@ -112,11 +112,13 @@ public class LiveRelayTests
     [Fact]
     public async Task Consecutive_positions_are_written_as_one_frame()
     {
-        var connection = new Harness().Connect(Guid.CreateVersion7(), "peer");
+        var connection = new Harness().Connect(Guid.CreateVersion7());
+        var alice = Guid.CreateVersion7();
+        var bob = Guid.CreateVersion7();
 
-        connection.Connection.Enqueue(Position("alice", 1));
-        connection.Connection.Enqueue(Position("bob", 2));
-        connection.Connection.Enqueue(Position("alice", 3));
+        connection.Connection.Enqueue(Position(alice, 1));
+        connection.Connection.Enqueue(Position(bob, 2));
+        connection.Connection.Enqueue(Position(alice, 3));
 
         var frame = await connection.ReadFrameAsync();
 
@@ -131,11 +133,12 @@ public class LiveRelayTests
     public async Task A_departure_separates_the_positions_around_it()
     {
         var harness = new Harness();
-        var connection = harness.Connect(Guid.CreateVersion7(), "peer");
+        var connection = harness.Connect(Guid.CreateVersion7());
+        var alice = Guid.CreateVersion7();
 
-        connection.Connection.Enqueue(Position("alice", 1));
-        connection.Connection.Enqueue(new LiveMessage(new { type = "left", user = "alice" }));
-        connection.Connection.Enqueue(Position("alice", 2));
+        connection.Connection.Enqueue(Position(alice, 1));
+        connection.Connection.Enqueue(new LiveMessage(new LeftFrame(alice)));
+        connection.Connection.Enqueue(Position(alice, 2));
 
         // Order is causality here: merging across the departure would let a fix already in flight
         // resurrect a peer the client has just been told is gone.
@@ -149,7 +152,7 @@ public class LiveRelayTests
     {
         var harness = new Harness();
         var riderId = Guid.CreateVersion7();
-        var connection = harness.Connect(riderId, "rider");
+        var connection = harness.Connect(riderId);
 
         var convoyId = Guid.CreateVersion7();
         var circleId = Guid.CreateVersion7();
@@ -174,8 +177,8 @@ public class LiveRelayTests
         var harness = new Harness();
         var riderId = Guid.CreateVersion7();
 
-        harness.Connect(riderId, "rider");
-        var reconnected = harness.Connect(riderId, "rider");
+        harness.Connect(riderId);
+        var reconnected = harness.Connect(riderId);
 
         // Spec §11: a reconnect must not leave a ghost receiving forever. One rider, one socket.
         harness.Relay.ConnectedUserIds.Should().ContainSingle();
@@ -183,7 +186,7 @@ public class LiveRelayTests
         reconnected.Connection.UserId.Should().Be(riderId);
     }
 
-    private static PeerPosition Position(string user, long timestampMs) =>
+    private static PeerPosition Position(Guid user, long timestampMs) =>
         new(user, 51.05, 3.71, null, null, timestampMs, 20);
 
     private static int CountOccurrences(string haystack, string needle)
@@ -249,14 +252,14 @@ public class LiveRelayTests
         public Task Ingest(User rider, LivePositionSource source) =>
             new LiveLocationService(Groups.Object, MemberFixes.Object, Relay)
                 .IngestAsync(
-                    new LiveRider(rider.Id, rider.Username),
+                    new LiveRider(rider.Id),
                     new LivePosition(51.05431, 3.71742, 12.0, 142.5, 48.3, 1_754_923_456_789),
                     source,
                     CancellationToken.None);
 
-        public CapturingConnection Connect(Guid userId, string username)
+        public CapturingConnection Connect(Guid userId)
         {
-            var capture = new CapturingConnection(userId, username);
+            var capture = new CapturingConnection(userId);
             Relay.Register(capture.Connection);
             return capture;
         }
@@ -282,9 +285,9 @@ public class LiveRelayTests
             }
         }
 
-        public CapturingConnection(Guid userId, string username)
+        public CapturingConnection(Guid userId)
         {
-            Connection = new LiveConnection(userId, username, new CapturingSocket(Record));
+            Connection = new LiveConnection(userId, new CapturingSocket(Record));
             _ = Connection.RunWriterAsync(JsonOptions, CancellationToken.None);
         }
 

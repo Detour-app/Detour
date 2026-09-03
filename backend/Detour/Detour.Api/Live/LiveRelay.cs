@@ -22,7 +22,7 @@ public interface ILiveRelay
     void PublishPlaceEvent(
         IEnumerable<Guid> recipientUserIds,
         Guid groupId,
-        string username,
+        Guid riderId,
         long placeId,
         string placeName,
         string kind,
@@ -89,7 +89,7 @@ public sealed class LiveRelay(ILogger<LiveRelay> logger) : ILiveRelay
         if (groups.Count == 0)
             return;
 
-        var frame = new LiveMessage(new LeftFrame(connection.Username));
+        var frame = new LiveMessage(new LeftFrame(connection.UserId));
         foreach (var peer in _connections.Values)
         {
             if (peer.UserId != connection.UserId && groups.Any(peer.IsJoinedTo))
@@ -129,7 +129,7 @@ public sealed class LiveRelay(ILogger<LiveRelay> logger) : ILiveRelay
     public void PublishPlaceEvent(
         IEnumerable<Guid> recipientUserIds,
         Guid groupId,
-        string username,
+        Guid riderId,
         long placeId,
         string placeName,
         string kind,
@@ -137,7 +137,7 @@ public sealed class LiveRelay(ILogger<LiveRelay> logger) : ILiveRelay
         PublishToGroup(
             recipientUserIds,
             groupId,
-            new PlaceEventFrame(groupId, username, placeId, placeName, kind, timestampMs));
+            new PlaceEventFrame(groupId, riderId, placeId, placeName, kind, timestampMs));
 
     public Task EvictAsync(Guid userId, Guid groupId, CancellationToken cancellationToken)
     {

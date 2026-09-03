@@ -231,7 +231,7 @@ public class CircleService(
             liveRelay.PublishPlaceEvent(
                 recipients,
                 groupId,
-                caller.Username,
+                caller.Id,
                 placeEvent.ClientPlaceId,
                 placeName ?? string.Empty,
                 placeEvent.Kind.Wire(),

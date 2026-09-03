@@ -14,7 +14,7 @@ namespace Detour.Api.Live;
 /// rather than looked up per frame so that a rider who is joined to a convoy and three circles
 /// costs one set lookup on the hot path instead of four database round trips.
 /// </summary>
-public sealed class LiveConnection(Guid userId, string username, WebSocket socket)
+public sealed class LiveConnection(Guid userId, WebSocket socket)
 {
     /// <summary>
     /// Deep enough that it is only ever reached by a socket that has stopped draining entirely.
@@ -53,8 +53,6 @@ public sealed class LiveConnection(Guid userId, string username, WebSocket socke
     private long _budgetStampMs = Environment.TickCount64;
 
     public Guid UserId { get; } = userId;
-
-    public string Username { get; } = username;
 
     /// <summary>Groups this socket has successfully joined. Joining adds; it never replaces.</summary>
     public IReadOnlyCollection<Guid> Groups => [.. _groups.Keys];
@@ -131,6 +129,9 @@ public sealed class LiveConnection(Guid userId, string username, WebSocket socke
                 {
                     case PeerPosition position:
                         // Last fix wins: an older one for the same peer is not worth a byte.
+                        // Ids, so two fixes from one rider always collapse. This compared handles
+                        // until #133, and an ordinal compare on a value the database stores as
+                        // citext could see one rider's two spellings as two riders.
                         pending.RemoveAll(p => p.User == position.User);
                         pending.Add(position);
                         break;

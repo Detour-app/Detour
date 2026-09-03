@@ -5,11 +5,11 @@ using JV.ResultUtilities;
 namespace Detour.Api.Live;
 
 /// <summary>
-/// Who a fix belongs to. Just the two facts the relay needs — established by the token, so a
-/// caller that already holds them (a live connection) does not have to re-read the account row
+/// Who a fix belongs to. Just the one fact the relay needs — established by the token, so a
+/// caller that already holds it (a live connection) does not have to re-read the account row
 /// on every position.
 /// </summary>
-public sealed record LiveRider(Guid Id, string Username);
+internal readonly record struct LiveRider(Guid Id);
 
 /// <summary>One fix, as reported by a device, before the relay decides who may see it.</summary>
 public sealed record LivePosition(
@@ -34,7 +34,7 @@ public enum LivePositionSource
     Http,
 }
 
-public interface ILiveLocationService
+internal interface ILiveLocationService
 {
     /// <summary>
     /// Records one fix and relays it to everyone entitled to see it.
@@ -120,7 +120,7 @@ internal sealed class LiveLocationService(
         relay.PublishPosition(
             recipients,
             new PeerPosition(
-                caller.Username,
+                caller.Id,
                 position.Latitude,
                 position.Longitude,
                 Normalise(position.HeadingDegrees, 0, 360),
