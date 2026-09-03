@@ -93,7 +93,7 @@ public class RouteSharingService(
                 route.Id,
                 // Taken from the authenticated sender's account, never read out of the stored
                 // document — the same reasoning that has fog sharing trust only the row it read.
-                names.GetValueOrDefault(route.FromUserId, string.Empty),
+                new RiderRef(route.FromUserId, names.GetValueOrDefault(route.FromUserId, string.Empty)),
                 route.CreatedAt.ToUnixTimeMilliseconds(),
                 route.Name,
                 JsonSerializer.Deserialize<JsonElement>(route.Payload)))

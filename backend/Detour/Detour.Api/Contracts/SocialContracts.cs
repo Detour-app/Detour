@@ -4,10 +4,16 @@ using System.Text.Json.Serialization;
 
 namespace Detour.Api.Contracts;
 
-public record FriendsResponse(
-    [Required] IReadOnlyList<string> Friends,
-    [Required] IReadOnlyList<string> Incoming,
-    [Required] IReadOnlyList<string> Outgoing);
+/// <summary>
+/// Everyone the caller has a friendship row with, accepted or pending, each tagged with
+/// which direction it points. One list rather than three: three arrays encoded the relation
+/// by position, so nothing checked that a rider appeared in exactly one.
+/// </summary>
+public record FriendsResponse([Required] IReadOnlyList<FriendEntry> Riders);
+
+public record FriendEntry(
+    [Required] RiderRef Rider,
+    [Required] string Relation);
 
 /// <summary>
 /// <c>sharing</c> reports the caller's own setting, so a client can explain an empty result
@@ -46,7 +52,7 @@ public record ShareRouteBody(
 
 public record SharedRouteResponse(
     [Required] Guid Id,
-    [Required] string From,
+    [Required] RiderRef From,
     [Required] long CreatedAtMs,
     [Required] string Name,
     [Required] JsonElement Route);

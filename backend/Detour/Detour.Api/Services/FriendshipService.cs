@@ -12,11 +12,13 @@ public interface IFriendshipService
 {
     Task<FriendsResponse> ListAsync(Guid userId, CancellationToken cancellationToken);
 
-    Task<Result<string>> RequestAsync(User caller, string username, CancellationToken cancellationToken);
+    /// <summary>Handle, not id, on purpose: this is the one place a rider is looked up by
+    /// the name they typed. Resolved to an id immediately below.</summary>
+    Task<Result<FriendshipStatus>> RequestAsync(User caller, string username, CancellationToken cancellationToken);
 
-    Task<Result<string>> RespondAsync(User caller, string username, bool accept, CancellationToken cancellationToken);
+    Task<Result<RespondOutcome>> RespondAsync(User caller, Guid targetId, bool accept, CancellationToken cancellationToken);
 
-    Task<Result> RemoveAsync(User caller, string username, CancellationToken cancellationToken);
+    Task<Result> RemoveAsync(User caller, Guid targetId, CancellationToken cancellationToken);
 
     Task<Result<IReadOnlyList<FriendStatsResponse>>> GetFriendStatsAsync(Guid userId, CancellationToken cancellationToken);
 
@@ -34,28 +36,31 @@ public class FriendshipService(
     {
         var rows = await friendships.GetForUserAsync(userId, cancellationToken);
         if (rows.Count == 0)
-            return new FriendsResponse([], [], []);
+            return new FriendsResponse([]);
 
-        var names = await ResolveUsernamesAsync(rows.Select(f => f.OtherThan(userId)), cancellationToken);
+        var others = rows.Select(f => f.OtherThan(userId)).ToArray();
+        var names = await ResolveUsernamesAsync(others, cancellationToken);
 
-        List<string> accepted = [], incoming = [], outgoing = [];
+        List<FriendEntry> entries = [];
         foreach (var friendship in rows)
         {
-            if (!names.TryGetValue(friendship.OtherThan(userId), out var name))
+            var otherId = friendship.OtherThan(userId);
+            if (!names.TryGetValue(otherId, out var name))
                 continue;
 
-            if (friendship.IsAccepted)
-                accepted.Add(name);
-            else if (friendship.RequestedByUserId == userId)
-                outgoing.Add(name);
-            else
-                incoming.Add(name);
+            var relation = friendship.IsAccepted
+                ? FriendRelation.Friend
+                : friendship.RequestedByUserId == userId
+                    ? FriendRelation.Outgoing
+                    : FriendRelation.Incoming;
+
+            entries.Add(new FriendEntry(new RiderRef(otherId, name), relation.Wire()));
         }
 
-        return new FriendsResponse(accepted, incoming, outgoing);
+        return new FriendsResponse(entries);
     }
 
-    public async Task<Result<string>> RequestAsync(
+    public async Task<Result<FriendshipStatus>> RequestAsync(
         User caller,
         string username,
         CancellationToken cancellationToken)
@@ -71,17 +76,17 @@ public class FriendshipService(
         if (existing is not null)
         {
             if (existing.IsAccepted)
-                return Result.Ok(FriendshipStatus.Accepted.Wire());
+                return Result.Ok(FriendshipStatus.Accepted);
 
             // They asked first; asking back is the same as accepting. Anything else would leave
             // two people who have each asked the other still not friends.
             if (existing.RequestedByUserId != caller.Id)
             {
                 var accept = existing.Accept(caller.Id);
-                return accept.IsFailure ? accept : Result.Ok(FriendshipStatus.Accepted.Wire());
+                return accept.IsFailure ? accept : Result.Ok(FriendshipStatus.Accepted);
             }
 
-            return Result.Ok(FriendshipStatus.Pending.Wire());
+            return Result.Ok(FriendshipStatus.Pending);
         }
 
         var (result, friendship) = Friendship.Request(caller.Id, target.Id);
@@ -89,46 +94,38 @@ public class FriendshipService(
             return result;
 
         await friendships.SaveAsync(friendship, cancellationToken);
-        return Result.Ok(FriendshipStatus.Pending.Wire());
+        return Result.Ok(FriendshipStatus.Pending);
     }
 
-    public async Task<Result<string>> RespondAsync(
+    public async Task<Result<RespondOutcome>> RespondAsync(
         User caller,
-        string username,
+        Guid targetId,
         bool accept,
         CancellationToken cancellationToken)
     {
-        var target = await users.GetByUsernameAsync(username.Trim(), cancellationToken);
-        if (target is null)
-            return Result.Error(ValidationKeys.User.NotFoundByUsername, username);
-
-        var friendship = await friendships.GetForPairAsync(caller.Id, target.Id, cancellationToken);
+        var friendship = await friendships.GetForPairAsync(caller.Id, targetId, cancellationToken);
         if (friendship is null || friendship.IsAccepted)
             return Result.Error(ValidationKeys.Friendship.NoPendingRequest);
 
         if (!accept)
         {
             friendships.Delete(friendship);
-            return Result.Ok("Declined");
+            return Result.Ok(RespondOutcome.Declined);
         }
 
         var result = friendship.Accept(caller.Id);
-        return result.IsFailure ? result : Result.Ok(FriendshipStatus.Accepted.Wire());
+        return result.IsFailure ? result : Result.Ok(RespondOutcome.Accepted);
     }
 
-    public async Task<Result> RemoveAsync(User caller, string username, CancellationToken cancellationToken)
+    public async Task<Result> RemoveAsync(User caller, Guid targetId, CancellationToken cancellationToken)
     {
-        var target = await users.GetByUsernameAsync(username.Trim(), cancellationToken);
-        if (target is null)
-            return Result.Error(ValidationKeys.User.NotFoundByUsername, username);
-
-        var friendship = await friendships.GetForPairAsync(caller.Id, target.Id, cancellationToken);
+        var friendship = await friendships.GetForPairAsync(caller.Id, targetId, cancellationToken);
         if (friendship is not null)
             friendships.Delete(friendship);
 
         // A shared route is places you have been, so losing the friendship takes it back — in
         // both directions, not only what you received.
-        await sharedRoutes.DeleteBetweenAsync(caller.Id, target.Id, cancellationToken);
+        await sharedRoutes.DeleteBetweenAsync(caller.Id, targetId, cancellationToken);
 
         return Result.Ok();
     }
@@ -150,7 +147,7 @@ public class FriendshipService(
 
         var response = friends
             .Select(friend => new FriendStatsResponse(
-                friend.Username,
+                new RiderRef(friend.Id, friend.Username),
                 RiderStatsResponse.Map(friend.Stats),
                 awards.TryGetValue(friend.Id, out var earned)
                     ? earned.ToDictionary(b => b.BadgeId, b => b.EarnedAtMs)
