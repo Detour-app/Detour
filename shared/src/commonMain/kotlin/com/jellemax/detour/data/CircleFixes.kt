@@ -47,9 +47,13 @@ object CircleFixes {
     @Throws(Exception::class)
     suspend fun othersFixes(selfId: RiderId): List<NamedMemberFix> {
         val circles = Groups.list("circle").filter { it.status == "accepted" }
-        val names = circles.flatMap { it.members }.associate { it.id to it.username }
+        val members = circles.flatMap { it.members }
         return newestPerOtherMember(circles.flatMap { fixes(it.id) }, selfId)
-            .map { NamedMemberFix(it, names[it.riderId].orEmpty()) }
+            // [handleFor], not a hand-rolled map lookup: a fix for a member
+            // this device's own circle list doesn't (yet) know about used to
+            // read back "" here and draw an empty marker label - the same
+            // gap #133's own review found in the twelve other call sites.
+            .map { NamedMemberFix(it, members.handleFor(it.riderId)) }
     }
 
     /** Latest fix per accepted, currently-sharing member — the server drops a
@@ -60,9 +64,12 @@ object CircleFixes {
     }
 }
 
-/** A fix, plus the handle to draw beside it, resolved from the membership this
- *  call already fetched. Identity and label arrive together at exactly one
- *  place, which is why no other layer needs an id-to-name lookup. */
+/** A fix, plus the handle to draw beside it, resolved via [handleFor] from the
+ *  membership [CircleFixes.othersFixes] already fetched. Identity and label
+ *  arrive together here so the map layers that draw a circle-member marker
+ *  never repeat that lookup themselves — unlike a shared place or an event,
+ *  which carry the bare id and leave the [handleFor] call to whichever screen
+ *  renders them. */
 data class NamedMemberFix(val fix: MemberFix, val username: String)
 
 /** Extracted from [CircleFixes.othersFixes] for the same reason

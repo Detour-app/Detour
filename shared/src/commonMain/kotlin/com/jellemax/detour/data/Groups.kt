@@ -16,12 +16,15 @@ data class GroupMember(
  *
  * Exists because payloads stopped carrying a handle beside every id (#133):
  * positions, places and events identify a rider, and membership names them, so
- * every label is one lookup away rather than repeated on the wire. Empty for an
- * id no membership knows — a peer who joined since the last reload — which the
- * caller draws as a placeholder rather than treating as an error.
+ * every label is one lookup away rather than repeated on the wire. Falls back
+ * to "Someone" — never an empty string — for an id no membership knows yet (a
+ * peer who joined since the last reload) or a member whose handle came back
+ * blank, because every call site interpolates the result straight into
+ * user-visible text ("Someone arrived at Home") with nothing that draws it as
+ * a placeholder instead.
  */
 fun List<GroupMember>.handleFor(riderId: RiderId): String =
-    firstOrNull { it.id == riderId }?.username.orEmpty()
+    firstOrNull { it.id == riderId }?.username.orEmpty().ifBlank { "Someone" }
 
 data class Group(
     /** The server's identifier. Opaque: a UUID today, and nothing here reads it
