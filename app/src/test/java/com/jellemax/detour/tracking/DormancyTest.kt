@@ -60,4 +60,45 @@ class DormancyTest {
             dormancyDecision(autoDetect = true, tripActive = false, convoyActive = false, uiVisible = false, stationary = false),
         )
     }
+
+    @Test fun `a geofence wake outranks a stale STILL so the wake is not undone`() {
+        // The regression this exists for: GEOFENCE_TRANSITION_EXIT starts the
+        // service, onStartCommand reaches the dormancy check before the first
+        // fix arrives, and activity recognition still says STILL because the
+        // rider only just pulled away. Without this branch the service parked
+        // ~60 ms after waking and re-armed 150 m on, the whole ride, recording
+        // nothing.
+        assertEquals(
+            DormancyDecision.STAY_ALIVE,
+            dormancyDecision(
+                autoDetect = true, tripActive = false, convoyActive = false,
+                uiVisible = false, stationary = true, justWokenByGeofence = true,
+            ),
+        )
+    }
+
+    @Test fun `auto-detect off still stops bare even on a geofence wake`() {
+        // AC 2 outranks the grace: with nothing to detect there is nothing to
+        // wake for, so a wake that arrives after the setting was turned off
+        // must still leave no service and no geofence.
+        assertEquals(
+            DormancyDecision.STOP_BARE,
+            dormancyDecision(
+                autoDetect = false, tripActive = false, convoyActive = false,
+                uiVisible = false, stationary = true, justWokenByGeofence = true,
+            ),
+        )
+    }
+
+    @Test fun `once the wake grace lapses a still-stationary phone parks again`() {
+        // A false wake — walked past 150 m and came back — costs one grace
+        // window, not an always-on service.
+        assertEquals(
+            DormancyDecision.STOP_WITH_GEOFENCE,
+            dormancyDecision(
+                autoDetect = true, tripActive = false, convoyActive = false,
+                uiVisible = false, stationary = true, justWokenByGeofence = false,
+            ),
+        )
+    }
 }

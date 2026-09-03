@@ -160,6 +160,16 @@ class TripTrackingService : Service() {
         private const val ACTION_END_TRIP = "com.jellemax.detour.END_TRIP"
         private const val ACTION_TRANSITION = "com.jellemax.detour.ACTIVITY_TRANSITION"
         private const val ACTION_REFRESH = "com.jellemax.detour.REFRESH"
+        private const val ACTION_GEOFENCE_WAKE = "com.jellemax.detour.GEOFENCE_WAKE"
+
+        /** How long a geofence wake keeps the service alive regardless of what
+         *  activity recognition still thinks. The auto-start detector needs 8 s
+         *  and 120 m above [FAST_SPEED_MPS] to confirm a drive, and a service
+         *  starting cold can wait 10-20 s for its first usable fix, so this has
+         *  to cover both with margin. Bounded so a false wake — the rider walked
+         *  the dog past 150 m — costs one grace window of foreground service and
+         *  then parks again, rather than staying up indefinitely. */
+        private const val GEOFENCE_WAKE_GRACE_MS = 90_000L
         // One definition, shared with the trip-ended notification that posts to
         // the same channel from notif/.
         private const val CHANNEL_ID = TripEndedNotification.CHANNEL_ID
@@ -347,6 +357,19 @@ class TripTrackingService : Service() {
                 context, Intent(context, TripTrackingService::class.java))
         }
 
+        /** [startMonitoring], but flagged so the dormancy check gives this start
+         *  [GEOFENCE_WAKE_GRACE_MS] before it may park again — see
+         *  [dormancyDecision]'s `justWokenByGeofence`. Without the flag the wake
+         *  undoes itself before a single fix arrives. */
+        fun startFromGeofenceWake(context: Context) {
+            if (!canStart(context)) return
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, TripTrackingService::class.java)
+                    .setAction(ACTION_GEOFENCE_WAKE),
+            )
+        }
+
         /** Nudge the service to rebuild its notification — e.g. after the
          *  auto-detect setting is toggled, so the text reflects it at once. */
         fun refresh(context: Context) {
@@ -414,6 +437,12 @@ class TripTrackingService : Service() {
 
     /** Which mode the active location request was made for; null = none yet. */
     private var activeMode: LocationMode? = null
+
+    /** Wall clock past which a geofence wake no longer protects this instance
+     *  from re-parking; 0 when this start was not a geofence wake. Per-instance
+     *  on purpose — the grace belongs to the wake, and a wake always brings a
+     *  fresh instance up. */
+    private var geofenceWakeGraceUntilMs = 0L
 
     /** Set once [stopDormant] begins the #90 stop path. Blocks the mode/
      *  notification machinery that callers still run after `maybeGoDormant()`
@@ -965,6 +994,10 @@ class TripTrackingService : Service() {
             ACTION_END_TRIP -> endTrip()
             ACTION_TRANSITION -> handleTransition(intent)
             ACTION_REFRESH -> reconcileObd2Connections()
+            ACTION_GEOFENCE_WAKE -> {
+                geofenceWakeGraceUntilMs = System.currentTimeMillis() + GEOFENCE_WAKE_GRACE_MS
+                Log.i(ParkGeofence.TAG, "woken by geofence; holding for ${GEOFENCE_WAKE_GRACE_MS}ms")
+            }
         }
 
         ensureLocationUpdates()
@@ -1230,6 +1263,7 @@ class TripTrackingService : Service() {
             convoyActive = convoyActive,  // companion field, same as currentMode() reads
             uiVisible = uiVisible,
             stationary = stationary,
+            justWokenByGeofence = System.currentTimeMillis() < geofenceWakeGraceUntilMs,
         )
         when (decision) {
             DormancyDecision.STAY_ALIVE -> return

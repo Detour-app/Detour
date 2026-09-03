@@ -27,7 +27,7 @@ class GeofenceWakeReceiver : BroadcastReceiver() {
         logDelivery(event)
         ParkGeofence.disarm(context)
         try {
-            TripTrackingService.startMonitoring(context)
+            TripTrackingService.startFromGeofenceWake(context)
         } catch (e: Exception) {
             // Background-start still refused (permission revoked while parked);
             // tracking resumes next time the app is opened.
