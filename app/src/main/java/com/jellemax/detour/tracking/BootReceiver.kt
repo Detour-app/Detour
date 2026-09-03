@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.jellemax.detour.notif.CircleNotifyService
+import com.jellemax.detour.notif.CircleSyncWorker
 
 /** Restarts the always-on tracker, and circle arrival notifications, after
  *  a reboot - an arrival at 3pm on a Tuesday has to work whether or not the
@@ -22,6 +23,11 @@ class BootReceiver : BroadcastReceiver() {
         } catch (e: Exception) {
             // Same background-start restriction can apply here too; the
             // service starts anyway next time the app opens (MainActivity).
+        }
+        try {
+            CircleSyncWorker.schedule(context)
+        } catch (e: Exception) {
+            // WorkManager not ready this early is rare and self-heals on next app open.
         }
     }
 }
