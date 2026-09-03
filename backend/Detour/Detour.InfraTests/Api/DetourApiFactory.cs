@@ -133,8 +133,10 @@ public sealed class DetourApiFactory(PostgresFixture postgres) : WebApplicationF
 
 /// <summary>
 /// A bearer-authenticated test client plus the identity it signed in as. Forwards the handful of
-/// HTTP verbs the test suite needs so a call site never has to reach past this for the plain
-/// <see cref="HttpClient"/> just to get at <see cref="Username"/> or <see cref="UserId"/>.
+/// HTTP verbs the test suite needs so a call site only has to reach past this for something this
+/// wrapper doesn't expose at all — the WebSocket leg in <c>LiveEndpointTests</c> and
+/// <c>LiveResilienceTests</c> reads the bearer token off <see cref="Client"/> directly, since
+/// standing up a socket connection isn't among the verbs above.
 /// </summary>
 public sealed class SignedInClient(HttpClient client, string username)
 {

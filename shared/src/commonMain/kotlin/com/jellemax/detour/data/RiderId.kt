@@ -16,6 +16,16 @@ import kotlin.jvm.JvmInline
  * Opaque on purpose. It is a UUID string today and nothing here reads it as
  * anything but a key to compare and a value to put back in a path, the same
  * contract [Group.id] already has.
+ *
+ * That comparison is only as good as both ends spelling the same UUID the
+ * same way: this compares the raw string, not the 128 bits underneath, so it
+ * depends on the backend and this client agreeing on one string form. Both
+ * sides currently get that for free from `System.Text.Json`'s default `Guid`
+ * handling and Kotlin's own string equality — lowercase, hyphenated, "D"
+ * format on the wire and unchanged on the way in — but nothing pins it. A
+ * future `JsonConverter<Guid>` on the API that reformats or cases the string
+ * differently would make every identity comparison in this app fail silently
+ * rather than throw.
  */
 @JvmInline
 value class RiderId(val value: String)

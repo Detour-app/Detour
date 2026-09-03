@@ -249,6 +249,7 @@ public class SocialTests(PostgresFixture postgres) : IAsyncLifetime
 
         var inbox = await Inbox(blake);
         inbox.GetProperty("routes").GetArrayLength().Should().Be(1);
+        inbox.GetProperty("routes")[0].GetProperty("from").GetProperty("id").GetGuid().Should().Be(alex.UserId);
         inbox.GetProperty("routes")[0].GetProperty("from").GetProperty("username").GetString().Should().Be(alex.Username);
         inbox.GetProperty("routes")[0].GetProperty("name").GetString().Should().Be("Coast road");
     }
