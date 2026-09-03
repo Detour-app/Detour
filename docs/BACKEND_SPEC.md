@@ -169,8 +169,10 @@ places.
   cannot accept their own.
 - **Remove** ends the friendship and, in the same operation, deletes every route
   shared between the two people **in either direction**.
-- **List** returns three sets: accepted friends, incoming requests, outgoing
-  requests.
+- **List** returns one set of riders, each carrying their account id, their handle and
+  which relation it is — accepted friend, incoming request or outgoing request. The id is
+  the identity; the handle is a label and a search key, never something a client compares
+  to decide whose data it is looking at.
 - **Friend stats** returns, for accepted friends only, their handle, aggregate
   stats and badge map, sorted by total distance descending. This is the only
   capability that returns another rider's data at all, and it reads nothing but
@@ -201,8 +203,8 @@ places.
   can only ever push out their *own* older shares, never crowd a quieter friend's
   routes out of your inbox.
 - **Inbox** returns routes addressed to the caller, newest first, capped. The
-  sender's handle is set from the authenticated sender, never read out of the
-  stored payload.
+  sender is a rider reference — account id and handle — set from the
+  authenticated sender, never read out of the stored payload.
 - **Delete** removes one shared route if the caller is *either* side of it — the
   recipient dropping it, or the sender un-sharing it.
 
@@ -221,7 +223,13 @@ Convoys and circles are the same entity distinguished by kind. Shared behaviour:
   known position for that group, and drops any live connection they still hold on
   it, immediately.
 - **List** returns the caller's groups of one kind, each with its members and
-  their statuses.
+  their statuses. Each member carries both their account id and their handle —
+  the only one of this group of payloads that does, which is what lets
+  positions, places and presence events below name a rider by id alone and
+  leave the display label to be resolved from here. (The friends list in
+  [§6](#6-friends) and the shared-route inbox in [§8](#8-shared-routes) also
+  pair an id with a handle; "only" here means only among a group's own
+  membership/position/place/event family.)
 - A group id that does not exist and a group the caller is not a member of
   produce the **same** answer, so identifiers cannot be enumerated.
 
@@ -256,7 +264,8 @@ Differences:
   someone, and stored only for circles they are currently sharing with. A convoy
   never stores one.
 - Reading returns the latest position of every accepted **and currently sharing**
-  member.
+  member, identified by account id alone — no handle. The caller already holds the
+  member list from §9's List, which is the one place a handle is attached to that id.
 - Positions must be finite and in range; garbage is refused rather than stored,
   because a stored non-number breaks every map that later reads it.
 
@@ -270,7 +279,8 @@ Differences:
 - Re-sharing the same place replaces the earlier copy.
 - **Write cap per (circle, owner)**, oldest dropped.
 - Listing a circle's places is membership-gated and returns every member's places
-  with their owner's handle attached.
+  with their owner's account id attached, not a handle — the same member list §9's
+  List already returned is where that id resolves to a label.
 - Only the owner can delete a place. Leaving the circle deletes all of theirs.
 
 ### 10.2 Arrival and departure
@@ -281,7 +291,9 @@ Differences:
 - **Newest-N retention per circle**, so one chatty member cannot grow the feed
   without bound.
 - Reading returns a circle's recent events since a caller-supplied instant,
-  **including the caller's own** — that is a requirement, not an oversight.
+  **including the caller's own** — that is a requirement, not an oversight. The
+  rider who triggered it is named by account id, the same as everywhere else in
+  this section.
 - A best-effort place name is attached for wording notifications. Place
   identifiers are client-assigned and only unique per (circle, owner), so the
   lookup takes the most recent match and never multiplies one event into several.
@@ -323,6 +335,11 @@ Client to server:
 Server to client: `joined`, `error`, `positions`, `left`, `place_event`.
 `place_event` is server-originated only — a client cannot cause one by sending
 it, which is why there is no inbound counterpart.
+
+Wherever one of these frames names a rider — a peer inside `positions`, or the
+subject of `left`, `spin_offer`, `spin_vote` and `place_event` — the field is an
+account id, never a handle. The JSON keys carrying it did not change when this
+moved (`u` on a peer, `user` everywhere else); only the type behind them did.
 
 The wire format of each frame, key by key, is documented with the feature it
 serves in
@@ -534,6 +551,19 @@ schedule and there is no coordination point with the app:
   feature string or a field is additive and does not bump it. A client seeing
   a `schema` higher than it knows still reads the fields it recognises rather
   than refusing the document.
+
+#133 changed every payload that names a rider — friends, group members,
+positions, circle places, presence events and the live relay's frames — to
+identify them by account id. On most of those an existing field's meaning
+broke outright (a `Username` or `Owner` string renamed and retyped to a
+`Guid` id; a relay frame's key kept its name but not its type). Group
+membership is the one exception: it already carried the handle and simply
+gained the id beside it, so that shape only grew. None of it is
+`/api/capabilities` — its `schema`, `features` and `idp` fields never
+changed — so `schema` correctly stayed at 1: this field versions the shape
+of *this one document*, not the API as a whole, and a breaking change to a
+payload outside it has no version counter today. The two rules above are a
+promise about this endpoint only.
 
 It is a version-fingerprinting surface. That is accepted — the realm address
 is already public, and a self-hosted open-source server's version is
