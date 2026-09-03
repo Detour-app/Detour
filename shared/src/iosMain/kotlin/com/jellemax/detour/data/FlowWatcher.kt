@@ -208,24 +208,31 @@ class CirclesStateWatcher internal constructor(
 // class has to live next to `ConvoyRelay` itself rather than here - see its
 // own doc.
 
+/** [ConvoyRelay.peers] keys on [RiderId] now (#133); Swift still gets a
+ *  `[String: FriendPosition]`, same reasoning as [RiderIdWatcher] above -
+ *  the value class checks nothing Swift can also check, and a signature
+ *  that used it could vanish from the generated header instead of erroring. */
 class FriendPositionsWatcher internal constructor(
-    private val flow: StateFlow<Map<String, FriendPosition>>,
+    private val flow: StateFlow<Map<RiderId, FriendPosition>>,
 ) : Watcher() {
-    var value: Map<String, FriendPosition> = flow.value
+    var value: Map<String, FriendPosition> = flow.value.mapKeys { it.key.value }
         private set
 
     override suspend fun collect(onChange: () -> Unit) =
-        flow.collect { value = it; onChange() }
+        flow.collect { value = it.mapKeys { e -> e.key.value }; onChange() }
 }
 
+/** Backs [ConvoyRelay.talking] - a [RiderId] set since #133, unwrapped to
+ *  `Set<String>` for Swift for the same reason as [FriendPositionsWatcher]
+ *  just above. */
 class StringSetWatcher internal constructor(
-    private val flow: StateFlow<Set<String>>,
+    private val flow: StateFlow<Set<RiderId>>,
 ) : Watcher() {
-    var value: Set<String> = flow.value
+    var value: Set<String> = flow.value.map { it.value }.toSet()
         private set
 
     override suspend fun collect(onChange: () -> Unit) =
-        flow.collect { value = it; onChange() }
+        flow.collect { value = it.map { r -> r.value }.toSet(); onChange() }
 }
 
 class GroupSpinWatcher internal constructor(
@@ -238,14 +245,17 @@ class GroupSpinWatcher internal constructor(
         flow.collect { value = it; onChange() }
 }
 
+/** Backs [ConvoyRelay.spinVotes] - a [RiderId]-keyed tally since #133,
+ *  unwrapped to `Map<String, Int>` for Swift for the same reason as
+ *  [FriendPositionsWatcher] above. */
 class SpinVotesWatcher internal constructor(
-    private val flow: StateFlow<Map<String, Int>>,
+    private val flow: StateFlow<Map<RiderId, Int>>,
 ) : Watcher() {
-    var value: Map<String, Int> = flow.value
+    var value: Map<String, Int> = flow.value.mapKeys { it.key.value }
         private set
 
     override suspend fun collect(onChange: () -> Unit) =
-        flow.collect { value = it; onChange() }
+        flow.collect { value = it.mapKeys { e -> e.key.value }; onChange() }
 }
 
 class OptionalStringWatcher internal constructor(
