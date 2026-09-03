@@ -401,6 +401,13 @@ class TripTrackingService : Service() {
     /** Which mode the active location request was made for; null = none yet. */
     private var activeMode: LocationMode? = null
 
+    /** Set once [stopDormant] begins the #90 stop path. Blocks the mode/
+     *  notification machinery that callers still run after `maybeGoDormant()`
+     *  returns, so a stopping service can't re-post an ongoing notification
+     *  nothing will remove. Never reset — a stopping service is torn down and
+     *  the next start is a fresh instance. */
+    @Volatile private var stopping = false
+
     private var lastMunicipalityLookupMs = 0L
 
     private val locationCallback = object : LocationCallback() {
@@ -409,6 +416,10 @@ class TripTrackingService : Service() {
             // Batched idle fixes arrive together and a probe window can lapse
             // between them; re-evaluate the mode once the burst is handled.
             ensureLocationUpdates()
+            // A phone booted stationary in a garage gets its STILL ENTER before
+            // any fix, so maybeGoDormant() bailed for want of a position. This
+            // is where that first SLEEP fix arms the park geofence.
+            maybeGoDormant()
         }
     }
 
@@ -469,6 +480,12 @@ class TripTrackingService : Service() {
     @Volatile private var lastLimitFixMs = 0L
     @Volatile private var roadTypeState = RoadTypeTracker.State()
     @Volatile private var roadTypeFetchJob: kotlinx.coroutines.Job? = null
+
+    /** The last trip-save [endTrip] kicked off. Since #90 that save can start
+     *  from a path that then stops the service (dormancy → stopSelf) before
+     *  [onDestroy]'s own [endTrip] call runs, so onDestroy needs a handle to it
+     *  to join before cancelling [serviceScope]. */
+    @Volatile private var lastSaveJob: kotlinx.coroutines.Job? = null
 
     /**
      * The board's own GPS and IMU, treated as truth over the phone's
@@ -937,6 +954,8 @@ class TripTrackingService : Service() {
 
         ensureLocationUpdates()
         registerActivityTransitions()
+        ParkGeofence.disarm(this)  // awake now, for any reason — the parked geofence has no job
+        maybeGoDormant()           // disarm first so a same-pass STOP_WITH_GEOFENCE re-arms cleanly
         return START_STICKY
     }
 
@@ -1107,6 +1126,8 @@ class TripTrackingService : Service() {
         pendingStopAtMs = null
         ensureLocationUpdates()
         updateNotification()
+        if (saveJob != null) lastSaveJob = saveJob
+        maybeGoDormant()  // trip's over — nothing may need us foreground now
         return saveJob
     }
 
@@ -1154,6 +1175,7 @@ class TripTrackingService : Service() {
 
     /** (Re)request location updates matching the current mode. */
     private fun ensureLocationUpdates() {
+        if (stopping) return
         val mode = currentMode()
         if (activeMode == mode) return
         fusedClient.removeLocationUpdates(locationCallback)
@@ -1163,12 +1185,74 @@ class TripTrackingService : Service() {
             activeMode = mode
             updateNotification()
         } catch (e: SecurityException) {
+            // Location permission revoked mid-run. Clear the notification now
+            // rather than leave it dangling for the ~5 s until the process dies.
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
     }
 
+    /** Last position this service knows about, freshest first, for arming the
+     *  park geofence. Null until the very first fix. */
+    private fun lastKnownLatLon(): Pair<Double, Double>? =
+        _lastFix.value?.let { it.lat to it.lon }
+            ?: lastLocation?.let { it.latitude to it.longitude }
+
+    /**
+     * The stop path (issue #90). Called after every event that can change
+     * whether anything still needs this service foreground. Idempotent — a
+     * STAY_ALIVE decision does nothing and the ordinary mode machinery runs
+     * as before.
+     */
+    private fun maybeGoDormant() {
+        // onDestroy() calls endTrip(), whose tail calls here — but the service
+        // is already tearing down and joining the in-flight save. Don't start a
+        // second teardown on top of it.
+        if (destroyed) return
+        val decision = dormancyDecision(
+            autoDetect = Settings.autoDetectDrives.value,
+            tripActive = _stats.value != null,
+            convoyActive = convoyActive,  // companion field, same as currentMode() reads
+            uiVisible = uiVisible,
+            stationary = stationary,
+        )
+        when (decision) {
+            DormancyDecision.STAY_ALIVE -> return
+            DormancyDecision.STOP_WITH_GEOFENCE -> {
+                // No position yet (booted stationary, no fix before STILL ENTER).
+                // locationCallback re-runs maybeGoDormant() on the first fix.
+                val (lat, lon) = lastKnownLatLon() ?: return
+                ParkGeofence.arm(this, lat, lon)
+                stopDormant()
+            }
+            DormancyDecision.STOP_BARE -> {
+                ParkGeofence.disarm(this)
+                unregisterActivityTransitions()
+                stopDormant()
+            }
+        }
+    }
+
+    private fun stopDormant() {
+        stopping = true
+        if (::fusedClient.isInitialized) fusedClient.removeLocationUpdates(locationCallback)
+        activeMode = null
+        flushTrace()
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+        stopSelf()
+    }
+
+    private fun activityTransitionPendingIntent(): PendingIntent =
+        PendingIntent.getForegroundService(
+            this, 1,
+            Intent(this, TripTrackingService::class.java).setAction(ACTION_TRANSITION),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
+        )
+
     private fun registerActivityTransitions() {
         if (transitionsRegistered) return
+        if (!Settings.autoDetectDrives.value) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             ContextCompat.checkSelfPermission(
                 this, android.Manifest.permission.ACTIVITY_RECOGNITION,
@@ -1188,19 +1272,30 @@ class TripTrackingService : Service() {
             transition(DetectedActivity.STILL, ActivityTransition.ACTIVITY_TRANSITION_EXIT),
             transition(DetectedActivity.WALKING, ActivityTransition.ACTIVITY_TRANSITION_ENTER),
         )
-        val pendingIntent = PendingIntent.getForegroundService(
-            this, 1,
-            Intent(this, TripTrackingService::class.java).setAction(ACTION_TRANSITION),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
-        )
         try {
             ActivityRecognition.getClient(this)
                 .requestActivityTransitionUpdates(
-                    ActivityTransitionRequest(transitions), pendingIntent)
+                    ActivityTransitionRequest(transitions), activityTransitionPendingIntent())
                 .addOnSuccessListener { transitionsRegistered = true }
         } catch (e: SecurityException) {
             // No activity recognition permission; speed fallback still works.
         }
+    }
+
+    private fun unregisterActivityTransitions() {
+        // No `transitionsRegistered` guard: that flag is per-instance, but the
+        // AR registration is PendingIntent-scoped and outlives the instance
+        // (deliberately, on STOP_WITH_GEOFENCE). A fresh instance reaching
+        // STOP_BARE must still be able to tear down a registration an earlier
+        // instance left standing. removeActivityTransitionUpdates on an
+        // unregistered PendingIntent is harmless.
+        try {
+            ActivityRecognition.getClient(this)
+                .removeActivityTransitionUpdates(activityTransitionPendingIntent())
+        } catch (e: SecurityException) {
+            // Nothing to clean up.
+        }
+        transitionsRegistered = false
     }
 
     private fun handleTransition(intent: Intent) {
@@ -1245,6 +1340,7 @@ class TripTrackingService : Service() {
             }
         }
         ensureLocationUpdates()
+        maybeGoDormant()  // a STILL ENTER may have just parked us
     }
 
     private fun resetStartDetector() {
@@ -1649,6 +1745,12 @@ class TripTrackingService : Service() {
      * answer "how old is this reading" wrong in whichever direction the
      * correction went. [Fix.timeMs] is the opposite question - wall clock,
      * what gets posted - and stays on the fix.
+     *
+     * Since #90 this loop only runs while the service is alive (trip, convoy,
+     * visible map). The parked case moved to
+     * [com.jellemax.detour.notif.CircleSyncWorker] (added in a later commit);
+     * a brief overlap at drive start/end double-posts a near-identical
+     * position, which is harmless.
      */
     private suspend fun circleSyncLoop() {
         var interval = CirclePresence.ACTIVE_INTERVAL_MS
@@ -1707,7 +1809,12 @@ class TripTrackingService : Service() {
         // silently drop an in-flight trip. Join it before cancelling: a brief
         // main-thread block in this one terminal-teardown path beats losing the
         // trip. Every other endTrip() call site keeps running fully async.
-        val saveJob = endTrip()
+        // `?: lastSaveJob?.takeIf { it.isActive }` — a dormancy stop from
+        // endTrip()'s tail already nulled _stats, so the call above returns null
+        // while its save is still running; join that one instead. `isActive`
+        // keeps the old "only sync when a trip just ended" behaviour: a save
+        // that already finished needs neither a join nor another sync.
+        val saveJob = endTrip() ?: lastSaveJob?.takeIf { it.isActive }
         if (saveJob != null) {
             kotlinx.coroutines.runBlocking { saveJob.join() }
             // endTrip's own syncQuietly() rides on the unawaited twistiness
@@ -1750,6 +1857,7 @@ class TripTrackingService : Service() {
     }
 
     private fun updateNotification() {
+        if (stopping) return
         getSystemService(NotificationManager::class.java)
             .notify(NOTIFICATION_ID, buildNotification())
     }
