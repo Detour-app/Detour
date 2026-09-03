@@ -304,6 +304,15 @@ class TripTrackingService : Service() {
             refresh(context)
         }
 
+        /** True from a successful startForeground() to onDestroy(). While the
+         *  service is up its own `circleSyncLoop` ticks [CirclePresence], whose
+         *  state is not thread-safe; the parked [com.jellemax.detour.notif.CircleSyncWorker]
+         *  reads this and stands down so `tick()` is only ever driven from one
+         *  place at a time. */
+        @Volatile private var running = false
+
+        fun circleSyncHandledByService(): Boolean = running
+
         /**
          * Every entry point goes through here, because a location-type
          * foreground service may only be started while the location permission
@@ -388,7 +397,11 @@ class TripTrackingService : Service() {
     private var circleSyncStarted = false
     private var obdSpeedRefreshStarted = false
 
-    /** Activity recognition says the phone is STILL, and no trip is running. */
+    /** Activity recognition says the phone is STILL, and no trip is running.
+     *  Only ever set from an AR STILL transition, so with the
+     *  ACTIVITY_RECOGNITION runtime permission denied this stays false forever
+     *  and STOP_WITH_GEOFENCE dormancy (issue #90) never engages — the service
+     *  stays always-on exactly as it did pre-#90. That degradation is deliberate. */
     private var stationary = false
     /** Deadline of the IN_VEHICLE confirmation window; null when not probing. */
     private var probeUntilMs: Long? = null
@@ -898,6 +911,7 @@ class TripTrackingService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        running = true
         if (!::fusedClient.isInitialized) {
             fusedClient = LocationServices.getFusedLocationProviderClient(this)
         }
@@ -1219,6 +1233,16 @@ class TripTrackingService : Service() {
         when (decision) {
             DormancyDecision.STAY_ALIVE -> return
             DormancyDecision.STOP_WITH_GEOFENCE -> {
+                // A geofence transition only reaches a backgrounded app with
+                // ACCESS_BACKGROUND_LOCATION (Android 10+). Without it the fence
+                // would never fire: the service would stop and never wake, and
+                // auto-detection would silently die. Stay alive instead — the
+                // pre-#90 behaviour for "while using the app" location users.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    ContextCompat.checkSelfPermission(
+                        this, Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) return
                 // No position yet (booted stationary, no fix before STILL ENTER).
                 // locationCallback re-runs maybeGoDormant() on the first fix.
                 val (lat, lon) = lastKnownLatLon() ?: return
@@ -1748,9 +1772,9 @@ class TripTrackingService : Service() {
      *
      * Since #90 this loop only runs while the service is alive (trip, convoy,
      * visible map). The parked case moved to
-     * [com.jellemax.detour.notif.CircleSyncWorker] (added in a later commit);
-     * a brief overlap at drive start/end double-posts a near-identical
-     * position, which is harmless.
+     * [com.jellemax.detour.notif.CircleSyncWorker], which stands down whenever
+     * this service is up ([circleSyncHandledByService]) — so the two never tick
+     * [CirclePresence] concurrently.
      */
     private suspend fun circleSyncLoop() {
         var interval = CirclePresence.ACTIVE_INTERVAL_MS
@@ -1825,7 +1849,8 @@ class TripTrackingService : Service() {
             // loss leaves on this device anyway.
             SyncClient.syncQuietly()
         }
-        serviceScope.cancel()
+        serviceScope.cancel()  // kills circleSyncLoop — only now does the worker take the tick back
+        running = false
         flushTrace()
         super.onDestroy()
     }

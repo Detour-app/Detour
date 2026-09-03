@@ -55,6 +55,17 @@ The notification a rider sees once a drive starts is unchanged.
   It ships with a chosen radius and a written measurement plan; a follow-up
   issue tracks tuning the radius from real wake-latency numbers. Those AC boxes
   stay unchecked until the author validates on road.
+- **`CircleNotifyService`'s permanent row is out of scope.** This issue is about
+  the *trip-tracking* notification. Circle members with a notify-enabled circle
+  still have `CircleNotifyService` (its own `REMOTE_MESSAGING` foreground
+  service) running while parked — a separate always-on row for a separate
+  feature. A follow-up issue covers making that one dormant too.
+- **Dormancy needs two runtime permissions the app treats as optional.**
+  `STOP_WITH_GEOFENCE` engages only with `ACTIVITY_RECOGNITION` (feeds the
+  `stationary` signal) *and* `ACCESS_BACKGROUND_LOCATION` (so the wake geofence
+  actually fires in the background) granted. Missing either, the service stays
+  always-on exactly as pre-#90 — a safe degradation, not a regression, but it
+  means AC 1 is conditional on both grants.
 
 ## Architecture
 
@@ -89,10 +100,13 @@ fun dormancyDecision(
 Applied in the service:
 
 - `STAY_ALIVE` — unchanged; request location for the resolved mode.
-- `STOP_WITH_GEOFENCE` — `ParkGeofence.arm(this, lat, lon)` at
-  `lastLocation` (or `_lastFix.value`), then `stopForeground(STOP_FOREGROUND_REMOVE)`
-  + `stopSelf()`. If no position is known yet, fall back to `STAY_ALIVE` for
-  this pass (the next SLEEP fix arms it).
+- `STOP_WITH_GEOFENCE` — first, if `ACCESS_BACKGROUND_LOCATION` is not granted
+  (Android 10+), fall back to `STAY_ALIVE`: a geofence transition is only
+  delivered to a backgrounded app with that permission, so without it the
+  service would stop and never wake. Otherwise `ParkGeofence.arm(this, lat, lon)`
+  at `lastLocation` (or `_lastFix.value`), then
+  `stopForeground(STOP_FOREGROUND_REMOVE)` + `stopSelf()`. If no position is
+  known yet, fall back to `STAY_ALIVE` for this pass (the next SLEEP fix arms it).
 - `STOP_BARE` — `ParkGeofence.disarm(this)` (defensive), unregister AR
   transitions, `stopSelf()`.
 
@@ -180,9 +194,10 @@ class CircleSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
   feed (`CirclePresence` KDoc); 15-min "last seen" freshness for a phone that is
   not moving is acceptable. While *driving*, the service is alive and its 2-min
   loop is unchanged.
-- **Overlap with the service's loop** (both alive briefly at drive start/end):
-  a duplicate `postFix` of a near-identical position is harmless; the server
-  keeps the latest. Documented, not guarded.
+- **Overlap with the service's loop:** guarded. The worker returns early while
+  `TripTrackingService.circleSyncHandledByService()` is true, so the two never
+  tick `CirclePresence` concurrently (its evaluator state is not thread-safe)
+  and there is no duplicate `postFix`.
 - **Background location:** with `ACCESS_BACKGROUND_LOCATION` granted (app
   already requests it) `getCurrentLocation` returns a fresh fix; without it,
   `lastLocation` (cached) is used and `CirclePresence.isFixTrusted(ageMs)`
@@ -287,7 +302,7 @@ is untouched so `:shared:compileCommonMainKotlinMetadata` is not in play.
 
 | Issue AC | Closed by | In this PR? |
 |---|---|---|
-| Parked + backgrounded + auto-detect on → no notification, no FGS | Components 1–3 | yes |
+| Parked + backgrounded + auto-detect on → no notification, no FGS | Components 1–3 | yes, with `ACTIVITY_RECOGNITION` + `ACCESS_BACKGROUND_LOCATION` granted (see Non-goals); `CircleNotifyService`'s row is separate and out of scope |
 | `auto_detect_drives=false` → no service, no geofence | Components 1, 5 | yes |
 | Riding away starts tracking without opening the app | Components 2–3, real drive | code yes / **verify: author** |
 | Auto-start quality does not regress (replay A/B) | measurement plan | **verify: author** |
