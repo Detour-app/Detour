@@ -53,13 +53,11 @@ public class MemberFixRepository(ICustomDbContextFactory<DetourDbContext> factor
         (from fix in Set.AsNoTracking()
          join member in Context.GroupMembers
              on new { fix.GroupId, fix.UserId } equals new { member.GroupId, member.UserId }
-         join user in Context.Users on fix.UserId equals user.Id
          where fix.GroupId == groupId
                && member.Status == GroupMemberStatus.Accepted
                && member.IsSharing
          select new MemberFixView(
              fix.UserId,
-             user.Username,
              fix.Latitude,
              fix.Longitude,
              fix.AccuracyMeters,
@@ -133,7 +131,6 @@ public class PlaceEventRepository(ICustomDbContextFactory<DetourDbContext> facto
         long sinceMs,
         CancellationToken cancellationToken) =>
         (from placeEvent in Set.AsNoTracking()
-         join user in Context.Users on placeEvent.UserId equals user.Id
          where placeEvent.GroupId == groupId && placeEvent.TimestampMs > sinceMs
          orderby placeEvent.TimestampMs
          select new PlaceEventView(
@@ -147,7 +144,7 @@ public class PlaceEventRepository(ICustomDbContextFactory<DetourDbContext> facto
                  .OrderByDescending(p => p.CreatedAt)
                  .Select(p => p.Name)
                  .FirstOrDefault() ?? string.Empty,
-             user.Username,
+             placeEvent.UserId,
              placeEvent.Kind.Name,
              placeEvent.TimestampMs))
         .TagWith(Tag(nameof(GetSinceAsync)))

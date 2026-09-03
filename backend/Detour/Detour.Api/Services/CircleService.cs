@@ -38,7 +38,6 @@ public class CircleService(
     IMemberFixRepository memberFixes,
     ICirclePlaceRepository circlePlaces,
     IPlaceEventRepository placeEvents,
-    IUserRepository users,
     ILiveRelay liveRelay,
     IPostCommitActionScheduler postCommit) : ICircleService
 {
@@ -99,7 +98,7 @@ public class CircleService(
         return new CircleFixesResponse(
         [
             .. fixes.Select(f => new MemberPositionResponse(
-                f.Username, f.Latitude, f.Longitude, f.AccuracyMeters, f.TimestampMs))
+                f.UserId, f.Latitude, f.Longitude, f.AccuracyMeters, f.TimestampMs))
         ]);
     }
 
@@ -158,14 +157,11 @@ public class CircleService(
         if (rows.Count == 0)
             return new CirclePlacesResponse([]);
 
-        var owners = (await users.GetManyAsync([.. rows.Select(p => p.OwnerId).Distinct()], cancellationToken))
-            .ToDictionary(u => u.Id, u => u.Username);
-
         return new CirclePlacesResponse(
         [
             .. rows.Select(p => new CirclePlaceResponse(
                 p.Id,
-                owners.GetValueOrDefault(p.OwnerId, string.Empty),
+                p.OwnerId,
                 p.Name,
                 p.RadiusMeters,
                 p.CreatedAt.ToUnixTimeMilliseconds(),
@@ -248,7 +244,7 @@ public class CircleService(
             placeEvent.Id,
             placeEvent.ClientPlaceId,
             placeName ?? string.Empty,
-            caller.Username,
+            caller.Id,
             placeEvent.Kind.Wire(),
             placeEvent.TimestampMs);
     }
@@ -270,7 +266,7 @@ public class CircleService(
         return new PlaceEventsResponse(
         [
             .. rows.Select(e => new PlaceEventResponse(
-                e.Id, e.ClientPlaceId, e.PlaceName, e.Username, e.Kind.Wire(), e.TimestampMs))
+                e.Id, e.ClientPlaceId, e.PlaceName, e.UserId, e.Kind.Wire(), e.TimestampMs))
         ]);
     }
 }

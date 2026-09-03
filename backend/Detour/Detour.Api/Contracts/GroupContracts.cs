@@ -17,8 +17,13 @@ public record GroupResponse(
 /// <summary>
 /// <c>sharing</c> is present only for circles. A convoy connection <em>is</em> sharing, so
 /// there is nothing meaningful to show on that screen.
+///
+/// <c>id</c> is the identity; <c>username</c> is the label the screens draw. Membership is
+/// the only payload that carries both, which is what lets positions, places and events
+/// carry the id alone.
 /// </summary>
 public record GroupMemberResponse(
+    [Required] Guid Id,
     [Required] string Username,
     [Required] string Status,
     bool? Sharing);
@@ -40,7 +45,7 @@ public record PositionBody(
     long? TimestampMs);
 
 public record MemberPositionResponse(
-    [Required] string Username,
+    [Required] Guid RiderId,
     [Required] double Latitude,
     [Required] double Longitude,
     double? AccuracyMeters,
@@ -63,7 +68,7 @@ public record SharePlaceBody([Required] CirclePlacePayload Place);
 
 public record CirclePlaceResponse(
     [Required] Guid Id,
-    [Required] string Owner,
+    [Required] Guid OwnerId,
     [Required] string Name,
     [Required] double RadiusMeters,
     [Required] long CreatedAtMs,
@@ -84,7 +89,7 @@ public record PlaceEventResponse(
     [Required] Guid Id,
     [Required] long PlaceId,
     [Required] string PlaceName,
-    [Required] string Username,
+    [Required] Guid RiderId,
     [Required] string Kind,
     [Required] long TimestampMs);
 
@@ -100,6 +105,7 @@ public static class GroupResponseMapper
         var members = group.Members
             .Where(m => usernames.ContainsKey(m.UserId))
             .Select(m => new GroupMemberResponse(
+                m.UserId,
                 usernames[m.UserId],
                 m.Status.Wire(),
                 group.Kind.SupportsPause ? m.IsSharing : null))
