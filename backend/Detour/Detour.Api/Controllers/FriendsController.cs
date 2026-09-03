@@ -16,7 +16,10 @@ public class FriendsController(ICurrentUser currentUser, IFriendshipService frie
 {
     [HttpGet]
     [EndpointSummary("List friends and pending requests.")]
-    [EndpointDescription("Three sets: accepted friends, requests waiting on the caller, and requests the caller sent.")]
+    [EndpointDescription(
+        "One list of riders, each tagged with its relation to the caller — friend, incoming, "
+        + "or outgoing — rather than three separate sets. Incoming and outgoing describe the "
+        + "same pending request seen from either side, not two different states.")]
     [ProducesResponseType<FriendsResponse>(StatusCodes.Status200OK)]
     public async Task<ActionResult<FriendsResponse>> Get(CancellationToken cancellationToken)
     {
