@@ -81,6 +81,20 @@ class StringWatcher internal constructor(private val flow: StateFlow<String>) : 
         flow.collect { value = it; onChange() }
 }
 
+/** This device's own account id — see [Auth.resolveRiderId]. One subclass for
+ *  the same reason [RouteColorWatcher] gets one and [StringWatcher] can't be
+ *  reused here: [RiderId] is its own concrete type, not the [String] it
+ *  wraps. */
+class RiderIdWatcher internal constructor(
+    private val flow: StateFlow<RiderId>,
+) : Watcher() {
+    var value: RiderId = flow.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it; onChange() }
+}
+
 class TravelModeWatcher internal constructor(
     private val flow: StateFlow<TravelMode>,
 ) : Watcher() {
@@ -283,6 +297,7 @@ object SettingsFlows {
     fun voiceGuidance() = BoolWatcher(Settings.voiceGuidance)
     fun routeColor() = RouteColorWatcher(Settings.routeColor)
     fun authUsername() = StringWatcher(Settings.authUsername)
+    fun authRiderId() = RiderIdWatcher(Settings.authRiderId)
 
     /** The session, for the one thing iOS asks of it: whether there is one.
      *  Follows the refresh token rather than the access token, because that is
@@ -343,6 +358,7 @@ object SettingsValues {
     val leanOffsetDeg: Float get() = Settings.leanOffsetDeg.value
     val authToken: String get() = Settings.refreshToken.value
     val authUsername: String get() = Settings.authUsername.value
+    val authRiderId: RiderId get() = Settings.authRiderId.value
 }
 
 /**

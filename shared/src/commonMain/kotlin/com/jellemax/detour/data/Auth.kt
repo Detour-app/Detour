@@ -214,6 +214,24 @@ object Auth {
             )
         }
         store(response, establishesSession = true)
+        resolveRiderId()
+    }
+
+    /**
+     * The local account id, which only the server knows.
+     *
+     * Not derivable from the token: `sub` identifies the rider to the realm, and
+     * this backend keys on its own row. #133 chose the local id over `sub` so a
+     * circle member list does not broadcast every rider's identity-provider
+     * subject to every peer, and this request is the price of that choice.
+     *
+     * A failure is not fatal and is not retried here. Everything that compares an
+     * id fails closed while it is blank — no delete affordance, no self-filter —
+     * which is the harmless direction, and the next successful session fills it.
+     */
+    private suspend fun resolveRiderId() {
+        val id = runCatching { Rider.me().id.value }.getOrDefault("")
+        if (id.isNotEmpty()) Settings.setRiderId(id)
     }
 
     /**
@@ -347,6 +365,9 @@ object Auth {
         // one mechanism.
         _sessionEpoch.update { it + 1 }
         Settings.setSession("", "", 0L, "", "")
+        // Same write, not a later one: a signed-out install that still answers
+        // to a departed rider's id is #73 with a new field to carry it.
+        Settings.setRiderId("")
         FriendsStore.reset()
         ConvoysStore.reset()
         CirclesStore.reset()
@@ -402,6 +423,7 @@ object Auth {
             throw AuthException(tokenFailureMessage(e.code, e.body))
         }
         store(response, establishesSession = false)
+        resolveRiderId()
         return Settings.accessToken.value
     }
 

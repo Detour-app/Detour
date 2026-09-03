@@ -194,6 +194,12 @@ object Settings {
     private val _authUsername = MutableStateFlow("")
     val authUsername: StateFlow<String> = _authUsername
 
+    /** This device's own account id, as the server issued it — see
+     *  [Auth.resolveRiderId] for how it is fetched and why a blank value is
+     *  the safe default rather than an error. */
+    private val _authRiderId = MutableStateFlow(RiderId(""))
+    val authRiderId: StateFlow<RiderId> = _authRiderId
+
     /** Mount-to-bike misalignment, subtracted from every lean reading. Zero
      *  until the user runs calibration (bike upright, engine off) from
      *  Settings; see [com.jellemax.detour.tracking.TripTrackingService]. */
@@ -308,6 +314,7 @@ object Settings {
         _refreshToken.value = secure.string("refresh_token")
         _accessTokenExpiresAtMs.value = secure.long("access_token_expires_at", 0L)
         _authUsername.value = secure.string("auth_username")
+        _authRiderId.value = RiderId(secure.string("auth_rider_id"))
         _leanOffsetDeg.value = prefs.float("lean_offset_deg", 0f)
         _voiceGuidance.value = prefs.bool("voice_guidance", true)
         _mapIcon.value = runCatching {
@@ -441,6 +448,14 @@ object Settings {
         secure.put("access_token_expires_at", expiresAtMs)
         secure.put("auth_username", username)
         secure.put("auth_scope_key", scopeKey)
+    }
+
+    /** Written once `/me` answers — see [Auth.resolveRiderId]. Not a
+     *  [setSession] parameter: unlike [username], the id is not in the token
+     *  and is not known at the moment the session itself is written. */
+    fun setRiderId(id: String) {
+        _authRiderId.value = RiderId(id)
+        secure.put("auth_rider_id", id)
     }
 
     fun setTheme(value: Theme) {

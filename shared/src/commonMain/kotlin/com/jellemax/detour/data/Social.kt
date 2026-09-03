@@ -40,6 +40,12 @@ object PendingReset {
 object Account {
 
     val username: StateFlow<String> = Auth.username
+
+    /** This device's own identity, as the server issues it. `RiderId("")` until
+     *  `/me` has answered — see [Auth.resolveRiderId] for why a blank is the
+     *  safe value and not an error. */
+    val riderId: StateFlow<RiderId> = Settings.authRiderId
+
     val signedIn: Boolean get() = Auth.signedIn
 
     // @Throws(Exception::class): called directly from iosApp/Detour — see
@@ -62,6 +68,16 @@ data class FriendLists(
     val incoming: List<String>,
     val outgoing: List<String>,
 )
+
+/** The caller's own account, as `GET /api/me` returns it. */
+object Rider {
+    @Throws(Exception::class)
+    suspend fun me(): RiderRef = riderRefFromJson(Api.requestJson("GET", "/me"))
+}
+
+/** A rider as `/me` and `RiderRef`-shaped payloads carry them. */
+internal fun riderRefFromJson(o: JsonObject): RiderRef =
+    RiderRef(RiderId(o.optString("id")), o.optString("username"))
 
 /** Friend requests and the shared leaderboard. */
 object Friends {
