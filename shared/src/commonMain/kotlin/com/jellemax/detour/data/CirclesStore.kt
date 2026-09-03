@@ -1,10 +1,14 @@
 package com.jellemax.detour.data
 
+import com.jellemax.detour.drive.FriendPosition
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 
 /**
  * Everything the Circles screen and its detail pane show: the list plus the
@@ -69,6 +73,10 @@ object CirclesStore {
 
     private val _state = MutableStateFlow(CirclesState())
     val state: StateFlow<CirclesState> = _state.asStateFlow()
+
+    /** Serialises [resolveUnknown]'s reload - see its own doc for why one at
+     *  a time, matching the `writeLock` pattern in `Coverage.kt`. */
+    private val refreshGate = Mutex()
 
     /** Drops everything back to [CirclesState]'s defaults — the selected
      *  circle included, so a leaked [CirclesState.selectedId] cannot make the
@@ -321,6 +329,48 @@ object CirclesStore {
         val selectedId = _state.value.selectedId
         if (selectedId != null) loadDetail(selectedId) else _state.update { it.detailIdle() }
         return result
+    }
+
+    /**
+     * Keeps the member list able to name every peer the relay reports.
+     *
+     * Positions carry an id and no handle (#133): the label lives in
+     * membership, so one source names a rider rather than every frame
+     * repeating it. The cost is that a peer who joined since the last
+     * reload arrives unnameable, and this is what closes that - centrally,
+     * so the phone map, the car renderer and iOS all get it without each
+     * wiring up its own.
+     *
+     * Not a roster frame on the relay, which would put a second id-to-name
+     * source beside this list and leave the two to disagree.
+     *
+     * Debounced to one reload in flight. An id still unknown after a
+     * *completed* reload is not retried: it means the peer left between the
+     * frame and the response, and the relay's own TTL expires them.
+     * Retrying would turn one departed rider into an unbounded reload loop.
+     */
+    private suspend fun resolveUnknown(ids: Set<RiderId>) {
+        val known = _state.value.circles.flatMap { it.members }.map { it.id }.toSet()
+        if (ids.all { it in known }) return
+        if (!refreshGate.tryLock()) return
+        try {
+            reload()
+        } finally {
+            refreshGate.unlock()
+        }
+    }
+
+    /** Started once, for the life of the process. The scope is the caller's
+     *  - `commonMain` has no `Dispatchers` of its own (Platform.kt's
+     *  ceiling), same reason every action in this store is `suspend`.
+     *  [peers] is the caller's too, for the same reason: the one live
+     *  `ConvoyRelay` instance is a platform call-site's own (see that
+     *  class's "exactly one instance app-wide" doc), not something this
+     *  store can reach on its own - the caller passes its `relay.peers`. */
+    fun watchPeers(scope: CoroutineScope, peers: StateFlow<Map<RiderId, FriendPosition>>) {
+        scope.launch {
+            peers.collect { resolveUnknown(it.keys) }
+        }
     }
 
     /** The discriminator [Groups] routes on. "circle" here, "convoy" in

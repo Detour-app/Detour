@@ -3,6 +3,7 @@ package com.jellemax.detour.drive
 import com.jellemax.detour.data.Auth
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RelayPlaceEvent
+import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.jsonObjectOf
 import com.jellemax.detour.data.nowMs
 import com.jellemax.detour.data.optString
@@ -244,17 +245,17 @@ class ConvoyRelay {
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
 
-    private val _peers = MutableStateFlow<Map<String, FriendPosition>>(emptyMap())
-    val peers: StateFlow<Map<String, FriendPosition>> = _peers.asStateFlow()
+    private val _peers = MutableStateFlow<Map<RiderId, FriendPosition>>(emptyMap())
+    val peers: StateFlow<Map<RiderId, FriendPosition>> = _peers.asStateFlow()
 
-    private val _talking = MutableStateFlow<Set<String>>(emptySet())
-    val talking: StateFlow<Set<String>> = _talking.asStateFlow()
+    private val _talking = MutableStateFlow<Set<RiderId>>(emptySet())
+    val talking: StateFlow<Set<RiderId>> = _talking.asStateFlow()
 
     private val _spinOffer = MutableStateFlow<GroupSpin?>(null)
     val spinOffer: StateFlow<GroupSpin?> = _spinOffer.asStateFlow()
 
-    private val _spinVotes = MutableStateFlow<Map<String, Int>>(emptyMap())
-    val spinVotes: StateFlow<Map<String, Int>> = _spinVotes.asStateFlow()
+    private val _spinVotes = MutableStateFlow<Map<RiderId, Int>>(emptyMap())
+    val spinVotes: StateFlow<Map<RiderId, Int>> = _spinVotes.asStateFlow()
 
     private val _audioChunks = MutableSharedFlow<IncomingAudioChunk>(
         extraBufferCapacity = 32,
@@ -894,17 +895,17 @@ class ConvoyRelay {
                 _lastError.value = null
             }
             is RelayEvent.Left -> {
-                _peers.update { it - event.username }
-                _talking.update { it - event.username }
+                _peers.update { it - event.riderId }
+                _talking.update { it - event.riderId }
             }
             is RelayEvent.Positions -> if (event.peers.isNotEmpty()) {
                 // Replaces rather than duplicates: associateBy keys the
-                // update by username, and `+` on a Map overwrites any
+                // update by rider id, and `+` on a Map overwrites any
                 // existing entry for the same key.
-                _peers.update { it + event.peers.associateBy { p -> p.username } }
+                _peers.update { it + event.peers.associateBy { p -> p.riderId } }
             }
-            is RelayEvent.PttStart -> _talking.update { it + event.username }
-            is RelayEvent.PttEnd -> _talking.update { it - event.username }
+            is RelayEvent.PttStart -> _talking.update { it + event.riderId }
+            is RelayEvent.PttEnd -> _talking.update { it - event.riderId }
             is RelayEvent.PttAudio -> _audioChunks.tryEmit(event.chunk)
             is RelayEvent.PlaceEventReceived -> _placeEvents.tryEmit(event.relayEvent)
             is RelayEvent.SpinOffer -> {
@@ -914,7 +915,7 @@ class ConvoyRelay {
                 _spinOffer.value = GroupSpin(event.candidates, fromMe = false)
                 _spinVotes.value = emptyMap()
             }
-            is RelayEvent.SpinVote -> _spinVotes.update { it + (event.username to event.index) }
+            is RelayEvent.SpinVote -> _spinVotes.update { it + (event.riderId to event.index) }
         }
     }
 
@@ -933,18 +934,24 @@ class ConvoyRelay {
 
     /**
      * What [spinOffer]/[spinVotes] currently resolve to for a device whose
-     * own username is [myUsername] - see [SpinRoundOutcome]. Pure and
+     * own identity is [myId] - see [SpinRoundOutcome]. Pure and
      * side-effect-free: nothing here sends a frame or clears the offer, both
      * of which stay the caller's job (committing a destination is a
      * navigation concern, well outside this class).
      *
-     * [myUsername] is a parameter rather than a `Settings.authUsername` read
-     * for the same reason [sendSpinVote] takes one: this class is handed
-     * things and does not reach for them.
+     * [myId] is a parameter rather than a `Settings.authRiderId` read for the
+     * same reason [sendSpinVote] takes one: this class is handed things and
+     * does not reach for them.
+     *
+     * A blank id is still not a rider - `Settings.authRiderId` reads a safe
+     * empty default when nothing is signed in, same as the old
+     * `myUsername` this replaced, and that blank must not be waited for: a
+     * round the local, signed-out device itself opened would otherwise never
+     * be able to close.
      */
-    fun spinRoundOutcome(myUsername: String): SpinRoundOutcome {
+    fun spinRoundOutcome(myId: RiderId): SpinRoundOutcome {
         val offer = _spinOffer.value ?: return SpinRoundOutcome.Wait
-        val expected = _peers.value.keys + setOfNotNull(myUsername.takeIf { it.isNotBlank() })
+        val expected = _peers.value.keys + setOfNotNull(myId.takeIf { it.value.isNotBlank() })
         return resolveSpinRound(offer.candidates.size, offer.fromMe, expected, _spinVotes.value)
     }
 
@@ -961,7 +968,7 @@ class ConvoyRelay {
 
     /**
      * Whether [spinRoundOutcome] resolves to [SpinRoundOutcome.CloseRound]
-     * for [myUsername] right now - never true for [SpinRoundOutcome.Wait] or
+     * for [myId] right now - never true for [SpinRoundOutcome.Wait] or
      * [SpinRoundOutcome.CommitOnly]. A `Boolean`-only projection of
      * [spinRoundOutcome] for `iosApp/Detour/ConvoyLiveClient.swift`
      * specifically: this codebase has no existing precedent for a Swift
@@ -975,8 +982,8 @@ class ConvoyRelay {
      * tests - use [spinRoundOutcome] directly instead; this exists for
      * Swift alone.
      */
-    fun spinRoundIsReadyToClose(myUsername: String): Boolean =
-        spinRoundOutcome(myUsername) is SpinRoundOutcome.CloseRound
+    fun spinRoundIsReadyToClose(myId: RiderId): Boolean =
+        spinRoundOutcome(myId) is SpinRoundOutcome.CloseRound
 
     // --- outbound sends -----------------------------------------------------
     //
@@ -1012,12 +1019,13 @@ class ConvoyRelay {
         _convoyId.value?.let { send(RelayProtocol.buildSpinOffer(it, candidates)) }
     }
 
-    /** Casts [username]'s vote and records it in the local tally right away,
+    /** Casts [myId]'s vote and records it in the local tally right away,
      *  unconditionally - for the same reason [sendSpinOffer] updates
      *  [spinOffer] locally regardless of the wire send below - the relay
-     *  will not echo it back. */
-    fun sendSpinVote(username: String, index: Int) {
-        if (username.isNotBlank()) _spinVotes.update { it + (username to index) }
+     *  will not echo it back. A blank id (signed out) is not recorded, the
+     *  same guard [spinRoundOutcome] applies to its own expected set. */
+    fun sendSpinVote(myId: RiderId, index: Int) {
+        if (myId.value.isNotBlank()) _spinVotes.update { it + (myId to index) }
         _convoyId.value?.let { send(RelayProtocol.buildSpinVote(it, index)) }
     }
 
@@ -1144,7 +1152,7 @@ private fun unreachableMessage(e: Exception): String =
  *  when. Ported from `app/.../map/GroupSpinRules.kt`'s `leadingSpinIndex` -
  *  Task 5 deleted that file once both platforms were repointed here; this is
  *  the only implementation left. */
-private fun leadingSpinIndex(votes: Map<String, Int>, candidateCount: Int): Int {
+private fun leadingSpinIndex(votes: Map<RiderId, Int>, candidateCount: Int): Int {
     val counts = IntArray(candidateCount)
     votes.values.forEach { if (it in counts.indices) counts[it]++ }
     var lead = 0
@@ -1179,12 +1187,18 @@ private fun leadingSpinIndex(votes: Map<String, Int>, candidateCount: Int): Int 
 private fun resolveSpinRound(
     candidateCount: Int,
     fromMe: Boolean,
-    expected: Set<String>,
-    votes: Map<String, Int>,
+    expected: Set<RiderId>,
+    votes: Map<RiderId, Int>,
 ): SpinRoundOutcome {
     if (candidateCount <= 0) return SpinRoundOutcome.Wait
     if (candidateCount == 1) return SpinRoundOutcome.CommitOnly
     if (!fromMe) return SpinRoundOutcome.Wait
-    if (expected.isEmpty() || !votes.keys.containsAll(expected)) return SpinRoundOutcome.Wait
+    if (expected.isEmpty()) return SpinRoundOutcome.Wait
+    // Ids, not handles. `expected` unions the relay's peer keys with this
+    // device's own identity, and until #133 those were two independently-
+    // sourced spellings of a handle - the server's stored casing and the
+    // token's. One difference and this never returned, so a convoy simply
+    // stopped agreeing on a destination.
+    if (!votes.keys.containsAll(expected)) return SpinRoundOutcome.Wait
     return SpinRoundOutcome.CloseRound(leadingSpinIndex(votes, candidateCount))
 }

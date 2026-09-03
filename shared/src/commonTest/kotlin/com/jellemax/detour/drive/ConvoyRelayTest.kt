@@ -1,5 +1,6 @@
 package com.jellemax.detour.drive
 
+import com.jellemax.detour.data.RiderId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -137,7 +138,7 @@ class ConvoyRelayTest {
         if (message == null) """{"type":"error"}""" else """{"type":"error","message":"$message"}"""
 
     private fun friendPosition(username: String, expiresAtMs: Long) = FriendPosition(
-        username = username,
+        riderId = RiderId(username),
         lat = 51.0,
         lon = 4.0,
         headingDeg = null,
@@ -147,6 +148,15 @@ class ConvoyRelayTest {
     )
 
     private fun tokenSupplier(token: String = "test-token") = BearerSource { token }
+
+    /** Feeds [text] through [RelayProtocol.decode] and applies the result -
+     *  what the receive loop in `attempt()` does for a live frame,
+     *  reproduced here so a test can drive the same parse-then-apply path
+     *  without a socket or a coroutine, same shortcut [ConvoyRelay.applyEvent]
+     *  itself exists for. */
+    private fun ConvoyRelay.onFrame(text: String) {
+        RelayProtocol.decode(text, nowMs = 0L)?.let { applyEvent(it) }
+    }
 
     // --- connection lifecycle, against the fake socket ---------------------
 
@@ -180,11 +190,11 @@ class ConvoyRelayTest {
         relay.connected.first { it }
 
         socket.push(positionsFrame("bob", lat = 51.0, lon = 4.0))
-        val firstPeers = relay.peers.first { it.containsKey("bob") }
-        assertEquals(51.0, firstPeers.getValue("bob").lat)
+        val firstPeers = relay.peers.first { it.containsKey(RiderId("bob")) }
+        assertEquals(51.0, firstPeers.getValue(RiderId("bob")).lat)
 
         socket.push(positionsFrame("bob", lat = 52.0, lon = 5.0))
-        val updatedPeers = relay.peers.first { it["bob"]?.lat == 52.0 }
+        val updatedPeers = relay.peers.first { it[RiderId("bob")]?.lat == 52.0 }
         // Replaced, not duplicated: still exactly one entry for "bob".
         assertEquals(1, updatedPeers.size)
 
@@ -376,32 +386,91 @@ class ConvoyRelayTest {
 
         relay.prunePeers(nowMs = 2_000L)
 
-        assertEquals(setOf("fresh"), relay.peers.value.keys)
+        assertEquals(setOf(RiderId("fresh")), relay.peers.value.keys)
     }
 
     @Test
     fun pttStartAndPttEndAddAndRemoveFromTalking() {
         val relay = ConvoyRelay()
-        relay.applyEvent(RelayEvent.PttStart("bob"))
-        assertEquals(setOf("bob"), relay.talking.value)
+        relay.applyEvent(RelayEvent.PttStart(RiderId("bob")))
+        assertEquals(setOf(RiderId("bob")), relay.talking.value)
 
-        relay.applyEvent(RelayEvent.PttStart("carol"))
-        assertEquals(setOf("bob", "carol"), relay.talking.value)
+        relay.applyEvent(RelayEvent.PttStart(RiderId("carol")))
+        assertEquals(setOf(RiderId("bob"), RiderId("carol")), relay.talking.value)
 
-        relay.applyEvent(RelayEvent.PttEnd("bob"))
-        assertEquals(setOf("carol"), relay.talking.value)
+        relay.applyEvent(RelayEvent.PttEnd(RiderId("bob")))
+        assertEquals(setOf(RiderId("carol")), relay.talking.value)
     }
 
     @Test
     fun leftRemovesThePeerAndClearsThemFromTalking() {
         val relay = ConvoyRelay()
         relay.applyEvent(RelayEvent.Positions(listOf(friendPosition("bob", expiresAtMs = Long.MAX_VALUE))))
-        relay.applyEvent(RelayEvent.PttStart("bob"))
+        relay.applyEvent(RelayEvent.PttStart(RiderId("bob")))
 
-        relay.applyEvent(RelayEvent.Left("bob"))
+        relay.applyEvent(RelayEvent.Left(RiderId("bob")))
 
         assertTrue(relay.peers.value.isEmpty())
         assertTrue(relay.talking.value.isEmpty())
+    }
+
+    // --- ids, not handles: peers and the vote quorum key on RiderId (#133) -
+    //
+    // Positions used to carry a handle; now they carry the server's rider id
+    // (RiderId.kt's own doc). [ConvoyRelay.peers]/[talking]/[spinVotes] key on
+    // it for the same reason every isMe/ownership check in this app does: a
+    // handle is mutable and the server stores it case-insensitively while
+    // Kotlin's `==` is case-sensitive, so two spellings of the same rider
+    // could disagree with nothing renamed and nobody at fault. See
+    // resolveSpinRound's own why-comment in ConvoyRelay.kt for the quorum
+    // case this broke - a convoy that silently stopped agreeing on a
+    // destination.
+
+    @Test
+    fun peers_are_keyed_on_the_rider_id() {
+        val relay = ConvoyRelay()
+        relay.onFrame(
+            """{"type":"positions","peers":[{"u":"fresh","lat":51.0,"lon":4.0,"ts":1,"ttl":90}]}"""
+        )
+
+        assertEquals(setOf(RiderId("fresh")), relay.peers.value.keys)
+    }
+
+    @Test
+    fun a_round_resolves_when_every_expected_id_has_voted() {
+        val relay = ConvoyRelay()
+        relay.onFrame("""{"type":"positions","peers":[{"u":"ada","lat":51.0,"lon":4.0,"ts":1,"ttl":90}]}""")
+        // This device (dave) opens the round - only the opener's own tally
+        // ever closes one, see resolveSpinRound's doc.
+        relay.sendSpinOffer(
+            listOf(SpinCandidate(51.0, 4.0, null, null, "A"), SpinCandidate(52.0, 5.0, null, null, "B")),
+        )
+        relay.onFrame("""{"type":"spin_vote","user":"ada","index":1}""")
+        relay.sendSpinVote(RiderId("dave"), 1)
+
+        val outcome = relay.spinRoundOutcome(myId = RiderId("dave"))
+
+        assertEquals(SpinRoundOutcome.CloseRound(leadIndex = 1), outcome)
+    }
+
+    @Test
+    fun a_vote_resolves_even_when_the_voter_reports_a_different_handle_casing() {
+        // Before #133 the quorum was a set of handles, and `expected` mixed the
+        // locally stored spelling with the relay's. One casing difference and the
+        // round never closed. Keyed on ids there is nothing left to differ.
+        val relay = ConvoyRelay()
+        relay.onFrame("""{"type":"positions","peers":[{"u":"ada","lat":51.0,"lon":4.0,"ts":1,"ttl":90}]}""")
+        relay.sendSpinOffer(
+            listOf(
+                SpinCandidate(51.0, 4.0, null, null, "A"),
+                SpinCandidate(52.0, 5.0, null, null, "B"),
+                SpinCandidate(53.0, 6.0, null, null, "C"),
+            ),
+        )
+        relay.onFrame("""{"type":"spin_vote","user":"ada","index":2}""")
+        relay.sendSpinVote(RiderId("dave"), 2)
+
+        assertEquals(SpinRoundOutcome.CloseRound(leadIndex = 2), relay.spinRoundOutcome(myId = RiderId("dave")))
     }
 
     // --- the spin rule: the point of this file -----------------------------
@@ -413,7 +482,7 @@ class ConvoyRelayTest {
         // because a one-candidate offer *is* the decision, not a ballot.
         relay.applyEvent(RelayEvent.SpinOffer(listOf(SpinCandidate(51.0, 4.0, null, null, "Only option"))))
 
-        assertEquals(SpinRoundOutcome.CommitOnly, relay.spinRoundOutcome(myUsername = "dave"))
+        assertEquals(SpinRoundOutcome.CommitOnly, relay.spinRoundOutcome(myId = RiderId("dave")))
     }
 
     @Test
@@ -436,15 +505,15 @@ class ConvoyRelayTest {
             ),
         )
 
-        relay.applyEvent(RelayEvent.SpinVote("bob", 1))
+        relay.applyEvent(RelayEvent.SpinVote(RiderId("bob"), 1))
         // dave (this device) has not voted yet - still waiting, however
         // lopsided the tally already looks.
-        assertEquals(SpinRoundOutcome.Wait, relay.spinRoundOutcome(myUsername = "dave"))
+        assertEquals(SpinRoundOutcome.Wait, relay.spinRoundOutcome(myId = RiderId("dave")))
 
-        relay.applyEvent(RelayEvent.SpinVote("carol", 1))
-        relay.sendSpinVote("dave", 0)
+        relay.applyEvent(RelayEvent.SpinVote(RiderId("carol"), 1))
+        relay.sendSpinVote(RiderId("dave"), 0)
 
-        assertEquals(SpinRoundOutcome.CloseRound(leadIndex = 1), relay.spinRoundOutcome(myUsername = "dave"))
+        assertEquals(SpinRoundOutcome.CloseRound(leadIndex = 1), relay.spinRoundOutcome(myId = RiderId("dave")))
     }
 
     /**
@@ -501,21 +570,21 @@ class ConvoyRelayTest {
         // Feed relayB every vote out there - bob's and carol's (relayA's
         // peers, not relayB's own) plus zoe's own - a tally that is complete
         // by every measure relayB can see, expected voters included.
-        relayB.applyEvent(RelayEvent.SpinVote("bob", 1))
-        relayB.applyEvent(RelayEvent.SpinVote("carol", 1))
-        relayB.sendSpinVote("zoe", 1)
+        relayB.applyEvent(RelayEvent.SpinVote(RiderId("bob"), 1))
+        relayB.applyEvent(RelayEvent.SpinVote(RiderId("carol"), 1))
+        relayB.sendSpinVote(RiderId("zoe"), 1)
 
         // The property under test, stated directly: relayB never closes this
         // round itself, no matter how complete its own tally looks - only
         // the sharer may.
-        assertEquals(SpinRoundOutcome.Wait, relayB.spinRoundOutcome(myUsername = "zoe"))
+        assertEquals(SpinRoundOutcome.Wait, relayB.spinRoundOutcome(myId = RiderId("zoe")))
 
         // Now the sharer actually completes its own round, among its own peers.
-        relayA.applyEvent(RelayEvent.SpinVote("bob", 1))
-        relayA.applyEvent(RelayEvent.SpinVote("carol", 1))
-        relayA.sendSpinVote("dave", 0)
+        relayA.applyEvent(RelayEvent.SpinVote(RiderId("bob"), 1))
+        relayA.applyEvent(RelayEvent.SpinVote(RiderId("carol"), 1))
+        relayA.sendSpinVote(RiderId("dave"), 0)
 
-        val outcome = relayA.spinRoundOutcome(myUsername = "dave")
+        val outcome = relayA.spinRoundOutcome(myId = RiderId("dave"))
         assertEquals(SpinRoundOutcome.CloseRound(leadIndex = 1), outcome)
 
         // What MapScreen's own vote-round effect does on seeing CloseRound:
@@ -528,8 +597,8 @@ class ConvoyRelayTest {
         // its own, still-different, peer set.
         relayB.applyEvent(RelayEvent.SpinOffer(listOf(winner)))
 
-        assertEquals(SpinRoundOutcome.CommitOnly, relayA.spinRoundOutcome(myUsername = "dave"))
-        assertEquals(SpinRoundOutcome.CommitOnly, relayB.spinRoundOutcome(myUsername = "zoe"))
+        assertEquals(SpinRoundOutcome.CommitOnly, relayA.spinRoundOutcome(myId = RiderId("dave")))
+        assertEquals(SpinRoundOutcome.CommitOnly, relayB.spinRoundOutcome(myId = RiderId("zoe")))
         // The point, stated directly: two relays with genuinely different
         // peer sets land on an identical destination.
         assertEquals(relayA.spinOffer.value!!.candidates.single(), relayB.spinOffer.value!!.candidates.single())
@@ -559,7 +628,7 @@ class ConvoyRelayTest {
     // eleventh in neither list. Nothing above exercises `expected.isEmpty()`
     // on `resolveSpinRound`'s own guard: every other test that reaches
     // `CloseRound` does so with at least one live peer or a non-blank
-    // `myUsername` in `expected`. Deleting that guard alone still leaves all
+    // `myId` in `expected`. Deleting that guard alone still leaves all
     // 293 other shared tests green - this is the one that catches it.
 
     @Test
@@ -571,13 +640,13 @@ class ConvoyRelayTest {
     @Test
     fun tiesInTheCurrentTallyGoToTheLowestIndex() {
         val relayA = ConvoyRelay()
-        relayA.sendSpinVote("a", 0)
-        relayA.sendSpinVote("b", 2)
+        relayA.sendSpinVote(RiderId("a"), 0)
+        relayA.sendSpinVote(RiderId("b"), 2)
         assertEquals(0, relayA.currentLeadIndex(candidateCount = 3))
 
         val relayB = ConvoyRelay()
-        relayB.sendSpinVote("a", 1)
-        relayB.sendSpinVote("b", 2)
+        relayB.sendSpinVote(RiderId("a"), 1)
+        relayB.sendSpinVote(RiderId("b"), 2)
         assertEquals(1, relayB.currentLeadIndex(candidateCount = 3))
     }
 
@@ -587,13 +656,13 @@ class ConvoyRelayTest {
     @Test
     fun votesOutsideTheCandidateRangeAreIgnoredInTheCurrentTally() {
         val relay = ConvoyRelay()
-        relay.sendSpinVote("a", 7)
-        relay.sendSpinVote("b", -1)
-        relay.sendSpinVote("c", 0)
+        relay.sendSpinVote(RiderId("a"), 7)
+        relay.sendSpinVote(RiderId("b"), -1)
+        relay.sendSpinVote(RiderId("c"), 0)
         assertEquals(0, relay.currentLeadIndex(candidateCount = 3))
     }
 
-    /** A blank username means not signed in, and must not be waited for - a
+    /** A blank id means not signed in, and must not be waited for - a
      *  round the local, signed-out device itself opened would otherwise
      *  never be able to close. */
     @Test
@@ -606,14 +675,14 @@ class ConvoyRelayTest {
                 SpinCandidate(52.0, 5.0, null, null, "B"),
             ),
         )
-        relay.applyEvent(RelayEvent.SpinVote("alice", 1))
+        relay.applyEvent(RelayEvent.SpinVote(RiderId("alice"), 1))
 
-        assertEquals(SpinRoundOutcome.CloseRound(leadIndex = 1), relay.spinRoundOutcome(myUsername = ""))
+        assertEquals(SpinRoundOutcome.CloseRound(leadIndex = 1), relay.spinRoundOutcome(myId = RiderId("")))
     }
 
     /**
      * No known live voter at all - no peers, and a blank (signed-out)
-     * `myUsername` - is not a complete round. Without `resolveSpinRound`'s
+     * `myId` - is not a complete round. Without `resolveSpinRound`'s
      * `expected.isEmpty() ||` guard, an empty `expected` vacuously satisfies
      * `votes.keys.containsAll(expected)` (every element of the empty set is
      * trivially "contained"), so a sharer with nobody around it yet would
@@ -637,9 +706,9 @@ class ConvoyRelayTest {
             ),
         )
 
-        // myUsername blank too, so expected = _peers.value.keys (empty) +
+        // myId blank too, so expected = _peers.value.keys (empty) +
         // nothing = the empty set this guard exists for.
-        assertEquals(SpinRoundOutcome.Wait, relay.spinRoundOutcome(myUsername = ""))
+        assertEquals(SpinRoundOutcome.Wait, relay.spinRoundOutcome(myId = RiderId("")))
     }
 
     /** [ConvoyRelay.spinRoundIsReadyToClose] is a `Boolean`-only projection of
@@ -657,12 +726,12 @@ class ConvoyRelayTest {
                 SpinCandidate(52.0, 5.0, null, null, "B"),
             ),
         )
-        assertFalse(relay.spinRoundIsReadyToClose(myUsername = "dave"))
+        assertFalse(relay.spinRoundIsReadyToClose(myId = RiderId("dave")))
 
-        relay.applyEvent(RelayEvent.SpinVote("bob", 1))
-        relay.sendSpinVote("dave", 1)
+        relay.applyEvent(RelayEvent.SpinVote(RiderId("bob"), 1))
+        relay.sendSpinVote(RiderId("dave"), 1)
 
-        assertTrue(relay.spinRoundIsReadyToClose(myUsername = "dave"))
+        assertTrue(relay.spinRoundIsReadyToClose(myId = RiderId("dave")))
         assertEquals(1, relay.currentLeadIndex(candidateCount = 2))
     }
 
@@ -950,8 +1019,8 @@ class ConvoyRelayTest {
         relay.connected.first { it }
 
         socket.push(positionsFrame("bob", lat = 51.0, lon = 4.0))
-        relay.peers.first { it.containsKey("bob") }
-        relay.applyEvent(RelayEvent.PttStart("bob"))
+        relay.peers.first { it.containsKey(RiderId("bob")) }
+        relay.applyEvent(RelayEvent.PttStart(RiderId("bob")))
 
         relay.setNotifyingCircles(emptySet())
         job.join()
@@ -995,14 +1064,14 @@ class ConvoyRelayTest {
         // Populate every piece of convoy-scoped display state, so this test
         // proves all of it is cleared - not just membership.
         socket.push(positionsFrame("bob", lat = 51.0, lon = 4.0))
-        relay.peers.first { it.containsKey("bob") }
-        relay.applyEvent(RelayEvent.PttStart("bob"))
+        relay.peers.first { it.containsKey(RiderId("bob")) }
+        relay.applyEvent(RelayEvent.PttStart(RiderId("bob")))
         relay.applyEvent(
             RelayEvent.SpinOffer(
                 listOf(SpinCandidate(51.0, 4.0, null, null, "A"), SpinCandidate(52.0, 5.0, null, null, "B")),
             ),
         )
-        relay.applyEvent(RelayEvent.SpinVote("bob", 1))
+        relay.applyEvent(RelayEvent.SpinVote(RiderId("bob"), 1))
 
         // What run()'s own sessionEpoch watcher calls once Auth.sessionEpoch
         // actually moves.

@@ -1,6 +1,7 @@
 package com.jellemax.detour.drive
 
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.jsonObjectOf
 import com.jellemax.detour.data.optDouble
 import com.jellemax.detour.data.optInt
@@ -110,19 +111,19 @@ class RelayProtocolTest {
     @Test
     fun leftDecodesTheDepartingUsername() {
         val event = RelayProtocol.decode(leftFrame(user = "grace"), nowMs = 0)
-        assertEquals(RelayEvent.Left("grace"), event)
+        assertEquals(RelayEvent.Left(RiderId("grace")), event)
     }
 
     @Test
     fun pttStartDecodesTheTalkingUsername() {
         val event = RelayProtocol.decode(pttStartFrame(user = "linus"), nowMs = 0)
-        assertEquals(RelayEvent.PttStart("linus"), event)
+        assertEquals(RelayEvent.PttStart(RiderId("linus")), event)
     }
 
     @Test
     fun pttEndDecodesTheUsernameThatStoppedTalking() {
         val event = RelayProtocol.decode(pttEndFrame(user = "linus"), nowMs = 0)
-        assertEquals(RelayEvent.PttEnd("linus"), event)
+        assertEquals(RelayEvent.PttEnd(RiderId("linus")), event)
     }
 
     @Test
@@ -134,14 +135,14 @@ class RelayProtocolTest {
         // encoder happens to produce.
         val event = RelayProtocol.decode(pttAudioFrame(user = "ada", chunk = "Zm8="), nowMs = 0)
         val chunk = (event as RelayEvent.PttAudio).chunk
-        assertEquals("ada", chunk.username)
+        assertEquals("ada", chunk.riderId.value)
         assertEquals("fo", chunk.pcm.decodeToString())
     }
 
     @Test
     fun spinVoteDecodesTheVoterAndTheChosenIndex() {
         val event = RelayProtocol.decode(spinVoteFrame(user = "grace", index = 2), nowMs = 0)
-        assertEquals(RelayEvent.SpinVote("grace", 2), event)
+        assertEquals(RelayEvent.SpinVote(RiderId("grace"), 2), event)
     }
 
     @Test
@@ -198,7 +199,7 @@ class RelayProtocolTest {
         val peers = (RelayProtocol.decode(frame, nowMs = 5_000L) as RelayEvent.Positions).peers
         assertEquals(1, peers.size)
         val p = peers.single()
-        assertEquals("ada", p.username)
+        assertEquals("ada", p.riderId.value)
         assertEquals(51.0, p.lat)
         assertEquals(4.0, p.lon)
         assertEquals(90.0, p.headingDeg)
@@ -245,7 +246,7 @@ class RelayProtocolTest {
     fun positionsDropsAPeerWithABlankUAndKeepsTheRest() {
         val frame = positionsFrame(peerRow(u = "  "), peerRow(u = "grace"))
         val peers = (RelayProtocol.decode(frame, nowMs = 0) as RelayEvent.Positions).peers
-        assertEquals(listOf("grace"), peers.map { it.username })
+        assertEquals(listOf("grace"), peers.map { it.riderId.value })
     }
 
     @Test
@@ -254,7 +255,7 @@ class RelayProtocolTest {
         // Double.NaN out of the lenient opt* accessors this codec is built on.
         val frame = positionsFrame(peerRow(u = "ada", lat = "\"not-a-number\""), peerRow(u = "grace"))
         val peers = (RelayProtocol.decode(frame, nowMs = 0) as RelayEvent.Positions).peers
-        assertEquals(listOf("grace"), peers.map { it.username })
+        assertEquals(listOf("grace"), peers.map { it.riderId.value })
     }
 
     @Test

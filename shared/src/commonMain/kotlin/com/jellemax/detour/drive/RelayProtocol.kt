@@ -2,6 +2,7 @@ package com.jellemax.detour.drive
 
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RelayPlaceEvent
+import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.jsonObjectOf
 import com.jellemax.detour.data.objects
 import com.jellemax.detour.data.optArray
@@ -33,7 +34,7 @@ import okio.ByteString.Companion.toByteString
  * arrival rather than off the frame's own timestamp.
  */
 data class FriendPosition(
-    val username: String,
+    val riderId: RiderId,
     val lat: Double,
     val lon: Double,
     val headingDeg: Double?,
@@ -42,9 +43,9 @@ data class FriendPosition(
     val expiresAtMs: Long,
 )
 
-/** One decoded `ptt_audio` frame: [username]'s raw PCM chunk, already
+/** One decoded `ptt_audio` frame: [riderId]'s raw PCM chunk, already
  *  base64-decoded off the wire. */
-data class IncomingAudioChunk(val username: String, val pcm: ByteArray)
+data class IncomingAudioChunk(val riderId: RiderId, val pcm: ByteArray)
 
 /** One `spin_offer` candidate, wire shape - see the relay protocol comment
  *  near `_valid_spin_offer` server-side. [distanceM]/[durationS] are whatever
@@ -89,10 +90,10 @@ sealed class RelayEvent {
     /** The relay accepted this socket's most recent `join`. */
     data object Joined : RelayEvent()
 
-    /** [username] left the group (or was evicted, or its socket dropped) -
+    /** [riderId] left the group (or was evicted, or its socket dropped) -
      *  gone now, not in [RelayProtocol.FALLBACK_PEER_TTL_MS] when a staleness
      *  sweep would otherwise have caught up. */
-    data class Left(val username: String) : RelayEvent()
+    data class Left(val riderId: RiderId) : RelayEvent()
 
     /** Every peer the relay had queued for this socket, batched into one
      *  frame rather than one frame per peer: at eight riders that's one
@@ -102,11 +103,11 @@ sealed class RelayEvent {
      *  kept - one bad row must not cost the whole update. */
     data class Positions(val peers: List<FriendPosition>) : RelayEvent()
 
-    /** [username] started transmitting push-to-talk audio. */
-    data class PttStart(val username: String) : RelayEvent()
+    /** [riderId] started transmitting push-to-talk audio. */
+    data class PttStart(val riderId: RiderId) : RelayEvent()
 
-    /** [username] stopped transmitting. */
-    data class PttEnd(val username: String) : RelayEvent()
+    /** [riderId] stopped transmitting. */
+    data class PttEnd(val riderId: RiderId) : RelayEvent()
 
     /** One push-to-talk audio chunk from [chunk]'s sender. */
     data class PttAudio(val chunk: IncomingAudioChunk) : RelayEvent()
@@ -120,9 +121,9 @@ sealed class RelayEvent {
      *  the caller wraps it. */
     data class SpinOffer(val candidates: List<SpinCandidate>) : RelayEvent()
 
-    /** [username] voted for the candidate at [index] (0-2) of whatever
+    /** [riderId] voted for the candidate at [index] (0-2) of whatever
      *  [SpinOffer] is currently on the table. */
-    data class SpinVote(val username: String, val index: Int) : RelayEvent()
+    data class SpinVote(val riderId: RiderId, val index: Int) : RelayEvent()
 }
 
 /**
@@ -163,10 +164,10 @@ object RelayProtocol {
         }
         return when (obj.optString("type")) {
             "joined" -> RelayEvent.Joined
-            "left" -> obj.optString("user").takeIf { it.isNotBlank() }?.let { RelayEvent.Left(it) }
+            "left" -> obj.optString("user").takeIf { it.isNotBlank() }?.let { RelayEvent.Left(RiderId(it)) }
             "positions" -> decodePositions(obj, nowMs)
-            "ptt_start" -> obj.optString("user").takeIf { it.isNotBlank() }?.let { RelayEvent.PttStart(it) }
-            "ptt_end" -> obj.optString("user").takeIf { it.isNotBlank() }?.let { RelayEvent.PttEnd(it) }
+            "ptt_start" -> obj.optString("user").takeIf { it.isNotBlank() }?.let { RelayEvent.PttStart(RiderId(it)) }
+            "ptt_end" -> obj.optString("user").takeIf { it.isNotBlank() }?.let { RelayEvent.PttEnd(RiderId(it)) }
             "ptt_audio" -> decodePttAudio(obj)
             "place_event" -> placeEventFromRelayFrame(obj)?.let { RelayEvent.PlaceEventReceived(it) }
             "spin_offer" -> decodeSpinOffer(obj)
@@ -184,7 +185,7 @@ object RelayProtocol {
             if (user.isBlank() || lat.isNaN() || lon.isNaN()) return@mapNotNull null
             val ttlSeconds = o.optInt("ttl", 0)
             FriendPosition(
-                username = user,
+                riderId = RiderId(user),
                 lat = lat,
                 lon = lon,
                 headingDeg = o.optDouble("h").takeIf { !it.isNaN() },
@@ -207,7 +208,7 @@ object RelayProtocol {
         // The server caps/validates chunk length but not that it's valid
         // base64; a malformed chunk decodes to null rather than throwing.
         val pcm = chunk.decodeBase64()?.toByteArray() ?: return null
-        return RelayEvent.PttAudio(IncomingAudioChunk(user, pcm))
+        return RelayEvent.PttAudio(IncomingAudioChunk(RiderId(user), pcm))
     }
 
     private fun decodeSpinOffer(obj: JsonObject): RelayEvent.SpinOffer? {
@@ -236,7 +237,7 @@ object RelayProtocol {
         val user = obj.optString("user")
         val index = obj.optInt("index", -1)
         if (user.isBlank() || index !in 0..2) return null
-        return RelayEvent.SpinVote(user, index)
+        return RelayEvent.SpinVote(RiderId(user), index)
     }
 
     // --- building -----------------------------------------------------------
