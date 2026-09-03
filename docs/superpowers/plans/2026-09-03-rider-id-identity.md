@@ -1972,18 +1972,21 @@ git commit -m "chore: 2.0.0 — breaking wire change for rider identity (#133)"
 
 ---
 
-## Before the first push
+## Pushing, and CI
 
-`.github/local-workflows/` does not exist in this repository, so `local-ci-act` has nothing to
-run and will refuse. Two acceptable routes, and the choice is the user's:
+`Detour-app/Detour` is **public**, and all three workflows run on GitHub-hosted standard
+runners — `ubuntu-latest` for `build.yml` and `backend.yml`, `macos-15` for `ios.yml`, no
+vendor labels. Actions minutes are free and unlimited on public repositories, so there is
+nothing to ration and no reason to stand up `.github/local-workflows/` for this branch.
 
-1. Invoke `c7-github-workflow:authoring-local-workflows` to create the local counterparts and
-   `.claude/c7/github.yml`, then gate the push on `local-ci-act` as normal.
-2. Open the pull request as a **draft** (`gh pr create --draft`), which starts no billed runs,
-   and accept that the first real CI signal comes when it is marked ready.
+Push freely and let CI be the gate. That is not merely acceptable here, it is necessary:
+`ios.yml` is the only thing that can build `iosApp/` without a Mac, and Task 10 has no other
+verification. It type-checks `commonMain`, runs the shared tests on both the JVM and
+Kotlin/Native, and boots the app in a simulator with a screenshot.
 
-Do not push to a ready pull request without one of the two. Every workflow in
-`.github/workflows/` starts on paid runners, and this branch touches `backend/`, `shared/`,
-`app/` and `iosApp/`, so it triggers all of them including the `macos-15` iOS job.
+Push early rather than at the end. The iOS job is the slowest signal and the one most likely
+to catch a `commonMain` mistake that the Android target compiles straight through — the exact
+failure `:shared:compileCommonMainKotlinMetadata` exists to pre-empt locally, but CI is what
+proves it on the real Kotlin/Native targets.
 
 The PR description is `detour-pr-writing`'s job, not this plan's.
