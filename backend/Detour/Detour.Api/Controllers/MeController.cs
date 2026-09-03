@@ -6,7 +6,6 @@ using Detour.Domain.Users;
 using JV.ResultUtilities.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Detour.Api.Controllers;
 
@@ -62,14 +61,11 @@ public class MeController(
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult> ReportPosition(
         [FromBody] PositionBody body,
+        ILiveLocationService locations,
         CancellationToken cancellationToken)
     {
         var user = await currentUser.GetAsync(cancellationToken);
 
-        // Resolved from request services rather than taken as a parameter: the interface is
-        // internal to the live relay's own namespace, and a public action's signature cannot
-        // expose a less-accessible type.
-        var locations = HttpContext.RequestServices.GetRequiredService<ILiveLocationService>();
         var result = await locations.IngestAsync(
             new LiveRider(user.Id),
             new LivePosition(

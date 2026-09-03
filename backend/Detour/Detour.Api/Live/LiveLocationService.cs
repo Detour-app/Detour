@@ -9,7 +9,7 @@ namespace Detour.Api.Live;
 /// caller that already holds it (a live connection) does not have to re-read the account row
 /// on every position.
 /// </summary>
-internal readonly record struct LiveRider(Guid Id);
+public sealed record LiveRider(Guid Id);
 
 /// <summary>One fix, as reported by a device, before the relay decides who may see it.</summary>
 public sealed record LivePosition(
@@ -34,7 +34,7 @@ public enum LivePositionSource
     Http,
 }
 
-internal interface ILiveLocationService
+public interface ILiveLocationService
 {
     /// <summary>
     /// Records one fix and relays it to everyone entitled to see it.
