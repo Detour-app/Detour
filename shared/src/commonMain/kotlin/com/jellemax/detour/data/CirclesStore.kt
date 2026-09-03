@@ -78,6 +78,13 @@ object CirclesStore {
      *  a time, matching the `writeLock` pattern in `Coverage.kt`. */
     private val refreshGate = Mutex()
 
+    /** Ids [resolveUnknown] found still unknown after a completed reload —
+     *  not retried on the next frame that names them; see that function's
+     *  own doc. A `MutableStateFlow` rather than a plain `var` for the same
+     *  cross-thread-visible read it gives [_state]; [resolveUnknown] is the
+     *  only writer, and only while holding [refreshGate]. */
+    private val ignoredIds = MutableStateFlow<Set<RiderId>>(emptySet())
+
     /** Drops everything back to [CirclesState]'s defaults — the selected
      *  circle included, so a leaked [CirclesState.selectedId] cannot make the
      *  next rider's [CirclesStore.select] reload calls land on a circle that
@@ -85,6 +92,7 @@ object CirclesStore {
      *  see that function's doc for why. */
     internal fun reset() {
         _state.update { it.cleared() }
+        ignoredIds.value = emptySet()
     }
 
     /**
@@ -108,24 +116,47 @@ object CirclesStore {
 
     @Throws(Exception::class)
     suspend fun reload() {
-        val epoch = Auth.sessionEpoch.value
         _state.update { it.starting() }
-        // See FriendsStore.reload's comment: the transform is built from the
-        // await's result and only applied to the live `it` inside the final
-        // `update { }` below, not to a `_state.value` snapshot taken before
-        // the suspending call — which is also what lets a selection made
-        // while this reload was in flight (a tapped arrival notification, or
-        // a second tap in the list; see `CirclesState.loaded`'s
-        // `selectedId` handling) survive into the committed result instead of
-        // being silently reverted to whatever it was when this reload started.
+        fetchAndCommit(CirclesState::loaded, CirclesState::failed)
+    }
+
+    /** Same fetch and commit as [reload], minus the [starting] that flips
+     *  [CirclesState.busy] — the background self-heal in [resolveUnknown]
+     *  calls this instead, so a reload it triggers is invisible to the
+     *  screen. See [loadedQuietly] for why that flag specifically must stay
+     *  untouched. */
+    private suspend fun reloadQuietly() {
+        fetchAndCommit(CirclesState::loadedQuietly, CirclesState::failedQuietly)
+    }
+
+    /** The part [reload] and [reloadQuietly] share: fetch the circle list
+     *  and commit whichever of [onLoaded]/[onFailed] the attempt earns,
+     *  under the same session-epoch guard either way. Factored out so the
+     *  two reload paths cannot drift on what they load or how they commit
+     *  it — the only thing left for a caller to choose is whether
+     *  [CirclesState.busy] moves.
+     *
+     *  See FriendsStore.reload's comment: the transform is built from the
+     *  await's result and only applied to the live `it` inside the final
+     *  `update { }` below, not to a `_state.value` snapshot taken before
+     *  the suspending call — which is also what lets a selection made
+     *  while this reload was in flight (a tapped arrival notification, or
+     *  a second tap in the list; see `CirclesState.loaded`'s
+     *  `selectedId` handling) survive into the committed result instead of
+     *  being silently reverted to whatever it was when this reload started. */
+    private suspend fun fetchAndCommit(
+        onLoaded: (CirclesState, List<Group>, Long) -> CirclesState,
+        onFailed: (CirclesState, Exception) -> CirclesState,
+    ) {
+        val epoch = Auth.sessionEpoch.value
         val apply: (CirclesState) -> CirclesState = try {
             val circles = Groups.list(KIND)
-            val transform: (CirclesState) -> CirclesState = { s -> s.loaded(circles, nowMs()) }
+            val transform: (CirclesState) -> CirclesState = { s -> onLoaded(s, circles, nowMs()) }
             transform
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            val transform: (CirclesState) -> CirclesState = { s -> s.failed(e) }
+            val transform: (CirclesState) -> CirclesState = { s -> onFailed(s, e) }
             transform
         }
         _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, apply(it)) }
@@ -344,17 +375,25 @@ object CirclesStore {
      * Not a roster frame on the relay, which would put a second id-to-name
      * source beside this list and leave the two to disagree.
      *
-     * Debounced to one reload in flight. An id still unknown after a
-     * *completed* reload is not retried: it means the peer left between the
-     * frame and the response, and the relay's own TTL expires them.
-     * Retrying would turn one departed rider into an unbounded reload loop.
+     * Debounced to one reload in flight ([refreshGate]) — that only bounds
+     * concurrency, not repetition, so an id still unknown after a
+     * *completed* reload is separately remembered in [ignoredIds] and not
+     * retried on the next frame that names it: a `positions` frame repeats
+     * every tick, and without this a single departed or not-yet-propagated
+     * peer would drive a reload on every one of them. [ignoredIds] is
+     * cleared the moment a reload actually changes membership, so a
+     * genuinely new peer already written off gets a fresh look rather than
+     * staying unresolved for the rest of the ride.
      */
     private suspend fun resolveUnknown(ids: Set<RiderId>) {
-        val known = _state.value.circles.flatMap { it.members }.map { it.id }.toSet()
-        if (ids.all { it in known }) return
+        val state = _state.value
+        val known = state.circles.flatMap { it.members }.map { it.id }.toSet()
+        if (state.unresolvedAfterIgnoring(ids, known, ignoredIds.value).isEmpty()) return
         if (!refreshGate.tryLock()) return
         try {
-            reload()
+            reloadQuietly()
+            val knownAfter = _state.value.circles.flatMap { it.members }.map { it.id }.toSet()
+            ignoredIds.value = state.nextIgnoredIds(ids, ignoredIds.value, known, knownAfter)
         } finally {
             refreshGate.unlock()
         }
@@ -433,6 +472,23 @@ internal fun CirclesState.loaded(circles: List<Group>, nowMs: Long) = copy(
 internal fun CirclesState.failed(e: Exception) =
     copy(busy = false, error = e.message?.ifBlank { null } ?: CirclesStore.FALLBACK_ERROR)
 
+/** Same as [loaded], but leaves [CirclesState.busy] exactly as it found it.
+ *  Used only by [CirclesStore.resolveUnknown]'s background self-heal, which
+ *  must stay invisible to the screen: `CirclesScreen.kt` reads `busy` to
+ *  disable Invite/Leave/sharing and to gate its back-navigation, and a
+ *  reload the rider never asked for must not flip either. */
+internal fun CirclesState.loadedQuietly(circles: List<Group>, nowMs: Long) = copy(
+    circles = circles,
+    selectedId = selectedId?.takeIf { id -> circles.any { it.id == id } },
+    error = null,
+    loadedAtMs = nowMs,
+)
+
+/** Same as [failed], but leaves [CirclesState.busy] exactly as it found it
+ *  — see [loadedQuietly] for why. */
+internal fun CirclesState.failedQuietly(e: Exception) =
+    copy(error = e.message?.ifBlank { null } ?: CirclesStore.FALLBACK_ERROR)
+
 /** Same as [failed], for the detail pair. */
 internal fun CirclesState.detailFailed(e: Exception) =
     copy(detailBusy = false, detailError = e.message?.ifBlank { null } ?: CirclesStore.FALLBACK_ERROR)
@@ -453,3 +509,33 @@ internal fun CirclesState.selecting(groupId: String?): CirclesState =
 
 internal fun CirclesState.detailLoaded(places: List<CirclePlace>, events: List<PlaceEvent>) =
     copy(places = places, events = events, detailBusy = false, detailError = null)
+
+/**
+ * Which of [ids] [CirclesStore.resolveUnknown] should still attempt a
+ * reload for: not already [known], and not already given up on in
+ * [ignored]. An extension of [CirclesState] — like [commitIfCurrent] and
+ * every other reused name in this file — purely so [ConvoysStore] can
+ * declare the identical function on [ConvoysState] without the two
+ * clashing as top-level declarations in the same package. Pure so the
+ * no-repeat-reload guarantee is testable directly — see
+ * [CirclesStore.resolveUnknown]'s own doc for why an id is remembered
+ * rather than retried on every frame.
+ */
+internal fun CirclesState.unresolvedAfterIgnoring(ids: Set<RiderId>, known: Set<RiderId>, ignored: Set<RiderId>): Set<RiderId> =
+    ids - known - ignored
+
+/**
+ * The next [ignored] set after one of [CirclesStore.resolveUnknown]'s
+ * reloads completes. Cleared entirely the moment membership actually
+ * changed ([knownAfter] differs from [knownBefore]) so a peer already
+ * written off is not permanently ignored just because this reload's [ids]
+ * are still missing; otherwise [ignored] plus whichever of [ids] the
+ * reload still could not name.
+ */
+internal fun CirclesState.nextIgnoredIds(
+    ids: Set<RiderId>,
+    ignored: Set<RiderId>,
+    knownBefore: Set<RiderId>,
+    knownAfter: Set<RiderId>,
+): Set<RiderId> =
+    if (knownAfter != knownBefore) emptySet() else ignored + (ids - knownAfter)

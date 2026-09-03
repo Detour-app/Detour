@@ -198,6 +198,89 @@ class StoresTest {
         assertNull(success.error)
     }
 
+    // --- ConvoysStore's background self-heal (#133) ------------------------
+
+    @Test
+    fun aQuietConvoyLoadLeavesBusyExactlyAsItFoundIt() {
+        // The whole point of the quiet path: a background self-heal must
+        // not look like a foreground load to a screen reading `busy`.
+        // Checked both ways, since a quiet reload committing while a
+        // foreground one is genuinely in flight must not clear it either.
+        val whileBusy = ConvoysState(busy = true).loadedQuietly(listOf(convoy("c1", "Sunday run")), nowMs = 0L)
+        assertTrue(whileBusy.busy)
+        val whileIdle = ConvoysState(busy = false).loadedQuietly(emptyList(), nowMs = 0L)
+        assertTrue(!whileIdle.busy)
+    }
+
+    @Test
+    fun aQuietConvoyFailureLeavesBusyAloneButStillReportsTheError() {
+        val whileBusy = ConvoysState(busy = true).failedQuietly(RuntimeException("offline"))
+        assertTrue(whileBusy.busy)
+        assertEquals("offline", whileBusy.error)
+    }
+
+    @Test
+    fun anIdAlreadyKnownNeedsNoConvoyReload() {
+        val a = RiderId("a")
+        assertTrue(ConvoysState().unresolvedAfterIgnoring(setOf(a), known = setOf(a), ignored = emptySet()).isEmpty())
+    }
+
+    @Test
+    fun anIdAlreadyGivenUpOnIsNotRetriedForAConvoy() {
+        // The bug the false comment covered up: `refreshGate` only bounds
+        // concurrency to one reload in flight, not repetition, so without
+        // this an id still unknown after one completed reload would trigger
+        // a fresh one on every subsequent `positions` frame naming it.
+        val a = RiderId("a")
+        assertTrue(ConvoysState().unresolvedAfterIgnoring(setOf(a), known = emptySet(), ignored = setOf(a)).isEmpty())
+    }
+
+    @Test
+    fun anIdThatIsNeitherKnownNorIgnoredStillNeedsAConvoyReload() {
+        val a = RiderId("a")
+        val b = RiderId("b")
+        val unresolved = ConvoysState().unresolvedAfterIgnoring(setOf(a, b), known = setOf(b), ignored = emptySet())
+        assertEquals(setOf(a), unresolved)
+    }
+
+    @Test
+    fun aConvoyReloadThatChangesMembershipClearsTheIgnoredSetEntirely() {
+        // So a peer already written off as unresolvable gets a fresh look
+        // the moment membership actually moves, rather than staying
+        // ignored for the rest of the ride.
+        val a = RiderId("a")
+        val next = ConvoysState().nextIgnoredIds(
+            ids = setOf(a),
+            ignored = setOf(a),
+            knownBefore = setOf(RiderId("b")),
+            knownAfter = setOf(RiderId("b"), RiderId("c")),
+        )
+        assertTrue(next.isEmpty())
+    }
+
+    @Test
+    fun aConvoyReloadThatChangesNothingRemembersTheStillUnknownId() {
+        val a = RiderId("a")
+        val known = setOf(RiderId("b"))
+        val next = ConvoysState().nextIgnoredIds(ids = setOf(a), ignored = emptySet(), knownBefore = known, knownAfter = known)
+        assertEquals(setOf(a), next)
+    }
+
+    @Test
+    fun aResolvedConvoyIdIsNotAddedToTheIgnoredSet() {
+        // If the reload actually found it, it must not be remembered as
+        // ignored even though this is also, definitionally, membership
+        // having changed.
+        val a = RiderId("a")
+        val next = ConvoysState().nextIgnoredIds(
+            ids = setOf(a),
+            ignored = emptySet(),
+            knownBefore = emptySet(),
+            knownAfter = setOf(a),
+        )
+        assertTrue(next.isEmpty())
+    }
+
     private fun convoy(id: String, name: String) = Group(
         id = id, name = name, kind = "convoy", status = "accepted", members = emptyList(),
     )
@@ -410,6 +493,91 @@ class StoresTest {
         assertEquals("403", failed.error)
         assertNull(failed.detailError)
         assertTrue(!failed.busy)
+    }
+
+    // --- CirclesStore's background self-heal (#133) -------------------------
+
+    @Test
+    fun aQuietCircleLoadLeavesBusyExactlyAsItFoundIt() {
+        // The whole point of the quiet path: a background self-heal must
+        // not look like a foreground load to `CirclesScreen.kt`, which reads
+        // `busy` to disable Invite/Leave/sharing and to gate its
+        // back-navigation. Checked both ways, since a quiet reload
+        // committing while a foreground one is genuinely in flight must not
+        // clear it either.
+        val whileBusy = CirclesState(busy = true).loadedQuietly(listOf(circle("c1", "Family")), nowMs = 0L)
+        assertTrue(whileBusy.busy)
+        val whileIdle = CirclesState(busy = false).loadedQuietly(emptyList(), nowMs = 0L)
+        assertTrue(!whileIdle.busy)
+    }
+
+    @Test
+    fun aQuietCircleFailureLeavesBusyAloneButStillReportsTheError() {
+        val whileBusy = CirclesState(busy = true).failedQuietly(RuntimeException("offline"))
+        assertTrue(whileBusy.busy)
+        assertEquals("offline", whileBusy.error)
+    }
+
+    @Test
+    fun anIdAlreadyKnownNeedsNoCircleReload() {
+        val a = RiderId("a")
+        assertTrue(CirclesState().unresolvedAfterIgnoring(setOf(a), known = setOf(a), ignored = emptySet()).isEmpty())
+    }
+
+    @Test
+    fun anIdAlreadyGivenUpOnIsNotRetriedForACircle() {
+        // The bug the false comment covered up: `refreshGate` only bounds
+        // concurrency to one reload in flight, not repetition, so without
+        // this an id still unknown after one completed reload would trigger
+        // a fresh one on every subsequent `positions` frame naming it.
+        val a = RiderId("a")
+        assertTrue(CirclesState().unresolvedAfterIgnoring(setOf(a), known = emptySet(), ignored = setOf(a)).isEmpty())
+    }
+
+    @Test
+    fun anIdThatIsNeitherKnownNorIgnoredStillNeedsACircleReload() {
+        val a = RiderId("a")
+        val b = RiderId("b")
+        val unresolved = CirclesState().unresolvedAfterIgnoring(setOf(a, b), known = setOf(b), ignored = emptySet())
+        assertEquals(setOf(a), unresolved)
+    }
+
+    @Test
+    fun aCircleReloadThatChangesMembershipClearsTheIgnoredSetEntirely() {
+        // So a peer already written off as unresolvable gets a fresh look
+        // the moment membership actually moves, rather than staying
+        // ignored for the rest of the ride.
+        val a = RiderId("a")
+        val next = CirclesState().nextIgnoredIds(
+            ids = setOf(a),
+            ignored = setOf(a),
+            knownBefore = setOf(RiderId("b")),
+            knownAfter = setOf(RiderId("b"), RiderId("c")),
+        )
+        assertTrue(next.isEmpty())
+    }
+
+    @Test
+    fun aCircleReloadThatChangesNothingRemembersTheStillUnknownId() {
+        val a = RiderId("a")
+        val known = setOf(RiderId("b"))
+        val next = CirclesState().nextIgnoredIds(ids = setOf(a), ignored = emptySet(), knownBefore = known, knownAfter = known)
+        assertEquals(setOf(a), next)
+    }
+
+    @Test
+    fun aResolvedCircleIdIsNotAddedToTheIgnoredSet() {
+        // If the reload actually found it, it must not be remembered as
+        // ignored even though this is also, definitionally, membership
+        // having changed.
+        val a = RiderId("a")
+        val next = CirclesState().nextIgnoredIds(
+            ids = setOf(a),
+            ignored = emptySet(),
+            knownBefore = emptySet(),
+            knownAfter = setOf(a),
+        )
+        assertTrue(next.isEmpty())
     }
 
     private fun place(serverId: String, groupId: String) = CirclePlace(
