@@ -251,11 +251,16 @@ Under **Background location updates**, tick:
   often off or the app behind the driver's music app while this runs.
 - **Other** — see below.
 
-Leave **Geofencing** unticked. Detour registers no geofences: the auto-stop
-"back where you started" check is plain distance arithmetic against the trip's
-own origin, and a circle's arrive/depart events are evaluated the same way, on
-device, against fixes that already arrive (`GeofenceEvaluator` in `shared/`).
-Neither goes near the Geofencing API.
+Tick **Geofencing**. Detour registers exactly one geofence: a single
+transition-EXIT circle around the position where the rider parked, used only
+to let the trip-tracking foreground service stop itself while the phone is
+stationary and be woken by the system when the rider rides away (`ParkGeofence`
+in `app/.../tracking/`). It carries no radius of interest beyond that wake and
+is removed the moment the service starts.
+
+The auto-stop "back where you started" check and a circle's arrive/depart
+events still use no geofence API — both are plain on-device arithmetic against
+fixes that already arrive (`GeofenceEvaluator` in `shared/`).
 
 "Other" description:
 
