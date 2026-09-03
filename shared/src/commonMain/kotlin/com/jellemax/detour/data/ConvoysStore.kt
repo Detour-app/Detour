@@ -255,13 +255,14 @@ internal fun ConvoysState.cleared() = ConvoysState()
 /**
  * Which of [ids] [ConvoysStore.resolveUnknown] should still attempt a
  * reload for: not already [known], and not already given up on in
- * [ignored]. An extension of [ConvoysState] — like [commitIfCurrent] and
- * every other reused name in this file — purely so this can share a name
- * with [CirclesStore]'s identical function on [CirclesState] without the
- * two clashing as top-level declarations in the same package. Pure so the
- * no-repeat-reload guarantee is testable directly — see
- * [ConvoysStore.resolveUnknown]'s own doc for why an id is remembered
- * rather than retried on every frame.
+ * [ignored]. An extension of [ConvoysState], like [commitIfCurrent] and
+ * [cleared] in this same file — but this one has no sibling on
+ * [CirclesState] any more: a circle's position never rides the relay
+ * socket, so `CirclesStore` had nothing to self-heal, and its copy of this
+ * whole chain (`watchPeers`, `resolveUnknown`, and this function) was
+ * dropped as unreachable. Pure so the no-repeat-reload guarantee is
+ * testable directly — see [ConvoysStore.resolveUnknown]'s own doc for why
+ * an id is remembered rather than retried on every frame.
  */
 internal fun ConvoysState.unresolvedAfterIgnoring(ids: Set<RiderId>, known: Set<RiderId>, ignored: Set<RiderId>): Set<RiderId> =
     ids - known - ignored

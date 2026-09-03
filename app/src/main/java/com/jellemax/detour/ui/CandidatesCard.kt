@@ -51,7 +51,7 @@ internal fun CandidatesCard(
     // The convoy's own membership, to resolve a voter's id to the handle
     // drawn under a candidate — this card has no store access of its own and
     // should not gain one just to look up a name.
-    members: List<GroupMember> = emptyList(),
+    members: List<GroupMember>,
     // Non-null only pre-share, in a convoy, with a spin actually on screen.
     onShare: (() -> Unit)? = null,
     onGoWithLead: (() -> Unit)? = null,
