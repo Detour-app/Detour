@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import UIKit
 
 /// One place fixes are published to, so a second consumer never opens a second
 /// GPS listener.
@@ -26,6 +27,24 @@ final class LocationBroadcast {
     }
 
     static let shared = LocationBroadcast()
+
+    private init() {
+        // `systemUptime` freezes while the device is suspended, so a fix held
+        // across a sleep would report an age far short of the truth and could
+        // pass a staleness gate it should have failed. There is no public iOS
+        // clock that counts sleep, so instead drop the held age on every
+        // foreground: `lastSample` then returns nil — the consumer skips the
+        // tick, which is the safe direction — until the next fix re-stamps the
+        // clock. A resume with a fresh fix already in hand re-stamps it in
+        // `publish` before this fires and loses nothing. #123
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { LocationBroadcast.shared.lastFixUptime = nil }
+        }
+    }
 
     private var continuations: [UUID: AsyncStream<CLLocation>.Continuation] = [:]
 
@@ -56,14 +75,12 @@ final class LocationBroadcast {
 
     /// The most recent fix and its age, or nil before the first fix arrives.
     ///
-    /// Known limit: `systemUptime` does not advance while the device is
-    /// suspended, so a fix held across a sleep reports an age smaller than the
-    /// truth and can pass a staleness gate it should have failed. That is
-    /// narrower than the wall-clock bug this replaced — it needs a resume with
-    /// a stale fix still held, is bounded by how long the device slept, and any
-    /// new fix corrects it, whereas a clock correction is unbounded and
-    /// persists. iOS exposes no public monotonic clock that counts sleep;
-    /// tracked as issue #123.
+    /// `systemUptime` does not advance while the device is suspended, so a fix
+    /// held across a sleep would report an age smaller than the truth. The
+    /// `didBecomeActiveNotification` observer in `init` clears `lastFixUptime`
+    /// on every foreground, so a fix held across a suspend reports *no* age
+    /// (this returns nil) rather than a wrong one, until the next fix re-stamps
+    /// the clock. #123
     var lastSample: Sample? {
         guard let last, let lastFixUptime else { return nil }
         let ageSeconds = max(0, ProcessInfo.processInfo.systemUptime - lastFixUptime)
