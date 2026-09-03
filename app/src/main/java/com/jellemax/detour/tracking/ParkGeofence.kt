@@ -5,8 +5,10 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.jellemax.detour.BuildConfig
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
@@ -33,6 +35,10 @@ object ParkGeofence {
     const val ID = "park"
     const val RADIUS_M = 150f
 
+    /** Shared with [GeofenceWakeReceiver] so one `adb logcat -s ParkGeofence`
+     *  carries the whole arm → wake story. */
+    const val TAG = "ParkGeofence"
+
     private const val ACTION = "com.jellemax.detour.GEOFENCE_EXIT"
 
     fun arm(context: Context, lat: Double, lon: Double) {
@@ -52,9 +58,19 @@ object ParkGeofence {
         try {
             LocationServices.getGeofencingClient(context)
                 .addGeofences(request, pendingIntent(context))
-                .addOnFailureListener { Log.w("ParkGeofence", "arm failed", it) }
+                .addOnSuccessListener {
+                    // The only external evidence this fence exists. GMS geofences
+                    // are not in `dumpsys location` (that section is the platform
+                    // GeofenceManager, which the GMS API does not use), so without
+                    // this line a parked service is indistinguishable from one that
+                    // stopped and armed nothing. Pairs with GeofenceWakeReceiver's
+                    // delivery log to give #140 its wake latency.
+                    Log.i(TAG, "armed r=${RADIUS_M}m ert=${SystemClock.elapsedRealtime()}" +
+                        if (BuildConfig.DEBUG) " at $lat,$lon" else "")
+                }
+                .addOnFailureListener { Log.w(TAG, "arm failed", it) }
         } catch (e: SecurityException) {
-            Log.w("ParkGeofence", "arm denied", e)
+            Log.w(TAG, "arm denied", e)
         }
     }
 

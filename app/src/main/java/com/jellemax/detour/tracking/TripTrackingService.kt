@@ -24,6 +24,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -1242,14 +1243,24 @@ class TripTrackingService : Service() {
                     ContextCompat.checkSelfPermission(
                         this, Manifest.permission.ACCESS_BACKGROUND_LOCATION,
                     ) != PackageManager.PERMISSION_GRANTED
-                ) return
+                ) {
+                    // Logged because this is the silent degradation: the service
+                    // simply stays always-on and nothing else says why.
+                    Log.i(ParkGeofence.TAG, "staying alive: no ACCESS_BACKGROUND_LOCATION")
+                    return
+                }
                 // No position yet (booted stationary, no fix before STILL ENTER).
                 // locationCallback re-runs maybeGoDormant() on the first fix.
-                val (lat, lon) = lastKnownLatLon() ?: return
+                val (lat, lon) = lastKnownLatLon() ?: run {
+                    Log.i(ParkGeofence.TAG, "staying alive: no position to arm at yet")
+                    return
+                }
+                Log.i(ParkGeofence.TAG, "parking: $decision")
                 ParkGeofence.arm(this, lat, lon)
                 stopDormant()
             }
             DormancyDecision.STOP_BARE -> {
+                Log.i(ParkGeofence.TAG, "parking: $decision (auto-detect off)")
                 ParkGeofence.disarm(this)
                 unregisterActivityTransitions()
                 stopDormant()
