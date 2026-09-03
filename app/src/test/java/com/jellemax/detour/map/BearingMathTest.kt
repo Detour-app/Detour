@@ -28,8 +28,21 @@ class BearingMathTest {
     }
 
     @Test
+    fun `bearingDelta tolerates one turn of over-range on either input`() {
+        // Single-if corrections, so the contract is inputs within one wrap of
+        // [0,360). Every caller is already in range; this pins the bound.
+        assertEquals(20f, bearingDelta(-10f, 10f), 1e-4f)
+        assertEquals(20f, bearingDelta(370f, 350f), 1e-4f)
+    }
+
+    @Test
     fun `smoothBearing returns the target unchanged when there is no current`() {
         assertEquals(123f, smoothBearing(null, 123f), 1e-4f)
+    }
+
+    @Test
+    fun `smoothBearing interpolates by alpha`() {
+        assertEquals(50f, smoothBearing(0f, 100f, alpha = 0.5f), 1e-3f)
     }
 
     @Test
