@@ -704,7 +704,7 @@ Expected: PASS except `LiveEndpointTests`, `LiveResilienceTests` and `LiveRelayT
 
 - [ ] **Step 8: Check formatting**
 
-Run: `devcontainer-exec dotnet format backend/Detour/Detour.slnx style --verify-no-changes`
+Run: `devcontainer-exec dotnet format backend/Detour.slnx style --verify-no-changes`
 
 Expected: no changes reported. CI runs this.
 
@@ -849,7 +849,7 @@ Expected: PASS.
 
 - [ ] **Step 6: Run the whole backend suite and the formatter**
 
-Run: `devcontainer-exec dotnet test backend/Detour/Detour.Domain.Tests && devcontainer-exec dotnet test backend/Detour/Detour.InfraTests && devcontainer-exec dotnet format backend/Detour/Detour.slnx style --verify-no-changes`
+Run: `devcontainer-exec dotnet test backend/Detour/Detour.Domain.Tests && devcontainer-exec dotnet test backend/Detour/Detour.InfraTests && devcontainer-exec dotnet format backend/Detour.slnx style --verify-no-changes`
 
 Expected: PASS, no formatting changes. This is the whole backend green — the last backend task.
 
@@ -1959,7 +1959,7 @@ already says it moves only when an existing field changes meaning, which is exac
 
 - [ ] **Step 3: Confirm the whole tree builds**
 
-Run: `devcontainer-exec ./gradlew :shared:compileCommonMainKotlinMetadata && devcontainer-exec ./gradlew :shared:testDebugUnitTest && devcontainer-exec ./gradlew :app:testDebugUnitTest && devcontainer-exec ./gradlew :app:assembleDebug && devcontainer-exec dotnet test backend/Detour/Detour.Domain.Tests && devcontainer-exec dotnet test backend/Detour/Detour.InfraTests && devcontainer-exec dotnet format backend/Detour/Detour.slnx style --verify-no-changes`
+Run: `devcontainer-exec ./gradlew :shared:compileCommonMainKotlinMetadata && devcontainer-exec ./gradlew :shared:testDebugUnitTest && devcontainer-exec ./gradlew :app:testDebugUnitTest && devcontainer-exec ./gradlew :app:assembleDebug && devcontainer-exec dotnet test backend/Detour/Detour.Domain.Tests && devcontainer-exec dotnet test backend/Detour/Detour.InfraTests && devcontainer-exec dotnet format backend/Detour.slnx style --verify-no-changes`
 
 Expected: everything PASS, no formatting changes.
 
