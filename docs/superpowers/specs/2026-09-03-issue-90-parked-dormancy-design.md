@@ -52,14 +52,14 @@ The notification a rider sees once a drive starts is unchanged.
 - **iOS region monitoring** — the equivalent lever there — is out of scope
   (per issue).
 - **On-road acceptance criteria (issue AC 3, 4, 5)** are not closed by this PR.
-  It ships with a chosen radius and a written measurement plan; a follow-up
-  issue tracks tuning the radius from real wake-latency numbers. Those AC boxes
+  It ships with a chosen radius and a written measurement plan; #140
+  tracks tuning the radius from real wake-latency numbers. Those AC boxes
   stay unchecked until the author validates on road.
 - **`CircleNotifyService`'s permanent row is out of scope.** This issue is about
   the *trip-tracking* notification. Circle members with a notify-enabled circle
   still have `CircleNotifyService` (its own `REMOTE_MESSAGING` foreground
   service) running while parked — a separate always-on row for a separate
-  feature. A follow-up issue covers making that one dormant too.
+  feature. #142 covers making that one dormant too.
 - **Dormancy needs two runtime permissions the app treats as optional.**
   `STOP_WITH_GEOFENCE` engages only with `ACTIVITY_RECOGNITION` (feeds the
   `stationary` signal) *and* `ACCESS_BACKGROUND_LOCATION` (so the wake geofence
@@ -266,7 +266,7 @@ protocol — record a real drive from a cold parked state, note wall-clock delta
 between first movement and the service's first `TRIP`-mode fix, and the
 distance/duration delta of the geofence-woken trip vs. the same route recorded
 with the service already running. Tune `RADIUS_M` from the wake delta. Tracked
-in the follow-up issue.
+in #140.
 
 ## Testing
 
@@ -306,7 +306,7 @@ is untouched so `:shared:compileCommonMainKotlinMetadata` is not in play.
 | `auto_detect_drives=false` → no service, no geofence | Components 1, 5 | yes |
 | Riding away starts tracking without opening the app | Components 2–3, real drive | code yes / **verify: author** |
 | Auto-start quality does not regress (replay A/B) | measurement plan | **verify: author** |
-| Leading-trace loss stated with a measured number | measurement plan | **verify: author**, follow-up issue |
+| Leading-trace loss stated with a measured number | measurement plan | **verify: author**, #140 |
 | Circle posting + arrive/depart still work while parked | Component 4 | yes |
 | `PLAY_LOCATION_DECLARATION.md` rewritten | Component 7 | yes |
 | `CIRCLES_AND_CONVOYS.md:286` corrected | Component 7 | yes |
