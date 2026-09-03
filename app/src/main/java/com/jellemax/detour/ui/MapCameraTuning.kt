@@ -1,34 +1,16 @@
 package com.jellemax.detour.ui
 
 import com.jellemax.detour.data.CirclePresence
-import kotlin.math.abs
 
-/** Exponentially smooths a compass bearing toward [target], taking the
- *  shortest way round the 0/360 wrap, so heading-up rotation eases instead
- *  of snapping to each noisy raw GPS fix. */
-internal fun smoothBearing(current: Float?, target: Float, alpha: Float = 0.3f): Float {
-    if (current == null) return target
-    var delta = (target - current) % 360f
-    if (delta > 180f) delta -= 360f
-    if (delta < -180f) delta += 360f
-    return (current + delta * alpha + 360f) % 360f
-}
-
-/** Shortest angular distance between two bearings, 0..180 — so a 359 to 1 turn
- *  reads as 2 degrees rather than 358. */
-internal fun bearingDelta(a: Float, b: Float): Float {
-    var d = (a - b) % 360f
-    if (d > 180f) d -= 360f
-    if (d < -180f) d += 360f
-    return abs(d)
-}
+// The bearing-wrap helpers and CAM_BEARING_* constants live in
+// `map/BearingMath.kt` — the car camera loop needs them too, and a second copy
+// there was how the camera and the marker ended up reading different constants.
 
 // Camera easing time constants, in seconds: each frame the camera closes the
 // same fraction of its gap to the latest fix, covering ~63% of it in one tau.
 // Small enough that the map never visibly lags the road, large enough that a
 // noisy fix can't yank it.
 internal const val CAM_POS_TAU = 0.35
-internal const val CAM_BEARING_TAU = 0.5
 internal const val CAM_ZOOM_TAU = 1.2
 
 // The speed readout is eased the same way, per frame rather than per fix: GPS
@@ -45,15 +27,14 @@ internal const val SPEED_EPS_KMH = 0.15
 
 // A standstill-only optimisation: these decide when a camera that has converged on a
 // target that is itself not moving may stop doing work — ~0.2 m of pan (well sub-pixel
-// at driving zooms), a hair of zoom, a tenth of a degree of rotation. They no longer gate
-// a moving camera — MapMotion.shouldPush also pushes whenever the target moved this
-// frame, so the camera is pushed on every frame while driving (measured pushes == frames
-// in 198/198 samples). Once the ease settles inside all three *and* the target is still,
-// setCamera is skipped and the map — and the fog view riding on its camera-move
-// callback — goes quiet.
+// at driving zooms), a hair of zoom (rotation is gated by CAM_BEARING_EPS_DEG in
+// map/BearingMath.kt). They no longer gate a moving camera — MapMotion.shouldPush also
+// pushes whenever the target moved this frame, so the camera is pushed on every frame
+// while driving (measured pushes == frames in 198/198 samples). Once the ease settles
+// inside all three *and* the target is still, setCamera is skipped and the map — and the
+// fog view riding on its camera-move callback — goes quiet.
 internal const val CAM_POS_EPS_DEG = 2e-6
 internal const val CAM_ZOOM_EPS = 2e-3
-internal const val CAM_BEARING_EPS_DEG = 0.1f
 
 // Past this, a jump is not continuous motion and easing toward it would sweep the
 // camera — and MapLibre's tile requests — across everything in between. A frame can
