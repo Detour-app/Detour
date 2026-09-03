@@ -278,7 +278,7 @@ private struct SendToFriendSheet: View {
     let route: SavedRoute
 
     @Environment(\.dismiss) private var dismiss
-    @State private var friends: [String] = []
+    @State private var friends: [RiderRef] = []
     @State private var busy = false
     @State private var errorMessage: String?
 
@@ -289,8 +289,8 @@ private struct SendToFriendSheet: View {
                     Text("Add a friend first, on the Friends tab.")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(friends, id: \.self) { name in
-                        Button(name) { send(to: name) }
+                    ForEach(friends, id: \.id.value) { rider in
+                        Button(rider.username) { send(to: rider.username) }
                             .disabled(busy)
                     }
                 }

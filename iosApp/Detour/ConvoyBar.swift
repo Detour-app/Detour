@@ -1,6 +1,34 @@
 import SwiftUI
 import DetourShared
 
+/// The active convoy's membership, resolved from `ConvoysStore` — positions
+/// and votes carry an id and no handle now (#133), so this is what turns one
+/// back into the name to draw. Mirrors Android's `activeConvoyMembers` in
+/// MapScreen.kt (`convoysState.convoys.firstOrNull { it.id == activeConvoyId
+/// }?.members.orEmpty()`). One instance shared between `MapScreen` and
+/// `ConvoyBar` (passed in, not re-created) so the two don't each hold their
+/// own redundant subscription to the same store.
+@MainActor
+final class ActiveConvoyMembersModel: ObservableObject {
+    @Published private(set) var convoys: [DetourShared.Group] = []
+
+    private let watcher = FeatureFlows.shared.convoys()
+
+    init() {
+        convoys = watcher.value.convoys
+        watcher.watch { [weak self] in self?.convoys = self?.watcher.value.convoys ?? [] }
+    }
+
+    deinit { watcher.cancel() }
+
+    /// The members of [convoyId], or empty for `nil` (no convoy joined) or an
+    /// id this device's own convoy list doesn't (yet) know.
+    func members(of convoyId: String?) -> [GroupMember] {
+        guard let convoyId else { return [] }
+        return convoys.first { $0.id == convoyId }?.members ?? []
+    }
+}
+
 /// The live convoy strip: who is on the map right now, who is talking, and the
 /// press-and-hold that transmits.
 ///
@@ -10,6 +38,7 @@ import DetourShared
 struct ConvoyBar: View {
 
     @ObservedObject private var live = ConvoyLiveClient.shared
+    @ObservedObject var members: ActiveConvoyMembersModel
     @State private var transmitting = false
 
     /// Set when the microphone has been refused, so the button can say so
@@ -32,15 +61,22 @@ struct ConvoyBar: View {
                 } else {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            ForEach(live.peers.values.sorted(by: { $0.username < $1.username }),
-                                    id: \.username) { peer in
-                                Text(peer.username)
+                            // `live.peers`' keys are the peer's account id, not
+                            // their handle (#133) — FriendPosition itself
+                            // carries no handle at all any more, so the name
+                            // to draw comes from convoy membership instead,
+                            // one id lookup at a time. Sorted by the resolved
+                            // handle, matching what used to sort by
+                            // `.username` directly.
+                            ForEach(live.peers.keys.sorted(by: { handle(for: $0) < handle(for: $1) }),
+                                    id: \.self) { riderId in
+                                Text(handle(for: riderId))
                                     .font(.caption)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 4)
                                     .background(
                                         Capsule().fill(
-                                            live.talking.contains(peer.username)
+                                            live.talking.contains(riderId)
                                                 ? Color.accentColor.opacity(0.3)
                                                 : Color.secondary.opacity(0.15)))
                             }
@@ -75,6 +111,18 @@ struct ConvoyBar: View {
     private var micGlyph: String {
         if micDenied { return "mic.slash" }
         return transmitting ? "mic.fill" : "mic"
+    }
+
+    /// The handle to draw for a peer id, from the active convoy's own
+    /// membership — `GroupsKt.handleFor` is `List<GroupMember>.handleFor`
+    /// (Groups.kt), an extension on a generic stdlib collection rather than on
+    /// one of this module's own classes, so Kotlin/Native's Objective-C
+    /// export lands it on the file's `...Kt` facade instead of as a member —
+    /// same shape as `CircleEventsKt.placeEventFromRelayFrame` elsewhere in
+    /// this app. `""` for an id membership doesn't (yet) know, same as
+    /// everywhere else `handleFor` is used.
+    private func handle(for riderId: String) -> String {
+        GroupsKt.handleFor(members.members(of: live.activeConvoyId), riderId: RiderId(value: riderId))
     }
 
     private func startTalking() {

@@ -78,8 +78,18 @@ final class CircleNotifications: NSObject {
     /// here.
     func handleLiveEvent(groupId: String, event: PlaceEvent) {
         guard notifyEnabled(circleId: groupId) else { return }
-        raise(event: event, circleId: groupId)
-        CircleEvents.shared.setLastSeenEventTsMs(circleId: groupId, tsMs: event.tsMs)
+        // A live frame carries an id and no handle (#133) — membership names
+        // it, the same as the catch-up path below, just fetched fresh here
+        // rather than reused from a sweep: a live arrival is rare enough that
+        // one extra round trip is cheaper than caching a membership list this
+        // class would otherwise have to keep fresh itself.
+        Task {
+            let members = (try? await Groups.shared.list(kind: "circle"))?
+                .first(where: { $0.id == groupId })?.members ?? []
+            raise(event: event, circleId: groupId,
+                  displayName: GroupsKt.handleFor(members, riderId: event.riderId))
+            CircleEvents.shared.setLastSeenEventTsMs(circleId: groupId, tsMs: event.tsMs)
+        }
     }
 
     // MARK: Catch-up path
@@ -102,7 +112,7 @@ final class CircleNotifications: NSObject {
     func runCatchUpSweep() async {
         await syncAuthorizationStatus()
         guard SyncClient.shared.configured(), Account.shared.signedIn else { return }
-        let username = SettingsValues.shared.authUsername
+        let myId = SettingsValues.shared.authRiderId
         guard let circles = try? await Groups.shared.list(kind: "circle") else { return }
         // CircleNotifyPolicy.circlesWantingDelivery (shared/): accepted
         // membership plus this device's own per-circle toggle — the same
@@ -139,7 +149,7 @@ final class CircleNotifications: NSObject {
             // eat a quiet one's only arrival.
             let plan = CircleNotifyPolicy.shared.planCatchUp(
                 events: events,
-                myUsername: username,
+                myId: RiderId(value: myId),
                 nowMs: nowMs(),
                 staleAfterMs: Enums.shared.circleStaleAfterMs,
                 cap: Enums.shared.circleCatchUpCap
@@ -153,7 +163,8 @@ final class CircleNotifications: NSObject {
             // only thing pinning it here; the Android half is pinned by
             // CircleNotifyDeliveryOrderTest.
             for event in plan.individual.reversed() {
-                raise(event: event, circleId: circle.id)
+                raise(event: event, circleId: circle.id,
+                      displayName: GroupsKt.handleFor(circle.members, riderId: event.riderId))
             }
             if plan.collapsedCount > 0 {
                 raiseSummary(circleId: circle.id, collapsed: Int(plan.collapsedCount))
@@ -164,7 +175,7 @@ final class CircleNotifications: NSObject {
 
     // MARK: Raising
 
-    private func raise(event: PlaceEvent, circleId: String) {
+    private func raise(event: PlaceEvent, circleId: String, displayName: String) {
         guard authorized else { return }
         let content = UNMutableNotificationContent()
         // `notificationText()` is a Kotlin extension fun on `PlaceEvent`
@@ -177,8 +188,12 @@ final class CircleNotifications: NSObject {
         // facade instead — see `CircleEventsKt.placeEventFromRelayFrame` for
         // that shape). Unverified against a real compile (no Swift
         // toolchain here); if this specific line fails to build, the
-        // fallback spelling is `CircleEventsKt.notificationText(event)`.
-        content.body = event.notificationText()
+        // fallback spelling is `CircleEventsKt.notificationText(event, displayName:)`.
+        // `displayName` is the caller's job now (#133) — the event itself
+        // only names a rider by id, and the caller already has the
+        // membership to resolve it from (live: a fresh fetch; catch-up: the
+        // circle it's already iterating).
+        content.body = event.notificationText(displayName: displayName)
         content.sound = .default
         content.userInfo = ["circleId": circleId]
         // Deterministic per event rather than a random UUID: the same
