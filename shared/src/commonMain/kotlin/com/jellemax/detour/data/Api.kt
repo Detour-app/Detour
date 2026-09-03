@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import com.jellemax.detour.data.RoutingServer.accessHeaders
 import kotlinx.serialization.json.JsonObject
 import okio.IOException
 
@@ -49,14 +50,10 @@ internal object Api {
                 // because the first token was refused, so re-reading the bearer
                 // is the point — hoisting this out would resend it.
                 val headers = buildMap {
-                    put("User-Agent", "Detour/${BuildDefaults.versionName}")
+                    putAll(cf.accessHeaders())
                     if (auth) {
                         sent = Auth.bearer()
                         put("Authorization", "Bearer $sent")
-                    }
-                    if (cf.clientId.isNotBlank()) {
-                        put("CF-Access-Client-Id", cf.clientId)
-                        put("CF-Access-Client-Secret", cf.clientSecret)
                     }
                 }
                 Http.request(

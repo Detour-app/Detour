@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import com.jellemax.detour.data.RoutingServer.accessHeaders
 import io.ktor.http.encodeURLParameter
 import kotlinx.serialization.json.JsonObject
 import okio.IOException
@@ -67,13 +68,7 @@ object Geocoder {
         val bias = near?.let { "&lat=${it.lat}&lon=${it.lon}" } ?: ""
         val url = "$base/api/?q=" + query.encodeURLParameter() + "&limit=$limit" + bias
 
-        val headers = buildMap {
-            put("User-Agent", "Detour/${BuildDefaults.versionName}")
-            if (access != null && access.clientId.isNotBlank()) {
-                put("CF-Access-Client-Id", access.clientId)
-                put("CF-Access-Client-Secret", access.clientSecret)
-            }
-        }
+        val headers = access.accessHeaders()
         val body = try {
             Http.get(url, headers, readTimeoutMs = 10_000)
         } catch (e: HttpStatusException) {
