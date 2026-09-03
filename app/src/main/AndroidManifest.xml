@@ -148,6 +148,10 @@
         </receiver>
 
         <receiver
+            android:name=".tracking.GeofenceWakeReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".update.InstallResultReceiver"
             android:exported="false">
             <intent-filter>
