@@ -18,7 +18,7 @@ class CircleNotifyPolicyTest {
     // --- fixtures -------------------------------------------------------------
 
     private fun event(username: String, tsMs: Long, kind: String = "arrive", placeName: String = "Home") =
-        PlaceEvent(id = "e-$username-$tsMs", placeId = 1L, placeName = placeName, username = username, kind = kind, tsMs = tsMs)
+        PlaceEvent(id = "e-$username-$tsMs", placeId = 1L, placeName = placeName, riderId = RiderId(username), kind = kind, tsMs = tsMs)
 
     private fun group(id: String, status: String = "accepted") =
         Group(id = id, name = id, kind = "circle", status = status, members = emptyList())
@@ -35,7 +35,7 @@ class CircleNotifyPolicyTest {
             myUsername = "me",
             nowMs = 1_000L,
         )
-        assertEquals(listOf("alice"), plan.individual.map { it.username })
+        assertEquals(listOf("alice"), plan.individual.map { it.riderId.value })
         assertEquals(0, plan.collapsedCount)
     }
 
@@ -45,7 +45,7 @@ class CircleNotifyPolicyTest {
         val fresh = event("alice", now - 1_000L)
         val stale = event("bob", now - CircleNotifyPolicy.STALE_AFTER_MS - 1L)
         val plan = CircleNotifyPolicy.planCatchUp(listOf(fresh, stale), myUsername = "me", nowMs = now)
-        assertEquals(listOf("alice"), plan.individual.map { it.username })
+        assertEquals(listOf("alice"), plan.individual.map { it.riderId.value })
         assertEquals(0, plan.collapsedCount)
     }
 
@@ -56,7 +56,7 @@ class CircleNotifyPolicyTest {
         val now = 10_000_000L
         val atTheEdge = event("alice", now - CircleNotifyPolicy.STALE_AFTER_MS)
         val plan = CircleNotifyPolicy.planCatchUp(listOf(atTheEdge), myUsername = "me", nowMs = now)
-        assertEquals(listOf("alice"), plan.individual.map { it.username })
+        assertEquals(listOf("alice"), plan.individual.map { it.riderId.value })
     }
 
     // --- planCatchUp: the cap boundary, both directions ------------------------
@@ -101,7 +101,7 @@ class CircleNotifyPolicyTest {
 
         // user(total-1) has the largest tsMs - the single most recent arrival.
         val expected = (total - 1 downTo total - CircleNotifyPolicy.NOTIFY_CAP).map { "user$it" }
-        assertEquals(expected, plan.individual.map { it.username })
+        assertEquals(expected, plan.individual.map { it.riderId.value })
         // Three past the cap, not one: without a second value here the whole
         // `relevant.size - cap` arithmetic passes with the literal 1, which
         // the cap+1 case above cannot tell apart. This assertion came over

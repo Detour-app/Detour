@@ -33,7 +33,7 @@ class CirclePresenceTest {
     // --- fixtures ---------------------------------------------------------
 
     private fun member(username: String, sharing: Boolean, status: String = "accepted") =
-        GroupMember(username = username, status = status, sharing = sharing)
+        GroupMember(id = RiderId(username), username = username, status = status, sharing = sharing)
 
     private fun circle(id: String, vararg members: GroupMember) =
         Group(id = id, name = id, kind = "circle", status = "accepted", members = members.toList())
@@ -41,7 +41,7 @@ class CirclePresenceTest {
     private fun place(id: Long, lat: Double, lon: Double, radiusM: Double = 50.0) = CirclePlace(
         serverId = "share-$id",
         groupId = "c",
-        owner = "someone",
+        ownerId = RiderId("someone"),
         radiusM = radiusM,
         createdMs = 0L,
         place = SavedPlace(id = id, name = "Place $id", location = LatLon(lat, lon)),

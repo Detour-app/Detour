@@ -4,7 +4,12 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-data class GroupMember(val username: String, val status: String, val sharing: Boolean)
+data class GroupMember(
+    val id: RiderId,
+    val username: String,
+    val status: String,
+    val sharing: Boolean,
+)
 
 data class Group(
     /** The server's identifier. Opaque: a UUID today, and nothing here reads it
@@ -87,6 +92,7 @@ object Groups {
 internal fun groupFromJson(o: JsonObject, kind: String): Group {
     val members = (o.optArray("members") ?: JsonArrayEmpty).objects().map { m ->
         GroupMember(
+            id = RiderId(m.optString("id")),
             username = m.optString("username"),
             status = m.optString("status"),
             // Absent for a convoy: being connected to one already is

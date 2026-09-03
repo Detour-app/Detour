@@ -171,7 +171,7 @@ object FriendsStore {
             // its doc), which is what makes it a place a stale totals record
             // can be refolded without a rider waiting on it.
             RiderTotals.refreshIfStale()
-            FriendStats(username, riderStats, badgeIds)
+            FriendStats(RiderRef(Account.riderId.value, username), riderStats, badgeIds)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -201,8 +201,8 @@ object FriendsStore {
     // but iOS's `sendRequest()` (FriendsScreen.swift) reloads right after a
     // successful send, so its pending row shows up immediately instead.
     @Throws(Exception::class)
-    suspend fun respond(username: String, accept: Boolean): Boolean =
-        act { Friends.respond(username, accept) } != null
+    suspend fun respond(riderId: RiderId, accept: Boolean): Boolean =
+        act { Friends.respond(riderId, accept) } != null
 
     /**
      * Runs a mutation, then reloads. Never throws for an ordinary failure:

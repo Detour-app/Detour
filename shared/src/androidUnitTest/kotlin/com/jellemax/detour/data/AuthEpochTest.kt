@@ -89,7 +89,11 @@ class AuthEpochTest {
 
         val postEstablish = FriendsState()
         val staleResult = postEstablish.copy(
-            own = FriendStats(username = "previous-rider", stats = RiderStats(), badgeIds = emptyList()),
+            own = FriendStats(
+                rider = RiderRef(RiderId("previous-rider-id"), "previous-rider"),
+                stats = RiderStats(),
+                badgeIds = emptyList(),
+            ),
         )
         assertSame(
             postEstablish,

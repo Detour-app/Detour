@@ -5,9 +5,10 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** A circle member's last known position, as `GET /api/circles/{id}/positions`
- *  returns it. */
+ *  returns it. Identity only — the handle to draw comes from the group's
+ *  membership, which [CircleFixes.othersFixes] fetches in the same breath. */
 data class MemberFix(
-    val username: String,
+    val riderId: RiderId,
     val lat: Double,
     val lon: Double,
     val accuracyM: Double,
@@ -75,14 +76,14 @@ internal fun newestPerOtherMember(
     fixes: List<MemberFix>,
     selfUsername: String,
 ): List<MemberFix> = fixes
-    .filter { it.username != selfUsername }
-    .groupBy { it.username }
+    .filter { it.riderId.value != selfUsername }
+    .groupBy { it.riderId }
     .map { (_, forUser) -> forUser.maxBy { it.tsMs } }
 
 /** Extracted from [CircleFixes.fixes] so JSON parsing is testable without a
  *  network round trip. */
 internal fun memberFixFromJson(f: JsonObject): MemberFix = MemberFix(
-    username = f.optString("username"),
+    riderId = RiderId(f.optString("riderId")),
     lat = f.optDouble("latitude"),
     lon = f.optDouble("longitude"),
     // Null when the platform reported no accuracy; the map treats a

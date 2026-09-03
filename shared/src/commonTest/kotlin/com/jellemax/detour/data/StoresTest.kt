@@ -21,13 +21,13 @@ import kotlin.test.assertTrue
 class StoresTest {
 
     private fun lists() = FriendLists(
-        friends = listOf("ada", "grace"),
-        incoming = listOf("linus"),
+        friends = listOf(RiderRef(RiderId("ada"), "ada"), RiderRef(RiderId("grace"), "grace")),
+        incoming = listOf(RiderRef(RiderId("linus"), "linus")),
         outgoing = emptyList(),
     )
 
     private fun stats(name: String) = FriendStats(
-        username = name,
+        rider = RiderRef(RiderId(name), name),
         stats = RiderStats(
             totalDistanceMeters = 1_234.0,
             topSpeedKmh = 98.0,
@@ -415,7 +415,7 @@ class StoresTest {
     private fun place(serverId: String, groupId: String) = CirclePlace(
         serverId = serverId,
         groupId = groupId,
-        owner = "ada",
+        ownerId = RiderId("ada"),
         radiusM = 150.0,
         createdMs = 1_700_000_000_000L,
         place = SavedPlace(id = 1L, name = "Home", location = LatLon(51.0, 4.0)),
@@ -425,7 +425,7 @@ class StoresTest {
         id = id,
         placeId = 1L,
         placeName = "Home",
-        username = "ada",
+        riderId = RiderId("ada"),
         kind = "arrive",
         tsMs = 1_700_000_000_000L,
     )

@@ -159,7 +159,7 @@ class RelayProtocolTest {
         assertEquals("circle-1", relayEvent.groupId)
         assertEquals(7L, relayEvent.event.placeId)
         assertEquals("School", relayEvent.event.placeName)
-        assertEquals("ada", relayEvent.event.username)
+        assertEquals("ada", relayEvent.event.riderId.value)
         assertEquals("depart", relayEvent.event.kind)
     }
 

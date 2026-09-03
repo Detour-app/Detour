@@ -58,15 +58,15 @@ object Account {
 /** A friend's aggregate numbers. Never their trips or traces — the server
  *  doesn't send those, and this type has nowhere to put them. */
 data class FriendStats(
-    val username: String,
+    val rider: RiderRef,
     val stats: RiderStats,
     val badgeIds: List<String>,
 )
 
 data class FriendLists(
-    val friends: List<String>,
-    val incoming: List<String>,
-    val outgoing: List<String>,
+    val friends: List<RiderRef>,
+    val incoming: List<RiderRef>,
+    val outgoing: List<RiderRef>,
 )
 
 /** The caller's own account, as `GET /api/me` returns it. */
@@ -88,11 +88,15 @@ object Friends {
     // [remove] is not annotated — nothing outside this module calls it.
     @Throws(Exception::class)
     suspend fun lists(): FriendLists {
-        val o = Api.requestJson("GET", "/friends")
+        val entries = Api.requestJson("GET", "/friends").optArray("riders")?.objects().orEmpty()
+        // The wire carries one list tagged with a relation; the screens want three.
+        // Partitioning here rather than server-side keeps the contract from encoding
+        // the relation by array position, which is what let a rider appear in two.
+        val byRelation = entries.groupBy({ it.optString("relation") }) { riderRefFromJson(it.optObject("rider")!!) }
         return FriendLists(
-            friends = o.stringList("friends"),
-            incoming = o.stringList("incoming"),
-            outgoing = o.stringList("outgoing"),
+            friends = byRelation["friend"].orEmpty(),
+            incoming = byRelation["incoming"].orEmpty(),
+            outgoing = byRelation["outgoing"].orEmpty(),
         )
     }
 
@@ -105,17 +109,16 @@ object Friends {
         ).optString("status")
 
     @Throws(Exception::class)
-    suspend fun respond(username: String, accept: Boolean) {
-        // Handles are letters, digits, dot, underscore and hyphen — all safe in a
-        // path segment, so there is nothing to encode here.
+    suspend fun respond(riderId: RiderId, accept: Boolean) {
+        // An account id is a UUID, so there is nothing to encode in a path segment.
         Api.request(
-            "POST", "/friends/requests/$username/respond",
+            "POST", "/friends/requests/${riderId.value}/respond",
             buildJsonObject { put("accept", accept) },
         )
     }
 
-    suspend fun remove(username: String) {
-        Api.request("DELETE", "/friends/$username")
+    suspend fun remove(riderId: RiderId) {
+        Api.request("DELETE", "/friends/${riderId.value}")
     }
 
     @Throws(Exception::class)
@@ -123,16 +126,11 @@ object Friends {
         jsonArrayOf(Api.request("GET", "/friends/stats")).objects().map { o ->
             val badges = o.optObject("badges")
             FriendStats(
-                username = o.optString("username"),
+                rider = riderRefFromJson(o.optObject("rider") ?: jsonObjectOf("{}")),
                 stats = riderStatsFromJson(o.optObject("stats") ?: jsonObjectOf("{}")),
                 badgeIds = badges?.keys?.toList().orEmpty(),
             )
         }
-
-    private fun JsonObject.stringList(key: String): List<String> {
-        val array = optArray(key) ?: return emptyList()
-        return array.indices.map { array.optString(it) }
-    }
 }
 
 fun RiderStats.toJson(): JsonObject = buildJsonObject {

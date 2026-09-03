@@ -18,7 +18,7 @@ data class PlaceEvent(
     val id: String,
     val placeId: Long,
     val placeName: String,
-    val username: String,
+    val riderId: RiderId,
     val kind: String,
     val tsMs: Long,
 )
@@ -80,7 +80,7 @@ internal fun placeEventFromJson(e: JsonObject): PlaceEvent = PlaceEvent(
     id = e.optString("id"),
     placeId = e.optLong("placeId"),
     placeName = e.optString("placeName"),
-    username = e.optString("username"),
+    riderId = RiderId(e.optString("riderId")),
     kind = e.optString("kind"),
     tsMs = e.optLong("timestampMs"),
 )
@@ -100,7 +100,7 @@ fun placeEventFromRelayFrame(o: JsonObject): RelayPlaceEvent? {
     val groupId = o.optString("groupId").takeIf { it.isNotEmpty() } ?: return null
     val placeId = (o["placeId"] as? JsonPrimitive)?.longOrNull ?: return null
     val tsMs = (o["ts"] as? JsonPrimitive)?.longOrNull ?: return null
-    val username = o.optString("user").takeIf { it.isNotEmpty() } ?: return null
+    val riderId = o.optString("user").takeIf { it.isNotEmpty() } ?: return null
     // Lowercased to match the feed's wire vocabulary (docs/CIRCLES_AND_CONVOYS.md
     // §6.3) — an older relay push sent the enum's "Arrive"/"Depart" here.
     val kind = o.optString("kind").lowercase()
@@ -111,7 +111,7 @@ fun placeEventFromRelayFrame(o: JsonObject): RelayPlaceEvent? {
             id = "",
             placeId = placeId,
             placeName = o.optString("placeName"),
-            username = username,
+            riderId = RiderId(riderId),
             kind = kind,
             tsMs = tsMs,
         ),
@@ -123,13 +123,18 @@ fun placeEventFromRelayFrame(o: JsonObject): RelayPlaceEvent? {
  *  being offline — putting it here is the point, so the two apps can never
  *  read the same event differently. Drops "at <place>" rather than
  *  fabricating a name when [PlaceEvent.placeName] is blank (the place was
- *  unshared since the transition happened). */
-fun PlaceEvent.notificationText(): String {
+ *  unshared since the transition happened).
+ *
+ *  [displayName] is a parameter rather than a field on [PlaceEvent] because
+ *  the event itself only names a rider by [PlaceEvent.riderId] now — the
+ *  handle to draw is membership data, and the caller already holds it from
+ *  the group's member list. */
+fun PlaceEvent.notificationText(displayName: String): String {
     val arrived = kind == "arrive"
-    if (placeName.isBlank()) return "$username " + (if (arrived) "arrived" else "left")
+    if (placeName.isBlank()) return "$displayName " + (if (arrived) "arrived" else "left")
     // "arrived at School" reads naturally; "left at School" doesn't - "left"
     // takes its object directly, unlike "arrived".
-    return if (arrived) "$username arrived at $placeName" else "$username left $placeName"
+    return if (arrived) "$displayName arrived at $placeName" else "$displayName left $placeName"
 }
 
 /** Wording for the one notification that stands in for everything a

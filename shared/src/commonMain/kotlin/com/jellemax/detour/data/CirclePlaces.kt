@@ -13,7 +13,7 @@ import kotlinx.serialization.json.put
 data class CirclePlace(
     val serverId: String,
     val groupId: String,
-    val owner: String,
+    val ownerId: RiderId,
     val radiusM: Double,
     val createdMs: Long,
     val place: SavedPlace,
@@ -63,7 +63,7 @@ object CirclePlaces {
             CirclePlace(
                 serverId = entry.optString("id"),
                 groupId = groupId,
-                owner = entry.optString("owner"),
+                ownerId = RiderId(entry.optString("ownerId")),
                 radiusM = entry.optDouble("radiusMeters"),
                 createdMs = entry.optLong("createdAtMs"),
                 place = SavedPlace(
