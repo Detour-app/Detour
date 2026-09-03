@@ -11,6 +11,18 @@ data class GroupMember(
     val sharing: Boolean,
 )
 
+/**
+ * The handle to draw for a rider, from the membership this screen already has.
+ *
+ * Exists because payloads stopped carrying a handle beside every id (#133):
+ * positions, places and events identify a rider, and membership names them, so
+ * every label is one lookup away rather than repeated on the wire. Empty for an
+ * id no membership knows — a peer who joined since the last reload — which the
+ * caller draws as a placeholder rather than treating as an error.
+ */
+fun List<GroupMember>.handleFor(riderId: RiderId): String =
+    firstOrNull { it.id == riderId }?.username.orEmpty()
+
 data class Group(
     /** The server's identifier. Opaque: a UUID today, and nothing here reads it
      *  as anything but a string to put back in a path. */

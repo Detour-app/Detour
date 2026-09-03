@@ -51,13 +51,13 @@ object CircleNotifyPolicy {
      */
     fun planCatchUp(
         events: List<PlaceEvent>,
-        myUsername: String,
+        myId: RiderId,
         nowMs: Long,
         staleAfterMs: Long = STALE_AFTER_MS,
         cap: Int = NOTIFY_CAP,
     ): CatchUpPlan {
         val relevant = events
-            .filter { it.riderId.value != myUsername }
+            .filter { it.riderId != myId }
             .filter { nowMs - it.tsMs <= staleAfterMs }
             .sortedByDescending { it.tsMs }
         if (relevant.size <= cap) return CatchUpPlan(relevant, 0)

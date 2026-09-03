@@ -42,23 +42,15 @@ object CircleFixes {
         )
     }
 
-    /** What a map wants to draw: one newest fix per *other* person, across
-     *  every circle you're in — a circle is the always-on relationship, so
-     *  the map never waits for one to be picked. Your own fix comes back
-     *  from the server too and is dropped here, since drawing it would stack
-     *  a second marker on your own position; someone you share two circles
-     *  with reports once per circle and is collapsed to their newest.
-     *
-     *  Both the phone map and the car map read this, so they can't drift
+    /** Both the phone map and the car map read this, so they can't drift
      *  apart on which members count. */
     @Throws(Exception::class)
-    suspend fun othersFixes(selfUsername: String): List<MemberFix> =
-        newestPerOtherMember(
-            Groups.list("circle")
-                .filter { it.status == "accepted" }
-                .flatMap { fixes(it.id) },
-            selfUsername,
-        )
+    suspend fun othersFixes(selfId: RiderId): List<NamedMemberFix> {
+        val circles = Groups.list("circle").filter { it.status == "accepted" }
+        val names = circles.flatMap { it.members }.associate { it.id to it.username }
+        return newestPerOtherMember(circles.flatMap { fixes(it.id) }, selfId)
+            .map { NamedMemberFix(it, names[it.riderId].orEmpty()) }
+    }
 
     /** Latest fix per accepted, currently-sharing member — the server drops a
      *  paused member's fix at the read, even though the row may still exist. */
@@ -68,15 +60,20 @@ object CircleFixes {
     }
 }
 
+/** A fix, plus the handle to draw beside it, resolved from the membership this
+ *  call already fetched. Identity and label arrive together at exactly one
+ *  place, which is why no other layer needs an id-to-name lookup. */
+data class NamedMemberFix(val fix: MemberFix, val username: String)
+
 /** Extracted from [CircleFixes.othersFixes] for the same reason
  *  [memberFixFromJson] is: it is the part with rules in it — drop yourself,
  *  collapse someone you share two circles with to their newest fix — and it
  *  is otherwise only reachable behind two HTTP calls. */
 internal fun newestPerOtherMember(
     fixes: List<MemberFix>,
-    selfUsername: String,
+    selfId: RiderId,
 ): List<MemberFix> = fixes
-    .filter { it.riderId.value != selfUsername }
+    .filter { it.riderId != selfId }
     .groupBy { it.riderId }
     .map { (_, forUser) -> forUser.maxBy { it.tsMs } }
 

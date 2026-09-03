@@ -143,7 +143,7 @@ object FriendsStore {
      * `app/.../ui/BadgesScreen.kt` for the Android-side reasoning this mirrors.
      */
     @Throws(Exception::class)
-    suspend fun refreshOwn(username: String) {
+    suspend fun refreshOwn(rider: RiderRef) {
         // Belt and braces: nothing above this function checks `Auth.signedIn`
         // on its behalf (unlike `reload`/`act`, whose callers only ever run
         // while signed in), so this makes the contract honest on its own
@@ -154,13 +154,14 @@ object FriendsStore {
         // a call that has not started yet that this stops from beginning
         // ungated.
         if (!Auth.signedIn) return
-        // A blank handle is not a rider. Reachable in one narrow window on iOS,
-        // where `username` is a mirrored @Published copy fed by a second
-        // watcher that can lag the token's by a tick after a sign-in — the
-        // mirror now clears rather than freezing, so what arrives here is "" and
-        // not the departed rider's handle. Committing it would put a nameless
-        // row in the leaderboard until the next reload.
-        if (username.isBlank()) return
+        // A blank handle or id is not a rider. Reachable in one narrow window
+        // on iOS, where `rider` is built from mirrored @Published copies fed
+        // by a second watcher that can lag the token's by a tick after a
+        // sign-in — the mirrors now clear rather than freezing, so what
+        // arrives here is "" and not the departed rider's handle or id.
+        // Committing it would put a nameless row in the leaderboard until the
+        // next reload.
+        if (rider.username.isBlank() || rider.id.value.isBlank()) return
         val epoch = Auth.sessionEpoch.value
         val own = try {
             val coverage = Coverage.compute()
@@ -171,7 +172,7 @@ object FriendsStore {
             // its doc), which is what makes it a place a stale totals record
             // can be refolded without a rider waiting on it.
             RiderTotals.refreshIfStale()
-            FriendStats(RiderRef(Account.riderId.value, username), riderStats, badgeIds)
+            FriendStats(rider, riderStats, badgeIds)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

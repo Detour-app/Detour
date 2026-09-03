@@ -154,7 +154,7 @@ object CirclePresence {
         discardEvaluatorsIfSessionChanged()
         if (!SyncClient.configured() || !Account.signedIn) return currentIntervalMs
 
-        val username = Account.username.value
+        val myId = Account.riderId.value
         val circles = try {
             Groups.list("circle").filter { it.status == "accepted" }
         } catch (e: CancellationException) {
@@ -163,7 +163,7 @@ object CirclePresence {
             null // offline or server down; retried next tick, interval unchanged
         }
 
-        val plan = planTick(currentIntervalMs, circles, username)
+        val plan = planTick(currentIntervalMs, circles, myId)
         currentIntervalMs = plan.intervalMs
 
         if (circles != null) {
@@ -213,9 +213,9 @@ object CirclePresence {
      * either direction: to [IDLE_INTERVAL_MS] when nobody here is sharing,
      * back to [ACTIVE_INTERVAL_MS] the moment somebody is again.
      */
-    internal fun planTick(previousIntervalMs: Long, circles: List<Group>?, username: String): TickPlan {
+    internal fun planTick(previousIntervalMs: Long, circles: List<Group>?, myId: RiderId): TickPlan {
         if (circles == null) return TickPlan(previousIntervalMs, emptyList())
-        val sharing = sharingCircles(circles, username)
+        val sharing = sharingCircles(circles, myId)
         val interval = if (sharing.isEmpty()) IDLE_INTERVAL_MS else ACTIVE_INTERVAL_MS
         return TickPlan(interval, sharing)
     }
@@ -224,8 +224,8 @@ object CirclePresence {
      *  this device's *own* member row, with sharing on — not just any
      *  member's, and not merely accepted membership, which [circles] here
      *  already is. */
-    internal fun sharingCircles(circles: List<Group>, username: String): List<Group> =
-        circles.filter { c -> c.members.find { it.username == username }?.sharing == true }
+    internal fun sharingCircles(circles: List<Group>, myId: RiderId): List<Group> =
+        circles.filter { c -> c.members.find { it.id == myId }?.sharing == true }
 
     /** [evaluators] with bookkeeping for anything not in [circleIds]
      *  dropped, so a circle rejoined later under the same id starts with a

@@ -96,22 +96,21 @@ class GroupsTest {
 
     // --- what the map actually draws -----------------------------------------
 
-    private fun fix(user: String, ts: Long) =
-        MemberFix(riderId = RiderId(user), lat = 50.0, lon = 3.0, accuracyM = 5.0, tsMs = ts)
+    private val me = RiderId("me")
+    private val bob = RiderId("bob")
 
     @Test
-    fun ownFixIsDroppedSoItDoesNotStackOnTheOwnPositionMarker() {
-        val drawn = newestPerOtherMember(
-            listOf(fix("me", 100L), fix("bob", 100L)), selfUsername = "me")
-        assertEquals(listOf("bob"), drawn.map { it.riderId.value })
-    }
+    fun own_fix_is_dropped_and_a_double_membership_collapses_to_the_newest() {
+        val fixes = listOf(
+            MemberFix(me, 51.0, 4.0, 0.0, 100L),
+            MemberFix(bob, 51.1, 4.1, 0.0, 100L),
+            MemberFix(bob, 51.2, 4.2, 0.0, 200L),
+        )
 
-    @Test
-    fun someoneInTwoOfYourCirclesIsDrawnOnceAtTheirNewestFix() {
-        val drawn = newestPerOtherMember(
-            listOf(fix("bob", 100L), fix("bob", 300L), fix("bob", 200L)), selfUsername = "me")
-        assertEquals(1, drawn.size)
-        assertEquals(300L, drawn[0].tsMs)
+        val drawn = newestPerOtherMember(fixes, selfId = me)
+
+        assertEquals(listOf(bob), drawn.map { it.riderId })
+        assertEquals(200L, drawn.single().tsMs)
     }
 
     @Test

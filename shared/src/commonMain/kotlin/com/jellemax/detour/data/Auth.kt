@@ -578,8 +578,8 @@ object Auth {
      *
      * What must not happen then is the previous value being carried forward: on
      * an account switch that names the second rider as the first, and every
-     * `isMe` comparison and the `place.owner` ownership check in the app agrees
-     * with it. A blank name is a visible bug; a wrong name is a silent one.
+     * `isMe` comparison and the `place.ownerId` check in the app agrees with
+     * it. A blank name is a visible bug; a wrong name is a silent one.
      *
      * Same-rider is decided through the account-scope key rather than by storing
      * the subject: [AccountScope.keyFrom] is `subject.ifEmpty { username }`
