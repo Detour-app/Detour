@@ -211,12 +211,12 @@ fun CirclesScreen(onBack: () -> Unit, onOpenCircle: (String) -> Unit) {
         onBack = onBack,
         error = state.error,
         actions = {
-            IconButton(onClick = { createOpen = true }) {
+            IconButton(onClick = { createOpen = true }, modifier = Modifier.padding(end = 8.dp)) {
                 Box(
                     Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                        .background(MaterialTheme.colorScheme.surfaceContainer),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Rounded.AddIcon, contentDescription = "New circle")
@@ -301,16 +301,20 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit) {
         onBack = onBack,
         error = state.error,
         actions = {
-            // The prototype's top-bar person_add — same move task 4 made for
-            // the list's "New circle": the label survives as the
+            // The prototype's top-bar person_add, same treatment as the
+            // list's "New circle" button above: the label survives as the
             // contentDescription, not visible text.
             circle?.let { c ->
-                IconButton(onClick = { inviteFor = c }) {
+                IconButton(
+                    onClick = { inviteFor = c },
+                    enabled = !state.busy,
+                    modifier = Modifier.padding(end = 8.dp),
+                ) {
                     Box(
                         Modifier
                             .size(40.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                            .background(MaterialTheme.colorScheme.surfaceContainer),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(Icons.Rounded.PersonAdd, contentDescription = "Invite")

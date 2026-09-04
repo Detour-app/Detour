@@ -112,7 +112,7 @@ fun FriendsScreen(onBack: () -> Unit) {
                             Modifier
                                 .size(40.dp)
                                 .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                                .background(MaterialTheme.colorScheme.surfaceContainer),
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(Icons.Rounded.PersonAdd, contentDescription = "Add a friend")
@@ -400,7 +400,7 @@ private fun LeaderboardRowItem(rank: Int, row: LeaderboardRow) {
             Modifier
                 .size(40.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                 .then(
                     if (highlight) {
                         Modifier.border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
