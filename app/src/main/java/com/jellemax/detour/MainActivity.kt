@@ -70,6 +70,7 @@ import com.jellemax.detour.ui.RoutesScreen
 import com.jellemax.detour.ui.SavedPlacesScreen
 import com.jellemax.detour.ui.SettingsScreen
 import com.jellemax.detour.ui.SettingsSpokeScreen
+import com.jellemax.detour.ui.SocialScreen
 import com.jellemax.detour.ui.TripDetailScreen
 import com.jellemax.detour.ui.isAppDarkTheme
 import com.jellemax.detour.ui.rememberRetainedMap
@@ -343,6 +344,13 @@ private fun AppRoot() {
             }
             entry<Destination.CoverageMap> {
                 CoverageMapScreen(onBack = { backStack.pop() })
+            }
+            entry<Destination.Social> {
+                SocialScreen(
+                    onBack = { backStack.pop() },
+                    onOpenFriends = { backStack.push(Destination.Friends) },
+                    onOpenCircles = { backStack.push(Destination.Circles) },
+                )
             }
             entry<Destination.Friends> { FriendsScreen(onBack = { backStack.pop() }) }
             entry<Destination.Circles> {

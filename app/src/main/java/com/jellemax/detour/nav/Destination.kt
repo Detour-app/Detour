@@ -62,6 +62,10 @@ sealed interface Destination : NavKey {
     @Serializable
     data object CoverageMap : Destination
 
+    /** The social hub: Friends and Circles. Reached from You (and later the map). */
+    @Serializable
+    data object Social : Destination
+
     @Serializable
     data object Friends : Destination
 
