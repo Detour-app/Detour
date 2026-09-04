@@ -14,17 +14,24 @@ import com.jellemax.detour.data.CirclesStore
  * Same split as [FriendsPresenter]/[PlacesPresenter]/[RoutesPresenter]: a
  * presenter in front of a *mutable* store publishes no rows of its own,
  * because a cached copy goes stale the instant a mutation lands underneath
- * it — the mistake batch 2's final review caught, where a published
- * snapshot actively misled iOS, defeating the whole point of the shared
- * layer. There is deliberately no `state` property here: everything this
- * class could publish, the store already does, and better.
+ * it — a published snapshot goes stale and misleads iOS, defeating the whole
+ * point of the shared layer. There is deliberately no `state` property here:
+ * everything this class could publish, the store already does, and better.
+ *
+ * One difference from [FriendsPresenter]'s split, though: `FriendsState.lists`
+ * is nullable, so the screen can tell "hasn't loaded yet" from "loaded and
+ * empty" for free. `CirclesState.circles` has no such signal — it defaults
+ * to `emptyList()` — so the screen must check `CirclesState.loadedAtMs`
+ * instead (see [CirclesListState]'s consumer in `CirclesScreen.kt` for where
+ * that actually matters: an unguarded empty check there shows "No circles
+ * yet" for the length of the first load).
  *
  * [refresh] only kicks the *list* load. `CirclesState` also carries a
  * second, independent busy/error pair for the detail pane
  * (`detailBusy`/`detailError`, see CirclesStore.kt:13-19) — opening a
  * circle, sharing a place, all reloaded through `CirclesStore.select`. That
- * pair is a later task's concern, wired from the circle-detail screen, not
- * this presenter.
+ * pair is wired from the circle-detail screen (see [CircleDetailPresenter]),
+ * not this presenter.
  */
 class CirclesListPresenter {
     suspend fun refresh() {

@@ -227,6 +227,7 @@ fun CirclesScreen(onBack: () -> Unit, onOpenCircle: (String) -> Unit) {
         CircleListSection(
             listState = listState,
             busy = state.busy,
+            loaded = state.loadedAtMs != null,
             onOpen = onOpenCircle,
             onAccept = { id ->
                 scope.launch {
@@ -360,6 +361,12 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit) {
 private fun CircleListSection(
     listState: CirclesListState,
     busy: Boolean,
+    /** True once the list has actually loaded ([CirclesState.loadedAtMs] is
+     *  non-null) — distinct from [listState.accepted] being empty, which is
+     *  also what a cold, not-yet-answered load looks like. Without this, a
+     *  rider with real circles is told "No circles yet" for the length of
+     *  the first round trip. */
+    loaded: Boolean,
     onOpen: (String) -> Unit,
     onAccept: (String) -> Unit,
     onDecline: (String) -> Unit,
@@ -383,13 +390,15 @@ private fun CircleListSection(
     Text("Your circles", style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary)
     if (listState.accepted.isEmpty()) {
-        Text(
-            "No circles yet. A circle is always-on, low-cadence location sharing with " +
-                "family or roommates — unlike a convoy it doesn't end when a ride does, " +
-                "and there's no push-to-talk.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (loaded) {
+            Text(
+                "No circles yet. A circle is always-on, low-cadence location sharing with " +
+                    "family or roommates — unlike a convoy it doesn't end when a ride does, " +
+                    "and there's no push-to-talk.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         return
     }
 
@@ -612,12 +621,19 @@ private fun CircleDetailSection(
         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
     if (detail.places.isEmpty()) {
-        Text(
-            "No places shared yet. Sharing one lets the circle see arrivals and " +
-                "departures there — the place stays yours, only revoked when you leave.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        // Gated on detailBusy for the same reason the list's "No circles
+        // yet" is gated on loaded above: selecting() clears places to empty
+        // the instant a circle opens, and detailStarting() sets detailBusy
+        // right after — so without this, a circle with real shared places
+        // flashes "none" for the length of that first load.
+        if (!state.detailBusy) {
+            Text(
+                "No places shared yet. Sharing one lets the circle see arrivals and " +
+                    "departures there — the place stays yours, only revoked when you leave.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     } else {
         ListCard {
             detail.places.forEachIndexed { i, row ->
