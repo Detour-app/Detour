@@ -25,7 +25,6 @@ class BadgesPresenter {
     val state: StateFlow<BadgesState> = _state
 
     suspend fun refresh() {
-        RiderTotals.refreshIfStale()
         val coverage = Coverage.compute()
         val stats = BadgeStore.stats(coverage)
         val scored = BadgeStore.refresh(stats)
@@ -34,5 +33,15 @@ class BadgesPresenter {
             municipalitiesVisited = stats.municipalitiesVisited,
             municipalitiesTotal = MunicipalityStore.load().size,
         )
+        // Last, not first: RiderTotals.current() (inside BadgeStore.stats() above)
+        // already returns a STALE record as-is, and STALE is arithmetically
+        // identical to a fresh fold — the running total is exact incremental
+        // arithmetic, not an estimate the TTL is correcting. Calling
+        // refreshIfStale() first buys no correctness, only a synchronous
+        // TripStore.load() + full fold blocking the first paint. Calling it
+        // here, after the state is already on screen, keeps that fold off the
+        // rider's critical path while still settling any genuinely INVALID
+        // record before the next refresh. Mirrors YouPresenter.refresh().
+        RiderTotals.refreshIfStale()
     }
 }
