@@ -206,18 +206,20 @@ fun CoverageMapScreen(onBack: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(glassContainerColor())
-                    .glassBorder(CircleShape),
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back",
-                    modifier = Modifier.size(22.dp),
-                )
+            IconButton(onClick = onBack) {
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(glassContainerColor())
+                        .glassBorder(CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back",
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
             }
             Text(
                 "Coverage",
