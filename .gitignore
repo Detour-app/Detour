@@ -4,6 +4,11 @@ local.properties
 # FCM is per-deployment: every self-hoster brings their own Firebase project's
 # google-services.json (carries a project API key). Never commit one.
 app/google-services.json
+# ...nor a stray copy at the repo root, nor the per-variant ones, nor the
+# backend's Firebase service-account key (a private key — treat it like a
+# password; it goes on the deploy host, never in git).
+/google-services*.json
+*firebase-adminsdk*.json
 .idea/
 *.iml
 .kotlin/
