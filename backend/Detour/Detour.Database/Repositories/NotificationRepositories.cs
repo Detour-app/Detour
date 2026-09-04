@@ -20,6 +20,23 @@ public class DeviceTokenRepository(ICustomDbContextFactory<DetourDbContext> fact
         // takes effect on the insert branch; EXCLUDED refers to the row the
         // INSERT would have written, which is Postgres' name for the proposed
         // row inside an ON CONFLICT clause.
+        //
+        // Raw, but not unparameterized, and the distinction is the whole reason
+        // this is allowed to exist. ExecuteSqlInterpolatedAsync takes a
+        // FormattableString, so the holes below never become statement text:
+        // EF Core lifts each one into a DbParameter and Npgsql sends the SQL
+        // and the values separately. `token` is caller-supplied and
+        // DeviceToken.Create filters no characters from it, so that binding is
+        // the only thing standing between a hostile token and this statement -
+        // which is what DeviceRegistrationTests pins with an actual injection
+        // payload. Satisfies ASVS 5.0.0 V1.2.4 (CWE-89) by its Defense Option 1,
+        // parameterized queries, not by escaping.
+        //
+        // The trap, and the reason EF Core renamed these methods in 3.0: the
+        // Raw variants take a plain string, so hoisting this literal into a
+        // `var sql = $"..."` first, or reaching for ExecuteSqlRawAsync, silently
+        // interpolates the values into the SQL and loses all of that. The
+        // `Interpolated` in the name is load-bearing.
         await Context.Database.ExecuteSqlInterpolatedAsync(
             $"""
              INSERT INTO detour.device_tokens (id, user_id, token, platform, created_at, last_refreshed_at)

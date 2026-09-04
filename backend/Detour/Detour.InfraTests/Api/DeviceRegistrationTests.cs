@@ -1,5 +1,7 @@
 using System.Net;
+using Detour.Domain.Notifications;
 using Detour.InfraTests.Database;
+using Microsoft.EntityFrameworkCore;
 
 namespace Detour.InfraTests.Api;
 
@@ -41,5 +43,32 @@ public class DeviceRegistrationTests(PostgresFixture postgres) : IAsyncLifetime
 
         foreach (var response in responses)
             response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task A_token_carrying_SQL_is_stored_as_data_and_executes_nothing()
+    {
+        // UpsertAsync is the only raw SQL in this backend, and `token` is the
+        // only attacker-controlled value in it. DeviceToken.Create validates
+        // length and non-emptiness and filters no characters, so a payload like
+        // this reaches the statement untouched - parameterization is the sole
+        // defence, which is what this pins. ASVS 5.0.0 V1.2.4, CWE-89.
+        var rider = await _factory.SignInAsync();
+        var hostile = $"evil-{Guid.NewGuid():N}'); DROP TABLE detour.device_tokens; --";
+
+        var response = await rider.PutAsJsonAsync(
+            "/api/devices", new { token = hostile, platform = "android" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        await using var db = postgres.CreateContext();
+        // Reaching the table at all proves the DROP never ran; the value coming
+        // back byte-for-byte proves it crossed as a bound parameter rather than
+        // as statement text.
+        var stored = await db.Set<DeviceToken>()
+            .SingleOrDefaultAsync(t => t.Token == hostile);
+
+        stored.Should().NotBeNull("the payload must round-trip as an ordinary row");
+        stored!.Token.Should().Be(hostile);
     }
 }
