@@ -537,7 +537,9 @@ fun MapScreen(
         // now also stays connected for a circle's arrival notifications with
         // no convoy joined at all (see ConvoyLiveClient.setNotifyCircles),
         // which needs no microphone.
-        if (convoyConnected && activeConvoyId != null &&
+        // Features.pushToTalk: off means no talk button ever renders, so
+        // asking for the mic here would buy nothing this build (#154).
+        if (Features.pushToTalk && convoyConnected && activeConvoyId != null &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
             PackageManager.PERMISSION_GRANTED
         ) {

@@ -91,7 +91,11 @@ class ConvoyLiveService : Service() {
         // permission is requested by the caller (FriendsScreen) before this
         // service is ever started, but a user can still deny/revoke it, so
         // this checks the live state rather than trusting that happened.
-        val micGranted = hasMicPermission(this)
+        // Features.pushToTalk: off means no talk button, no PTT frame ever
+        // sent or played — claiming the microphone type (or setting up
+        // communication audio mode below) would misdeclare a capability this
+        // build can't deliver (#154).
+        val micGranted = Features.pushToTalk && hasMicPermission(this)
         ServiceCompat.startForeground(
             this,
             NOTIFICATION_ID,
@@ -124,14 +128,16 @@ class ConvoyLiveService : Service() {
                 val newScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
                 scope = newScope
                 TripTrackingService.setConvoyActive(this, true)
-                val manager = getSystemService(AudioManager::class.java)
-                audioManager = manager
-                previousAudioMode = manager.mode
-                previousSpeakerphone = manager.isSpeakerphoneOn
-                manager.mode = AudioManager.MODE_IN_COMMUNICATION
-                routeToSpeaker(manager)
-                requestAudioFocus(manager)
-                PushToTalk.startPlayback(newScope)
+                if (Features.pushToTalk) {
+                    val manager = getSystemService(AudioManager::class.java)
+                    audioManager = manager
+                    previousAudioMode = manager.mode
+                    previousSpeakerphone = manager.isSpeakerphoneOn
+                    manager.mode = AudioManager.MODE_IN_COMMUNICATION
+                    routeToSpeaker(manager)
+                    requestAudioFocus(manager)
+                    PushToTalk.startPlayback(newScope)
+                }
             }
         }
         // Not START_STICKY: a system-restarted instance with no convoy id in

@@ -74,6 +74,16 @@ public interface IDeviceTokenRepository : IBaseRepository<DeviceToken>
 {
     Task<DeviceToken?> GetByTokenAsync(string token, CancellationToken cancellationToken);
 
+    /// <summary>Insert the token, or reassign it if it already exists - atomically,
+    ///  via a single `ON CONFLICT (token) DO UPDATE`. Read-then-write
+    ///  (<see cref="GetByTokenAsync"/> then branch) let two concurrent
+    ///  registrations of the same brand-new token both read null and both
+    ///  insert, and the unique index on <c>token</c> made the second one a
+    ///  <c>DbUpdateException</c> -> 500 (#149). Caller passes an already-
+    ///  validated, trimmed token.</summary>
+    Task UpsertAsync(
+        Guid userId, string token, DevicePlatform platform, CancellationToken cancellationToken);
+
     /// <summary>Every registered (user, token, platform) row for the given users.
     ///  The fan-out's read side — one query, not one per recipient. Platform is
     ///  carried so the dispatcher can route each token to its own cloud

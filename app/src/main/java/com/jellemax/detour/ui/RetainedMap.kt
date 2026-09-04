@@ -69,6 +69,13 @@ class RetainedMap(context: Context) {
      *  a navigation. */
     var overlays: MapOverlays? by mutableStateOf(null)
 
+    /** Which style load is the current one. Bumped before each `setStyle`, and
+     *  checked inside its callback: a superseded load still calls back, and
+     *  publishing its [Style] would hand [overlays] one that the newer
+     *  `setStyle` has already invalidated. Plain state — nothing recomposes on
+     *  it, it only settles which callback is allowed to publish. */
+    var styleGeneration: Int = 0
+
     // --- where the camera is aiming -------------------------------------
     //
     // Retained for the same reason the view is. The MapView keeps its actual
@@ -193,7 +200,14 @@ fun rememberRetainedMap(darkTheme: Boolean): RetainedMap {
     // and the map only — a navigation is neither, which is the point.
     LaunchedEffect(darkTheme, retained.map) {
         val map = retained.map ?: return@LaunchedEffect
+        val generation = ++retained.styleGeneration
         map.setStyle(Style.Builder().fromUri(openFreeMapStyleUrl(darkTheme))) { style ->
+            // A superseded load still calls back, and its Style was invalidated
+            // the moment the newer setStyle was issued. Publishing it would
+            // leave [overlays] holding a dead Style permanently if this callback
+            // lands after the current one's — every draw then silently does
+            // nothing until the next theme flip.
+            if (generation != retained.styleGeneration) return@setStyle
             ColdStartTiming.mark("style loaded")
             retained.overlays = MapOverlays(style, context, darkTheme)
             retained.fogView.map = map
