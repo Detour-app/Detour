@@ -7,25 +7,31 @@ import android.os.Build
 import android.os.PowerManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.rounded.Add as AddIcon
+import androidx.compose.material.icons.rounded.Check as AcceptIcon
+import androidx.compose.material.icons.rounded.Close as DeclineIcon
+import androidx.compose.material.icons.rounded.ShareLocation
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,6 +55,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -68,6 +75,10 @@ import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.notif.CircleNotifySettings
 import com.jellemax.detour.notif.CircleNotifyService
+import com.jellemax.detour.presentation.CircleRow
+import com.jellemax.detour.presentation.CirclesListPresenter
+import com.jellemax.detour.presentation.CirclesListState
+import com.jellemax.detour.presentation.circlesListStateFrom
 import com.jellemax.detour.presentation.relativeAge
 import kotlinx.coroutines.launch
 
@@ -100,6 +111,7 @@ private fun CirclesScaffold(
     title: String,
     onBack: () -> Unit,
     error: String?,
+    actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     // Two different reasons a rider can't be shown circles yet, gated
@@ -112,10 +124,15 @@ private fun CirclesScaffold(
     // show those fail closed with nothing on screen to explain why.
     val username by Account.username.collectAsStateWithLifecycle()
     val riderId by Account.riderId.collectAsStateWithLifecycle()
+    // Same three-tier gate the body below checks — [actions] (the list's
+    // "new circle" button) is only ever useful once the body would actually
+    // render content to act on, so it shares the gate rather than needing
+    // its own busy/blank checks at the call site.
+    val ready = SyncClient.configured() && username.isNotBlank() && riderId.value.isNotBlank()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = { SubScreenTopBar(title, onBack, scrollBehavior) },
+        topBar = { SubScreenTopBar(title, onBack, scrollBehavior) { if (ready) actions() } },
     ) { padding ->
         Column(
             Modifier
@@ -175,27 +192,52 @@ fun CirclesScreen(onBack: () -> Unit, onOpenCircle: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val state by CirclesStore.state.collectAsStateWithLifecycle()
+    val riderId by Account.riderId.collectAsStateWithLifecycle()
     var createOpen by remember { mutableStateOf(false) }
 
-    // Fires on every entry, and stepping Hub -> Circles -> Hub -> Circles is
-    // not a new visit. reloadIfStale skips the round trip inside its window;
-    // every mutation on this screen still calls reload() unconditionally.
-    LaunchedEffect(Unit) { CirclesStore.reloadIfStale() }
+    // The presenter owns only the load kick — CirclesStore is mutable and
+    // every mutation below reloads it directly, so there is nothing else for
+    // a cached snapshot here to do but go stale. See CirclesListPresenter's
+    // KDoc. Fires on every entry, and stepping Hub -> Circles -> Hub ->
+    // Circles is not a new visit; reloadIfStale skips the round trip inside
+    // its window.
+    val presenter = remember { CirclesListPresenter() }
+    LaunchedEffect(Unit) { presenter.refresh() }
 
-    CirclesScaffold("Circles", onBack, state.error) {
+    // Pure map from the store's raw circles to display rows, recomputed on
+    // the render path rather than cached — see circlesListStateFrom's KDoc.
+    val listState = remember(state.circles, riderId) { circlesListStateFrom(state.circles, riderId) }
+
+    CirclesScaffold(
+        title = "Circles",
+        onBack = onBack,
+        error = state.error,
+        actions = {
+            IconButton(onClick = { createOpen = true }) {
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.AddIcon, contentDescription = "New circle")
+                }
+            }
+        },
+    ) {
         CircleListSection(
-            circles = state.circles,
+            listState = listState,
             busy = state.busy,
-            onOpen = { c -> onOpenCircle(c.id) },
-            onCreate = { createOpen = true },
-            onAccept = { c ->
+            onOpen = onOpenCircle,
+            onAccept = { id ->
                 scope.launch {
-                    if (CirclesStore.respond(c.id, true)) CircleNotifyService.refresh(context)
+                    if (CirclesStore.respond(id, true)) CircleNotifyService.refresh(context)
                 }
             },
-            onDecline = { c ->
+            onDecline = { id ->
                 scope.launch {
-                    if (CirclesStore.respond(c.id, false)) CircleNotifyService.refresh(context)
+                    if (CirclesStore.respond(id, false)) CircleNotifyService.refresh(context)
                 }
             },
         )
@@ -294,27 +336,31 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit) {
 
 @Composable
 private fun CircleListSection(
-    circles: List<Group>,
+    listState: CirclesListState,
     busy: Boolean,
-    onOpen: (Group) -> Unit,
-    onCreate: () -> Unit,
-    onAccept: (Group) -> Unit,
-    onDecline: (Group) -> Unit,
+    onOpen: (String) -> Unit,
+    onAccept: (String) -> Unit,
+    onDecline: (String) -> Unit,
 ) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("Your circles", style = MaterialTheme.typography.titleSmall,
+    if (listState.invited.isNotEmpty()) {
+        Text("Invites", style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary)
-        TextButton(onClick = onCreate) {
-            Icon(Icons.Outlined.Add, contentDescription = null, Modifier.size(18.dp))
-            Text("New circle")
+        ListCard {
+            listState.invited.forEachIndexed { i, row ->
+                if (i > 0) CardDivider()
+                CircleInviteRow(
+                    row = row,
+                    busy = busy,
+                    onAccept = { onAccept(row.id) },
+                    onDecline = { onDecline(row.id) },
+                )
+            }
         }
     }
 
-    if (circles.isEmpty()) {
+    Text("Your circles", style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary)
+    if (listState.accepted.isEmpty()) {
         Text(
             "No circles yet. A circle is always-on, low-cadence location sharing with " +
                 "family or roommates — unlike a convoy it doesn't end when a ride does, " +
@@ -325,51 +371,47 @@ private fun CircleListSection(
         return
     }
 
-    for (circle in circles) {
-        Card(
-            Modifier
-                .fillMaxWidth()
-                .then(
-                    if (circle.status == "accepted") Modifier.clickable { onOpen(circle) }
-                    else Modifier
+    ListCard {
+        listState.accepted.forEachIndexed { i, row ->
+            if (i > 0) CardDivider()
+            HubRow(
+                icon = Icons.Rounded.ShareLocation,
+                title = row.name,
+                subtitle = row.memberLine,
+                trailingText = if (row.sharing) "Sharing" else "Not sharing",
+                onClick = { onOpen(row.id) },
+                paintCard = false,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CircleInviteRow(row: CircleRow, busy: Boolean, onAccept: () -> Unit, onDecline: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column {
+            Text(row.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+            Text(row.memberLine, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            IconButton(
+                enabled = !busy,
+                onClick = onAccept,
+                modifier = Modifier.size(30.dp),
+                colors = IconButtonDefaults.iconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 ),
-        ) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(circle.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-                    if (circle.status == "invited") {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            IconButton(
-                                enabled = !busy,
-                                onClick = { onAccept(circle) },
-                                modifier = Modifier.size(30.dp),
-                                colors = IconButtonDefaults.iconButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                ),
-                            ) { Icon(Icons.Outlined.Check, contentDescription = "Accept ${circle.name}", Modifier.size(16.dp)) }
-                            IconButton(enabled = !busy, onClick = { onDecline(circle) }, modifier = Modifier.size(30.dp)) {
-                                Icon(Icons.Outlined.Close, contentDescription = "Decline ${circle.name}", Modifier.size(16.dp))
-                            }
-                        }
-                    }
-                }
-                Text(
-                    circle.members.joinToString(", ") {
-                        it.username + if (it.status == "invited") " (invited)" else ""
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            ) { Icon(Icons.Rounded.AcceptIcon, contentDescription = "Accept ${row.name}", Modifier.size(16.dp)) }
+            IconButton(enabled = !busy, onClick = onDecline, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Rounded.DeclineIcon, contentDescription = "Decline ${row.name}", Modifier.size(16.dp))
             }
         }
     }
