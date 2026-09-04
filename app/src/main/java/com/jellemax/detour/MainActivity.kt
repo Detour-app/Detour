@@ -50,6 +50,7 @@ import com.jellemax.detour.notif.CircleSyncWorker
 import com.jellemax.detour.notif.PendingCircleOpen
 import com.jellemax.detour.notif.PendingTripOpen
 import com.jellemax.detour.notif.PlaceNotifications
+import com.jellemax.detour.notif.Push
 import com.jellemax.detour.update.UpdateDownloader
 import com.jellemax.detour.update.UpdateNotification
 import com.jellemax.detour.update.UpdateState
@@ -94,6 +95,9 @@ class MainActivity : ComponentActivity() {
         // call site would be if MapScreen didn't already own that one.
         ColdStartTiming.timed("CircleNotifyService.refresh") { CircleNotifyService.refresh(this) }
         CircleSyncWorker.schedule(this)
+        // Register this install's push token if FCM is configured and signed in —
+        // a cheap no-op otherwise (see Push.refresh). Sibling of the line above.
+        ColdStartTiming.timed("Push.refresh") { Push.refresh(this) }
         // MapLibre must be initialised before any MapView is created. No API key:
         // OpenFreeMap tiles are keyless, so no token provider is needed.
         ColdStartTiming.timed("MapLibre.getInstance") { MapLibre.getInstance(this) }
@@ -188,6 +192,8 @@ class MainActivity : ComponentActivity() {
                 // of the access token by Auth.store(), so it does not exist until
                 // the exchange has happened.
                 PendingSignIn.succeed(Auth.username.value)
+                // Now that there is a session, register this install for push.
+                Push.refresh(this@MainActivity)
             } catch (e: Exception) {
                 val reason = e.message ?: "Sign-in failed"
                 // A failed sign-in leaves no other trace: there is no crash, the

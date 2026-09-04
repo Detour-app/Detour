@@ -576,6 +576,15 @@ object Settings {
         prefs.put("place_event_last_seen_$circleId", tsMs)
     }
 
+    /** The push registration token last handed to the server (an FCM token on
+     *  Android), so sign-out can `DELETE /api/devices` for it and a re-register
+     *  can skip when nothing changed. Empty when never registered. */
+    fun pushToken(): String? = prefs.string("push_token").takeIf { it.isNotEmpty() }
+
+    fun setPushToken(token: String?) {
+        prefs.put("push_token", token ?: "")
+    }
+
     /** Wall-clock time of the last successful [SyncClient.sync], any trigger.
      *  Lets [SyncClient.syncIfDue] skip the launch-time full-history round
      *  trip when one just happened. */
