@@ -171,6 +171,12 @@ class TripTrackingService : Service() {
          *  the dog past 150 m — costs one grace window of foreground service and
          *  then parks again, rather than staying up indefinitely. */
         private const val GEOFENCE_WAKE_GRACE_MS = 90_000L
+        /** Retry delay after a failed [registerActivityTransitions] request
+         *  (#144). Short: the failure this guards against is a transient
+         *  Play Services race, not a real outage, so there is nothing gained
+         *  by waiting longer - and the whole point is not stranding parking
+         *  (#90) until some unrelated onStartCommand happens to arrive. */
+        private const val AR_REGISTER_RETRY_MS = 15_000L
         // One definition, shared with the trip-ended notification that posts to
         // the same channel from notif/.
         private const val CHANNEL_ID = TripEndedNotification.CHANNEL_ID
@@ -475,7 +481,8 @@ class TripTrackingService : Service() {
      *  See that function for why the evaluation is posted rather than run. */
     private var dormancyEvaluationPending = false
 
-    /** Only ever carries the coalesced dormancy evaluation. */
+    /** Carries the coalesced dormancy evaluation, and the bounded activity-
+     *  transition registration retry (see [registerActivityTransitions]). */
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var lastMunicipalityLookupMs = 0L
@@ -1469,6 +1476,25 @@ class TripTrackingService : Service() {
                 .requestActivityTransitionUpdates(
                     ActivityTransitionRequest(transitions), activityTransitionPendingIntent())
                 .addOnSuccessListener { transitionsRegistered = true }
+                .addOnFailureListener { e ->
+                    // #144: this request can fail asynchronously - plausibly
+                    // when it lands right after unregisterActivityTransitions()
+                    // removed the same PendingIntent moments earlier, which is
+                    // exactly what an auto-detect toggle off-then-on does. With
+                    // no failure path, transitionsRegistered stayed false
+                    // forever, silently: parking (#90) never engages again
+                    // until some *other* onStartCommand happens to arrive,
+                    // which a continuously-running foreground service may not
+                    // see for a very long time. Logged so this is no longer
+                    // invisible, and retried on a short bounded delay rather
+                    // than left to chance - the retry re-checks
+                    // transitionsRegistered/autoDetectDrives/the permission at
+                    // the top of this function, so it's a no-op if any of
+                    // those changed in the meantime.
+                    Log.w(ParkGeofence.TAG, "activity transition registration failed", e)
+                    mainHandler.postDelayed(
+                        { registerActivityTransitions() }, AR_REGISTER_RETRY_MS)
+                }
         } catch (e: SecurityException) {
             // No activity recognition permission; speed fallback still works.
         }
