@@ -40,6 +40,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
@@ -299,8 +300,10 @@ private fun HubStat(label: String, value: String) {
 fun HubRow(
     icon: ImageVector,
     title: String,
-    subtitle: String,
     onClick: () -> Unit,
+    subtitle: String? = null,
+    trailingText: String? = null,
+    trailingColor: Color? = null,
     trailingCount: Int? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -333,11 +336,20 @@ fun HubRow(
             }
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                if (subtitle != null) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+            }
+            if (trailingText != null) {
                 Text(
-                    subtitle,
+                    trailingText,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    color = trailingColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (trailingCount != null && trailingCount > 0) {
