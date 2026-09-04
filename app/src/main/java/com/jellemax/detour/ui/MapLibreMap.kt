@@ -241,7 +241,20 @@ class MapOverlays(
             PropertyFactory.circleStrokeWidth(2.5f)))
     }
 
+    // A theme flip loads a new Style asynchronously (RetainedMap.rememberRetainedMap
+    // calls MapLibreMap.setStyle on darkTheme change). MapLibre tears this instance's
+    // Style down the moment the new one starts loading - every further
+    // style.getSource/getLayer/addImage call throws IllegalStateException from then
+    // on, well before the callback that hands MapScreen a fresh MapOverlays over the
+    // new Style. Every public mutator below is called from MapScreen's effects and
+    // can be reached during that window, so they all route through this one check
+    // rather than each catching the throw. A skipped update here is harmless: the
+    // replacement MapOverlays redraws current state as soon as it exists.
+    private val styleUsable: Boolean
+        get() = style.isFullyLoaded
+
     private fun setData(sourceId: String, fc: FeatureCollection) {
+        if (!styleUsable) return
         (style.getSource(sourceId) as? GeoJsonSource)?.setGeoJson(fc)
     }
 
@@ -251,15 +264,11 @@ class MapOverlays(
      *  setting — two paint properties, no source or layer rebuild — for the
      *  same reason [setPositionIcon] is. */
     fun setRouteColor(color: Settings.RouteColor) {
-        // Guarded like [setPositionIcon]: a theme flip can leave this Style
-        // behind mid-load, and a style call thrown from a flow collector ends
-        // the process rather than skipping a frame.
-        runCatching {
-            (style.getLayer(LAYER_ROUTE) as? LineLayer)?.setProperties(
-                PropertyFactory.lineColor(RouteColors.hex(color, darkTheme)))
-            (style.getLayer(LAYER_ROUTE_DRIVEN) as? LineLayer)?.setProperties(
-                PropertyFactory.lineColor(RouteColors.drivenHex(color, darkTheme)))
-        }
+        if (!styleUsable) return
+        (style.getLayer(LAYER_ROUTE) as? LineLayer)?.setProperties(
+            PropertyFactory.lineColor(RouteColors.hex(color, darkTheme)))
+        (style.getLayer(LAYER_ROUTE_DRIVEN) as? LineLayer)?.setProperties(
+            PropertyFactory.lineColor(RouteColors.drivenHex(color, darkTheme)))
     }
 
     // The route as last pushed, its length, and how far along it the driven
@@ -346,14 +355,10 @@ class MapOverlays(
      *  already points at, with no layer or source rebuild. */
     fun setPositionIcon(icon: Settings.MapIcon) {
         val drawable = ContextCompat.getDrawable(context, mapIconDrawable(icon)) ?: return
-        // Guarded for the same reason the car renderer wraps its overlay calls:
-        // a style call thrown from a flow collector doesn't skip a frame, it
-        // ends the process — and a theme flip leaves this Style behind mid-load.
-        runCatching {
-            style.addImage(IMG_POSITION, drawable.toBitmap(
-                drawable.intrinsicWidth * POSITION_ICON_SCALE,
-                drawable.intrinsicHeight * POSITION_ICON_SCALE))
-        }
+        if (!styleUsable) return
+        style.addImage(IMG_POSITION, drawable.toBitmap(
+            drawable.intrinsicWidth * POSITION_ICON_SCALE,
+            drawable.intrinsicHeight * POSITION_ICON_SCALE))
     }
 
     // A GPS bearing goes null the moment you stop, and a car icon that snaps
