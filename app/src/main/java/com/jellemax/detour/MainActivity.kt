@@ -65,6 +65,7 @@ import com.jellemax.detour.ui.HubScreen
 import com.jellemax.detour.ui.MapScreen
 import com.jellemax.detour.ui.GraphiteDark
 import com.jellemax.detour.ui.GraphiteLight
+import com.jellemax.detour.ui.ProfileScreen
 import com.jellemax.detour.ui.RouteEditorScreen
 import com.jellemax.detour.ui.RoutesScreen
 import com.jellemax.detour.ui.SavedPlacesScreen
@@ -350,6 +351,12 @@ private fun AppRoot() {
                     onBack = { backStack.pop() },
                     onOpenFriends = { backStack.push(Destination.Friends) },
                     onOpenCircles = { backStack.push(Destination.Circles) },
+                )
+            }
+            entry<Destination.Profile> {
+                ProfileScreen(
+                    onBack = { backStack.pop() },
+                    onSignedOut = { backStack.returnToMap() },
                 )
             }
             entry<Destination.Friends> { FriendsScreen(onBack = { backStack.pop() }) }
