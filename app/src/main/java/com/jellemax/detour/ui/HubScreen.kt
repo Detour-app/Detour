@@ -294,8 +294,17 @@ private fun HubStat(label: String, value: String) {
     }
 }
 
-/** One destination row: icon tile, title + subtitle, trailing chevron. Shared
- *  look with the Settings root's rows so Hub and Settings read as one system. */
+/**
+ * One destination row: icon tile, title + subtitle, trailing chevron. Shared
+ * look with the Settings root's rows so Hub and Settings read as one system.
+ *
+ * [paintCard] defaults to true — every existing call site (Hub, Settings)
+ * gets its own rounded [Card] exactly as before. Pass false to render just
+ * the row content with no card of its own, for a caller that groups several
+ * rows inside one shared [Card] with dividers between them (Social's Friends
+ * + Circles list, and You's Rides list) — the prototype's list-card pattern,
+ * which a `HubRow` that always paints its own card can't produce.
+ */
 @Composable
 fun HubRow(
     icon: ImageVector,
@@ -306,20 +315,13 @@ fun HubRow(
     trailingColor: Color? = null,
     trailingCount: Int? = null,
     modifier: Modifier = Modifier,
+    paintCard: Boolean = true,
 ) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
-    ) {
+    val row: @Composable () -> Unit = {
         Row(
             Modifier
                 .fillMaxWidth()
+                .clickable(onClick = onClick)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -372,5 +374,18 @@ fun HubRow(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+    if (paintCard) {
+        Card(
+            modifier = modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp)),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            ),
+        ) { row() }
+    } else {
+        Box(modifier.fillMaxWidth()) { row() }
     }
 }

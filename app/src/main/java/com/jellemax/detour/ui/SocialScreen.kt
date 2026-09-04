@@ -1,5 +1,6 @@
 package com.jellemax.detour.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -7,15 +8,20 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.ShareLocation
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -45,13 +51,22 @@ import com.jellemax.detour.data.CirclesStore
 @Composable
 fun SocialScreen(onBack: () -> Unit, onOpenFriends: () -> Unit, onOpenCircles: () -> Unit) {
     val username by Account.username.collectAsStateWithLifecycle()
+    val riderId by Account.riderId.collectAsStateWithLifecycle()
 
     // Same staleness reload CirclesScreen does on entry (Hub -> Social -> Hub ->
     // Social is not a new visit); reloadIfStale skips the round trip inside its
     // window.
     LaunchedEffect(Unit) { CirclesStore.reloadIfStale() }
     val circlesState by CirclesStore.state.collectAsStateWithLifecycle()
-    val circleCount = circlesState.circles.size
+
+    // "Sharing" means accepted membership with this device's own row sharing
+    // on — not merely present in the list, which also holds pending invites
+    // this rider never joined. Mirrors CirclePresence.sharingCircles (same
+    // module-internal definition, re-derived here since that function isn't
+    // visible outside the shared module).
+    val circleCount = circlesState.circles.count { circle ->
+        circle.status == "accepted" && circle.members.find { it.id == riderId }?.sharing == true
+    }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
@@ -83,20 +98,35 @@ fun SocialScreen(onBack: () -> Unit, onOpenFriends: () -> Unit, onOpenCircles: (
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            HubRow(
-                icon = Icons.Rounded.Group,
-                title = "Friends",
-                onClick = onOpenFriends,
-                trailingText = "leaderboard",
-            )
-            HubRow(
-                icon = Icons.Rounded.ShareLocation,
-                title = "Circles",
-                onClick = onOpenCircles,
-                trailingText = "$circleCount sharing",
-            )
+            // One card holding both rows with a divider between them, per the
+            // prototype's list-card — HubRow(paintCard = false) renders just the
+            // row content so this Card is the only thing painting a background.
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+            ) {
+                HubRow(
+                    icon = Icons.Rounded.Group,
+                    title = "Friends",
+                    onClick = onOpenFriends,
+                    trailingText = "leaderboard",
+                    paintCard = false,
+                )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                HubRow(
+                    icon = Icons.Rounded.ShareLocation,
+                    title = "Circles",
+                    onClick = onOpenCircles,
+                    trailingText = "$circleCount sharing",
+                    paintCard = false,
+                )
+            }
         }
     }
 }
