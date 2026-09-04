@@ -23,23 +23,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.rounded.Add as AddIcon
 import androidx.compose.material.icons.rounded.Check as AcceptIcon
 import androidx.compose.material.icons.rounded.Close as DeclineIcon
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.ShareLocation
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -67,19 +65,19 @@ import com.jellemax.detour.data.CirclesState
 import com.jellemax.detour.data.CirclesStore
 import com.jellemax.detour.data.Features
 import com.jellemax.detour.data.Group
-import com.jellemax.detour.data.GroupMember
 import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.SyncClient
-import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.notif.CircleNotifySettings
 import com.jellemax.detour.notif.CircleNotifyService
+import com.jellemax.detour.presentation.CircleDetailPresenter
+import com.jellemax.detour.presentation.CircleMemberRow
 import com.jellemax.detour.presentation.CircleRow
 import com.jellemax.detour.presentation.CirclesListPresenter
 import com.jellemax.detour.presentation.CirclesListState
+import com.jellemax.detour.presentation.circleDetailStateFrom
 import com.jellemax.detour.presentation.circlesListStateFrom
-import com.jellemax.detour.presentation.relativeAge
 import kotlinx.coroutines.launch
 
 /** A plain geofence radius suggestion — big enough that ordinary GPS jitter
@@ -259,12 +257,13 @@ fun CirclesScreen(onBack: () -> Unit, onOpenCircle: (String) -> Unit) {
 /**
  * One circle.
  *
- * Tells the store which circle is open rather than reading it from there.
- * `selectOnly`, not `select`: [CircleDetailSection]'s own
- * `LaunchedEffect(circle.id)` does the one detail load this pair needs the moment
- * it enters composition, and calling `select` here too would fire it twice. That
- * is the same pairing the notification path relied on before, moved to where the
- * destination is.
+ * [CircleDetailPresenter.open] does `selectOnly(circleId)` then
+ * `reloadIfStale()` — the same load-kick-only shape as [CirclesListPresenter],
+ * see its KDoc. That call refreshes the circle *list* if stale; it does not
+ * fetch this pane's places/events. That fetch is a second, separate call —
+ * `CirclesStore.select(circle.id)` — owned by [CircleDetailSection]'s own
+ * `LaunchedEffect(circle.id)`, exactly as before: firing it here too would
+ * double the request the moment both mount together.
  *
  * A [circleId] that names no real circle pops back to the list rather than
  * showing a blank screen. The store used to absorb this — `loaded` drops a
@@ -281,10 +280,8 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit) {
     val state by CirclesStore.state.collectAsStateWithLifecycle()
     var inviteFor by remember { mutableStateOf<Group?>(null) }
 
-    LaunchedEffect(circleId) {
-        CirclesStore.selectOnly(circleId)
-        CirclesStore.reloadIfStale()
-    }
+    val presenter = remember { CircleDetailPresenter() }
+    LaunchedEffect(circleId) { presenter.open(circleId) }
 
     val circle = state.circles.find { it.id == circleId }
 
@@ -299,13 +296,34 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit) {
     // store, so it can no longer reopen a detail nobody asked for. It still
     // scopes places and events, which is what it was always for.
 
-    CirclesScaffold(circle?.name ?: "Circle", onBack, state.error) {
+    CirclesScaffold(
+        title = circle?.name ?: "Circle",
+        onBack = onBack,
+        error = state.error,
+        actions = {
+            // The prototype's top-bar person_add — same move task 4 made for
+            // the list's "New circle": the label survives as the
+            // contentDescription, not visible text.
+            circle?.let { c ->
+                IconButton(onClick = { inviteFor = c }) {
+                    Box(
+                        Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Rounded.PersonAdd, contentDescription = "Invite")
+                    }
+                }
+            }
+        },
+    ) {
         circle?.let {
             CircleDetailSection(
                 circle = it,
                 riderId = riderId,
                 state = state,
-                onInvite = { inviteFor = it },
                 onLeave = {
                     scope.launch {
                         if (CirclesStore.leave(it.id)) CircleNotifyService.refresh(context)
@@ -422,7 +440,6 @@ private fun CircleDetailSection(
     circle: Group,
     riderId: RiderId,
     state: CirclesState,
-    onInvite: () -> Unit,
     onLeave: () -> Unit,
     onToggleSharing: (Boolean) -> Unit,
 ) {
@@ -502,58 +519,75 @@ private fun CircleDetailSection(
 
     val mine = circle.members.find { it.id == riderId }
 
+    // Pure map from the store's raw circle/places/events to display rows,
+    // recomputed on the render path — see circleDetailStateFrom's KDoc.
+    // nowMs is a single snapshot taken here and threaded through, never read
+    // inside the mapper or per row. detailBusy/detailError are deliberately
+    // not part of this mapper's output (same KDoc) — read straight off
+    // `state` below, same as before.
+    val nowMs = System.currentTimeMillis()
+    val detail = circleDetailStateFrom(circle, riderId, state.places, state.events.take(20), nowMs)
+
     Text("Members", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-    for (member in circle.members) {
-        MemberRow(member, isMe = member.id == riderId)
+    ListCard {
+        detail.members.forEachIndexed { i, row ->
+            if (i > 0) CardDivider()
+            CircleMemberListRow(row)
+        }
     }
 
     if (mine != null) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column {
-                Text("Share my location", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    if (mine.sharing) "Posting your position to this circle every couple of minutes"
-                    else "Paused — nothing is being shared",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        ListCard {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Share my location", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (mine.sharing) "Posting your position to this circle every couple of minutes"
+                        else "Paused — nothing is being shared",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = mine.sharing, enabled = !state.busy, onCheckedChange = onToggleSharing)
+            }
+            CardDivider()
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Notify me about arrivals", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        when {
+                            !Features.liveRelay -> Features.liveRelayNotice
+                            notifyEnabled -> "A notification when someone arrives at or leaves a shared place"
+                            else -> "Off"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = notifyEnabled && Features.liveRelay,
+                    enabled = !state.busy && Features.liveRelay,
+                    onCheckedChange = ::onToggleNotify,
                 )
             }
-            Switch(checked = mine.sharing, enabled = !state.busy, onCheckedChange = onToggleSharing)
-        }
-
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column {
-                Text("Notify me about arrivals", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    when {
-                        !Features.liveRelay -> Features.liveRelayNotice
-                        notifyEnabled -> "A notification when someone arrives at or leaves a shared place"
-                        else -> "Off"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(
-                checked = notifyEnabled && Features.liveRelay,
-                enabled = !state.busy && Features.liveRelay,
-                onCheckedChange = ::onToggleNotify,
-            )
         }
     }
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(enabled = !state.busy, onClick = onInvite) { Text("Invite") }
-        TextButton(enabled = !state.busy, onClick = onLeave) { Text("Leave") }
-    }
+    // Invite moved to the top bar (person_add, see CircleDetailScreen) —
+    // Leave stays here, the one action left with no natural home in chrome.
+    TextButton(enabled = !state.busy, onClick = onLeave) { Text("Leave") }
 
     Row(
         Modifier.fillMaxWidth(),
@@ -563,10 +597,10 @@ private fun CircleDetailSection(
         Text("Shared places", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { scope.launch { CirclesStore.select(circle.id) } }) {
-                Icon(Icons.Outlined.Refresh, contentDescription = "Refresh")
+                Icon(Icons.Rounded.Refresh, contentDescription = "Refresh")
             }
             TextButton(enabled = savedPlaces.isNotEmpty(), onClick = { shareOpen = true }) {
-                Icon(Icons.Outlined.Add, contentDescription = null, Modifier.size(18.dp))
+                Icon(Icons.Rounded.AddIcon, contentDescription = null, Modifier.size(18.dp))
                 Text("Share")
             }
         }
@@ -574,7 +608,7 @@ private fun CircleDetailSection(
     state.detailError?.let {
         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
-    if (state.places.isEmpty()) {
+    if (detail.places.isEmpty()) {
         Text(
             "No places shared yet. Sharing one lets the circle see arrivals and " +
                 "departures there — the place stays yours, only revoked when you leave.",
@@ -582,8 +616,9 @@ private fun CircleDetailSection(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     } else {
-        for (place in state.places) {
-            Card {
+        ListCard {
+            detail.places.forEachIndexed { i, row ->
+                if (i > 0) CardDivider()
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -592,20 +627,19 @@ private fun CircleDetailSection(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column {
-                        Text(place.place.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                        Text(row.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                         Text(
-                            "Shared by ${circle.members.handleFor(place.ownerId)} · " +
-                                "${place.radiusM.toInt()} m radius",
+                            row.subtitle,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    if (place.ownerId == riderId) {
+                    if (row.removable) {
                         IconButton(
                             enabled = !state.detailBusy,
-                            onClick = { scope.launch { CirclesStore.unsharePlace(place.serverId) } },
+                            onClick = { scope.launch { CirclesStore.unsharePlace(row.serverId) } },
                         ) {
-                            Icon(Icons.Outlined.Delete, contentDescription = "Remove ${place.place.name}",
+                            Icon(Icons.Rounded.DeleteOutline, contentDescription = "Remove ${row.name}",
                                 tint = MaterialTheme.colorScheme.error)
                         }
                     }
@@ -615,25 +649,22 @@ private fun CircleDetailSection(
     }
 
     Text("Recent activity", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-    if (state.events.isEmpty()) {
+    if (detail.events.isEmpty()) {
         Text(
             "No arrivals or departures yet.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     } else {
-        // One snapshot for the whole list rather than one clock read per row —
-        // relativeAge takes nowMs as a plain argument, never reads a clock itself.
-        val nowMs = System.currentTimeMillis()
-        for (event in state.events.take(20)) {
-            // The place may since have been unshared/deleted; say so rather
-            // than dropping the event, which happened and stays true either way.
-            val placeName = state.places.find { it.place.id == event.placeId }?.place?.name ?: "a since-removed place"
-            val verb = if (event.kind == "arrive") "arrived at" else "left"
-            Text(
-                "${circle.members.handleFor(event.riderId)} $verb $placeName — ${relativeAge(event.tsMs, nowMs)}",
-                style = MaterialTheme.typography.bodySmall,
-            )
+        ListCard {
+            detail.events.forEachIndexed { i, row ->
+                if (i > 0) CardDivider()
+                Text(
+                    row.text,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                )
+            }
         }
     }
 
@@ -683,21 +714,22 @@ private fun BatteryOptimizationDialog(onDismiss: () -> Unit) {
     )
 }
 
+/** One row of the shared mapper's [CircleMemberRow] — `displayName` already
+ *  carries the "(you)"/"· invited" suffixes, `sharing` gates the icon
+ *  directly, nothing recomputed here. */
 @Composable
-private fun MemberRow(member: GroupMember, isMe: Boolean) {
-    val suffix = buildString {
-        if (isMe) append(" (you)")
-        if (member.status == "invited") append(" · invited")
-    }
+private fun CircleMemberListRow(row: CircleMemberRow) {
     Row(
-        Modifier.fillMaxWidth(),
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(member.username + suffix, style = MaterialTheme.typography.bodyMedium)
+        Text(row.displayName, style = MaterialTheme.typography.bodyMedium)
         Icon(
-            if (member.sharing) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
-            contentDescription = if (member.sharing) "Sharing location" else "Not sharing",
+            if (row.sharing) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+            contentDescription = if (row.sharing) "Sharing location" else "Not sharing",
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(18.dp),
         )
