@@ -21,6 +21,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Location
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
@@ -462,6 +463,21 @@ class TripTrackingService : Service() {
      *  stop instead of racing it — see issue #141. */
     private var lastStartId = 0
 
+    /** What this process last asked GMS to do with the park geofence; null
+     *  until it has asked for anything. Records the *request*, not a confirmed
+     *  registration — [ParkGeofence.arm] is fire-and-forget and only logs a
+     *  failure — which is enough for its job of collapsing repeat calls, and
+     *  self-heals on the next service start, since a fresh instance starts at
+     *  null again. See [geofenceAction]. */
+    private var geofenceRequested: Boolean? = null
+
+    /** True between [requestDormancyEvaluation] and the evaluation it posted.
+     *  See that function for why the evaluation is posted rather than run. */
+    private var dormancyEvaluationPending = false
+
+    /** Only ever carries the coalesced dormancy evaluation. */
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     private var lastMunicipalityLookupMs = 0L
 
     private val locationCallback = object : LocationCallback() {
@@ -471,9 +487,9 @@ class TripTrackingService : Service() {
             // between them; re-evaluate the mode once the burst is handled.
             ensureLocationUpdates()
             // A phone booted stationary in a garage gets its STILL ENTER before
-            // any fix, so maybeGoDormant() bailed for want of a position. This
-            // is where that first SLEEP fix arms the park geofence.
-            maybeGoDormant()
+            // any fix, so the evaluation bailed for want of a position. This is
+            // where that first SLEEP fix arms the park geofence.
+            requestDormancyEvaluation()
         }
     }
 
@@ -1018,8 +1034,10 @@ class TripTrackingService : Service() {
 
         ensureLocationUpdates()
         registerActivityTransitions()
-        ParkGeofence.disarm(this)  // awake now, for any reason — the parked geofence has no job
-        maybeGoDormant()           // disarm first so a same-pass STOP_WITH_GEOFENCE re-arms cleanly
+        // No disarm here any more: applyGeofence() owns the fence and the single
+        // evaluation this queues reconciles it, so an awake service takes it down
+        // once instead of on every start (issue #146).
+        requestDormancyEvaluation()
         return START_STICKY
     }
 
@@ -1191,7 +1209,7 @@ class TripTrackingService : Service() {
         ensureLocationUpdates()
         updateNotification()
         if (saveJob != null) lastSaveJob = saveJob
-        maybeGoDormant()  // trip's over — nothing may need us foreground now
+        requestDormancyEvaluation()  // trip's over — nothing may need us foreground now
         return saveJob
     }
 
@@ -1263,15 +1281,17 @@ class TripTrackingService : Service() {
             ?: lastLocation?.let { it.latitude to it.longitude }
 
     /**
-     * The stop path (issue #90). Called after every event that can change
-     * whether anything still needs this service foreground. Idempotent — a
-     * STAY_ALIVE decision does nothing and the ordinary mode machinery runs
-     * as before.
+     * The stop path (issue #90). Reached once per main-thread pass via
+     * [requestDormancyEvaluation], never called directly — the events that can
+     * change whether anything still needs this service foreground raise a
+     * request instead, and several of them fire within one pass. Idempotent
+     * either way: a STAY_ALIVE decision does nothing and the ordinary mode
+     * machinery runs as before.
      */
     private fun maybeGoDormant() {
-        // onDestroy() calls endTrip(), whose tail calls here — but the service
-        // is already tearing down and joining the in-flight save. Don't start a
-        // second teardown on top of it.
+        // onDestroy() calls endTrip(), whose tail raises a request — but the
+        // service is already tearing down and joining the in-flight save. Don't
+        // start a second teardown on top of it.
         if (destroyed) return
         val decision = dormancyDecision(
             autoDetect = Settings.autoDetectDrives.value,
@@ -1281,47 +1301,109 @@ class TripTrackingService : Service() {
             stationary = stationary,
             justWokenByGeofence = System.currentTimeMillis() < geofenceWakeGraceUntilMs,
         )
-        when (decision) {
+        // Resolved to what will actually be acted on *before* the geofence is
+        // reconciled below, so a park we cannot honour doesn't leave a fence
+        // armed behind a service that then stays up.
+        val resolved = cannotParkReason()
+            ?.takeIf { decision == DormancyDecision.STOP_WITH_GEOFENCE }
+            ?.also { Log.i(ParkGeofence.TAG, "staying alive: $it") }
+            ?.let { DormancyDecision.STAY_ALIVE }
+            ?: decision
+
+        applyGeofence(resolved)
+
+        when (resolved) {
             DormancyDecision.STAY_ALIVE -> return
             DormancyDecision.STOP_WITH_GEOFENCE -> {
-                // A geofence transition only reaches a backgrounded app with
-                // ACCESS_BACKGROUND_LOCATION (Android 10+). Without it the fence
-                // would never fire: the service would stop and never wake, and
-                // auto-detection would silently die. Stay alive instead — the
-                // pre-#90 behaviour for "while using the app" location users.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                    ContextCompat.checkSelfPermission(
-                        this, Manifest.permission.ACCESS_BACKGROUND_LOCATION,
-                    ) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    // Logged because this is the silent degradation: the service
-                    // simply stays always-on and nothing else says why.
-                    Log.i(ParkGeofence.TAG, "staying alive: no ACCESS_BACKGROUND_LOCATION")
-                    return
-                }
-                // No position yet (booted stationary, no fix before STILL ENTER).
-                // locationCallback re-runs maybeGoDormant() on the first fix.
-                val (lat, lon) = lastKnownLatLon() ?: run {
-                    Log.i(ParkGeofence.TAG, "staying alive: no position to arm at yet")
-                    return
-                }
-                Log.i(ParkGeofence.TAG, "parking: $decision")
-                ParkGeofence.arm(this, lat, lon)
+                Log.i(ParkGeofence.TAG, "parking: $resolved")
                 // Superseded: the service stays up, so the fence just armed has
                 // no job. Take it back down rather than leave a live service
                 // behind a park geofence that can only fire a redundant wake.
-                if (!stopDormant()) ParkGeofence.disarm(this)
+                if (!stopDormant()) applyGeofence(DormancyDecision.STAY_ALIVE)
             }
             DormancyDecision.STOP_BARE -> {
-                Log.i(ParkGeofence.TAG, "parking: $decision (auto-detect off)")
-                ParkGeofence.disarm(this)
+                Log.i(ParkGeofence.TAG, "parking: $resolved (auto-detect off)")
                 unregisterActivityTransitions()
-                // Nothing to undo if this is superseded: with auto-detect off
-                // there is no fence to restore, and registerActivityTransitions()
-                // stands down on that same setting, so the newer start's own
-                // call is a no-op too.
+                // Nothing to restore if this is superseded: with auto-detect off
+                // there is no fence to bring back, and registerActivityTransitions()
+                // stands down on that same setting, so the newer start's own call
+                // is a no-op too.
                 stopDormant()
             }
+        }
+    }
+
+    /**
+     * Why this service cannot park behind a wake geofence right now, phrased
+     * for the log; null when it can.
+     *
+     * Both answers are degradations to always-on rather than faults, and both
+     * are silent to the rider — which is issue #145.
+     */
+    private fun cannotParkReason(): String? = when {
+        // A geofence transition only reaches a backgrounded app with
+        // ACCESS_BACKGROUND_LOCATION (Android 10+). Without it the fence would
+        // never fire: the service would stop and never wake, and auto-detection
+        // would silently die. Stay alive instead — the pre-#90 behaviour for
+        // "while using the app" location users.
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+            ) != PackageManager.PERMISSION_GRANTED -> "no ACCESS_BACKGROUND_LOCATION"
+        // No position yet (booted stationary, no fix before STILL ENTER). The
+        // location callback re-evaluates on the first fix.
+        lastKnownLatLon() == null -> "no position to arm at yet"
+        else -> null
+    }
+
+    /**
+     * The one place the park geofence is registered or removed (issue #146).
+     *
+     * Every caller that used to reach for [ParkGeofence] directly — including
+     * `onStartCommand`'s unconditional `disarm()` — goes through here, so the
+     * fence is reconciled against a decision rather than reissued per caller,
+     * and the arm/disarm pair GMS was only assumed to serialise never forms.
+     */
+    private fun applyGeofence(decision: DormancyDecision) {
+        when (geofenceAction(decision, geofenceRequested)) {
+            GeofenceAction.NONE -> return
+            GeofenceAction.ARM -> {
+                val (lat, lon) = lastKnownLatLon() ?: return
+                ParkGeofence.arm(this, lat, lon)
+                geofenceRequested = true
+            }
+            GeofenceAction.DISARM -> {
+                ParkGeofence.disarm(this)
+                geofenceRequested = false
+            }
+        }
+    }
+
+    /**
+     * Ask for one dormancy evaluation, soon (issue #146).
+     *
+     * `maybeGoDormant()` used to be called directly from four places — this
+     * function's callers — several of which run inside the same
+     * `onStartCommand` pass, so a single service start commonly evaluated
+     * dormancy two to four times and issued that many GMS round trips for one
+     * fence. Eight `ParkGeofence` log lines in ~370 ms, all for the same circle
+     * at the same position, which is also what made the log unreadable at
+     * exactly the moment #140 needs to read it.
+     *
+     * Posting rather than running collapses them: every caller is on the main
+     * thread (the location callback is requested with `Looper.getMainLooper()`),
+     * so all the requests raised while one pass unwinds coalesce into the single
+     * evaluation that runs once it has. The location callback is why this is not
+     * simply "let `onStartCommand` be the one caller" as #146 sketches — it
+     * fires long after any start has returned, and is the path that arms the
+     * fence for a phone booted stationary in a garage.
+     */
+    private fun requestDormancyEvaluation() {
+        if (destroyed || stopping || dormancyEvaluationPending) return
+        dormancyEvaluationPending = true
+        mainHandler.post {
+            dormancyEvaluationPending = false
+            maybeGoDormant()
         }
     }
 
@@ -1450,7 +1532,7 @@ class TripTrackingService : Service() {
             }
         }
         ensureLocationUpdates()
-        maybeGoDormant()  // a STILL ENTER may have just parked us
+        requestDormancyEvaluation()  // a STILL ENTER may have just parked us
     }
 
     private fun resetStartDetector() {
@@ -1904,6 +1986,10 @@ class TripTrackingService : Service() {
 
     override fun onDestroy() {
         destroyed = true
+        // A coalesced evaluation may still be queued behind this teardown.
+        // maybeGoDormant() would bail on `destroyed` anyway; dropping it keeps
+        // the handler from holding this instance past its own destruction.
+        mainHandler.removeCallbacksAndMessages(null)
         if (::fusedClient.isInitialized) {
             fusedClient.removeLocationUpdates(locationCallback)
         }
