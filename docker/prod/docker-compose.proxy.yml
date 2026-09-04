@@ -1,0 +1,27 @@
+# One-hostname layout, as an overlay on the production stack.
+#
+#   docker compose -f docker/prod/docker-compose.yml \
+#                  -f docker/prod/docker-compose.proxy.yml up -d
+#
+# Path-routes a single public hostname to the API, GraphHopper and Photon —
+# see nginx/detour.conf for why that's possible despite the API and Photon
+# both answering under /api. Separate from the base file for the same reason
+# docker-compose.cloudflare.yml is: this stack stays proxy-agnostic, and this
+# one nginx container is only needed by riders who want the single-address
+# Settings field instead of "Different address per service".
+#
+# Published on the LAN, not loopback: cloudflared lives in a different LXC
+# (see docker-compose.lan.yml) and reaches this container across the LAN the
+# same way it already reaches the api and keycloak ports.
+#
+# GraphHopper and Photon aren't part of this compose project — they're other
+# LAN hosts — so this container needs no extra network wiring, just the LAN
+# route every container already gets through the host.
+services:
+  proxy:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - 0.0.0.0:${PROXY_PORT:-8088}:80
+    volumes:
+      - ./nginx/detour.conf:/etc/nginx/conf.d/default.conf:ro
