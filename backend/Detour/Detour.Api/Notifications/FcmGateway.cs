@@ -46,7 +46,9 @@ public sealed class FcmGateway : IFcmGateway
 
         var message = new MulticastMessage
         {
-            Fids = [.. tokens],
+#pragma warning disable CS0618 // .Tokens → wire "token" (FCM registration token). .Fids → wire "fid" (Installation ID) — wrong identifier for this feature. See spec §1.1.
+            Tokens = [.. tokens],
+#pragma warning restore CS0618
             Data = new Dictionary<string, string> { ["type"] = "circle_wake" },
             Android = new AndroidConfig
             {
