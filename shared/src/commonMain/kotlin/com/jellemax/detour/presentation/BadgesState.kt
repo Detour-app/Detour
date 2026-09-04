@@ -22,7 +22,6 @@ data class BadgeGroup(
 /** Everything the Badges screen renders, already formatted. */
 data class BadgesState(
     val loaded: Boolean = false,
-    val earnedCount: Int = 0,
     val earnedFractionLabel: String = "—",
     val coverageSummaryLabel: String = "—",
     val coverageFraction: Float = 0f,
@@ -65,7 +64,6 @@ fun badgesStateFrom(
     val municipalityNoun = if (municipalitiesTotal == 1) "municipality" else "municipalities"
     return BadgesState(
         loaded = true,
-        earnedCount = earned,
         earnedFractionLabel = "$earned / ${states.size}",
         coverageSummaryLabel = "$municipalitiesVisited of $municipalitiesTotal $municipalityNoun",
         coverageFraction =

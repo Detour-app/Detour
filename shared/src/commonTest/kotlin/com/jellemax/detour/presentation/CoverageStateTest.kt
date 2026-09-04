@@ -11,21 +11,20 @@ import kotlin.test.assertNull
  */
 class CoverageStateTest {
 
-    private fun view(id: Long, name: String, percent: Double, cells: Int) =
+    private fun view(id: Long, name: String, percent: Double) =
         CoverageEntryView(
             municipalityId = id,
             name = name,
             percentLabel = "",
             areaLabel = "",
             percent = percent,
-            totalCells = cells,
         )
 
     private fun mapped(
         entries: List<CoverageEntryView> = listOf(
-            view(1L, "Maastricht", 76.0, 4_000),
-            view(2L, "Vaals", 100.0, 900),
-            view(3L, "Gulpen-Wittem", 0.0, 1_200),
+            view(1L, "Maastricht", 76.0),
+            view(2L, "Vaals", 100.0),
+            view(3L, "Gulpen-Wittem", 0.0),
         ),
         knownTotal: Int = 312,
         selected: Long? = null,
@@ -33,7 +32,7 @@ class CoverageStateTest {
 
     @Test fun exploredCountsOnlyMunicipalitiesWithAnyCoverage() {
         // 0% is "known about", not "explored" — the summary must not count it.
-        assertEquals(2, mapped().exploredCount)
+        assertEquals("2", mapped().exploredLabel)
     }
 
     @Test fun summaryReadsExploredOfKnown() {
@@ -45,10 +44,6 @@ class CoverageStateTest {
         // The rider's device knows exactly one boundary — "of 1 municipalities"
         // is wrong English and was the bug on the old screen.
         assertEquals("of 1 municipality explored", mapped(knownTotal = 1).summarySuffix)
-    }
-
-    @Test fun fullyCoveredCountsOnlyThoseAtOneHundredPercent() {
-        assertEquals(1, mapped().fullyCoveredCount)
     }
 
     @Test fun nothingIsSelectedByDefault() {
@@ -78,7 +73,6 @@ class CoverageStateTest {
 
     @Test fun anEmptyCoverageListStillProducesAUsableState() {
         val s = mapped(entries = emptyList())
-        assertEquals(0, s.exploredCount)
         assertEquals("0", s.exploredLabel)
     }
 }

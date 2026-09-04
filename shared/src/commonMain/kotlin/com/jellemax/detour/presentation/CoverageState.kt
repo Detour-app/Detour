@@ -7,15 +7,12 @@ data class CoverageEntryView(
     val percentLabel: String,
     val areaLabel: String,
     val percent: Double,
-    val totalCells: Int,
 )
 
 /** Everything the coverage screen's chrome renders. The map is MapLibre's. */
 data class CoverageState(
     val loaded: Boolean = false,
-    val exploredCount: Int = 0,
     val exploredLabel: String = "0",
-    val fullyCoveredCount: Int = 0,
     val summarySuffix: String = "",
     val entries: List<CoverageEntryView> = emptyList(),
     val selected: CoverageEntryView? = null,
@@ -46,9 +43,7 @@ fun coverageStateFrom(
     val noun = if (knownMunicipalities == 1) "municipality" else "municipalities"
     return CoverageState(
         loaded = true,
-        exploredCount = explored,
         exploredLabel = explored.toString(),
-        fullyCoveredCount = entries.count { it.percent >= 100.0 },
         summarySuffix = "of $knownMunicipalities $noun explored",
         entries = entries,
         selected = selectedId?.let { id -> entries.firstOrNull { it.municipalityId == id } },

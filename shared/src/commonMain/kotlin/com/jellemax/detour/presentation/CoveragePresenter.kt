@@ -34,7 +34,6 @@ class CoveragePresenter {
                 percentLabel = "${formatFixed(e.percent, 0)}%",
                 areaLabel = "${formatFixed(areaKm2(e.totalCells, CELL_METERS), 1)} km²",
                 percent = e.percent,
-                totalCells = e.totalCells,
             )
         }
         _state.value = coverageStateFrom(

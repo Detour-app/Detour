@@ -42,7 +42,6 @@ class BadgesStateTest {
 
     @Test fun earnedFractionCountsEarnedOverTotal() {
         assertEquals("2 / 4", mapped().earnedFractionLabel)
-        assertEquals(2, mapped().earnedCount)
     }
 
     @Test fun badgesAreGroupedByKindInDeclarationOrder() {
