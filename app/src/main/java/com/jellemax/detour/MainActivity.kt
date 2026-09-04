@@ -317,13 +317,13 @@ private fun AppRoot() {
             entry<Destination.Hub> {
                 HubScreen(
                     onBack = { backStack.pop() },
-                    onOpenHistory = { backStack.push(Destination.History) },
-                    onOpenBadges = { backStack.push(Destination.Badges) },
-                    onOpenFriends = { backStack.push(Destination.Friends) },
-                    onOpenCircles = { backStack.push(Destination.Circles) },
+                    onOpenProfile = { backStack.push(Destination.Profile) },
+                    onOpenSocial = { backStack.push(Destination.Social) },
                     onOpenSettings = { backStack.push(Destination.Settings) },
-                    onOpenSavedPlaces = { backStack.push(Destination.SavedPlaces) },
+                    onOpenHistory = { backStack.push(Destination.History) },
                     onOpenRoutes = { backStack.push(Destination.Routes) },
+                    onOpenSavedPlaces = { backStack.push(Destination.SavedPlaces) },
+                    onOpenBadges = { backStack.push(Destination.Badges) },
                 )
             }
             entry<Destination.History> {
