@@ -44,60 +44,91 @@ public sealed class FcmGateway : IFcmGateway
         if (_messaging is null || tokens.Count == 0)
             return FcmSendResult.Empty;
 
-        var message = new MulticastMessage
-        {
-#pragma warning disable CS0618 // .Tokens → wire "token" (FCM registration token). .Fids → wire "fid" (Installation ID) — wrong identifier for this feature. See spec §1.1.
-            Tokens = [.. tokens],
-#pragma warning restore CS0618
-            Data = new Dictionary<string, string> { ["type"] = "circle_wake" },
-            Android = new AndroidConfig
-            {
-                Priority = Priority.High,
-                CollapseKey = collapseKey,
-            },
-            Apns = new ApnsConfig
-            {
-                Headers = new Dictionary<string, string>
-                {
-                    ["apns-priority"] = "10",
-                    ["apns-collapse-id"] = collapseKey,
-                    ["apns-push-type"] = "alert",
-                },
-                Aps = new Aps
-                {
-                    // A minimal visible fallback: iOS throttles pure background
-                    // pushes, and the Notification Service Extension replaces
-                    // this body once it has fetched (Stage 3). Never localised
-                    // here — the client owns copy.
-                    Alert = new ApsAlert { Body = "New circle activity" },
-                    ContentAvailable = true,
-                    MutableContent = true,
-                },
-            },
-        };
-
-        BatchResponse response;
-        try
-        {
-            response = await _messaging.SendEachForMulticastAsync(message, cancellationToken);
-        }
-        catch (FirebaseMessagingException ex)
-        {
-            // Whole-batch failure (auth, quota, transport). Nothing to prune —
-            // the tokens may be perfectly good. The event is not re-queued; the
-            // device catches up on its next foreground sweep.
-            _logger.LogWarning(ex, "FCM multicast failed for collapseKey {CollapseKey}", collapseKey);
-            return FcmSendResult.Empty;
-        }
-
-        var tokenList = tokens.ToList();
+        // One stable, indexable copy — the outcome loop pairs it with the response
+        // by position. The dispatcher already passes an array, so this is usually a
+        // cast, not a copy.
+        var tokenList = tokens as IReadOnlyList<string> ?? [.. tokens];
         var outcomes = new List<FcmTokenOutcome>(tokenList.Count);
-        for (var i = 0; i < response.Responses.Count; i++)
+
+        // FCM's multicast ceiling is 500 tokens per call; above it
+        // SendEachForMulticastAsync throws ArgumentException (not
+        // FirebaseMessagingException, so it would escape the catch below). Chunk.
+        foreach (var chunk in tokenList.Chunk(500))
         {
-            var r = response.Responses[i];
-            var prune = r.Exception?.MessagingErrorCode
-                is MessagingErrorCode.Unregistered or MessagingErrorCode.InvalidArgument;
-            outcomes.Add(new FcmTokenOutcome(tokenList[i], r.IsSuccess, prune));
+            var message = new MulticastMessage
+            {
+#pragma warning disable CS0618 // .Tokens → wire "token" (FCM registration token). .Fids → wire "fid" (Installation ID) — wrong identifier for this feature. See spec §1.1.
+                Tokens = chunk,
+#pragma warning restore CS0618
+                Data = new Dictionary<string, string> { ["type"] = "circle_wake" },
+                Android = new AndroidConfig
+                {
+                    Priority = Priority.High,
+                    CollapseKey = collapseKey,
+                },
+                Apns = new ApnsConfig
+                {
+                    Headers = new Dictionary<string, string>
+                    {
+                        ["apns-priority"] = "10",
+                        ["apns-collapse-id"] = collapseKey,
+                        ["apns-push-type"] = "alert",
+                    },
+                    Aps = new Aps
+                    {
+                        // A minimal visible fallback: iOS throttles pure background
+                        // pushes, and the Notification Service Extension replaces
+                        // this body once it has fetched (Stage 3). Never localised
+                        // here — the client owns copy.
+                        Alert = new ApsAlert { Body = "New circle activity" },
+                        ContentAvailable = true,
+                        MutableContent = true,
+                    },
+                },
+            };
+
+            BatchResponse response;
+            try
+            {
+                response = await _messaging.SendEachForMulticastAsync(message, cancellationToken);
+            }
+            catch (FirebaseMessagingException ex)
+            {
+                // Whole-batch failure (auth, quota, transport). Nothing to prune —
+                // the tokens may be perfectly good. The event is not re-queued; the
+                // device catches up on its next foreground sweep.
+                _logger.LogWarning(ex, "FCM multicast failed for collapseKey {CollapseKey}", collapseKey);
+                return FcmSendResult.Empty;
+            }
+
+            if (response.Responses.Count != chunk.Length)
+            {
+                _logger.LogError(
+                    "FCM returned {Got} responses for {Sent} tokens (collapseKey {CollapseKey}); pruning nothing",
+                    response.Responses.Count, chunk.Length, collapseKey);
+                return FcmSendResult.Empty;
+            }
+
+            for (var i = 0; i < response.Responses.Count; i++)
+            {
+                var r = response.Responses[i];
+                var prune = r.Exception?.MessagingErrorCode
+                    is MessagingErrorCode.Unregistered
+                    or MessagingErrorCode.InvalidArgument
+                    or MessagingErrorCode.SenderIdMismatch;
+                outcomes.Add(new FcmTokenOutcome(chunk[i], r.IsSuccess, prune));
+            }
+        }
+
+        // A multi-token batch where every single token is prunable means the message
+        // itself is malformed, not that every device de-registered at once. Prune
+        // nothing rather than wipe every recipient.
+        if (outcomes.Count > 1 && outcomes.All(o => o.ShouldPrune))
+        {
+            _logger.LogError(
+                "FCM rejected every token in the batch (collapseKey {CollapseKey}) — treating as a message fault, pruning nothing",
+                collapseKey);
+            return FcmSendResult.Empty;
         }
 
         return new FcmSendResult(outcomes);

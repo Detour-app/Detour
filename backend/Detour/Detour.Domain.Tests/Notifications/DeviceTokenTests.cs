@@ -15,6 +15,16 @@ public class DeviceTokenTests
     }
 
     [Fact]
+    public void Create_rejects_an_oversized_token()
+    {
+        var result = DeviceToken.Create(
+            Guid.CreateVersion7(), new string('t', 513), DevicePlatform.Android);
+
+        result.IsFailure.Should().BeTrue();
+        result.HasError(ValidationKeys.DeviceToken.TokenInvalid).Should().BeTrue();
+    }
+
+    [Fact]
     public void Create_rejects_an_unknown_platform()
     {
         var result = DeviceToken.Create(Guid.CreateVersion7(), "fcm-abc", platform: null);

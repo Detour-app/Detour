@@ -42,10 +42,18 @@ public sealed class DeviceToken : Entity
         LastRefreshedAt = CreatedAt;
     }
 
+    /// <summary>Real FCM/APNs registration tokens are ~160-200 chars. The column is
+    ///  varchar(4096) but its unique btree index caps an entry near 2704 bytes, so
+    ///  an oversized token would 500 on insert rather than validate — bound it here.</summary>
+    private const int MaxTokenLength = 512;
+
     public static Result<DeviceToken> Create(Guid userId, string token, DevicePlatform? platform)
     {
         if (string.IsNullOrWhiteSpace(token))
             return Result.Error(ValidationKeys.DeviceToken.TokenRequired);
+
+        if (token.Trim().Length > MaxTokenLength)
+            return Result.Error(ValidationKeys.DeviceToken.TokenInvalid);
 
         if (platform is null)
             return Result.Error(ValidationKeys.DeviceToken.PlatformInvalid);

@@ -25,7 +25,8 @@ public class PushQueueTests
     [Fact]
     public void A_full_queue_drops_rather_than_blocks()
     {
-        var queue = new PushQueue(new NotificationSettings { QueueCapacity = 2 });
+        var queue = new PushQueue(
+            new NotificationSettings { QueueCapacity = 2 }, NullLogger<PushQueue>.Instance);
 
         queue.TryEnqueue(new PushJob([Guid.NewGuid()], "c1")).Should().BeTrue();
         queue.TryEnqueue(new PushJob([Guid.NewGuid()], "c2")).Should().BeTrue();

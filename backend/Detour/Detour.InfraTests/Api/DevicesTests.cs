@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Detour.InfraTests.Database;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -37,6 +38,8 @@ public class DevicesTests(PostgresFixture postgres) : IAsyncLifetime
         var (alex, _) = await NewRider();
         var (blake, _) = await NewRider();
 
+        var blakeId = await MeId(blake);
+
         await alex.PutAsJsonAsync("/api/devices", new { token = "fcm-shared", platform = "ios" });
         (await blake.PutAsJsonAsync("/api/devices", new { token = "fcm-shared", platform = "ios" }))
             .StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -47,6 +50,8 @@ public class DevicesTests(PostgresFixture postgres) : IAsyncLifetime
             .GetRequiredService<Detour.Domain.Notifications.IDeviceTokenRepository>();
         var row = await repo.GetByTokenAsync("fcm-shared", default);
         row.Should().NotBeNull();
+        row!.UserId.Should().Be(blakeId);
+        (await repo.GetAllAsync(default)).Count(r => r.Token == "fcm-shared").Should().Be(1);
     }
 
     [Fact]
@@ -83,6 +88,12 @@ public class DevicesTests(PostgresFixture postgres) : IAsyncLifetime
         var anon = _factory.CreateClient();
         (await anon.PutAsJsonAsync("/api/devices", new { token = "x", platform = "android" }))
             .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    private static async Task<Guid> MeId(HttpClient client)
+    {
+        var body = await (await client.GetAsync("/api/me")).Content.ReadFromJsonAsync<JsonElement>();
+        return body.GetProperty("id").GetGuid();
     }
 
     private async Task<(HttpClient Client, string Username)> NewRider()

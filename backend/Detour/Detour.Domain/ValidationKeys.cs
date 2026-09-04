@@ -202,6 +202,9 @@ public static class ValidationKeys
         public static readonly ValidationKeyDefinition TokenRequired =
             ValidationKeyDefinition.Create($"{Base}.TokenRequired");
 
+        public static readonly ValidationKeyDefinition TokenInvalid =
+            ValidationKeyDefinition.Create($"{Base}.TokenInvalid");
+
         public static readonly ValidationKeyDefinition PlatformInvalid =
             ValidationKeyDefinition.Create($"{Base}.PlatformInvalid");
     }

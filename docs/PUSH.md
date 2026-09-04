@@ -113,6 +113,11 @@ currently holding a relay socket already got the live `place_event` frame, so
 only the rest are pushed. A socket the relay has not yet noticed is dead just
 means a redundant wake-ping, which the device dedupes on `lastSeenEventTsMs`.
 
+`ILiveRelay.ConnectedUserIds` is process-local: with more than one API instance
+a member socketed to another instance looks offline here and gets a redundant
+wake-ping. Harmless — the device dedupes on `lastSeenEventTsMs` and the collapse
+key coalesces the duplicate.
+
 From the queue:
 
 ```
@@ -139,7 +144,7 @@ behind `IPushQueue` if it is ever warranted. It is not close.
 
 | Key | Notes |
 |---|---|
-| `Notifications:FirebaseCredentialsPath` | Absolute path to the Firebase service-account JSON. Unset ⇒ the gateway logs one warning at startup and every send no-ops. |
+| `Notifications:FirebaseCredentialsPath` | Absolute path to the Firebase service-account JSON. Unset ⇒ the gateway logs one warning at startup (a `FcmGatewayWarmup` hosted service builds it eagerly) and every send no-ops. A path that is set but unreadable or malformed throws during startup and fails the deploy. |
 | `Notifications:QueueCapacity` | Bounded queue size. Default 1024. |
 
 An unset `FirebaseCredentialsPath` is the correct state for any deployment that
@@ -184,10 +189,14 @@ from §2 is what the user sees. That is the accepted degradation, not a bug.
 ## 8. Testing
 
 There is no automated end-to-end test for the real courier — it needs two
-physical devices and the live FCM and APNs infrastructure. The unit tests cover
-the pieces around it (the gateway's stale-token pruning and per-token error
-split, the queue's drop-when-full, and that `RecordEventAsync` enqueues a push
-only for non-connected recipients).
+physical devices and the live FCM and APNs infrastructure. The unit and infra
+tests cover the pieces around it: the queue's drop-when-full, the dispatcher's
+prune of whatever the gateway reports dead (against a fake gateway), and that
+`RecordEventAsync` enqueues a push only for recipients who are not holding a
+live socket. The gateway's own per-token error classification — deciding from an
+FCM `SendResponse` which tokens to prune — is *not* unit-tested: `BatchResponse`
+and `SendResponse` have internal constructors, so a fake FCM response cannot be
+built. That path is covered only by the manual E2E below.
 
 The manual E2E:
 
