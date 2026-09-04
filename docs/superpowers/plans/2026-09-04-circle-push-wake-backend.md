@@ -50,9 +50,15 @@ from the spec and the codebase conventions verified while writing it.
 - **Fan-out runs post-commit** via `IPostCommitActionScheduler.Schedule(Func<Task>)`
   — never on the request's critical path, never observing the request's
   `CancellationToken`.
-- **The wake-ping is content-free**: FCM `data` payload only
-  (`{ "type": "circle_wake" }`), **no `notification` block**, Android
-  `Priority = High`, `collapseKey` = the circle id.
+- **The wake-ping carries no user or event data**: the FCM `data` payload is
+  exactly `{ "type": "circle_wake" }` — no names, places, or arrive/depart. On
+  Android that is the whole message (no `notification` block), `Priority = High`,
+  `collapseKey` = the circle id. On iOS (spec §1.3, §3.2) the same call also
+  sets `content-available: 1`, `mutable-content: 1`, and a fixed generic
+  `alert` body ("New circle activity") so a push still surfaces when the app is
+  killed and the Notification Service Extension can rewrite it after fetching —
+  `apns-push-type: alert`, `apns-priority: 10`, `apns-collapse-id` = the circle
+  id. "Content-free" means no user data, not no notification block.
 - **Stale-token pruning**: on a per-token `UNREGISTERED` / `INVALID_ARGUMENT`
   result, delete that `DeviceToken` row.
 - **The backend has no `versionName`.** The `1.98.0 → 1.99.0` bump in spec §4.4
