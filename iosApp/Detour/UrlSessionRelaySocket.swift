@@ -204,13 +204,6 @@ final class UrlSessionRelaySocket: NSObject, RelaySocket, URLSessionWebSocketDel
 
         var request = URLRequest(url: url)
         request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
-        // The relay sits behind the same Cloudflare Access service token as
-        // the routing server.
-        let cf = RoutingServer.shared.load()
-        if !cf.clientId.isEmpty {
-            request.setValue(cf.clientId, forHTTPHeaderField: "CF-Access-Client-Id")
-            request.setValue(cf.clientSecret, forHTTPHeaderField: "CF-Access-Client-Secret")
-        }
 
         let attempt = Session()
         stateLock.lock()

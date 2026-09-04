@@ -89,8 +89,6 @@ jobs:
         # and to whatever server the user configures at runtime.
         env:
           DETOUR_ROUTING_URL: ${{ secrets.ROUTING_SERVER_URL }}
-          DETOUR_ROUTING_CF_ID: ${{ secrets.ROUTING_CF_ID }}
-          DETOUR_ROUTING_CF_SECRET: ${{ secrets.ROUTING_CF_SECRET }}
           DETOUR_API_URL: ${{ secrets.API_URL }}
           DETOUR_IDP_ISSUER: ${{ secrets.IDP_ISSUER }}
           DETOUR_GEOCODER_URL: ${{ secrets.GEOCODER_URL }}
@@ -98,8 +96,6 @@ jobs:
         run: |
           cat > iosApp/Config.xcconfig <<EOF
           DETOUR_ROUTING_URL = ${DETOUR_ROUTING_URL}
-          DETOUR_ROUTING_CF_ID = ${DETOUR_ROUTING_CF_ID}
-          DETOUR_ROUTING_CF_SECRET = ${DETOUR_ROUTING_CF_SECRET}
           DETOUR_API_URL = ${DETOUR_API_URL}
           DETOUR_IDP_ISSUER = ${DETOUR_IDP_ISSUER}
           DETOUR_GEOCODER_URL = ${DETOUR_GEOCODER_URL}

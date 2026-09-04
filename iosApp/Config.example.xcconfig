@@ -8,8 +8,6 @@
 
 // One hostname, path-routed by the tunnel, reaches routing and geocoding.
 DETOUR_ROUTING_URL =
-DETOUR_ROUTING_CF_ID =
-DETOUR_ROUTING_CF_SECRET =
 DETOUR_GEOCODER_URL =
 
 // The sync and social API. Deliberately its own hostname rather than a path off

@@ -16,10 +16,6 @@ object BuildDefaults {
 
     var routingUrl: String = ""
         private set
-    var routingCfId: String = ""
-        private set
-    var routingCfSecret: String = ""
-        private set
 
     /**
      * Base of the sync + social API, which serves everything under `/api`.
@@ -47,8 +43,6 @@ object BuildDefaults {
 
     fun configure(
         routingUrl: String = "",
-        routingCfId: String = "",
-        routingCfSecret: String = "",
         apiUrl: String = "",
         idpIssuer: String = "",
         geocoderUrl: String = "",
@@ -56,8 +50,6 @@ object BuildDefaults {
         versionName: String = "0",
     ) {
         this.routingUrl = routingUrl
-        this.routingCfId = routingCfId
-        this.routingCfSecret = routingCfSecret
         this.apiUrl = apiUrl
         this.idpIssuer = idpIssuer
         this.geocoderUrl = geocoderUrl

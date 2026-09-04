@@ -19,10 +19,9 @@ package com.jellemax.detour.drive
  * One instance is reused across every reconnect attempt of a single
  * [ConvoyRelay.run] call - [connect] may be called again after a previous
  * attempt ended (gracefully or not), each time opening a fresh underlying
- * connection. Resolving the URL and any auth headers beyond the bearer
- * itself (Cloudflare Access, in this codebase) is deliberately left to
- * whoever constructs the implementation, not something this interface
- * carries - that resolution differs by platform (Android's needs a
+ * connection. Resolving the URL is deliberately left to whoever constructs
+ * the implementation, not something this interface carries - that
+ * resolution differs by platform (Android's needs a
  * `Context`; iOS's does not) in a way [ConvoyRelay] itself must stay free of,
  * per `Platform.kt`'s module-boundary rules.
  */

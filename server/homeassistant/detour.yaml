@@ -8,19 +8,12 @@
 #   detour_stats_url: https://your-server.example/api/dashboard/stats
 #   detour_rides_url: https://your-server.example/api/dashboard/rides
 #   detour_key: <the key POST /api/me/api-keys printed once>
-# Plus, if the server is behind Cloudflare Access:
-#   detour_cf_id: <service token client id>
-#   detour_cf_secret: <service token client secret>
 
 rest:
   # ---------------------------------------------------------------- totals --
   - resource: !secret detour_stats_url
     headers:
       X-API-Key: !secret detour_key
-      # Only needed when the server sits behind Cloudflare Access.
-      # Drop these two lines if it doesn't.
-      CF-Access-Client-Id: !secret detour_cf_id
-      CF-Access-Client-Secret: !secret detour_cf_secret
     scan_interval: 300
     sensor:
       - name: Map Roulette total distance
@@ -85,10 +78,6 @@ rest:
   - resource: !secret detour_rides_url
     headers:
       X-API-Key: !secret detour_key
-      # Only needed when the server sits behind Cloudflare Access.
-      # Drop these two lines if it doesn't.
-      CF-Access-Client-Id: !secret detour_cf_id
-      CF-Access-Client-Secret: !secret detour_cf_secret
     params:
       limit: "25"
     scan_interval: 300

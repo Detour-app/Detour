@@ -107,8 +107,7 @@ Without a Mac, push the branch and let the *iOS* workflow build it on
 `macos-15` — it uploads a simulator app, an unsigned `.ipa` and a screenshot of
 the app running.
 
-No server URLs, API keys, or Cloudflare Access secrets are required to build,
-and CI bakes none in. Most of them can be typed into Settings at runtime, or
+No server URLs or API keys are required to build, and CI bakes none in. Most of them can be typed into Settings at runtime, or
 baked into a personal build from `local.properties` — see the `routingCfg()`
 helper in `app/build.gradle.kts` for the property and env-var names it reads.
 If your services sit behind one path-routed hostname, a single `server.url`

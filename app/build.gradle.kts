@@ -87,14 +87,10 @@ android {
         // the run number (see .github/workflows/build.yml); a local build
         // keeps the literal.
         versionCode = System.getenv("VERSION_CODE")?.toInt() ?: 82
-        versionName = "2.1.0"
+        versionName = "2.2.0"
 
         buildConfigField("String", "ROUTING_URL",
             "\"${serviceUrl("routing.url", "ROUTING_SERVER_URL")}\"")
-        buildConfigField("String", "ROUTING_CF_ID",
-            "\"${routingCfg("routing.cfId", "ROUTING_CF_ID")}\"")
-        buildConfigField("String", "ROUTING_CF_SECRET",
-            "\"${routingCfg("routing.cfSecret", "ROUTING_CF_SECRET")}\"")
         buildConfigField("String", "API_URL", "\"$apiUrl\"")
         buildConfigField("String", "IDP_ISSUER", "\"$idpIssuer\"")
         buildConfigField("String", "GEOCODER_URL",

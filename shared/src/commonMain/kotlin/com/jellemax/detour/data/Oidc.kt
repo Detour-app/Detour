@@ -1,6 +1,5 @@
 package com.jellemax.detour.data
 
-import com.jellemax.detour.data.RoutingServer.accessHeaders
 import io.ktor.http.formUrlEncode
 import io.ktor.http.parametersOf
 import io.ktor.http.parseQueryString
@@ -116,7 +115,7 @@ object Oidc {
         if (typed.isNotBlank()) return RoutingServer.issuer(custom)
 
         val fetched = Capabilities
-            .fetch(RoutingServer.apiBase(custom), custom.accessHeaders())
+            .fetch(RoutingServer.apiBase(custom), RoutingServer.userAgentHeaders())
             ?.idpIssuer
             .orEmpty()
         val discovered = Capabilities.preferredDiscovered(
