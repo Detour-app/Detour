@@ -182,7 +182,8 @@ private fun SettingsScaffold(
 }
 
 /**
- * The Settings root: six rows onto the six spokes.
+ * The Settings root: one row per spoke, plus the update check, which is not a
+ * spoke — it acts in place rather than navigating anywhere.
  *
  * [onOpenSpoke] replaced `page = SettingsPage.X`. The screen no longer holds any
  * navigation state and no longer has a `BackHandler` — there is nothing left for
@@ -245,20 +246,25 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
             subtitle = "Connect a vehicle's OBD2 adapter for accurate speed",
             onClick = { onOpenSpoke(Destination.SettingsObd2) },
         )
-        HubRow(
-            icon = Icons.Outlined.SystemUpdate,
-            title = "Check for updates",
-            subtitle = updateCheckSubtitle(manualCheck),
-            onClick = {
-                // Guarded on Running only. A tap with no tokens left is allowed
-                // through so the budget can refuse it out loud — the subtitle
-                // is the whole feedback loop, and a dead row would be the
-                // silence this issue is about.
-                if (manualCheck !is ManualCheck.Running) {
-                    updateScope.launch { UpdateChecker.manualCheck(context) }
-                }
-            },
-        )
+        // Only where there is a repository to check. A build made without
+        // UPDATE_REPO in the environment has no update mechanism at all, and a
+        // row that silently does nothing when tapped is worse than no row.
+        if (UpdateChecker.isConfigured) {
+            HubRow(
+                icon = Icons.Outlined.SystemUpdate,
+                title = "Check for updates",
+                subtitle = updateCheckSubtitle(manualCheck),
+                onClick = {
+                    // Guarded on Running only. A tap with no tokens left is
+                    // allowed through so the budget can refuse it out loud —
+                    // the subtitle is the whole feedback loop, and a dead row
+                    // would be the silence this issue is about.
+                    if (manualCheck !is ManualCheck.Running) {
+                        updateScope.launch { UpdateChecker.manualCheck(context) }
+                    }
+                },
+            )
+        }
         Text(
             "Detour ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
             style = MaterialTheme.typography.bodySmall,
