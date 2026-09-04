@@ -1,27 +1,22 @@
 package com.jellemax.detour.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.ShareLocation
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -33,11 +28,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CirclesStore
+import com.jellemax.detour.presentation.avatarInitialOf
 
 /**
  * The social hub: Friends and Circles, split out of the general Hub screen so
@@ -73,21 +71,26 @@ fun SocialScreen(onBack: () -> Unit, onOpenFriends: () -> Unit, onOpenCircles: (
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             SubScreenTopBar("Social", onBack, scrollBehavior) {
-                Box(
-                    Modifier
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
                         .padding(end = 16.dp)
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                        .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
-                        .clickable(onClick = onBack),
-                    contentAlignment = Alignment.Center,
+                        .semantics { contentDescription = "Back to You" },
                 ) {
-                    Text(
-                        username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Box(
+                        Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                            .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            avatarInitialOf(username),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
             }
         },
@@ -100,17 +103,10 @@ fun SocialScreen(onBack: () -> Unit, onOpenFriends: () -> Unit, onOpenCircles: (
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // One card holding both rows with a divider between them, per the
-            // prototype's list-card — HubRow(paintCard = false) renders just the
-            // row content so this Card is the only thing painting a background.
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-            ) {
+            // One card holding both rows with a divider between them —
+            // HubRow(paintCard = false) renders just the row content so this
+            // ListCard is the only thing painting a background.
+            ListCard {
                 HubRow(
                     icon = Icons.Rounded.Group,
                     title = "Friends",

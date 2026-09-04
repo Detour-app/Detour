@@ -1,13 +1,11 @@
 package com.jellemax.detour.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -182,7 +180,7 @@ fun HubScreen(
                 modifier = Modifier.padding(start = 4.dp),
             )
 
-            YouCard {
+            ListCard {
                 HubRow(
                     icon = Icons.Rounded.History,
                     title = "Trip history",
@@ -217,7 +215,7 @@ fun HubScreen(
             // The prototype's own entry point to Social lives on the map screen,
             // which that later batch rebuilds; until then this bridge row is the
             // only way to reach it from You.
-            YouCard {
+            ListCard {
                 HubRow(
                     icon = Icons.Rounded.Diversity3,
                     title = "Social",
@@ -229,28 +227,13 @@ fun HubScreen(
     }
 }
 
-/** Shared card shell every block on this screen sits in: [SocialScreen]'s
- *  bordered-card treatment, reused rather than reinvented per block. */
-@Composable
-private fun YouCard(
-    modifier: Modifier = Modifier,
-    borderColor: Color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        border = BorderStroke(1.dp, borderColor),
-        content = content,
-    )
-}
-
 /** Signed-in state: tappable card to [onClick] (Profile) — 48dp initial avatar,
  *  name, "Profile & account" subtitle, trailing chevron. */
 @Composable
 private fun YouProfileCard(state: YouState, onClick: () -> Unit) {
-    YouCard(modifier = Modifier.clickable(onClick = onClick)) {
+    // clip() before clickable() so the ripple is bounded to the card's own
+    // rounded corners instead of painting a rectangle over them.
+    ListCard(modifier = Modifier.clip(RoundedCornerShape(20.dp)).clickable(onClick = onClick)) {
         Row(
             Modifier
                 .fillMaxWidth()
@@ -298,7 +281,7 @@ private fun YouGuestCard() {
     val error by PendingSignIn.error.collectAsStateWithLifecycle()
     val busy by PendingSignIn.busy.collectAsStateWithLifecycle()
 
-    YouCard(borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)) {
+    ListCard(borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)) {
         Column(
             Modifier
                 .fillMaxWidth()
@@ -400,7 +383,7 @@ private fun YouGuestCard() {
  *  dividers, value bold in [MaterialTheme.colorScheme.primary]. */
 @Composable
 private fun YouStatsRow(state: YouState) {
-    YouCard {
+    ListCard {
         Row(
             Modifier
                 .fillMaxWidth()

@@ -39,6 +39,14 @@ class YouStateTest {
         assertEquals("947", state(distanceMeters = 947_400.0).kilometresLabel)
     }
 
+    @Test fun negativeDistancesKeepTheSignBeforeTheFirstDigit() {
+        assertEquals("-123", state(distanceMeters = -123_000.0).kilometresLabel)
+    }
+
+    @Test fun negativeDistancesGroupThousandsAfterTheSign() {
+        assertEquals("-1 234", state(distanceMeters = -1_234_000.0).kilometresLabel)
+    }
+
     @Test fun ridesPlacesAndBadgesArePassedThroughAsCounts() {
         val s = state()
         assertEquals(214, s.rides)
@@ -59,7 +67,7 @@ class YouStateTest {
         assertEquals("K", state(username = "kasper").avatarInitial)
     }
 
-    @Test fun blankUsernameGivesNoInitial() {
-        assertEquals("", state(username = "   ").avatarInitial)
+    @Test fun blankUsernameFallsBackToQuestionMark() {
+        assertEquals("?", state(username = "   ").avatarInitial)
     }
 }
