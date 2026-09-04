@@ -1228,7 +1228,10 @@ public sealed class PushQueue : IPushQueue
     {
         _channel = Channel.CreateBounded<PushJob>(new BoundedChannelOptions(settings.QueueCapacity)
         {
-            FullMode = BoundedChannelFullMode.DropWrite,
+            // Wait, not DropWrite: TryWrite never blocks in any mode, and with
+            // Wait it returns false when full so the caller can log the drop.
+            // DropWrite would silently discard and return true.
+            FullMode = BoundedChannelFullMode.Wait,
             SingleReader = true,
         });
     }
