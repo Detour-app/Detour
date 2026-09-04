@@ -242,6 +242,13 @@ class MapOverlays(
     }
 
     private fun setData(sourceId: String, fc: FeatureCollection) {
+        // The gap [setRouteColor] and [setPositionIcon] already cover: a theme
+        // flip leaves this Style behind mid-load, and getSource then *throws*
+        // rather than returning null, so the safe cast below never gets a say.
+        // A check rather than their runCatching because [render] calls this
+        // once per source — eight caught exceptions a frame is not the same
+        // price as one boolean.
+        if (!style.isFullyLoaded) return
         (style.getSource(sourceId) as? GeoJsonSource)?.setGeoJson(fc)
     }
 
