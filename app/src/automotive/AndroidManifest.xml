@@ -45,7 +45,27 @@
         projection-side one. Same descriptor resource: <uses name="template"/>
         declares a Car App Library template app, which is true on both hosts.
     -->
-    <application>
+    <!--
+        Same cleartext exemption `src/debug` carries, and for the same stack:
+        docker/dev speaks plain HTTP, and an AAOS emulator reaches it over
+        `adb reverse` as http://localhost:7500 — which is also the only address
+        the app will accept over cleartext (Capabilities.kt's loopback carve-out).
+
+        It has to be repeated here rather than inherited: the `automotive` build
+        type is created with initWith(debug), which copies build-type *settings*
+        and not source sets, so `src/debug/AndroidManifest.xml` is merged into
+        the debug variant alone. Without this the harness installs and renders
+        but every request to the dev stack is blocked before it leaves the
+        process — sign-in reports "your server did not say which realm", which
+        reads like a server fault and is not one.
+
+        Bounded the same way the debug one is: this file is merged into the
+        automotive build type only, which is a test harness that is never
+        shipped, so nothing released can fall back to cleartext.
+    -->
+    <application
+        android:usesCleartextTraffic="true"
+        tools:ignore="UnusedAttribute">
         <meta-data
             android:name="com.android.automotive"
             android:resource="@xml/automotive_app_desc"
