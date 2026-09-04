@@ -521,8 +521,6 @@ private fun CircleDetailSection(
         CirclesStore.select(circle.id)
     }
 
-    val mine = circle.members.find { it.id == riderId }
-
     // Pure map from the store's raw circle/places/events to display rows,
     // recomputed on the render path — see circleDetailStateFrom's KDoc.
     // nowMs is a single snapshot taken here and threaded through, never read
@@ -540,7 +538,8 @@ private fun CircleDetailSection(
         }
     }
 
-    if (mine != null) {
+    val mySharing = detail.mySharing
+    if (mySharing != null) {
         ListCard {
             Row(
                 Modifier
@@ -552,13 +551,13 @@ private fun CircleDetailSection(
                 Column(Modifier.weight(1f)) {
                     Text("Share my location", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        if (mine.sharing) "Posting your position to this circle every couple of minutes"
+                        if (mySharing) "Posting your position to this circle every couple of minutes"
                         else "Paused — nothing is being shared",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Switch(checked = mine.sharing, enabled = !state.busy, onCheckedChange = onToggleSharing)
+                Switch(checked = mySharing, enabled = !state.busy, onCheckedChange = onToggleSharing)
             }
             CardDivider()
             Row(

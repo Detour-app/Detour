@@ -49,17 +49,25 @@ data class CircleEventRow(val text: String)
  *
  * Named [CircleDetailState], not `CirclesState` (`com.jellemax.detour.data.CirclesStore`'s
  * own load/busy/error/detail state, see CirclesStore.kt:13-19) nor
- * [CirclesListState] (the previous task's list-screen display shape) — three
- * names, three shapes, none of them this one. [CirclesState.detailBusy] and
- * [CirclesState.detailError] are deliberately not reproduced here: the
- * screen already reads them straight off `CirclesStore.state`, same as
- * today, and folding them into this type would just be a second copy of the
- * pair CirclesStore.kt:13-19 explains keeping apart from the list's own.
+ * [CirclesListState] (the list screen's own display shape, see that type's
+ * own KDoc) — three names, three shapes, none of them this one.
+ * [CirclesState.detailBusy] and [CirclesState.detailError] are deliberately
+ * not reproduced here: the screen already reads them straight off
+ * `CirclesStore.state`, same as today, and folding them into this type would
+ * just be a second copy of the pair CirclesStore.kt:13-19 explains keeping
+ * apart from the list's own.
  */
 data class CircleDetailState(
     val members: List<CircleMemberRow> = emptyList(),
     val places: List<SharedPlaceRow> = emptyList(),
     val events: List<CircleEventRow> = emptyList(),
+    /** The viewing rider's own sharing flag, read off [members] (never a
+     *  fresh `circle.members.find`) so the screen — and iOS's future one —
+     *  never re-derives "is this me" itself; the sibling list mapper answers
+     *  the equivalent question as `CircleRow.sharing`, same reasoning. Null
+     *  when the viewing rider has no membership row in this circle at all,
+     *  which gates the "Share my location" card off entirely. */
+    val mySharing: Boolean? = null,
 )
 
 /**
@@ -89,6 +97,7 @@ fun circleDetailStateFrom(
         }
         CircleMemberRow(id = m.id, displayName = m.username + suffix, sharing = m.sharing)
     }
+    val mySharing = members.find { it.id == riderId }?.sharing
     val placeRows = places.map { p ->
         SharedPlaceRow(
             serverId = p.serverId,
@@ -102,5 +111,5 @@ fun circleDetailStateFrom(
         val verb = if (e.kind == "arrive") "arrived at" else "left"
         CircleEventRow("${circle.members.handleFor(e.riderId)} $verb $placeName — ${relativeAge(e.tsMs, nowMs)}")
     }
-    return CircleDetailState(members = members, places = placeRows, events = eventRows)
+    return CircleDetailState(members = members, places = placeRows, events = eventRows, mySharing = mySharing)
 }

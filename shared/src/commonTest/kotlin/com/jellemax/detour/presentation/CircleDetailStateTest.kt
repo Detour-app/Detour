@@ -167,6 +167,32 @@ class CircleDetailStateTest {
         assertEquals("mover arrived at Home — 2h ago", state.events.single().text)
     }
 
+    @Test fun mySharingIsTrueWhenTheViewingRiderIsSharing() {
+        val state = circleDetailStateFrom(
+            circle(members = listOf(member("me", "rider", sharing = true), member("bob", "bob", sharing = false))),
+            riderId = me, places = emptyList(), events = emptyList(), nowMs = 0L,
+        )
+        assertEquals(true, state.mySharing)
+    }
+
+    @Test fun mySharingIsFalseWhenTheViewingRiderHasPausedSharing() {
+        val state = circleDetailStateFrom(
+            circle(members = listOf(member("me", "rider", sharing = false), member("bob", "bob", sharing = true))),
+            riderId = me, places = emptyList(), events = emptyList(), nowMs = 0L,
+        )
+        assertEquals(false, state.mySharing)
+    }
+
+    @Test fun mySharingIsNullWhenTheViewingRiderIsNotAMember() {
+        // Never any-member sharing — a housemate sharing must not read as
+        // "you are sharing" for a rider not even in the circle.
+        val state = circleDetailStateFrom(
+            circle(members = listOf(member("bob", "bob", sharing = true))),
+            riderId = me, places = emptyList(), events = emptyList(), nowMs = 0L,
+        )
+        assertEquals(null, state.mySharing)
+    }
+
     @Test fun anEmptyCircleWithJustTheRiderProducesAUsableState() {
         val state = circleDetailStateFrom(
             circle(members = listOf(member("me", "rider"))),
