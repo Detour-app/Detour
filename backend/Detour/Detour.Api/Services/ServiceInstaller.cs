@@ -10,6 +10,7 @@ public static class ServiceInstaller
         services.AddScoped<IGroupService, GroupService>();
         services.AddScoped<ICircleService, CircleService>();
         services.AddScoped<IDashboardService, DashboardService>();
+        services.AddScoped<IDeviceService, DeviceService>();
 
         return services;
     }
