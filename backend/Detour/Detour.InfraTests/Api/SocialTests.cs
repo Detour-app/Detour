@@ -346,7 +346,7 @@ public class SocialTests(PostgresFixture postgres) : IAsyncLifetime
         await (await client.GetAsync("/api/friends")).Content.ReadFromJsonAsync<JsonElement>();
 
     private static async Task<List<JsonElement>> Riders(SignedInClient client) =>
-        (await Friends(client)).GetProperty("riders").EnumerateArray().ToList();
+        [.. (await Friends(client)).GetProperty("riders").EnumerateArray()];
 
     private static async Task<JsonElement> Fog(SignedInClient client) =>
         await (await client.GetAsync("/api/friends/fog")).Content.ReadFromJsonAsync<JsonElement>();
