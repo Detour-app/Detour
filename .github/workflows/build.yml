@@ -48,6 +48,26 @@ jobs:
             exit 1
           fi
 
+      # The Firebase client config that turns push on in the built APK. Written to
+      # app/google-services.json, where build.gradle.kts applies the Google Services
+      # plugin only if the file is present (absent ⇒ push off, the app still builds).
+      # Unlike the keystore this is NEVER required: a build without it is a valid,
+      # push-less release — exactly what a fork or a self-hoster with no Firebase
+      # project gets. The JSON must carry every applicationId this workflow touches —
+      # io.github.maxke24.detour (release / githubRelease) and
+      # io.github.maxke24.detour.debug (the unit tests) — or the plugin fails with
+      # "No matching client found for package name".
+      - name: Provide Firebase client config (optional; enables push)
+        env:
+          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON_B64" ]; then
+            echo "$GOOGLE_SERVICES_JSON_B64" | base64 -d > app/google-services.json
+            echo "google-services.json provided — FCM push enabled in this build."
+          else
+            echo "No GOOGLE_SERVICES_JSON_B64 secret — building without FCM (push inactive)."
+          fi
+
       # Names only, never values: an empty companion secret otherwise
       # surfaces five minutes later as keytool's misleading "keystore
       # password was incorrect" with a blank alias in the message.
