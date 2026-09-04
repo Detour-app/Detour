@@ -36,7 +36,7 @@ public class PushDispatcherTests
     {
         var repo = new Mock<IDeviceTokenRepository>();
         repo.Setup(r => r.GetForUsersAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(targets.ToList());
+            .ReturnsAsync([.. targets]);
         return repo;
     }
 
