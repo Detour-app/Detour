@@ -62,11 +62,12 @@ fun badgesStateFrom(
         )
     }
     val earned = states.count { it.earned }
+    val municipalityNoun = if (municipalitiesTotal == 1) "municipality" else "municipalities"
     return BadgesState(
         loaded = true,
         earnedCount = earned,
         earnedFractionLabel = "$earned / ${states.size}",
-        coverageSummaryLabel = "$municipalitiesVisited of $municipalitiesTotal municipalities",
+        coverageSummaryLabel = "$municipalitiesVisited of $municipalitiesTotal $municipalityNoun",
         coverageFraction =
             if (municipalitiesTotal <= 0) 0f
             else (municipalitiesVisited.toFloat() / municipalitiesTotal).coerceIn(0f, 1f),

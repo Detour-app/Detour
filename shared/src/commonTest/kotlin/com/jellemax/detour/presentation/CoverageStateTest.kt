@@ -41,6 +41,12 @@ class CoverageStateTest {
         assertEquals("2", mapped().exploredLabel)
     }
 
+    @Test fun summaryUsesSingularMunicipalityWhenOnlyOneIsKnown() {
+        // The rider's device knows exactly one boundary — "of 1 municipalities"
+        // is wrong English and was the bug on the old screen.
+        assertEquals("of 1 municipality explored", mapped(knownTotal = 1).summarySuffix)
+    }
+
     @Test fun fullyCoveredCountsOnlyThoseAtOneHundredPercent() {
         assertEquals(1, mapped().fullyCoveredCount)
     }

@@ -43,12 +43,13 @@ fun coverageStateFrom(
     selectedId: Long?,
 ): CoverageState {
     val explored = entries.count { it.percent > 0.0 }
+    val noun = if (knownMunicipalities == 1) "municipality" else "municipalities"
     return CoverageState(
         loaded = true,
         exploredCount = explored,
         exploredLabel = explored.toString(),
         fullyCoveredCount = entries.count { it.percent >= 100.0 },
-        summarySuffix = "of $knownMunicipalities municipalities explored",
+        summarySuffix = "of $knownMunicipalities $noun explored",
         entries = entries,
         selected = selectedId?.let { id -> entries.firstOrNull { it.municipalityId == id } },
     )

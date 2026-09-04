@@ -100,4 +100,11 @@ class BadgesStateTest {
     @Test fun coverageFractionIsZeroWhenNoMunicipalitiesAreKnownRatherThanDividingByZero() {
         assertEquals(0f, mapped(municipalitiesTotal = 0).coverageFraction)
     }
+
+    @Test fun coverageSummaryUsesSingularMunicipalityWhenOnlyOneIsKnown() {
+        assertEquals(
+            "1 of 1 municipality",
+            mapped(municipalitiesVisited = 1, municipalitiesTotal = 1).coverageSummaryLabel,
+        )
+    }
 }
