@@ -132,7 +132,7 @@ class MainActivity : ComponentActivity() {
      */
     override fun onStart() {
         super.onStart()
-        lifecycleScope.launch { UpdateChecker.automatic(this@MainActivity) }
+        lifecycleScope.launch { UpdateChecker.automaticCheck(this@MainActivity) }
     }
 
     /**
