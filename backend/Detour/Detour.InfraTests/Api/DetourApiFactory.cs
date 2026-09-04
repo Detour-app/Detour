@@ -20,7 +20,9 @@ namespace Detour.InfraTests.Api;
 /// role flattening. Only the party holding the signing key changes. A test that stubbed out
 /// authentication instead would prove nothing about the thing most worth proving.
 /// </summary>
-public sealed class DetourApiFactory(PostgresFixture postgres) : WebApplicationFactory<Program>
+public sealed class DetourApiFactory(
+    PostgresFixture postgres,
+    Action<IServiceCollection>? configureServices = null) : WebApplicationFactory<Program>
 {
     // Public so a test can assert that the API advertises exactly what it was
     // configured with, rather than repeating the literal and drifting from it.
@@ -62,6 +64,7 @@ public sealed class DetourApiFactory(PostgresFixture postgres) : WebApplicationF
                 options.TokenValidationParameters.ValidateIssuerSigningKey = true;
             });
 
+            configureServices?.Invoke(services);
         });
     }
 

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Detour.Api.Contracts;
 using Detour.Api.Live;
+using Detour.Api.Notifications;
 using Detour.Domain;
 using Detour.Domain.Circles;
 using Detour.Domain.Groups;
@@ -40,7 +41,8 @@ public class CircleService(
     IPlaceEventRepository placeEvents,
     IUserRepository users,
     ILiveRelay liveRelay,
-    IPostCommitActionScheduler postCommit) : ICircleService
+    IPostCommitActionScheduler postCommit,
+    IPushQueue pushQueue) : ICircleService
 {
     private static readonly JsonSerializerOptions PayloadOptions = new(JsonSerializerDefaults.Web);
 
@@ -240,6 +242,15 @@ public class CircleService(
                 placeName ?? string.Empty,
                 placeEvent.Kind.Wire(),
                 placeEvent.TimestampMs);
+
+            // Everyone entitled to the event who was not already sent the live frame —
+            // i.e. not holding a socket right now. A dead socket that the relay has not
+            // yet noticed just means a redundant wake-ping, which the device dedupes on
+            // lastSeenEventTsMs. Content-free: the token is the whole message.
+            var connected = liveRelay.ConnectedUserIds;
+            var offline = recipients.Where(id => !connected.Contains(id)).ToArray();
+            if (offline.Length > 0)
+                pushQueue.TryEnqueue(new PushJob(offline, groupId.ToString()));
 
             return Task.CompletedTask;
         });
