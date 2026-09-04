@@ -55,8 +55,14 @@ object Auth {
      *  shape [ConvoysStore.resolveUnknown] uses for the same reason: without
      *  it, a burst of concurrent [bearer] calls before the first `/me`
      *  answers would each open their own request instead of waiting on the
-     *  one already in flight and reusing its result. */
-    private val riderIdResolveGate = Mutex()
+     *  one already in flight and reusing its result.
+     *
+     *  [SingleFlight] rather than a bare [Mutex] because this particular work
+     *  re-enters itself: the `/me` request that resolves the id is an
+     *  authenticated request, and [bearer] resolves the id. A `kotlinx`
+     *  [Mutex] is not reentrant, so that second entry waited on a lock its own
+     *  caller held and never came back — see [SingleFlight]'s own doc. */
+    private val riderIdResolveGate = SingleFlight()
 
     /** Set once a resolve has been attempted this session and come back
      *  without an id — a refused token, an unreachable server, anything
@@ -291,8 +297,8 @@ object Auth {
      */
     private suspend fun resolveRiderId() {
         if (Settings.authRiderId.value.value.isNotEmpty() || riderIdResolveFailed) return
-        riderIdResolveGate.withLock {
-            if (Settings.authRiderId.value.value.isNotEmpty() || riderIdResolveFailed) return
+        riderIdResolveGate.runOnce {
+            if (Settings.authRiderId.value.value.isNotEmpty() || riderIdResolveFailed) return@runOnce
             val id = runCatching { Rider.me().id.value }.getOrDefault("")
             if (id.isNotEmpty()) Settings.setRiderId(id) else riderIdResolveFailed = true
         }
