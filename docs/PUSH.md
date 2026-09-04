@@ -14,8 +14,9 @@ arrival does not surface until the app is next opened.
 This document covers the transport that replaces both: a content-free FCM
 wake-ping. The backend half ships first and dark — no client registers a token
 yet — so nothing in the app changes until the Android and iOS stages land, and
-`CircleNotifyService` is not removed until then. The design and rollout are in
-[the spec](superpowers/specs/2026-09-04-circle-push-wake-design.md).
+`CircleNotifyService` is not removed until then. The design, the rejected
+alternatives and the rollout steps are in the PR that introduced this
+(`feat(notifications): content-free FCM wake-ping backend`, part of #142).
 
 ---
 
@@ -136,9 +137,9 @@ blocked, not silently accepted. A dropped wake-ping is not an error: the device
 reconciles on its next foreground catch-up sweep. The same is true of a job the
 worker fails to dispatch — it logs and moves to the next one.
 
-This queue is the seam that keeps a dedicated push service (spec approach C) a
-later swap rather than a rewrite: replace the `Channel` with Redis or RabbitMQ
-behind `IPushQueue` if it is ever warranted. It is not close.
+This queue is the seam that keeps a dedicated push microservice a later swap
+rather than a rewrite: replace the `Channel` with Redis or RabbitMQ behind
+`IPushQueue` if it is ever warranted. It is not close.
 
 ## 5. Configuration
 
@@ -159,7 +160,8 @@ Environment-variable form, as everywhere else in the backend:
 ## 6. The Firebase project
 
 One project, id `detour-1229f`, with the Cloud Messaging API (v1) enabled. The
-setup it needs, per the spec's human-only steps:
+setup it needs (the PR that introduced this feature lists these as the
+human-only steps):
 
 - Android and iOS apps registered in it for `io.github.maxke24.detour` and its
   two suffixed applicationIds, `io.github.maxke24.detour.debug` and

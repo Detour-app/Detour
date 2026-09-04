@@ -76,3 +76,6 @@ tools/mocklocation/baseline/*.log
 
 # Git worktrees for subagent-driven execution
 .worktrees/
+
+# Superpowers spec/plan working docs — not tracked.
+docs/superpowers/
