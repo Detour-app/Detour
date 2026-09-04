@@ -170,3 +170,57 @@ class GeofenceActionTest {
         )
     }
 }
+
+/**
+ * [dormancyBlocker] decides what the Settings notice says (issue #145): #90's
+ * AC 1 — no notification and no foreground service while parked — holds only
+ * for a rider who granted both optional permissions, and nothing told the ones
+ * who didn't why their notification never goes away.
+ */
+class DormancyBlockerTest {
+
+    @Test fun `both granted - nothing to explain`() {
+        assertEquals(
+            DormancyBlocker.NONE,
+            dormancyBlocker(autoDetect = true, hasActivityRecognition = true, hasBackgroundLocation = true),
+        )
+    }
+
+    @Test fun `no activity recognition - stationary is never set, so it never parks`() {
+        assertEquals(
+            DormancyBlocker.ACTIVITY_RECOGNITION,
+            dormancyBlocker(autoDetect = true, hasActivityRecognition = false, hasBackgroundLocation = true),
+        )
+    }
+
+    @Test fun `no background location - a wake geofence would never fire`() {
+        assertEquals(
+            DormancyBlocker.BACKGROUND_LOCATION,
+            dormancyBlocker(autoDetect = true, hasActivityRecognition = true, hasBackgroundLocation = false),
+        )
+    }
+
+    @Test fun `both missing - activity recognition is reported first`() {
+        // Granting background location alone would fix nothing while nothing
+        // can ever set `stationary`, so asking for that one first would send
+        // the rider through a system screen and change nothing they can see.
+        assertEquals(
+            DormancyBlocker.ACTIVITY_RECOGNITION,
+            dormancyBlocker(autoDetect = true, hasActivityRecognition = false, hasBackgroundLocation = false),
+        )
+    }
+
+    @Test fun `auto-detect off - no notice however the permissions stand`() {
+        // Not "nothing is wrong": with auto-detect off the service stops
+        // outright (STOP_BARE), so there is no notification to explain and no
+        // permission worth interrupting the rider for.
+        for (ar in listOf(true, false)) {
+            for (bg in listOf(true, false)) {
+                assertEquals(
+                    DormancyBlocker.NONE,
+                    dormancyBlocker(autoDetect = false, hasActivityRecognition = ar, hasBackgroundLocation = bg),
+                )
+            }
+        }
+    }
+}
