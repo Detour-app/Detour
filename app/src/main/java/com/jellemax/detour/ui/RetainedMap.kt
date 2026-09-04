@@ -173,8 +173,11 @@ fun rememberRetainedMap(darkTheme: Boolean): RetainedMap {
             ColdStartTiming.mark("getMapAsync ready")
             map.uiSettings.isCompassEnabled = false
             map.uiSettings.isRotateGesturesEnabled = true
+            // The MapLibre wordmark is just the library's own branding, not a
+            // license requirement — OSM's attribution (the ⓘ button below)
+            // is the one that has to stay.
+            map.uiSettings.isLogoEnabled = false
             map.uiSettings.setAttributionMargins(0, 0, 0, attributionBottomMarginPx)
-            map.uiSettings.setLogoMargins(0, 0, 0, attributionBottomMarginPx)
             retained.map = map
         }
         onDispose {
