@@ -124,7 +124,21 @@ object UpdateChecker {
         // Stamped before the request: a device with no connectivity would
         // otherwise retry on every foreground.
         Settings.setLastUpdateCheckMs(now)
-        gate.withLock { performCheck(context, repo, notify = true) }
+        try {
+            gate.withLock { performCheck(context, repo, notify = true) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Silent by design (see class doc) — but logged, unlike a plain
+            // swallow, so a persistent failure leaves a trace. Must not
+            // escape: this runs in MainActivity.onStart's lifecycleScope,
+            // which installs no CoroutineExceptionHandler, so an uncaught
+            // throw here crashes startup on every launch for as long as the
+            // condition holds (#167). performCheck's own runCatching only
+            // covers the fetch; prune/publish/notify after it can still
+            // throw (e.g. SecurityException/IOException from file I/O).
+            Log.w("DetourUpdate", "automatic update check failed", e)
+        }
     }
 
     /**
