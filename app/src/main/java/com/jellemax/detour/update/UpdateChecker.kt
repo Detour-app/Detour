@@ -118,7 +118,7 @@ object UpdateChecker {
      */
     suspend fun automaticCheck(context: Context) {
         val repo = BuildConfig.UPDATE_REPO
-        if (repo.isBlank()) return
+        if (!isConfigured) return
         val now = System.currentTimeMillis()
         if (now - Settings.lastUpdateCheckMs() < AUTO_THROTTLE_MS) return
         // Stamped before the request: a device with no connectivity would
@@ -140,7 +140,7 @@ object UpdateChecker {
      */
     suspend fun manualCheck(context: Context) {
         val repo = BuildConfig.UPDATE_REPO
-        if (repo.isBlank()) return
+        if (!isConfigured) return
         val now = System.currentTimeMillis()
         // Reused below to stamp the throttle after the request returns, so the
         // automatic path's window can only open up to one round trip early.
@@ -163,7 +163,11 @@ object UpdateChecker {
             // milliseconds.
             //
             // The stamp and the terminal publish happen inside the lock too,
-            // so two overlapping calls cannot publish out of order.
+            // so two overlapping calls cannot publish out of order — except
+            // RateLimited, published before the lock is ever taken: a denied
+            // tap that lands while an earlier check is still queued can have
+            // its refusal overwritten by that check's own outcome. Self-
+            // limiting: the rider mashed the button and did get an answer.
             gate.withLock {
                 // Re-asserted: without this, a check queued behind an
                 // in-flight one would keep showing that other check's settled
@@ -201,9 +205,9 @@ object UpdateChecker {
                 UpdateClient.newerThan(repo, BuildConfig.VERSION_NAME)
             }
             // A thrown request and a "nothing newer" response both land here as
-            // null, and the pruning below deliberately does not tell them
-            // apart — that is pre-existing behaviour, kept verbatim. Only the
-            // returned Outcome distinguishes them.
+            // null. The returned Outcome tells them apart via
+            // fetched.isFailure below, and so does the prune guard just below
+            // that — pruning needs an answer, not just the absence of one.
             val update = fetched.getOrNull()
 
             // Never prune while a download is running. prune deletes by name;
@@ -229,7 +233,12 @@ object UpdateChecker {
                 }
             }
             if (update == null) {
-                UpdateDownloader.prune(context, keep = null)
+                // Only prune on an answer. A thrown fetch also lands here with
+                // a null update, and pruning then deletes a downloaded APK on
+                // the strength of a request that never reached GitHub —
+                // leaving UpdateState reporting Downloaded for a file that is
+                // gone, and an Install button that silently does nothing.
+                if (fetched.isSuccess) UpdateDownloader.prune(context, keep = null)
                 return@withContext if (fetched.isFailure) Outcome.Failed else Outcome.UpToDate
             }
             UpdateDownloader.prune(context, keep = update.asset)

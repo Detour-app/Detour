@@ -2,6 +2,7 @@ package com.jellemax.detour.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -25,6 +26,14 @@ class ManualCheckBudgetTest {
     @Test
     fun aFreshBudgetStartsFull() {
         assertEquals(ManualCheckBudget.CAPACITY, budget().tokens)
+    }
+
+    @Test
+    fun tokensOutsideZeroToCapacityIsRejected() {
+        assertFailsWith<IllegalArgumentException> { ManualCheckBudget(tokens = -1) }
+        assertFailsWith<IllegalArgumentException> {
+            ManualCheckBudget(tokens = ManualCheckBudget.CAPACITY + 1)
+        }
     }
 
     @Test

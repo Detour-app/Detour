@@ -19,9 +19,10 @@ data class ManualCheckBudget(
     val tokens: Int = CAPACITY,
     // Only correct paired with a full bucket: `ManualCheckBudget(tokens = 1)`
     // silently backdates that one token's clock to the epoch and refills to
-    // full on the very next spend. Every constructor call in this file goes
-    // through `copy` on an already-consistent instance, so this never comes up
-    // in practice, but it is not an invariant the type enforces.
+    // full on the very next spend. `refill`'s `return ManualCheckBudget(filled,
+    // ...)` is a direct constructor call, not a `copy` — but it pairs `filled`
+    // with an anchor computed for that same `filled`, so the pairing stays
+    // consistent even though it is not an invariant the type itself enforces.
     val refilledAtMs: Long = 0L,
 ) {
     init {

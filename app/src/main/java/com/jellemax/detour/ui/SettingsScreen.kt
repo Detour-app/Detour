@@ -135,7 +135,7 @@ private fun spokeTitle(spoke: Destination.SettingsSpoke): String = when (spoke) 
 private fun updateCheckSubtitle(state: ManualCheck): String = when (state) {
     ManualCheck.Idle -> "Check for a new release"
     ManualCheck.Running -> "Checking…"
-    ManualCheck.UpToDate -> "Up to date"
+    ManualCheck.UpToDate -> "No update found"
     is ManualCheck.Found -> "Detour ${state.version} available"
     ManualCheck.Failed -> "Couldn't reach GitHub"
     is ManualCheck.RateLimited -> "Checked a few times just now — try again shortly"
