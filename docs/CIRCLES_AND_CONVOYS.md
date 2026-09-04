@@ -201,11 +201,12 @@ updates or leaves a dropped convoy rider frozen on it.
 
 **`place_event` is server-originated only.** A client cannot cause one by
 sending it, which is why there is no inbound counterpart. A foregrounded app
-gets the arrival on this frame; a backgrounded one is woken by a content-free
-FCM ping that carries no event data, then reads the feed and posts the
-notification itself; a fully closed app catches up by polling the feed on its
-next open. The push transport, the token lifecycle, and what the ping
-deliberately omits are in [PUSH.md](PUSH.md).
+gets the arrival on this frame. A backgrounded one is designed to be woken by a
+content-free FCM ping that carries no event data — the device then reads the
+feed and posts the notification itself — with the clients wired up in later
+stages; until then a backgrounded app catches up by polling the feed on its next
+open. The push transport, the token lifecycle, and what the ping deliberately
+omits are in [PUSH.md](PUSH.md).
 
 ### 6.4 Voice
 
@@ -297,7 +298,7 @@ Cadences, and why:
 | Circle position + geofence check, tracker up | 2 min | Presence, not a trail. "Last seen" stays current without a cost anyone notices, and the tick is a second sink on a location stream a trip, a joined convoy or a foregrounded map already pays for |
 | Circle position + geofence check, parked | 15 min | Not a battery choice — WorkManager's minimum period. Since #90 `TripTrackingService` stops while parked, so `CircleSyncWorker` carries the tick, and 15 min is the shortest period the platform allows for periodic work |
 | Circle tick with no circle to share with | 30 min, tracker up | What a rider who never touches the feature pays, and the delay before their first circle starts working. Parked, they get the 15-minute floor instead: `tick()` returns this longer interval but `CircleSyncWorker`'s period is fixed, so the backoff has nothing to act on |
-| Circle arrival notification | Seconds, event-driven | Foregrounded: the live relay `place_event` frame. Backgrounded: a content-free FCM wake-ping (previously: nothing until the app was next opened). Not a poll — see [PUSH.md](PUSH.md) |
+| Circle arrival notification | Seconds, event-driven | Foregrounded: the live relay `place_event` frame. Backgrounded: a content-free FCM wake-ping replacing Android's always-on `CircleNotifyService` and iOS's foreground-only catch-up — backend in place, clients wired up in later stages. See [PUSH.md](PUSH.md) |
 
 Transport follows from that: a circle at minute cadence does not justify holding
 a socket open all day, so the low-cadence path is a plain `POST` of the latest
@@ -307,8 +308,8 @@ degrades gracefully when the phone has no connectivity.
 ## 11. What is not built
 
 - **Event data in the push, and a server-side mute.** A backgrounded circle
-  arrival is delivered by a content-free FCM wake-ping ([PUSH.md](PUSH.md)) —
-  device tokens and a vendor service exist now, but the message says only
+  arrival will be delivered by a content-free FCM wake-ping ([PUSH.md](PUSH.md));
+  the backend side is in place, and the message deliberately says only
   "something happened for user X". The server pushes to every accepted member;
   a muted device wakes, checks its local toggle, and stays silent.
 - **Voice** (§6.4).

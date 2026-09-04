@@ -1,19 +1,20 @@
 # Push: the circle wake-ping
 
-How a backgrounded phone finds out about a circle arrival, as built.
+How a backgrounded phone finds out about a circle arrival.
 
 Circles already deliver arrivals two ways: over the live relay socket while the
 app is foregrounded (§6.3 of [CIRCLES_AND_CONVOYS.md](CIRCLES_AND_CONVOYS.md)),
 and on a catch-up sweep the next time the app is opened. Between those two there
-was a hole. On Android it was filled by a foreground service holding the socket
-open all day — which meant a permanent "Watching your circles" notification for
-anyone signed in with one notify-enabled circle. On iOS it was not filled at
-all: a circle arrival simply did not surface until the app was next opened.
+is a hole. On Android it is filled by `CircleNotifyService`, a foreground
+service that holds the socket open all day — which means a permanent "Watching
+your circles for arrivals and departures" notification for anyone signed in with
+one notify-enabled circle (issue #142). On iOS it is not filled at all: a circle
+arrival does not surface until the app is next opened.
 
-This document covers the transport that closes that hole: a content-free FCM
+This document covers the transport that replaces both: a content-free FCM
 wake-ping. The backend half ships first and dark — no client registers a token
-yet — so nothing in the app changes until the Android and iOS stages land. The
-design and rollout are in
+yet — so nothing in the app changes until the Android and iOS stages land, and
+`CircleNotifyService` is not removed until then. The design and rollout are in
 [the spec](superpowers/specs/2026-09-04-circle-push-wake-design.md).
 
 ---
@@ -152,17 +153,18 @@ Environment-variable form, as everywhere else in the backend:
 
 ## 6. The Firebase project
 
-One project, id `detour-1229f`, with the Cloud Messaging API (v1) enabled.
+One project, id `detour-1229f`, with the Cloud Messaging API (v1) enabled. The
+setup it needs, per the spec's human-only steps:
 
-- Android and iOS apps are registered in it for `io.github.maxke24.detour` and
-  its two suffixed applicationIds, `io.github.maxke24.detour.debug` and
+- Android and iOS apps registered in it for `io.github.maxke24.detour` and its
+  two suffixed applicationIds, `io.github.maxke24.detour.debug` and
   `io.github.maxke24.detour.automotive`.
-- An APNs auth key (`.p8`, plus its Key ID and Team ID) is uploaded to the
-  console under Cloud Messaging → Apple app configuration. That is what lets
-  Firebase relay to APNs.
-- The backend needs only a service-account key (Project Settings → Service
-  accounts), placed at `Notifications:FirebaseCredentialsPath`. The container
-  image build does not need it.
+- An APNs auth key (`.p8`, plus its Key ID and Team ID) uploaded to the console
+  under Cloud Messaging → Apple app configuration — that is what lets Firebase
+  relay to APNs. Gates the iOS stage only.
+- A service-account key (Project Settings → Service accounts) placed at
+  `Notifications:FirebaseCredentialsPath` on the box. That is all the backend
+  needs; the container image build does not need it.
 
 ## 7. The iOS Notification Service Extension
 
