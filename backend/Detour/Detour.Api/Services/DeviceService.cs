@@ -19,20 +19,15 @@ public class DeviceService(IDeviceTokenRepository tokens) : IDeviceService
         if (parsedPlatform is null)
             return Result.Error(ValidationKeys.DeviceToken.PlatformInvalid);
 
-        var existing = await tokens.GetByTokenAsync(token.Trim(), cancellationToken);
-        if (existing is not null)
-        {
-            existing.Refresh(userId, parsedPlatform);
-            await tokens.FlushChangesAsync(cancellationToken);
-            return Result.Ok();
-        }
-
+        // Create() only validates and trims here - the object itself is
+        // discarded in favour of UpsertAsync's atomic insert-or-reassign,
+        // which is what closes the race a read-then-write had against the
+        // unique index on token (#149).
         var created = DeviceToken.Create(userId, token, parsedPlatform);
         if (created.IsFailure)
             return Result.Error(created.ValidationMessages);
 
-        await tokens.SaveAsync(created.Value, cancellationToken);
-        await tokens.FlushChangesAsync(cancellationToken);
+        await tokens.UpsertAsync(userId, created.Value.Token, parsedPlatform, cancellationToken);
         return Result.Ok();
     }
 
