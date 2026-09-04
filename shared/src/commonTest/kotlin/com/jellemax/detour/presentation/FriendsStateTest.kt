@@ -56,6 +56,23 @@ class FriendsStateTest {
         assertEquals(false, board.rows.first { it.username == "ada" }.isMe)
     }
 
+    @Test fun rowsHoldOnlyTheOwnRowWhenThereAreNoFriends() {
+        // Regression case: FriendsScreen's empty-state gate must read "no
+        // friends" (rows.none { !it.isMe }), not "no rows" (rows.isEmpty()).
+        // `own` alone always keeps `rows` non-empty for any signed-in rider,
+        // friends or not, so the latter predicate never fires and the "No
+        // friends yet" nudge — the app's only copy of the privacy promise —
+        // was unreachable. See FriendsScreen.kt's leaderboard gate.
+        val board = friendsBoardStateFrom(
+            leaderboard = emptyList(),
+            own = friend("me", "mika", distanceMeters = 10_000.0),
+            lists = lists(),
+        )
+        assertEquals(1, board.rows.size)
+        assertEquals(true, board.rows.single().isMe)
+        assertEquals(true, board.rows.none { !it.isMe })
+    }
+
     @Test fun tiedDistancesBreakByUsernameCaseInsensitively() {
         // Same distance, different names — order must not depend on the
         // server's response order, or the board would jump on every refresh

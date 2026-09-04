@@ -313,7 +313,11 @@ private fun FriendsSection(username: String) {
 
     Text("Leaderboard", style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary)
-    if (board.rows.isEmpty()) {
+    // Gated on "no friends", not "no rows" — `own` keeps `rows` non-empty for
+    // any signed-in rider regardless of whether they have friends, so
+    // `board.rows.isEmpty()` here was unreachable in practice (see
+    // FriendsStateTest.rowsHoldOnlyTheOwnRowWhenThereAreNoFriends).
+    if (board.rows.none { !it.isMe }) {
         Text(
             "No friends yet. Add one — you'll see their totals, never their routes.",
             style = MaterialTheme.typography.bodySmall,
