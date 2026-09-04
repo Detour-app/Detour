@@ -48,6 +48,16 @@ object UpdateDownloader {
      *
      * [onProgress] receives 0f..1f, or -1f when the server sends no length.
      * Blocking: call from `Dispatchers.IO`.
+     *
+     * Streams to a `.part` name and renames to [update]'s final asset name
+     * only after [verify] passes. `prune` deletes by name and can run
+     * concurrently from a background check; without this, a check running
+     * mid-stream can unlink the file the downloader still has open (silent on
+     * Linux) while the digest it's accumulating is unaffected — verify()
+     * passes, and the caller publishes `Downloaded` for a path that's already
+     * gone (#166). A `.part` name is never a `prune` keep-name, so prune can
+     * still delete it mid-stream, but then the rename below fails cleanly
+     * instead of a ghost success reaching the rider.
      */
     fun download(
         context: Context,
@@ -59,6 +69,7 @@ object UpdateDownloader {
             Log.w("DetourUpdate", "refusing download from ${url.host}")
             return null
         }
+        val part = File(dir(context), "${update.asset}.part")
         val target = File(dir(context), update.asset)
         val digest = MessageDigest.getInstance("SHA-256")
         var connection: HttpURLConnection? = null
@@ -92,7 +103,7 @@ object UpdateDownloader {
             val total = connection.contentLengthLong
             var read = 0L
             connection.inputStream.use { input ->
-                target.outputStream().use { output ->
+                part.outputStream().use { output ->
                     val buf = ByteArray(64 * 1024)
                     while (true) {
                         val n = input.read(buf)
@@ -104,14 +115,24 @@ object UpdateDownloader {
                     }
                 }
             }
-            if (!verify(target, digest, update, read)) {
-                target.delete()
+            if (!verify(part, digest, update, read)) {
+                part.delete()
+                return null
+            }
+            if (!part.renameTo(target)) {
+                // part is gone (pruned mid-stream) or target already exists
+                // from a concurrent download of the same asset. Either way,
+                // there is nothing installable at a name the rider was
+                // promised — fail rather than publish a path that doesn't
+                // resolve to the verified bytes.
+                Log.w("DetourUpdate", "rename to final name failed")
+                part.delete()
                 return null
             }
             target
         } catch (e: Exception) {
             Log.w("DetourUpdate", "download failed", e)
-            target.delete()
+            part.delete()
             null
         } finally {
             connection?.disconnect()
