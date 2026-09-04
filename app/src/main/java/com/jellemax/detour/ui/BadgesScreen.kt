@@ -1,111 +1,83 @@
 package com.jellemax.detour.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Flag
-import androidx.compose.material.icons.outlined.LocationCity
-import androidx.compose.material.icons.outlined.Map
-import androidx.compose.material.icons.outlined.Route
-import androidx.compose.material.icons.outlined.Speed
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.MilitaryTech
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.jellemax.detour.data.BadgeKind
-import com.jellemax.detour.data.BadgeState
-import com.jellemax.detour.data.BadgeStore
-import com.jellemax.detour.data.Coverage
-import com.jellemax.detour.data.RiderStats
-import com.jellemax.detour.data.RiderTotals
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.presentation.BadgesPresenter
+import com.jellemax.detour.presentation.BadgesState
+import com.jellemax.detour.presentation.BadgeTile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-
-private val BadgeKind.icon: ImageVector
-    get() = when (this) {
-        BadgeKind.DISTANCE -> Icons.Outlined.Route
-        BadgeKind.TOP_SPEED -> Icons.Outlined.Speed
-        BadgeKind.TRIP_DISTANCE -> Icons.Outlined.Flag
-        BadgeKind.MUNICIPALITY -> Icons.Outlined.LocationCity
-        BadgeKind.COVERAGE -> Icons.Outlined.Map
-    }
-
-/** Formats a badge value in the unit its threshold is expressed in. */
-private fun BadgeKind.format(value: Double): String = when (this) {
-    BadgeKind.DISTANCE, BadgeKind.TRIP_DISTANCE -> "%,.0f km".format(value / 1000)
-    BadgeKind.TOP_SPEED -> "%.0f km/h".format(value)
-    BadgeKind.MUNICIPALITY -> "%.0f".format(value)
-    BadgeKind.COVERAGE -> "%.0f%%".format(value)
-}
-
-private data class ScreenData(
-    val states: List<BadgeState>,
-    val coverage: List<Coverage.Entry>,
-    val stats: RiderStats,
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BadgesScreen(onBack: () -> Unit, onOpenCoverageMap: () -> Unit) {
-    val context = LocalContext.current
-    // Coverage walks every trace point against every boundary, but caches the
-    // result — keep the first call off the main thread and off the
-    // composition's hot path; later calls just read the cache.
-    val data by produceState<ScreenData?>(initialValue = null) {
-        value = withContext(Dispatchers.IO) {
-            val coverage = Coverage.compute()
-            val stats = BadgeStore.stats(coverage)
-            ScreenData(BadgeStore.refresh(stats).states, coverage, stats)
-        }
-        // See HubScreen: the stale-record fold happens after the rider has
-        // their numbers, not in front of them.
-        withContext(Dispatchers.IO) { RiderTotals.refreshIfStale() }
-    }
+    val presenter = remember { BadgesPresenter() }
+    val state by presenter.state.collectAsStateWithLifecycle()
+    // BadgesPresenter.refresh() is `suspend` but never actually suspends — it
+    // blocks on disk internally (a Coverage walk plus BadgeStore's fold), so
+    // this hop to Dispatchers.IO is what keeps that off the main thread.
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { presenter.refresh() } }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = { SubScreenTopBar("Badges", onBack, scrollBehavior) },
+        topBar = {
+            SubScreenTopBar(
+                "Badges", onBack, scrollBehavior,
+                actions = {
+                    Text(
+                        state.earnedFractionLabel,
+                        style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(end = 16.dp),
+                    )
+                },
+            )
+        },
     ) { padding ->
-        val loaded = data
-        if (loaded == null) {
+        if (!state.loaded) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -119,224 +91,144 @@ fun BadgesScreen(onBack: () -> Unit, onOpenCoverageMap: () -> Unit) {
             Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(start = 16.dp, top = 6.dp, end = 16.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            item { SummaryCard(loaded.stats, loaded.states.count { it.earned }) }
+            item { CoverageSummaryCard(state, onOpenCoverageMap) }
 
-            // Badges first: they're the compact, scannable summary this screen
-            // opens for. Coverage (a whole map's worth of municipality rows)
-            // is the deep-dive content, so it goes after — not the first
-            // thing between the summary card and the badges you came to check.
-            for (kind in BadgeKind.entries) {
-                val states = loaded.states.filter { it.def.kind == kind }
-                if (states.isEmpty()) continue
-                item { SectionHeader(kind.label) }
-                // LazyVerticalGrid inside a LazyColumn nests badly (both want to
-                // scroll); chunking into rows of 3 keeps everything in one list.
-                for (row in states.chunked(3)) {
+            for (group in state.groups) {
+                item { SectionLabel(group.label) }
+                for (row in group.tiles.chunked(3)) {
                     item {
                         Row(
                             Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            row.forEach { state ->
-                                BadgeCell(state, Modifier.weight(1f))
-                            }
+                            row.forEach { tile -> BadgeTileCell(tile, Modifier.weight(1f)) }
                             repeat(3 - row.size) { Box(Modifier.weight(1f)) }
                         }
                     }
                 }
             }
-
-            item {
-                // Coverage's own header, not SectionHeader: this is the one
-                // section with somewhere else to go — the full conquest map.
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp, bottom = 2.dp, start = 4.dp, end = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "Coverage",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    if (loaded.coverage.isNotEmpty()) {
-                        TextButton(onClick = onOpenCoverageMap) {
-                            Icon(Icons.Outlined.Map, contentDescription = null, Modifier.size(18.dp))
-                            Spacer(Modifier.size(4.dp))
-                            Text("Map")
-                        }
-                    }
-                }
-            }
-            if (loaded.coverage.isEmpty()) {
-                item {
-                    Text(
-                        "Drive somewhere and Detour will look up which " +
-                            "municipality you were in, then track how much of it " +
-                            "you've covered.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 4.dp),
-                    )
-                }
-            } else {
-                items(loaded.coverage.size) { i -> CoverageRow(loaded.coverage[i]) }
-            }
         }
     }
 }
 
+/** Tappable summary of municipality coverage, opening the full conquest map.
+ *  Same bordered-card idiom as [HubScreen]'s guest card: [ListCard] with a
+ *  primary-tinted border standing in for the prototype's amber one. */
 @Composable
-private fun SummaryCard(stats: RiderStats, earnedCount: Int) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-        ),
+private fun CoverageSummaryCard(state: BadgesState, onOpenCoverageMap: () -> Unit) {
+    ListCard(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(onClick = onOpenCoverageMap),
+        borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
     ) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            SummaryStat("Badges", "$earnedCount / ${BadgeStore.ALL.size}")
-            SummaryStat("Total", "%,.0f km".format(stats.totalDistanceMeters / 1000))
-            SummaryStat("Rides", "${stats.tripCount}")
-            SummaryStat("Places", "${stats.municipalitiesVisited}")
-        }
-    }
-}
-
-@Composable
-private fun SummaryStat(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
-private fun SectionHeader(title: String) {
-    Text(
-        title,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 12.dp, bottom = 2.dp, start = 4.dp),
-    )
-}
-
-@Composable
-private fun CoverageRow(entry: Coverage.Entry) {
-    Card {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(entry.name, style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold)
-                Text("%.1f%%".format(entry.percent),
-                    style = MaterialTheme.typography.bodyLarge)
-            }
-            LinearProgressIndicator(
-                progress = { (entry.percent / 100.0).toFloat() },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Text(
-                "${entry.exploredCells} of ${entry.totalCells} areas explored",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-/** One badge in the 3-column grid: a 44dp medal (gold radial gradient once
- *  earned, a progress arc around a dimmed icon while locked) plus a two-line
- *  caption. Replaces the old full-width row — three per screen instead of one
- *  is what makes a whole badge kind scannable without scrolling past it. */
-@Composable
-private fun BadgeCell(state: BadgeState, modifier: Modifier = Modifier) {
-    val kind = state.def.kind
-    Column(
-        modifier.padding(vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Medal(kind.icon, state.earned, state.progress)
-        Text(
-            state.def.title,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-            fontWeight = if (state.earned) FontWeight.Bold else FontWeight.Normal,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-        )
-        Text(
-            if (state.earned) "Earned ${formatDate(state.earnedAtMs!!)}"
-            else "${kind.format(state.value)} / ${kind.format(state.def.threshold)}",
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-            color = if (state.earned) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-        )
-    }
-}
-
-@Composable
-private fun Medal(icon: ImageVector, earned: Boolean, progress: Float, modifier: Modifier = Modifier) {
-    Box(modifier.size(44.dp), contentAlignment = Alignment.Center) {
-        if (earned) {
-            val primary = MaterialTheme.colorScheme.primary
-            val primaryContainer = MaterialTheme.colorScheme.primaryContainer
             Box(
                 Modifier
-                    .fillMaxSize()
+                    .size(44.dp)
                     .clip(CircleShape)
-                    .background(Brush.radialGradient(listOf(primaryContainer, primary))),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(icon, contentDescription = null,
-                    Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
-            }
-        } else {
-            val trackColor = MaterialTheme.colorScheme.outlineVariant
-            val progressColor = MaterialTheme.colorScheme.primary
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    icon, contentDescription = null,
-                    Modifier.size(20.dp).alpha(0.4f),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    Icons.Rounded.Map, contentDescription = null,
+                    Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary,
                 )
             }
-            Canvas(Modifier.fillMaxSize()) {
-                val stroke = 3.dp.toPx()
-                drawArc(
-                    trackColor, startAngle = -90f, sweepAngle = 360f, useCenter = false,
-                    topLeft = Offset(stroke / 2, stroke / 2),
-                    size = Size(size.width - stroke, size.height - stroke),
-                    style = Stroke(width = stroke),
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    "Coverage · ${state.coverageSummaryLabel}",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
+                    fontWeight = FontWeight.SemiBold,
                 )
-                drawArc(
-                    progressColor, startAngle = -90f, sweepAngle = 360f * progress.coerceIn(0f, 1f),
-                    useCenter = false,
-                    topLeft = Offset(stroke / 2, stroke / 2),
-                    size = Size(size.width - stroke, size.height - stroke),
-                    style = Stroke(width = stroke),
-                )
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(state.coverageFraction)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                }
             }
+            Icon(
+                Icons.Rounded.ChevronRight, contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
+    }
+}
+
+/** A badge kind's section label — small caps, tracked out. */
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, letterSpacing = 1.sp),
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    )
+}
+
+/** One tile in the 3-across grid. The prototype labels each tile BRONZE /
+ *  SILVER / GOLD; this app's badges carry no tier field (a kind can have
+ *  anywhere from three to six tiers), so the badge's own [BadgeTile.title]
+ *  ("First hundred", "Long hauler", ...) renders in that slot instead — real
+ *  data beats an invented tier name. */
+@Composable
+private fun BadgeTileCell(tile: BadgeTile, modifier: Modifier = Modifier) {
+    val borderColor = if (tile.earned) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+    } else {
+        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+    }
+    Column(
+        // alpha first so it wraps everything after it — background, border,
+        // and content alike — instead of dimming only the content and
+        // leaving the border and fill at full opacity.
+        modifier
+            .alpha(if (tile.earned) 1f else 0.5f)
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .border(1.dp, borderColor, RoundedCornerShape(18.dp))
+            .padding(top = 14.dp, bottom = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Icon(
+            if (tile.earned) Icons.Rounded.MilitaryTech else Icons.Rounded.Lock,
+            contentDescription = null,
+            Modifier.size(26.dp),
+            tint = if (tile.earned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            tile.thresholdLabel,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            tile.title,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, letterSpacing = 0.5.sp),
+            fontWeight = FontWeight.Bold,
+            color = if (tile.earned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+        )
     }
 }
