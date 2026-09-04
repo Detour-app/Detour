@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Login
-import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Diversity3
@@ -120,7 +119,7 @@ fun HubScreen(
                         .padding(end = 16.dp)
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
                         .clickable(onClick = onOpenSettings),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -520,7 +519,7 @@ fun HubRow(
                 }
             }
             Icon(
-                Icons.Outlined.ChevronRight, contentDescription = null,
+                Icons.Rounded.ChevronRight, contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
