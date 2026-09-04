@@ -2,12 +2,34 @@ package com.jellemax.detour.update
 
 import android.content.Context
 import com.jellemax.detour.BuildConfig
+import com.jellemax.detour.data.ManualCheckBudget
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.UpdateClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+
+/**
+ * What the rider's own check last concluded, for the Settings row to render.
+ *
+ * Separate from [UpdateStatus], which describes the update itself and is shared
+ * with the banner. This describes the *check* — including the two states the
+ * banner has no way to show, a check that failed and a check that was refused.
+ */
+sealed interface ManualCheck {
+    data object Idle : ManualCheck
+    data object Running : ManualCheck
+    data object UpToDate : ManualCheck
+    data class Found(val version: String) : ManualCheck
+    /** The check did not reach GitHub. Deliberately carries no detail: the
+     *  throwable comes from an HTTP client and can hold hostnames, headers and
+     *  paths that have no business on a rider's screen. */
+    data object Failed : ManualCheck
+    data class RateLimited(val retryAtMs: Long) : ManualCheck
+}
 
 /**
  * The update check in one place, with the throttle and the notification as the
@@ -28,6 +50,22 @@ object UpdateChecker {
      *  one does not — is what `ConvoysStore.refreshGate` and `Auth.refreshLock`
      *  stay bare for. */
     private val gate = Mutex()
+
+    /** Guards [budget] alone. Separate from [gate] because the token is spent
+     *  *before* the check is queued — a tap that arrives during an automatic
+     *  check still costs a token, and still gets its own answer. */
+    private val budgetGate = Mutex()
+    private var budget = ManualCheckBudget()
+
+    private val _manual = MutableStateFlow<ManualCheck>(ManualCheck.Idle)
+
+    /**
+     * The rider's own check. Held on the object rather than in the composition
+     * for the same reason [UpdateState] is: Settings is disposed the moment the
+     * rider opens a spoke, and an answer that vanished on the way to the next
+     * screen is not an answer.
+     */
+    val manual: StateFlow<ManualCheck> = _manual
 
     /**
      * What one run concluded.
@@ -56,6 +94,42 @@ object UpdateChecker {
         // otherwise retry on every foreground.
         Settings.setLastUpdateCheckMs(now)
         gate.withLock { performCheck(context, repo, notify = true) }
+    }
+
+    /**
+     * The rider asked. No throttle, and the outcome is reported rather than
+     * swallowed — including the failure [automaticCheck] is deliberately silent
+     * about.
+     */
+    suspend fun manualCheck(context: Context) {
+        val repo = BuildConfig.UPDATE_REPO
+        if (repo.isBlank()) return
+        val now = System.currentTimeMillis()
+        val spend = budgetGate.withLock {
+            val s = budget.spend(now)
+            if (s is ManualCheckBudget.Spend.Granted) budget = s.budget
+            s
+        }
+        if (spend is ManualCheckBudget.Spend.Denied) {
+            _manual.value = ManualCheck.RateLimited(spend.retryAtMs)
+            return
+        }
+        _manual.value = ManualCheck.Running
+        // withLock, not tryLock. Skipping the request when a check is already
+        // running would strand this on Running forever, because the automatic
+        // path publishes nothing here and so nothing would ever resolve the
+        // state the rider is looking at. Waiting costs at worst one duplicate
+        // request inside a window of a few hundred milliseconds.
+        val outcome = gate.withLock { performCheck(context, repo, notify = false) }
+        // Stamped only when the request came back. A failed manual check must
+        // leave the automatic path free to run — burning the hour on a check
+        // that never happened is the bug this whole feature exists to fix.
+        if (outcome != Outcome.Failed) Settings.setLastUpdateCheckMs(now)
+        _manual.value = when (outcome) {
+            is Outcome.Found -> ManualCheck.Found(outcome.version)
+            Outcome.UpToDate -> ManualCheck.UpToDate
+            Outcome.Failed -> ManualCheck.Failed
+        }
     }
 
     /**
