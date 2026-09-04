@@ -247,9 +247,12 @@ private fun AddPlaceDialog(
     var picked by remember { mutableStateOf<GeocodeResult?>(null) }
     var searching by remember { mutableStateOf(false) }
 
-    // Debounced live search, same shape as the map's search dialog.
+    // Debounced live search, same shape as the map's search dialog. Picking a
+    // result sets `query = picked.name`, which re-keys this effect — only
+    // clear `picked` when the query no longer matches what was picked, so
+    // that self-triggered restart doesn't null out the just-made selection.
     LaunchedEffect(query) {
-        picked = null
+        if (query != picked?.name) picked = null
         if (query.length < 3) { results = emptyList(); return@LaunchedEffect }
         delay(400)
         searching = true
