@@ -252,6 +252,7 @@ private fun AddPlaceDialog(
     // that self-triggered restart doesn't null out the just-made selection.
     LaunchedEffect(query) {
         if (query != picked?.name) picked = null
+        if (query == picked?.name) return@LaunchedEffect
         if (query.length < 3) { results = emptyList(); return@LaunchedEffect }
         delay(400)
         searching = true
