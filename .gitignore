@@ -73,3 +73,6 @@ GoogleService-Info.plist
 # purged from history. Record the observation in the baseline README instead.
 tools/mocklocation/baseline/*.png
 tools/mocklocation/baseline/*.log
+
+# Git worktrees for subagent-driven execution
+.worktrees/
