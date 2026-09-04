@@ -23,14 +23,19 @@ data class RoutesState(
 )
 
 /**
- * "214 km · 5 stops". [distanceMeters] is null until a route has been routed at
- * least once (an imported file may carry only waypoints), in which case the
- * distance half is dropped rather than shown as zero.
+ * "214 km · 5 stops · 25 min". [distanceMeters] and [timeMs] are both null
+ * until a route has been routed at least once (an imported file may carry
+ * only waypoints); whichever is missing is dropped rather than shown as
+ * zero, so the parts compose cleanly with no stray separator either way.
  */
-fun routeSubtitle(distanceMeters: Double?, stopCount: Int): String {
+fun routeSubtitle(distanceMeters: Double?, stopCount: Int, timeMs: Long? = null): String {
     val stops = "$stopCount ${if (stopCount == 1) "stop" else "stops"}"
-    if (distanceMeters == null) return stops
-    return "${groupThousands((distanceMeters / 1000.0).toLong())} km · $stops"
+    val parts = buildList {
+        distanceMeters?.let { add("${groupThousands((it / 1000.0).toLong())} km") }
+        add(stops)
+        timeMs?.let { add(formatDurationHistory(it)) }
+    }
+    return parts.joinToString(" · ")
 }
 
 /**
@@ -85,7 +90,7 @@ fun routesStateFrom(routes: List<SavedRoute>): RoutesState = RoutesState(
         RouteCard(
             id = r.id,
             name = r.name,
-            subtitle = routeSubtitle(r.distanceMeters, r.stops.size),
+            subtitle = routeSubtitle(r.distanceMeters, r.stops.size, r.timeMs),
             sharedBy = r.sharedBy,
             polyline = r.polyline,
         )

@@ -32,6 +32,34 @@ class RoutesStateTest {
         assertEquals("3 stops", routeSubtitle(distanceMeters = null, stopCount = 3))
     }
 
+    @Test fun aRoutedRouteAppendsItsDuration() {
+        assertEquals(
+            "214 km · 5 stops · 25 min",
+            routeSubtitle(distanceMeters = 214_000.0, stopCount = 5, timeMs = 25 * 60_000L),
+        )
+    }
+
+    @Test fun anHourOrMoreSpellsOutHoursAndMinutes() {
+        assertEquals(
+            "214 km · 5 stops · 1 h 12 min",
+            routeSubtitle(distanceMeters = 214_000.0, stopCount = 5, timeMs = 72 * 60_000L),
+        )
+    }
+
+    @Test fun aMissingDurationLeavesNoStraySeparator() {
+        assertEquals(
+            "214 km · 5 stops",
+            routeSubtitle(distanceMeters = 214_000.0, stopCount = 5, timeMs = null),
+        )
+    }
+
+    @Test fun aMissingDistanceWithADurationStillComposesCleanly() {
+        assertEquals(
+            "5 stops · 25 min",
+            routeSubtitle(distanceMeters = null, stopCount = 5, timeMs = 25 * 60_000L),
+        )
+    }
+
     @Test fun thumbnailPointsSpanTheBoxMinusItsPadding() {
         val line = listOf(LatLon(50.0, 5.0), LatLon(51.0, 6.0))
         val pts = thumbnailPoints(line, width = 100.0, height = 50.0, padding = 10.0)

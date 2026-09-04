@@ -42,3 +42,16 @@ internal fun formatFixed(value: Double, decimals: Int): String {
     val frac = (scaled % factor).toString().padStart(decimals, '0')
     return "$sign$whole.$frac"
 }
+
+/**
+ * "25 min" under an hour, "1 h 12 min" at or past it — same wording as the
+ * Android-side `formatDurationHistory` (app/.../ui/Format.kt), which riders
+ * already know from trip history, mirrored here without its `"%d h %d min"`
+ * (commonMain has no `String.format`).
+ */
+internal fun formatDurationHistory(ms: Long): String {
+    val totalMinutes = ms / 60_000
+    val h = totalMinutes / 60
+    val m = totalMinutes % 60
+    return if (h > 0) "$h h $m min" else "$m min"
+}

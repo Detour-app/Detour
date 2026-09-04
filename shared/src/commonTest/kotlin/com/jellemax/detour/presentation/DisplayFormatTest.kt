@@ -51,4 +51,24 @@ class DisplayFormatTest {
     @Test fun aValueRoundingToZeroIsNotSignedNegativeZero() {
         assertEquals("0.0", formatFixed(-0.01, 1))
     }
+
+    @Test fun durationsUnderAnHourShowMinutesOnly() {
+        assertEquals("25 min", formatDurationHistory(25 * 60_000L))
+    }
+
+    @Test fun durationsUnderAMinuteShowZeroMinutes() {
+        assertEquals("0 min", formatDurationHistory(30_000L))
+    }
+
+    @Test fun anExactHourShowsZeroMinutesAfterTheHour() {
+        assertEquals("1 h 0 min", formatDurationHistory(60 * 60_000L))
+    }
+
+    @Test fun durationsOverAnHourShowHoursAndMinutes() {
+        assertEquals("1 h 12 min", formatDurationHistory(72 * 60_000L))
+    }
+
+    @Test fun zeroDurationShowsZeroMinutes() {
+        assertEquals("0 min", formatDurationHistory(0L))
+    }
 }
