@@ -55,6 +55,18 @@ DerivedData/
 docker/*/.env
 !*.env.example
 
+# Firebase / FCM credentials — never commit any of these.
+# - the Admin SDK service-account key grants FCM send access for the whole project
+# - google-services.json / GoogleService-Info.plist carry the API keys and app ids
+# Versioned stand-ins (*.example) document the shape instead.
+*-firebase-adminsdk-*.json
+google-services.json
+google-services_*.json
+app/google-services.json
+app/src/*/google-services.json
+GoogleService-Info.plist
+!*.example
+
 # Replay baselines: keep the .tsv extracts, never the raw capture. A screenshot
 # or a 400k-line logcat cannot be diffed, goes stale the moment the route file
 # it was captured against changes, and cost 9.6 MB of this repo before being
