@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -26,10 +25,12 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Stop
+import androidx.compose.material.icons.rounded.Check as AcceptIcon
+import androidx.compose.material.icons.rounded.Close as DeclineIcon
+import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -64,16 +65,16 @@ import com.jellemax.detour.convoy.ConvoyLiveService
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.Features
-import com.jellemax.detour.data.FriendStats
 import com.jellemax.detour.data.Friends
 import com.jellemax.detour.data.FriendsStore
 import com.jellemax.detour.data.Group
 import com.jellemax.detour.data.Groups
-import com.jellemax.detour.data.RiderRef
-import com.jellemax.detour.data.RiderStats
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.net.ConvoyLiveClient
+import com.jellemax.detour.presentation.FriendsPresenter
+import com.jellemax.detour.presentation.LeaderboardRow
+import com.jellemax.detour.presentation.friendsBoardStateFrom
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -81,7 +82,6 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FriendsScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
     val username by Account.username.collectAsStateWithLifecycle()
     var addOpen by remember { mutableStateOf(false) }
 
@@ -100,7 +100,26 @@ fun FriendsScreen(onBack: () -> Unit) {
             SubScreenTopBar(
                 if (username.isBlank()) "Account" else "Friends",
                 onBack, scrollBehavior,
-            )
+            ) {
+                // Only offered once signed in — the dialog it opens calls
+                // Friends.request, which needs a session.
+                if (username.isNotBlank()) {
+                    IconButton(
+                        onClick = { addOpen = true },
+                        modifier = Modifier.padding(end = 8.dp),
+                    ) {
+                        Box(
+                            Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Rounded.PersonAdd, contentDescription = "Add a friend")
+                        }
+                    }
+                }
+            }
         },
     ) { padding ->
         Column(
@@ -111,19 +130,25 @@ fun FriendsScreen(onBack: () -> Unit) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (!SyncClient.configured()) {
-                Text(
+            when {
+                !SyncClient.configured() -> Text(
                     "No sync server configured. Set one in Settings first — " +
                         "friends live on your own server.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                return@Column
-            }
-            if (username.isBlank()) {
-                SignInSection()
-            } else {
-                FriendsSection(username, onAddFriend = { addOpen = true })
-                ConvoysSection()
+                username.isBlank() -> SignInSection()
+                else -> {
+                    FriendsSection(username)
+                    // Convoys: deliberately untouched. Out of scope for this
+                    // whole redesign effort (spec §2/§5/§9) — it drives an
+                    // Android-only WebSocket singleton (ConvoyLiveClient), a
+                    // foreground service and a RECORD_AUDIO permission flow
+                    // that have nowhere to go in a shared presenter, and the
+                    // prototype has its own convoy screens this batch does
+                    // not build. Left rendered as-is below; awaits its own
+                    // effort.
+                    ConvoysSection()
+                }
             }
         }
     }
@@ -217,251 +242,194 @@ private fun SignInSection() {
     )
 }
 
+/**
+ * The friend list and leaderboard, once signed in. No local sign-out button
+ * here any more — [ProfileScreen] already owns sign-out (and already stops
+ * [ConvoyLiveService] first, same ordering FriendsScreen used to duplicate),
+ * and the prototype's own `isFriends.html` doesn't show one either. Signing
+ * IN is unaffected: [SignInSection] above is untouched.
+ */
 @Composable
-private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
-    val context = LocalContext.current
+private fun FriendsSection(username: String) {
     val scope = rememberCoroutineScope()
-    val state by FriendsStore.state.collectAsStateWithLifecycle()
-    // Own identity, for refreshOwn below — separate from [username] because
-    // it resolves a beat later (a /me round trip after sign-in sets the
-    // token), and this effect must not miss that second arrival: see the key
-    // list below.
+    // Own identity, for the presenter's refresh below — separate from
+    // [username] because it resolves a beat later (a /me round trip after
+    // sign-in sets the token), and this effect must not miss that second
+    // arrival: see the key list on the LaunchedEffect below.
     val riderId by Account.riderId.collectAsStateWithLifecycle()
-    // Not in the store: signing out is Account's business, not the friend
-    // list's, so there is no store `busy` slot it could occupy. It still has to
-    // gate the request rows — a revoke POST on a slow connection used to leave
-    // Accept/Decline tappable, which is how you answer a friend request on your
-    // way out the door. The old code got this for free from one shared local.
-    var signingOut by remember { mutableStateOf(false) }
 
-    // Keyed on both: [username] arrives first (set synchronously with the
-    // session), [riderId] a beat later once /me answers (see Account.riderId's
-    // own doc). Keying on username alone would fire refreshOwn once, while
-    // riderId is still blank — its own guard would no-op that call, and
-    // nothing would ever ask again for the rest of this session. The repeat
-    // firing costs nothing: reloadIfStale is a no-op inside its freshness
-    // window, and refreshOwn's second attempt is the one that actually lands.
+    val presenter = remember { FriendsPresenter() }
+    // Keyed on both, same reasoning as the old refreshOwn call this replaces:
+    // [username] arrives first, [riderId] a beat later once /me answers.
+    // [FriendsPresenter.refresh] blocks on disk and CPU (its own doc is
+    // explicit: commonMain has no Dispatchers to hop off of), so the wrap
+    // below is mandatory, not stylistic — same contract as BadgesScreen/
+    // HubScreen/CoverageMapScreen.
     LaunchedEffect(username, riderId) {
-        // See CirclesScreen: re-entering within the freshness window shows the
-        // list it already has rather than re-fetching it.
-        FriendsStore.reloadIfStale()
-        // Coverage.compute() walks every trace point against every boundary;
-        // keep it off the main thread, same reasoning as BadgesScreen/
-        // HubScreen/CoverageMapScreen — see refreshOwn's own doc in
-        // FriendsStore.kt for the full contract.
-        withContext(Dispatchers.IO) { FriendsStore.refreshOwn(RiderRef(riderId, username)) }
+        withContext(Dispatchers.IO) { presenter.refresh() }
     }
+    val storeState by FriendsStore.state.collectAsStateWithLifecycle()
 
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-        ),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column {
-                Text("Signed in as", style = MaterialTheme.typography.labelSmall)
-                Text(username, style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold)
-            }
-            TextButton(
-                enabled = !signingOut,
-                onClick = {
-                    // A signed-out session must not keep broadcasting: leaves the
-                    // live socket with no valid identity behind it otherwise.
-                    ConvoyLiveService.stop(context)
-                    signingOut = true
-                    scope.launch {
-                        Account.signOut()
-                        signingOut = false
-                    }
-                },
-            ) {
-                Text("Sign out")
-            }
-        }
-    }
-
-    state.error?.let {
+    storeState.error?.let {
         Text(it, color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall)
     }
 
-    val loaded = state.lists
+    val loaded = storeState.lists
     if (loaded == null) {
         CircularProgressIndicator()
         return
     }
 
+    val board = remember(storeState, riderId, username) {
+        friendsBoardStateFrom(storeState.leaderboard, storeState.own, loaded)
+    }
+
     // Requests first — answering them is the one thing here that's actually
     // time-sensitive; the leaderboard just sits and waits to be looked at.
-    if (loaded.incoming.isNotEmpty()) {
+    if (board.incoming.isNotEmpty()) {
         Text("Requests", style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary)
-        for (rider in loaded.incoming) {
-            RequestRow(
-                name = rider.username,
-                busy = state.busy || signingOut,
-                onAccept = { scope.launch { FriendsStore.respond(rider.id, true) } },
-                onDecline = { scope.launch { FriendsStore.respond(rider.id, false) } },
-            )
+        ListCard {
+            board.incoming.forEachIndexed { i, rider ->
+                if (i > 0) CardDivider()
+                RequestRow(
+                    name = rider.username,
+                    busy = storeState.busy,
+                    onAccept = { scope.launch { FriendsStore.respond(rider.id, true) } },
+                    onDecline = { scope.launch { FriendsStore.respond(rider.id, false) } },
+                )
+            }
         }
     }
 
-    if (loaded.outgoing.isNotEmpty()) {
+    board.waitingOnLabel?.let {
         Text(
-            "Waiting on: ${loaded.outgoing.joinToString(", ") { it.username }}",
+            it,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("Leaderboard", style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary)
-        TextButton(onClick = onAddFriend) {
-            Icon(Icons.Outlined.Add, contentDescription = null, Modifier.size(18.dp))
-            Text("Add a friend")
-        }
-    }
-    if (state.leaderboard.isEmpty()) {
+    Text("Leaderboard", style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary)
+    if (board.rows.isEmpty()) {
         Text(
-            "No friends yet. Add one above — you'll see their totals, " +
-                "never their routes.",
+            "No friends yet. Add one — you'll see their totals, never their routes.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     } else {
-        // The own row arrives as its own typed field, so which row is "me" is known
-        // before the sort. Concatenating into a bare list and recovering it with a
-        // comparison afterwards is what #133 found here: information discarded and
-        // then guessed at. Carrying the flag is correct offline and cannot disagree.
-        val ranked = (
-            state.leaderboard.map { LeaderboardEntry(it, isMe = false) } +
-                listOfNotNull(state.own?.let { LeaderboardEntry(it, isMe = true) })
-            ).sortedByDescending { it.friend.stats.totalDistanceMeters }
-        ranked.forEachIndexed { i, entry ->
-            LeaderboardRow(rank = i + 1, friend = entry.friend, isMe = entry.isMe)
+        ListCard {
+            board.rows.forEachIndexed { i, row ->
+                if (i > 0) CardDivider()
+                LeaderboardRowItem(rank = i + 1, row = row)
+            }
         }
     }
 }
 
 @Composable
 private fun RequestRow(name: String, busy: Boolean, onAccept: () -> Unit, onDecline: () -> Unit) {
-    Card {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, top = 4.dp, bottom = 4.dp, end = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(name, style = MaterialTheme.typography.bodyLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                IconButton(
-                    enabled = !busy,
-                    onClick = onAccept,
-                    modifier = Modifier.size(30.dp),
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ),
-                ) { Icon(Icons.Outlined.Check, contentDescription = "Accept $name", Modifier.size(16.dp)) }
-                IconButton(
-                    enabled = !busy,
-                    onClick = onDecline,
-                    modifier = Modifier.size(30.dp),
-                ) { Icon(Icons.Outlined.Close, contentDescription = "Decline $name", Modifier.size(16.dp)) }
-            }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(name, style = MaterialTheme.typography.bodyLarge)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            IconButton(
+                enabled = !busy,
+                onClick = onAccept,
+                modifier = Modifier.size(30.dp),
+                colors = IconButtonDefaults.iconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ),
+            ) { Icon(Icons.Rounded.AcceptIcon, contentDescription = "Accept $name", Modifier.size(16.dp)) }
+            IconButton(
+                enabled = !busy,
+                onClick = onDecline,
+                modifier = Modifier.size(30.dp),
+            ) { Icon(Icons.Rounded.DeclineIcon, contentDescription = "Decline $name", Modifier.size(16.dp)) }
         }
     }
 }
 
-/** A leaderboard row and whether it is the signed-in rider's own, kept
- *  together through the sort. */
-private data class LeaderboardEntry(val friend: FriendStats, val isMe: Boolean)
-
-/** One leaderboard row: rank, initial avatar, name, trailing distance. The
- *  signed-in user's own row (synthesized by `FriendsStore.refreshOwn`) gets a
- *  primary outline and a tinted background so it's easy to find at a glance. */
+/**
+ * One leaderboard row: rank, initial avatar, name, trailing distance — all but
+ * the rank number arriving pre-formatted on [row] from [friendsBoardStateFrom].
+ * Named `Item` because [com.jellemax.detour.presentation.LeaderboardRow] — the
+ * data this renders — already owns the plain name one package over.
+ *
+ * The leader (rank 1) and the signed-in rider's own row both draw a primary
+ * outline on the avatar and a primary-tinted rank/distance; [LeaderboardRow.isMe]
+ * additionally tints the whole row's background, so "you" stays easy to find
+ * even when you're not in front.
+ */
 @Composable
-private fun LeaderboardRow(rank: Int, friend: FriendStats, isMe: Boolean) {
-    Card(
-        modifier = if (isMe) {
-            Modifier.border(
-                1.5.dp,
-                MaterialTheme.colorScheme.primary,
-                RoundedCornerShape(12.dp),
+private fun LeaderboardRowItem(rank: Int, row: LeaderboardRow) {
+    val highlight = row.isMe || rank == 1
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .then(
+                if (row.isMe) {
+                    Modifier.background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.18f))
+                } else Modifier
             )
-        } else Modifier,
-        colors = CardDefaults.cardColors(
-            containerColor = if (isMe) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-            } else MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
+        Text(
+            "$rank",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = if (highlight) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(22.dp),
+        )
+        Box(
             Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .then(
+                    if (highlight) {
+                        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                    } else Modifier
+                ),
+            contentAlignment = Alignment.Center,
         ) {
+            Text(row.avatarInitial, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        }
+        Column(Modifier.weight(1f)) {
             Text(
-                "$rank",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = if (rank == 1) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.width(20.dp),
-            )
-            Box(
-                Modifier
-                    .size(30.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    friend.rider.username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-            Column(Modifier.weight(1f)) {
-                Text(
-                    friend.rider.username + if (isMe) " (you)" else "",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    "${friend.stats.tripCount} rides · ${friend.badgeIds.size} badges",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Text(
-                "%,.0f km".format(friend.stats.totalDistanceMeters / 1000),
+                row.username + if (row.isMe) " (you)" else "",
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold,
+                fontWeight = if (row.isMe) FontWeight.Bold else FontWeight.Medium,
+            )
+            Text(
+                row.statsLine,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        Text(
+            row.distanceLabel,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Bold,
+            color = if (highlight) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 
 /** "Add a friend" moved behind the top bar's + — this dialog is the whole form. */
 @Composable
 private fun AddFriendDialog(onDismiss: () -> Unit) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -520,6 +488,9 @@ private fun AddFriendDialog(onDismiss: () -> Unit) {
  * [ConvoyLiveService] is actually running — it keeps running, and the map's
  * friend markers keep updating, even after this screen is closed, until
  * "Stop live" or leaving the convoy actually stops it.
+ *
+ * Deliberately untouched by the redesign — see the comment above its call
+ * site in [FriendsScreen] for why.
  */
 @Composable
 private fun ConvoysSection() {
