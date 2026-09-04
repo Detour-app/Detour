@@ -51,7 +51,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
@@ -428,8 +427,11 @@ private fun StatCell(value: String, label: String, modifier: Modifier = Modifier
 }
 
 /**
- * One destination row: icon tile, title + subtitle, trailing chevron. Shared
- * look with the Settings root's rows so Hub and Settings read as one system.
+ * One destination row: icon tile, title + subtitle, trailing chevron. Used
+ * to share a look with the Settings root's rows; that has drifted since this
+ * redesign — Settings still paints `Icons.Outlined.*` per-row cards, while
+ * these screens pass `Icons.Rounded.*` and group rows into one card — and
+ * stays drifted until Settings itself is rebuilt.
  *
  * [paintCard] defaults to true — every existing call site (Hub, Settings)
  * gets its own rounded [Card] exactly as before. Pass false to render just
@@ -445,7 +447,6 @@ fun HubRow(
     onClick: () -> Unit,
     subtitle: String? = null,
     trailingText: String? = null,
-    trailingColor: Color? = null,
     trailingCount: Int? = null,
     modifier: Modifier = Modifier,
     paintCard: Boolean = true,
@@ -484,7 +485,7 @@ fun HubRow(
                 Text(
                     trailingText,
                     style = MaterialTheme.typography.bodySmall,
-                    color = trailingColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (trailingCount != null && trailingCount > 0) {
@@ -510,9 +511,7 @@ fun HubRow(
     }
     if (paintCard) {
         Card(
-            modifier = modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp)),
+            modifier = modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainer,
