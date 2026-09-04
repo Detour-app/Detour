@@ -56,7 +56,22 @@ services:
       # like it came from the proxy, including to the rate limiter.
       ForwardedHeaders__KnownNetworks: ${FORWARDED_KNOWN_NETWORKS:-}
       ForwardedHeaders__KnownProxies: ${FORWARDED_KNOWN_PROXIES:-}
+      # Circle push wake-pings (FCM). Blank is a correct deployment: no push, and
+      # circles still deliver over the socket and the foreground sweep. To enable
+      # Android push, set FIREBASE_CREDENTIALS_PATH to the in-container path and
+      # FIREBASE_CREDENTIALS_HOST_PATH to the service-account JSON on the host (the
+      # mount below). Only the *backend's* service-account key goes here — never
+      # google-services.json, which is a client file baked into the APK. See
+      # docs/PUSH.md §5–6; iOS/APNs keys (Notifications__Apns*) go here too if used.
+      Notifications__FirebaseCredentialsPath: ${FIREBASE_CREDENTIALS_PATH:-}
       TZ: ${TZ:-Europe/Brussels}
+    volumes:
+      # The Firebase service-account key, read-only. Defaults to /dev/null so the
+      # container starts fine with push disabled — the env var above is then blank
+      # and the file is never read. Point FIREBASE_CREDENTIALS_HOST_PATH at the key
+      # on the host (and set FIREBASE_CREDENTIALS_PATH to the target below) to turn
+      # Android push on without rebuilding the image or committing a secret.
+      - ${FIREBASE_CREDENTIALS_HOST_PATH:-/dev/null}:/run/secrets/firebase-sa.json:ro
     depends_on:
       db:
         condition: service_healthy

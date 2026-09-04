@@ -206,6 +206,20 @@ public static class ValidationKeys
             ValidationKeyDefinition.Create($"{Base}.AccuracyOutOfRange");
     }
 
+    public static class DeviceToken
+    {
+        private const string Base = "DeviceToken";
+
+        public static readonly ValidationKeyDefinition TokenRequired =
+            ValidationKeyDefinition.Create($"{Base}.TokenRequired");
+
+        public static readonly ValidationKeyDefinition TokenInvalid =
+            ValidationKeyDefinition.Create($"{Base}.TokenInvalid");
+
+        public static readonly ValidationKeyDefinition PlatformInvalid =
+            ValidationKeyDefinition.Create($"{Base}.PlatformInvalid");
+    }
+
     public static class ApiKey
     {
         private const string Base = "ApiKey";

@@ -2,6 +2,7 @@ using Detour.Api.Authentication;
 using Detour.Api.Authorization;
 using Detour.Api.Configuration;
 using Detour.Api.Live;
+using Detour.Api.Notifications;
 using Detour.Api.Services;
 using Detour.Api.Translations;
 using Detour.Database;
@@ -79,6 +80,11 @@ public class Startup(IConfiguration configuration)
         // working when this cannot start — group management and the low-cadence REST position
         // path do not depend on it.
         services.AddLiveRelay();
+
+        // Content-free push wake-pings to circle members who are backgrounded when a
+        // place_event lands. Ships dark: with no FCM/APNs credentials configured both
+        // gateways no-op, and nothing else depends on it.
+        services.AddNotifications(configuration);
 
         services.AddRouting(options => options.LowercaseUrls = true);
         services.AddEndpointsApiExplorer();

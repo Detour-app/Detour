@@ -10,6 +10,8 @@
     <PackageVersion Include="Ardalis.SmartEnum.SystemTextJson" Version="8.1.0" />
     <PackageVersion Include="JV.ResultUtilities" Version="10.2.0" />
     <PackageVersion Include="Cronos" Version="0.8.4" />
+    <!-- FCM v1 bearer minting only (drops the FirebaseAdmin dependency); the send is a plain HttpClient POST. -->
+    <PackageVersion Include="Google.Apis.Auth" Version="1.76.0" />
   </ItemGroup>
 
   <!-- ASP.NET Core -->
