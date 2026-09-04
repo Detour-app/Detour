@@ -216,28 +216,11 @@ class CircleNotifyService : Service() {
     private fun displayNameFor(groupId: String, riderId: RiderId): String =
         circles.firstOrNull { it.id == groupId }?.members.orEmpty().handleFor(riderId)
 
-    private suspend fun catchUp(circleId: String) {
-        try {
-            val since = CircleEvents.lastSeenEventTsMs(circleId)
-            val events = CircleEvents.events(circleId, since)
-            if (events.isEmpty()) return
-            val plan = CircleNotifyPolicy.planCatchUp(events, Account.riderId.value, System.currentTimeMillis())
-            // Reversed: the plan is newest-first because that is how it
-            // picks which five survive, but this tray has no sort key
-            // (PlaceNotifications.show sets none), so it ranks by post time
-            // and the last one posted sits on top - see planCatchUp's doc.
-            plan.individual.asReversed().forEach {
-                PlaceNotifications.notify(this, circleId, it, displayNameFor(circleId, it.riderId))
-            }
-            if (plan.collapsedCount > 0) PlaceNotifications.notifySummary(this, circleId, plan.collapsedCount)
-            // Advance past everything returned, not just what got shown - a
-            // self-transition or a stale one still must not be re-fetched
-            // and re-considered on the next catch-up.
-            CircleEvents.setLastSeenEventTsMs(circleId, events.maxOf { it.tsMs })
-        } catch (e: Exception) {
-            // Offline or a server hiccup; retried on the next reconnect.
-        }
-    }
+    // The catch-up body is shared with the push wake path ([CircleCatchUp]) so the
+    // two never drift; the handle lookup stays here because it reads this service's
+    // already-fetched [circles].
+    private suspend fun catchUp(circleId: String) =
+        CircleCatchUp.catchUp(this, circleId) { riderId -> displayNameFor(circleId, riderId) }
 
     override fun onDestroy() {
         ConvoyLiveClient.setNotifyCircles(emptySet())

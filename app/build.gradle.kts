@@ -10,6 +10,16 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// FCM is opt-in by build. The Google Services plugin needs a google-services.json
+// (a specific Firebase project's config, tied to the app's applicationIds); a
+// self-hoster who has none should still get a building, running app with push
+// simply inactive. So apply the plugin only when the file is actually present —
+// its absence then never fails the build, and FirebaseApp is never initialised,
+// which is exactly what Push.available() checks for at runtime.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 // Routing server defaults baked into the APK. Read from local.properties
 // (local builds) or environment (CI, via GitHub secrets). All optional.
 val localProps = Properties().apply {
@@ -77,7 +87,7 @@ android {
         // the run number (see .github/workflows/build.yml); a local build
         // keeps the literal.
         versionCode = System.getenv("VERSION_CODE")?.toInt() ?: 82
-        versionName = "2.0.0"
+        versionName = "2.1.0"
 
         buildConfigField("String", "ROUTING_URL",
             "\"${serviceUrl("routing.url", "ROUTING_SERVER_URL")}\"")
@@ -233,6 +243,11 @@ dependencies {
     // WebSocket client for the convoy live-location/PTT relay - Android has
     // no built-in WS client and hand-rolling RFC 6455 framing isn't worth it.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Firebase Cloud Messaging ONLY — the push transport (docs/PUSH.md). No BOM,
+    // no other Firebase product (no Firestore/Database/Analytics/Auth): this is
+    // the sole com.google.firebase dependency and it pulls in none of those.
+    implementation("com.google.firebase:firebase-messaging:24.1.1")
     // :shared's CircleEvents.placeEventFromRelayFrame takes a kotlinx
     // JsonObject, but shared/build.gradle.kts declares kotlinx-serialization
     // as `implementation`, not `api` - Gradle doesn't leak that onto a

@@ -1,6 +1,9 @@
 .gradle/
 build/
 local.properties
+# FCM is per-deployment: every self-hoster brings their own Firebase project's
+# google-services.json (carries a project API key). Never commit one.
+app/google-services.json
 .idea/
 *.iml
 .kotlin/

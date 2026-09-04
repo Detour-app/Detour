@@ -105,6 +105,17 @@
             android:foregroundServiceType="remoteMessaging"
             android:exported="false" />
 
+        <!-- Receives the content-free circle wake-ping (docs/PUSH.md). Only ever
+             invoked in a build that shipped a google-services.json; dormant
+             otherwise. Cloud Messaging only — no other Firebase product. -->
+        <service
+            android:name=".notif.DetourMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- Android Auto: "Spin" from the car screen, hand off to the phone's
              default nav app. Same APK/process as the phone UI — no
              separate module. -->

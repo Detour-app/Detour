@@ -52,7 +52,14 @@ object Account {
     // the doc on [SyncClient.sync] for why `Exception` and not just
     // `IOException`.
     @Throws(Exception::class)
-    suspend fun signOut() = Auth.signOut()
+    suspend fun signOut() {
+        // Drop this install's push token first, while the bearer still works —
+        // once Auth.signOut() has revoked the session the DELETE can't authenticate.
+        // Best-effort: a failed unregister must never block signing out.
+        Settings.pushToken()?.let { token -> runCatching { Devices.unregister(token) } }
+        Settings.setPushToken(null)
+        Auth.signOut()
+    }
 }
 
 /** A friend's aggregate numbers. Never their trips or traces — the server
