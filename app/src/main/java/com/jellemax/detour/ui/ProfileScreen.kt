@@ -58,6 +58,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
+    val context = LocalContext.current
     val username by Account.username.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var signingOut by remember { mutableStateOf(false) }
@@ -107,6 +108,10 @@ fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
             OutlinedButton(
                 enabled = !signingOut,
                 onClick = {
+                    // A signed-out session must not keep broadcasting: leaves the
+                    // live socket with no valid identity behind it otherwise. Same
+                    // order and reasoning as FriendsScreen's own sign-out.
+                    ConvoyLiveService.stop(context)
                     signingOut = true
                     scope.launch { runCatching { Account.signOut() }; onSignedOut() }
                 },
