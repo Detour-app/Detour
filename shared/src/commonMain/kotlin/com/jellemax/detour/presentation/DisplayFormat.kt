@@ -56,3 +56,29 @@ fun formatDurationHistory(ms: Long): String {
     val m = totalMinutes % 60
     return if (h > 0) "$h h $m min" else "$m min"
 }
+
+/**
+ * Coarse relative age ("3m ago", "2h ago") — exact seconds never matter for a
+ * feature whose fixes only update every couple of minutes anyway. Ported from
+ * `CirclesScreen.kt`'s old private `relativeAge`; time is an argument here
+ * ([nowMs]), never read from a clock, so this stays deterministically testable.
+ *
+ * A future [tsMs] (clock skew between a rider's phone and the event's server
+ * timestamp is real) clamps to zero elapsed minutes, i.e. "just now" — carried
+ * over from the original's `coerceAtLeast(0)`, which already avoids the
+ * "-3m ago" a naive subtraction would produce.
+ *
+ * Public (not internal) so `:app` can call it across the module boundary — see
+ * [formatDurationHistory] above for the same reasoning. `CirclesScreen.kt`'s
+ * event list calls this directly today; a later task moves that list into a
+ * commonMain mapper, at which point only that mapper will call it.
+ */
+fun relativeAge(tsMs: Long, nowMs: Long): String {
+    val minutes = (nowMs - tsMs).coerceAtLeast(0) / 60_000L
+    return when {
+        minutes < 1 -> "just now"
+        minutes < 60 -> "${minutes}m ago"
+        minutes < 60 * 24 -> "${minutes / 60}h ago"
+        else -> "${minutes / (60 * 24)}d ago"
+    }
+}

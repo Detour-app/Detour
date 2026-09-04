@@ -68,6 +68,7 @@ import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.notif.CircleNotifySettings
 import com.jellemax.detour.notif.CircleNotifyService
+import com.jellemax.detour.presentation.relativeAge
 import kotlinx.coroutines.launch
 
 /** A plain geofence radius suggestion — big enough that ordinary GPS jitter
@@ -579,13 +580,16 @@ private fun CircleDetailSection(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     } else {
+        // One snapshot for the whole list rather than one clock read per row —
+        // relativeAge takes nowMs as a plain argument, never reads a clock itself.
+        val nowMs = System.currentTimeMillis()
         for (event in state.events.take(20)) {
             // The place may since have been unshared/deleted; say so rather
             // than dropping the event, which happened and stays true either way.
             val placeName = state.places.find { it.place.id == event.placeId }?.place?.name ?: "a since-removed place"
             val verb = if (event.kind == "arrive") "arrived at" else "left"
             Text(
-                "${circle.members.handleFor(event.riderId)} $verb $placeName — ${relativeAge(event.tsMs)}",
+                "${circle.members.handleFor(event.riderId)} $verb $placeName — ${relativeAge(event.tsMs, nowMs)}",
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -756,14 +760,3 @@ private fun SharePlaceDialog(
     )
 }
 
-/** Coarse relative age ("3m ago", "2h ago") — exact seconds never matter for
- *  a feature whose fixes only update every couple of minutes anyway. */
-private fun relativeAge(tsMs: Long): String {
-    val minutes = (System.currentTimeMillis() - tsMs).coerceAtLeast(0) / 60_000L
-    return when {
-        minutes < 1 -> "just now"
-        minutes < 60 -> "${minutes}m ago"
-        minutes < 60 * 24 -> "${minutes / 60}h ago"
-        else -> "${minutes / (60 * 24)}d ago"
-    }
-}

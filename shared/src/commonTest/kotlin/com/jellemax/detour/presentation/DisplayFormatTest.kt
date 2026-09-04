@@ -71,4 +71,58 @@ class DisplayFormatTest {
     @Test fun zeroDurationShowsZeroMinutes() {
         assertEquals("0 min", formatDurationHistory(0L))
     }
+
+    // relativeAge buckets, ported verbatim from the old CirclesScreen.kt private fun:
+    // minutes < 1 -> "just now"; minutes < 60 -> "${minutes}m ago";
+    // minutes < 1440 -> "${minutes/60}h ago"; else -> "${minutes/1440}d ago".
+    // A future tsMs (clock skew between rider and server) clamps to 0 minutes,
+    // i.e. "just now" — same as the original's coerceAtLeast(0), kept deliberately:
+    // it already avoids the "-3m ago" absurdity, so no behavior change is needed.
+
+    @Test fun underAMinuteReadsJustNow() {
+        assertEquals("just now", relativeAge(tsMs = 1_000L, nowMs = 1_000L))
+        assertEquals("just now", relativeAge(tsMs = 0L, nowMs = 59_999L))
+    }
+
+    @Test fun oneWholeMinuteIsTheFirstMinuteBucket() {
+        assertEquals("1m ago", relativeAge(tsMs = 0L, nowMs = 60_000L))
+    }
+
+    @Test fun wholeMinutesUnderAnHourShowMinutes() {
+        assertEquals("45m ago", relativeAge(tsMs = 0L, nowMs = 45 * 60_000L))
+    }
+
+    @Test fun fiftyNineMinutesIsTheLastMinuteBucket() {
+        assertEquals("59m ago", relativeAge(tsMs = 0L, nowMs = 59 * 60_000L))
+    }
+
+    @Test fun sixtyMinutesRollsOverToOneHour() {
+        assertEquals("1h ago", relativeAge(tsMs = 0L, nowMs = 60 * 60_000L))
+    }
+
+    @Test fun wholeHoursUnderADayShowHours() {
+        assertEquals("5h ago", relativeAge(tsMs = 0L, nowMs = 5 * 60 * 60_000L))
+    }
+
+    @Test fun twentyThreeHoursIsTheLastHourBucket() {
+        assertEquals("23h ago", relativeAge(tsMs = 0L, nowMs = 23 * 60 * 60_000L))
+    }
+
+    @Test fun twentyFourHoursRollsOverToOneDay() {
+        assertEquals("1d ago", relativeAge(tsMs = 0L, nowMs = 24 * 60 * 60_000L))
+    }
+
+    @Test fun wholeDaysShowDays() {
+        assertEquals("3d ago", relativeAge(tsMs = 0L, nowMs = 3L * 24 * 60 * 60_000L))
+    }
+
+    @Test fun aTimestampInTheFutureReadsJustNow() {
+        // Clock skew between a rider's phone and the server is real. Rather than
+        // a negative age ("-3m ago"), any future tsMs clamps to "just now" —
+        // the same outcome an ordinary few-second skew should produce, so a
+        // large skew degrades to the same harmless string instead of a
+        // confusing negative duration.
+        assertEquals("just now", relativeAge(tsMs = 61_000L, nowMs = 0L))
+        assertEquals("just now", relativeAge(tsMs = 999_999_999L, nowMs = 0L))
+    }
 }
