@@ -8,16 +8,25 @@ package com.jellemax.detour.data
  * same reason `GeofenceEvaluator` and `RouteGpx.parseGpx` take their timestamps
  * as arguments.
  *
- * Sized against GitHub's unauthenticated REST ceiling of 60 requests an hour
- * per IP, which riders share because carrier NAT puts many of them behind one
- * address. One check costs exactly one api.github.com request — the manifest
- * comes from a `browser_download_url` on a different host — so a capacity of
- * three refilling one per five minutes settles at twelve an hour.
+ * Sized to stop one rider mashing the button, not to protect GitHub's
+ * unauthenticated REST ceiling of 60 requests an hour per IP — that ceiling is
+ * shared with everyone behind the same carrier-NAT address, so this budget's
+ * twelve-an-hour settle point is per rider and does nothing for a shared IP
+ * that five riders have already exhausted between them. That failure mode
+ * surfaces as an ordinary failed check, which the UI already reports.
  */
 data class ManualCheckBudget(
     val tokens: Int = CAPACITY,
+    // Only correct paired with a full bucket: `ManualCheckBudget(tokens = 1)`
+    // silently backdates that one token's clock to the epoch and refills to
+    // full on the very next spend. Every constructor call in this file goes
+    // through `copy` on an already-consistent instance, so this never comes up
+    // in practice, but it is not an invariant the type enforces.
     val refilledAtMs: Long = 0L,
 ) {
+    init {
+        require(tokens in 0..CAPACITY) { "tokens ($tokens) must be within 0..$CAPACITY" }
+    }
 
     sealed interface Spend {
         data class Granted(val budget: ManualCheckBudget) : Spend
@@ -35,6 +44,11 @@ data class ManualCheckBudget(
     }
 
     private fun refill(nowMs: Long): ManualCheckBudget {
+        // A clock that moved backwards (an NTP correction after a bogus RTC read, a
+        // rider changing the date) would otherwise leave refilledAtMs in the future
+        // and freeze the bucket for the whole size of the jump. Re-anchor: the rider
+        // gets no free token, but no lockout either.
+        if (nowMs < refilledAtMs) return copy(refilledAtMs = nowMs)
         // At capacity the clock tracks now. Left where it was, a long idle
         // would still be on the books after the next spend and would refill
         // the token that spend just took.
