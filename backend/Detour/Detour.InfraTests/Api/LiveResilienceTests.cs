@@ -21,7 +21,6 @@ namespace Detour.InfraTests.Api;
 public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
 {
     private DetourApiFactory _factory = null!;
-    private readonly Dictionary<string, string> _tokens = [];
 
     public Task InitializeAsync()
     {
@@ -72,12 +71,12 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
     [MemberData(nameof(Garbage))]
     public async Task A_malformed_frame_is_dropped_and_the_connection_keeps_working(string _, string frame)
     {
-        var (alex, alexName) = await NewRider();
-        var (blake, blakeName) = await NewRider();
-        var convoy = await ConvoyOf(alex, alexName, blake, blakeName);
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(alex, blake);
 
-        using var alexSocket = await ConnectAsync(alexName);
-        using var blakeSocket = await ConnectAsync(blakeName);
+        using var alexSocket = await ConnectAsync(alex);
+        using var blakeSocket = await ConnectAsync(blake);
         await JoinAsync(alexSocket, convoy);
         await JoinAsync(blakeSocket, convoy);
 
@@ -96,12 +95,12 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
     [Fact]
     public async Task An_oversized_frame_is_discarded_without_dropping_the_connection()
     {
-        var (alex, alexName) = await NewRider();
-        var (blake, blakeName) = await NewRider();
-        var convoy = await ConvoyOf(alex, alexName, blake, blakeName);
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(alex, blake);
 
-        using var alexSocket = await ConnectAsync(alexName);
-        using var blakeSocket = await ConnectAsync(blakeName);
+        using var alexSocket = await ConnectAsync(alex);
+        using var blakeSocket = await ConnectAsync(blake);
         await JoinAsync(alexSocket, convoy);
         await JoinAsync(blakeSocket, convoy);
 
@@ -120,12 +119,12 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
     [Fact]
     public async Task A_binary_frame_is_ignored()
     {
-        var (alex, alexName) = await NewRider();
-        var (blake, blakeName) = await NewRider();
-        var convoy = await ConvoyOf(alex, alexName, blake, blakeName);
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(alex, blake);
 
-        using var alexSocket = await ConnectAsync(alexName);
-        using var blakeSocket = await ConnectAsync(blakeName);
+        using var alexSocket = await ConnectAsync(alex);
+        using var blakeSocket = await ConnectAsync(blake);
         await JoinAsync(alexSocket, convoy);
         await JoinAsync(blakeSocket, convoy);
 
@@ -141,12 +140,12 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
     [Fact]
     public async Task A_fragmented_frame_is_reassembled()
     {
-        var (alex, alexName) = await NewRider();
-        var (blake, blakeName) = await NewRider();
-        var convoy = await ConvoyOf(alex, alexName, blake, blakeName);
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(alex, blake);
 
-        using var alexSocket = await ConnectAsync(alexName);
-        using var blakeSocket = await ConnectAsync(blakeName);
+        using var alexSocket = await ConnectAsync(alex);
+        using var blakeSocket = await ConnectAsync(blake);
         await JoinAsync(alexSocket, convoy);
         await JoinAsync(blakeSocket, convoy);
 
@@ -166,11 +165,11 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
     [Fact]
     public async Task A_flooding_client_is_throttled_rather_than_served()
     {
-        var (alex, alexName) = await NewRider();
-        var (blake, blakeName) = await NewRider();
-        var convoy = await ConvoyOf(alex, alexName, blake, blakeName);
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(alex, blake);
 
-        using var alexSocket = await ConnectAsync(alexName);
+        using var alexSocket = await ConnectAsync(alex);
         await JoinAsync(alexSocket, convoy);
 
         // Joins are the cheapest observable frame with a reply, so they measure the budget
@@ -190,18 +189,18 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
         served.Should().BeGreaterThan(0);
         served.Should().BeLessThan(flood / 2);
 
-        blakeName.Should().NotBeNullOrEmpty();
+        blake.Username.Should().NotBeNullOrEmpty();
     }
 
     [Fact]
     public async Task The_budget_refills_so_a_throttled_rider_recovers()
     {
-        var (alex, alexName) = await NewRider();
-        var (blake, blakeName) = await NewRider();
-        var convoy = await ConvoyOf(alex, alexName, blake, blakeName);
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(alex, blake);
 
-        using var alexSocket = await ConnectAsync(alexName);
-        using var blakeSocket = await ConnectAsync(blakeName);
+        using var alexSocket = await ConnectAsync(alex);
+        using var blakeSocket = await ConnectAsync(blake);
         await JoinAsync(alexSocket, convoy);
         await JoinAsync(blakeSocket, convoy);
 
@@ -229,12 +228,12 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
     [Fact]
     public async Task An_abrupt_disconnect_tells_the_peers()
     {
-        var (alex, alexName) = await NewRider();
-        var (blake, blakeName) = await NewRider();
-        var convoy = await ConvoyOf(alex, alexName, blake, blakeName);
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(alex, blake);
 
-        using var alexSocket = await ConnectAsync(alexName);
-        var blakeSocket = await ConnectAsync(blakeName);
+        using var alexSocket = await ConnectAsync(alex);
+        var blakeSocket = await ConnectAsync(blake);
         await JoinAsync(alexSocket, convoy);
         await JoinAsync(blakeSocket, convoy);
 
@@ -244,17 +243,17 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
 
         var frame = await alexSocket.ReceiveAsync();
         frame.GetProperty("type").GetString().Should().Be("left");
-        frame.GetProperty("user").GetString().Should().Be(blakeName);
+        frame.GetProperty("user").GetGuid().Should().Be(blake.UserId);
     }
 
     [Fact]
     public async Task A_reconnect_storm_leaves_exactly_one_live_socket()
     {
-        var (alex, alexName) = await NewRider();
-        var (blake, blakeName) = await NewRider();
-        var convoy = await ConvoyOf(alex, alexName, blake, blakeName);
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(alex, blake);
 
-        using var alexSocket = await ConnectAsync(alexName);
+        using var alexSocket = await ConnectAsync(alex);
         await JoinAsync(alexSocket, convoy);
 
         // A phone flapping between cells does exactly this. Every replaced socket must be dropped,
@@ -262,7 +261,7 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
         var sockets = new List<LiveSocket>();
         for (var i = 0; i < 8; i++)
         {
-            var socket = await ConnectAsync(blakeName);
+            var socket = await ConnectAsync(blake);
             await JoinAsync(socket, convoy);
             sockets.Add(socket);
         }
@@ -281,18 +280,18 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
     [Fact]
     public async Task Concurrent_riders_each_see_only_their_own_convoy()
     {
-        var (alex, alexName) = await NewRider();
-        var (blake, blakeName) = await NewRider();
-        var (cass, cassName) = await NewRider();
-        var (dana, danaName) = await NewRider();
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var cass = await _factory.SignInAsync();
+        var dana = await _factory.SignInAsync();
 
-        var first = await ConvoyOf(alex, alexName, blake, blakeName);
-        var second = await ConvoyOf(cass, cassName, dana, danaName);
+        var first = await ConvoyOf(alex, blake);
+        var second = await ConvoyOf(cass, dana);
 
-        using var alexSocket = await ConnectAsync(alexName);
-        using var blakeSocket = await ConnectAsync(blakeName);
-        using var cassSocket = await ConnectAsync(cassName);
-        using var danaSocket = await ConnectAsync(danaName);
+        using var alexSocket = await ConnectAsync(alex);
+        using var blakeSocket = await ConnectAsync(blake);
+        using var cassSocket = await ConnectAsync(cass);
+        using var danaSocket = await ConnectAsync(dana);
 
         await JoinAsync(alexSocket, first);
         await JoinAsync(blakeSocket, first);
@@ -307,9 +306,9 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
             cassSocket.SendAsync(new { type = "location", lat = 52.0, lon = 4.8, ts = 6L }));
 
         (await blakeSocket.ReceiveAsync()).GetProperty("peers")[0]
-            .GetProperty("u").GetString().Should().Be(alexName);
+            .GetProperty("u").GetGuid().Should().Be(alex.UserId);
         (await danaSocket.ReceiveAsync()).GetProperty("peers")[0]
-            .GetProperty("u").GetString().Should().Be(cassName);
+            .GetProperty("u").GetGuid().Should().Be(cass.UserId);
 
         await blakeSocket.ShouldStaySilent();
         await danaSocket.ShouldStaySilent();
@@ -318,12 +317,12 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
     [Fact]
     public async Task Joining_the_same_group_repeatedly_is_harmless()
     {
-        var (alex, alexName) = await NewRider();
-        var (blake, blakeName) = await NewRider();
-        var convoy = await ConvoyOf(alex, alexName, blake, blakeName);
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(alex, blake);
 
-        using var alexSocket = await ConnectAsync(alexName);
-        using var blakeSocket = await ConnectAsync(blakeName);
+        using var alexSocket = await ConnectAsync(alex);
+        using var blakeSocket = await ConnectAsync(blake);
 
         for (var i = 0; i < 5; i++)
             await JoinAsync(alexSocket, convoy);
@@ -345,12 +344,12 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
     [Fact]
     public async Task A_vote_in_a_group_the_sender_never_joined_is_not_relayed()
     {
-        var (alex, alexName) = await NewRider();
-        var (blake, blakeName) = await NewRider();
-        var convoy = await ConvoyOf(alex, alexName, blake, blakeName);
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(alex, blake);
 
-        using var alexSocket = await ConnectAsync(alexName);
-        using var blakeSocket = await ConnectAsync(blakeName);
+        using var alexSocket = await ConnectAsync(alex);
+        using var blakeSocket = await ConnectAsync(blake);
         await JoinAsync(blakeSocket, convoy);
 
         // Alex is a member but has not joined on this socket. Membership says who *may* receive a
@@ -364,13 +363,13 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
     [Fact]
     public async Task A_stranger_cannot_reach_a_convoy_by_naming_it()
     {
-        var (alex, alexName) = await NewRider();
-        var (blake, blakeName) = await NewRider();
-        var (_, malloryName) = await NewRider();
-        var convoy = await ConvoyOf(alex, alexName, blake, blakeName);
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var mallory = await _factory.SignInAsync();
+        var convoy = await ConvoyOf(alex, blake);
 
-        using var blakeSocket = await ConnectAsync(blakeName);
-        using var mallorySocket = await ConnectAsync(malloryName);
+        using var blakeSocket = await ConnectAsync(blake);
+        using var mallorySocket = await ConnectAsync(mallory);
         await JoinAsync(blakeSocket, convoy);
 
         await mallorySocket.SendAsync(new { type = "join", groupId = convoy });
@@ -392,14 +391,14 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
     [Fact]
     public async Task Losing_membership_mid_ride_stops_the_traffic_but_keeps_the_other_group()
     {
-        var (alex, alexName) = await NewRider();
-        var (blake, blakeName) = await NewRider();
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
 
-        var convoy = await ConvoyOf(alex, alexName, blake, blakeName);
-        var circle = await CircleOf(alex, alexName, blake, blakeName);
+        var convoy = await ConvoyOf(alex, blake);
+        var circle = await CircleOf(alex, blake);
 
-        using var alexSocket = await ConnectAsync(alexName);
-        using var blakeSocket = await ConnectAsync(blakeName);
+        using var alexSocket = await ConnectAsync(alex);
+        using var blakeSocket = await ConnectAsync(blake);
         await JoinAsync(alexSocket, convoy);
         await JoinAsync(alexSocket, circle);
         await JoinAsync(blakeSocket, convoy);
@@ -433,22 +432,11 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
 
     private static Uri LiveUri() => new("http://localhost/api/live");
 
-    private async Task<(HttpClient Client, string Username)> NewRider()
-    {
-        var username = $"rider{Guid.NewGuid():N}"[..16];
-        var token = _factory.IssueToken($"subject-{Guid.NewGuid():N}", username, null, "detour-user");
-        _tokens[username] = token;
-
-        var client = _factory.CreateClientWith(token);
-        (await client.GetAsync("/api/me")).EnsureSuccessStatusCode();
-        return (client, username);
-    }
-
-    private async Task<LiveSocket> ConnectAsync(string username)
+    private async Task<LiveSocket> ConnectAsync(SignedInClient rider)
     {
         var client = _factory.Server.CreateWebSocketClient();
-        client.ConfigureRequest = request =>
-            request.Headers["Authorization"] = $"Bearer {_tokens[username]}";
+        var token = rider.Client.DefaultRequestHeaders.Authorization!.Parameter;
+        client.ConfigureRequest = request => request.Headers["Authorization"] = $"Bearer {token}";
 
         return new LiveSocket(await client.ConnectAsync(LiveUri(), CancellationToken.None));
     }
@@ -459,25 +447,24 @@ public class LiveResilienceTests(PostgresFixture postgres) : IAsyncLifetime
         (await socket.ReceiveAsync()).GetProperty("type").GetString().Should().Be("joined");
     }
 
-    private Task<Guid> ConvoyOf(HttpClient owner, string ownerName, HttpClient guest, string guestName) =>
-        GroupOf("convoys", owner, ownerName, guest, guestName);
+    private Task<Guid> ConvoyOf(SignedInClient owner, SignedInClient guest) =>
+        GroupOf("convoys", owner, guest);
 
-    private Task<Guid> CircleOf(HttpClient owner, string ownerName, HttpClient guest, string guestName) =>
-        GroupOf("circles", owner, ownerName, guest, guestName);
+    private Task<Guid> CircleOf(SignedInClient owner, SignedInClient guest) =>
+        GroupOf("circles", owner, guest);
 
-    private async Task<Guid> GroupOf(
-        string kind, HttpClient owner, string ownerName, HttpClient guest, string guestName)
+    private async Task<Guid> GroupOf(string kind, SignedInClient owner, SignedInClient guest)
     {
         // Befriending twice is harmless and lets a test build both a convoy and a circle from the
         // same pair without ordering the calls.
-        await owner.PostAsJsonAsync("/api/friends/requests", new { username = guestName });
-        await guest.PostAsJsonAsync($"/api/friends/requests/{ownerName}/respond", new { accept = true });
+        await owner.PostAsJsonAsync("/api/friends/requests", new { username = guest.Username });
+        await guest.PostAsJsonAsync($"/api/friends/requests/{owner.UserId}/respond", new { accept = true });
 
         var created = await (await owner.PostAsJsonAsync($"/api/{kind}", new { name = "ride" }))
             .Content.ReadFromJsonAsync<JsonElement>();
         var groupId = created.GetProperty("id").GetGuid();
 
-        (await owner.PostAsJsonAsync($"/api/groups/{groupId}/invitations", new { username = guestName }))
+        (await owner.PostAsJsonAsync($"/api/groups/{groupId}/invitations", new { username = guest.Username }))
             .EnsureSuccessStatusCode();
         (await guest.PostAsJsonAsync($"/api/groups/{groupId}/invitations/respond", new { accept = true }))
             .EnsureSuccessStatusCode();

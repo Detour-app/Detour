@@ -51,13 +51,22 @@ object CircleNotifyPolicy {
      */
     fun planCatchUp(
         events: List<PlaceEvent>,
-        myUsername: String,
+        myId: RiderId,
         nowMs: Long,
         staleAfterMs: Long = STALE_AFTER_MS,
         cap: Int = NOTIFY_CAP,
     ): CatchUpPlan {
+        // `it.riderId != myId` below is the self-filter, and a blank myId
+        // would fail it *open*: nothing in `events` equals a blank id, so
+        // nothing gets filtered and a rider is told about their own
+        // arrivals and departures - the exact defect this codebase already
+        // shipped once with handle-based comparisons and fixed. "I do not
+        // know who I am yet" is never a reason to notify someone about
+        // themselves, so an unresolved id gets no plan at all rather than an
+        // unfiltered one.
+        if (myId.value.isBlank()) return CatchUpPlan(emptyList(), 0)
         val relevant = events
-            .filter { it.username != myUsername }
+            .filter { it.riderId != myId }
             .filter { nowMs - it.tsMs <= staleAfterMs }
             .sortedByDescending { it.tsMs }
         if (relevant.size <= cap) return CatchUpPlan(relevant, 0)

@@ -32,8 +32,13 @@ class CirclePresenceTest {
 
     // --- fixtures ---------------------------------------------------------
 
+    // The id is deliberately not the handle: sharingCircles keys off id, and a
+    // fixture that built both from the same string could not tell that
+    // comparison apart from the old, buggy one keyed on username - see #133.
     private fun member(username: String, sharing: Boolean, status: String = "accepted") =
-        GroupMember(username = username, status = status, sharing = sharing)
+        GroupMember(id = RiderId("$username-id"), username = username, status = status, sharing = sharing)
+
+    private val meId = RiderId("me-id")
 
     private fun circle(id: String, vararg members: GroupMember) =
         Group(id = id, name = id, kind = "circle", status = "accepted", members = members.toList())
@@ -41,7 +46,7 @@ class CirclePresenceTest {
     private fun place(id: Long, lat: Double, lon: Double, radiusM: Double = 50.0) = CirclePlace(
         serverId = "share-$id",
         groupId = "c",
-        owner = "someone",
+        ownerId = RiderId("someone"),
         radiusM = radiusM,
         createdMs = 0L,
         place = SavedPlace(id = id, name = "Place $id", location = LatLon(lat, lon)),
@@ -52,7 +57,7 @@ class CirclePresenceTest {
     @Test
     fun cadenceGoesIdleTheMomentNobodyHereIsSharing() {
         val circles = listOf(circle("c1", member("me", sharing = false)))
-        val plan = CirclePresence.planTick(CirclePresence.ACTIVE_INTERVAL_MS, circles, "me")
+        val plan = CirclePresence.planTick(CirclePresence.ACTIVE_INTERVAL_MS, circles, meId)
         assertEquals(CirclePresence.IDLE_INTERVAL_MS, plan.intervalMs)
         assertTrue(plan.sharing.isEmpty())
     }
@@ -60,7 +65,7 @@ class CirclePresenceTest {
     @Test
     fun cadenceComesBackActiveTheMomentSomebodyHereSharesAgain() {
         val circles = listOf(circle("c1", member("me", sharing = true)))
-        val plan = CirclePresence.planTick(CirclePresence.IDLE_INTERVAL_MS, circles, "me")
+        val plan = CirclePresence.planTick(CirclePresence.IDLE_INTERVAL_MS, circles, meId)
         assertEquals(CirclePresence.ACTIVE_INTERVAL_MS, plan.intervalMs)
         assertEquals(circles, plan.sharing)
     }
@@ -73,8 +78,8 @@ class CirclePresenceTest {
         // honest "nobody's sharing" answer does. Proven with two different
         // "previous" values, not just one, so this can't pass by coincidence
         // of always returning the same hardcoded interval.
-        val fromActive = CirclePresence.planTick(CirclePresence.ACTIVE_INTERVAL_MS, circles = null, username = "me")
-        val fromIdle = CirclePresence.planTick(CirclePresence.IDLE_INTERVAL_MS, circles = null, username = "me")
+        val fromActive = CirclePresence.planTick(CirclePresence.ACTIVE_INTERVAL_MS, circles = null, myId = meId)
+        val fromIdle = CirclePresence.planTick(CirclePresence.IDLE_INTERVAL_MS, circles = null, myId = meId)
         assertEquals(CirclePresence.ACTIVE_INTERVAL_MS, fromActive.intervalMs)
         assertEquals(CirclePresence.IDLE_INTERVAL_MS, fromIdle.intervalMs)
         // Nothing to post to on a failed fetch either.
@@ -87,7 +92,7 @@ class CirclePresenceTest {
         // case as circles == null (the fetch failed) - both end up idle,
         // but for different reasons, and only the second leaves the
         // interval where it was regardless of what that was.
-        val plan = CirclePresence.planTick(CirclePresence.ACTIVE_INTERVAL_MS, circles = emptyList(), username = "me")
+        val plan = CirclePresence.planTick(CirclePresence.ACTIVE_INTERVAL_MS, circles = emptyList(), myId = meId)
         assertEquals(CirclePresence.IDLE_INTERVAL_MS, plan.intervalMs)
     }
 
@@ -98,20 +103,34 @@ class CirclePresenceTest {
         // Someone else in the circle sharing does not make this device
         // "sharing" - the cadence and the post loop both key off "me".
         val circles = listOf(circle("c1", member("me", sharing = false), member("alice", sharing = true)))
-        assertTrue(CirclePresence.sharingCircles(circles, "me").isEmpty())
+        assertTrue(CirclePresence.sharingCircles(circles, meId).isEmpty())
     }
 
     @Test
     fun aCircleThisDeviceIsNotAMemberOfAtAllDoesNotCount() {
         val circles = listOf(circle("c1", member("alice", sharing = true)))
-        assertTrue(CirclePresence.sharingCircles(circles, "me").isEmpty())
+        assertTrue(CirclePresence.sharingCircles(circles, meId).isEmpty())
     }
 
     @Test
     fun sharingCirclesKeepsExactlyTheOnesWithSharingOn() {
         val on = circle("on", member("me", sharing = true))
         val off = circle("off", member("me", sharing = false))
-        assertEquals(listOf(on), CirclePresence.sharingCircles(listOf(on, off), "me"))
+        assertEquals(listOf(on), CirclePresence.sharingCircles(listOf(on, off), meId))
+    }
+
+    @Test
+    fun a_member_whose_handle_casing_differs_is_still_recognised_as_self() {
+        // The server stores the handle in a citext column and only renames on a
+        // case-insensitive difference, so its stored spelling can differ from the
+        // token's. This test is the reason the comparison moved to an id: it was
+        // unrepresentable before, because both sides were the same string by
+        // construction.
+        val circles = listOf(
+            circle("c1", GroupMember(id = meId, username = "Andre", status = "accepted", sharing = true)),
+        )
+
+        assertEquals(circles, CirclePresence.sharingCircles(circles, myId = meId))
     }
 
     // --- retainJoinedCircles: evaluator cleanup on a left/rejoined circle --

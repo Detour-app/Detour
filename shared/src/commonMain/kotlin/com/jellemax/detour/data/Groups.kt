@@ -4,7 +4,27 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-data class GroupMember(val username: String, val status: String, val sharing: Boolean)
+data class GroupMember(
+    val id: RiderId,
+    val username: String,
+    val status: String,
+    val sharing: Boolean,
+)
+
+/**
+ * The handle to draw for a rider, from the membership this screen already has.
+ *
+ * Exists because payloads stopped carrying a handle beside every id (#133):
+ * positions, places and events identify a rider, and membership names them, so
+ * every label is one lookup away rather than repeated on the wire. Falls back
+ * to "Someone" — never an empty string — for an id no membership knows yet (a
+ * peer who joined since the last reload) or a member whose handle came back
+ * blank, because every call site interpolates the result straight into
+ * user-visible text ("Someone arrived at Home") with nothing that draws it as
+ * a placeholder instead.
+ */
+fun List<GroupMember>.handleFor(riderId: RiderId): String =
+    firstOrNull { it.id == riderId }?.username.orEmpty().ifBlank { "Someone" }
 
 data class Group(
     /** The server's identifier. Opaque: a UUID today, and nothing here reads it
@@ -87,6 +107,7 @@ object Groups {
 internal fun groupFromJson(o: JsonObject, kind: String): Group {
     val members = (o.optArray("members") ?: JsonArrayEmpty).objects().map { m ->
         GroupMember(
+            id = RiderId(m.optString("id")),
             username = m.optString("username"),
             status = m.optString("status"),
             // Absent for a convoy: being connected to one already is

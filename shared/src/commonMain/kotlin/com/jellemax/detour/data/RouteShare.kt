@@ -12,7 +12,7 @@ import kotlinx.serialization.json.put
  */
 data class SharedRoute(
     val serverId: String,
-    val from: String,
+    val from: RiderRef,
     val createdMs: Long,
     val route: SavedRoute,
 )
@@ -64,7 +64,7 @@ object RouteShare {
             val route = routeFromJson(routeObj) ?: return@mapNotNull null
             SharedRoute(
                 serverId = entry.optString("id"),
-                from = entry.optString("from"),
+                from = riderRefFromJson(entry.optObject("from")!!),
                 createdMs = entry.optLong("createdAtMs"),
                 route = route,
             )

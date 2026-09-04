@@ -42,6 +42,28 @@ class GroupsTest {
     }
 
     @Test
+    fun group_member_parses_an_id_and_a_display_handle() {
+        val json = jsonObjectOf(
+            """
+            {
+              "id": "8f14e45f-ceea-467a-9a3b-1b2c3d4e5f60",
+              "name": "Sunday run",
+              "status": "accepted",
+              "members": [
+                { "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                  "username": "alice", "status": "accepted", "sharing": true }
+              ]
+            }
+            """.trimIndent()
+        )
+
+        val group = groupFromJson(json, kind = "circle")
+
+        assertEquals(RiderId("3fa85f64-5717-4562-b3fc-2c963f66afa6"), group.members[0].id)
+        assertEquals("alice", group.members[0].username)
+    }
+
+    @Test
     fun groupDefaultsSharingToTrueForAConvoyWhereTheServerOmitsIt() {
         val json = buildJsonObject {
             put("id", "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c12")
@@ -58,14 +80,14 @@ class GroupsTest {
     @Test
     fun memberFixParsesEveryField() {
         val json = buildJsonObject {
-            put("username", "alice")
+            put("riderId", "alice")
             put("latitude", 50.8)
             put("longitude", 3.2)
             put("accuracyMeters", 12.5)
             put("timestampMs", 1_700_000_000_000L)
         }
         val fix = memberFixFromJson(json)
-        assertEquals("alice", fix.username)
+        assertEquals(RiderId("alice"), fix.riderId)
         assertEquals(50.8, fix.lat)
         assertEquals(3.2, fix.lon)
         assertEquals(12.5, fix.accuracyM)
@@ -74,22 +96,21 @@ class GroupsTest {
 
     // --- what the map actually draws -----------------------------------------
 
-    private fun fix(user: String, ts: Long) =
-        MemberFix(username = user, lat = 50.0, lon = 3.0, accuracyM = 5.0, tsMs = ts)
+    private val me = RiderId("me")
+    private val bob = RiderId("bob")
 
     @Test
-    fun ownFixIsDroppedSoItDoesNotStackOnTheOwnPositionMarker() {
-        val drawn = newestPerOtherMember(
-            listOf(fix("me", 100L), fix("bob", 100L)), selfUsername = "me")
-        assertEquals(listOf("bob"), drawn.map { it.username })
-    }
+    fun own_fix_is_dropped_and_a_double_membership_collapses_to_the_newest() {
+        val fixes = listOf(
+            MemberFix(me, 51.0, 4.0, 0.0, 100L),
+            MemberFix(bob, 51.1, 4.1, 0.0, 100L),
+            MemberFix(bob, 51.2, 4.2, 0.0, 200L),
+        )
 
-    @Test
-    fun someoneInTwoOfYourCirclesIsDrawnOnceAtTheirNewestFix() {
-        val drawn = newestPerOtherMember(
-            listOf(fix("bob", 100L), fix("bob", 300L), fix("bob", 200L)), selfUsername = "me")
-        assertEquals(1, drawn.size)
-        assertEquals(300L, drawn[0].tsMs)
+        val drawn = newestPerOtherMember(fixes, selfId = me)
+
+        assertEquals(listOf(bob), drawn.map { it.riderId })
+        assertEquals(200L, drawn.single().tsMs)
     }
 
     @Test
@@ -98,7 +119,7 @@ class GroupsTest {
             put("id", "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c20")
             put("placeId", 42L)
             put("placeName", "School")
-            put("username", "carol")
+            put("riderId", "carol")
             put("kind", "arrive")
             put("timestampMs", 1_700_000_001_000L)
         }
@@ -106,7 +127,7 @@ class GroupsTest {
         assertEquals("0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c20", event.id)
         assertEquals(42L, event.placeId)
         assertEquals("School", event.placeName)
-        assertEquals("carol", event.username)
+        assertEquals(RiderId("carol"), event.riderId)
         assertEquals("arrive", event.kind)
         assertEquals(1_700_000_001_000L, event.tsMs)
     }
@@ -120,7 +141,7 @@ class GroupsTest {
         val json = buildJsonObject {
             put("id", "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c20")
             put("placeId", 1L)
-            put("username", "carol")
+            put("riderId", "carol")
             put("kind", "depart")
             put("timestampMs", 1L)
         }
@@ -147,7 +168,7 @@ class GroupsTest {
         assertEquals("", event.id, "a live frame carries no stored id")
         assertEquals(42L, event.placeId)
         assertEquals("School", event.placeName)
-        assertEquals("alice", event.username)
+        assertEquals(RiderId("alice"), event.riderId)
         assertEquals("arrive", event.kind)
         assertEquals(1_700_000_002_000L, event.tsMs)
     }
@@ -233,22 +254,22 @@ class GroupsTest {
     // --- shared notification wording ---------------------------------------
 
     private fun event(kind: String, placeName: String) = PlaceEvent(
-        id = "e1", placeId = 1L, placeName = placeName, username = "alice", kind = kind, tsMs = 0L,
+        id = "e1", placeId = 1L, placeName = placeName, riderId = RiderId("alice-id"), kind = kind, tsMs = 0L,
     )
 
     @Test
     fun notificationTextForAnArrival() {
-        assertEquals("alice arrived at School", event("arrive", "School").notificationText())
+        assertEquals("alice arrived at School", event("arrive", "School").notificationText("alice"))
     }
 
     @Test
     fun notificationTextForADeparture() {
-        assertEquals("alice left School", event("depart", "School").notificationText())
+        assertEquals("alice left School", event("depart", "School").notificationText("alice"))
     }
 
     @Test
     fun notificationTextDropsAtPlaceWhenTheNameIsBlank() {
-        assertEquals("alice arrived", event("arrive", "").notificationText())
+        assertEquals("alice arrived", event("arrive", "").notificationText("alice"))
     }
 
     @Test
@@ -262,7 +283,7 @@ class GroupsTest {
     private fun place(id: Long, at: LatLon, radiusM: Double) = CirclePlace(
         serverId = "place-$id",
         groupId = "0193a1f0-7c31-7c9a-9a0e-2f0d5b1a4c11",
-        owner = "alice",
+        ownerId = RiderId("alice"),
         radiusM = radiusM,
         createdMs = 0L,
         place = SavedPlace(id = id, name = "Home", location = at),

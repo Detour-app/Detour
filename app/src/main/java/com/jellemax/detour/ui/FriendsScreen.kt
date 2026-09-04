@@ -69,8 +69,10 @@ import com.jellemax.detour.data.Friends
 import com.jellemax.detour.data.FriendsStore
 import com.jellemax.detour.data.Group
 import com.jellemax.detour.data.Groups
+import com.jellemax.detour.data.RiderRef
 import com.jellemax.detour.data.RiderStats
 import com.jellemax.detour.data.SyncClient
+import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.net.ConvoyLiveClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -220,6 +222,11 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val state by FriendsStore.state.collectAsStateWithLifecycle()
+    // Own identity, for refreshOwn below — separate from [username] because
+    // it resolves a beat later (a /me round trip after sign-in sets the
+    // token), and this effect must not miss that second arrival: see the key
+    // list below.
+    val riderId by Account.riderId.collectAsStateWithLifecycle()
     // Not in the store: signing out is Account's business, not the friend
     // list's, so there is no store `busy` slot it could occupy. It still has to
     // gate the request rows — a revoke POST on a slow connection used to leave
@@ -227,7 +234,14 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
     // way out the door. The old code got this for free from one shared local.
     var signingOut by remember { mutableStateOf(false) }
 
-    LaunchedEffect(username) {
+    // Keyed on both: [username] arrives first (set synchronously with the
+    // session), [riderId] a beat later once /me answers (see Account.riderId's
+    // own doc). Keying on username alone would fire refreshOwn once, while
+    // riderId is still blank — its own guard would no-op that call, and
+    // nothing would ever ask again for the rest of this session. The repeat
+    // firing costs nothing: reloadIfStale is a no-op inside its freshness
+    // window, and refreshOwn's second attempt is the one that actually lands.
+    LaunchedEffect(username, riderId) {
         // See CirclesScreen: re-entering within the freshness window shows the
         // list it already has rather than re-fetching it.
         FriendsStore.reloadIfStale()
@@ -235,7 +249,7 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
         // keep it off the main thread, same reasoning as BadgesScreen/
         // HubScreen/CoverageMapScreen — see refreshOwn's own doc in
         // FriendsStore.kt for the full contract.
-        withContext(Dispatchers.IO) { FriendsStore.refreshOwn(username) }
+        withContext(Dispatchers.IO) { FriendsStore.refreshOwn(RiderRef(riderId, username)) }
     }
 
     Card(
@@ -289,19 +303,19 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
     if (loaded.incoming.isNotEmpty()) {
         Text("Requests", style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary)
-        for (name in loaded.incoming) {
+        for (rider in loaded.incoming) {
             RequestRow(
-                name = name,
+                name = rider.username,
                 busy = state.busy || signingOut,
-                onAccept = { scope.launch { FriendsStore.respond(name, true) } },
-                onDecline = { scope.launch { FriendsStore.respond(name, false) } },
+                onAccept = { scope.launch { FriendsStore.respond(rider.id, true) } },
+                onDecline = { scope.launch { FriendsStore.respond(rider.id, false) } },
             )
         }
     }
 
     if (loaded.outgoing.isNotEmpty()) {
         Text(
-            "Waiting on: ${loaded.outgoing.joinToString(", ")}",
+            "Waiting on: ${loaded.outgoing.joinToString(", ") { it.username }}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -327,10 +341,16 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     } else {
-        val ranked = (state.leaderboard + listOfNotNull(state.own))
-            .sortedByDescending { it.stats.totalDistanceMeters }
-        ranked.forEachIndexed { i, friend ->
-            LeaderboardRow(rank = i + 1, friend = friend, isMe = friend.username == username)
+        // The own row arrives as its own typed field, so which row is "me" is known
+        // before the sort. Concatenating into a bare list and recovering it with a
+        // comparison afterwards is what #133 found here: information discarded and
+        // then guessed at. Carrying the flag is correct offline and cannot disagree.
+        val ranked = (
+            state.leaderboard.map { LeaderboardEntry(it, isMe = false) } +
+                listOfNotNull(state.own?.let { LeaderboardEntry(it, isMe = true) })
+            ).sortedByDescending { it.friend.stats.totalDistanceMeters }
+        ranked.forEachIndexed { i, entry ->
+            LeaderboardRow(rank = i + 1, friend = entry.friend, isMe = entry.isMe)
         }
     }
 }
@@ -365,6 +385,10 @@ private fun RequestRow(name: String, busy: Boolean, onAccept: () -> Unit, onDecl
         }
     }
 }
+
+/** A leaderboard row and whether it is the signed-in rider's own, kept
+ *  together through the sort. */
+private data class LeaderboardEntry(val friend: FriendStats, val isMe: Boolean)
 
 /** One leaderboard row: rank, initial avatar, name, trailing distance. The
  *  signed-in user's own row (synthesized by `FriendsStore.refreshOwn`) gets a
@@ -408,14 +432,14 @@ private fun LeaderboardRow(rank: Int, friend: FriendStats, isMe: Boolean) {
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    friend.username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                    friend.rider.username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                 )
             }
             Column(Modifier.weight(1f)) {
                 Text(
-                    friend.username + if (isMe) " (you)" else "",
+                    friend.rider.username + if (isMe) " (you)" else "",
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
                 )
@@ -581,7 +605,8 @@ private fun ConvoysSection() {
                     liveConvoyId != convoy.id -> null
                     !liveConnected -> liveError ?: "Connecting…"
                     livePeers.isEmpty() -> "Connected — nobody else live yet"
-                    else -> "Connected — " + livePeers.keys.sorted().joinToString(", ")
+                    else -> "Connected — " +
+                        livePeers.keys.map { convoy.members.handleFor(it) }.sorted().joinToString(", ")
                 },
                 liveStatusIsError = Features.liveRelay &&
                     liveConvoyId == convoy.id && !liveConnected && liveError != null,

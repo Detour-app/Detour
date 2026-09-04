@@ -160,7 +160,16 @@ final class ConvoyLiveClient: ObservableObject {
         lastErrorWatcher.watch { [weak self] in self?.updateLastError() }
         audioChunkWatcher.watch { [weak self] in
             guard let chunk = self?.audioChunkWatcher.value else { return }
-            PttAudio.shared.play(chunk.pcm.toData(), from: chunk.username)
+            // `IncomingAudioChunk.riderId` is the sender's account id now
+            // (#133), not their handle — `AudioChunkWatcher` hands Swift the
+            // whole chunk rather than rekeying it (see FlowWatcher.kt), and
+            // `PttAudio.play` never draws this value, only ignores it (see
+            // its own doc), so the id is passed through unresolved.
+            // `.riderIdValue`, not `.riderId.value` — the property itself is
+            // `RiderId`-typed and arrives in Swift erased to `Any` with no
+            // `.value` on it; `riderIdValue` is the iosMain accessor that
+            // unwraps it (see FlowWatcher.kt's "Model properties..." section).
+            PttAudio.shared.play(chunk.pcm.toData(), from: chunk.riderIdValue)
         }
         placeEventWatcher.watch { [weak self] in
             guard let relayEvent = self?.placeEventWatcher.value else { return }
@@ -275,12 +284,12 @@ final class ConvoyLiveClient: ObservableObject {
 
     func sendSpinOffer(_ candidates: [SpinCandidate]) { relay.sendSpinOffer(candidates: candidates) }
 
-    /// Casts this device's vote — `username` is read here, not inside
+    /// Casts this device's vote — the id is read here, not inside
     /// `ConvoyRelay`, which takes it as a parameter rather than reaching for
-    /// `Settings.authUsername` itself; see `ConvoyRelay.sendSpinVote`'s own
-    /// doc.
+    /// `Settings.authRiderId` itself; see `ConvoyRelay.sendSpinVote`'s own
+    /// doc. Compares on the account id now (#133), not the handle.
     func sendSpinVote(_ index: Int) {
-        relay.sendSpinVote(username: SettingsValues.shared.authUsername, index: Int32(index))
+        relay.sendSpinVote(myId: SettingsValues.shared.authRiderId, index: Int32(index))
     }
 
     func clearSpinOffer() { relay.clearSpinOffer() }
@@ -297,8 +306,8 @@ final class ConvoyLiveClient: ObservableObject {
     /// for why iOS reads this `Bool` rather than switching over
     /// `ConvoyRelay.spinRoundOutcome`'s own `SpinRoundOutcome` directly, the
     /// way `net/ConvoyLiveClient.kt`'s Android counterpart now does.
-    func spinRoundIsReadyToClose(myUsername: String) -> Bool {
-        relay.spinRoundIsReadyToClose(myUsername: myUsername)
+    func spinRoundIsReadyToClose(myId: String) -> Bool {
+        relay.spinRoundIsReadyToClose(myId: myId)
     }
 
     // MARK: Running

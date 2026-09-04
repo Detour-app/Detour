@@ -1,7 +1,9 @@
 package com.jellemax.detour.notif
 
 import com.jellemax.detour.data.CircleNotifyPolicy
+import com.jellemax.detour.data.CircleNotifyPolicy.CatchUpPlan
 import com.jellemax.detour.data.PlaceEvent
+import com.jellemax.detour.data.RiderId
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -25,14 +27,14 @@ import org.junit.Test
  */
 class CircleNotifyDeliveryOrderTest {
 
-    private fun event(username: String, tsMs: Long) = PlaceEvent(
-        id = "e-$username", placeId = 1L, placeName = "Home",
-        username = username, kind = "arrive", tsMs = tsMs,
+    private fun event(riderId: String, tsMs: Long) = PlaceEvent(
+        id = "e-$riderId", placeId = 1L, placeName = "Home",
+        riderId = RiderId(riderId), kind = "arrive", tsMs = tsMs,
     )
 
     /** Exactly what `CircleNotifyService.catchUp` iterates over. */
-    private fun delivered(plan: CircleNotifyPolicy.CatchUpPlan) =
-        plan.individual.asReversed().map { it.username }
+    private fun deliveredOrder(plan: CatchUpPlan): List<RiderId> =
+        plan.individual.asReversed().map { it.riderId }
 
     /** Cap+3 arrivals, one second apart, oldest first - a backlog big enough
      *  that the cap bites, so the selection and the delivery order are two
@@ -46,7 +48,7 @@ class CircleNotifyDeliveryOrderTest {
     fun theNewestArrivalIsPostedLastSoItRanksOnTopOfTheTray() {
         val now = 10_000_000L
         val total = CircleNotifyPolicy.NOTIFY_CAP + 3
-        val plan = CircleNotifyPolicy.planCatchUp(backlog(now), myUsername = "me", nowMs = now)
+        val plan = CircleNotifyPolicy.planCatchUp(backlog(now), myId = RiderId("me"), nowMs = now)
 
         // Ascending by timestamp: oldest posted first, newest last. This is
         // what Android posted before the policy moved to shared/ (a sortedBy
@@ -54,10 +56,10 @@ class CircleNotifyDeliveryOrderTest {
         // unchanged - the reversal is what keeps it that way now that the
         // plan itself arrives newest-first.
         assertEquals(
-            (total - CircleNotifyPolicy.NOTIFY_CAP until total).map { "user$it" },
-            delivered(plan),
+            (total - CircleNotifyPolicy.NOTIFY_CAP until total).map { RiderId("user$it") },
+            deliveredOrder(plan),
         )
-        assertEquals("user${total - 1}", delivered(plan).last())
+        assertEquals(RiderId("user${total - 1}"), deliveredOrder(plan).last())
     }
 
     @Test
@@ -68,12 +70,12 @@ class CircleNotifyDeliveryOrderTest {
         // same five must survive the cap.
         val now = 10_000_000L
         val shuffled = backlog(now).shuffled()
-        val plan = CircleNotifyPolicy.planCatchUp(shuffled, myUsername = "me", nowMs = now)
+        val plan = CircleNotifyPolicy.planCatchUp(shuffled, myId = RiderId("me"), nowMs = now)
 
         val total = CircleNotifyPolicy.NOTIFY_CAP + 3
         assertEquals(
-            (total - CircleNotifyPolicy.NOTIFY_CAP until total).map { "user$it" },
-            delivered(plan),
+            (total - CircleNotifyPolicy.NOTIFY_CAP until total).map { RiderId("user$it") },
+            deliveredOrder(plan),
         )
         assertEquals(3, plan.collapsedCount)
     }

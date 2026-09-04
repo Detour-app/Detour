@@ -1,4 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -113,4 +114,55 @@ public sealed class DetourApiFactory(PostgresFixture postgres) : WebApplicationF
         client.DefaultRequestHeaders.Authorization = new("Bearer", token);
         return client;
     }
+
+    /// <summary>
+    /// Signs in a fresh rider under a random handle and provisions their account, resolving the
+    /// id up front so a test can address them by whichever the endpoint under test expects —
+    /// riders are addressed by id everywhere except the handful of lookup-by-handle endpoints.
+    /// </summary>
+    public async Task<SignedInClient> SignInAsync()
+    {
+        var username = $"rider{Guid.NewGuid():N}"[..16];
+        var client = CreateClientWith(IssueToken($"subject-{Guid.NewGuid():N}", username, null, "detour-user"));
+
+        var signedIn = new SignedInClient(client, username);
+        await signedIn.ResolveUserIdAsync();
+        return signedIn;
+    }
+}
+
+/// <summary>
+/// A bearer-authenticated test client plus the identity it signed in as. Forwards the handful of
+/// HTTP verbs the test suite needs so a call site only has to reach past this for something this
+/// wrapper doesn't expose at all — the WebSocket leg in <c>LiveEndpointTests</c> and
+/// <c>LiveResilienceTests</c> reads the bearer token off <see cref="Client"/> directly, since
+/// standing up a socket connection isn't among the verbs above.
+/// </summary>
+public sealed class SignedInClient(HttpClient client, string username)
+{
+    public HttpClient Client { get; } = client;
+
+    public string Username { get; } = username;
+
+    // Fetched once on sign-in, from the endpoint that already returns it.
+    public Guid UserId { get; private set; }
+
+    internal async Task ResolveUserIdAsync()
+    {
+        var me = await Client.GetFromJsonAsync<JsonElement>("/api/me");
+        UserId = me.GetProperty("id").GetGuid();
+    }
+
+    public Task<HttpResponseMessage> GetAsync(string requestUri) => Client.GetAsync(requestUri);
+
+    public Task<HttpResponseMessage> DeleteAsync(string requestUri) => Client.DeleteAsync(requestUri);
+
+    public Task<HttpResponseMessage> PostAsJsonAsync<TValue>(string requestUri, TValue value) =>
+        Client.PostAsJsonAsync(requestUri, value);
+
+    public Task<HttpResponseMessage> PutAsJsonAsync<TValue>(string requestUri, TValue value) =>
+        Client.PutAsJsonAsync(requestUri, value);
+
+    public Task<TValue?> GetFromJsonAsync<TValue>(string requestUri) =>
+        Client.GetFromJsonAsync<TValue>(requestUri);
 }

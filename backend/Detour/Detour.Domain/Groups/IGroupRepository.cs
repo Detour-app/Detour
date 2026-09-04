@@ -37,7 +37,6 @@ public interface IMemberFixRepository : IBaseRepository<MemberFix>
 
 public readonly record struct MemberFixView(
     Guid UserId,
-    string Username,
     double Latitude,
     double Longitude,
     double? AccuracyMeters,

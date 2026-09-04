@@ -119,17 +119,23 @@ struct FriendsScreen: View {
         let incoming = model.friendsState.lists?.incoming ?? []
         if !incoming.isEmpty {
             Section("Requests") {
-                ForEach(incoming, id: \.self) { name in
+                // `\.idValue`/`rider.idValue`, not `\.id.value`/`rider.id` —
+                // `RiderRef.id` is `RiderId`-typed and arrives in Swift erased
+                // to `Any`; `idValue` is the iosMain accessor that unwraps it
+                // (see FlowWatcher.kt's "Model properties..." section), and
+                // `respond`'s `riderId:` parameter already wants the plain
+                // `String` a value-class parameter lowers to.
+                ForEach(incoming, id: \.idValue) { rider in
                     HStack {
-                        Text(name)
+                        Text(rider.username)
                         Spacer()
                         Button("Accept") {
-                            Task { _ = try? await FriendsStore.shared.respond(username: name, accept: true) }
+                            Task { _ = try? await FriendsStore.shared.respond(riderId: rider.idValue, accept: true) }
                         }
                         .buttonStyle(.borderless)
                         .disabled(model.friendsState.busy || signingOut)
                         Button("Decline") {
-                            Task { _ = try? await FriendsStore.shared.respond(username: name, accept: false) }
+                            Task { _ = try? await FriendsStore.shared.respond(riderId: rider.idValue, accept: false) }
                         }
                         .buttonStyle(.borderless)
                         .tint(.secondary)
@@ -140,16 +146,30 @@ struct FriendsScreen: View {
         }
     }
 
+    /// A leaderboard row and whether it is the signed-in rider's own, kept
+    /// together through the sort — mirrors Android's `LeaderboardEntry` in
+    /// FriendsScreen.kt. The own row arrives as its own typed field
+    /// (`FriendsState.own`), so which row is "me" is known before the sort;
+    /// concatenating into a bare list and recovering it with a `== username`
+    /// comparison afterwards is exactly the bug #133 found here: a handle
+    /// comparison standing in for the id ranked alongside it, correct only
+    /// as long as nobody's handle ever changed underneath it.
+    private struct LeaderboardEntry: Identifiable {
+        let friend: FriendStats
+        let isMe: Bool
+        var id: String { friend.rider.idValue }
+    }
+
     /// The signed-in user's own row — `FriendsStore.refreshOwn`'s
     /// synthesized `FriendsState.own` — merged into the ranking the same way
     /// Android's `FriendsScreen.kt` does (`ranked = leaderboard + own,
     /// sortedByDescending`). This own-stats row is the one thing iOS gains
     /// in this release: the computation moved into `FriendsStore` with the
     /// rest of the leaderboard state, so both platforms get it for free.
-    private var rankedLeaderboard: [FriendStats] {
-        var all = model.friendsState.leaderboard
-        if let own = model.friendsState.own { all.append(own) }
-        return all.sorted { $0.stats.totalDistanceMeters > $1.stats.totalDistanceMeters }
+    private var rankedLeaderboard: [LeaderboardEntry] {
+        var all = model.friendsState.leaderboard.map { LeaderboardEntry(friend: $0, isMe: false) }
+        if let own = model.friendsState.own { all.append(LeaderboardEntry(friend: own, isMe: true)) }
+        return all.sorted { $0.friend.stats.totalDistanceMeters > $1.friend.stats.totalDistanceMeters }
     }
 
     private var leaderboardSection: some View {
@@ -158,11 +178,12 @@ struct FriendsScreen: View {
                 Text("Add a friend to compare rides.")
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(rankedLeaderboard, id: \.username) { friend in
-                    let isMe = friend.username == model.username
+                ForEach(rankedLeaderboard) { entry in
+                    let friend = entry.friend
+                    let isMe = entry.isMe
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text(friend.username + (isMe ? " (you)" : ""))
+                            Text(friend.rider.username + (isMe ? " (you)" : ""))
                                 .font(.body.weight(isMe ? .bold : .medium))
                             Spacer()
                             Text(formatDistanceKm(friend.stats.totalDistanceMeters))
@@ -197,9 +218,9 @@ struct FriendsScreen: View {
             if let addStatus {
                 Text(addStatus).font(.caption).foregroundStyle(.secondary)
             }
-            ForEach(model.friendsState.lists?.outgoing ?? [], id: \.self) { name in
+            ForEach(model.friendsState.lists?.outgoing ?? [], id: \.idValue) { rider in
                 HStack {
-                    Text(name)
+                    Text(rider.username)
                     Spacer()
                     Text("pending").font(.caption).foregroundStyle(.secondary)
                 }
@@ -450,12 +471,14 @@ final class FriendsModel: ObservableObject {
 
     @Published var signedIn = false
     @Published var username = ""
+    @Published var riderId = ""
     @Published private(set) var friendsState: FriendsState
     @Published private(set) var convoysState: ConvoysState
     @Published var shareFog = false
 
     private let token = SettingsFlows.shared.authToken()
     private let name = SettingsFlows.shared.authUsername()
+    private let riderIdWatcher = SettingsFlows.shared.authRiderId()
     private let fogSharing = SettingsFlows.shared.shareFog()
     private let friendsFlow = FeatureFlows.shared.friends()
     private let convoysFlow = FeatureFlows.shared.convoys()
@@ -472,12 +495,21 @@ final class FriendsModel: ObservableObject {
             // used to bail out of the assignment entirely while signed out,
             // which left `username` parked on the departed rider's handle
             // indefinitely — and `reload()` below reads this field straight
-            // into `refreshOwn(username:)`, which has no signedIn guard of
+            // into `refreshOwn(rider:)`, which has no signedIn guard of
             // its own on the Kotlin side (see FriendsStore.kt), so a stale
             // handle here was a rider's own row committed under someone
             // else's name.
             guard let self else { return }
             self.username = self.signedIn ? self.name.value : ""
+        }
+        riderIdWatcher.watch { [weak self] in
+            // Same clear-rather-than-freeze hazard as `username` above, and
+            // for the same reason: `reload()` below feeds this straight into
+            // `refreshOwn(rider:)` too, and `FriendsStore.refreshOwn`'s own
+            // blank guard exists exactly because this mirror can lag the
+            // token's by a tick after a sign-in.
+            guard let self else { return }
+            self.riderId = self.signedIn ? self.riderIdWatcher.value : ""
         }
         fogSharing.watch { [weak self] in self?.shareFog = self?.fogSharing.value ?? false }
         friendsFlow.watch { [weak self] in
@@ -491,7 +523,7 @@ final class FriendsModel: ObservableObject {
     }
 
     deinit {
-        [token, name, fogSharing, friendsFlow, convoysFlow].forEach { $0.cancel() }
+        [token, name, riderIdWatcher, fogSharing, friendsFlow, convoysFlow].forEach { $0.cancel() }
     }
 
     /// Reloads both stores together — the same moment Android's
@@ -521,7 +553,20 @@ final class FriendsModel: ObservableObject {
         // `@Published` mutation in `init` above always lands on the main
         // thread.
         let currentName = username
-        _ = await Task.detached { try? await FriendsStore.shared.refreshOwn(username: currentName) }.value
+        let currentRiderId = riderId
+        // The `RiderRef`/`RiderId` construction happens inside the detached
+        // closure, not before it, so the closure only captures plain
+        // `String`s across the concurrency boundary — a Kotlin-bridged object
+        // has no known `Sendable` conformance to capture instead.
+        _ = await Task.detached {
+            // `RiderRef.init(id:username:)`'s `id:` is `RiderId`-typed in
+            // Kotlin but, like any value-class parameter, already lowers to
+            // `String` at the ABI boundary — there is no Swift-visible
+            // `RiderId` to construct here (see FlowWatcher.kt's "Model
+            // properties..." section), so `currentRiderId` is passed as-is.
+            let rider = RiderRef(id: currentRiderId, username: currentName)
+            try? await FriendsStore.shared.refreshOwn(rider: rider)
+        }.value
         try? await ConvoysStore.shared.reload()
     }
 

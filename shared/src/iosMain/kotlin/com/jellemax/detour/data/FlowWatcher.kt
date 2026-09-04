@@ -81,6 +81,23 @@ class StringWatcher internal constructor(private val flow: StateFlow<String>) : 
         flow.collect { value = it; onChange() }
 }
 
+/** This device's own account id — see [Auth.resolveRiderId]. Not a
+ *  [StringWatcher] wrapping [Settings.authRiderId] directly: that flow is
+ *  typed [RiderId], and a value class buys nothing at the Swift boundary —
+ *  Swift gets no compile-time check either way — while Kotlin/Native's
+ *  Objective-C export can silently drop a declaration whose signature uses an
+ *  inline value class. So this unwraps to the [String] Swift actually gets,
+ *  same shape as [StringWatcher]. */
+class RiderIdWatcher internal constructor(
+    private val flow: StateFlow<RiderId>,
+) : Watcher() {
+    var value: String = flow.value.value
+        private set
+
+    override suspend fun collect(onChange: () -> Unit) =
+        flow.collect { value = it.value; onChange() }
+}
+
 class TravelModeWatcher internal constructor(
     private val flow: StateFlow<TravelMode>,
 ) : Watcher() {
@@ -191,24 +208,31 @@ class CirclesStateWatcher internal constructor(
 // class has to live next to `ConvoyRelay` itself rather than here - see its
 // own doc.
 
+/** [ConvoyRelay.peers] keys on [RiderId] now (#133); Swift still gets a
+ *  `[String: FriendPosition]`, same reasoning as [RiderIdWatcher] above -
+ *  the value class checks nothing Swift can also check, and a signature
+ *  that used it could vanish from the generated header instead of erroring. */
 class FriendPositionsWatcher internal constructor(
-    private val flow: StateFlow<Map<String, FriendPosition>>,
+    private val flow: StateFlow<Map<RiderId, FriendPosition>>,
 ) : Watcher() {
-    var value: Map<String, FriendPosition> = flow.value
+    var value: Map<String, FriendPosition> = flow.value.mapKeys { it.key.value }
         private set
 
     override suspend fun collect(onChange: () -> Unit) =
-        flow.collect { value = it; onChange() }
+        flow.collect { value = it.mapKeys { e -> e.key.value }; onChange() }
 }
 
+/** Backs [ConvoyRelay.talking] - a [RiderId] set since #133, unwrapped to
+ *  `Set<String>` for Swift for the same reason as [FriendPositionsWatcher]
+ *  just above. */
 class StringSetWatcher internal constructor(
-    private val flow: StateFlow<Set<String>>,
+    private val flow: StateFlow<Set<RiderId>>,
 ) : Watcher() {
-    var value: Set<String> = flow.value
+    var value: Set<String> = flow.value.map { it.value }.toSet()
         private set
 
     override suspend fun collect(onChange: () -> Unit) =
-        flow.collect { value = it; onChange() }
+        flow.collect { value = it.map { r -> r.value }.toSet(); onChange() }
 }
 
 class GroupSpinWatcher internal constructor(
@@ -221,14 +245,17 @@ class GroupSpinWatcher internal constructor(
         flow.collect { value = it; onChange() }
 }
 
+/** Backs [ConvoyRelay.spinVotes] - a [RiderId]-keyed tally since #133,
+ *  unwrapped to `Map<String, Int>` for Swift for the same reason as
+ *  [FriendPositionsWatcher] above. */
 class SpinVotesWatcher internal constructor(
-    private val flow: StateFlow<Map<String, Int>>,
+    private val flow: StateFlow<Map<RiderId, Int>>,
 ) : Watcher() {
-    var value: Map<String, Int> = flow.value
+    var value: Map<String, Int> = flow.value.mapKeys { it.key.value }
         private set
 
     override suspend fun collect(onChange: () -> Unit) =
-        flow.collect { value = it; onChange() }
+        flow.collect { value = it.mapKeys { e -> e.key.value }; onChange() }
 }
 
 class OptionalStringWatcher internal constructor(
@@ -283,6 +310,7 @@ object SettingsFlows {
     fun voiceGuidance() = BoolWatcher(Settings.voiceGuidance)
     fun routeColor() = RouteColorWatcher(Settings.routeColor)
     fun authUsername() = StringWatcher(Settings.authUsername)
+    fun authRiderId() = RiderIdWatcher(Settings.authRiderId)
 
     /** The session, for the one thing iOS asks of it: whether there is one.
      *  Follows the refresh token rather than the access token, because that is
@@ -343,7 +371,44 @@ object SettingsValues {
     val leanOffsetDeg: Float get() = Settings.leanOffsetDeg.value
     val authToken: String get() = Settings.refreshToken.value
     val authUsername: String get() = Settings.authUsername.value
+    // Swift gets the primitive deliberately — see [RiderIdWatcher]'s doc:
+    // [RiderId]'s compile-time safety has no Swift-side counterpart to pay
+    // for it, and an inline value class can be dropped silently from the
+    // generated Objective-C header.
+    val authRiderId: String get() = Settings.authRiderId.value.value
 }
+
+// --- Model properties that hand Swift the id as a string -----------------
+//
+// Same reasoning as `RiderIdWatcher`/`SettingsValues.authRiderId` above, just
+// for a value read once off a model instead of collected off a flow:
+// Kotlin/Native's Objective-C export does not give `RiderId` a Swift-visible
+// type at all — a property typed `RiderId` arrives in Swift erased to `Any`,
+// with no `.value` to call on it and no way to spell `RiderId` there to cast
+// it back. A *parameter* typed `RiderId` is a different story — Kotlin
+// already lowers a value-class parameter to its underlying representation at
+// the ABI boundary, so `GroupsKt.handleFor(riderId:)`,
+// `ConvoyRelay.sendSpinVote(myId:)` and the rest already take the plain
+// `String` a caller has on hand; passing one of these values straight
+// through needs no accessor and no `RiderId(value:)` wrapper, which is
+// itself unconstructible from Swift for the same reason its properties are
+// unreadable. Only *reading* the id back off one of these five model types
+// needs the unwrap below.
+
+/** See this file's "Model properties..." section above. */
+val GroupMember.riderIdValue: String get() = id.value
+
+/** See this file's "Model properties..." section above. */
+val RiderRef.idValue: String get() = id.value
+
+/** See this file's "Model properties..." section above. */
+val CirclePlace.ownerIdValue: String get() = ownerId.value
+
+/** See this file's "Model properties..." section above. */
+val PlaceEvent.riderIdValue: String get() = riderId.value
+
+/** See this file's "Model properties..." section above. */
+val IncomingAudioChunk.riderIdValue: String get() = riderId.value
 
 /**
  * Values that exist in Kotlin but not in the Objective-C header.

@@ -47,6 +47,7 @@ class CredentialMigrationTest {
         put("refresh_token", "rt")
         put("access_token_expires_at", 1234L)
         put("auth_username", "andre")
+        put("auth_rider_id", "3fa85f64-5717-4562-b3fc-2c963f66afa6")
     }
 
     private fun plainWithServer() = FakePrefs().apply {
@@ -164,6 +165,7 @@ class CredentialMigrationTest {
         // ...while the keys that did verify are gone.
         assertEquals("", plain.string("refresh_token", ""))
         assertEquals("", plain.string("auth_username", ""))
+        assertEquals("", plain.string("auth_rider_id", ""))
         assertEquals(0L, plain.long("access_token_expires_at", 0L))
     }
 
@@ -219,6 +221,24 @@ class CredentialMigrationTest {
         val plain = FakePrefs().apply { put("access_token_expires_at", 1234L) }
 
         assertTrue(CredentialMigration.groupHasPlaintext(plain, CredentialMigration.SESSION_GROUP))
+    }
+
+    // #133: the client now persists its own account id (`Settings.authRiderId`)
+    // the same way it already persists `auth_username`, so it migrates out of
+    // plaintext the same way too. Two calls, not one: the first copies and
+    // arms the marker (Outcome.Copied), the second sees the marker read back
+    // and deletes the plaintext (Outcome.Verified) — see [step]'s own doc for
+    // why deletion always waits for a later call.
+    @Test
+    fun theRiderIdMigratesOutOfPlaintextPreferences() {
+        val plain = FakePrefs().apply { put("auth_rider_id", "3fa85f64-5717-4562-b3fc-2c963f66afa6") }
+        val secure = FakePrefs()
+
+        CredentialMigration.step(plain, secure, CredentialMigration.SESSION_GROUP)
+        CredentialMigration.step(plain, secure, CredentialMigration.SESSION_GROUP)
+
+        assertEquals("3fa85f64-5717-4562-b3fc-2c963f66afa6", secure.string("auth_rider_id", ""))
+        assertEquals("", plain.string("auth_rider_id", ""))
     }
 
     @Test

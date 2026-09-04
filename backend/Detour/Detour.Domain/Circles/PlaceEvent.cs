@@ -86,6 +86,6 @@ public readonly record struct PlaceEventView(
     Guid Id,
     long ClientPlaceId,
     string PlaceName,
-    string Username,
+    Guid UserId,
     string Kind,
     long TimestampMs);

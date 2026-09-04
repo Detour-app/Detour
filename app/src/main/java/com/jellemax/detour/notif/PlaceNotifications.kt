@@ -62,8 +62,15 @@ object PlaceNotifications {
         PendingCircleOpen.offer(id)
     }
 
-    fun notify(context: Context, groupId: String, event: PlaceEvent) {
-        show(context, groupId, notificationIdFor(groupId, event.tsMs, event.username), event.notificationText())
+    /** [displayName] is the handle to draw — the event itself only names a
+     *  rider by id now (#133), and membership is what resolves it; the
+     *  caller already has it (see `CircleNotifyService.displayNameFor`). */
+    fun notify(context: Context, groupId: String, event: PlaceEvent, displayName: String) {
+        show(
+            context, groupId,
+            notificationIdFor(groupId, event.tsMs, event.riderId.value),
+            event.notificationText(displayName),
+        )
     }
 
     fun notifySummary(context: Context, groupId: String, collapsedCount: Int) {

@@ -27,7 +27,7 @@ class AuthUsernameFallbackTest {
     @Test
     fun theStoredNameIsDroppedWhenTheTokenIsForADifferentRider() {
         // The sharp edge. Carrying "ada" here names rider B as rider A, and
-        // every isMe / place.owner comparison in the app then agrees.
+        // every isMe / place.ownerId comparison in the app then agrees.
         assertEquals(
             "",
             Auth.carriedUsername(subject = riderB, storedScopeKey = keyOf(riderA), stored = "ada"),

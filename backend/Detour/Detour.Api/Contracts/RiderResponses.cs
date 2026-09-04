@@ -48,6 +48,6 @@ public record RiderStatsResponse(
 
 /// <summary>Another rider, as a friend sees them. Aggregates only — never their rides.</summary>
 public record FriendStatsResponse(
-    [Required] string Username,
+    [Required] RiderRef Rider,
     [Required] RiderStatsResponse Stats,
     [Required] IReadOnlyDictionary<string, long> Badges);

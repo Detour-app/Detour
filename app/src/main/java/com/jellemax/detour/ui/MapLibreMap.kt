@@ -18,7 +18,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import com.jellemax.detour.R
 import com.jellemax.detour.data.LatLon
-import com.jellemax.detour.data.MemberFix
+import com.jellemax.detour.data.NamedMemberFix
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.Perf
 import com.jellemax.detour.data.RouteColors
@@ -104,6 +104,18 @@ private const val DRIVEN_STEP_METERS = 12.0
 // Below this there is nothing worth drawing: a stub of driven line at the very
 // start of a route reads as a rendering glitch, not as progress.
 private const val DRIVEN_MIN_METERS = 20.0
+
+/**
+ * A convoy peer's live position plus the handle to draw beside it — the
+ * convoy-side counterpart of [NamedMemberFix], but built here rather than in
+ * shared/: nothing server-side joins a peer's position to its name the way
+ * [CircleFixes.othersFixes] does for a circle, because a convoy position
+ * rides the live relay socket and its membership is a separate, slower HTTP
+ * list — there is no one call that already has both. [MapScreen] is what
+ * holds a peer's fix and current convoy membership at once to build this,
+ * resolving unnamed ids as [ConvoysStore.watchPeers] fills them in.
+ */
+data class NamedFriendPosition(val fix: FriendPosition, val username: String)
 
 /**
  * Owns the runtime sources and layers drawn on top of the basemap: the reach
@@ -300,12 +312,12 @@ class MapOverlays(
      *  [ConvoyLiveClient]'s peer flow, not [render] — same reasoning as
      *  [setCameras]: this refreshes on a completely different rhythm than the
      *  spin/route state [render] pushes. */
-    fun setFriends(friends: Collection<FriendPosition>) {
+    fun setFriends(friends: Collection<NamedFriendPosition>) {
         setData(SRC_FRIENDS, FeatureCollection.fromFeatures(
             friends.map { f ->
-                Feature.fromGeometry(Point.fromLngLat(f.lon, f.lat)).apply {
+                Feature.fromGeometry(Point.fromLngLat(f.fix.lon, f.fix.lat)).apply {
                     addStringProperty("name", f.username)
-                    addNumberProperty("bearing", f.headingDeg ?: 0.0)
+                    addNumberProperty("bearing", f.fix.headingDeg ?: 0.0)
                 }
             }))
     }
@@ -317,12 +329,12 @@ class MapOverlays(
      *  is computed here rather than stored on [MemberFix] so a marker's label
      *  is honest about "how old is this" even between polls, not just at the
      *  instant the fix arrived. */
-    fun setCircleMembers(fixes: Collection<MemberFix>) {
+    fun setCircleMembers(fixes: Collection<NamedMemberFix>) {
         val now = System.currentTimeMillis()
         setData(SRC_CIRCLE_MEMBERS, FeatureCollection.fromFeatures(
             fixes.map { f ->
-                Feature.fromGeometry(Point.fromLngLat(f.lon, f.lat)).apply {
-                    val ageMin = ((now - f.tsMs).coerceAtLeast(0) / 60_000L)
+                Feature.fromGeometry(Point.fromLngLat(f.fix.lon, f.fix.lat)).apply {
+                    val ageMin = ((now - f.fix.tsMs).coerceAtLeast(0) / 60_000L)
                     val ageLabel = if (ageMin < 1) "just now" else "${ageMin}m ago"
                     addStringProperty("label", "${f.username} · $ageLabel")
                 }

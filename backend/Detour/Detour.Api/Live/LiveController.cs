@@ -62,7 +62,7 @@ public class LiveController(
         var user = await currentUser.GetAsync(cancellationToken);
         using var socket = await HttpContext.WebSockets.AcceptWebSocketAsync();
 
-        var connection = relay.Register(new LiveConnection(user.Id, user.Username, socket));
+        var connection = relay.Register(new LiveConnection(user.Id, socket));
         using var connectionClosed = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         var writer = connection.RunWriterAsync(JsonOptions, connectionClosed.Token);
@@ -269,7 +269,7 @@ public class LiveController(
         // answer that is already known.
         var locations = services.GetRequiredService<ILiveLocationService>();
         await locations.IngestAsync(
-            new LiveRider(connection.UserId, connection.Username),
+            new LiveRider(connection.UserId),
             position,
             LivePositionSource.Socket,
             cancellationToken);
@@ -309,7 +309,7 @@ public class LiveController(
         relay.PublishToGroup(
             await AcceptedMemberIdsAsync(services, group.Id, connection.UserId, cancellationToken),
             group.Id,
-            new DestinationOfferFrame(group.Id, connection.Username, candidates));
+            new DestinationOfferFrame(group.Id, connection.UserId, candidates));
     }
 
     private async Task HandleVoteAsync(
@@ -332,7 +332,7 @@ public class LiveController(
         relay.PublishToGroup(
             await AcceptedMemberIdsAsync(services, group.Id, connection.UserId, cancellationToken),
             group.Id,
-            new DestinationVoteFrame(group.Id, connection.Username, index));
+            new DestinationVoteFrame(group.Id, connection.UserId, index));
     }
 
     /// <summary>

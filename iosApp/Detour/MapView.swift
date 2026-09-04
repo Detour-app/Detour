@@ -33,7 +33,7 @@ struct MapView: UIViewRepresentable {
     /// "name · age" style-layer label — this view has no custom style layers
     /// at all yet, only annotations — so the label surfaces on tap, the same
     /// way the destination and stop pins already work in this file.
-    var circleMembers: [MemberFix] = []
+    var circleMembers: [NamedMemberFix] = []
     /// The three rolls of a spin awaiting a pick, lettered A/B/C to match the
     /// rows of the card below the map. Empty once one is committed — it
     /// becomes `destination` then.
@@ -92,8 +92,11 @@ struct MapView: UIViewRepresentable {
 
         for member in circleMembers {
             let pin = MLNPointAnnotation()
-            pin.coordinate = CLLocationCoordinate2D(latitude: member.lat, longitude: member.lon)
-            pin.title = "\(member.username) · \(circleFixAge(member.tsMs))"
+            pin.coordinate = CLLocationCoordinate2D(latitude: member.fix.lat, longitude: member.fix.lon)
+            // `member.username` is resolved membership, not the position
+            // itself — positions carry an id and no handle now (#133); see
+            // `NamedMemberFix`'s own doc in CircleFixes.kt.
+            pin.title = "\(member.username) · \(circleFixAge(member.fix.tsMs))"
             view.addAnnotation(pin)
         }
 

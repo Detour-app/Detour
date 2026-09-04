@@ -64,10 +64,20 @@ struct CirclesScreen: View {
                         unavailable("No sync server configured. Set one in Settings first — circles live on your own server.")
                     } else if !model.signedIn {
                         unavailable("Sign in under Friends first — circles share that same friends list.")
+                    } else if model.riderId.isEmpty {
+                        // Signed in, but /me hasn't answered yet (#133) — matches
+                        // Android's CirclesScaffold gate, which the same defect used
+                        // to fold into the "sign in" message above even though this
+                        // rider already is signed in. Every check past this point
+                        // (isMe, ownership) compares by id, so showing the list or
+                        // detail view here would just show those fail closed with
+                        // nothing on screen to explain why.
+                        unavailable("Setting up your account — check back in a moment.")
                     } else if let selected = selectedCircle {
                         CircleDetailView(
                             circle: selected,
                             username: model.username,
+                            riderId: model.riderId,
                             state: model.state,
                             onInvite: { invitingTo = selected },
                             onLeave: {
@@ -224,6 +234,7 @@ final class CirclesModel: ObservableObject {
 
     @Published var signedIn = false
     @Published var username = ""
+    @Published var riderId = ""
     @Published private(set) var state: CirclesState
 
     var configured: Bool { SyncClient.shared.configured() }
@@ -235,6 +246,7 @@ final class CirclesModel: ObservableObject {
     // else (a scenePhase change) was recomputing the view anyway.
     private let token = SettingsFlows.shared.authToken()
     private let name = SettingsFlows.shared.authUsername()
+    private let riderIdWatcher = SettingsFlows.shared.authRiderId()
     private let circlesFlow = FeatureFlows.shared.circles()
 
     init() {
@@ -246,11 +258,16 @@ final class CirclesModel: ObservableObject {
         name.watch { [weak self] in
             // Clears rather than freezes when the session goes away — same
             // fix as FriendsModel's matching watcher, and just as needed
-            // here: a frozen `username` left `place.owner == username` below
+            // here: a frozen `username` left `place.ownerId == riderId` below
             // showing the previous rider's unshare affordance over a place
             // that was never theirs to remove.
             guard let self else { return }
             self.username = self.signedIn ? self.name.value : ""
+        }
+        riderIdWatcher.watch { [weak self] in
+            // Same clear-rather-than-freeze hazard as `username` above.
+            guard let self else { return }
+            self.riderId = self.signedIn ? self.riderIdWatcher.value : ""
         }
         circlesFlow.watch { [weak self] in
             guard let self else { return }
@@ -259,7 +276,7 @@ final class CirclesModel: ObservableObject {
     }
 
     deinit {
-        [token, name, circlesFlow].forEach { $0.cancel() }
+        [token, name, riderIdWatcher, circlesFlow].forEach { $0.cancel() }
     }
 
     /// `CirclesStore.reload` never throws for an ordinary failure — it
@@ -351,6 +368,10 @@ private struct CircleMemberRow: View {
 private struct CircleDetailView: View {
     let circle: DetourShared.Group
     let username: String
+    /// This device's own account id — see `CirclesModel`'s mirror. What every
+    /// "is this me"/"did I share this" check below now compares on (#133),
+    /// in place of `username`.
+    let riderId: String
     let state: CirclesState
     let onInvite: () -> Void
     let onLeave: () -> Void
@@ -368,15 +389,19 @@ private struct CircleDetailView: View {
     /// and could be wiped by any later `selecting()`/`detailStarting()`).
     @State private var notifyError: String?
 
+    /// Compares the account id, not the handle (#133) — this used to compare
+    /// `$0.username == username`, which agrees with the id-based check as long
+    /// as nobody's handle has changed since the member list was last fetched,
+    /// and disagrees the moment it has.
     private var mine: GroupMember? {
-        circle.members.first { $0.username == username }
+        circle.members.first { $0.riderIdValue == riderId }
     }
 
     var body: some View {
         List {
             Section("Members") {
-                ForEach(circle.members, id: \.username) { member in
-                    CircleMemberRow(member: member, isMe: member.username == username)
+                ForEach(circle.members, id: \.riderIdValue) { member in
+                    CircleMemberRow(member: member, isMe: member.riderIdValue == riderId)
                 }
                 if let mine {
                     Toggle(isOn: Binding(
@@ -456,12 +481,16 @@ private struct CircleDetailView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(place.place.name).font(.body.weight(.medium))
-                                Text("Shared by \(place.owner) · \(Int(place.radiusM)) m radius")
+                                // `CirclePlace` carries the owner's id now, not
+                                // their handle (#133) — resolved from this
+                                // circle's own membership, same as an event's
+                                // author below.
+                                Text("Shared by \(GroupsKt.handleFor(circle.members, riderId: place.ownerIdValue)) · \(Int(place.radiusM)) m radius")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            if place.owner == username {
+                            if place.ownerIdValue == riderId {
                                 Button(role: .destructive) {
                                     Task { _ = try? await CirclesStore.shared.unsharePlace(serverId: place.serverId) }
                                 } label: {
@@ -496,7 +525,10 @@ private struct CircleDetailView: View {
                         let placeName = state.places.first { $0.place.id == event.placeId }?.place.name
                             ?? "a since-removed place"
                         let verb = event.kind == "arrive" ? "arrived at" : "left"
-                        Text("\(event.username) \(verb) \(placeName) — \(relativeAge(event.tsMs))")
+                        // `PlaceEvent` names its rider by id only now (#133) —
+                        // resolved from this circle's own membership, same as
+                        // a shared place's owner above.
+                        Text("\(GroupsKt.handleFor(circle.members, riderId: event.riderIdValue)) \(verb) \(placeName) — \(relativeAge(event.tsMs))")
                             .font(.footnote)
                     }
                 }

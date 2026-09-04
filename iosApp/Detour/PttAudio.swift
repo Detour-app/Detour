@@ -134,8 +134,11 @@ final class PttAudio {
     /// Android keeps an AudioTrack per speaker so two people talking at once
     /// don't interleave into noise. AVAudioEngine mixes for free — every
     /// scheduled buffer goes through the same mixer — so one player node is
-    /// enough here and [user] is only used to decide nothing else.
-    func play(_ pcm: Data, from user: String) {
+    /// enough here and [riderId] is only used to decide nothing else. Now the
+    /// sender's account id rather than their handle (#133) — that divergence
+    /// from Android predates this change and stays; only the identifier this
+    /// deliberately ignored parameter carries has been retyped.
+    func play(_ pcm: Data, from riderId: String) {
         let player = ensurePlayer()
         guard let buffer = buffer(from: pcm) else { return }
         player.scheduleBuffer(buffer, completionHandler: nil)

@@ -5,9 +5,10 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** A circle member's last known position, as `GET /api/circles/{id}/positions`
- *  returns it. */
+ *  returns it. Identity only — the handle to draw comes from the group's
+ *  membership, which [CircleFixes.othersFixes] fetches in the same breath. */
 data class MemberFix(
-    val username: String,
+    val riderId: RiderId,
     val lat: Double,
     val lon: Double,
     val accuracyM: Double,
@@ -41,23 +42,19 @@ object CircleFixes {
         )
     }
 
-    /** What a map wants to draw: one newest fix per *other* person, across
-     *  every circle you're in — a circle is the always-on relationship, so
-     *  the map never waits for one to be picked. Your own fix comes back
-     *  from the server too and is dropped here, since drawing it would stack
-     *  a second marker on your own position; someone you share two circles
-     *  with reports once per circle and is collapsed to their newest.
-     *
-     *  Both the phone map and the car map read this, so they can't drift
+    /** Both the phone map and the car map read this, so they can't drift
      *  apart on which members count. */
     @Throws(Exception::class)
-    suspend fun othersFixes(selfUsername: String): List<MemberFix> =
-        newestPerOtherMember(
-            Groups.list("circle")
-                .filter { it.status == "accepted" }
-                .flatMap { fixes(it.id) },
-            selfUsername,
-        )
+    suspend fun othersFixes(selfId: RiderId): List<NamedMemberFix> {
+        val circles = Groups.list("circle").filter { it.status == "accepted" }
+        val members = circles.flatMap { it.members }
+        return newestPerOtherMember(circles.flatMap { fixes(it.id) }, selfId)
+            // [handleFor], not a hand-rolled map lookup: a fix for a member
+            // this device's own circle list doesn't (yet) know about used to
+            // read back "" here and draw an empty marker label - the same
+            // gap #133's own review found in the twelve other call sites.
+            .map { NamedMemberFix(it, members.handleFor(it.riderId)) }
+    }
 
     /** Latest fix per accepted, currently-sharing member — the server drops a
      *  paused member's fix at the read, even though the row may still exist. */
@@ -67,22 +64,30 @@ object CircleFixes {
     }
 }
 
+/** A fix, plus the handle to draw beside it, resolved via [handleFor] from the
+ *  membership [CircleFixes.othersFixes] already fetched. Identity and label
+ *  arrive together here so the map layers that draw a circle-member marker
+ *  never repeat that lookup themselves — unlike a shared place or an event,
+ *  which carry the bare id and leave the [handleFor] call to whichever screen
+ *  renders them. */
+data class NamedMemberFix(val fix: MemberFix, val username: String)
+
 /** Extracted from [CircleFixes.othersFixes] for the same reason
  *  [memberFixFromJson] is: it is the part with rules in it — drop yourself,
  *  collapse someone you share two circles with to their newest fix — and it
  *  is otherwise only reachable behind two HTTP calls. */
 internal fun newestPerOtherMember(
     fixes: List<MemberFix>,
-    selfUsername: String,
+    selfId: RiderId,
 ): List<MemberFix> = fixes
-    .filter { it.username != selfUsername }
-    .groupBy { it.username }
+    .filter { it.riderId != selfId }
+    .groupBy { it.riderId }
     .map { (_, forUser) -> forUser.maxBy { it.tsMs } }
 
 /** Extracted from [CircleFixes.fixes] so JSON parsing is testable without a
  *  network round trip. */
 internal fun memberFixFromJson(f: JsonObject): MemberFix = MemberFix(
-    username = f.optString("username"),
+    riderId = RiderId(f.optString("riderId")),
     lat = f.optDouble("latitude"),
     lon = f.optDouble("longitude"),
     // Null when the platform reported no accuracy; the map treats a

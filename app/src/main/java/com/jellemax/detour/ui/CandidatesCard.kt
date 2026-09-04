@@ -31,7 +31,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.jellemax.detour.data.GroupMember
+import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.RouteCandidate
+import com.jellemax.detour.data.handleFor
 
 /** Spin results awaiting a pick: distance/ETA per candidate, tap one to commit
  *  to it - or, once [convoyVotes] is non-null, tap one to vote on it instead
@@ -43,8 +46,12 @@ internal fun CandidatesCard(
     onReroll: () -> Unit,
     onCancel: () -> Unit,
     // Null = a solo spin, not shared with anyone. Non-null (even empty) =
-    // a convoy vote is in progress; the map holds username -> chosen index.
-    convoyVotes: Map<String, Int>? = null,
+    // a convoy vote is in progress; the map holds rider id -> chosen index.
+    convoyVotes: Map<RiderId, Int>? = null,
+    // The convoy's own membership, to resolve a voter's id to the handle
+    // drawn under a candidate — this card has no store access of its own and
+    // should not gain one just to look up a name.
+    members: List<GroupMember>,
     // Non-null only pre-share, in a convoy, with a spin actually on screen.
     onShare: (() -> Unit)? = null,
     onGoWithLead: (() -> Unit)? = null,
@@ -110,7 +117,8 @@ internal fun CandidatesCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         if (convoyVotes != null) {
-                            val voters = convoyVotes.filterValues { it == index }.keys.sorted()
+                            val voters = convoyVotes.filterValues { it == index }.keys
+                                .map { members.handleFor(it) }.sorted()
                             Text(
                                 if (voters.isEmpty()) "No votes yet"
                                 else "${voters.size} vote${if (voters.size == 1) "" else "s"} · " +

@@ -100,24 +100,38 @@ object CirclesStore {
 
     @Throws(Exception::class)
     suspend fun reload() {
-        val epoch = Auth.sessionEpoch.value
         _state.update { it.starting() }
-        // See FriendsStore.reload's comment: the transform is built from the
-        // await's result and only applied to the live `it` inside the final
-        // `update { }` below, not to a `_state.value` snapshot taken before
-        // the suspending call — which is also what lets a selection made
-        // while this reload was in flight (a tapped arrival notification, or
-        // a second tap in the list; see `CirclesState.loaded`'s
-        // `selectedId` handling) survive into the committed result instead of
-        // being silently reverted to whatever it was when this reload started.
+        fetchAndCommit(CirclesState::loaded, CirclesState::failed)
+    }
+
+    /** [reload]'s fetch step: gets the circle list and commits whichever of
+     *  [onLoaded]/[onFailed] the attempt earns, under the session-epoch guard
+     *  every mutation in this store uses. Kept parameterized rather than
+     *  folded into [reload] directly since [ConvoysStore]'s still-live
+     *  counterpart needs two callers — matching shapes keeps a future diff
+     *  between the two stores meaningful.
+     *
+     *  See FriendsStore.reload's comment: the transform is built from the
+     *  await's result and only applied to the live `it` inside the final
+     *  `update { }` below, not to a `_state.value` snapshot taken before
+     *  the suspending call — which is also what lets a selection made
+     *  while this reload was in flight (a tapped arrival notification, or
+     *  a second tap in the list; see `CirclesState.loaded`'s
+     *  `selectedId` handling) survive into the committed result instead of
+     *  being silently reverted to whatever it was when this reload started. */
+    private suspend fun fetchAndCommit(
+        onLoaded: (CirclesState, List<Group>, Long) -> CirclesState,
+        onFailed: (CirclesState, Exception) -> CirclesState,
+    ) {
+        val epoch = Auth.sessionEpoch.value
         val apply: (CirclesState) -> CirclesState = try {
             val circles = Groups.list(KIND)
-            val transform: (CirclesState) -> CirclesState = { s -> s.loaded(circles, nowMs()) }
+            val transform: (CirclesState) -> CirclesState = { s -> onLoaded(s, circles, nowMs()) }
             transform
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            val transform: (CirclesState) -> CirclesState = { s -> s.failed(e) }
+            val transform: (CirclesState) -> CirclesState = { s -> onFailed(s, e) }
             transform
         }
         _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, apply(it)) }

@@ -62,6 +62,7 @@ internal object CredentialMigration {
             SecretKey("refresh_token", SecretType.Text),
             SecretKey("access_token_expires_at", SecretType.Number),
             SecretKey("auth_username", SecretType.Text),
+            SecretKey("auth_rider_id", SecretType.Text),
         ),
     )
 

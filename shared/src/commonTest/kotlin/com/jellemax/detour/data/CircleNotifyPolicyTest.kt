@@ -17,8 +17,10 @@ class CircleNotifyPolicyTest {
 
     // --- fixtures -------------------------------------------------------------
 
+    private val me = RiderId("me")
+
     private fun event(username: String, tsMs: Long, kind: String = "arrive", placeName: String = "Home") =
-        PlaceEvent(id = "e-$username-$tsMs", placeId = 1L, placeName = placeName, username = username, kind = kind, tsMs = tsMs)
+        PlaceEvent(id = "e-$username-$tsMs", placeId = 1L, placeName = placeName, riderId = RiderId(username), kind = kind, tsMs = tsMs)
 
     private fun group(id: String, status: String = "accepted") =
         Group(id = id, name = id, kind = "circle", status = status, members = emptyList())
@@ -32,10 +34,10 @@ class CircleNotifyPolicyTest {
         // themselves went.
         val plan = CircleNotifyPolicy.planCatchUp(
             events = listOf(event("me", 1_000L), event("alice", 1_000L)),
-            myUsername = "me",
+            myId = me,
             nowMs = 1_000L,
         )
-        assertEquals(listOf("alice"), plan.individual.map { it.username })
+        assertEquals(listOf("alice"), plan.individual.map { it.riderId.value })
         assertEquals(0, plan.collapsedCount)
     }
 
@@ -44,8 +46,8 @@ class CircleNotifyPolicyTest {
         val now = 10_000_000L
         val fresh = event("alice", now - 1_000L)
         val stale = event("bob", now - CircleNotifyPolicy.STALE_AFTER_MS - 1L)
-        val plan = CircleNotifyPolicy.planCatchUp(listOf(fresh, stale), myUsername = "me", nowMs = now)
-        assertEquals(listOf("alice"), plan.individual.map { it.username })
+        val plan = CircleNotifyPolicy.planCatchUp(listOf(fresh, stale), myId = me, nowMs = now)
+        assertEquals(listOf("alice"), plan.individual.map { it.riderId.value })
         assertEquals(0, plan.collapsedCount)
     }
 
@@ -55,8 +57,22 @@ class CircleNotifyPolicyTest {
         // boundary sample itself must survive.
         val now = 10_000_000L
         val atTheEdge = event("alice", now - CircleNotifyPolicy.STALE_AFTER_MS)
-        val plan = CircleNotifyPolicy.planCatchUp(listOf(atTheEdge), myUsername = "me", nowMs = now)
-        assertEquals(listOf("alice"), plan.individual.map { it.username })
+        val plan = CircleNotifyPolicy.planCatchUp(listOf(atTheEdge), myId = me, nowMs = now)
+        assertEquals(listOf("alice"), plan.individual.map { it.riderId.value })
+    }
+
+    @Test
+    fun aBlankMyIdFailsClosedRatherThanNotifyingAboutYourself() {
+        // `it.riderId != myId` matches everything when myId is blank, which
+        // is fail-*open* - the caller would be notified about their own
+        // arrivals. An unresolved id must produce no plan at all instead.
+        val plan = CircleNotifyPolicy.planCatchUp(
+            events = listOf(event("alice", 1_000L), event("bob", 1_000L)),
+            myId = RiderId(""),
+            nowMs = 1_000L,
+        )
+        assertEquals(emptyList(), plan.individual)
+        assertEquals(0, plan.collapsedCount)
     }
 
     // --- planCatchUp: the cap boundary, both directions ------------------------
@@ -65,7 +81,7 @@ class CircleNotifyPolicyTest {
     fun everyEventIsShownIndividuallyAtExactlyTheCap() {
         val now = 10_000_000L
         val events = (1..CircleNotifyPolicy.NOTIFY_CAP).map { event("user$it", now - it) }
-        val plan = CircleNotifyPolicy.planCatchUp(events, myUsername = "me", nowMs = now)
+        val plan = CircleNotifyPolicy.planCatchUp(events, myId = me, nowMs = now)
         // At the cap exactly: no summary notification at all.
         assertEquals(CircleNotifyPolicy.NOTIFY_CAP, plan.individual.size)
         assertEquals(0, plan.collapsedCount)
@@ -76,7 +92,7 @@ class CircleNotifyPolicyTest {
         val now = 10_000_000L
         val total = CircleNotifyPolicy.NOTIFY_CAP + 1
         val events = (0 until total).map { i -> event("user$i", now - (total - i) * 1_000L) }
-        val plan = CircleNotifyPolicy.planCatchUp(events, myUsername = "me", nowMs = now)
+        val plan = CircleNotifyPolicy.planCatchUp(events, myId = me, nowMs = now)
         // One past the cap: a summary notification now exists, for exactly one event.
         assertEquals(CircleNotifyPolicy.NOTIFY_CAP, plan.individual.size)
         assertEquals(1, plan.collapsedCount)
@@ -97,11 +113,11 @@ class CircleNotifyPolicyTest {
         val now = 10_000_000L
         val total = CircleNotifyPolicy.NOTIFY_CAP + 3
         val events = (0 until total).map { i -> event("user$i", now - (total - i) * 1_000L) }
-        val plan = CircleNotifyPolicy.planCatchUp(events, myUsername = "me", nowMs = now)
+        val plan = CircleNotifyPolicy.planCatchUp(events, myId = me, nowMs = now)
 
         // user(total-1) has the largest tsMs - the single most recent arrival.
         val expected = (total - 1 downTo total - CircleNotifyPolicy.NOTIFY_CAP).map { "user$it" }
-        assertEquals(expected, plan.individual.map { it.username })
+        assertEquals(expected, plan.individual.map { it.riderId.value })
         // Three past the cap, not one: without a second value here the whole
         // `relevant.size - cap` arithmetic passes with the literal 1, which
         // the cap+1 case above cannot tell apart. This assertion came over

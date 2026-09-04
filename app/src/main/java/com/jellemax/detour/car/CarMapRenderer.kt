@@ -20,11 +20,12 @@ import androidx.car.app.SurfaceContainer
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleFixes
 import com.jellemax.detour.data.CirclePresence
+import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.LatLon
-import com.jellemax.detour.data.MemberFix
+import com.jellemax.detour.data.NamedMemberFix
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
-import com.jellemax.detour.drive.FriendPosition
+import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
@@ -33,6 +34,7 @@ import com.jellemax.detour.map.bearingDelta
 import com.jellemax.detour.map.smoothBearing
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.ui.MapOverlays
+import com.jellemax.detour.ui.NamedFriendPosition
 import com.jellemax.detour.ui.PositionMarker
 import com.jellemax.detour.ui.openFreeMapStyleUrl
 import com.jellemax.detour.ui.setCamera
@@ -42,6 +44,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -137,12 +140,24 @@ class CarMapRenderer(
         // running — the following map you get with no route showed nobody, and
         // circle members were never drawn on the car at all.
         scope.launch {
-            ConvoyLiveClient.peers.collect { peers -> setFriends(peers.values) }
+            // Peers carry an id and no handle (#133) — resolved against the
+            // active convoy's own membership, the same list the phone map
+            // (MapScreen.kt) reads, so a peer who joined mid-ride gets a name
+            // here the moment ConvoysStore's watchPeers self-heal learns it,
+            // rather than this renderer keeping a second id-to-name lookup.
+            combine(
+                ConvoyLiveClient.peers,
+                ConvoyLiveClient.activeConvoyId,
+                ConvoysStore.state,
+            ) { peers, activeConvoyId, convoysState ->
+                val members = convoysState.convoys.firstOrNull { it.id == activeConvoyId }?.members.orEmpty()
+                peers.map { (id, fix) -> NamedFriendPosition(fix, members.handleFor(id)) }
+            }.collect { setFriends(it) }
         }
         scope.launch {
             while (true) {
-                val me = Account.username.value
-                if (me.isNotBlank()) {
+                val me = Account.riderId.value
+                if (me.value.isNotBlank()) {
                     // Offline or server down: keep the last known positions
                     // rather than blanking the map on one failed poll.
                     runCatching { withContext(Dispatchers.IO) { CircleFixes.othersFixes(me) } }
@@ -150,9 +165,9 @@ class CarMapRenderer(
                 } else {
                     // Signed out: nothing to ask the server for, and nothing
                     // of the previous rider's worth keeping — matches the
-                    // phone map's own blank-handle clear (MapScreen.kt), the
+                    // phone map's own blank-id clear (MapScreen.kt), the
                     // other consumer of this same CircleFixes.othersFixes
-                    // chain. Without this a blank handle skipped the branch
+                    // chain. Without this a blank id skipped the branch
                     // entirely and left the departed rider's members in
                     // `circleMembers` for the life of the renderer.
                     setCircleMembers(emptyList())
@@ -190,8 +205,8 @@ class CarMapRenderer(
     private var position: LatLon? = null
     private var positionBearing: Double? = null
     private var cameras: List<SpeedCameras.Camera> = emptyList()
-    private var friends: Collection<FriendPosition> = emptyList()
-    private var circleMembers: Collection<MemberFix> = emptyList()
+    private var friends: Collection<NamedFriendPosition> = emptyList()
+    private var circleMembers: Collection<NamedMemberFix> = emptyList()
 
     // Where the camera is being eased to, and where it currently is.
     private var targetPos: LatLon? = null
@@ -294,12 +309,12 @@ class CarMapRenderer(
         withOverlays { it.setCameras(cameras) }
     }
 
-    fun setFriends(friends: Collection<FriendPosition>) {
+    fun setFriends(friends: Collection<NamedFriendPosition>) {
         this.friends = friends
         withOverlays { it.setFriends(friends) }
     }
 
-    fun setCircleMembers(fixes: Collection<MemberFix>) {
+    fun setCircleMembers(fixes: Collection<NamedMemberFix>) {
         this.circleMembers = fixes
         withOverlays { it.setCircleMembers(fixes) }
     }
@@ -387,7 +402,8 @@ class CarMapRenderer(
                 // app switched away and back) inside that window must not
                 // redraw circleMembers that tick hasn't caught up to clearing
                 // yet.
-                if (circleMembers.isNotEmpty() && Account.username.value.isNotBlank()) {
+                val myRiderId = Account.riderId.value
+                if (circleMembers.isNotEmpty() && myRiderId.value.isNotBlank()) {
                     fresh.setCircleMembers(circleMembers)
                 }
             }

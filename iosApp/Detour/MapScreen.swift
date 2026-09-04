@@ -18,11 +18,16 @@ struct MapScreen: View {
     /// Last-known position per other member, across every circle you're in.
     /// Kept across polls even when a fetch fails, so a blip doesn't blank the
     /// map — see the `.task(id:)` below.
-    @State private var circleFixes: [MemberFix] = []
-    @StateObject private var circleFixUsername = CircleFixUsernameModel()
+    @State private var circleFixes: [NamedMemberFix] = []
+    @StateObject private var circleFixRiderId = CircleFixRiderIdModel()
     /// Convoy state, for the group spin below. Same shared singleton ConvoyBar
     /// observes — the vote round and the peer strip are two views of it.
     @ObservedObject private var live = ConvoyLiveClient.shared
+    /// This convoy's own membership, for resolving a peer id (positions,
+    /// votes) back into the handle to draw — see its own doc. Owned here and
+    /// handed to `ConvoyBar` rather than each holding its own copy, so the two
+    /// don't double up on the same `ConvoysStore` subscription.
+    @StateObject private var convoyMembers = ActiveConvoyMembersModel()
 
     /// Circle members post a fix every `CircleSync.syncIntervalSeconds` at
     /// most, so polling faster would just re-fetch the same row — matches
@@ -53,7 +58,7 @@ struct MapScreen: View {
                         SectionAverageChip(averageKmh: average, limitKmh: sections.limitKmh)
                     }
                 }
-                ConvoyBar()
+                ConvoyBar(members: convoyMembers)
                 if let stats = recorder.stats {
                     TripCard(stats: stats) { recorder.endTrip() }
                 } else if !candidateRows.isEmpty {
@@ -90,8 +95,8 @@ struct MapScreen: View {
         // like anyone else's and which would otherwise stack a second marker
         // on your own position.
         //
-        // Keyed on `circleFixUsername.username`, an actual `@Published`
-        // mirror — not `SettingsValues.shared.authUsername` directly, which
+        // Keyed on `circleFixRiderId.riderId`, an actual `@Published`
+        // mirror — not `SettingsValues.shared.authRiderId` directly, which
         // is a plain Kotlin getter nothing publishes on, so keying `.task(id:)`
         // on it only re-evaluated when something else happened to recompute
         // this view. That used to mean a sign-out never restarted this task
@@ -100,9 +105,11 @@ struct MapScreen: View {
         // — stayed on screen for the rest of the app session. Same shape as
         // `FriendsModel`/`CirclesModel`: watch the StateFlow itself. Matches
         // Android's `LaunchedEffect(accountUsername)` in MapScreen.kt, which
-        // is already keyed on a collected StateFlow.
-        .task(id: circleFixUsername.username) {
-            let me = circleFixUsername.username
+        // is already keyed on a collected StateFlow. Keyed on the id, not the
+        // handle (#133) — a rename must not restart this loop, and the id is
+        // what `othersFixes` itself takes now.
+        .task(id: circleFixRiderId.riderId) {
+            let me = circleFixRiderId.riderId
             // Cleared unconditionally, not only on the empty branch below.
             // Sign-in and sign-out both happen on the Friends tab, so this
             // `.task` can be torn down without ever running for the `""`
@@ -117,7 +124,13 @@ struct MapScreen: View {
             guard !me.isEmpty else { return }  // signed out: nothing to ask the server for
             while !Task.isCancelled {
                 do {
-                    let fixes = try await CircleFixes.shared.othersFixes(selfUsername: me)
+                    // `me` is already the plain String Swift gets for a
+                    // `RiderId` parameter — `othersFixes(selfId:)` lowers it
+                    // at the ABI boundary the same way every value-class
+                    // parameter does, and `RiderId` itself has no
+                    // Swift-visible spelling to construct one with (see
+                    // FlowWatcher.kt's "Model properties..." section).
+                    let fixes = try await CircleFixes.shared.othersFixes(selfId: me)
                     // Cancelling this Task when the id changes does not cancel
                     // the Kotlin coroutine behind `othersFixes` — an exported
                     // suspend fun has no cancellation path through the ObjC
@@ -128,7 +141,7 @@ struct MapScreen: View {
                     // reason the shared stores guard their own commits on
                     // Auth.sessionEpoch — this is that guard's Swift-side
                     // equivalent for a value with no shared epoch to check.
-                    if circleFixUsername.username == me { circleFixes = fixes }
+                    if circleFixRiderId.riderId == me { circleFixes = fixes }
                 } catch {
                     // Offline or server down; keep the last known positions
                     // and retry on the next tick.
@@ -403,8 +416,8 @@ struct MapScreen: View {
             return
         }
         guard offer.fromMe else { return }
-        let me = SettingsValues.shared.authUsername
-        guard live.spinRoundIsReadyToClose(myUsername: me) else { return }
+        let me = SettingsValues.shared.authRiderId
+        guard live.spinRoundIsReadyToClose(myId: me) else { return }
         let lead = live.currentLeadIndex(candidateCount: offer.candidates.count)
         live.sendSpinOffer([offer.candidates[lead]])
     }
@@ -416,10 +429,16 @@ struct MapScreen: View {
         return parts.isEmpty ? "Distance unknown" : parts.joined(separator: " · ")
     }
 
+    /// `live.spinVotes`' keys are voter ids, not handles (#133) — `GroupSpin`
+    /// carries no handle at all, so the names to draw come from the convoy's
+    /// own membership, same as `ConvoyBar`'s peer strip. Matches Android's
+    /// `CandidatesCard.kt` voter line.
     private func voteLine(for row: CandidateRow) -> String {
-        let voters = live.spinVotes.filter { $0.value == row.id }.keys.sorted()
-        guard !voters.isEmpty else { return "No votes yet" }
-        return "\(voters.count) vote\(voters.count == 1 ? "" : "s") · \(voters.joined(separator: ", "))"
+        let voterIds = live.spinVotes.filter { $0.value == row.id }.keys
+        guard !voterIds.isEmpty else { return "No votes yet" }
+        let members = convoyMembers.members(of: live.activeConvoyId)
+        let names = voterIds.map { GroupsKt.handleFor(members, riderId: $0) }.sorted()
+        return "\(names.count) vote\(names.count == 1 ? "" : "s") · \(names.joined(separator: ", "))"
     }
 
     private var destinationCoordinate: CLLocationCoordinate2D? {
@@ -547,20 +566,22 @@ private struct SearchSheet: View {
     }
 }
 
-/// An observable source of the signed-in rider's handle, for the circle-fix
-/// poll above. `SettingsValues.shared.authUsername` is a plain Kotlin
-/// getter — nothing publishes on it, so keying `.task(id:)` on it directly
-/// only re-evaluates when something else happens to recompute this view.
-/// Same shape as `FriendsModel`/`CirclesModel`/`LaunchSyncGate`: watch the
-/// StateFlow itself.
+/// An observable source of the signed-in rider's own account id, for the
+/// circle-fix poll above. `SettingsValues.shared.authRiderId` is a plain
+/// Kotlin getter — nothing publishes on it, so keying `.task(id:)` on it
+/// directly only re-evaluates when something else happens to recompute this
+/// view. Same shape as `FriendsModel`/`CirclesModel`/`LaunchSyncGate`: watch
+/// the StateFlow itself. Keyed on the id and not the handle (#133) — a rename
+/// must not restart the poll, and `CircleFixes.othersFixes` itself now takes
+/// the id, not the handle.
 @MainActor
-final class CircleFixUsernameModel: ObservableObject {
-    @Published var username = ""
+final class CircleFixRiderIdModel: ObservableObject {
+    @Published var riderId = ""
 
-    private let watcher = SettingsFlows.shared.authUsername()
+    private let watcher = SettingsFlows.shared.authRiderId()
 
     init() {
-        watcher.watch { [weak self] in self?.username = self?.watcher.value ?? "" }
+        watcher.watch { [weak self] in self?.riderId = self?.watcher.value ?? "" }
     }
 
     deinit { watcher.cancel() }

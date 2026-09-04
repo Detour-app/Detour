@@ -1,10 +1,14 @@
 package com.jellemax.detour.data
 
+import com.jellemax.detour.drive.FriendPosition
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 
 data class ConvoysState(
     val convoys: List<Group> = emptyList(),
@@ -38,10 +42,22 @@ object ConvoysStore {
     private val _state = MutableStateFlow(ConvoysState())
     val state: StateFlow<ConvoysState> = _state.asStateFlow()
 
+    /** Serialises [resolveUnknown]'s reload - see its own doc for why one at
+     *  a time, matching the `writeLock` pattern in `Coverage.kt`. */
+    private val refreshGate = Mutex()
+
+    /** Ids [resolveUnknown] found still unknown after a completed reload —
+     *  not retried on the next frame that names them; see that function's
+     *  own doc. A `MutableStateFlow` rather than a plain `var` for the same
+     *  cross-thread-visible read it gives [_state]; [resolveUnknown] is the
+     *  only writer, and only while holding [refreshGate]. */
+    private val ignoredIds = MutableStateFlow<Set<RiderId>>(emptySet())
+
     /** Drops everything back to [ConvoysState]'s defaults. Called from
      *  [Auth.clear] rather than by a screen; see that function's doc for why. */
     internal fun reset() {
         _state.update { it.cleared() }
+        ignoredIds.value = emptySet()
     }
 
     /**
@@ -65,20 +81,43 @@ object ConvoysStore {
 
     @Throws(Exception::class)
     suspend fun reload() {
-        val epoch = Auth.sessionEpoch.value
         _state.update { it.starting() }
-        // See FriendsStore.reload's comment: the transform is built from the
-        // awaits' results and only applied to the live `it` inside the final
-        // `update { }` below, not to a `_state.value` snapshot taken before
-        // either suspending call.
+        fetchAndCommit(ConvoysState::loaded, ConvoysState::failed)
+    }
+
+    /** Same fetch and commit as [reload], minus the [starting] that flips
+     *  [ConvoysState.busy] — the background self-heal in [resolveUnknown]
+     *  calls this instead, so a reload it triggers is invisible to the
+     *  screen. See [loadedQuietly] for why that flag specifically must stay
+     *  untouched. */
+    private suspend fun reloadQuietly() {
+        fetchAndCommit(ConvoysState::loadedQuietly, ConvoysState::failedQuietly)
+    }
+
+    /** The part [reload] and [reloadQuietly] share: fetch the convoy list
+     *  and commit whichever of [onLoaded]/[onFailed] the attempt earns,
+     *  under the same session-epoch guard either way. Factored out so the
+     *  two reload paths cannot drift on what they load or how they commit
+     *  it — the only thing left for a caller to choose is whether
+     *  [ConvoysState.busy] moves.
+     *
+     *  See FriendsStore.reload's comment: the transform is built from the
+     *  awaits' results and only applied to the live `it` inside the final
+     *  `update { }` below, not to a `_state.value` snapshot taken before
+     *  either suspending call. */
+    private suspend fun fetchAndCommit(
+        onLoaded: (ConvoysState, List<Group>, Long) -> ConvoysState,
+        onFailed: (ConvoysState, Exception) -> ConvoysState,
+    ) {
+        val epoch = Auth.sessionEpoch.value
         val apply: (ConvoysState) -> ConvoysState = try {
             val convoys = Groups.list(KIND)
-            val transform: (ConvoysState) -> ConvoysState = { s -> s.loaded(convoys, nowMs()) }
+            val transform: (ConvoysState) -> ConvoysState = { s -> onLoaded(s, convoys, nowMs()) }
             transform
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            val transform: (ConvoysState) -> ConvoysState = { s -> s.failed(e) }
+            val transform: (ConvoysState) -> ConvoysState = { s -> onFailed(s, e) }
             transform
         }
         _state.update { it.commitIfCurrent(epoch, Auth.sessionEpoch.value, apply(it)) }
@@ -125,6 +164,56 @@ object ConvoysStore {
         return result
     }
 
+    /**
+     * Keeps the member list able to name every peer the relay reports.
+     *
+     * Positions carry an id and no handle (#133): the label lives in
+     * membership, so one source names a rider rather than every frame
+     * repeating it. The cost is that a peer who joined since the last
+     * reload arrives unnameable, and this is what closes that - centrally,
+     * so the phone map, the car renderer and iOS all get it without each
+     * wiring up its own.
+     *
+     * Not a roster frame on the relay, which would put a second id-to-name
+     * source beside this list and leave the two to disagree.
+     *
+     * Debounced to one reload in flight ([refreshGate]) — that only bounds
+     * concurrency, not repetition, so an id still unknown after a
+     * *completed* reload is separately remembered in [ignoredIds] and not
+     * retried on the next frame that names it: a `positions` frame repeats
+     * every tick, and without this a single departed or not-yet-propagated
+     * peer would drive a reload on every one of them. [ignoredIds] is
+     * cleared the moment a reload actually changes membership, so a
+     * genuinely new peer already written off gets a fresh look rather than
+     * staying unresolved for the rest of the ride.
+     */
+    private suspend fun resolveUnknown(ids: Set<RiderId>) {
+        val state = _state.value
+        val known = state.convoys.flatMap { it.members }.map { it.id }.toSet()
+        if (state.unresolvedAfterIgnoring(ids, known, ignoredIds.value).isEmpty()) return
+        if (!refreshGate.tryLock()) return
+        try {
+            reloadQuietly()
+            val knownAfter = _state.value.convoys.flatMap { it.members }.map { it.id }.toSet()
+            ignoredIds.value = state.nextIgnoredIds(ids, ignoredIds.value, known, knownAfter)
+        } finally {
+            refreshGate.unlock()
+        }
+    }
+
+    /** Started once, for the life of the process. The scope is the caller's
+     *  - `commonMain` has no `Dispatchers` of its own (Platform.kt's
+     *  ceiling), same reason every action in this store is `suspend`.
+     *  [peers] is the caller's too, for the same reason: the one live
+     *  `ConvoyRelay` instance is a platform call-site's own (see that
+     *  class's "exactly one instance app-wide" doc), not something this
+     *  store can reach on its own - the caller passes its `relay.peers`. */
+    fun watchPeers(scope: CoroutineScope, peers: StateFlow<Map<RiderId, FriendPosition>>) {
+        scope.launch {
+            peers.collect { resolveUnknown(it.keys) }
+        }
+    }
+
     /** The discriminator [Groups] routes on. "convoy" here, "circle" in
      *  [CirclesStore]; one entity on the server, two kinds. */
     private const val KIND = "convoy"
@@ -138,6 +227,19 @@ internal fun ConvoysState.loaded(convoys: List<Group>, nowMs: Long) =
 internal fun ConvoysState.failed(e: Exception) =
     copy(busy = false, error = e.message?.ifBlank { null } ?: ConvoysStore.FALLBACK_ERROR)
 
+/** Same as [loaded], but leaves [ConvoysState.busy] exactly as it found it.
+ *  Used only by [ConvoysStore.resolveUnknown]'s background self-heal, which
+ *  must stay invisible to the screen the same way `CirclesScreen.kt` reads
+ *  `CirclesState.busy` — a reload the rider never asked for must not flip
+ *  it. */
+internal fun ConvoysState.loadedQuietly(convoys: List<Group>, nowMs: Long) =
+    copy(convoys = convoys, error = null, loadedAtMs = nowMs)
+
+/** Same as [failed], but leaves [ConvoysState.busy] exactly as it found it
+ *  — see [loadedQuietly] for why. */
+internal fun ConvoysState.failedQuietly(e: Exception) =
+    copy(error = e.message?.ifBlank { null } ?: ConvoysStore.FALLBACK_ERROR)
+
 /** [result] if [epoch] still names the session an in-flight [ConvoysStore.reload]
  *  started under, checked against [currentEpoch] read fresh at commit time —
  *  or this state untouched otherwise. Same guard as [FriendsStore]'s
@@ -149,3 +251,34 @@ internal fun ConvoysState.commitIfCurrent(epoch: Int, currentEpoch: Int, result:
  *  called from [ConvoysStore.reset] and asserted directly — see
  *  [FriendsState.cleared]'s doc for why. */
 internal fun ConvoysState.cleared() = ConvoysState()
+
+/**
+ * Which of [ids] [ConvoysStore.resolveUnknown] should still attempt a
+ * reload for: not already [known], and not already given up on in
+ * [ignored]. An extension of [ConvoysState], like [commitIfCurrent] and
+ * [cleared] in this same file — but this one has no sibling on
+ * [CirclesState] any more: a circle's position never rides the relay
+ * socket, so `CirclesStore` had nothing to self-heal, and its copy of this
+ * whole chain (`watchPeers`, `resolveUnknown`, and this function) was
+ * dropped as unreachable. Pure so the no-repeat-reload guarantee is
+ * testable directly — see [ConvoysStore.resolveUnknown]'s own doc for why
+ * an id is remembered rather than retried on every frame.
+ */
+internal fun ConvoysState.unresolvedAfterIgnoring(ids: Set<RiderId>, known: Set<RiderId>, ignored: Set<RiderId>): Set<RiderId> =
+    ids - known - ignored
+
+/**
+ * The next [ignored] set after one of [ConvoysStore.resolveUnknown]'s
+ * reloads completes. Cleared entirely the moment membership actually
+ * changed ([knownAfter] differs from [knownBefore]) so a peer already
+ * written off is not permanently ignored just because this reload's [ids]
+ * are still missing; otherwise [ignored] plus whichever of [ids] the
+ * reload still could not name.
+ */
+internal fun ConvoysState.nextIgnoredIds(
+    ids: Set<RiderId>,
+    ignored: Set<RiderId>,
+    knownBefore: Set<RiderId>,
+    knownAfter: Set<RiderId>,
+): Set<RiderId> =
+    if (knownAfter != knownBefore) emptySet() else ignored + (ids - knownAfter)

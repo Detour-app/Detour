@@ -16,7 +16,10 @@ public class FriendsController(ICurrentUser currentUser, IFriendshipService frie
 {
     [HttpGet]
     [EndpointSummary("List friends and pending requests.")]
-    [EndpointDescription("Three sets: accepted friends, requests waiting on the caller, and requests the caller sent.")]
+    [EndpointDescription(
+        "One list of riders, each tagged with its relation to the caller — friend, incoming, "
+        + "or outgoing — rather than three separate sets. Incoming and outgoing describe the "
+        + "same pending request seen from either side, not two different states.")]
     [ProducesResponseType<FriendsResponse>(StatusCodes.Status200OK)]
     public async Task<ActionResult<FriendsResponse>> Get(CancellationToken cancellationToken)
     {
@@ -39,35 +42,35 @@ public class FriendsController(ICurrentUser currentUser, IFriendshipService frie
         var user = await currentUser.GetAsync(cancellationToken);
         var result = await friendships.RequestAsync(user, body.Username, cancellationToken);
         result.ThrowIfFailure();
-        return Ok(new FriendshipStatusResponse(result.Value));
+        return Ok(new FriendshipStatusResponse(result.Value.Wire()));
     }
 
-    [HttpPost("requests/{username}/respond")]
+    [HttpPost("requests/{id:guid}/respond")]
     [EndpointSummary("Accept or decline a pending request.")]
     [EndpointDescription("Only the side that did not send the request may answer it.")]
     [ProducesResponseType<FriendshipStatusResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest, Description = "No pending request from that rider.")]
     public async Task<ActionResult<FriendshipStatusResponse>> Respond(
-        string username,
+        Guid id,
         [FromBody] FriendRespondBody body,
         CancellationToken cancellationToken)
     {
         var user = await currentUser.GetAsync(cancellationToken);
-        var result = await friendships.RespondAsync(user, username, body.Accept, cancellationToken);
+        var result = await friendships.RespondAsync(user, id, body.Accept, cancellationToken);
         result.ThrowIfFailure();
-        return Ok(new FriendshipStatusResponse(result.Value));
+        return Ok(new FriendshipStatusResponse(result.Value.Wire()));
     }
 
-    [HttpDelete("{username}")]
+    [HttpDelete("{id:guid}")]
     [EndpointSummary("End a friendship.")]
     [EndpointDescription(
         "Also deletes every route shared between the two riders, in both directions. A route is "
         + "places you have been, so losing the friendship takes it back.")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> Remove(string username, CancellationToken cancellationToken)
+    public async Task<IActionResult> Remove(Guid id, CancellationToken cancellationToken)
     {
         var user = await currentUser.GetAsync(cancellationToken);
-        (await friendships.RemoveAsync(user, username, cancellationToken)).ThrowIfFailure();
+        (await friendships.RemoveAsync(user, id, cancellationToken)).ThrowIfFailure();
         return NoContent();
     }
 

@@ -37,6 +37,10 @@ public abstract record LiveOutbound;
 /// <summary>
 /// One peer's position, as it appears inside a <c>positions</c> frame.
 ///
+/// <c>u</c> is the rider's account id. It is the identity and nothing else — a peer's
+/// display handle comes from the group's membership, which the client already holds, so it
+/// is not repeated on a frame that goes out several times a minute per peer.
+///
 /// <paramref name="TtlSeconds"/> is how long this fix should still be drawn before the peer is
 /// treated as gone. It is per peer rather than a client-side constant because a convoy rider and
 /// a circle member arrive on the same stream at wildly different cadences: a single hardcoded
@@ -44,7 +48,7 @@ public abstract record LiveOutbound;
 /// convoy rider frozen on the map.
 /// </summary>
 public sealed record PeerPosition(
-    [property: JsonPropertyName("u")] string User,
+    [property: JsonPropertyName("u")] Guid User,
     [property: JsonPropertyName("lat")] double Latitude,
     [property: JsonPropertyName("lon")] double Longitude,
     [property: JsonPropertyName("h")] double? HeadingDegrees,
@@ -84,7 +88,7 @@ internal sealed record ErrorFrame(
 }
 
 internal sealed record LeftFrame(
-    [property: JsonPropertyName("user")] string User)
+    [property: JsonPropertyName("user")] Guid User)
 {
     [JsonPropertyName("type")]
     [JsonPropertyOrder(-1)]
@@ -106,7 +110,7 @@ internal sealed record DestinationCandidateFrame(
 /// </summary>
 internal sealed record DestinationOfferFrame(
     [property: JsonPropertyName("groupId")] Guid GroupId,
-    [property: JsonPropertyName("user")] string User,
+    [property: JsonPropertyName("user")] Guid User,
     [property: JsonPropertyName("candidates")] IReadOnlyList<DestinationCandidateFrame> Candidates)
 {
     [JsonPropertyName("type")]
@@ -116,7 +120,7 @@ internal sealed record DestinationOfferFrame(
 
 internal sealed record DestinationVoteFrame(
     [property: JsonPropertyName("groupId")] Guid GroupId,
-    [property: JsonPropertyName("user")] string User,
+    [property: JsonPropertyName("user")] Guid User,
     [property: JsonPropertyName("index")] int Index)
 {
     [JsonPropertyName("type")]
@@ -130,7 +134,7 @@ internal sealed record DestinationVoteFrame(
 /// </summary>
 internal sealed record PlaceEventFrame(
     [property: JsonPropertyName("groupId")] Guid GroupId,
-    [property: JsonPropertyName("user")] string User,
+    [property: JsonPropertyName("user")] Guid User,
     [property: JsonPropertyName("placeId")] long PlaceId,
     [property: JsonPropertyName("placeName")] string PlaceName,
     [property: JsonPropertyName("kind")] string Kind,

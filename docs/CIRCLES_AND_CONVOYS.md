@@ -178,6 +178,10 @@ channel to flood.
 Voice frames (`ptt_start`, `ptt_audio`, `ptt_end`) are accepted off the wire and
 dropped, exactly as an unknown type is — see §6.4.
 
+None of these frames name the sender at all — the socket is already
+authenticated to one rider, so there is nothing to carry. The account id only
+shows up going the other way, in §6.3.
+
 ### 6.3 Frames, server to client
 
 | `type` | Keys |
@@ -192,6 +196,15 @@ dropped, exactly as an unknown type is — see §6.4.
 Position keys are abbreviated and nothing else is: a position goes out several
 times a minute per peer, multiplied by peers × riders, while every other frame
 is rare enough that clarity is free.
+
+**`u` on a peer inside `positions`, and `user` on `left`, `spin_offer`,
+`spin_vote` and `place_event`, all carry an account id — not a handle.** The
+keys did not change when this landed; only the type behind them did (`u` was a
+username string, and is now a `Guid`). `positions` in particular carries no
+handle anywhere in the frame: a peer's display label comes from the group's
+membership, which the client already holds from having joined it, so it is not
+worth repeating on the one frame that goes out several times a minute per
+peer.
 
 **`ttl` is per peer, not a client-side constant.** A convoy rider and a circle
 member arrive on the same stream at wildly different cadences — 20 seconds for a

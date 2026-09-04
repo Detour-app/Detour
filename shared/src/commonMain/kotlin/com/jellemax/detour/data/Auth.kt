@@ -51,6 +51,27 @@ object Auth {
      */
     private val refreshLock = Mutex()
 
+    /** Bounds [resolveRiderId] to one resolve in flight, the same debounce
+     *  shape [ConvoysStore.resolveUnknown] uses for the same reason: without
+     *  it, a burst of concurrent [bearer] calls before the first `/me`
+     *  answers would each open their own request instead of waiting on the
+     *  one already in flight and reusing its result.
+     *
+     *  [SingleFlight] rather than a bare [Mutex] because this particular work
+     *  re-enters itself: the `/me` request that resolves the id is an
+     *  authenticated request, and [bearer] resolves the id. A `kotlinx`
+     *  [Mutex] is not reentrant, so that second entry waited on a lock its own
+     *  caller held and never came back — see [SingleFlight]'s own doc. */
+    private val riderIdResolveGate = SingleFlight()
+
+    /** Set once a resolve has been attempted this session and come back
+     *  without an id — a refused token, an unreachable server, anything
+     *  [resolveRiderId] swallows. Without this, [bearer] would retry the
+     *  same failing `/me` call on every single authenticated request rather
+     *  than once per session; see [resolveRiderId] for where it is checked
+     *  and [clear] for why it is reset there alongside the id itself. */
+    private var riderIdResolveFailed = false
+
     val username: StateFlow<String> = Settings.authUsername
 
     /**
@@ -118,10 +139,28 @@ object Auth {
      * own note for the rule, and `docs/IOS_PORT.md` for why the earlier sweep
      * missed this one: it annotated what Swift called *at the time*, and
      * nothing called `bearer` from Swift until the relay did.
+     *
+     * Also where an install that was already signed in when it upgraded gets
+     * its rider id filled in. [resolveRiderId] otherwise only runs after
+     * [exchangeCode] or [refresh] — an install with a still-valid access
+     * token can go the full 15 minutes to its next refresh, or longer, before
+     * either fires, and every id comparison in the app (`isMe`, ownership,
+     * the circle self-filter) stays blank the whole time. Calling it here
+     * closes that window on the very next call instead.
+     *
+     * Called directly rather than launched: this function is already
+     * `suspend`, so there is no scope to reach for and none to invent —
+     * `commonMain` does not own one (see `Platform.kt`'s own doc). It costs
+     * nothing once [resolveRiderId]'s own guard sees a non-blank id, which is
+     * the steady state, and [riderIdResolveFailed] stops a failing `/me` from
+     * being retried on every call once it is not. Both guards are checked
+     * inside [resolveRiderId] itself, so this call is a plain suspend call
+     * like any other — not a round trip on every request.
      */
     @Throws(Exception::class)
     suspend fun bearer(): String {
         if (!signedIn) throw AuthException("Sign in to sync")
+        resolveRiderId()
         if (!expiringSoon()) return Settings.accessToken.value
 
         refreshLock.withLock {
@@ -214,6 +253,55 @@ object Auth {
             )
         }
         store(response, establishesSession = true)
+        resolveRiderId()
+    }
+
+    /**
+     * The local account id, which only the server knows.
+     *
+     * Not derivable from the token: `sub` identifies the rider to the realm, and
+     * this backend keys on its own row. #133 chose the local id over `sub` so a
+     * circle member list does not broadcast every rider's identity-provider
+     * subject to every peer, and this request is the price of that choice.
+     *
+     * A failure is not fatal and is not retried here. Most of what compares an
+     * id fails closed while it is blank — no delete affordance, no `isMe` —
+     * but not everything did: `CircleNotifyPolicy.planCatchUp`'s self-filter
+     * compared `it.riderId != myId`, and a blank `myId` matched nothing, so
+     * it let a rider's own arrivals and departures back through instead of
+     * dropping them — fail *open*, the same defect this codebase already
+     * shipped once with handle-based comparisons. `planCatchUp` now refuses
+     * to plan anything at all on a blank id (see its own doc) rather than
+     * depending on every caller getting this right, but resolving the id
+     * promptly is still what keeps it — and every other id comparison — from
+     * running blank for longer than it has to, which is why [bearer] now
+     * calls this from its fast path too, not just after a token exchange or
+     * refresh.
+     *
+     * Skipped once the id is already known, so this does not re-fetch `/me` on
+     * every refresh (roughly every 15 minutes), nor on every call through
+     * [bearer], for nothing. Safe because [clear] blanks the id in the same
+     * write that blanks `refreshToken` and `auth_scope_key` — on sign-out, on a
+     * 401, and on an issuer change — so a new session always starts from a
+     * blank id and resolves exactly once, and a stale id can never survive into
+     * a different rider's session.
+     *
+     * Also skipped once [riderIdResolveFailed] is set, which is the other half
+     * of that same budget: [bearer] calls this on every authenticated request,
+     * and without this guard a server that is down or a token `/me` refuses
+     * would mean one extra failed round trip per request for the rest of the
+     * session. [riderIdResolveGate] bounds concurrent callers hitting this
+     * before either guard applies to one `/me` in flight rather than one each;
+     * the check is repeated once the lock is held because another caller may
+     * have already resolved — or already failed — while this one waited.
+     */
+    private suspend fun resolveRiderId() {
+        if (Settings.authRiderId.value.value.isNotEmpty() || riderIdResolveFailed) return
+        riderIdResolveGate.runOnce {
+            if (Settings.authRiderId.value.value.isNotEmpty() || riderIdResolveFailed) return@runOnce
+            val id = runCatching { Rider.me().id.value }.getOrDefault("")
+            if (id.isNotEmpty()) Settings.setRiderId(id) else riderIdResolveFailed = true
+        }
     }
 
     /**
@@ -347,6 +435,13 @@ object Auth {
         // one mechanism.
         _sessionEpoch.update { it + 1 }
         Settings.setSession("", "", 0L, "", "")
+        // Same write, not a later one: a signed-out install that still answers
+        // to a departed rider's id is #73 with a new field to carry it.
+        Settings.setRiderId("")
+        // A departed rider's failed resolve must not suppress the next rider's:
+        // without this reset, signing in again after a `/me` failure would keep
+        // skipping [resolveRiderId] for a session that never actually tried.
+        riderIdResolveFailed = false
         FriendsStore.reset()
         ConvoysStore.reset()
         CirclesStore.reset()
@@ -402,6 +497,7 @@ object Auth {
             throw AuthException(tokenFailureMessage(e.code, e.body))
         }
         store(response, establishesSession = false)
+        resolveRiderId()
         return Settings.accessToken.value
     }
 
@@ -548,8 +644,8 @@ object Auth {
      *
      * What must not happen then is the previous value being carried forward: on
      * an account switch that names the second rider as the first, and every
-     * `isMe` comparison and the `place.owner` ownership check in the app agrees
-     * with it. A blank name is a visible bug; a wrong name is a silent one.
+     * `isMe` comparison and the `place.ownerId` check in the app agrees with
+     * it. A blank name is a visible bug; a wrong name is a silent one.
      *
      * Same-rider is decided through the account-scope key rather than by storing
      * the subject: [AccountScope.keyFrom] is `subject.ifEmpty { username }`
