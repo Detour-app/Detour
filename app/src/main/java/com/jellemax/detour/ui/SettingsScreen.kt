@@ -44,6 +44,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.Navigation
 import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -105,6 +106,8 @@ import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.tracking.DormancyBlocker
 import com.jellemax.detour.tracking.dormancyBlocker
 import com.jellemax.detour.tracking.TripTrackingService
+import com.jellemax.detour.update.ManualCheck
+import com.jellemax.detour.update.UpdateChecker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -127,6 +130,15 @@ private fun spokeTitle(spoke: Destination.SettingsSpoke): String = when (spoke) 
     Destination.SettingsDisplaysMedia -> "Displays & media"
     Destination.SettingsServersSync -> "Servers & sync"
     Destination.SettingsObd2 -> "OBD2 adapter"
+}
+
+private fun updateCheckSubtitle(state: ManualCheck): String = when (state) {
+    ManualCheck.Idle -> "Check for a new release"
+    ManualCheck.Running -> "Checking…"
+    ManualCheck.UpToDate -> "Up to date"
+    is ManualCheck.Found -> "Detour ${state.version} available"
+    ManualCheck.Failed -> "Couldn't reach GitHub"
+    is ManualCheck.RateLimited -> "Checked a few times just now — try again shortly"
 }
 
 /**
@@ -185,6 +197,9 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
     val fogRadius by Settings.fogRadiusMeters.collectAsStateWithLifecycle()
     val externalDisplayEnabled by Settings.externalDisplayEnabled.collectAsStateWithLifecycle()
     val authUsername by Settings.authUsername.collectAsStateWithLifecycle()
+    val manualCheck by UpdateChecker.manual.collectAsStateWithLifecycle()
+    val updateScope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     SettingsScaffold("Settings", onBack, spacing = 10.dp) {
         HubRow(
@@ -229,6 +244,20 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
             title = spokeTitle(Destination.SettingsObd2),
             subtitle = "Connect a vehicle's OBD2 adapter for accurate speed",
             onClick = { onOpenSpoke(Destination.SettingsObd2) },
+        )
+        HubRow(
+            icon = Icons.Outlined.SystemUpdate,
+            title = "Check for updates",
+            subtitle = updateCheckSubtitle(manualCheck),
+            onClick = {
+                // Guarded on Running only. A tap with no tokens left is allowed
+                // through so the budget can refuse it out loud — the subtitle
+                // is the whole feedback loop, and a dead row would be the
+                // silence this issue is about.
+                if (manualCheck !is ManualCheck.Running) {
+                    updateScope.launch { UpdateChecker.manualCheck(context) }
+                }
+            },
         )
         Text(
             "Detour ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
