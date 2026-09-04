@@ -20,33 +20,33 @@ class PlacesStateTest {
     private val work = place(2L, "Work", 50.842100, 5.706400)
 
     @Test fun everyStoredPlaceBecomesARow() {
-        assertEquals(2, placesStateFrom(listOf(home, work)).rows.size)
+        assertEquals(2, placesStateFrom(listOf(home, work)).size)
     }
 
     @Test fun theSubtitleIsTheCoordinateToFiveDecimals() {
-        val row = placesStateFrom(listOf(home)).rows.single()
+        val row = placesStateFrom(listOf(home)).single()
         assertEquals("50.85137, 5.69097", row.subtitle)
     }
 
     @Test fun southernAndWesternCoordinatesKeepTheirSign() {
-        val row = placesStateFrom(listOf(place(3L, "Ushuaia", -54.80191, -68.30295))).rows.single()
+        val row = placesStateFrom(listOf(place(3L, "Ushuaia", -54.80191, -68.30295))).single()
         assertEquals("-54.80191, -68.30295", row.subtitle)
     }
 
     @Test fun aRowCarriesItsPlaceIdSoTheScreenCanRenameOrRemoveIt() {
-        assertEquals(1L, placesStateFrom(listOf(home)).rows.single().id)
+        assertEquals(1L, placesStateFrom(listOf(home)).single().id)
     }
 
     @Test fun rowOrderFollowsTheStoreRatherThanBeingResortedHere() {
         // SavedPlaces already sorts by lowercased name; re-sorting would be a
         // second source of truth that could disagree with the map's chips.
-        val rows = placesStateFrom(listOf(work, home)).rows
+        val rows = placesStateFrom(listOf(work, home))
         assertEquals(listOf("Work", "Home"), rows.map { it.name })
     }
 
-    @Test fun anEmptyStoreIsLoadedAndEmptyNotUnloaded() {
-        val s = placesStateFrom(emptyList())
-        assertTrue(s.loaded)
-        assertTrue(s.rows.isEmpty())
+    @Test fun anEmptyStoreMapsToNoRows() {
+        // loaded now lives only on PlacesPresenter's own PlacesState (see
+        // its KDoc) — this mapper has no opinion on it, just the row list.
+        assertTrue(placesStateFrom(emptyList()).isEmpty())
     }
 }

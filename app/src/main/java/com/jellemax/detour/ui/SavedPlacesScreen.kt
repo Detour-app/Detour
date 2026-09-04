@@ -67,15 +67,15 @@ fun SavedPlacesScreen(onBack: () -> Unit) {
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { presenter.refresh() } }
 
     // The row list is derived here from SavedPlaces.places directly rather
-    // than from presenter.state.rows. add/rename/remove below are synchronous
+    // than from presenter.state. add/rename/remove below are synchronous
     // mutations that write straight through that StateFlow before returning;
-    // presenter.state only ever holds the one snapshot refresh() took, so
-    // reading it alone would leave the list stale after any of the three.
-    // state.loaded (which DOES only change once, at the initial load) still
-    // gates the empty-state text below so it doesn't flash before that first
-    // read completes.
+    // presenter.state only ever tracks whether the initial load happened, so
+    // reading a cached list from it would leave the screen stale after any of
+    // the three — see PlacesPresenter's KDoc. state.loaded (which DOES only
+    // change once, at the initial load) still gates the empty-state text
+    // below so it doesn't flash before that first read completes.
     val places by SavedPlaces.places.collectAsStateWithLifecycle()
-    val rows = remember(places) { placesStateFrom(places).rows }
+    val rows = remember(places) { placesStateFrom(places) }
 
     var addOpen by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<PlaceRow?>(null) }
