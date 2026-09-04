@@ -30,6 +30,12 @@ sealed interface ManualCheck {
      *  throwable comes from an HTTP client and can hold hostnames, headers and
      *  paths that have no business on a rider's screen. */
     data object Failed : ManualCheck
+    /**
+     * [retryAtMs] stays published after that instant passes — nothing revises
+     * it once the moment does. Do not render it as a live countdown; the vague
+     * wording ("try again shortly") is right precisely because it promises
+     * nothing more specific.
+     */
     data class RateLimited(val retryAtMs: Long) : ManualCheck
 }
 
@@ -63,11 +69,20 @@ object UpdateChecker {
 
     /**
      * The rider's own check. Held on the object rather than in the composition
-     * for the same reason [UpdateState] is: Settings is disposed the moment the
-     * rider opens a spoke, and an answer that vanished on the way to the next
-     * screen is not an answer.
+     * for the same reason [UpdateState] is, though not for an in-flight check:
+     * the caller launches into `rememberCoroutineScope()`, which is cancelled
+     * by the very screen disposal that would otherwise strand the answer, so a
+     * check abandoned mid-flight does not survive leaving the screen either
+     * way. What living on the object buys is a *completed* answer surviving
+     * navigation — the rider taps, glances away, and the result is still there
+     * when they look back.
+     *
+     * A check cancelled by the rider leaving still spends its budget token,
+     * deliberately: the request was already sent and GitHub's quota already
+     * charged by the time the screen disposes, and refunding it would let a
+     * tap-navigate-tap loop dodge the budget while still hitting the API.
      */
-    val manual: StateFlow<ManualCheck> = _manual
+    val lastManualCheck: StateFlow<ManualCheck> = _manual
 
     /**
      * What one run concluded.
@@ -81,6 +96,20 @@ object UpdateChecker {
         data class Found(val version: String) : Outcome
         data object Failed : Outcome
     }
+
+    private fun Outcome.toManualCheck(): ManualCheck = when (this) {
+        is Outcome.Found -> ManualCheck.Found(version)
+        Outcome.UpToDate -> ManualCheck.UpToDate
+        Outcome.Failed -> ManualCheck.Failed
+    }
+
+    /**
+     * Whether this build knows a repository to check. False in any build made
+     * without `UPDATE_REPO` in the environment (`app/build.gradle.kts:107-108`
+     * defaults it to blank), where every entry point here is a no-op — so the
+     * Settings row is not rendered at all rather than sitting there dead.
+     */
+    val isConfigured: Boolean get() = BuildConfig.UPDATE_REPO.isNotBlank()
 
     /**
      * The automatic check: throttled to once an hour, and it never tells the
@@ -102,11 +131,19 @@ object UpdateChecker {
      * The rider asked. No throttle, and the outcome is reported rather than
      * swallowed — including the failure [automaticCheck] is deliberately silent
      * about.
+     *
+     * Every exit resolves [lastManualCheck] to something other than
+     * [ManualCheck.Running]: a settled outcome, [ManualCheck.Idle] on
+     * cancellation, or [ManualCheck.Failed] on any other [Exception]. An
+     * [Error] or other non-[Exception] [Throwable] is not caught here and
+     * leaves [lastManualCheck] on [ManualCheck.Running].
      */
     suspend fun manualCheck(context: Context) {
         val repo = BuildConfig.UPDATE_REPO
         if (repo.isBlank()) return
         val now = System.currentTimeMillis()
+        // Reused below to stamp the throttle after the request returns, so the
+        // automatic path's window can only open up to one round trip early.
         val spend = budgetGate.withLock {
             val s = budget.spend(now)
             if (s is ManualCheckBudget.Spend.Granted) budget = s.budget
@@ -117,34 +154,38 @@ object UpdateChecker {
             return
         }
         _manual.value = ManualCheck.Running
-        // withLock, not tryLock. Skipping the request when a check is already
-        // running would strand this on Running forever, because the automatic
-        // path publishes nothing here and so nothing would ever resolve the
-        // state the rider is looking at. Waiting costs at worst one duplicate
-        // request inside a window of a few hundred milliseconds.
-        // Every exit from here must resolve [_manual]. A throw that escaped
-        // would strand the row on "Checking…" with nothing to clear it —
-        // performCheck only wraps the fetch in runCatching, so prune and the
-        // UpdateState writes can still throw past it.
-        val outcome = try {
-            gate.withLock { performCheck(context, repo, notify = false) }
+        try {
+            // withLock, not tryLock. Skipping the request when a check is
+            // already running would strand this on Running forever, because
+            // the automatic path publishes nothing here and so nothing would
+            // ever resolve the state the rider is looking at. Waiting costs at
+            // worst one duplicate request inside a window of a few hundred
+            // milliseconds.
+            //
+            // The stamp and the terminal publish happen inside the lock too,
+            // so two overlapping calls cannot publish out of order.
+            gate.withLock {
+                // Re-asserted: without this, a check queued behind an
+                // in-flight one would keep showing that other check's settled
+                // answer for the whole time it is actually waiting its turn.
+                _manual.value = ManualCheck.Running
+                // performCheck can throw past its own runCatching.
+                val outcome = performCheck(context, repo, notify = false)
+                // Stamped only when the request came back. A failed manual
+                // check must leave the automatic path free to run — burning
+                // the hour on a check that never happened is the bug this
+                // whole feature exists to fix.
+                if (outcome != Outcome.Failed) Settings.setLastUpdateCheckMs(now)
+                _manual.value = outcome.toManualCheck()
+            }
         } catch (e: CancellationException) {
-            // The rider left the screen. Not a failure, and reporting one would
-            // be a lie — but the state must not stay on Running either.
+            // The rider left the screen. Not a failure, and reporting one
+            // would be a lie — but the state must not stay on Running either.
             _manual.value = ManualCheck.Idle
             throw e
         } catch (e: Exception) {
             Log.w("DetourUpdate", "manual update check failed", e)
-            Outcome.Failed
-        }
-        // Stamped only when the request came back. A failed manual check must
-        // leave the automatic path free to run — burning the hour on a check
-        // that never happened is the bug this whole feature exists to fix.
-        if (outcome != Outcome.Failed) Settings.setLastUpdateCheckMs(now)
-        _manual.value = when (outcome) {
-            is Outcome.Found -> ManualCheck.Found(outcome.version)
-            Outcome.UpToDate -> ManualCheck.UpToDate
-            Outcome.Failed -> ManualCheck.Failed
+            _manual.value = ManualCheck.Failed
         }
     }
 

@@ -197,7 +197,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
     val fogRadius by Settings.fogRadiusMeters.collectAsStateWithLifecycle()
     val externalDisplayEnabled by Settings.externalDisplayEnabled.collectAsStateWithLifecycle()
     val authUsername by Settings.authUsername.collectAsStateWithLifecycle()
-    val manualCheck by UpdateChecker.manual.collectAsStateWithLifecycle()
+    val manualCheck by UpdateChecker.lastManualCheck.collectAsStateWithLifecycle()
     val updateScope = rememberCoroutineScope()
     val context = LocalContext.current
 
