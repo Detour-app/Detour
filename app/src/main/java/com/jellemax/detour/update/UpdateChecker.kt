@@ -1,10 +1,12 @@
 package com.jellemax.detour.update
 
 import android.content.Context
+import android.util.Log
 import com.jellemax.detour.BuildConfig
 import com.jellemax.detour.data.ManualCheckBudget
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.UpdateClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -120,7 +122,21 @@ object UpdateChecker {
         // path publishes nothing here and so nothing would ever resolve the
         // state the rider is looking at. Waiting costs at worst one duplicate
         // request inside a window of a few hundred milliseconds.
-        val outcome = gate.withLock { performCheck(context, repo, notify = false) }
+        // Every exit from here must resolve [_manual]. A throw that escaped
+        // would strand the row on "Checking…" with nothing to clear it —
+        // performCheck only wraps the fetch in runCatching, so prune and the
+        // UpdateState writes can still throw past it.
+        val outcome = try {
+            gate.withLock { performCheck(context, repo, notify = false) }
+        } catch (e: CancellationException) {
+            // The rider left the screen. Not a failure, and reporting one would
+            // be a lie — but the state must not stay on Running either.
+            _manual.value = ManualCheck.Idle
+            throw e
+        } catch (e: Exception) {
+            Log.w("DetourUpdate", "manual update check failed", e)
+            Outcome.Failed
+        }
         // Stamped only when the request came back. A failed manual check must
         // leave the automatic path free to run — burning the hour on a check
         // that never happened is the bug this whole feature exists to fix.
