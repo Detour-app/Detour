@@ -174,6 +174,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
         mapView.onResume()
         mapView.getMapAsync { map ->
             map.uiSettings.isCompassEnabled = false
+            map.uiSettings.isLogoEnabled = false
             mapLibreMap = map
         }
         onDispose {

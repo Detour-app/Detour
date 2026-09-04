@@ -147,6 +147,7 @@ fun rememberTripCardMapSnapshot(
             .withStyleBuilder(style)
             .withRegion(bounds)
             .withPixelRatio(1f)
+            .withLogo(false)
         val snapshotter = MapSnapshotter(context, options)
         snapshotter.start(
             { snapshot ->
