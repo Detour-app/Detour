@@ -152,16 +152,16 @@ fun RoutesScreen(
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { presenter.refresh() } }
 
     // The card list is derived here from RouteStore.routes directly rather
-    // than from presenter.state.cards. rename/remove below (and every other
+    // than from presenter.state. rename/remove below (and every other
     // mutation RouteStore exposes) are synchronous mutations that write
     // straight through that StateFlow before returning; presenter.state only
-    // ever holds the one snapshot refresh() took, so reading it alone would
-    // leave the list stale after any of them — the same trap SavedPlacesScreen
-    // already solved. presenterState.loaded (which DOES only change once, at
-    // the initial load) still gates the loading spinner below so it doesn't
-    // flash empty before that first read completes.
+    // ever tracks whether the initial load happened, so reading a cached list
+    // from it would leave the screen stale after any of them — see
+    // RoutesPresenter's KDoc. presenterState.loaded (which DOES only change
+    // once, at the initial load) still gates the loading spinner below so it
+    // doesn't flash empty before that first read completes.
     val routes by RouteStore.routes.collectAsStateWithLifecycle()
-    val cards = remember(routes) { routesStateFrom(routes).cards }
+    val cards = remember(routes) { routesStateFrom(routes) }
 
     var renaming by remember { mutableStateOf<SavedRoute?>(null) }
     var deleting by remember { mutableStateOf<SavedRoute?>(null) }

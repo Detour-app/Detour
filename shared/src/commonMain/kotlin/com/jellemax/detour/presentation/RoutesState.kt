@@ -12,30 +12,54 @@ data class RouteCard(
     val id: Long,
     val name: String,
     val subtitle: String,
-    val sharedBy: String,
     val polyline: List<LatLon>,
 )
 
-/** Everything the Routes screen renders. */
+/**
+ * Marks whether the Routes screen's initial disk read has completed.
+ * [RoutesPresenter]'s KDoc explains why this is all `state` carries.
+ */
 data class RoutesState(
     val loaded: Boolean = false,
-    val cards: List<RouteCard> = emptyList(),
 )
 
 /**
- * "214 km · 5 stops · 25 min". [distanceMeters] and [timeMs] are both null
- * until a route has been routed at least once (an imported file may carry
- * only waypoints); whichever is missing is dropped rather than shown as
- * zero, so the parts compose cleanly with no stray separator either way.
+ * "214 km · 5 stops · 25 min · shared by mika". [distanceMeters] and [timeMs]
+ * are both null until a route has been routed at least once (an imported file
+ * may carry only waypoints); whichever is missing is dropped rather than shown
+ * as zero, so the parts compose cleanly with no stray separator either way.
+ * [sharedBy] follows the same discipline — blank (the common case, a route
+ * the rider made themselves) drops the fact entirely rather than rendering
+ * "shared by ".
  */
-fun routeSubtitle(distanceMeters: Double?, stopCount: Int, timeMs: Long? = null): String {
+fun routeSubtitle(
+    distanceMeters: Double?,
+    stopCount: Int,
+    timeMs: Long? = null,
+    sharedBy: String = "",
+): String {
     val stops = "$stopCount ${if (stopCount == 1) "stop" else "stops"}"
     val parts = buildList {
-        distanceMeters?.let { add("${groupThousands((it / 1000.0).toLong())} km") }
+        distanceMeters?.let { add(routeDistanceLabel(it)) }
         add(stops)
         timeMs?.let { add(formatDurationHistory(it)) }
+        if (sharedBy.isNotBlank()) add("shared by $sharedBy")
     }
     return parts.joinToString(" · ")
+}
+
+/**
+ * "850 m" under a kilometre — never "0 km" for a real, non-zero distance —
+ * "215 km" at or above it, whole kilometres only (matching this subtitle's
+ * existing style for larger distances, e.g. "1 240 km"; a decimal-km reading
+ * is `formatDistanceKm`'s job elsewhere, out of scope here). Rounded via
+ * [formatFixed] rather than truncated, so 214.9 km reads "215 km", not the
+ * "214 km" the previous `.toLong()` truncation produced.
+ */
+private fun routeDistanceLabel(meters: Double): String {
+    val km = meters / 1000.0
+    return if (km < 1.0) "${formatFixed(meters, 0)} m"
+    else "${groupThousands(formatFixed(km, 0).toLong())} km"
 }
 
 /**
@@ -83,16 +107,16 @@ fun thumbnailPoints(
     }
 }
 
-/** Pure map from stored routes to display cards. */
-fun routesStateFrom(routes: List<SavedRoute>): RoutesState = RoutesState(
-    loaded = true,
-    cards = routes.map { r ->
-        RouteCard(
-            id = r.id,
-            name = r.name,
-            subtitle = routeSubtitle(r.distanceMeters, r.stops.size, r.timeMs),
-            sharedBy = r.sharedBy,
-            polyline = r.polyline,
-        )
-    },
-)
+/**
+ * Pure map from stored routes to display cards. Returns the list directly,
+ * not wrapped in [RoutesState] — [RoutesState] only tracks the initial-load
+ * flag, which this mapper has no opinion on. See [RoutesPresenter]'s KDoc.
+ */
+fun routesStateFrom(routes: List<SavedRoute>): List<RouteCard> = routes.map { r ->
+    RouteCard(
+        id = r.id,
+        name = r.name,
+        subtitle = routeSubtitle(r.distanceMeters, r.stops.size, r.timeMs, r.sharedBy),
+        polyline = r.polyline,
+    )
+}
