@@ -9,7 +9,9 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -67,6 +69,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -99,6 +102,8 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.nav.Destination
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
+import com.jellemax.detour.tracking.DormancyBlocker
+import com.jellemax.detour.tracking.dormancyBlocker
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -332,6 +337,139 @@ private fun TrackingSection(autoDetect: Boolean, context: Context) {
                 },
             )
         }
+        ParkedDormancyNotice(autoDetect, context)
+    }
+}
+
+private fun granted(context: Context, permission: String): Boolean =
+    ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+
+/** The live [dormancyBlocker] for this device, read fresh — permissions change
+ *  outside the app, so this is never cached beyond the next ON_RESUME. */
+private fun currentBlocker(context: Context, autoDetect: Boolean): DormancyBlocker =
+    dormancyBlocker(
+        autoDetect = autoDetect,
+        // Pre-Q neither permission exists as a runtime grant, so neither can block.
+        hasActivityRecognition = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+            granted(context, Manifest.permission.ACTIVITY_RECOGNITION),
+        hasBackgroundLocation = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+            granted(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+    )
+
+private fun openAppSettings(context: Context) {
+    context.startActivity(
+        Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            .setData(Uri.fromParts("package", context.packageName, null))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+    )
+}
+
+/**
+ * Says why the tracker is still running — and its notification still showing —
+ * while the rider is parked, and offers the one grant that would stop it.
+ * Issue #145.
+ *
+ * Nothing said this before: both permissions are optional, both fallbacks stay
+ * always-on deliberately, and the rider had no way to connect the notification
+ * they are looking at to a choice they made in a system dialog. For them the
+ * complaint #90 set out to fix was still live, and now also invisible.
+ */
+@Composable
+private fun ParkedDormancyNotice(autoDetect: Boolean, context: Context) {
+    var blocker by remember { mutableStateOf(currentBlocker(context, autoDetect)) }
+    var showBgDisclosure by remember { mutableStateOf(false) }
+
+    // A function parameter is a plain value, frozen for the composition that
+    // read it, and the observer below outlives several of those. Read the
+    // toggle through this so a flip is seen without re-registering the
+    // observer — see the compose-state-hazards skill, section 2.
+    val autoDetectNow by rememberUpdatedState(autoDetect)
+
+    LaunchedEffect(autoDetect) { blocker = currentBlocker(context, autoDetect) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        blocker = currentBlocker(context, autoDetectNow)
+        // Denied twice, or a permission the system never prompts for: the
+        // system dialog will not appear again, so the only route left is the
+        // app's own settings page.
+        if (blocker != DormancyBlocker.NONE) openAppSettings(context)
+    }
+
+    // Permissions are granted outside this screen — in the system dialog, or in
+    // the app settings page we send the rider to — so the only reliable moment
+    // to re-read them is coming back to the app.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                blocker = currentBlocker(context, autoDetectNow)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    if (blocker == DormancyBlocker.NONE) return
+
+    val explanation = when (blocker) {
+        DormancyBlocker.ACTIVITY_RECOGNITION ->
+            "Detour's tracker stays on, with its notification showing, even when " +
+                "you're parked. It needs physical activity access to tell that " +
+                "you've stopped, so it can switch itself off until you ride again."
+        DormancyBlocker.BACKGROUND_LOCATION ->
+            "Detour's tracker stays on, with its notification showing, even when " +
+                "you're parked. Set location access to \"Allow all the time\" and it " +
+                "can switch itself off while parked, then wake when you ride away."
+        DormancyBlocker.NONE -> return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            explanation,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextButton(
+            onClick = {
+                when (blocker) {
+                    DormancyBlocker.ACTIVITY_RECOGNITION ->
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            permissionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+                        }
+                    // Play policy requires the prominent disclosure to be shown
+                    // and accepted before the rider reaches the system screen.
+                    DormancyBlocker.BACKGROUND_LOCATION -> showBgDisclosure = true
+                    DormancyBlocker.NONE -> Unit
+                }
+            },
+        ) {
+            Text(
+                when (blocker) {
+                    DormancyBlocker.ACTIVITY_RECOGNITION -> "Allow physical activity"
+                    else -> "Change location access"
+                }
+            )
+        }
+    }
+
+    if (showBgDisclosure) {
+        BackgroundLocationDisclosure(
+            onAllow = {
+                showBgDisclosure = false
+                // From Android 11 the system raises no dialog for background
+                // location at all — requestPermissions returns denied without
+                // showing anything — so the app settings page is the only route
+                // to "Allow all the time".
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    openAppSettings(context)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    permissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                }
+            },
+            onDismiss = { showBgDisclosure = false },
+        )
     }
 }
 

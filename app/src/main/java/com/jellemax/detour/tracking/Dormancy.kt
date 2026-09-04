@@ -88,3 +88,47 @@ fun geofenceAction(decision: DormancyDecision, requested: Boolean?): GeofenceAct
         else -> GeofenceAction.DISARM
     }
 }
+
+/** Which missing runtime permission is keeping the tracker always-on while the
+ *  rider is parked — see [dormancyBlocker] and issue #145. */
+enum class DormancyBlocker {
+    /** Nothing in the way: the tracker parks and the notification goes away. */
+    NONE,
+    /** No `ACTIVITY_RECOGNITION`, so nothing ever sets `stationary`. */
+    ACTIVITY_RECOGNITION,
+    /** No `ACCESS_BACKGROUND_LOCATION`, so a wake geofence would never fire. */
+    BACKGROUND_LOCATION,
+}
+
+/**
+ * Why parked dormancy (issue #90) is not in effect for this rider, for the
+ * Settings notice — issue #145.
+ *
+ * #90's AC 1, "no Detour notification in the shade and no running foreground
+ * service while parked", holds only with **both** permissions granted. Both are
+ * optional and the app works without either, so a rider who declined one gets
+ * the pre-#90 always-on service and its permanent notification. Both fallbacks
+ * are the safe choice — `ACTIVITY_RECOGNITION` is the only thing that sets
+ * `stationary`, and without `ACCESS_BACKGROUND_LOCATION` a geofence transition
+ * is not delivered to a backgrounded app, so parking would stop the service
+ * with no way to wake it. The gap this closes is that the rider was never told,
+ * which left the exact complaint #90 set out to fix live *and* invisible.
+ *
+ * [DormancyBlocker.NONE] with [autoDetect] off is not "nothing is wrong": with
+ * auto-detect off the service stops outright (`STOP_BARE`), so there is no
+ * notification to explain and no permission worth asking for.
+ *
+ * Reported one at a time, activity recognition first, matching the order the
+ * app asks for them — granting background location alone fixes nothing while
+ * `stationary` can never become true.
+ */
+fun dormancyBlocker(
+    autoDetect: Boolean,
+    hasActivityRecognition: Boolean,
+    hasBackgroundLocation: Boolean,
+): DormancyBlocker = when {
+    !autoDetect -> DormancyBlocker.NONE
+    !hasActivityRecognition -> DormancyBlocker.ACTIVITY_RECOGNITION
+    !hasBackgroundLocation -> DormancyBlocker.BACKGROUND_LOCATION
+    else -> DormancyBlocker.NONE
+}
