@@ -3,6 +3,7 @@ package com.jellemax.detour.ui
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.jellemax.detour.presentation.formatDurationHistory as sharedFormatDurationHistory
 
 fun formatDuration(ms: Long): String {
     val totalSeconds = ms / 1000
@@ -16,12 +17,12 @@ fun formatDuration(ms: Long): String {
 // live card's seconds-precision "M:SS" is ambiguous — is "7:19" seven minutes
 // or seven hours? formatDuration above still owns the live trip card, where
 // seconds matter and there's only ever one duration on screen at a time.
-fun formatDurationHistory(ms: Long): String {
-    val totalMinutes = ms / 60_000
-    val h = totalMinutes / 60
-    val m = totalMinutes % 60
-    return if (h > 0) "%d h %d min".format(h, m) else "%d min".format(m)
-}
+//
+// The wording itself lives in commonMain (presentation.formatDurationHistory)
+// so a route card and trip history can't drift apart the way they once could
+// with two hand-written copies. This keeps the name/signature app callers
+// already use.
+fun formatDurationHistory(ms: Long): String = sharedFormatDurationHistory(ms)
 
 fun formatSpeedKmh(mps: Double): String = "%.0f km/h".format(mps * 3.6)
 

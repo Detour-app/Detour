@@ -44,12 +44,13 @@ internal fun formatFixed(value: Double, decimals: Int): String {
 }
 
 /**
- * "25 min" under an hour, "1 h 12 min" at or past it — same wording as the
- * Android-side `formatDurationHistory` (app/.../ui/Format.kt), which riders
- * already know from trip history, mirrored here without its `"%d h %d min"`
- * (commonMain has no `String.format`).
+ * "25 min" under an hour, "1 h 12 min" at or past it. The single
+ * implementation of this wording: `app/.../ui/Format.kt`'s
+ * `formatDurationHistory` delegates here rather than keeping its own copy, so
+ * trip history and a route card can't drift apart the way they once did.
+ * Public (not `internal`) so `:app` can call it across the module boundary.
  */
-internal fun formatDurationHistory(ms: Long): String {
+fun formatDurationHistory(ms: Long): String {
     val totalMinutes = ms / 60_000
     val h = totalMinutes / 60
     val m = totalMinutes % 60
