@@ -15,7 +15,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.ShareLocation
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -114,7 +113,7 @@ fun SocialScreen(onBack: () -> Unit, onOpenFriends: () -> Unit, onOpenCircles: (
                     trailingText = "leaderboard",
                     paintCard = false,
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                CardDivider()
                 HubRow(
                     icon = Icons.Rounded.ShareLocation,
                     title = "Circles",

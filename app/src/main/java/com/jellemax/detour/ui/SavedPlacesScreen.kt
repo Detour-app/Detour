@@ -22,7 +22,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -144,7 +143,7 @@ fun SavedPlacesScreen(onBack: () -> Unit) {
                             onDelete = { menuOpenFor = null; SavedPlaces.remove(row.id) },
                         )
                         if (index < rows.lastIndex) {
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                            CardDivider()
                         }
                     }
                 }

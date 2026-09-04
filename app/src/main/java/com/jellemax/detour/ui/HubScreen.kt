@@ -35,7 +35,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -187,21 +186,21 @@ fun HubScreen(
                     onClick = onOpenHistory,
                     paintCard = false,
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                CardDivider()
                 HubRow(
                     icon = Icons.Rounded.Route,
                     title = "Routes",
                     onClick = onOpenRoutes,
                     paintCard = false,
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                CardDivider()
                 HubRow(
                     icon = Icons.Rounded.BookmarkBorder,
                     title = "Saved places",
                     onClick = onOpenSavedPlaces,
                     paintCard = false,
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                CardDivider()
                 HubRow(
                     icon = Icons.Rounded.MilitaryTech,
                     title = "Badges & coverage",

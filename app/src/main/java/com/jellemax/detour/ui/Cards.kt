@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -30,4 +31,14 @@ fun ListCard(
         border = BorderStroke(1.dp, borderColor),
         content = content,
     )
+}
+
+/**
+ * The divider between rows inside a [ListCard] — 0.35-alpha outlineVariant,
+ * the one this repo drew by hand at five identical call sites (the Hub's
+ * shortcut list, the Social row pair, Saved places). One definition now.
+ */
+@Composable
+fun CardDivider() {
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
 }
