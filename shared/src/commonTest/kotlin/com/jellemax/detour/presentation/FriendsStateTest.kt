@@ -168,13 +168,13 @@ class FriendsStateTest {
         assertNull(board.waitingOnLabel)
     }
 
-    @Test fun incomingAndOutgoingPassThroughUnchanged() {
+    @Test fun incomingAndOutgoingMapToRequestRowsById() {
         val incoming = listOf(RiderRef(RiderId("3"), "cleo"))
         val outgoing = listOf(RiderRef(RiderId("4"), "dev"))
         val board = friendsBoardStateFrom(
             leaderboard = emptyList(), own = null, lists = lists(incoming = incoming, outgoing = outgoing),
         )
-        assertEquals(incoming, board.incoming)
-        assertEquals(outgoing, board.outgoing)
+        assertEquals(listOf(FriendRequestRow(RiderId("3"), "cleo")), board.incoming)
+        assertEquals(listOf(FriendRequestRow(RiderId("4"), "dev")), board.outgoing)
     }
 }

@@ -68,10 +68,11 @@ fun formatDurationHistory(ms: Long): String {
  * over from the original's `coerceAtLeast(0)`, which already avoids the
  * "-3m ago" a naive subtraction would produce.
  *
- * Public (not internal) so `:app` can call it across the module boundary — see
- * [formatDurationHistory] above for the same reasoning. `CirclesScreen.kt`'s
- * event list calls this directly today; a later task moves that list into a
- * commonMain mapper, at which point only that mapper will call it.
+ * Public (not internal), matching [formatDurationHistory] above — though
+ * unlike that one, nothing in `:app` calls this any more: the event list
+ * that used to call it directly from `CirclesScreen.kt` now goes through
+ * [circleDetailStateFrom] in this module instead, which is this function's
+ * only caller today.
  */
 fun relativeAge(tsMs: Long, nowMs: Long): String {
     val minutes = (nowMs - tsMs).coerceAtLeast(0) / 60_000L

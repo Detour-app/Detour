@@ -15,9 +15,9 @@ import com.jellemax.detour.data.RiderRef
  * reading a cached snapshot off this presenter. This is the same split as
  * [PlacesPresenter] and [RoutesPresenter]: a presenter in front of a *mutable*
  * store publishes no rows of its own, because a cached copy goes stale the
- * instant a mutation lands underneath it — the mistake batch 2's final review
- * caught, where a published snapshot actively misled iOS, defeating the whole
- * point of the shared layer. There is deliberately no `state` property here:
+ * instant a mutation lands underneath it — a published snapshot goes stale
+ * and misleads iOS, defeating the whole point of the shared layer. There is
+ * deliberately no `state` property here:
  * everything this class could publish, the store already does, and better.
  *
  * [refresh] blocks on disk and CPU: [FriendsStore.refreshOwn] walks every

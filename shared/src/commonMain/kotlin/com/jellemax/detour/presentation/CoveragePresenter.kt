@@ -7,8 +7,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Holds the coverage screen's chrome state. The MapLibre layers are the screen's
- * own and are not modelled here — out of scope for this task.
+ * Holds the coverage screen's chrome state. The MapLibre layers are the
+ * screen's own and are not modelled here — they belong to the screen, not
+ * this presenter.
  *
  * [refresh] is declared `suspend` but never actually suspends: [Coverage.compute]
  * and [MunicipalityStore.load] are both non-suspending and block on disk.

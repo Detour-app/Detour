@@ -10,6 +10,10 @@ import com.jellemax.detour.data.RiderRef
  * gone by this point, replaced with exactly the strings and flag a row draws.
  */
 data class LeaderboardRow(
+    /** Not read by any screen today. Kept anyway as stable per-row identity
+     *  for a future iOS `Identifiable` list — the same role
+     *  [CircleMemberRow.id] plays on the sibling detail mapper — rather than
+     *  deleted as dead weight. */
     val riderId: RiderId,
     val username: String,
     val avatarInitial: String,
@@ -17,6 +21,16 @@ data class LeaderboardRow(
     val statsLine: String,
     val isMe: Boolean,
 )
+
+/**
+ * One friend-request row: [id] for accept/decline, [username] for display —
+ * the two fields the screen's `RequestRow` and the "Waiting on: …" join
+ * actually use. Deliberately not [RiderRef] itself: presentation state
+ * exposes only presentation-owned row types, matching [LeaderboardRow] here
+ * and [CircleRow]/[CircleMemberRow] on the Circles side, so a screen never
+ * reads a data-layer type's fields directly.
+ */
+data class FriendRequestRow(val id: RiderId, val username: String)
 
 /**
  * The Friends screen's display state: the ranked leaderboard and the two
@@ -32,8 +46,8 @@ data class LeaderboardRow(
  */
 data class FriendsBoardState(
     val rows: List<LeaderboardRow> = emptyList(),
-    val incoming: List<RiderRef> = emptyList(),
-    val outgoing: List<RiderRef> = emptyList(),
+    val incoming: List<FriendRequestRow> = emptyList(),
+    val outgoing: List<FriendRequestRow> = emptyList(),
     val waitingOnLabel: String? = null,
 )
 
@@ -69,13 +83,15 @@ fun friendsBoardStateFrom(
         .map { (stats, isMe) -> stats.toRow(isMe) }
     return FriendsBoardState(
         rows = rows,
-        incoming = lists.incoming,
-        outgoing = lists.outgoing,
+        incoming = lists.incoming.map { it.toRow() },
+        outgoing = lists.outgoing.map { it.toRow() },
         waitingOnLabel = lists.outgoing.takeIf { it.isNotEmpty() }
             ?.joinToString(", ") { it.username }
             ?.let { "Waiting on: $it" },
     )
 }
+
+private fun RiderRef.toRow() = FriendRequestRow(id = id, username = username)
 
 private fun FriendStats.toRow(isMe: Boolean) = LeaderboardRow(
     riderId = rider.id,
