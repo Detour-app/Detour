@@ -71,6 +71,7 @@ form too (`Idp__Authority`, `ConnectionStrings__DefaultConnection`, and so on).
 | `Idp:RequireHttpsMetadata` | Leave `true`. Off is for a local stack on plain HTTP. |
 | `Cors:AllowedOrigins` | Only needed for a browser origin. The app is not one. |
 | `Cache:RedisConnectionString` | Empty means memory-only, which is a correct single-instance deployment. |
+| `Notifications:FirebaseCredentialsPath` | Absolute path to the Firebase service-account JSON, for circle push wake-pings. Unset ⇒ push disabled (the rest of the app is unaffected). See [`docs/PUSH.md`](../docs/PUSH.md). |
 | `ForwardedHeaders:KnownProxies` / `KnownNetworks` | **Set one of these if anything sits in front of the API.** See below. |
 
 ### Behind a reverse proxy
