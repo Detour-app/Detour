@@ -444,12 +444,23 @@ class TripTrackingService : Service() {
      *  fresh instance up. */
     private var geofenceWakeGraceUntilMs = 0L
 
-    /** Set once [stopDormant] begins the #90 stop path. Blocks the mode/
-     *  notification machinery that callers still run after `maybeGoDormant()`
-     *  returns, so a stopping service can't re-post an ongoing notification
-     *  nothing will remove. Never reset — a stopping service is torn down and
-     *  the next start is a fresh instance. */
+    /** Set once [stopDormant] has committed to the #90 stop path. Blocks the
+     *  mode/notification machinery that callers still run after
+     *  `maybeGoDormant()` returns, so a stopping service can't re-post an
+     *  ongoing notification nothing will remove.
+     *
+     *  Cleared at [onStartCommand] entry, because a committed stop is not
+     *  necessarily a completed one: the system cancels a pending bring-down
+     *  when a start Intent arrives before `onDestroy()` runs, and that leaves
+     *  *this* instance serving the new start. Latched shut it would live on
+     *  with no location updates and no notification (issue #141). */
     @Volatile private var stopping = false
+
+    /** The most recent startId the system has delivered to this instance.
+     *  [stopDormant] stops against it rather than unconditionally, so a start
+     *  Intent that lands while a dormancy stop is being decided supersedes the
+     *  stop instead of racing it — see issue #141. */
+    private var lastStartId = 0
 
     private var lastMunicipalityLookupMs = 0L
 
@@ -919,6 +930,11 @@ class TripTrackingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Both before anything else can consult them: this instance is alive and
+        // serving a start, whatever a dormancy stop decided a moment ago. See
+        // [lastStartId] and [stopping] for the two halves of issue #141.
+        lastStartId = startId
+        stopping = false
         Settings.init()
         createChannel()
         // From Android 12 the platform refuses a foreground service started
@@ -1291,25 +1307,50 @@ class TripTrackingService : Service() {
                 }
                 Log.i(ParkGeofence.TAG, "parking: $decision")
                 ParkGeofence.arm(this, lat, lon)
-                stopDormant()
+                // Superseded: the service stays up, so the fence just armed has
+                // no job. Take it back down rather than leave a live service
+                // behind a park geofence that can only fire a redundant wake.
+                if (!stopDormant()) ParkGeofence.disarm(this)
             }
             DormancyDecision.STOP_BARE -> {
                 Log.i(ParkGeofence.TAG, "parking: $decision (auto-detect off)")
                 ParkGeofence.disarm(this)
                 unregisterActivityTransitions()
+                // Nothing to undo if this is superseded: with auto-detect off
+                // there is no fence to restore, and registerActivityTransitions()
+                // stands down on that same setting, so the newer start's own
+                // call is a no-op too.
                 stopDormant()
             }
         }
     }
 
-    private fun stopDormant() {
+    /**
+     * Tear the foreground service down for [maybeGoDormant]. Returns false —
+     * having changed nothing — when the stop was superseded.
+     *
+     * `stopSelfResult(lastStartId)`, not `stopSelf()`: this stop was decided
+     * against the state of one particular start, and a start Intent that has
+     * landed since means something wants the service after all. The unqualified
+     * `stopSelf()` this replaces could not tell the two apart (issue #141).
+     *
+     * The ask comes *first*, before any of the teardown below, because the
+     * teardown is not conditional-safe: cancelling the notification and
+     * dropping location updates for a service the system then keeps alive
+     * leaves it running and useless.
+     */
+    private fun stopDormant(): Boolean {
+        if (!stopSelfResult(lastStartId)) {
+            Log.i(ParkGeofence.TAG, "dormancy stop superseded by a newer start")
+            return false
+        }
         stopping = true
         if (::fusedClient.isInitialized) fusedClient.removeLocationUpdates(locationCallback)
         activeMode = null
         flushTrace()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
-        stopSelf()
+        return true
     }
 
     private fun activityTransitionPendingIntent(): PendingIntent =
