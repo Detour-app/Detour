@@ -2,6 +2,7 @@ using Detour.Domain.ApiKeys;
 using Detour.Domain.Circles;
 using Detour.Domain.Friendships;
 using Detour.Domain.Groups;
+using Detour.Domain.Notifications;
 using Detour.Domain.Places;
 using Detour.Domain.Routes;
 using Detour.Domain.Traces;
@@ -27,6 +28,7 @@ public class DetourDbContext(DbContextOptions<DetourDbContext> options) : DbCont
     public DbSet<MemberFix> MemberFixes => Set<MemberFix>();
     public DbSet<CirclePlace> CirclePlaces => Set<CirclePlace>();
     public DbSet<PlaceEvent> PlaceEvents => Set<PlaceEvent>();
+    public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

@@ -4,6 +4,7 @@ using Detour.Domain.ApiKeys;
 using Detour.Domain.Circles;
 using Detour.Domain.Friendships;
 using Detour.Domain.Groups;
+using Detour.Domain.Notifications;
 using Detour.Domain.Places;
 using Detour.Domain.Routes;
 using Detour.Domain.Traces;
@@ -54,6 +55,7 @@ public static class DatabaseInstaller
         services.AddScoped<IMemberFixRepository, MemberFixRepository>();
         services.AddScoped<ICirclePlaceRepository, CirclePlaceRepository>();
         services.AddScoped<IPlaceEventRepository, PlaceEventRepository>();
+        services.AddScoped<IDeviceTokenRepository, DeviceTokenRepository>();
         services.AddScoped<IApiKeyRepository, ApiKeyRepository>();
 
         return services;

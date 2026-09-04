@@ -164,6 +164,12 @@
   <data name="PlaceEvent.KindInvalid" xml:space="preserve">
     <value>An event is either an arrival or a departure.</value>
   </data>
+  <data name="DeviceToken.TokenRequired" xml:space="preserve">
+    <value>A push token is required.</value>
+  </data>
+  <data name="DeviceToken.PlatformInvalid" xml:space="preserve">
+    <value>Unknown device platform.</value>
+  </data>
   <data name="Location.CoordinatesOutOfRange" xml:space="preserve">
     <value>That is not a position on Earth.</value>
   </data>

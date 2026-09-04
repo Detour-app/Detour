@@ -195,6 +195,17 @@ public static class ValidationKeys
             ValidationKeyDefinition.Create($"{Base}.KindInvalid");
     }
 
+    public static class DeviceToken
+    {
+        private const string Base = "DeviceToken";
+
+        public static readonly ValidationKeyDefinition TokenRequired =
+            ValidationKeyDefinition.Create($"{Base}.TokenRequired");
+
+        public static readonly ValidationKeyDefinition PlatformInvalid =
+            ValidationKeyDefinition.Create($"{Base}.PlatformInvalid");
+    }
+
     public static class Location
     {
         private const string Base = "Location";
