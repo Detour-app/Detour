@@ -102,3 +102,125 @@ class DormancyTest {
         )
     }
 }
+
+/**
+ * [geofenceAction] reconciles the park geofence against a dormancy decision
+ * (issue #146): before it, `onStartCommand` disarmed unconditionally and each
+ * of the two-to-four dormancy evaluations a single start could run reissued the
+ * arm, so one wake produced eight `ParkGeofence` log lines and that many GMS
+ * round trips for one circle at one position.
+ *
+ * The service-side half — the coalescing post, and the fact that every caller
+ * runs on the main thread — is verified by a GPS replay and `adb logcat -s
+ * ParkGeofence`, not here.
+ */
+class GeofenceActionTest {
+
+    @Test fun `parking behind a geofence arms one`() {
+        assertEquals(
+            GeofenceAction.ARM,
+            geofenceAction(DormancyDecision.STOP_WITH_GEOFENCE, requested = false),
+        )
+    }
+
+    @Test fun `an awake service takes the fence down`() {
+        assertEquals(
+            GeofenceAction.DISARM,
+            geofenceAction(DormancyDecision.STAY_ALIVE, requested = true),
+        )
+    }
+
+    @Test fun `stopping bare takes the fence down - AC 2 leaves nothing armed`() {
+        assertEquals(
+            GeofenceAction.DISARM,
+            geofenceAction(DormancyDecision.STOP_BARE, requested = true),
+        )
+    }
+
+    @Test fun `a decision that changes nothing issues no call`() {
+        // The whole point: repeat evaluations within one service start are free.
+        assertEquals(
+            GeofenceAction.NONE,
+            geofenceAction(DormancyDecision.STOP_WITH_GEOFENCE, requested = true),
+        )
+        for (decision in listOf(DormancyDecision.STAY_ALIVE, DormancyDecision.STOP_BARE)) {
+            assertEquals(
+                GeofenceAction.NONE,
+                geofenceAction(decision, requested = false),
+            )
+        }
+    }
+
+    @Test fun `a fresh instance always issues its first call`() {
+        // requested = null is not the same as false. A park geofence outlives
+        // the process that registered it, so an instance that has asked for
+        // nothing yet cannot assume the fence it wants absent is absent — this
+        // is what the old unconditional disarm() in onStartCommand provided.
+        assertEquals(
+            GeofenceAction.DISARM,
+            geofenceAction(DormancyDecision.STAY_ALIVE, requested = null),
+        )
+        assertEquals(
+            GeofenceAction.DISARM,
+            geofenceAction(DormancyDecision.STOP_BARE, requested = null),
+        )
+        assertEquals(
+            GeofenceAction.ARM,
+            geofenceAction(DormancyDecision.STOP_WITH_GEOFENCE, requested = null),
+        )
+    }
+}
+
+/**
+ * [dormancyBlocker] decides what the Settings notice says (issue #145): #90's
+ * AC 1 — no notification and no foreground service while parked — holds only
+ * for a rider who granted both optional permissions, and nothing told the ones
+ * who didn't why their notification never goes away.
+ */
+class DormancyBlockerTest {
+
+    @Test fun `both granted - nothing to explain`() {
+        assertEquals(
+            DormancyBlocker.NONE,
+            dormancyBlocker(autoDetect = true, hasActivityRecognition = true, hasBackgroundLocation = true),
+        )
+    }
+
+    @Test fun `no activity recognition - stationary is never set, so it never parks`() {
+        assertEquals(
+            DormancyBlocker.ACTIVITY_RECOGNITION,
+            dormancyBlocker(autoDetect = true, hasActivityRecognition = false, hasBackgroundLocation = true),
+        )
+    }
+
+    @Test fun `no background location - a wake geofence would never fire`() {
+        assertEquals(
+            DormancyBlocker.BACKGROUND_LOCATION,
+            dormancyBlocker(autoDetect = true, hasActivityRecognition = true, hasBackgroundLocation = false),
+        )
+    }
+
+    @Test fun `both missing - activity recognition is reported first`() {
+        // Granting background location alone would fix nothing while nothing
+        // can ever set `stationary`, so asking for that one first would send
+        // the rider through a system screen and change nothing they can see.
+        assertEquals(
+            DormancyBlocker.ACTIVITY_RECOGNITION,
+            dormancyBlocker(autoDetect = true, hasActivityRecognition = false, hasBackgroundLocation = false),
+        )
+    }
+
+    @Test fun `auto-detect off - no notice however the permissions stand`() {
+        // Not "nothing is wrong": with auto-detect off the service stops
+        // outright (STOP_BARE), so there is no notification to explain and no
+        // permission worth interrupting the rider for.
+        for (ar in listOf(true, false)) {
+            for (bg in listOf(true, false)) {
+                assertEquals(
+                    DormancyBlocker.NONE,
+                    dormancyBlocker(autoDetect = false, hasActivityRecognition = ar, hasBackgroundLocation = bg),
+                )
+            }
+        }
+    }
+}
