@@ -30,8 +30,6 @@ object ConfigFile {
         val server = RoutingServer.load()
         val json = JSONObject()
             .put("routingUrl", server.url)
-            .put("routingClientId", server.clientId)
-            .put("routingClientSecret", server.clientSecret)
         context.contentResolver.openOutputStream(uri, "wt")?.use {
             it.write(json.toString(2).toByteArray())
         } ?: throw java.io.IOException("Could not open $uri for writing")
@@ -51,8 +49,6 @@ object ConfigFile {
         } else {
             RoutingServer.save(ServerConfig(
                 url = routingUrl,
-                clientId = json.optString("routingClientId"),
-                clientSecret = json.optString("routingClientSecret"),
                 enabled = true,
             ))
         }

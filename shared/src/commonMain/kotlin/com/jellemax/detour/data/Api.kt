@@ -9,12 +9,9 @@ class AuthException(message: String) : IOException(message)
 /**
  * One place that knows how to talk to the sync + social API.
  *
- * Two layers of credentials, doing different jobs: the Cloudflare Access
- * service token gets us to the hostname at all (it is shared by everyone who
- * has the app), while the bearer token says *which rider* we are. Only the
- * second one decides whose trips come back — and it is now an access token the
- * identity provider minted, kept fresh by [Auth], rather than something this
- * server issued.
+ * The bearer token says *which rider* we are: an access token the identity
+ * provider minted, kept fresh by [Auth], rather than something this server
+ * issued. It is the only thing that decides whose trips come back.
  */
 internal object Api {
 
@@ -33,7 +30,6 @@ internal object Api {
         readTimeoutMs: Long = 30_000,
     ): String {
         val base = SyncClient.url() ?: throw IOException("No server configured")
-        val cf = RoutingServer.load()
         val url = base.trimEnd('/') + PREFIX + path
         return try {
             // The token the most recent attempt actually sent. Auth.refreshAfterRefusal
@@ -53,10 +49,6 @@ internal object Api {
                     if (auth) {
                         sent = Auth.bearer()
                         put("Authorization", "Bearer $sent")
-                    }
-                    if (cf.clientId.isNotBlank()) {
-                        put("CF-Access-Client-Id", cf.clientId)
-                        put("CF-Access-Client-Secret", cf.clientSecret)
                     }
                 }
                 Http.request(

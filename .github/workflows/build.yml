@@ -22,10 +22,10 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # No server URLs or Cloudflare Access credentials are built in. They would
-      # end up as plain strings in BuildConfig, readable by anyone who unzips the
-      # APK — which outlives this repo's access controls the moment the file is
-      # handed to someone. The app takes all four values at runtime, from
+      # No server URLs are built in. They would end up as plain strings in
+      # BuildConfig, readable by anyone who unzips the APK — which outlives
+      # this repo's access controls the moment the file is handed to someone.
+      # The app takes all four values at runtime, from
       # Settings → Routing server and Settings → Backup sync, or in one step from
       # Settings → Server config file.
       #

@@ -10,8 +10,6 @@ struct SettingsScreen: View {
 
     @StateObject private var model = SettingsModel()
     @State private var serverURL = ""
-    @State private var clientId = ""
-    @State private var clientSecret = ""
     // Carried through load/save untouched: this screen has no editors for the
     // per-service addresses yet, and saving defaults over values set
     // elsewhere would silently unconfigure them.
@@ -132,10 +130,6 @@ struct SettingsScreen: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
-            TextField("CF-Access-Client-Id", text: $clientId)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            SecureField("CF-Access-Client-Secret", text: $clientSecret)
             TextField("Sign-in realm (deprecated)", text: $idpIssuer)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -193,8 +187,6 @@ struct SettingsScreen: View {
     private func loadServer() {
         let config = RoutingServer.shared.load()
         serverURL = config.url
-        clientId = config.clientId
-        clientSecret = config.clientSecret
         apiURL = config.apiUrl
         routingURL = config.routingUrl
         geocoderURL = config.geocoderUrl
@@ -208,8 +200,6 @@ struct SettingsScreen: View {
             routingUrl: routingURL,
             geocoderUrl: geocoderURL,
             idpIssuer: idpIssuer,
-            clientId: clientId,
-            clientSecret: clientSecret,
             enabled: true
         ))
     }

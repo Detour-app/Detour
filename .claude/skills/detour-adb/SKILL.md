@@ -188,14 +188,13 @@ adb shell run-as io.github.maxke24.detour.debug cat files/accounts/_local/trips.
 | `accounts/<key>/routes.json` | `.../data/Routes.kt:106` | |
 | `accounts/<key>/municipalities.json` | `.../data/Coverage.kt:116` | learned boundaries, cached |
 | `shared_prefs/settings.xml` | `.../data/Settings.kt:146,160,221` | holds `auth_token` |
-| `shared_prefs/routing_server.xml` | `.../data/RoutingServer.kt:65` | holds the Cloudflare Access client secret |
+| `shared_prefs/routing_server.xml` | `.../data/RoutingServer.kt:65` | the rider's custom server URLs — no secret in it since the Cloudflare Access token was retired |
 
-**Never paste the contents of `settings.xml` or `routing_server.xml` into a report, a commit,
-a log excerpt or a pasted terminal transcript.** They are live credentials: a bearer token
-and a CF Access client secret. The repo already treats them as such — both are excluded from
-cloud backup precisely so they cannot outlive a revocation
-(`data_extraction_rules.xml:4-11`). If you need to know whether an account is signed in,
-report the fact ("an `auth_token` key is present"), never the value.
+**Never paste the contents of `settings.xml` into a report, a commit, a log excerpt or a
+pasted terminal transcript.** It holds a live credential: the bearer token. The repo already
+treats it as such — it is excluded from cloud backup precisely so it cannot outlive a
+revocation (`data_extraction_rules.xml:4-11`). If you need to know whether an account is
+signed in, report the fact ("an `auth_token` key is present"), never the value.
 
 ## What is not readable, and stop looking
 

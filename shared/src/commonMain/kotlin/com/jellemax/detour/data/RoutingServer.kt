@@ -19,8 +19,6 @@ data class ServerConfig(
     val routingUrl: String = "",
     val geocoderUrl: String = "",
     val idpIssuer: String = "",
-    val clientId: String = "",
-    val clientSecret: String = "",
     val enabled: Boolean = false,
 ) {
     /** Whether routing can be attempted — which is the only thing every caller
@@ -66,8 +64,6 @@ object RoutingServer {
         routingUrl = BuildDefaults.routingUrl,
         geocoderUrl = BuildDefaults.geocoderUrl,
         idpIssuer = BuildDefaults.idpIssuer,
-        clientId = BuildDefaults.routingCfId,
-        clientSecret = BuildDefaults.routingCfSecret,
         enabled = BuildDefaults.routingUrl.isNotBlank(),
     )
 
@@ -201,7 +197,6 @@ object RoutingServer {
         // Guarded once-per-process, shared with Settings.init() — see migrateOnce().
         CredentialMigration.migrateOnce()
         val p = prefs(PREFS)
-        val s = securePrefs()
         if (!p.bool("saved", false)) return null
         val config = ServerConfig(
             url = p.string("url"),
@@ -209,8 +204,6 @@ object RoutingServer {
             routingUrl = p.string("routing_url"),
             geocoderUrl = p.string("geocoder_url"),
             idpIssuer = p.string("idp_issuer"),
-            clientId = s.string("clientId"),
-            clientSecret = s.string("clientSecret"),
             enabled = true,
         )
         // Saved-but-empty is the same as never saved. Checked across every
@@ -252,10 +245,6 @@ object RoutingServer {
             put("routing_url", config.routingUrl.trim())
             put("geocoder_url", config.geocoderUrl.trim())
             put("idp_issuer", config.idpIssuer.trim())
-        }
-        securePrefs().apply {
-            put("clientId", config.clientId.trim())
-            put("clientSecret", config.clientSecret.trim())
         }
     }
 
@@ -312,8 +301,6 @@ object RoutingServer {
         prefs(PREFS).put(KEY_DISCOVERED_ISSUER, normalised)
     }
 
-    /** Clearing the secure store wholesale would take the session with it, so the two
-     *  Cloudflare keys are removed by name. */
     fun clearCustom() {
         // Read before the wipe: both inputs live in the prefs this is about to
         // clear. And cleared above it, not below, matching the discipline [save]
@@ -328,33 +315,12 @@ object RoutingServer {
         if (clearDropsSession(loadCustom(), discoveredIssuer())) Auth.clear()
 
         prefs(PREFS).clear()
-        securePrefs().apply {
-            CredentialMigration.SERVER_GROUP.keys.forEach { remove(it.name) }
-        }
     }
 
     /**
-     * Cloudflare Access service-token headers, absent when not behind Access.
-     *
-     * `internal` rather than private because the capability probe needs the
-     * same ones: without them an Access-fronted deployment answers the probe
-     * with its own sign-in page, and the app would read that as "this server
-     * has no capability endpoint".
-     *
-     * A `ServerConfig?` receiver rather than a parameter: the probe reaches
-     * this from a context that may have no config at hand, and a nullable
-     * receiver makes "no config" and "just the User-Agent" the same call
-     * rather than forcing a caller to fabricate an empty [ServerConfig] to
-     * get one.
+     * The one header every request identifies itself with. `internal` rather
+     * than private because the capability probe needs it too.
      */
-    internal fun ServerConfig?.accessHeaders(): Map<String, String> {
-        val config = this
-        return buildMap {
-            put("User-Agent", "Detour/${BuildDefaults.versionName}")
-            if (config?.clientId?.isNotBlank() == true) {
-                put("CF-Access-Client-Id", config.clientId)
-                put("CF-Access-Client-Secret", config.clientSecret)
-            }
-        }
-    }
+    internal fun userAgentHeaders(): Map<String, String> =
+        mapOf("User-Agent" to "Detour/${BuildDefaults.versionName}")
 }

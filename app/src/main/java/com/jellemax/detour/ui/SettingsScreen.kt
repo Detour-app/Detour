@@ -691,8 +691,7 @@ private fun SyncSection() {
         Text(
             "Trips, explored area and badges are merged with your server after " +
                 "every trip and on app start, so a reinstall restores everything. " +
-                "Uses the Server URL and Cloudflare Access credentials under " +
-                "Server settings.",
+                "Uses the Server URL under Server settings.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -734,7 +733,7 @@ private fun SyncSection() {
  * Server settings to and from a file the user keeps outside the app.
  * Preferences die with an uninstall and the baked-in defaults only exist in
  * APKs built from a local.properties; this is what makes a reinstall a two-tap
- * restore instead of retyping a URL and two Cloudflare secrets.
+ * restore instead of retyping a URL.
  */
 @Composable
 private fun ConfigFileSection() {
@@ -766,9 +765,8 @@ private fun ConfigFileSection() {
 
     SettingsSection("Server config file") {
         Text(
-            "Save the server URL, its Cloudflare credentials and your " +
-                "sign-in to a file. After a reinstall, import it instead of " +
-                "typing everything again.",
+            "Save the server URL and your sign-in to a file. After a " +
+                "reinstall, import it instead of typing everything again.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -1176,8 +1174,6 @@ private fun ServerSection() {
     var routingUrl by remember { mutableStateOf(custom?.routingUrl ?: "") }
     var geocoderUrl by remember { mutableStateOf(custom?.geocoderUrl ?: "") }
     var idpIssuer by remember { mutableStateOf(custom?.idpIssuer ?: "") }
-    var clientId by remember { mutableStateOf(custom?.clientId ?: "") }
-    var clientSecret by remember { mutableStateOf(custom?.clientSecret ?: "") }
     // Only the general address is shown by default: a rider on a one-hostname
     // deployment never needs the rest, and four more URL boxes read as four more
     // things that must be filled in. Opens already expanded when any of them is
@@ -1266,16 +1262,6 @@ private fun ServerSection() {
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        CredentialTextField(
-            value = clientId, onValueChange = { clientId = it; saved = false },
-            label = "CF Access Client Id (optional)",
-            modifier = Modifier.fillMaxWidth(),
-        )
-        SecretTextField(
-            value = clientSecret, onValueChange = { clientSecret = it; saved = false },
-            label = "CF Access Client Secret (optional)",
-            modifier = Modifier.fillMaxWidth(),
-        )
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1313,8 +1299,6 @@ private fun ServerSection() {
                             routingUrl = routingUrl,
                             geocoderUrl = geocoderUrl,
                             idpIssuer = idpIssuer,
-                            clientId = clientId,
-                            clientSecret = clientSecret,
                             enabled = true,
                         ),
                     )
@@ -1325,7 +1309,7 @@ private fun ServerSection() {
                 TextButton(onClick = {
                     RoutingServer.clearCustom()
                     url = ""; apiUrl = ""; routingUrl = ""; geocoderUrl = ""
-                    idpIssuer = ""; clientId = ""; clientSecret = ""
+                    idpIssuer = ""
                     saved = true
                 }) { Text("Remove custom server") }
             }

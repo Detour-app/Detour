@@ -25,12 +25,11 @@ import java.util.concurrent.TimeUnit
  * to guarantee it is safe to [connect] again after a previous attempt ended,
  * which [RelaySocket]'s own doc already requires.
  *
- * [connect] resolves the live-relay URL and Cloudflare Access headers fresh
- * on every call rather than once at construction - the same "read Settings
- * per attempt, not per client" shape the old `ConvoyLiveClient.kt`'s
- * `connectAndAwaitClose` used, so a routing-server change picked up
- * mid-session takes effect on the very next reconnect instead of needing an
- * app restart.
+ * [connect] resolves the live-relay URL fresh on every call rather than once
+ * at construction - the same "read Settings per attempt, not per client"
+ * shape the old `ConvoyLiveClient.kt`'s `connectAndAwaitClose` used, so a
+ * routing-server change picked up mid-session takes effect on the very next
+ * reconnect instead of needing an app restart.
  */
 class OkHttpRelaySocket : RelaySocket {
 
@@ -109,14 +108,8 @@ class OkHttpRelaySocket : RelaySocket {
 
         // The same access token every API request carries — one credential
         // for the rider, wherever it is presented.
-        val cf = RoutingServer.load()
         val requestBuilder = Request.Builder().url(url)
             .addHeader("Authorization", "Bearer $bearer")
-        if (cf.clientId.isNotBlank()) {
-            requestBuilder
-                .addHeader("CF-Access-Client-Id", cf.clientId)
-                .addHeader("CF-Access-Client-Secret", cf.clientSecret)
-        }
 
         val s = Session()
         session = s

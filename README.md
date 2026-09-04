@@ -407,9 +407,9 @@ and fog from the server.
   the now-playing part.
 
 **Servers & sync**
-- *Routing server* — your GraphHopper URL, with optional Cloudflare Access
-  client ID/secret. Without one, in-app navigation is unavailable and spin
-  candidates show straight-line distance instead of a routed distance and ETA.
+- *Routing server* — your GraphHopper URL. Without one, in-app navigation is
+  unavailable and spin candidates show straight-line distance instead of a
+  routed distance and ETA.
 - *Search server* — your own Photon instance, plus *Fall back to public search*
   (on by default) which uses `photon.komoot.io` when yours is unreachable.
 - *Sync server* — trips, traces, saved places and friends. *Sync now* forces a

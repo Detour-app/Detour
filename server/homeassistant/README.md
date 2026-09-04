@@ -27,14 +27,7 @@ In `config/secrets.yaml`:
 detour_stats_url: https://your-server.example/api/dashboard/stats
 detour_rides_url: https://your-server.example/api/dashboard/rides
 detour_key: <the key from step 1>
-# Only if the server sits behind Cloudflare Access — the same service token
-# the app uses for the routing server works here:
-detour_cf_id: <service token client id>
-detour_cf_secret: <service token client secret>
 ```
-
-If your server is *not* behind Cloudflare Access, delete the two
-`CF-Access-*` header lines from each `rest:` block in `detour.yaml`.
 
 ## 3. Install the package
 
@@ -136,8 +129,7 @@ dashboard does not depend on this one.
 
 ## 6. Optional: skip the tunnel on your LAN
 
-Point the secrets at wherever the service listens on your network and drop the
-two `CF-Access-*` header lines from both `rest:` blocks in `detour.yaml`:
+Point the secrets at wherever the service listens on your network:
 
 ```yaml
 detour_stats_url: http://192.168.0.8:7500/api/dashboard/stats

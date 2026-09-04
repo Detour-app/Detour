@@ -39,7 +39,7 @@ Those live next to what they describe:
 | [../docker/dev/README.md](../docker/dev/README.md) | The local stack: ports, the realm, dev credentials |
 | [../docker/dev/config/keycloak/REALM.md](../docker/dev/config/keycloak/REALM.md) | Why the realm is configured the way it is |
 | [../docker/prod/README.md](../docker/prod/README.md) | The production stack, and the realm you must create yourself |
-| [../docker/prod/CLOUDFLARE.md](../docker/prod/CLOUDFLARE.md) | Exposing it through a tunnel — and the one hostname that must never sit behind Access |
+| [../docker/prod/CLOUDFLARE.md](../docker/prod/CLOUDFLARE.md) | Exposing it through a tunnel — and why nothing may sit behind Access |
 | [../bruno/README.md](../bruno/README.md) | Poking at every endpoint by hand |
 | [../server/homeassistant/README.md](../server/homeassistant/README.md) | Rides, totals and badges as Home Assistant entities |
 

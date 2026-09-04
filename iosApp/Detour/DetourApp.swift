@@ -12,8 +12,6 @@ struct DetourApp: App {
         // instance, so a build with no secrets behaves like CI's does.
         BuildDefaults.shared.configure(
             routingUrl: info("DetourRoutingURL"),
-            routingCfId: info("DetourRoutingCFId"),
-            routingCfSecret: info("DetourRoutingCFSecret"),
             apiUrl: info("DetourApiURL"),
             idpIssuer: info("DetourIdpIssuer"),
             geocoderUrl: info("DetourGeocoderURL"),

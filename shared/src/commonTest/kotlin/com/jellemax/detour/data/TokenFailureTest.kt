@@ -52,10 +52,9 @@ class TokenFailureTest {
     }
 
     /**
-     * The Cloudflare Access case. The app sends its service token to the API,
-     * the router and the geocoder but not to the realm, so a realm behind
-     * Access answers the token call with an interstitial page while the
-     * browser leg sails through on its own Access cookie.
+     * The access-gateway case. A realm a self-hoster has put behind something
+     * like Cloudflare Access answers the token call with an HTML interstitial
+     * page while the browser leg sails through on its own gateway cookie.
      */
     @Test
     fun anHtmlBodyIsClassifiedAndNotQuoted() {

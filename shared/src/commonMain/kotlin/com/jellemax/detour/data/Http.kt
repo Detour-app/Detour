@@ -21,8 +21,7 @@ import okio.buffer
  * The one HTTP client the shared core uses, replacing HttpURLConnection.
  *
  * Ktor picks its engine off the classpath: OkHttp on Android, NSURLSession on
- * iOS. Both honour the system proxy and the platform trust store, so the
- * Cloudflare Access headers keep working unchanged on either side.
+ * iOS. Both honour the system proxy and the platform trust store.
  *
  * Everything here is suspending. HttpURLConnection was blocking and every
  * caller already wrapped it in a background dispatcher; those wrappers become

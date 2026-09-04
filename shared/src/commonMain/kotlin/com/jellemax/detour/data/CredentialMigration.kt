@@ -66,14 +66,10 @@ internal object CredentialMigration {
         ),
     )
 
-    /** The Cloudflare Access service token, from the `routing_server` bag. */
-    val SERVER_GROUP = SecretGroup(
-        name = "server",
-        keys = listOf(
-            SecretKey("clientId", SecretType.Text),
-            SecretKey("clientSecret", SecretType.Text),
-        ),
-    )
+    /** The two keys the retired Cloudflare Access service token used to live under,
+     *  in both the plaintext `routing_server` bag and the secure store — see
+     *  [purgeRetiredServerToken]. */
+    private val RETIRED_SERVER_KEYS = listOf("clientId", "clientSecret")
 
     enum class Outcome { Copied, Verified, NothingToDo }
 
@@ -117,7 +113,23 @@ internal object CredentialMigration {
         if (migrated) return@withLock
         migrated = true
         migrateGroup(prefs("settings"), SESSION_GROUP)
-        migrateGroup(prefs(RoutingServer.PREFS), SERVER_GROUP)
+        purgeRetiredServerToken(prefs(RoutingServer.PREFS), securePrefs())
+    }
+
+    /**
+     * Wipes any Cloudflare Access service token an earlier build left behind, in
+     * either [plain] (the `routing_server` bag) or [secure], whichever phase of
+     * [step]'s copy-then-delete dance an install had reached. Unlike
+     * [migrateGroup]/[step], this is a plain unconditional delete — there is
+     * nothing to copy or verify once the value is retired, only somewhere old
+     * to remove it from. `internal`, not private, for the same reason
+     * [groupHasPlaintext] is: a `Prefs` fake can drive it from commonTest.
+     */
+    internal fun purgeRetiredServerToken(plain: Prefs, secure: Prefs) {
+        for (key in RETIRED_SERVER_KEYS) {
+            plain.remove(key)
+            secure.remove(key)
+        }
     }
 
     /**
@@ -178,8 +190,7 @@ internal object CredentialMigration {
                 // Copy only into an empty slot: if the marker write itself failed to
                 // seal on an earlier run, this phase runs again, and a slot that
                 // already holds a value is one the user set *after* that earlier run
-                // (a new sign-in, a saved Cloudflare token) — the stale plaintext
-                // must not clobber it.
+                // (a new sign-in) — the stale plaintext must not clobber it.
                 when (k.type) {
                     SecretType.Text -> {
                         val v = plain.string(k.name, "")

@@ -15,8 +15,7 @@ data class GeocodeResult(val name: String, val location: LatLon)
  *
  * The endpoint is resolved per request: the user's self-hosted Photon (Settings) if
  * set, else the one baked into the app, else the public komoot instance as a
- * fallback. A self-hosted instance sits behind the same Cloudflare Access service
- * token as the routing server, so those credentials are reused here.
+ * fallback.
  */
 object Geocoder {
 
@@ -42,13 +41,11 @@ object Geocoder {
         } else {
             listOf(primary, PUBLIC)
         }
-        // A self-hosted Photon is protected by the routing server's CF Access token.
-        val access = RoutingServer.load()
 
         var lastError: IOException? = null
         for (base in endpoints) {
             try {
-                return fetch(base, query, near, limit, access.takeIf { base != PUBLIC })
+                return fetch(base, query, near, limit)
             } catch (e: IOException) {
                 lastError = e
             }
@@ -61,19 +58,12 @@ object Geocoder {
         query: String,
         near: LatLon?,
         limit: Int,
-        access: ServerConfig?,
     ): List<GeocodeResult> {
         // lat/lon biases ranking toward the user without hard-restricting the area.
         val bias = near?.let { "&lat=${it.lat}&lon=${it.lon}" } ?: ""
         val url = "$base/api/?q=" + query.encodeURLParameter() + "&limit=$limit" + bias
 
-        val headers = buildMap {
-            put("User-Agent", "Detour/${BuildDefaults.versionName}")
-            if (access != null && access.clientId.isNotBlank()) {
-                put("CF-Access-Client-Id", access.clientId)
-                put("CF-Access-Client-Secret", access.clientSecret)
-            }
-        }
+        val headers = mapOf("User-Agent" to "Detour/${BuildDefaults.versionName}")
         val body = try {
             Http.get(url, headers, readTimeoutMs = 10_000)
         } catch (e: HttpStatusException) {

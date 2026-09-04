@@ -1,6 +1,5 @@
 package com.jellemax.detour.data
 
-import com.jellemax.detour.data.RoutingServer.accessHeaders
 import com.jellemax.detour.data.RoutingServer.routingBase
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonArray
@@ -49,9 +48,9 @@ data class NavInstruction(
 )
 
 /**
- * Client for a self-hosted GraphHopper instance,
- * optionally behind Cloudflare Access. Configured by the user in the app; the
- * URL and token live only in app-private preferences, never in the repo/APK.
+ * Client for a self-hosted GraphHopper instance. Configured by the user in
+ * the app; the URL lives only in app-private preferences, never in the
+ * repo/APK.
  */
 object RoutingClient {
 
@@ -91,7 +90,6 @@ object RoutingClient {
     ): RouteResult {
         if (!avoidSmallRoads) {
             return fetchRoute(
-                config,
                 routingBase(config) +
                     "/route?profile=moto" +
                     "&point=${start.lat},${start.lon}" +
@@ -123,7 +121,7 @@ object RoutingClient {
             }
             headingDeg?.let { h -> putJsonArray("heading") { add(h.toInt()) } }
         }
-        return fetchRoute(config, routingBase(config) + "/route", body.string())
+        return fetchRoute(routingBase(config) + "/route", body.string())
     }
 
     /**
@@ -211,7 +209,7 @@ object RoutingClient {
                 for (p in points) append("&point=${p.lat},${p.lon}")
                 append("&points_encoded=false&details=max_speed")
             }
-            return fetchRoute(config, query)
+            return fetchRoute(query)
         }
         val body = buildJsonObject {
             put("profile", profile)
@@ -223,11 +221,10 @@ object RoutingClient {
             put("ch.disable", true)
             putJsonObject("custom_model") { put("priority", rules) }
         }
-        return fetchRoute(config, routingBase(config) + "/route", body.string())
+        return fetchRoute(routingBase(config) + "/route", body.string())
     }
 
     private suspend fun fetchRoute(
-        config: ServerConfig,
         url: String,
         postBody: String? = null,
     ): RouteResult {
@@ -236,7 +233,7 @@ object RoutingClient {
                 method = if (postBody != null) "POST" else "GET",
                 url = url,
                 body = postBody,
-                headers = config.accessHeaders(),
+                headers = RoutingServer.userAgentHeaders(),
                 readTimeoutMs = 20_000,
             )
         } catch (e: HttpStatusException) {
@@ -337,7 +334,7 @@ object RoutingClient {
             "&point=${to.lat},${to.lon}" +
             "&points_encoded=false"
         val body = try {
-            Http.get(url, config.accessHeaders(), readTimeoutMs = 15_000)
+            Http.get(url, RoutingServer.userAgentHeaders(), readTimeoutMs = 15_000)
         } catch (e: HttpStatusException) {
             return null // unroutable target: caller retries
         }

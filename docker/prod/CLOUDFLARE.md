@@ -8,26 +8,28 @@ Read [`README.md`](README.md) first — this only covers the tunnel.
 
 ## The one thing to get right
 
-**Put the API behind Access if you want. Never put Keycloak behind it.**
+**Do not put Access in front of anything the app talks to — neither the API
+nor Keycloak.**
 
-The clients send `CF-Access-Client-Id` / `CF-Access-Client-Secret` on the REST
-calls and on the live socket, so a service token in front of the API works:
+The client no longer holds a Cloudflare Access service token: every route it
+calls — the REST API, the live socket, and the Keycloak token exchange — goes
+out with no `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers. Access
+in front of any of them means every request from the app gets Access's HTML
+sign-in page instead of a response, which reads as "server unreachable" with
+nothing useful logged.
 
-| Client | Sends Access headers |
-| --- | --- |
-| `Api.kt` — every REST call | yes |
-| `ConvoyLiveClient` — the live socket, both platforms | yes |
-| `Auth.kt` — the Keycloak token exchange | **no** |
+Sign-in makes this doubly true for Keycloak specifically: the browser leg of
+the authorization-code flow could pass an Access challenge, because a human is
+there to answer it, but the next step cannot. The app posts the code to
+`/protocol/openid-connect/token` from its own HTTP client, with no Access
+cookie, and the refresh that follows every fifteen minutes would fail the same
+way. `idp.` has to be a public hostname; Keycloak is the thing guarding it,
+that is its whole job.
 
-Sign-in is an authorization-code flow. The browser part could pass an Access
-challenge, because a human is there to answer it. The next step cannot: the app
-posts the code to `/protocol/openid-connect/token` from its own HTTP client, with
-no Access cookie and no service-token header, and Cloudflare answers 403. The
-refresh that follows every fifteen minutes fails the same way.
-
-The symptom is nasty — sign-in appears to work, the browser closes, and the app
-lands back on "not signed in" with nothing useful logged. So: `idp.` is a public
-hostname. Keycloak is the thing guarding it; that is its whole job.
+If you want an edge control in front of the API's anonymous surfaces
+(`/api/health`, `/api/capabilities`) or the routing/geocoding engines, use a
+Cloudflare rate-limit or WAF rule instead — no shared secret, and it does not
+break the app.
 
 ## Two hostnames
 
@@ -36,7 +38,7 @@ its own rather than a path under the API's.
 
 | Hostname | Origin | Access |
 | --- | --- | --- |
-| `api.example.com` | `http://api:7500` | optional service token |
+| `api.example.com` | `http://api:7500` | **none** |
 | `idp.example.com` | `http://keycloak:8080` | **none** |
 
 Both must be `https`. The realm bakes its issuer into every token, and changing
@@ -117,10 +119,6 @@ Two things to know anyway:
   seconds. The client pings every 20 s and the server's `KeepAliveInterval` is
   also 20 s, so a live socket stays open — but do not raise either past 100 s
   thinking it saves battery.
-- **Access on the socket.** If the API is behind a service token, the live socket
-  needs it too. Both clients send it on the upgrade request, so this works, but
-  the token has to be the same one the REST calls use — the app stores exactly one
-  pair.
 
 ## Client configuration
 
@@ -133,31 +131,19 @@ idp.issuer=https://idp.example.com/realms/detour
 live.url=wss://api.example.com/api/live
 ```
 
-The service token, if you used one, goes in the CF Access fields on that same
-settings screen. There is one pair for the whole app.
-
 ## Checking it
 
 ```bash
-# Public, no token — Keycloak must answer, or sign-in cannot work.
+# Both public, no token — either answering anything but 200, an Access login
+# page especially, means that hostname is behind a policy it must not be behind.
 curl -s -o /dev/null -w '%{http_code}\n' \
   https://idp.example.com/realms/detour/.well-known/openid-configuration
-
-# Behind a service token: 200 with it, 403 without.
 curl -s -o /dev/null -w '%{http_code}\n' https://api.example.com/api/health
-curl -s -o /dev/null -w '%{http_code}\n' \
-  -H "CF-Access-Client-Id: $CF_ID" -H "CF-Access-Client-Secret: $CF_SECRET" \
-  https://api.example.com/api/health
 ```
-
-The first returning anything but `200` — an Access login page especially — means
-the IdP hostname is behind a policy it must not be behind.
 
 For the socket, `401` without a bearer token is the right answer: it proves the
 upgrade reached the API rather than being refused by the edge.
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' \
-  -H "CF-Access-Client-Id: $CF_ID" -H "CF-Access-Client-Secret: $CF_SECRET" \
-  https://api.example.com/api/live
+curl -s -o /dev/null -w '%{http_code}\n' https://api.example.com/api/live
 ```

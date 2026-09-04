@@ -5,8 +5,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Covers [CredentialMigration] — moving six credential values out of plaintext
- * preferences without a window in which they exist in neither store.
+ * Covers [CredentialMigration] — moving the session's credential values out of
+ * plaintext preferences without a window in which they exist in neither store.
  *
  * The shape under test is deliberate: the plaintext is kept until a marker written
  * on an earlier run reads back, because that is the only evidence that this device
@@ -48,11 +48,6 @@ class CredentialMigrationTest {
         put("access_token_expires_at", 1234L)
         put("auth_username", "andre")
         put("auth_rider_id", "3fa85f64-5717-4562-b3fc-2c963f66afa6")
-    }
-
-    private fun plainWithServer() = FakePrefs().apply {
-        put("clientId", "cid")
-        put("clientSecret", "csecret")
     }
 
     @Test
@@ -171,10 +166,9 @@ class CredentialMigrationTest {
 
     // The defect this guards against: phase 1 copied plaintext into secure
     // unconditionally. If the marker write itself failed to seal on an earlier
-    // run, a later run repeats phase 1 — and if the user had signed in again (or
-    // saved a new Cloudflare token) in the meantime, the stale plaintext would
-    // clobber the newer secure value. The fix only copies into a slot that is
-    // still empty.
+    // run, a later run repeats phase 1 — and if the user had signed in again in
+    // the meantime, the stale plaintext would clobber the newer secure value.
+    // The fix only copies into a slot that is still empty.
     @Test
     fun phaseOneDoesNotOverwriteASecureValueThatIsNewerThanTheStalePlaintext() {
         val plain = FakePrefs().apply { put("access_token", "stale-token") }
@@ -242,50 +236,35 @@ class CredentialMigrationTest {
     }
 
     @Test
-    fun theServerKeysAreTheTwoCloudflareFields() {
-        assertEquals(
-            listOf("clientId", "clientSecret"),
-            CredentialMigration.SERVER_GROUP.keys.map { it.name },
-        )
-    }
-
-    @Test
     fun theExpiryIsTheOnlyNumericSecret() {
-        val numeric = (CredentialMigration.SESSION_GROUP.keys + CredentialMigration.SERVER_GROUP.keys)
-            .filter { it.type == SecretType.Number }
+        val numeric = CredentialMigration.SESSION_GROUP.keys.filter { it.type == SecretType.Number }
         assertEquals(listOf("access_token_expires_at"), numeric.map { it.name })
     }
 
-    // The defect this guards against: both groups migrate into the same secure store, so
-    // a single shared marker would let the session group's first run arm it, and the
-    // server group's very next call would read that marker back as its own and delete
-    // plaintext it had never copied. Per-group markers ([SecretGroup.marker]) are what
-    // keeps one group's run from arming the other.
+    // The retired Cloudflare Access token: no marker, no copy phase, just gone
+    // from wherever an earlier build left it.
     @Test
-    fun oneGroupsMigrationDoesNotArmAnothers() {
-        val sessionPlain = plainWithSession()
-        val serverPlain = plainWithServer()
-        val secure = FakePrefs() // one shared secure store, exactly as the real code uses
+    fun purgeRetiredServerTokenWipesBothStores() {
+        val plain = FakePrefs().apply { put("clientId", "cid"); put("clientSecret", "csecret") }
+        val secure = FakePrefs().apply { put("clientId", "cid"); put("clientSecret", "csecret") }
 
-        CredentialMigration.step(sessionPlain, secure, CredentialMigration.SESSION_GROUP)
-        CredentialMigration.step(serverPlain, secure, CredentialMigration.SERVER_GROUP)
+        CredentialMigration.purgeRetiredServerToken(plain, secure)
 
-        // First pass: the server keys must have been copied, not deleted sight unseen.
-        assertEquals("cid", serverPlain.string("clientId", ""))
-        assertEquals("csecret", serverPlain.string("clientSecret", ""))
-        assertEquals("cid", secure.string("clientId", ""))
-        assertEquals("csecret", secure.string("clientSecret", ""))
+        assertEquals("", plain.string("clientId", ""))
+        assertEquals("", plain.string("clientSecret", ""))
+        assertEquals("", secure.string("clientId", ""))
+        assertEquals("", secure.string("clientSecret", ""))
+    }
 
-        CredentialMigration.step(sessionPlain, secure, CredentialMigration.SESSION_GROUP)
-        CredentialMigration.step(serverPlain, secure, CredentialMigration.SERVER_GROUP)
+    @Test
+    fun purgeRetiredServerTokenIsANoOpWhenThereIsNothingToWipe() {
+        val plain = FakePrefs()
+        val secure = FakePrefs()
 
-        // Second pass: now both markers have genuinely read back, so both plaintexts go.
-        assertEquals("", sessionPlain.string("access_token", ""))
-        assertEquals("", serverPlain.string("clientId", ""))
-        assertEquals("", serverPlain.string("clientSecret", ""))
-        assertEquals("at", secure.string("access_token", ""))
-        assertEquals("cid", secure.string("clientId", ""))
-        assertEquals("csecret", secure.string("clientSecret", ""))
+        CredentialMigration.purgeRetiredServerToken(plain, secure)
+
+        assertTrue(plain.map.isEmpty())
+        assertTrue(secure.map.isEmpty())
     }
 
     // The two markers that are already written to real devices' secure stores. A
@@ -295,9 +274,8 @@ class CredentialMigrationTest {
     // "__migration_" + name so that deriving the marker differently one day fails
     // here instead of on somebody's phone.
     @Test
-    fun theTwoShippedMarkersKeepTheirExactStrings() {
+    fun theShippedMarkerKeepsItsExactString() {
         assertEquals("__migration_session", CredentialMigration.SESSION_GROUP.marker)
-        assertEquals("__migration_server", CredentialMigration.SERVER_GROUP.marker)
     }
 
     // The copy-paste defect, which the two real groups can no longer express: a third
