@@ -29,7 +29,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,6 +59,7 @@ import kotlinx.coroutines.launch
 fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
     val username by Account.username.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    var signingOut by remember { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -107,7 +111,11 @@ fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
             }
 
             OutlinedButton(
-                onClick = { scope.launch { runCatching { Account.signOut() }; onSignedOut() } },
+                enabled = !signingOut,
+                onClick = {
+                    signingOut = true
+                    scope.launch { runCatching { Account.signOut() }; onSignedOut() }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(44.dp),
