@@ -205,6 +205,13 @@ object FriendsStore {
     suspend fun respond(riderId: RiderId, accept: Boolean): Boolean =
         act { Friends.respond(riderId, accept) } != null
 
+    /** Clears a decline this account made against [riderId], so they can request again.
+     *  Goes through the same unconditional delete as unfriending — a declined pair has
+     *  no other state to clean up. */
+    @Throws(Exception::class)
+    suspend fun undoDecline(riderId: RiderId): Boolean =
+        act { Friends.remove(riderId) } != null
+
     /**
      * Runs a mutation, then reloads. Never throws for an ordinary failure:
      * the per-platform helpers this replaces never rethrew to their callers

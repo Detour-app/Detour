@@ -321,6 +321,21 @@ private fun FriendsSection(username: String, onAddFriend: () -> Unit) {
         )
     }
 
+    // Only ever populated for the rider who declined — see FriendLists.declined's doc.
+    // A repeat request from the other side is refused silently, so this is the only
+    // place either of them sees this pair again until it's undone.
+    if (loaded.declined.isNotEmpty()) {
+        Text("Declined", style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        for (rider in loaded.declined) {
+            DeclinedRow(
+                name = rider.username,
+                busy = state.busy || signingOut,
+                onUndo = { scope.launch { FriendsStore.undoDecline(rider.id) } },
+            )
+        }
+    }
+
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -382,6 +397,22 @@ private fun RequestRow(name: String, busy: Boolean, onAccept: () -> Unit, onDecl
                     modifier = Modifier.size(30.dp),
                 ) { Icon(Icons.Outlined.Close, contentDescription = "Decline $name", Modifier.size(16.dp)) }
             }
+        }
+    }
+}
+
+@Composable
+private fun DeclinedRow(name: String, busy: Boolean, onUndo: () -> Unit) {
+    Card {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, top = 4.dp, bottom = 4.dp, end = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(name, style = MaterialTheme.typography.bodyLarge)
+            TextButton(enabled = !busy, onClick = onUndo) { Text("Undo") }
         }
     }
 }

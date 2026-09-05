@@ -165,14 +165,26 @@ places.
 
 - **Request** by handle. Requesting someone who already requested you accepts
   them. Requesting an existing friend is a no-op. Self-friending is refused.
+  Requesting someone who has declined you is refused with the same error as an
+  unknown handle — the retry cannot tell "declined" apart from "no such
+  rider." Requesting someone *you* previously declined settles the friendship
+  immediately, the same as any other mutual request.
 - **Respond** accepts or declines a *pending incoming* request. The requester
-  cannot accept their own.
+  cannot accept — or decline — their own. A decline is durable: the pair stays
+  on record as declined rather than being deleted, so the requester's repeat
+  attempts keep being refused instead of quietly creating a new pending
+  request each time.
 - **Remove** ends the friendship and, in the same operation, deletes every route
-  shared between the two people **in either direction**.
+  shared between the two people **in either direction**. This is also how a
+  decline is undone — only the rider who declined can call it on that pair,
+  after which the other rider can request again normally.
 - **List** returns one set of riders, each carrying their account id, their handle and
-  which relation it is — accepted friend, incoming request or outgoing request. The id is
-  the identity; the handle is a label and a search key, never something a client compares
-  to decide whose data it is looking at.
+  which relation it is — accepted friend, incoming request, outgoing request, or a
+  request the caller declined. The declined relation is asymmetric: it appears only for
+  the rider who declined, never for the rider who was declined, which is what keeps a
+  decline invisible to the person it happened to. The id is the identity; the handle is
+  a label and a search key, never something a client compares to decide whose data it
+  is looking at.
 - **Friend stats** returns, for accepted friends only, their handle, aggregate
   stats and badge map, sorted by total distance descending. This is the only
   capability that returns another rider's data at all, and it reads nothing but

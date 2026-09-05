@@ -48,11 +48,18 @@ public class FriendshipService(
             if (!names.TryGetValue(otherId, out var name))
                 continue;
 
+            if (friendship.IsDeclined && friendship.DeclinedByUserId != userId)
+                // Invisible to the requester: a repeat request must not be able to tell
+                // "declined" apart from "never asked" by checking this list either.
+                continue;
+
             var relation = friendship.IsAccepted
                 ? FriendRelation.Friend
-                : friendship.RequestedByUserId == userId
-                    ? FriendRelation.Outgoing
-                    : FriendRelation.Incoming;
+                : friendship.IsDeclined
+                    ? FriendRelation.Declined
+                    : friendship.RequestedByUserId == userId
+                        ? FriendRelation.Outgoing
+                        : FriendRelation.Incoming;
 
             entries.Add(new FriendEntry(new RiderRef(otherId, name), relation.Wire()));
         }
@@ -77,6 +84,13 @@ public class FriendshipService(
         {
             if (existing.IsAccepted)
                 return Result.Ok(FriendshipStatus.Accepted);
+
+            // The same rider who was declined is trying again. Refused with the exact error
+            // an unknown username gets — not "no pending request" or anything else that would
+            // let a retry tell "declined" apart from "no such rider." Only the decliner
+            // undoing it (DELETE /friends/{id}) opens this back up.
+            if (existing.IsDeclined && existing.RequestedByUserId == caller.Id)
+                return Result.Error(ValidationKeys.User.NotFoundByUsername, username);
 
             // They asked first; asking back is the same as accepting. Anything else would leave
             // two people who have each asked the other still not friends.
@@ -104,13 +118,13 @@ public class FriendshipService(
         CancellationToken cancellationToken)
     {
         var friendship = await friendships.GetForPairAsync(caller.Id, targetId, cancellationToken);
-        if (friendship is null || friendship.IsAccepted)
+        if (friendship is null || friendship.IsAccepted || friendship.IsDeclined)
             return Result.Error(ValidationKeys.Friendship.NoPendingRequest);
 
         if (!accept)
         {
-            friendships.Delete(friendship);
-            return Result.Ok(RespondOutcome.Declined);
+            var decline = friendship.Decline(caller.Id);
+            return decline.IsFailure ? decline : Result.Ok(RespondOutcome.Declined);
         }
 
         var result = friendship.Accept(caller.Id);

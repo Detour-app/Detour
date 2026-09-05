@@ -95,6 +95,9 @@ public static class ValidationKeys
         public static readonly ValidationKeyDefinition CannotAcceptOwnRequest =
             ValidationKeyDefinition.Create($"{Base}.CannotAcceptOwnRequest");
 
+        public static readonly ValidationKeyDefinition CannotDeclineOwnRequest =
+            ValidationKeyDefinition.Create($"{Base}.CannotDeclineOwnRequest");
+
         public static readonly ValidationKeyDefinition NotFriends =
             ValidationKeyDefinition.Create($"{Base}.NotFriends");
     }

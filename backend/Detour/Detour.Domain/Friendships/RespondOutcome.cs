@@ -3,12 +3,9 @@ using Ardalis.SmartEnum;
 namespace Detour.Domain.Friendships;
 
 /// <summary>
-/// What answering a pending request did.
-///
-/// Deliberately not a <see cref="FriendshipStatus"/> member: declining deletes the row, so
-/// "declined" is the absence of a friendship rather than a state of one, and widening that
-/// enum would make it queryable when no row exists. This type reports what just happened to
-/// the caller and persists nothing. #139 covers making a decline durable.
+/// What answering a pending request did, as reported back to the caller who just answered
+/// it. Separate from <see cref="FriendshipStatus"/> — that type is the row's durable state,
+/// including <c>Declined</c>; this one is a one-off response shape and persists nothing.
 /// </summary>
 public sealed class RespondOutcome : SmartEnum<RespondOutcome>
 {
