@@ -90,9 +90,10 @@ fun navStateFrom(
     ambientSpeedLimitKmh: Double?,
     nowMs: Long,
     offRouteThresholdMeters: Double = 60.0,
+    sep: Char = '.',
 ): NavState = navStateFrom(
     progress, navigating, rerouting, ambientSpeedLimitKmh, nowMs,
-    offRouteThresholdMeters, TimeZone.currentSystemDefault(),
+    offRouteThresholdMeters, sep, TimeZone.currentSystemDefault(),
 )
 
 /**
@@ -111,22 +112,23 @@ internal fun navStateFrom(
     ambientSpeedLimitKmh: Double?,
     nowMs: Long,
     offRouteThresholdMeters: Double = 60.0,
+    sep: Char = '.',
     zone: TimeZone,
 ): NavState {
     val offRoute = (progress?.offRouteMeters ?: 0.0) > offRouteThresholdMeters
     val headlineText = when {
         rerouting -> "Rerouting…"
         progress == null -> "Waiting for GPS…"
-        else -> formatDistanceKm(progress.distanceToTurnMeters)
+        else -> formatDistanceKm(progress.distanceToTurnMeters, sep)
     }
     val thenPill = progress?.nextNextInstruction?.let { nextNext ->
         progress.distanceToNextNextMeters?.let { distance ->
-            NavThenPill(sign = nextNext.sign, distanceText = formatDistanceKm(distance))
+            NavThenPill(sign = nextNext.sign, distanceText = formatDistanceKm(distance, sep))
         }
     }
     val remainingText = progress?.let {
         val minutes = formatFixed((it.remainingTimeMs ?: 0L) / 60_000.0, 0)
-        "${formatDistanceKm(it.remainingMeters)} · $minutes min left"
+        "${formatDistanceKm(it.remainingMeters, sep)} · $minutes min left"
     } ?: "—"
     val arrivalText = when {
         offRoute -> "Off route"

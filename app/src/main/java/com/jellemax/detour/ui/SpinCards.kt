@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.PoiKind
 import com.jellemax.detour.data.RouteResult
+import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.presentation.DIRECTION_NAMES
 import com.jellemax.detour.presentation.spinStateFrom
@@ -176,7 +177,8 @@ internal fun SpinSheet(
             // never format the same radiusKm two different ways. directionDeg
             // and candidates are irrelevant to this readout, so a null/empty
             // roll is enough to reuse the mapper for it.
-            val radiusState = spinStateFrom(mode, radiusKm, null, emptyList())
+            val radiusState =
+                spinStateFrom(mode, radiusKm, null, emptyList(), Settings.decimalSeparatorChar())
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -211,7 +213,10 @@ internal fun SpinSheet(
                         // min-distance reading is always formatted exactly the
                         // same way a radius reading is.
                         if (minRadiusKm <= 0f) "Off"
-                        else spinStateFrom(mode, minRadiusKm, null, emptyList()).radiusText,
+                        else spinStateFrom(
+                            mode, minRadiusKm, null, emptyList(),
+                            Settings.decimalSeparatorChar(),
+                        ).radiusText,
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                     )

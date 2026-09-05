@@ -1,5 +1,6 @@
 package com.jellemax.detour.ui
 
+import com.jellemax.detour.data.Settings
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -33,7 +34,13 @@ fun formatSpeedKmh(mps: Double): String = "%.0f km/h".format(mps * 3.6)
 // the trip HUD while the nav bar, already on commonMain, read "33.3 km" — two
 // decimal separators on one screen. Delegating leaves one implementation, which
 // is also the one that can't drift.
-fun formatDistanceKm(meters: Double): String = sharedFormatDistanceKm(meters)
+//
+// This is the render path, and so the place the separator is resolved: the
+// shared formatter takes it as an argument and never reaches for it. The
+// default argument is what keeps the ~12 call sites unchanged, and lets a test
+// pin the separator without moving the JVM's default Locale.
+fun formatDistanceKm(meters: Double, sep: Char = Settings.decimalSeparatorChar()): String =
+    sharedFormatDistanceKm(meters, sep)
 
 // Built once, reused. A fresh SimpleDateFormat per call re-parses the ICU
 // pattern (~1-2 ms) — cheap alone, but LazyColumn composes many rows per fling
@@ -49,5 +56,7 @@ fun formatTimeOfDay(timeMs: Long): String = timeOfDayFormat.format(Date(timeMs))
 
 fun formatLeanAngle(deg: Double): String = "%.0f°".format(deg)
 
-// Same story as formatDistanceKm above: one locale-independent implementation.
-fun formatGForce(g: Double): String = sharedFormatGForce(g)
+// Same story as formatDistanceKm above: one implementation, separator resolved
+// here and passed in.
+fun formatGForce(g: Double, sep: Char = Settings.decimalSeparatorChar()): String =
+    sharedFormatGForce(g, sep)

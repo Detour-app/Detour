@@ -3,6 +3,7 @@ package com.jellemax.detour.data
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
+import java.text.DecimalFormatSymbols
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import okio.FileSystem
@@ -65,3 +66,8 @@ actual class PlatformLock actual constructor() {
     private val lock = ReentrantLock()
     actual fun <T> withLock(block: () -> T): T = lock.withLock(block)
 }
+
+/** `DecimalFormatSymbols` follows `Locale.getDefault()`, which is what a test
+ *  moves when it wants to see this device look Belgian. */
+actual fun systemDecimalSeparator(): Char =
+    DecimalFormatSymbols.getInstance().decimalSeparator

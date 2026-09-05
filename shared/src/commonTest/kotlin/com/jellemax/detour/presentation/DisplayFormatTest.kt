@@ -31,6 +31,21 @@ class DisplayFormatTest {
         assertEquals("-1 234", groupThousands(-1_234))
     }
 
+    @Test fun theSeparatorIsAnArgumentAndDefaultsToAPeriod() {
+        // Passing nothing is what keeps every other assertion in this file
+        // deterministic; a comma-decimal rider's render path passes ','.
+        assertEquals("1.2", formatFixed(1.2, 1))
+        assertEquals("1,2", formatFixed(1.2, 1, ','))
+        assertEquals("12,4 km", formatDistanceKm(12_400.0, ','))
+        assertEquals("1,3 g", formatGForce(1.3, ','))
+    }
+
+    @Test fun aWholeNumberHasNoSeparatorToVary() {
+        // decimals = 0 is why most formatFixed call sites needed no change.
+        assertEquals("38", formatFixed(37.6, 0, ','))
+        assertEquals("850 m", formatDistanceKm(850.0, ','))
+    }
+
     @Test fun fixedDecimalsRoundHalfAwayFromZero() {
         assertEquals("1.3", formatFixed(1.25, 1))
         assertEquals("1.2", formatFixed(1.24, 1))

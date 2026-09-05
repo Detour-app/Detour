@@ -53,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RouteResult
+import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.map.ModeSwipePolicy
 import com.jellemax.detour.presentation.spinStateFrom
@@ -241,7 +242,8 @@ private fun ModeCell(
     // Candidates aren't rendered here - only the readouts spinStateFrom
     // derives from mode/radius/direction are needed, so an empty roll is
     // enough to reuse the mapper instead of re-deriving these strings by hand.
-    val state = spinStateFrom(mode, radiusKm, directionDeg, emptyList())
+    val state =
+        spinStateFrom(mode, radiusKm, directionDeg, emptyList(), Settings.decimalSeparatorChar())
     Row(
         modifier,
         horizontalArrangement = Arrangement.spacedBy(10.dp),

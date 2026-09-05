@@ -24,7 +24,7 @@ class CoveragePresenter {
     private val _state = MutableStateFlow(CoverageState())
     val state: StateFlow<CoverageState> = _state
 
-    suspend fun refresh() {
+    suspend fun refresh(sep: Char = '.') {
         // Entry already carries `name`, so the store is needed only for the
         // denominator — how many municipalities the app knows a boundary for.
         val knownCount = MunicipalityStore.load().size
@@ -33,7 +33,7 @@ class CoveragePresenter {
                 municipalityId = e.municipalityId,
                 name = e.name,
                 percentLabel = "${formatFixed(e.percent, 0)}%",
-                areaLabel = "${formatFixed(areaKm2(e.totalCells, CELL_METERS), 1)} km²",
+                areaLabel = "${formatFixed(areaKm2(e.totalCells, CELL_METERS), 1, sep)} km²",
                 percent = e.percent,
             )
         }

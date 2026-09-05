@@ -28,8 +28,15 @@ internal fun groupThousands(n: Long): String {
 /**
  * Fixed-point decimal rendering, [decimals] places, half-away-from-zero — the
  * replacement for the "%.1f" family that commonMain cannot use.
+ *
+ * [sep] is the decimal separator, an argument rather than something this reads
+ * off the locale: a rider in Belgium writes "1,2 km", but this has to stay a
+ * pure function of its inputs the way `nowMs` keeps `relativeAge` pure. The
+ * render path resolves it once (`Settings.decimalSeparatorChar`) and passes it
+ * down. Defaulting to '.' means a caller with no decimal to show, and a test
+ * that does not care, both pass nothing.
  */
-internal fun formatFixed(value: Double, decimals: Int): String {
+internal fun formatFixed(value: Double, decimals: Int, sep: Char = '.'): String {
     require(decimals in 0..6) { "decimals out of range: $decimals" }
     var factor = 1L
     repeat(decimals) { factor *= 10 }
@@ -43,7 +50,7 @@ internal fun formatFixed(value: Double, decimals: Int): String {
     val whole = scaled / factor
     if (decimals == 0) return "$sign$whole"
     val frac = (scaled % factor).toString().padStart(decimals, '0')
-    return "$sign$whole.$frac"
+    return "$sign$whole$sep$frac"
 }
 
 /**
@@ -92,7 +99,8 @@ fun relativeAge(tsMs: Long, nowMs: Long): String {
  * The single implementation: `app/.../ui/Format.kt`'s `formatDistanceKm`
  * delegates here rather than keeping its own `"%.1f km".format(...)` copy, which
  * followed `Locale.getDefault()` and so put "20,5 km" on the same screen as the
- * nav bar's "33.3 km" for a comma-decimal rider.
+ * nav bar's "33.3 km" for a comma-decimal rider. That rider now gets "20,5 km"
+ * in both places, because [sep] reaches both from the same resolved value.
  *
  * The branch is decided on the raw value, before rounding: 999.6 m is still
  * "< 1000" and renders "1000 m", not "1.0 km". Long-standing behaviour, pinned
@@ -100,16 +108,16 @@ fun relativeAge(tsMs: Long, nowMs: Long): String {
  *
  * Public (not `internal`) so `:app` can call it across the module boundary.
  */
-fun formatDistanceKm(meters: Double): String =
-    if (meters < 1000) "${formatFixed(meters, 0)} m" else "${formatFixed(meters / 1000, 1)} km"
+fun formatDistanceKm(meters: Double, sep: Char = '.'): String =
+    if (meters < 1000) "${formatFixed(meters, 0)} m" else "${formatFixed(meters / 1000, 1, sep)} km"
 
 /**
  * Peak lateral acceleration as "1.3 g", one decimal. Same story as
  * [formatDistanceKm]: `app/.../ui/Format.kt`'s `formatGForce` delegates here so
  * the g readout and the distance beside it on the trip card can't disagree
- * about which decimal separator to use.
+ * about which decimal separator to use — they are handed the same [sep].
  */
-fun formatGForce(g: Double): String = "${formatFixed(g, 1)} g"
+fun formatGForce(g: Double, sep: Char = '.'): String = "${formatFixed(g, 1, sep)} g"
 
 /**
  * Wall-clock time of day as "HH:mm", 24-hour, zero-padded — commonMain's

@@ -30,6 +30,10 @@ fun placesStateFrom(places: List<SavedPlace>): List<PlaceRow> = places.map { p -
     PlaceRow(
         id = p.id,
         name = p.name,
-        subtitle = "${formatFixed(p.location.lat, 5)}, ${formatFixed(p.location.lon, 5)}",
+        // Coordinates deliberately keep '.' whatever the rider's separator
+        // setting says. This is a comma-separated PAIR: with a comma decimal it
+        // would read "50,12345, 4,56789", which no one can parse and which is
+        // wrong the moment it is copied or shared. Not an inconsistency to fix.
+        subtitle = "${formatFixed(p.location.lat, 5, '.')}, ${formatFixed(p.location.lon, 5, '.')}",
     )
 }

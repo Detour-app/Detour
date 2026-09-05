@@ -96,7 +96,9 @@ fun CoverageMapScreen(onBack: () -> Unit) {
     // blocks on disk internally (Coverage.compute() plus MunicipalityStore.load()
     // for the denominator), so this hop to Dispatchers.IO is what keeps that off
     // the main thread.
-    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { presenter.refresh() } }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { presenter.refresh(Settings.decimalSeparatorChar()) }
+    }
     // presenter itself never changes identity (remember with no keys), but the
     // map click listener below is a native callback registered once and never
     // torn down (see the detour-compose-state-hazards skill, §2/§2b) — reading

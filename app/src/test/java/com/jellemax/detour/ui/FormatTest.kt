@@ -1,5 +1,6 @@
 package com.jellemax.detour.ui
 
+import com.jellemax.detour.data.Settings
 import java.util.Locale
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -7,10 +8,18 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Pins `Format.kt`'s current output. The two decimal-bearing readouts
- * (`formatDistanceKm`, `formatGForce`) now delegate to commonMain, which has
- * no `Locale` at all, so each is checked under both a period-decimal locale
- * (US) and a comma-decimal one (nl-BE) and must read identically in both.
+ * Pins `Format.kt`'s current output.
+ *
+ * The two decimal-bearing readouts (`formatDistanceKm`, `formatGForce`) delegate
+ * to commonMain, which has no `Locale` at all — the separator reaches it as an
+ * argument, resolved here at the render path from `Settings.decimalSeparator`.
+ * So each is checked under both a period-decimal locale (US) and a comma-decimal
+ * one (nl-BE), and must now *differ* between them: a Belgian rider reads
+ * "1,2 km", not "1.2 km".
+ *
+ * Settings.init() is never called here and does not need to be: the SYSTEM
+ * default is the flow's initial value and resolves straight off the JVM locale,
+ * so no Prefs backend is involved.
  */
 class FormatTest {
 
@@ -51,11 +60,37 @@ class FormatTest {
     }
 
     @Test
-    fun distanceAtOrAboveAKilometreStillUsesAPeriodDecimalInNlBe() {
+    fun distanceAtOrAboveAKilometreUsesACommaDecimalInNlBe() {
+        // SYSTEM (the default) resolves off the platform, so this follows the
+        // JVM locale the same way the device locale drives it on a phone.
         Locale.setDefault(Locale("nl", "BE"))
-        assertEquals("1.0 km", formatDistanceKm(1000.0))
-        assertEquals("9.0 km", formatDistanceKm(9000.0))
-        assertEquals("12.4 km", formatDistanceKm(12400.0))
+        assertEquals("1,0 km", formatDistanceKm(1000.0))
+        assertEquals("9,0 km", formatDistanceKm(9000.0))
+        assertEquals("12,4 km", formatDistanceKm(12400.0))
+    }
+
+    @Test
+    fun anExplicitPointOverridesACommaLocale() {
+        Locale.setDefault(Locale("nl", "BE"))
+        val point = Settings.decimalSeparatorChar(Settings.DecimalSeparator.POINT)
+        assertEquals('.', point)
+        assertEquals("12.4 km", formatDistanceKm(12400.0, point))
+        assertEquals("1.3 g", formatGForce(1.3, point))
+    }
+
+    @Test
+    fun anExplicitCommaOverridesAPeriodLocale() {
+        val comma = Settings.decimalSeparatorChar(Settings.DecimalSeparator.COMMA)
+        assertEquals(',', comma)
+        assertEquals("12,4 km", formatDistanceKm(12400.0, comma))
+        assertEquals("1,3 g", formatGForce(1.3, comma))
+    }
+
+    @Test
+    fun systemResolvesFromThePlatformLocale() {
+        assertEquals('.', Settings.decimalSeparatorChar(Settings.DecimalSeparator.SYSTEM))
+        Locale.setDefault(Locale("nl", "BE"))
+        assertEquals(',', Settings.decimalSeparatorChar(Settings.DecimalSeparator.SYSTEM))
     }
 
     // --- formatGForce ----------------------------------------------------
@@ -66,9 +101,9 @@ class FormatTest {
     }
 
     @Test
-    fun gForceStillUsesAPeriodDecimalInNlBe() {
+    fun gForceUsesACommaDecimalInNlBe() {
         Locale.setDefault(Locale("nl", "BE"))
-        assertEquals("1.3 g", formatGForce(1.3))
+        assertEquals("1,3 g", formatGForce(1.3))
     }
 
     // --- formatSpeedKmh ----------------------------------------------------

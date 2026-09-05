@@ -33,6 +33,17 @@ class PlacesStateTest {
         assertEquals("-54.80191, -68.30295", row.subtitle)
     }
 
+    @Test fun theCoordinatePairKeepsAPeriodDecimalWhateverTheSeparatorSetting() {
+        // placesStateFrom takes no separator on purpose. The subtitle is a
+        // COMMA-SEPARATED PAIR, so a comma decimal would render
+        // "50,85137, 5,69097" — ambiguous to read and wrong to copy or share.
+        // If someone later threads the rider's separator in here to "fix the
+        // inconsistency", this goes red.
+        val row = placesStateFrom(listOf(home)).single()
+        assertEquals(1, row.subtitle.count { it == ',' })
+        assertEquals(2, row.subtitle.count { it == '.' })
+    }
+
     @Test fun aRowCarriesItsPlaceIdSoTheScreenCanRenameOrRemoveIt() {
         assertEquals(1L, placesStateFrom(listOf(home)).single().id)
     }

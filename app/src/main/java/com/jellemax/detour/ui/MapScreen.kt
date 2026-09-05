@@ -1529,6 +1529,7 @@ fun MapScreen(
                 // :shared cannot see NavPolicy, so that default is a second
                 // copy of the threshold and would drift without a word.
                 offRouteThresholdMeters = NavPolicy.OFF_ROUTE_METERS,
+                sep = Settings.decimalSeparatorChar(),
             )
         }
     }
@@ -1886,7 +1887,10 @@ fun MapScreen(
                             // readouts too (SpinDock/SpinSheet, elsewhere in this
                             // when-chain) - reused here only for .candidates, the
                             // per-row name/distance/duration text this card renders.
-                            rows = spinStateFrom(mode, radiusKm, directionDeg, shownCandidates.value)
+                            rows = spinStateFrom(
+                                mode, radiusKm, directionDeg, shownCandidates.value,
+                                Settings.decimalSeparatorChar(),
+                            )
                                 .candidates,
                             onPick = { index, c ->
                                 if (spinOffer != null) ConvoyLiveClient.sendSpinVote(index) else choose(c)

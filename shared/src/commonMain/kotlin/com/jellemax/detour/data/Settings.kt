@@ -18,6 +18,12 @@ object Settings {
     /** AUTO = light by day, dark by night (sun position at last location). */
     enum class Theme { SYSTEM, LIGHT, DARK, AUTO }
 
+    /** Which character separates a decimal in every readout the app renders.
+     *  SYSTEM follows the device locale ('.' in en-US, ',' in nl-BE); the other
+     *  two pin it, for a rider whose phone locale disagrees with how they read
+     *  a speed. Coordinates are exempt — see `placesStateFrom`. */
+    enum class DecimalSeparator { SYSTEM, POINT, COMMA }
+
     /** ASK = today's behavior, the Go dropdown opens every tap. Anything else
      *  and a tap goes straight to that app; long-press still reopens the menu. */
     enum class NavApp { ASK, IN_APP, GOOGLE_MAPS, WAZE, OTHER }
@@ -62,6 +68,23 @@ object Settings {
 
     private val _theme = MutableStateFlow(Theme.AUTO)
     val theme: StateFlow<Theme> = _theme
+
+    private val _decimalSeparator = MutableStateFlow(DecimalSeparator.SYSTEM)
+    val decimalSeparator: StateFlow<DecimalSeparator> = _decimalSeparator
+
+    /** [decimalSeparator] resolved to the character to render with. The render
+     *  path calls this once and hands the result to the formatters; they never
+     *  reach for it themselves, which is what keeps every mapper pure.
+     *
+     *  [value] defaults to the stored preference — real callers pass nothing. It
+     *  is a parameter so a test can check the mapping without a [Prefs] backend,
+     *  which is the same reason [decodeVehicleDevice] is reachable on its own. */
+    fun decimalSeparatorChar(value: DecimalSeparator = _decimalSeparator.value): Char =
+        when (value) {
+            DecimalSeparator.POINT -> '.'
+            DecimalSeparator.COMMA -> ','
+            DecimalSeparator.SYSTEM -> systemDecimalSeparator()
+        }
 
     private val _autoDetectDrives = MutableStateFlow(true)
     val autoDetectDrives: StateFlow<Boolean> = _autoDetectDrives
@@ -297,6 +320,11 @@ object Settings {
         _theme.value = runCatching {
             Theme.valueOf(prefs.string("theme", Theme.AUTO.name))
         }.getOrDefault(Theme.AUTO)
+        _decimalSeparator.value = runCatching {
+            DecimalSeparator.valueOf(
+                prefs.string("decimal_separator", DecimalSeparator.SYSTEM.name),
+            )
+        }.getOrDefault(DecimalSeparator.SYSTEM)
         _autoDetectDrives.value = prefs.bool("auto_detect_drives", true)
         _avoidHighways.value = prefs.bool("avoid_highways", false)
         _avoidSmallRoads.value = prefs.bool("avoid_small_roads", false)
@@ -461,6 +489,11 @@ object Settings {
     fun setTheme(value: Theme) {
         _theme.value = value
         prefs.put("theme", value.name)
+    }
+
+    fun setDecimalSeparator(value: DecimalSeparator) {
+        _decimalSeparator.value = value
+        prefs.put("decimal_separator", value.name)
     }
 
     fun setAutoDetectDrives(value: Boolean) {

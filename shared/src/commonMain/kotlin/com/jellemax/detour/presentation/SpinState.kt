@@ -51,8 +51,11 @@ data class SpinState(
  * [spinStateFrom] with real modes - almost certainly a vestige of a removed
  * on-foot/bike mode that once used it.
  */
-internal fun radiusText(maxKm: Float, radiusKm: Float): String =
-    "${if (maxKm <= 10f) formatFixed(radiusKm.toDouble(), 1) else radiusKm.toInt().toString()} km"
+internal fun radiusText(maxKm: Float, radiusKm: Float, sep: Char = '.'): String =
+    "${
+        if (maxKm <= 10f) formatFixed(radiusKm.toDouble(), 1, sep)
+        else radiusKm.toInt().toString()
+    } km"
 
 /**
  * `ModeCell`'s inline `directionDeg?.let { DIRECTION_NAMES[(it / 45f).toInt()] }
@@ -80,12 +83,16 @@ internal fun directionText(directionDeg: Float?): String =
  * only when the candidate has a routed `timeMs` at all, same as the chip
  * `c.route?.timeMs?.let { ... }` guards today.
  */
-internal fun candidateRow(index: Int, candidate: RouteCandidate): SpinCandidateRow {
+internal fun candidateRow(
+    index: Int,
+    candidate: RouteCandidate,
+    sep: Char = '.',
+): SpinCandidateRow {
     val distanceMeters = candidate.route?.distanceMeters ?: candidate.straightLineMeters
     val prefix = if (candidate.route?.distanceMeters == null) "~ straight-line " else "via road "
     return SpinCandidateRow(
         name = candidate.name ?: "Option ${index + 1}",
-        distanceText = prefix + formatDistanceKm(distanceMeters),
+        distanceText = prefix + formatDistanceKm(distanceMeters, sep),
         durationText = candidate.route?.timeMs?.let { "${formatFixed(it / 60_000.0, 0)} min" },
     )
 }
@@ -102,9 +109,10 @@ fun spinStateFrom(
     radiusKm: Float,
     directionDeg: Float?,
     candidates: List<RouteCandidate>,
+    sep: Char = '.',
 ): SpinState = SpinState(
     modeLabel = mode.label,
-    radiusText = radiusText(mode.maxKm, radiusKm),
+    radiusText = radiusText(mode.maxKm, radiusKm, sep),
     directionText = directionText(directionDeg),
-    candidates = candidates.mapIndexed(::candidateRow),
+    candidates = candidates.mapIndexed { i, c -> candidateRow(i, c, sep) },
 )
