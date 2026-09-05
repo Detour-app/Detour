@@ -106,6 +106,7 @@ import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.drive.SpinRoundOutcome
+import com.jellemax.detour.presentation.spinStateFrom
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
 import com.jellemax.detour.map.CameraAuthority
@@ -1822,6 +1823,12 @@ fun MapScreen(
                         )
                         BottomCard.CANDIDATES -> CandidatesCard(
                             candidates = shownCandidates.value,
+                            // mode/radiusKm/directionDeg feed spinStateFrom's other
+                            // readouts too (SpinDock/SpinSheet, elsewhere in this
+                            // when-chain) - reused here only for .candidates, the
+                            // per-row name/distance/duration text this card renders.
+                            rows = spinStateFrom(mode, radiusKm, directionDeg, shownCandidates.value)
+                                .candidates,
                             onPick = { index, c ->
                                 if (spinOffer != null) ConvoyLiveClient.sendSpinVote(index) else choose(c)
                             },

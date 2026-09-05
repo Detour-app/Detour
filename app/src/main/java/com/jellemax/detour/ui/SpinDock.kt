@@ -18,9 +18,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Casino
-import androidx.compose.material.icons.outlined.ExpandLess
-import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.rounded.Casino
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -55,6 +55,7 @@ import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.map.ModeSwipePolicy
+import com.jellemax.detour.presentation.spinStateFrom
 import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -237,6 +238,10 @@ private fun ModeCell(
     directionDeg: Float?,
     modifier: Modifier = Modifier,
 ) {
+    // Candidates aren't rendered here - only the readouts spinStateFrom
+    // derives from mode/radius/direction are needed, so an empty roll is
+    // enough to reuse the mapper instead of re-deriving these strings by hand.
+    val state = spinStateFrom(mode, radiusKm, directionDeg, emptyList())
     Row(
         modifier,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -245,19 +250,18 @@ private fun ModeCell(
         Icon(mode.icon, contentDescription = null)
         Column {
             Text(
-                "${if (mode.maxKm <= 10f) "%.1f".format(radiusKm) else radiusKm.toInt()} km",
+                state.radiusText,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                "${mode.label} · " + (directionDeg?.let { DIRECTION_NAMES[(it / 45f).toInt()] }
-                    ?: "any direction"),
+                "${state.modeLabel} · ${state.directionText}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
             )
         }
-        Icon(Icons.Outlined.ExpandLess, contentDescription = "Expand",
+        Icon(Icons.Rounded.ExpandLess, contentDescription = "Expand",
             tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -282,7 +286,7 @@ private fun SpinButton(
                 color = MaterialTheme.colorScheme.onPrimary,
             )
         } else {
-            Icon(Icons.Outlined.Casino, contentDescription = "Spin")
+            Icon(Icons.Rounded.Casino, contentDescription = "Spin")
         }
     }
 }
@@ -341,7 +345,7 @@ private fun BoxScope.ModeSwipeHint(
     // touch, and cleared semantics so TalkBack never announces a decoration as
     // a control. The real switch is on the card's own custom action.
     Icon(
-        Icons.Outlined.SwapHoriz,
+        Icons.Rounded.SwapHoriz,
         contentDescription = null,
         modifier = Modifier
             .align(Alignment.Center)
