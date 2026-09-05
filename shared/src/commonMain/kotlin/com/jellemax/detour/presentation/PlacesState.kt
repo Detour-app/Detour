@@ -31,9 +31,8 @@ fun placesStateFrom(places: List<SavedPlace>): List<PlaceRow> = places.map { p -
         id = p.id,
         name = p.name,
         // Coordinates deliberately keep '.' whatever the rider's separator
-        // setting says. This is a comma-separated PAIR: with a comma decimal it
-        // would read "50,12345, 4,56789", which no one can parse and which is
-        // wrong the moment it is copied or shared. Not an inconsistency to fix.
-        subtitle = "${formatFixed(p.location.lat, 5, '.')}, ${formatFixed(p.location.lon, 5, '.')}",
+        // setting says — see [formatCoordinatePair], which is why this mapper
+        // takes no separator to pass on.
+        subtitle = formatCoordinatePair(p.location.lat, p.location.lon),
     )
 }

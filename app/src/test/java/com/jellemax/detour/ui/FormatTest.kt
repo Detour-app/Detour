@@ -106,6 +106,22 @@ class FormatTest {
         assertEquals("1,3 g", formatGForce(1.3))
     }
 
+    // --- formatFuelPer100Km -------------------------------------------------
+
+    @Test
+    fun fuelEconomyFollowsTheSeparatorTheWayDistanceBesideItDoes() {
+        // These two share a trip card, and used to disagree on it: fuel went
+        // through "%.1f".format(...) with no Locale while distance went through
+        // the shared formatter.
+        assertEquals("5.4 L/100km", formatFuelPer100Km(5.44))
+        Locale.setDefault(Locale("nl", "BE"))
+        assertEquals("5,4 L/100km", formatFuelPer100Km(5.44))
+        assertEquals(
+            "5.4 L/100km",
+            formatFuelPer100Km(5.44, Settings.decimalSeparatorChar(Settings.DecimalSeparator.POINT)),
+        )
+    }
+
     // --- formatSpeedKmh ----------------------------------------------------
     // "%.0f" leaves no decimal separator to vary by locale.
 

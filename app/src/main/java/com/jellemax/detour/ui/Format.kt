@@ -4,6 +4,7 @@ import com.jellemax.detour.data.Settings
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.jellemax.detour.presentation.formatFixed
 import com.jellemax.detour.presentation.formatDistanceKm as sharedFormatDistanceKm
 import com.jellemax.detour.presentation.formatDurationHistory as sharedFormatDurationHistory
 import com.jellemax.detour.presentation.formatGForce as sharedFormatGForce
@@ -60,3 +61,10 @@ fun formatLeanAngle(deg: Double): String = "%.0f°".format(deg)
 // here and passed in.
 fun formatGForce(g: Double, sep: Char = Settings.decimalSeparatorChar()): String =
     sharedFormatGForce(g, sep)
+
+// Fuel economy was the last "%.1f".format(...) left on a trip card: no Locale,
+// so it followed Locale.getDefault() and put "5,4 L/100km" next to the
+// "12.4 km" beside it for a rider who had picked POINT — the exact split the
+// setting exists to close. Same shape as the two above.
+fun formatFuelPer100Km(litresPer100Km: Double, sep: Char = Settings.decimalSeparatorChar()): String =
+    "${formatFixed(litresPer100Km, 1, sep)} L/100km"

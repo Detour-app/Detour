@@ -35,8 +35,13 @@ internal fun groupThousands(n: Long): String {
  * render path resolves it once (`Settings.decimalSeparatorChar`) and passes it
  * down. Defaulting to '.' means a caller with no decimal to show, and a test
  * that does not care, both pass nothing.
+ *
+ * Public (not `internal`) because `:app` has readouts of its own to render with
+ * it — the map's default-zoom value and the lean-mount offset — and reaching
+ * for `"%.1f".format(...)` there is exactly how those two ended up following
+ * `Locale.getDefault()` while everything beside them followed the setting.
  */
-internal fun formatFixed(value: Double, decimals: Int, sep: Char = '.'): String {
+fun formatFixed(value: Double, decimals: Int, sep: Char = '.'): String {
     require(decimals in 0..6) { "decimals out of range: $decimals" }
     var factor = 1L
     repeat(decimals) { factor *= 10 }
@@ -118,6 +123,23 @@ fun formatDistanceKm(meters: Double, sep: Char = '.'): String =
  * about which decimal separator to use — they are handed the same [sep].
  */
 fun formatGForce(g: Double, sep: Char = '.'): String = "${formatFixed(g, 1, sep)} g"
+
+/**
+ * A latitude/longitude pair, five decimals each, as "50.85137, 5.69097".
+ *
+ * The one formatter here that takes no [sep] and never will: the pair is itself
+ * comma-separated, so a comma decimal would render "50,85137, 5,69097" — four
+ * numbers as far as any reader or parser is concerned, and wrong the moment it
+ * is copied or shared. Coordinates deliberately do not follow the rider's
+ * separator setting; the settings caption says so.
+ *
+ * Public (not `internal`) so the route editor's unnamed-stop label and the
+ * Saved places subtitle render coordinates through one implementation instead
+ * of the route editor keeping a `"%.5f, %.5f".format(...)` of its own, which
+ * followed `Locale.getDefault()` and so produced precisely that ambiguity.
+ */
+fun formatCoordinatePair(lat: Double, lon: Double): String =
+    "${formatFixed(lat, 5, '.')}, ${formatFixed(lon, 5, '.')}"
 
 /**
  * Wall-clock time of day as "HH:mm", 24-hour, zero-padded — commonMain's
