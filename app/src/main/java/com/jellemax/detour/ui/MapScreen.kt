@@ -629,7 +629,7 @@ fun MapScreen(
     )
 
     // One slot, four occupants. Decided once, here, and consumed twice: by the
-    // AnimatedContent far below that actually renders the card, and by the
+    // AnimatedContent in MapBottomSlot that actually renders the card, and by
     // hint countdown immediately below, which has to know whether the dock is
     // on screen at all - it is absent while navigating, while a candidate
     // round is open and while the sheet is expanded, and a hint armed during
