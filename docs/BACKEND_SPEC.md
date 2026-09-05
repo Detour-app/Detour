@@ -457,8 +457,11 @@ Role changes take effect on the next token the realm issues, which is the
 
 ## 14. Out of scope
 
-Two adjacent self-hosted services are installed alongside but are **not part of
-this backend**. The app calls them directly.
+Two adjacent self-hosted services are **not part of this backend, and `docker/`
+does not start either of them** — the app calls them directly, and a self-hoster
+runs them separately. See [`backend/INSTALL.md`](../backend/INSTALL.md#routing-and-search)
+for what each needs to run and [README.md](../README.md#self-hosting-the-server)
+for what breaks in the app without them.
 
 | Service | Function |
 |---|---|
