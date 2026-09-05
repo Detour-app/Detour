@@ -232,10 +232,15 @@ private fun RouteProgressTrack(fraction: Float, modifier: Modifier = Modifier) {
     }
 }
 
-/** EU-style round speed limit sign: white disc, thick red ring, big black number. */
+/** EU-style round speed limit sign: white disc, thick red ring, big black
+ *  number. Takes the number already rendered (`speedHudStateFrom`'s
+ *  `limitSignText`) —
+ *  a sign shows the posted figure and the truncation that gets there lives with
+ *  the rest of the HUD's wording, in `:shared`. Null draws nothing, which is how
+ *  callers say "no posted limit here". */
 @Composable
-fun SpeedLimitSign(kmh: Double?, size: Dp = 64.dp, modifier: Modifier = Modifier) {
-    if (kmh == null) return
+fun SpeedLimitSign(text: String?, size: Dp = 64.dp, modifier: Modifier = Modifier) {
+    if (text == null) return
     Box(
         modifier
             .size(size)
@@ -247,7 +252,7 @@ fun SpeedLimitSign(kmh: Double?, size: Dp = 64.dp, modifier: Modifier = Modifier
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            kmh.toInt().toString(),
+            text,
             color = Color.Black,
             fontWeight = FontWeight.Black,
             fontSize = (size.value * 0.38f).sp,

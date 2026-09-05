@@ -51,6 +51,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.audio.PushToTalk
 import com.jellemax.detour.data.SavedPlace
+import com.jellemax.detour.data.Settings
+import com.jellemax.detour.presentation.SpeedHudState
+import com.jellemax.detour.presentation.activeTripCardStateFrom
 import com.jellemax.detour.tracking.TripStats
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -169,94 +172,81 @@ internal fun PushToTalkButton(talking: Boolean, modifier: Modifier = Modifier) {
     }
 }
 
-/** Current speed next to the posted limit for the road we're on. Used both while
- *  cruising and while navigating; the whole dial turns red once we're more than
- *  5 km/h over. Sized to be read at a glance, not to dominate the map — the trip
- *  card no longer repeats the number underneath it. */
-@Composable
-internal fun SpeedHud(
-    speedKmh: Double,
-    limitKmh: Double?,
-    averageKmh: Double? = null,
-    averageLimitKmh: Double? = null,
-    modifier: Modifier = Modifier,
-) {
-    val speeding = limitKmh != null && speedKmh > limitKmh + OVER_LIMIT_TOLERANCE_KMH
-    Row(
-        modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Inside a trajectcontrole: the running average is what the section
-        // measures, so it sits front and centre and turns red once it's over.
-        averageKmh?.let { avg ->
-            SectionAverageChip(avg, averageLimitKmh)
-        }
-        Crossfade(targetState = limitKmh, animationSpec = tween(300), label = "speedLimit") {
-            SpeedLimitSign(it, size = 48.dp)
-        }
-        Card(
-            modifier = Modifier.glassBorder(CircleShape),
-            shape = CircleShape,
-            colors = if (speeding) CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-            ) else glassCardColors(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-        ) {
-            Column(
-                Modifier.size(80.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    "%.0f".format(speedKmh),
-                    fontSize = 32.sp,
-                    lineHeight = 34.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (speeding) MaterialTheme.colorScheme.onErrorContainer
-                        else MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    "km/h",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (speeding) MaterialTheme.colorScheme.onErrorContainer
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
+/** The island's width, and so the posted-limit sign's diameter: the sign runs
+ *  edge to edge at the bottom of it, as the prototype draws it. Wider than the
+ *  prototype's 56 px because the trajectcontrole average keeps a slot in here
+ *  and "avg km/h" has to fit under it. */
+private val ISLAND_WIDTH = 72.dp
 
-/** Running average speed through a trajectcontrole, next to the live speed.
- *  Red once the average is over the section's posted limit — that's the number
- *  the camera pair is actually about to fine you on. */
+/** Speed, the posted limit for the road we're on and — inside a
+ *  trajectcontrole — the running average, stacked in one island at the top-left
+ *  of the map. The whole island turns red once we're over the limit by more
+ *  than the tolerance the caller passed to `speedHudStateFrom`.
+ *
+ *  Renders [state] and computes nothing: the numbers and their wording come
+ *  from `:shared`. Drawn whether or not the vehicle is moving — a map parked at
+ *  a light keeps its instruments, the way the head unit always has. */
 @Composable
-private fun SectionAverageChip(averageKmh: Double, limitKmh: Double?, modifier: Modifier = Modifier) {
-    val over = limitKmh != null && averageKmh > limitKmh
+internal fun SpeedHud(state: SpeedHudState, modifier: Modifier = Modifier) {
+    val onIsland = if (state.speeding) MaterialTheme.colorScheme.onErrorContainer
+        else MaterialTheme.colorScheme.onSurface
+    val onIslandMuted = if (state.speeding) MaterialTheme.colorScheme.onErrorContainer
+        else MaterialTheme.colorScheme.onSurfaceVariant
     Card(
-        modifier = modifier,
+        modifier = modifier.width(ISLAND_WIDTH).glassBorder(CircleShape),
         shape = CircleShape,
-        colors = CardDefaults.cardColors(
-            containerColor = if (over) MaterialTheme.colorScheme.errorContainer
-                else MaterialTheme.colorScheme.tertiaryContainer,
-        ),
+        colors = if (state.speeding) CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+        ) else glassCardColors(),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
     ) {
         Column(
-            Modifier.size(72.dp),
-            verticalArrangement = Arrangement.Center,
+            Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            val onColor = if (over) MaterialTheme.colorScheme.onErrorContainer
-                else MaterialTheme.colorScheme.onTertiaryContainer
             Text(
-                "Ø %.0f".format(averageKmh),
+                state.speedText,
                 fontSize = 26.sp,
                 lineHeight = 28.sp,
                 fontWeight = FontWeight.Bold,
-                color = onColor,
+                color = onIsland,
+                modifier = Modifier.padding(top = 10.dp),
             )
-            Text("avg km/h", style = MaterialTheme.typography.labelSmall, color = onColor)
+            Text(
+                "km/h",
+                style = MaterialTheme.typography.labelSmall,
+                color = onIslandMuted,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            // Inside a trajectcontrole: the running average is the number the
+            // camera pair actually measures, so it sits under the live speed
+            // and turns red on the section's own limit rather than the dial's.
+            state.averageText?.let { average ->
+                Text(
+                    average,
+                    fontSize = 17.sp,
+                    lineHeight = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (state.averageOverLimit && !state.speeding)
+                        MaterialTheme.colorScheme.error else onIsland,
+                )
+                Text(
+                    "avg km/h",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = onIslandMuted,
+                    maxLines = 1,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
+            // Edge to edge at the foot of the island, and absent entirely when
+            // there is no posted limit — SpeedLimitSign draws nothing on null.
+            Crossfade(
+                targetState = state.limitSignText,
+                animationSpec = tween(300),
+                label = "speedLimit",
+            ) {
+                SpeedLimitSign(it, size = ISLAND_WIDTH)
+            }
         }
     }
 }
@@ -278,7 +268,9 @@ internal fun Obd2SignalLostLabel(lost: Boolean) {
  *  HUD, and a car has no lean angle worth printing. */
 @Composable
 internal fun ActiveTripCard(stats: TripStats) {
-    // Tick every second so duration counts up even without GPS updates.
+    // Tick every second so duration counts up even without GPS updates. The
+    // tick stays here — it is a UI concern — but the clock goes *into* the
+    // mapper as nowMs rather than being read inside a formatter.
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(stats.startTimeMs) {
         while (true) {
@@ -286,6 +278,23 @@ internal fun ActiveTripCard(stats: TripStats) {
             delay(1000)
         }
     }
+    // The whole Android-shaped part of this card: unpacking TripStats. The
+    // service records metres per second and the mapper renders km/h, and the
+    // card wants the trip's peak g, not the g of the current corner.
+    val state = activeTripCardStateFrom(
+        startTimeMs = stats.startTimeMs,
+        nowMs = now,
+        distanceMeters = stats.distanceMeters,
+        topSpeedKmh = stats.topSpeedMps * 3.6,
+        leanDeg = stats.currentLeanAngleDeg,
+        maxLeanDeg = stats.maxLeanAngleDeg,
+        maxGForce = stats.maxGForce,
+        hardEvents = stats.hardBrakeCount + stats.hardAccelCount + stats.hardCornerCount,
+        stopCount = stats.stopCount,
+        currentlyOverLimit = stats.currentlyOverLimit,
+        // Resolved on the render path and passed down, as Format.kt does it.
+        sep = Settings.decimalSeparatorChar(),
+    )
     Card(
         modifier = Modifier.glassBorder(MaterialTheme.shapes.extraLarge),
         shape = MaterialTheme.shapes.extraLarge,
@@ -300,19 +309,18 @@ internal fun ActiveTripCard(stats: TripStats) {
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            StatItem("Time", formatDuration(now - stats.startTimeMs))
-            StatItem("Distance", formatDistanceKm(stats.distanceMeters))
-            StatItem("Top", formatSpeedKmh(stats.topSpeedMps))
+            StatItem("Time", state.durationText)
+            StatItem("Distance", state.distanceText)
+            StatItem("Top", state.topSpeedText)
             if (stats.mode.tracksLean) {
-                StatItem("Lean", formatLeanAngle(stats.currentLeanAngleDeg))
-                StatItem("Max lean", formatLeanAngle(stats.maxLeanAngleDeg))
+                StatItem("Lean", state.leanText)
+                StatItem("Max lean", state.maxLeanText)
             }
             if (stats.mode.tracksGForce) {
-                StatItem("Max G", formatGForce(stats.maxGForce))
+                StatItem("Max G", state.maxGForceText)
             }
         }
-        val hardEvents = stats.hardBrakeCount + stats.hardAccelCount + stats.hardCornerCount
-        if (hardEvents > 0 || stats.stopCount > 0 || stats.currentlyOverLimit) {
+        if (state.detailsShown) {
             Row(
                 Modifier
                     .fillMaxWidth()

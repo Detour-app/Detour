@@ -1571,12 +1571,13 @@ defect: `SpinScreen.kt:69-74` claims parity it does not have.
 
 ---
 
-## 18. The speed HUD fades away at a standstill on the phone and stays on the head unit
+## 18. The speed HUD faded away at a standstill on the phone and stayed on the head unit
 
-**What.** Stopped at a light, the phone's speed dial and limit sign fade out. The head unit keeps
+**What.** Stopped at a light, the phone's speed dial and limit sign faded out. The head unit kept
 showing "0 km/h" and the last posted limit.
 
-**Copies.** Phone — `app/…/ui/MapScreen.kt:1357`, with the whole `SpeedHud` inside the `let`:
+**Copies — as found.** Phone — `app/…/ui/MapScreen.kt:1357`, with the whole `SpeedHud` inside the
+`let`:
 
 ```kotlin
 liveFix?.takeIf { it.speedMps >= 1.4 || displaySpeedKmh >= 2.0 }?.let {
@@ -1604,10 +1605,36 @@ after every stop. Keep it on the phone and a parked map carries a dial reading z
 
 **Blast radius.** Whichever surface adopts the other's rule.
 
-**Recommendation: needs-a-human — but small, and defaulting to "leave both" is defensible.**
-Recorded because stage 3's `SpeedLimitTracker` decides when a limit value exists, and it must not
-also decide whether a sign is *shown* — that stays per-surface. If the tracker starts emitting
-"no limit" to force the sign away, this decision has been made accidentally.
+**As-found recommendation, kept on record: needs-a-human — but small, and defaulting to "leave
+both" is defensible.** Recorded because stage 3's `SpeedLimitTracker` decides when a limit value
+exists, and it must not also decide whether a sign is *shown* — that stays per-surface. If the
+tracker starts emitting "no limit" to force the sign away, this decision has been made
+accidentally.
+
+**RESOLVED — the phone adopts the car's rule: the HUD is drawn unconditionally.** Decided by the
+user as **RULING D5-2** of the screen-by-screen redesign, alongside moving the readouts into the
+prototype's top-left island (`isHome.html`, `left:14px;top:44px`, which draws the island with no
+visibility rule at all). The gate quoted above is gone from `MapScreen.kt`; `SpeedHud` is now a
+child of the top island's column with no `liveFix?.takeIf { … }` around it. Corrected in place
+rather than deleted, per entry 13's precedent — an entry marked *needs-a-human* whose behaviour
+changed without a note reads as still-open and gets re-litigated.
+
+The decision was deliberate, not a side effect of the move: the standstill fade would have had to
+be carried into the island by hand, and it was dropped on purpose.
+
+**What it costs.** Exactly what this entry said it would: a phone parked with the map open now
+carries a dial reading 0 and, before the first fix of a cold start, a dial reading 0 with no sign
+beside it — `retained.displaySpeedKmh` starts at 0.0 and the island no longer waits for a fix to
+exist. Against that, the readout stops appearing and disappearing at every light, and the two
+surfaces now agree. Note the shape of the parity claim: the phone matches the head unit's
+*current* behaviour, which is also the behaviour this entry recorded — nothing changed on the car,
+so no head-unit code was touched and `CarMapRenderer.kt:630-631`/`:648-649` remain the reference
+copy.
+
+**Still true, and still worth heeding:** `SpeedLimitTracker` emits a *value*; visibility stays the
+caller's. That constraint outlives the decision — the sign is now hidden only by a null limit, so a
+tracker that emitted "no limit" to force it away would silently take the last remaining visibility
+rule away from the UI.
 
 **Blocks stage 3: no, but constrains it.** `SpeedLimitTracker` emits a value; visibility is the
 caller's.
@@ -1872,7 +1899,8 @@ entry in the register where iOS is the better copy.
   13, 17, 20, 22. Note that **entry 22 is the one place iOS is the better copy** — a register that
   always picks the phone is not measuring anything.
 - **8 carry a genuine product decision.** Four are substantial and listed in §C; four more (14, 18,
-  19, 21) are real but small enough that a one-line answer unblocks each.
+  19, 21) are real but small enough that a one-line answer unblocks each — **18 has since had
+  its one-line answer** (RULING D5-2, entry 18).
 - **1 is not really a divergence at all** (entry 3) and the register's recommendation is to leave
   it alone.
 
@@ -1896,7 +1924,7 @@ items plus one open question plus a bug — so the buckets add to more than 22 b
 | 10 | Car search drops the avoid-* settings | plain bug | car | no | **RESOLVED `c7f698a`**; the same line's hardcoded car profile is still open |
 | 19 | Distance-to-turn: metres vs 100 m steps | product decision | phone, wear, iOS | no | **needs-a-human**, low stakes |
 | 7 | `fetchLocation`, five one-shot lookups | drift | phone, car | no | survive: high-accuracy shape, parameterised |
-| 18 | Speed HUD fades at standstill on the phone only | product decision | phone or car | constrains it | **needs-a-human**, "leave both" is fine |
+| 18 | Speed HUD fades at standstill on the phone only | product decision | phone | constrains it | **RESOLVED** — user's RULING D5-2: the phone draws it unconditionally, as the car does |
 | 21 | Catch-up order reversed; iOS lacks a self-filter | product decision + gap | one platform, iOS | no | **ordering RESOLVED `5d8b162`** — newest-on-top on both, catch-up self-filter now shared; iOS's **live-path** self-filter still open |
 | 14 | Wear discards the instruction text | product decision (small) | wear | no | **needs-a-human** (§C4-adjacent) |
 | 8 | `60` literal vs `NavPolicy.OFF_ROUTE_METERS` | latent | phone | no | **RESOLVED — constant `7d57087`, car indicator `6551f37`** |
@@ -2128,7 +2156,8 @@ Nothing in 4–6 may share a commit with the extraction it depends on.
 
 Three smaller ones are also genuine but do not need a meeting — a one-line answer unblocks each:
 **does the watch show the instruction text it already receives** (entry 14), **should the phone's
-HUD-fades-at-standstill rule reach the head unit** (entry 18, where "no" is defensible), and
+HUD-fades-at-standstill rule reach the head unit** (entry 18 — **answered**: the reverse, the
+phone dropped the fade and now draws the HUD unconditionally as the car does, RULING D5-2), and
 **which order should a catch-up notification batch stack in** (entry 21, where "each platform is
 already right for its own conventions" is a legitimate answer). Entry 19's distance quantisation is
 the same shape: real, arguable, low stakes.

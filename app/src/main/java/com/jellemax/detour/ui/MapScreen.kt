@@ -27,7 +27,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -116,6 +115,7 @@ import com.jellemax.detour.presentation.obd2FedThisTrip
 import com.jellemax.detour.presentation.pushToTalkShown
 import com.jellemax.detour.presentation.reachMeters
 import com.jellemax.detour.presentation.shortcutChipsShown
+import com.jellemax.detour.presentation.speedHudStateFrom
 import com.jellemax.detour.presentation.spinStateFrom
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
@@ -1686,22 +1686,64 @@ fun MapScreen(
             )
 
             // The banner drops in from the top edge when navigation starts; the
-            // toolbar fades back once it ends.
-            AnimatedVisibility(
-                visible = navigating,
-                enter = slideInVertically { -it } + fadeIn(),
-                exit = slideOutVertically { -it } + fadeOut(),
-                modifier = Modifier
+            // toolbar fades back once it ends. The speed island rides in the
+            // same column, under the banner rather than beside it, so the two
+            // can never overlap and the island slides down as the banner
+            // arrives instead of being drawn through by it.
+            Column(
+                Modifier
                     .align(Alignment.TopCenter)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(12.dp),
             ) {
-                NavigationBanner(
-                    navState,
-                    Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(12.dp),
-                )
+                AnimatedVisibility(
+                    visible = navigating,
+                    enter = slideInVertically { -it } + fadeIn(),
+                    exit = slideOutVertically { -it } + fadeOut(),
+                ) {
+                    NavigationBanner(navState, Modifier.fillMaxWidth())
+                }
+                // Speed, the posted limit and the trajectcontrole average, in
+                // one island at the top-left — isHome.html's left:14/top:44,
+                // widened so the average keeps its slot.
+                //
+                // Idle, it sits level with the top chrome's right-hand rail:
+                // that rail hangs under the 40 dp search pill and the 10 dp gap
+                // below it, and this takes the same offset. Navigating, the
+                // banner above has already pushed it clear and it only needs
+                // the gap.
+                //
+                // Drawn unconditionally. The standstill fade — "stopping at a
+                // light fades the dial out" — is deliberately gone: a parked map
+                // now keeps its instruments, as the head unit always has. See
+                // the divergence register's entry 18.
+                Column(
+                    Modifier.padding(top = if (navigating) 10.dp else 50.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    SpeedHud(
+                        state = speedHudStateFrom(
+                            speedKmh = retained.displaySpeedKmh,
+                            limitKmh = navState.speedLimitKmh,
+                            averageKmh = sectionAvgKmh,
+                            averageLimitKmh = sectionLimitKmh,
+                            // Named, never inherited: the app's threshold lives
+                            // in MapCameraTuning and the car dial reads the same
+                            // constant, exactly as NavPolicy.OFF_ROUTE_METERS is
+                            // passed to navStateFrom above.
+                            overLimitToleranceKmh = OVER_LIMIT_TOLERANCE_KMH,
+                        ),
+                    )
+                    // Diagnostics: an adapter that fed this trip and has since
+                    // dropped. Obd2Connection never resets lastDataAtMs, hence
+                    // the shared after-the-start test rather than a per-trip
+                    // accumulator.
+                    Obd2SignalLostLabel(
+                        lost = obd2FedThisTrip(stats?.startTimeMs, obd2LastDataAtMs) &&
+                            obd2State != Obd2ConnectionState.CONNECTED,
+                    )
+                }
             }
             AnimatedVisibility(
                 visible = !navigating,
@@ -1780,46 +1822,17 @@ fun MapScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 // Ending a trip used to mean expanding the spin card and hunting
-                // for a button. It now sits here whatever else is on screen, on
-                // the opposite side from the speed you are looking at anyway.
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Bottom,
+                // for a button. It now sits here whatever else is on screen, in
+                // the bottom corner your thumb rests in — start-aligned by this
+                // Column, which is where the row that used to hold it put it.
+                // That row's SpaceBetween existed only to pin the speed HUD to
+                // the far end, and the HUD has gone to the top-left island.
+                AnimatedVisibility(
+                    visible = stats != null,
+                    enter = scaleIn() + fadeIn(),
+                    exit = scaleOut() + fadeOut(),
                 ) {
-                    // Always in the row (zero-sized when hidden) so SpaceBetween
-                    // keeps the speed HUD pinned to the end either way.
-                    AnimatedVisibility(
-                        visible = stats != null,
-                        enter = scaleIn() + fadeIn(),
-                        exit = scaleOut() + fadeOut(),
-                    ) {
-                        EndTripButton(onClick = { TripTrackingService.stop(context) })
-                    }
-                    // Stays up while the eased number winds back down, so
-                    // stopping at a light fades the dial out instead of
-                    // snatching it away mid-count.
-                    liveFix?.takeIf { it.speedMps >= 1.4 || retained.displaySpeedKmh >= 2.0 }?.let {
-                        Column(
-                            horizontalAlignment = Alignment.End,
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            SpeedHud(
-                                speedKmh = retained.displaySpeedKmh,
-                                limitKmh = navState.speedLimitKmh,
-                                averageKmh = sectionAvgKmh,
-                                averageLimitKmh = sectionLimitKmh,
-                            )
-                            // Diagnostics: an adapter that fed this trip and has
-                            // since dropped. Obd2Connection never resets
-                            // lastDataAtMs, hence the shared after-the-start
-                            // test rather than a per-trip accumulator.
-                            Obd2SignalLostLabel(
-                                lost = obd2FedThisTrip(stats?.startTimeMs, obd2LastDataAtMs) &&
-                                    obd2State != Obd2ConnectionState.CONNECTED,
-                            )
-                        }
-                    }
+                    EndTripButton(onClick = { TripTrackingService.stop(context) })
                 }
 
                 // The exiting card still composes for a few frames after `stats`
