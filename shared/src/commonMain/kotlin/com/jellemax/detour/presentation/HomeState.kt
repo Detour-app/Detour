@@ -10,11 +10,11 @@ enum class HomeBottomCard { NAV, CANDIDATES, COLLAPSED, EXPANDED }
  *
  * `MapScreen.kt` used to ask these three questions twice, ~1200 lines apart:
  * once for the card itself and once as `dockShown`, the flag the mode-swipe
- * hint waits on. Drift between the two armed the hint against a dock that
- * wasn't on screen, so it fired on the dock's very next composition — as part
- * of the screen arriving, which is the one thing the hint's delay exists to
- * prevent. Both now read this, and `dockShown` is just the card being
- * [HomeBottomCard.COLLAPSED].
+ * hint waited on. Drift between the two armed the hint against a bottom card
+ * that wasn't on screen, so it fired on that card's very next composition — as
+ * part of the screen arriving, which is the one thing the hint's delay existed
+ * to prevent. The hint and the dock it taught are both gone; this stayed, as
+ * the one place the slot's occupant is decided.
  */
 fun homeBottomCard(
     navigating: Boolean,
@@ -82,17 +82,6 @@ fun reachMeters(
  */
 fun obd2FedThisTrip(tripStartMs: Long?, lastDataAtMs: Long?): Boolean =
     tripStartMs != null && lastDataAtMs != null && lastDataAtMs > tripStartMs
-
-/**
- * Whether the shortcut chips (one-tap a saved place, or save the pin you just
- * dropped) are on screen. Hidden while navigating, and hidden when there is
- * neither a saved place to offer nor a pin to save.
- */
-fun shortcutChipsShown(
-    navigating: Boolean,
-    hasSavedPlaces: Boolean,
-    hasDestination: Boolean,
-): Boolean = !navigating && (hasSavedPlaces || hasDestination)
 
 /**
  * Whether the hold-to-talk button is on screen.

@@ -29,19 +29,6 @@
                 <action android:name="com.jellemax.detour.DEBUG_TRIP_ENDED" />
             </intent-filter>
         </receiver>
-
-        <!-- Switches which mode-swipe hint the spin dock plays and re-arms it,
-             so the two variants can be compared without a rebuild. Same
-             exported="true" trade-off as the receiver above, and the same
-             reason it is acceptable: this entry never reaches a release build.
-             See the receiver's own doc for the commands. -->
-        <receiver
-            android:name="com.jellemax.detour.debug.DebugSwipeHintReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.jellemax.detour.DEBUG_SWIPE_HINT" />
-            </intent-filter>
-        </receiver>
     </application>
 
 </manifest>

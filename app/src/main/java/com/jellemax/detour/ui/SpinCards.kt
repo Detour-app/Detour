@@ -196,11 +196,10 @@ internal fun SpinSheet(
             // Every number below comes off spinStateFrom's radiusText - the
             // same %-decimal-below-maxKm/whole-number-at-or-above rule the
             // candidates card's rows read off it, so no two surfaces format
-            // the same radiusKm differently. directionDeg and candidates are
-            // irrelevant to this readout, so a null/empty roll is enough to
-            // reuse the mapper for it.
+            // the same radiusKm differently. The candidate list is irrelevant
+            // to this readout, so an empty roll is enough to reuse the mapper.
             val radiusState =
-                spinStateFrom(mode, radiusKm, null, emptyList(), Settings.decimalSeparatorChar())
+                spinStateFrom(mode, radiusKm, emptyList(), Settings.decimalSeparatorChar())
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -236,7 +235,7 @@ internal fun SpinSheet(
                         // same way a radius reading is.
                         if (minRadiusKm <= 0f) "Off"
                         else spinStateFrom(
-                            mode, minRadiusKm, null, emptyList(),
+                            mode, minRadiusKm, emptyList(),
                             Settings.decimalSeparatorChar(),
                         ).radiusText,
                         style = MaterialTheme.typography.labelLarge,

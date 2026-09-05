@@ -24,17 +24,20 @@ data class SpinCandidateRow(
 )
 
 /**
- * The spin dock and result sheet's display state: what `ModeCell`
- * (`SpinDock.kt`) and `CandidatesCard` (`CandidatesCard.kt`) render today,
+ * The spin sheet and result card's display state: what `SpinSheet`
+ * (`SpinCards.kt`) and `CandidatesCard` (`CandidatesCard.kt`) render today,
  * pulled out of their inline string-building so it is testable without
- * Compose. Deliberately does not merge [modeLabel] and [directionText] into
- * one string the way `ModeCell` does (`"${mode.label} · $directionText"`) -
- * that join is layout, left to whichever composable renders this next.
+ * Compose.
+ *
+ * Only what a renderer actually reads. The mode label and the direction name
+ * were fields here too, until the redesign gave the sheet a mode row that
+ * reads `TravelMode.label` straight off the enum and a direction picker that
+ * highlights one of [DIRECTION_NAMES] by index - neither of which needs a
+ * mapper. A field no renderer reads is a claim about the UI that nothing
+ * checks, so both went with their consumers.
  */
 data class SpinState(
-    val modeLabel: String,
     val radiusText: String,
-    val directionText: String,
     val candidates: List<SpinCandidateRow>,
 )
 
@@ -56,24 +59,6 @@ internal fun radiusText(maxKm: Float, radiusKm: Float, sep: Char = '.'): String 
         if (maxKm <= 10f) formatFixed(radiusKm.toDouble(), 1, sep)
         else radiusKm.toInt().toString()
     } km"
-
-/**
- * `ModeCell`'s inline `directionDeg?.let { DIRECTION_NAMES[(it / 45f).toInt()] }
- * ?: "any direction"`, with the bucket index floor-mod-wrapped into `0..7`
- * instead of indexing raw: the original truncated toward zero, so 360 (and
- * any other multiple of 360) landed one past the last name and threw
- * `IndexOutOfBoundsException`, a negative multiple of 45 threw the same way,
- * and a negative non-multiple (e.g. -10) silently landed on bucket 0
- * ("North") instead of wrapping to the bucket it actually belongs in.
- * `Float.mod` floors before wrapping the degrees into `0f..360f` (plain `%`
- * keeps the dividend's sign, which is exactly the bug above), and the outer
- * `Int.mod(8)` is a second floor-mod as insurance against float rounding
- * pushing the division a hair past index 7.
- * `internal`, matching [radiusText], so a test can reach it without a full
- * [SpinState] on the way.
- */
-internal fun directionText(directionDeg: Float?): String =
-    directionDeg?.let { DIRECTION_NAMES[((it.mod(360f) / 45f).toInt()).mod(8)] } ?: "any direction"
 
 /**
  * `CandidatesCard`'s per-row `Column` and duration `Surface`, ported as one
@@ -98,21 +83,21 @@ internal fun candidateRow(
 }
 
 /**
- * Pure map from a spin's mode/radius/direction/candidates to [SpinState] -
- * the mode label, the radius readout, the direction name and the candidate
- * rows the dock and result sheet render today. Does not own `spin()`'s
- * orchestration, the convoy vote plumbing, or anything touching
- * `camAuthority`; those stay in `MapScreen.kt`.
+ * Pure map from a spin's mode/radius/candidates to [SpinState] - the radius
+ * readout and the candidate rows the spin sheet and result card render today.
+ * Does not own `spin()`'s orchestration, the convoy vote plumbing, or anything
+ * touching `camAuthority`; those stay in `MapScreen.kt`.
+ *
+ * [mode] is still taken whole rather than as its `maxKm`: the cutoff that
+ * decides whether a radius reads to one decimal place belongs to the mode, and
+ * a caller passing the number itself would be free to pass a different mode's.
  */
 fun spinStateFrom(
     mode: TravelMode,
     radiusKm: Float,
-    directionDeg: Float?,
     candidates: List<RouteCandidate>,
     sep: Char = '.',
 ): SpinState = SpinState(
-    modeLabel = mode.label,
     radiusText = radiusText(mode.maxKm, radiusKm, sep),
-    directionText = directionText(directionDeg),
     candidates = candidates.mapIndexed { i, c -> candidateRow(i, c, sep) },
 )

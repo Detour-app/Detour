@@ -97,24 +97,6 @@ class HomeIdlePredicatesTest {
         assertFalse(obd2FedThisTrip(tripStartMs = 1_000L, lastDataAtMs = null))
     }
 
-    @Test fun shortcutChipsHideWhileNavigating() {
-        assertFalse(
-            shortcutChipsShown(navigating = true, hasSavedPlaces = true, hasDestination = true),
-        )
-    }
-
-    @Test fun shortcutChipsNeedAPlaceToOfferOrAPinToSave() {
-        assertFalse(
-            shortcutChipsShown(navigating = false, hasSavedPlaces = false, hasDestination = false),
-        )
-        assertTrue(
-            shortcutChipsShown(navigating = false, hasSavedPlaces = true, hasDestination = false),
-        )
-        assertTrue(
-            shortcutChipsShown(navigating = false, hasSavedPlaces = false, hasDestination = true),
-        )
-    }
-
     @Test fun pushToTalkNeedsTheFlagTheRelayAndAConvoy() {
         assertTrue(
             pushToTalkShown(featureEnabled = true, convoyConnected = true, hasActiveConvoy = true),

@@ -65,57 +65,6 @@ class SpinStateTest {
         }
     }
 
-    // --- directionText: the eight buckets and their edges --------------------
-
-    @Test fun everyDirectionBucketNamesItsCompassPoint() {
-        assertEquals("North", directionText(0f))
-        assertEquals("North-east", directionText(45f))
-        assertEquals("East", directionText(90f))
-        assertEquals("South-east", directionText(135f))
-        assertEquals("South", directionText(180f))
-        assertEquals("South-west", directionText(225f))
-        assertEquals("West", directionText(270f))
-        assertEquals("North-west", directionText(315f))
-    }
-
-    @Test fun aNullDirectionReadsAnyDirection() {
-        assertEquals("any direction", directionText(null))
-    }
-
-    @Test fun justUnderThreeHundredSixtyStaysInTheLastBucket() {
-        assertEquals("North-west", directionText(359.9f))
-    }
-
-    @Test fun exactlyThreeHundredSixtyDegreesWrapsToNorth() {
-        // 360 is a full turn back to 0 - wraps to bucket 0 instead of
-        // indexing one past DIRECTION_NAMES' last entry.
-        assertEquals("North", directionText(360f))
-    }
-
-    @Test fun aNegativeMultipleOfFortyFiveWrapsToTheMatchingPositiveBucket() {
-        // -45 is the same bearing as 315 - wraps to "North-west" instead of
-        // indexing -1.
-        assertEquals("North-west", directionText(-45f))
-    }
-
-    @Test fun aNegativeNonMultipleWrapsToItsActualBucketNotNorth() {
-        // -10 is the same bearing as 350, which falls in the 315..360 bucket -
-        // "North-west", not the old truncate-toward-zero "North".
-        assertEquals("North-west", directionText(-10f))
-    }
-
-    @Test fun aLargePositiveMultipleOfAFullTurnWrapsCorrectly() {
-        // 720 is two full turns past 0 - the old code could never even
-        // express this without throwing at 360 first.
-        assertEquals("North", directionText(720f))
-    }
-
-    @Test fun aLargeNegativeBearingWrapsCorrectly() {
-        // -400 is the same bearing as 320 (-400 + 2*360), landing in the
-        // 315..360 bucket.
-        assertEquals("North-west", directionText(-400f))
-    }
-
     // --- candidateRow: distance/duration strings ------------------------------
 
     @Test fun aRoutedCandidateShowsViaRoadDistanceAndItsMinutes() {
@@ -153,22 +102,19 @@ class SpinStateTest {
 
     // --- spinStateFrom: the whole mapper --------------------------------------
 
-    @Test fun theModeLabelAndRadiusAndDirectionComeThroughForACarSpin() {
-        val state = spinStateFrom(TravelMode.CAR, radiusKm = 25f, directionDeg = 90f, candidates = emptyList())
-        assertEquals("Car", state.modeLabel)
+    @Test fun theRadiusReadoutComesThroughForACarSpin() {
+        val state = spinStateFrom(TravelMode.CAR, radiusKm = 25f, candidates = emptyList())
         assertEquals("25 km", state.radiusText)
-        assertEquals("East", state.directionText)
     }
 
     @Test fun aZeroCandidateStateProducesAnEmptyButUsableCandidateList() {
-        val state = spinStateFrom(TravelMode.CAR, radiusKm = 25f, directionDeg = null, candidates = emptyList())
+        val state = spinStateFrom(TravelMode.CAR, radiusKm = 25f, candidates = emptyList())
         assertTrue(state.candidates.isEmpty())
-        assertEquals("any direction", state.directionText)
     }
 
     @Test fun candidatesKeepTheirRollOrderForTheLetterLabelsAppliedAtRenderTime() {
         val state = spinStateFrom(
-            TravelMode.CAR, radiusKm = 25f, directionDeg = null,
+            TravelMode.CAR, radiusKm = 25f,
             candidates = listOf(candidate(name = "A"), candidate(name = "B"), candidate(name = "C")),
         )
         assertEquals(listOf("A", "B", "C"), state.candidates.map { it.name })

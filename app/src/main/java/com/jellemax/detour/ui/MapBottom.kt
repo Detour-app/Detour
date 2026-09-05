@@ -186,12 +186,12 @@ internal fun BoxScope.MapBottomSlot(
                     )
                     HomeBottomCard.CANDIDATES -> CandidatesCard(
                         candidates = shownCandidates.value,
-                        // mode/radiusKm/directionDeg feed spinStateFrom's other
-                        // readouts too (SpinSheet, below in this when-chain) -
-                        // reused here only for .candidates, the per-row
-                        // name/distance/duration text this card renders.
+                        // mode/radiusKm feed spinStateFrom's radius readout too
+                        // (SpinSheet, below in this when-chain) - reused here
+                        // only for .candidates, the per-row name/distance/
+                        // duration text this card renders.
                         rows = spinStateFrom(
-                            mode, radiusKm, directionDeg, shownCandidates.value,
+                            mode, radiusKm, shownCandidates.value,
                             Settings.decimalSeparatorChar(),
                         )
                             .candidates,

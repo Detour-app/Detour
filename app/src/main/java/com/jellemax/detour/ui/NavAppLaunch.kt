@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Navigation
 import androidx.compose.material3.ButtonDefaults
@@ -41,7 +40,7 @@ import com.jellemax.detour.data.TravelMode
 
 /** Launches navigation via [app] and remembers it as the default for next
  *  time — the single dispatch point behind the dropdown items in
- *  [NavMenuItems] and the direct-tap bypass on [NavButton]/[NavIconButton]. */
+ *  [NavMenuItems] and the direct-tap bypass on [NavButton]. */
 private fun launchNav(
     context: Context,
     app: Settings.NavApp,
@@ -82,7 +81,7 @@ private fun navAppUsableDirectly(
     Settings.NavApp.WAZE, Settings.NavApp.OTHER -> !(route != null && origin != null)
 }
 
-/** A tap on [NavButton]/[NavIconButton]: go straight to the remembered app
+/** A tap on [NavButton]: go straight to the remembered app
  *  when it's usable here, otherwise fall back to opening the menu — the
  *  same fallback a long-press always takes. */
 private fun handleGoTap(
@@ -105,8 +104,8 @@ private fun handleGoTap(
 }
 
 /** Shared "Go" menu items — in-app when reachable, otherwise the external-app
- *  chooser. Backs both the full-width [NavButton] and the dock's compact
- *  [NavIconButton] so the routing logic lives in exactly one place. */
+ *  chooser. Split out of [NavButton] so the routing logic lives in exactly one
+ *  place, and stays there if a second trigger is ever added back. */
 @Composable
 private fun NavMenuItems(
     destination: LatLon?,
@@ -147,53 +146,6 @@ private fun NavMenuItems(
             text = { Text("Other app") },
             onClick = { pick(Settings.NavApp.OTHER) },
         )
-    }
-}
-
-/** Compact circular "Go" trigger for the dock — same menu as [NavButton],
- *  just a 40dp icon button instead of a labelled tonal one. */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-internal fun NavIconButton(
-    destination: LatLon?,
-    route: List<LatLon>?,
-    origin: LatLon?,
-    mode: TravelMode,
-    inAppAvailable: Boolean,
-    onNavigateInApp: () -> Unit,
-    onNavigate: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var menuOpen by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    val preferred by Settings.preferredNavApp.collectAsStateWithLifecycle()
-    val enabled = destination != null || (route != null && origin != null)
-    Box(modifier) {
-        Surface(
-            modifier = Modifier
-                .size(40.dp)
-                .combinedClickable(
-                    enabled = enabled,
-                    onClick = {
-                        handleGoTap(context, preferred, inAppAvailable, destination, route, origin,
-                            mode, onNavigateInApp, onNavigate) { menuOpen = true }
-                    },
-                    onLongClick = { menuOpen = true },
-                ),
-            shape = CircleShape,
-            color = if (enabled) MaterialTheme.colorScheme.secondaryContainer
-                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-            contentColor = if (enabled) MaterialTheme.colorScheme.onSecondaryContainer
-                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-        ) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                Icon(Icons.Outlined.Navigation, contentDescription = "Go")
-            }
-        }
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            NavMenuItems(destination, route, origin, mode, inAppAvailable,
-                onNavigateInApp, onNavigate) { menuOpen = false }
-        }
     }
 }
 
