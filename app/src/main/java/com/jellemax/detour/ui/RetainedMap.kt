@@ -173,9 +173,18 @@ fun rememberRetainedMap(darkTheme: Boolean): RetainedMap {
     // Attribution is a basemap licence obligation, so this errs high: the sheet
     // states its own height, and the gesture inset it consumes internally is
     // added on top rather than assumed away, which the flat 84 dp did.
-    val attributionBottomMarginPx = with(LocalDensity.current) {
-        HOME_SHEET_HEIGHT.roundToPx()
-    } + WindowInsets.navigationBars.getBottom(LocalDensity.current)
+    //
+    // The sheet's text is font-scaled and its constant is not, so the fixed
+    // 224 dp went *inside* the sheet's own 0.96-alpha surface — the ⓘ button
+    // simply gone — from about the system's "Large" setting upwards. Only the
+    // text grows, hence the growth term rather than a multiply; see
+    // HOME_SHEET_FONT_SCALE_GROWTH for why a flat one over-corrects.
+    val density = LocalDensity.current
+    val attributionBottomMarginPx = with(density) {
+        val grown = HOME_SHEET_HEIGHT +
+            HOME_SHEET_FONT_SCALE_GROWTH * (density.fontScale.coerceAtLeast(1f) - 1f)
+        grown.roundToPx()
+    } + WindowInsets.navigationBars.getBottom(density)
     val retained = remember { RetainedMap(context) }
 
     // Keyed on `retained`, which never changes while this composable is in the

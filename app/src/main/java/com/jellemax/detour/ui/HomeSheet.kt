@@ -46,20 +46,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.SavedPlace
+import com.jellemax.detour.data.TravelMode
 
 /**
- * How tall the sheet stands, excluding the gesture inset it consumes inside
- * itself. Not measured — added up from what it draws, the way the fitted-camera
- * padding beside it is:
+ * How tall the sheet stands at `fontScale` 1, excluding the gesture inset it
+ * consumes inside itself. Not measured — added up from what it draws, the way
+ * the fitted-camera padding beside it is:
  *
  * ```
  *  26  drag handle      10 top + 4 handle + 12 bottom
  *  40  "Where to?" bar  SearchIsland's pill: 6 + 28 avatar + 6
  *  44  chip row         12 gap + 32 AssistChip
- *  86  card row         14 gap + 12 + 26 icon + 6 + label + 12
+ *  92  card row         14 gap + 14 + 26 icon + 6 + 20 labelLarge + 12
  *  14  bottom padding
  * ---
- * 210, plus headroom for the two labels at a large font scale.
+ * 216, and 224 here to keep 8 dp of headroom over it.
  * ```
  *
  * Read by [rememberRetainedMap] to keep the basemap's attribution above the
@@ -67,6 +68,22 @@ import com.jellemax.detour.data.SavedPlace
  * re-derive this when the sheet's contents change, and prefer overshooting.
  */
 internal val HOME_SHEET_HEIGHT = 224.dp
+
+/**
+ * How much taller the sheet gets per unit of `fontScale`. Only the text grows;
+ * the handle, the paddings and the 26 dp card icon do not, so scaling
+ * [HOME_SHEET_HEIGHT] as a whole would push the attribution ~180 dp up the map
+ * at the largest accessibility setting to buy the ~48 dp actually needed.
+ *
+ * The three text runs that can grow the sheet, once each has overtaken the
+ * fixed box it sits in: the 24 sp search field (past the 28 dp avatar), the
+ * 20 sp chip label (past the 32 dp AssistChip minimum) and the 20 sp card
+ * label, which grows from the start. 24 + 20 + 20 = 64 dp per unit — the
+ * steepest the sheet ever grows, so `HOME_SHEET_HEIGHT + this * (fontScale -
+ * 1)` stays at or above the real height at every scale, keeping the 8 dp of
+ * headroom at scale 1 and at most ~24 dp more than needed at scale 2.
+ */
+internal val HOME_SHEET_FONT_SCALE_GROWTH = 64.dp
 
 /** The prototype's `rgba(22,25,17,.96)` has no exact token. It sits between
  *  `surfaceContainerLowest` (0xFF101309) and `surfaceContainerLow` (0xFF1A1E15);
@@ -90,6 +107,9 @@ private const val SHEET_ALPHA = 0.96f
  * @param canSavePin whether there is a dropped pin to save. The `Save pin` chip
  *   is drawn either way — the prototype's `+` is unconditional — and disabled
  *   rather than hidden when there is nothing to save.
+ * @param mode the travel mode a spin would roll under. A readout, not a
+ *   control — the switch itself lives in `SpinSheet`, one tap away through the
+ *   same chip; see [ShortcutChipRow].
  */
 @Composable
 internal fun ColumnScope.HomeSheet(
@@ -102,6 +122,7 @@ internal fun ColumnScope.HomeSheet(
     onPickPlace: (SavedPlace) -> Unit,
     canSavePin: Boolean,
     onSavePin: () -> Unit,
+    mode: TravelMode,
     onSpinSettings: () -> Unit,
     onOpenRoutes: () -> Unit,
     onOpenSocial: () -> Unit,
@@ -147,6 +168,7 @@ internal fun ColumnScope.HomeSheet(
                     canSavePin = canSavePin,
                     onPick = onPickPlace,
                     onSavePin = onSavePin,
+                    mode = mode,
                     onSpinSettings = onSpinSettings,
                 )
                 Row(
@@ -198,6 +220,14 @@ private fun DragHandle() {
  * One-tap a saved place, open the spin settings, or save the pin you just
  * dropped. Scrolls horizontally when the places overflow, as the chips over the
  * map used to.
+ *
+ * The Spin chip also names [mode]. The dock that used to show it went with the
+ * mode switch into `SpinSheet`, leaving the idle map with nothing that said
+ * whether it was about to roll a car route or a moto one — and mode decides the
+ * radius default, round-trip planning, the routing profile and whether lean and
+ * g-force get recorded. Spelt out rather than left to [TravelMode.icon]: a bare
+ * vehicle glyph reads as a filter as easily as a state, and this is the chip
+ * that opens the control that changes it, so the word costs nothing.
  */
 @Composable
 private fun ShortcutChipRow(
@@ -205,6 +235,7 @@ private fun ShortcutChipRow(
     canSavePin: Boolean,
     onPick: (SavedPlace) -> Unit,
     onSavePin: () -> Unit,
+    mode: TravelMode,
     onSpinSettings: () -> Unit,
 ) {
     Row(
@@ -230,7 +261,7 @@ private fun ShortcutChipRow(
         // only way to reach it — and, with it, the only way to roll a spin.
         AssistChip(
             onClick = onSpinSettings,
-            label = { Text("Spin", fontWeight = FontWeight.SemiBold) },
+            label = { Text("Spin · ${mode.label}", fontWeight = FontWeight.SemiBold) },
             leadingIcon = {
                 Icon(Icons.Outlined.Casino, contentDescription = null, Modifier.size(18.dp))
             },
