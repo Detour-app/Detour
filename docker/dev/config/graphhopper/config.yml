@@ -1,0 +1,80 @@
+# GraphHopper routing, for local development only.
+#
+# The profile NAMES here are load-bearing: the app sends them as the `profile`
+# query parameter, from TravelMode.ghProfile in
+# shared/src/commonMain/kotlin/com/jellemax/detour/data/TravelMode.kt. They are
+# `car` and `moto`. Renaming either leaves every routing request 400ing, which
+# surfaces in the app as a null route - a spin candidate showing
+# "~ straight-line" distance, and no in-app navigation - rather than as an
+# error you can see.
+
+graphhopper:
+  datareader.file: /osm/belgium-latest.osm.pbf
+  graph.location: /graph
+
+  # Required explicitly in 8.x. These carry no car traffic, and importing them
+  # costs graph size and build time for edges no profile here can use.
+  import.osm.ignored_highways: footway,cycleway,path,pedestrian,steps
+
+  # Only what the two profiles below actually read. `car_access` and
+  # `car_average_speed` do NOT exist in 8.x - vehicles became encoded values in
+  # 9.x, and asking for them here fails the build with "DefaultEncodedValueFactory
+  # cannot find EncodedValue car_access". In 8.x the vehicle comes from each
+  # profile's `vehicle:` key instead.
+  graph.encoded_values: |
+    road_class, roundabout, max_speed, road_environment, surface, track_type
+
+  profiles:
+    # Plain car routing.
+    - name: car
+      vehicle: car
+      turn_costs: true
+      # Empty list = the encoder's stock weighting. Required explicitly in 8.x;
+      # a profile with neither this nor custom_model refuses to start.
+      custom_model_files: []
+
+    # Motorcycle. GraphHopper has no motorcycle encoder, so this rides on the
+    # car encoder and adjusts the weighting: motorways are dull on a bike and
+    # this app exists to avoid them, tracks and poor surfaces are unpleasant on
+    # two wheels, and the app's own round-trip planner already biases toward
+    # curvature on top of whatever comes back here.
+    #
+    # This is a development stand-in, not a tuned motorcycle profile. It makes
+    # `profile=moto` answer with a plausible route; it is not a claim about what
+    # a motorcyclist would choose.
+    - name: moto
+      vehicle: car
+      turn_costs: true
+      custom_model: {
+        "priority": [
+          { "if": "road_class == MOTORWAY",         "multiply_by": "0.3" },
+          { "if": "road_class == TRUNK",            "multiply_by": "0.7" },
+          { "if": "road_class == RESIDENTIAL",      "multiply_by": "0.8" },
+          { "if": "track_type != MISSING",          "multiply_by": "0.2" },
+          { "if": "surface == GRAVEL || surface == DIRT || surface == SAND",
+            "multiply_by": "0.2" }
+        ]
+      }
+
+  # Speed mode. Each profile listed here gets its own contraction-hierarchy
+  # prepared at build time, which is the slow part of a cold start and the
+  # reason the graph cache is a named volume rather than a tmpfs.
+  profiles_ch:
+    - profile: car
+    - profile: moto
+
+server:
+  application_connectors:
+    - type: http
+      port: 8989
+      bind_host: 0.0.0.0
+  admin_connectors:
+    - type: http
+      port: 8990
+      bind_host: 0.0.0.0
+
+logging:
+  appenders:
+    - type: console
+      time_zone: ${TZ:-Europe/Brussels}
+      threshold: INFO
