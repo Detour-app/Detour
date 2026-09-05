@@ -89,4 +89,41 @@ public class FriendshipTests
         friendship.OtherThan(b).Should().Be(a);
         friendship.Involves(Guid.CreateVersion7()).Should().BeFalse();
     }
+
+    [Fact]
+    public void Declining_marks_the_pair_declined_and_remembers_who()
+    {
+        var requester = Guid.CreateVersion7();
+        var target = Guid.CreateVersion7();
+        var (_, friendship) = Friendship.Request(requester, target);
+
+        var result = friendship.Decline(target);
+
+        result.IsFailure.Should().BeFalse();
+        friendship.IsDeclined.Should().BeTrue();
+        friendship.DeclinedByUserId.Should().Be(target);
+    }
+
+    [Fact]
+    public void The_requester_cannot_decline_their_own_request()
+    {
+        var requester = Guid.CreateVersion7();
+        var (_, friendship) = Friendship.Request(requester, Guid.CreateVersion7());
+
+        var result = friendship.Decline(requester);
+
+        result.IsFailure.Should().BeTrue();
+        result.HasError(ValidationKeys.Friendship.CannotDeclineOwnRequest).Should().BeTrue();
+        friendship.IsDeclined.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Declining_twice_is_a_no_op_rather_than_an_error()
+    {
+        var target = Guid.CreateVersion7();
+        var (_, friendship) = Friendship.Request(Guid.CreateVersion7(), target);
+        friendship.Decline(target);
+
+        friendship.Decline(target).IsFailure.Should().BeFalse();
+    }
 }
