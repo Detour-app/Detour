@@ -41,13 +41,13 @@ kotlin {
             implementation("io.ktor:ktor-client-encoding:2.3.12")
             implementation("com.squareup.okio:okio:3.9.0")
             // The auto-theme's local clock hour and the nav ETA's zone;
-            // java.util.Calendar has no common equivalent. `api`, not
-            // `implementation`: TimeZone is a parameter type on navStateFrom,
-            // and Kotlin must resolve every parameter type of a function to
-            // type-check a call to it — so :app fails to compile the call
-            // without this on its compile classpath, even though it names
-            // TimeZone nowhere and leaves `zone` defaulted.
-            api("org.jetbrains.kotlinx:kotlinx-datetime:0.6.0")
+            // java.util.Calendar has no common equivalent. `implementation` is
+            // enough only because no *public* declaration a consumer calls
+            // takes a TimeZone: Kotlin resolves every parameter type of a
+            // called function whether or not the caller passes it, so one such
+            // parameter would force this back to `api`. navStateFrom keeps its
+            // zone-taking form `internal` for exactly that reason.
+            implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.0")
         }
         androidMain.dependencies {
             implementation("io.ktor:ktor-client-okhttp:2.3.12")

@@ -68,15 +68,20 @@ data class NavState(
  * strings/numbers the banner, pill and bottom bar render.
  *
  * [offRouteThresholdMeters] defaults to the same 60.0 the app's
- * `NavPolicy.OFF_ROUTE_METERS` uses. It is a separate constant, not a shared
+ * `NavPolicy.OFF_ROUTE_METERS` holds. It is a separate literal, not a shared
  * reference, because `:shared` cannot depend on `:app` (the dependency runs
- * the other way) — a fifth place this comparison is now written, alongside
- * `MapScreen.kt` and `car/NavScreen.kt`, both of which already compare
- * against `NavPolicy.OFF_ROUTE_METERS` directly.
+ * the other way) — the only second copy of the number. `NavPolicy` owns it,
+ * and every other site references that constant rather than repeating it:
+ * `car/NavScreen.kt` compares against it, and `MapScreen.kt` no longer
+ * compares at all, it passes the constant in here as this argument, so the
+ * default below is never the value the app runs on.
  *
- * [nowMs] and [zone] are the ETA's clock/timezone inputs — plain arguments,
- * never read from a clock, so this stays deterministic like every other
- * mapper here.
+ * [nowMs] is the ETA's clock input — a plain argument, never read from a
+ * clock here, so a caller passing a fixed instant gets a fixed string. The
+ * zone is not: this public overload resolves
+ * `TimeZone.currentSystemDefault()` ambiently on every call, which is what
+ * `:app` gets. The `internal` overload beside it takes the zone explicitly,
+ * which is how `NavStateTest` pins it to UTC.
  */
 fun navStateFrom(
     progress: NavEngine.Progress?,
@@ -85,7 +90,28 @@ fun navStateFrom(
     ambientSpeedLimitKmh: Double?,
     nowMs: Long,
     offRouteThresholdMeters: Double = 60.0,
-    zone: TimeZone = TimeZone.currentSystemDefault(),
+): NavState = navStateFrom(
+    progress, navigating, rerouting, ambientSpeedLimitKmh, nowMs,
+    offRouteThresholdMeters, TimeZone.currentSystemDefault(),
+)
+
+/**
+ * [navStateFrom] with the ETA's zone supplied instead of resolved ambiently,
+ * so a test can pin it. `internal`, and deliberately so: `TimeZone` on a
+ * *public* signature would put kotlinx-datetime on every consumer's compile
+ * classpath, because Kotlin resolves a called function's parameter types
+ * whether or not the caller passes them — which is what forced an `api`
+ * export of the library for a zone `:app` never names. `commonTest` is the
+ * same module, so it reaches this directly.
+ */
+internal fun navStateFrom(
+    progress: NavEngine.Progress?,
+    navigating: Boolean,
+    rerouting: Boolean,
+    ambientSpeedLimitKmh: Double?,
+    nowMs: Long,
+    offRouteThresholdMeters: Double = 60.0,
+    zone: TimeZone,
 ): NavState {
     val offRoute = (progress?.offRouteMeters ?: 0.0) > offRouteThresholdMeters
     val headlineText = when {
