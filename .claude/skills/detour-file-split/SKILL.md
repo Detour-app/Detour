@@ -55,11 +55,11 @@ free to move.
 
 ---
 
-## 1. Same package, always
+## 1. Same package, always — for a mechanical split
 
-Every new file gets the **same `package` declaration as the file it came from**. For the `ui`
-package that is `package com.jellemax.detour.ui`. No new subpackage, no `ui.map`, no
-`ui.settings`.
+A mechanical split (this skill's kind of move) keeps every new file on the **same `package`
+declaration as the file it came from**. For the `ui` package that is
+`package com.jellemax.detour.ui`. No new subpackage, no `ui.map`, no `ui.settings`.
 
 This is what makes the move free. Kotlin resolves same-package top-level declarations without
 an import, so:
@@ -70,10 +70,17 @@ an import, so:
   `RouteEditorScreen.kt` and everything under `car/` ended stage 1 with literally zero-line
   diffs, which is the strongest single piece of evidence that nothing moved semantically.
 
-The counter-argument ("a subpackage would express the grouping") costs a re-touch of every
-moved file the day someone changes their mind, and buys an import edit at every call site
-today. `DECISION.md` settled it for the `ui` package: flat, for everything that stays in the
-app module.
+This rule is scoped to *this operation*: a mechanical split must not also repackage, because
+the zero-added-lines proof above and the zero-diff external call sites depend on staying
+same-package. It comes from stage 1 of the MapScreen refactor
+(`git show b7f4c6f:docs/refactor/mapscreen/specs/stage-1-mechanical-split.md:68`), which
+adopted it so that split's diff stayed provably inert — not from any repo-wide ruling on
+package layout. `docs/refactor/mapscreen/DECISION.md` decides no such thing, and stage 2 of
+that same chain created `app/src/main/java/com/jellemax/detour/map/`, a new subpackage in the
+app module — proof the flat layout was never settled as a general rule.
+
+Whether `ui/` should stay flat long-term is a separate, open question — see #184. Doing a
+mechanical split under this skill does not require an answer to it.
 
 If you are moving into `shared/`, this rule does not apply — that is a rewrite, not a move,
 and belongs to `detour-shared-core`.
