@@ -1807,211 +1807,99 @@ fun MapScreen(
                 PushToTalkButton(talking = convoyTalking.isNotEmpty())
             }
 
-            Column(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    // Unconditional since the mode bar left: nothing else in this
-                    // Scaffold consumes the gesture inset any more. Correct for all
-                    // three occupants of this Column - the nav bar always wanted it,
-                    // and the candidates card and the dock were relying on the mode
-                    // bar this change removed (#70).
-                    .navigationBarsPadding()
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                // Ending a trip used to mean expanding the spin card and hunting
-                // for a button. It now sits here whatever else is on screen, in
-                // the bottom corner your thumb rests in — start-aligned by this
-                // Column, which is where the row that used to hold it put it.
-                // That row's SpaceBetween existed only to pin the speed HUD to
-                // the far end, and the HUD has gone to the top-left island.
-                AnimatedVisibility(
-                    visible = stats != null,
-                    enter = scaleIn() + fadeIn(),
-                    exit = scaleOut() + fadeOut(),
-                ) {
-                    EndTripButton(onClick = { TripTrackingService.stop(context) })
-                }
-
-                // The exiting card still composes for a few frames after `stats`
-                // goes null; keep the last value so it animates out with content.
-                val shownStats = remember { mutableStateOf(stats) }
-                if (stats != null) shownStats.value = stats
-                AnimatedVisibility(
-                    visible = stats != null,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut(),
-                ) {
-                    shownStats.value?.let { ActiveTripCard(it) }
-                }
-
-                // Shortcut chips: one-tap a saved place to set it as destination,
-                // or save the pin you just dropped. Hidden while navigating.
-                AnimatedVisibility(
-                    visible = shortcutChipsShown(
-                        navigating = navigating,
-                        hasSavedPlaces = savedPlaces.isNotEmpty(),
-                        hasDestination = destination != null,
-                    ),
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut(),
-                ) {
-                    ShortcutChips(
-                        places = savedPlaces,
-                        canSavePin = destination != null,
-                        onPick = { p ->
-                            destination = p.location
-                            destinationName = p.name
-                            route = null
-                            camAuthority = CameraAuthority.reduce(
-                                camAuthority,
-                                CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
-                            )
-                            mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
-                                LatLng(p.location.lat, p.location.lon), 14.0), 600)
-                        },
-                        onSavePin = { destination?.let { savePinTarget = it } },
+            MapBottomSlot(
+                stats = stats,
+                onEndTrip = { TripTrackingService.stop(context) },
+                savedPlaces = savedPlaces,
+                navigating = navigating,
+                destination = destination,
+                destinationName = destinationName,
+                route = route,
+                myLocation = myLocation,
+                serverConfig = serverConfig,
+                onPickPlace = { p ->
+                    destination = p.location
+                    destinationName = p.name
+                    route = null
+                    camAuthority = CameraAuthority.reduce(
+                        camAuthority,
+                        CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
                     )
-                }
-
-                // bottomCard is decided once, up where dockShown reads it too;
-                // animate the handover here instead of hard-swapping so the
-                // bottom of the screen stops popping.
-                //
-                // Shared by the two cards that offer a "navigate" button, so
-                // they cannot disagree about whether one is possible.
-                val inAppAvailable = inAppNavAvailable(
-                    serverUsable = serverConfig.usable,
-                    hasDestination = destination != null,
-                    hasRouteInstructions = route?.instructions?.isNotEmpty() == true,
-                )
-                // Same trick as shownStats: the exiting candidates pane must
-                // not render an empty card after a cancel clears the list.
-                val shownCandidates = remember { mutableStateOf(displayCandidates) }
-                if (displayCandidates.isNotEmpty()) shownCandidates.value = displayCandidates
-                AnimatedContent(
-                    targetState = bottomCard,
-                    transitionSpec = {
-                        (fadeIn(tween(200)) + slideInVertically(tween(200)) { it / 10 })
-                            .togetherWith(fadeOut(tween(120)))
-                    },
-                    label = "bottomCard",
-                ) { card ->
-                    when (card) {
-                        HomeBottomCard.NAV -> NavigationBottomBar(
-                            state = navState,
-                            onExit = { stopNavigation() },
-                        )
-                        HomeBottomCard.CANDIDATES -> CandidatesCard(
-                            candidates = shownCandidates.value,
-                            // mode/radiusKm/directionDeg feed spinStateFrom's other
-                            // readouts too (SpinDock/SpinSheet, elsewhere in this
-                            // when-chain) - reused here only for .candidates, the
-                            // per-row name/distance/duration text this card renders.
-                            rows = spinStateFrom(
-                                mode, radiusKm, directionDeg, shownCandidates.value,
-                                Settings.decimalSeparatorChar(),
-                            )
-                                .candidates,
-                            onPick = { index, c ->
-                                if (spinOffer != null) ConvoyLiveClient.sendSpinVote(index) else choose(c)
-                            },
-                            onReroll = { candidates = emptyList(); spin() },
-                            onCancel = {
-                                candidates = emptyList()
-                                if (spinOffer != null) ConvoyLiveClient.clearSpinOffer()
-                            },
-                            // Non-null only once a spin has actually been shared - that's
-                            // also what tells the card to show votes instead of Reroll.
-                            convoyVotes = spinOffer?.let { spinVotes },
-                            members = activeConvoyMembers,
-                            onShare = if (activeConvoyId != null && spinOffer == null && candidates.isNotEmpty()) {
-                                { ConvoyLiveClient.sendSpinOffer(candidates.asSpinCandidates()) }
-                            } else null,
-                            // The sharer's button only: closing the round is
-                            // one device's call, same reason the auto-commit
-                            // above is.
-                            onGoWithLead = spinOffer?.takeIf { it.fromMe }?.let { offer ->
-                                {
-                                    ConvoyLiveClient.sendSpinOffer(listOf(
-                                        offer.candidates[
-                                            ConvoyLiveClient.currentLeadIndex(offer.candidates.size)]))
-                                }
-                            },
-                        )
-                        HomeBottomCard.COLLAPSED -> SpinDock(
-                            mode = mode,
-                            radiusKm = radiusKm,
-                            directionDeg = directionDeg,
-                            spinning = spinning,
-                            destination = destination,
-                            route = route,
-                            origin = myLocation,
-                            inAppAvailable = inAppAvailable,
-                            onSpin = { if (spinning) spinJob?.cancel() else spin() },
-                            onExpand = { settingsCollapsed = false },
-                            onNavigateInApp = { startNavigation() },
-                            onNavigate = {
-                                if (stats == null) {
-                                    TripTrackingService.start(context, destination?.lat, destination?.lon)
-                                }
-                            },
-                            onSwitchMode = { m ->
-                                selectMode(m)
-                                Settings.incrementModeSwipesUsed()
-                            },
-                            switchBlockedReason = switchBlockedReason,
-                            // Not via `error`: LaunchedEffect(error) re-keys on
-                            // value, so a second identical refusal in a row would
-                            // raise no snackbar at all. It also renders as a red
-                            // error line inside SpinSheet, which a refusal is not.
-                            onSwitchBlocked = { reason ->
-                                scope.launch {
-                                    // Replace rather than queue: several refused
-                                    // swipes in a row are one situation, not a
-                                    // backlog of messages to sit through.
-                                    snackbarHostState.currentSnackbarData?.dismiss()
-                                    snackbarHostState.showSnackbar(reason)
-                                }
-                            },
-                            hintRequest = hintRequest,
-                            hintVariant = ModeSwipePolicy.HintVariant.of(swipeHintVariantName),
-                            onHintPlayed = { hintRequest = false },
-                        )
-                        HomeBottomCard.EXPANDED -> SpinSheet(
-                            mode = mode,
-                            radiusKm = radiusKm,
-                            onRadiusChange = { radiusKm = it },
-                            minRadiusKm = minRadiusKm,
-                            onMinRadiusChange = { minRadiusKm = it },
-                            poiKind = poiKind,
-                            onPoiKindChange = { poiKind = it },
-                            directionDeg = directionDeg,
-                            onDirectionChange = { directionDeg = it },
-                            spinning = spinning,
-                            error = error,
-                            route = route,
-                            destinationName = destinationName,
-                            destination = destination,
-                            origin = myLocation,
-                            stats = stats,
-                            inAppAvailable = inAppAvailable,
-                            onSpin = { if (spinning) spinJob?.cancel() else spin() },
-                            onCollapse = { settingsCollapsed = true },
-                            onNavigateInApp = { startNavigation() },
-                            onNavigate = {
-                                if (stats == null) {
-                                    TripTrackingService.start(context, destination?.lat, destination?.lon)
-                                }
-                            },
-                            onTrack = {
-                                TripTrackingService.start(context, destination?.lat, destination?.lon)
-                            },
-                        )
+                    mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
+                        LatLng(p.location.lat, p.location.lon), 14.0), 600)
+                },
+                onSavePin = { destination?.let { savePinTarget = it } },
+                bottomCard = bottomCard,
+                navState = navState,
+                onExitNavigation = { stopNavigation() },
+                displayCandidates = displayCandidates,
+                // Non-null only once a spin has actually been shared - that's
+                // also what tells the card to show votes instead of Reroll.
+                convoyVotes = spinOffer?.let { spinVotes },
+                activeConvoyMembers = activeConvoyMembers,
+                onPickCandidate = { index, c ->
+                    if (spinOffer != null) ConvoyLiveClient.sendSpinVote(index) else choose(c)
+                },
+                onReroll = { candidates = emptyList(); spin() },
+                onCancelCandidates = {
+                    candidates = emptyList()
+                    if (spinOffer != null) ConvoyLiveClient.clearSpinOffer()
+                },
+                onShare = if (activeConvoyId != null && spinOffer == null && candidates.isNotEmpty()) {
+                    { ConvoyLiveClient.sendSpinOffer(candidates.asSpinCandidates()) }
+                } else null,
+                onGoWithLead = spinOffer?.takeIf { it.fromMe }?.let { offer ->
+                    {
+                        ConvoyLiveClient.sendSpinOffer(listOf(
+                            offer.candidates[
+                                ConvoyLiveClient.currentLeadIndex(offer.candidates.size)]))
                     }
-                }
-            }
+                },
+                mode = mode,
+                radiusKm = radiusKm,
+                onRadiusChange = { radiusKm = it },
+                minRadiusKm = minRadiusKm,
+                onMinRadiusChange = { minRadiusKm = it },
+                poiKind = poiKind,
+                onPoiKindChange = { poiKind = it },
+                directionDeg = directionDeg,
+                onDirectionChange = { directionDeg = it },
+                spinning = spinning,
+                error = error,
+                switchBlockedReason = switchBlockedReason,
+                onSwitchMode = { m ->
+                    selectMode(m)
+                    Settings.incrementModeSwipesUsed()
+                },
+                // Not via `error`: LaunchedEffect(error) re-keys on
+                // value, so a second identical refusal in a row would
+                // raise no snackbar at all. It also renders as a red
+                // error line inside SpinSheet, which a refusal is not.
+                onSwitchBlocked = { reason ->
+                    scope.launch {
+                        // Replace rather than queue: several refused
+                        // swipes in a row are one situation, not a
+                        // backlog of messages to sit through.
+                        snackbarHostState.currentSnackbarData?.dismiss()
+                        snackbarHostState.showSnackbar(reason)
+                    }
+                },
+                hintRequest = hintRequest,
+                swipeHintVariantName = swipeHintVariantName,
+                onHintPlayed = { hintRequest = false },
+                onSpin = { if (spinning) spinJob?.cancel() else spin() },
+                onExpand = { settingsCollapsed = false },
+                onCollapse = { settingsCollapsed = true },
+                onNavigateInApp = { startNavigation() },
+                onNavigate = {
+                    if (stats == null) {
+                        TripTrackingService.start(context, destination?.lat, destination?.lon)
+                    }
+                },
+                onTrack = {
+                    TripTrackingService.start(context, destination?.lat, destination?.lon)
+                },
+            )
         }
     }
 
