@@ -69,6 +69,7 @@ import com.jellemax.detour.ui.ProfileScreen
 import com.jellemax.detour.ui.RouteEditorScreen
 import com.jellemax.detour.ui.RoutesScreen
 import com.jellemax.detour.ui.SavedPlacesScreen
+import com.jellemax.detour.ui.SearchScreen
 import com.jellemax.detour.ui.SettingsScreen
 import com.jellemax.detour.ui.SettingsSpokeScreen
 import com.jellemax.detour.ui.SocialScreen
@@ -311,8 +312,12 @@ private fun AppRoot() {
             entry<Destination.Map> {
                 MapScreen(
                     onOpenHub = { backStack.push(Destination.Hub) },
+                    onOpenSearch = { backStack.push(Destination.Search) },
                     retained = retainedMap,
                 )
+            }
+            entry<Destination.Search> {
+                SearchScreen(onBack = { backStack.pop() })
             }
             entry<Destination.Hub> {
                 HubScreen(

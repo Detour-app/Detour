@@ -146,6 +146,7 @@ private enum class BottomCard { NAV, CANDIDATES, COLLAPSED, EXPANDED }
 @Composable
 fun MapScreen(
     onOpenHub: () -> Unit,
+    onOpenSearch: () -> Unit,
     retained: RetainedMap,
 ) {
     val context = LocalContext.current
@@ -234,7 +235,6 @@ fun MapScreen(
     // than one string doing both jobs.
     val accountUsername by Account.username.collectAsStateWithLifecycle()
     val accountRiderId by Account.riderId.collectAsStateWithLifecycle()
-    var searchOpen by remember { mutableStateOf(false) }
     // The map layers panel. Lives here rather than in MapTopChrome so the map's
     // own click listeners can close it — see where they clear it below.
     var layersOpen by remember { mutableStateOf(false) }
@@ -394,6 +394,26 @@ fun MapScreen(
     val fogView = retained.fogView
     val mapLibreMap = retained.map
     val mapOverlays = retained.overlays
+
+    // SearchScreen can't write destination/route/camAuthority itself — pushing
+    // it as its own Destination disposes this composition, so the two are
+    // never composed together the way the dialog and this screen used to be.
+    // It hands the pick back through PendingSearchPick instead; this is the
+    // other half, run once on the way back. See that holder's doc.
+    val pendingSearchPick by PendingSearchPick.result.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingSearchPick) {
+        val r = pendingSearchPick ?: return@LaunchedEffect
+        destination = r.location
+        destinationName = r.name
+        route = null
+        camAuthority = CameraAuthority.reduce(
+            camAuthority,
+            CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
+        )
+        mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
+            LatLng(r.location.lat, r.location.lon), 14.0), 800)
+        PendingSearchPick.clear()
+    }
 
     // Tell the tracker the map is being looked at, so it drops its battery-saving
     // batched fixes for navigation-grade ones while we're here. Tied to the
@@ -1668,7 +1688,7 @@ fun MapScreen(
                             CameraAuthority.Action.FollowToggled,
                         )
                     },
-                    onSearch = { searchOpen = true },
+                    onSearch = onOpenSearch,
                     onToggleFog = { Settings.setFogEnabled(!fogEnabled) },
                     onOpenHub = onOpenHub,
                     modifier = Modifier
@@ -1957,22 +1977,4 @@ fun MapScreen(
         )
     }
 
-    if (searchOpen) {
-        SearchDialog(
-            near = myLocation,
-            onPick = { r ->
-                searchOpen = false
-                destination = r.location
-                destinationName = r.name
-                route = null
-                camAuthority = CameraAuthority.reduce(
-                    camAuthority,
-                    CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
-                )
-                mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
-                    LatLng(r.location.lat, r.location.lon), 14.0), 800)
-            },
-            onDismiss = { searchOpen = false },
-        )
-    }
 }
