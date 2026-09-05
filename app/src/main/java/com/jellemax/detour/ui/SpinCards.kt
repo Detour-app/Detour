@@ -165,7 +165,7 @@ internal fun SpinSheet(
             // same way it always gated the old dropdown, rather than adding a
             // "Loop" option to pick.
             if (!mode.roundTrip) {
-                SegmentedPillRow(
+                ScrollingPillRow(
                     options = PoiKind.entries.map { it.label },
                     selectedIndex = PoiKind.entries.indexOf(poiKind),
                     onSelect = { onPoiKindChange(PoiKind.entries[it]) },
