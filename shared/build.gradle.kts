@@ -40,9 +40,11 @@ kotlin {
             // from core.
             implementation("io.ktor:ktor-client-encoding:2.3.12")
             implementation("com.squareup.okio:okio:3.9.0")
-            // Only for the auto-theme's local clock hour; java.util.Calendar
-            // has no common equivalent.
-            implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.0")
+            // The auto-theme's local clock hour and the nav ETA's zone;
+            // java.util.Calendar has no common equivalent. `api`, not
+            // `implementation`: TimeZone is a parameter type on formatEta and
+            // navStateFrom, so a caller in :app cannot name it otherwise.
+            api("org.jetbrains.kotlinx:kotlinx-datetime:0.6.0")
         }
         androidMain.dependencies {
             implementation("io.ktor:ktor-client-okhttp:2.3.12")

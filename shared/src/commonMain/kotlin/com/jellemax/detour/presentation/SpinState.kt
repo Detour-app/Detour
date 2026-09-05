@@ -76,15 +76,6 @@ internal fun directionText(directionDeg: Float?): String =
     directionDeg?.let { DIRECTION_NAMES[(it / 45f).toInt()] } ?: "any direction"
 
 /**
- * `app/.../ui/Format.kt`'s app-only `formatDistanceKm` (`if (meters < 1000) "%.0f m" else
- * "%.1f km"`), ported into `commonMain` via [formatFixed] under the same
- * name a `RouteCandidate`'s distance always used - a candidate row needs this
- * and `commonMain` had no equivalent to reuse.
- */
-private fun formatDistanceMeters(meters: Double): String =
-    if (meters < 1000) "${formatFixed(meters, 0)} m" else "${formatFixed(meters / 1000, 1)} km"
-
-/**
  * `CandidatesCard`'s per-row `Column` and duration `Surface`, ported as one
  * row: `c.name ?: "Option ${index + 1}"` for the label, the route distance
  * falling back to the straight-line draw with the same "~ straight-line " /
@@ -97,7 +88,7 @@ internal fun candidateRow(index: Int, candidate: RouteCandidate): SpinCandidateR
     val prefix = if (candidate.route?.distanceMeters == null) "~ straight-line " else "via road "
     return SpinCandidateRow(
         name = candidate.name ?: "Option ${index + 1}",
-        distanceText = prefix + formatDistanceMeters(distanceMeters),
+        distanceText = prefix + formatDistanceKm(distanceMeters),
         durationText = candidate.route?.timeMs?.let { "${formatFixed(it / 60_000.0, 0)} min" },
     )
 }

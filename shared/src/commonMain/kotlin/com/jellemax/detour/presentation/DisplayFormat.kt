@@ -90,10 +90,9 @@ fun relativeAge(tsMs: Long, nowMs: Long): String {
 /**
  * "850 m" under a kilometre, "1.2 km" at or above it — `app/.../ui/Format.kt`'s
  * `formatDistanceKm` (`if (meters < 1000) "%.0f m" else "%.1f km"`), ported via
- * [formatFixed]. `internal`: a nav display needs this today, and it is the
- * canonical copy new commonMain callers should reach for rather than writing
- * their own — `SpinState.kt`'s own private `formatDistanceMeters` predates
- * this one and was left alone rather than touched by an unrelated task.
+ * [formatFixed]. `internal`: the nav and spin displays both need it, and it is
+ * the canonical copy new commonMain callers should reach for rather than
+ * writing their own.
  */
 internal fun formatDistanceKm(meters: Double): String =
     if (meters < 1000) "${formatFixed(meters, 0)} m" else "${formatFixed(meters / 1000, 1)} km"

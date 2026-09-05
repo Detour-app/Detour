@@ -5,7 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * commonMain has no NumberFormat and no String.format, so these two helpers are
+ * commonMain has no NumberFormat and no String.format, so these helpers are
  * the only number formatting the presentation layer gets. They must read the same
  * on JVM and Kotlin/Native, which means no locale input of any kind.
  */

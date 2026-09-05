@@ -42,6 +42,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
@@ -106,6 +107,7 @@ import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.drive.SpinRoundOutcome
+import com.jellemax.detour.presentation.navStateFrom
 import com.jellemax.detour.presentation.spinStateFrom
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
@@ -131,6 +133,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.TimeZone
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -1507,6 +1510,29 @@ fun MapScreen(
         }
     }
 
+    // The banner, its "then" chip, the bottom bar and the HUD's limit source all
+    // read one mapper call, so none of them formats a number of its own.
+    // derivedStateOf keeps the reads at the leaves: a progress tick then
+    // invalidates those three readouts instead of this whole screen, and the
+    // clock is read once per tick rather than once per frame.
+    val navZone = remember { TimeZone.currentSystemDefault() }
+    val navState by remember {
+        derivedStateOf {
+            navStateFrom(
+                progress = navProgress,
+                navigating = navigating,
+                rerouting = rerouting,
+                ambientSpeedLimitKmh = retained.ambientSpeedLimitKmh,
+                nowMs = System.currentTimeMillis(),
+                // Named here rather than left to the mapper's own default:
+                // :shared cannot see NavPolicy, so that default is a second
+                // copy of the threshold and would drift without a word.
+                offRouteThresholdMeters = NavPolicy.OFF_ROUTE_METERS,
+                zone = navZone,
+            )
+        }
+    }
+
     fun spin() {
         val loc = myLocation ?: run {
             error = "Waiting for your location…"
@@ -1663,17 +1689,13 @@ fun MapScreen(
                     .align(Alignment.TopCenter)
                     .fillMaxWidth(),
             ) {
-                Column(
+                NavigationBanner(
+                    navState,
                     Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
                         .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    NavigationBanner(progress = navProgress, rerouting = rerouting,
-                        modifier = Modifier.fillMaxWidth())
-                    ThenPill(navProgress)
-                }
+                )
             }
             AnimatedVisibility(
                 visible = !navigating,
@@ -1774,8 +1796,7 @@ fun MapScreen(
                         ) {
                             SpeedHud(
                                 speedKmh = retained.displaySpeedKmh,
-                                limitKmh = if (navigating) navProgress?.speedLimitKmh
-                                    else retained.ambientSpeedLimitKmh,
+                                limitKmh = navState.speedLimitKmh,
                                 averageKmh = sectionAvgKmh,
                                 averageLimitKmh = sectionLimitKmh,
                             )
@@ -1856,9 +1877,7 @@ fun MapScreen(
                 ) { card ->
                     when (card) {
                         BottomCard.NAV -> NavigationBottomBar(
-                            progress = navProgress,
-                            offRoute = (navProgress?.offRouteMeters ?: 0.0) >
-                                NavPolicy.OFF_ROUTE_METERS,
+                            state = navState,
                             onExit = { stopNavigation() },
                         )
                         BottomCard.CANDIDATES -> CandidatesCard(
