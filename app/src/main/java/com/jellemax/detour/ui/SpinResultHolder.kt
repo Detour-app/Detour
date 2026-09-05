@@ -39,8 +39,8 @@ internal object SpinResultHolder {
 /**
  * Hands a saved route's final stop to the map as though it were a fresh spin
  * result, so the next time [MapScreen] composes it shows the same "Go"
- * affordances (SpinDock's nav button/menu) a spin result gets — the existing
- * in-app nav path, reused rather than duplicated.
+ * affordances (the spin sheet's nav button/menu) a spin result gets — the
+ * existing in-app nav path, reused rather than duplicated.
  *
  * Only the destination carries over; [startNavigation] always re-fetches a
  * live two-point route from wherever the user actually is when they tap Go,

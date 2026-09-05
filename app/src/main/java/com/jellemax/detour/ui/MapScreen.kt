@@ -111,7 +111,6 @@ import com.jellemax.detour.map.CAM_BEARING_TAU
 import com.jellemax.detour.map.CameraAuthority
 import com.jellemax.detour.map.FollowCamera
 import com.jellemax.detour.map.MapMotion
-import com.jellemax.detour.map.ModeSwipePolicy
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.bearingDelta
 import com.jellemax.detour.map.smoothBearing
@@ -142,20 +141,17 @@ import kotlin.random.Random
 @Composable
 fun MapScreen(
     onOpenHub: () -> Unit,
+    onOpenRoutes: () -> Unit,
+    onOpenSocial: () -> Unit,
     retained: RetainedMap,
 ) {
     val context = LocalContext.current
-    // Extra bottom padding for a fitted route/candidate spread, roughly the
-    // expanded spin card's height, so the card doesn't cover most of it. A
-    // fixed fraction of the screen rather than measuring the actual card —
-    // the card's real height varies with content, and this only needs to be
-    // in the right ballpark.
-    val fitBottomPaddingPx = (context.resources.displayMetrics.heightPixels * 0.4).toInt()
-    // Bottom margin so OSM/OpenFreeMap attribution stays above the collapsed
-    // spin bar instead of half-covered by it — a fixed estimate of the bar's
-    // height (icon + row padding) rather than measuring it, same spirit as
-    // fitBottomPaddingPx above.
-    val attributionBottomMarginPx = with(LocalDensity.current) { 84.dp.roundToPx() }
+    // Extra bottom padding for a fitted route/candidate spread, so whatever is
+    // in the bottom slot doesn't cover most of it. See the constant for what
+    // it is measured against and why it stopped being a fraction of the screen.
+    val fitBottomPaddingPx = with(LocalDensity.current) {
+        MAP_FIT_BOTTOM_PADDING_DP.dp.roundToPx()
+    }
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
     LaunchedEffect(Unit) { SavedPlaces.ensureLoaded() }
@@ -290,8 +286,6 @@ fun MapScreen(
     }
 
     var navigating by remember { mutableStateOf(savedSpin.navigating) }
-    val modeSwipesUsed by Settings.modeSwipesUsed.collectAsStateWithLifecycle()
-    val swipeHintVariantName by Settings.swipeHintVariant.collectAsStateWithLifecycle()
     var navProgress by remember { mutableStateOf<NavEngine.Progress?>(null) }
     var rerouting by remember { mutableStateOf(false) }
 
@@ -352,12 +346,6 @@ fun MapScreen(
             myLocation = LatLon(it.lat, it.lon)
         }
     }
-
-    // The top chrome, and the island inside it, is replaced by the navigation
-    // banner once guidance starts. Close the island rather than leaving it open
-    // behind that banner, where its BackHandler is gone and back would leave the
-    // app instead of dismissing it.
-    LaunchedEffect(navigating) { if (navigating) searchOpen = false }
 
     // Keep the min-distance floor from exceeding the radius as the slider moves.
     LaunchedEffect(radiusKm) {
@@ -620,53 +608,21 @@ fun MapScreen(
     // convoy offer outranks this phone's own spin (ConvoyLiveClient.sendSpinOffer).
     val visibleCandidates = displayCandidates(spinOffer?.asRouteCandidates(), candidates)
 
-    /** Non-null while something in flight makes a mode change wrong to allow.
-     *  Navigation and an open candidate round need no entry here: both replace
-     *  the dock with a different card in the same slot. */
-    val switchBlockedReason = ModeSwipePolicy.blockedReason(
-        spinning = spinning,
-        tracking = stats != null,
-    )
-
-    // One slot, four occupants. Decided once, here, and consumed twice: by the
-    // AnimatedContent in MapBottomSlot that actually renders the card, and by
-    // hint countdown immediately below, which has to know whether the dock is
-    // on screen at all - it is absent while navigating, while a candidate
-    // round is open and while the sheet is expanded, and a hint armed during
-    // any of those would fire on the dock's very next composition, as part of
-    // the screen arriving, which is the one thing HINT_DELAY_MS exists to
-    // prevent. These used to be two hand-matched copies of the same three
-    // tests, 1200 lines apart.
+    // One slot, four occupants, decided once here rather than re-derived where
+    // each of them is drawn. The home sheet is the resting one; the other three
+    // displace it.
     val bottomCard = homeBottomCard(
         navigating = navigating,
         hasCandidates = visibleCandidates.isNotEmpty(),
         collapsed = settingsCollapsed,
     )
-    val dockShown = bottomCard == HomeBottomCard.COLLAPSED
 
-    // Scheduled here rather than inside SpinDock because SpinDock is disposed
-    // every time the sheet expands or a candidate round opens - a guard in there
-    // would replay the hint on every collapse.
-    //
-    // Once per Activity, not once per map visit. This used to be the latter,
-    // because AppRoot had no rememberSaveableStateHolder and leaving for the
-    // Hub therefore discarded even the saveable state - so the hint re-armed on
-    // every return to the map. #82 gave each destination its own saved-state
-    // slot, so this now survives a trip to the Hub and a rotation alike, and
-    // "already shown" means shown. Deliberate: re-teaching a gesture the rider
-    // has already been shown is what the flag exists to prevent.
-    var hintShown by rememberSaveable { mutableStateOf(false) }
-    var hintRequest by remember { mutableStateOf(false) }
-    val hintDue = dockShown && ModeSwipePolicy.hintDue(
-        alreadyShown = hintShown,
-        swipesUsed = modeSwipesUsed,
-        blocked = switchBlockedReason != null,
-    )
-    LaunchedEffect(hintDue) {
-        if (!hintDue) return@LaunchedEffect
-        delay(ModeSwipePolicy.HINT_DELAY_MS)
-        hintShown = true
-        hintRequest = true
+    // The search island lives in the home sheet, so anything that displaces the
+    // sheet takes the island's BackHandler with it - and back would then leave
+    // the app rather than dismissing a search that is still on screen. Closing
+    // it here covers all three displacements at once, navigation included.
+    LaunchedEffect(bottomCard) {
+        if (bottomCard != HomeBottomCard.COLLAPSED) searchOpen = false
     }
 
     /** Commits a convoy spin's leading (or explicitly chosen) candidate,
@@ -1644,20 +1600,6 @@ fun MapScreen(
         }
     }
 
-    fun selectMode(m: TravelMode) {
-        if (m == mode) return
-        Settings.setTripMode(m)
-        radiusKm = m.defaultKm
-        minRadiusKm = 0f
-        destination = null
-        destinationName = null
-        route = null
-        candidates = emptyList()
-        // A convoy spin's candidates are mode-specific too - a switch away
-        // must not leave a stale vote round on everyone's screen.
-        if (spinOffer != null) ConvoyLiveClient.clearSpinOffer()
-    }
-
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -1697,17 +1639,20 @@ fun MapScreen(
                 // one island at the top-left — isHome.html's left:14/top:44,
                 // widened so the average keeps its slot.
                 //
-                // Idle, it sits level with the top chrome's right-hand rail —
-                // see ISLAND_TOP_OFFSET_IDLE for what that offset is made of
-                // and when it has to be re-derived. Navigating, the banner
-                // above has already pushed it clear and it only needs the gap.
+                // Idle, it sits level with the top chrome's right-hand rail,
+                // which needs no offset at all: the rail is now the first thing
+                // in that chrome, so both are at the chrome's own 12 dp padding
+                // and nothing else. The 50 dp this used to add was the search
+                // pill's height plus the gap under it, and the pill has moved
+                // into the home sheet. Navigating, the banner above has already
+                // pushed the island clear and it only needs the gap.
                 //
                 // Drawn unconditionally. The standstill fade — "stopping at a
                 // light fades the dial out" — is deliberately gone: a parked map
                 // now keeps its instruments, as the head unit always has. See
                 // the divergence register's entry 18.
                 Column(
-                    Modifier.padding(top = if (navigating) 10.dp else ISLAND_TOP_OFFSET_IDLE),
+                    Modifier.padding(top = if (navigating) 10.dp else 0.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     SpeedHud(
@@ -1744,7 +1689,6 @@ fun MapScreen(
                 MapTopChrome(
                     followMe = camAuthority.following,
                     fogEnabled = fogEnabled,
-                    username = accountUsername,
                     convoyName = if (convoyConnected) convoyName else null,
                     layersOpen = layersOpen,
                     onLayersOpenChange = { layersOpen = it },
@@ -1754,21 +1698,7 @@ fun MapScreen(
                             CameraAuthority.Action.FollowToggled,
                         )
                     },
-                    searchOpen = searchOpen,
-                    onSearchOpenChange = { searchOpen = it },
-                    onPickDestination = { r ->
-                        destination = r.location
-                        destinationName = r.name
-                        route = null
-                        camAuthority = CameraAuthority.reduce(
-                            camAuthority,
-                            CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
-                        )
-                        mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
-                            LatLng(r.location.lat, r.location.lon), 14.0), 800)
-                    },
                     onToggleFog = { Settings.setFogEnabled(!fogEnabled) },
-                    onOpenHub = onOpenHub,
                     modifier = Modifier
                         .statusBarsPadding()
                         .padding(12.dp),
@@ -1800,12 +1730,28 @@ fun MapScreen(
                 stats = stats,
                 onEndTrip = { TripTrackingService.stop(context) },
                 savedPlaces = savedPlaces,
-                navigating = navigating,
                 destination = destination,
                 destinationName = destinationName,
                 route = route,
                 myLocation = myLocation,
                 serverConfig = serverConfig,
+                username = accountUsername,
+                onOpenHub = onOpenHub,
+                searchOpen = searchOpen,
+                onSearchOpenChange = { searchOpen = it },
+                onPickDestination = { r ->
+                    destination = r.location
+                    destinationName = r.name
+                    route = null
+                    camAuthority = CameraAuthority.reduce(
+                        camAuthority,
+                        CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
+                    )
+                    mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
+                        LatLng(r.location.lat, r.location.lon), 14.0), 800)
+                },
+                onOpenRoutes = onOpenRoutes,
+                onOpenSocial = onOpenSocial,
                 onPickPlace = { p ->
                     destination = p.location
                     destinationName = p.name
@@ -1822,8 +1768,7 @@ fun MapScreen(
                 navState = navState,
                 onExitNavigation = { stopNavigation() },
                 displayCandidates = visibleCandidates,
-                // Non-null only once a spin has actually been shared - that's
-                // also what tells the card to show votes instead of Reroll.
+                // Non-null only once a spin has actually been shared.
                 convoyVotes = spinOffer?.let { spinVotes },
                 activeConvoyMembers = activeConvoyMembers,
                 onPickCandidate = { index, c ->
@@ -1855,27 +1800,6 @@ fun MapScreen(
                 onDirectionChange = { directionDeg = it },
                 spinning = spinning,
                 error = error,
-                switchBlockedReason = switchBlockedReason,
-                onSwitchMode = { m ->
-                    selectMode(m)
-                    Settings.incrementModeSwipesUsed()
-                },
-                // Not via `error`: LaunchedEffect(error) re-keys on
-                // value, so a second identical refusal in a row would
-                // raise no snackbar at all. It also renders as a red
-                // error line inside SpinSheet, which a refusal is not.
-                onSwitchBlocked = { reason ->
-                    scope.launch {
-                        // Replace rather than queue: several refused
-                        // swipes in a row are one situation, not a
-                        // backlog of messages to sit through.
-                        snackbarHostState.currentSnackbarData?.dismiss()
-                        snackbarHostState.showSnackbar(reason)
-                    }
-                },
-                hintRequest = hintRequest,
-                swipeHintVariantName = swipeHintVariantName,
-                onHintPlayed = { hintRequest = false },
                 onSpin = { if (spinning) spinJob?.cancel() else spin() },
                 onExpand = { settingsCollapsed = false },
                 onCollapse = { settingsCollapsed = true },

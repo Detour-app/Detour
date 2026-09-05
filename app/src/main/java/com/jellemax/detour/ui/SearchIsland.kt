@@ -64,9 +64,8 @@ import kotlinx.coroutines.withContext
 private val ISLAND_MAX_HEIGHT = 360.dp
 
 /**
- * Destination search, as a dropdown island over the map: the map's "Where to?"
- * bar *is* the text field, and results float in a glass card anchored directly
- * beneath it.
+ * Destination search: the home sheet's "Where to?" bar *is* the text field, and
+ * results rise out of it in a glass card anchored directly above.
  *
  * Composed inside `MapScreen` on purpose, rather than as a `Dialog` or a
  * destination of its own. `NavDisplay` has no scene strategy, so pushing a
@@ -80,6 +79,18 @@ private val ISLAND_MAX_HEIGHT = 360.dp
  * floor, same recents-then-live-hits merge, same sticky proximity bias. That
  * behaviour is the reference the car and iOS surfaces are meant to converge
  * on, not a place to redesign.
+ *
+ * ## Growing upward
+ *
+ * The results are the Column's *first* child and the bar its second, so from a
+ * bottom anchor the list expands up the screen rather than down over the map.
+ * Two things follow, and neither is optional:
+ *
+ * - the results carry `weight(1f, fill = false)`, so [modifier] must resolve to
+ *   a bounded height. `HomeSheet` supplies that, and a weighted child in an
+ *   unbounded Column measures to nothing at all — with no compiler signal.
+ * - the keyboard covers exactly the region the results grow into, so whatever
+ *   holds this must consume `WindowInsets.ime`. `HomeSheet` does.
  *
  * @param open whether the island is showing. Hoisted so a tap on the map can
  *   close it, the same way `layersOpen` is.
@@ -183,6 +194,58 @@ fun SearchIsland(
     }
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (open && (results.isNotEmpty() || error != null)) {
+            // Glass, not the default opaque ListCard surface: the bar this
+            // hangs off is frosted and so is the map chrome across from it, and
+            // an opaque slab between them reads as a different app.
+            //
+            // Weighted, and that is what makes the upward growth safe: the bar
+            // below is measured first at its intrinsic height, and this takes
+            // whatever the sheet has left over the keyboard. Unweighted it
+            // would claim ISLAND_MAX_HEIGHT off the top and push the bar — the
+            // thing being typed into — off the screen on a short phone.
+            ListCard(
+                modifier = Modifier.weight(1f, fill = false),
+                colors = glassCardColors(),
+                borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+            ) {
+                Column(
+                    Modifier
+                        .heightIn(max = ISLAND_MAX_HEIGHT)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    error?.let {
+                        Text(
+                            it,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        )
+                        if (results.isNotEmpty()) CardDivider()
+                    }
+                    results.forEachIndexed { index, r ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { pick(r) }
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                if (r.name in recentNames) Icons.Rounded.History
+                                    else Icons.Rounded.Place,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(Modifier.width(16.dp))
+                            Text(r.name, style = MaterialTheme.typography.bodyLarge)
+                        }
+                        if (index != results.lastIndex) CardDivider()
+                    }
+                }
+            }
+        }
         Card(
             modifier = Modifier.fillMaxWidth().glassBorder(CircleShape),
             shape = CircleShape,
@@ -271,52 +334,6 @@ fun SearchIsland(
                                 modifier = Modifier.size(20.dp),
                             )
                         }
-                    }
-                }
-            }
-        }
-
-        if (open && (results.isNotEmpty() || error != null)) {
-            // Glass, not the default opaque ListCard surface: this floats over
-            // the live map beside the pill above and the dock below, and an
-            // opaque slab between two frosted ones reads as a different app.
-            ListCard(
-                colors = glassCardColors(),
-                borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
-            ) {
-                Column(
-                    Modifier
-                        .heightIn(max = ISLAND_MAX_HEIGHT)
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    error?.let {
-                        Text(
-                            it,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                        )
-                        if (results.isNotEmpty()) CardDivider()
-                    }
-                    results.forEachIndexed { index, r ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { pick(r) }
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                if (r.name in recentNames) Icons.Rounded.History
-                                    else Icons.Rounded.Place,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Spacer(Modifier.width(16.dp))
-                            Text(r.name, style = MaterialTheme.typography.bodyLarge)
-                        }
-                        if (index != results.lastIndex) CardDivider()
                     }
                 }
             }

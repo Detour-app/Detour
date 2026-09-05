@@ -32,94 +32,75 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import com.jellemax.detour.data.GeocodeResult
 
-/** Map top chrome: the search island's bar with an avatar that opens the Hub,
- *  and a right-aligned rail of the two controls worth reaching for while
- *  driving (follow toggle, layers). Everything else moved to the Hub. */
+/** Map top chrome: the convoy pill, and a right-aligned rail of the two
+ *  controls worth reaching for while driving (follow toggle, layers).
+ *  Everything else moved to the Hub or, with the redesign, to the home sheet —
+ *  the "Where to?" bar and the avatar included. */
 @Composable
 internal fun MapTopChrome(
     followMe: Boolean,
     fogEnabled: Boolean,
-    username: String,
     convoyName: String?,
     // Hoisted to MapScreen so a tap on the map can close the panel — the job
     // the Popup's dismissOnClickOutside used to do.
     layersOpen: Boolean,
     onLayersOpenChange: (Boolean) -> Unit,
-    // Hoisted for the same reason, plus: the map's click listener is the
-    // island's outside-tap dismissal.
-    searchOpen: Boolean,
-    onSearchOpenChange: (Boolean) -> Unit,
     onToggleFollow: () -> Unit,
-    onPickDestination: (GeocodeResult) -> Unit,
     onToggleFog: () -> Unit,
-    onOpenHub: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SearchIsland(
-            open = searchOpen,
-            onOpenChange = onSearchOpenChange,
-            username = username,
-            onAvatarClick = onOpenHub,
-            onPick = onPickDestination,
-        )
-        // The island's results hang exactly where these two sit, so they stand
-        // aside while it is open rather than being pushed down the map behind
-        // it. Neither is worth reaching for mid-search.
-        if (!searchOpen) {
-            AnimatedVisibility(visible = convoyName != null, enter = fadeIn(), exit = fadeOut()) {
-                ConvoyPill(name = convoyName ?: "")
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                // End-aligned because the layers panel below is wider than the
-                // 40.dp buttons: without this the column widens to the card and
-                // centres the buttons in it, shifting them off the rail.
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalAlignment = Alignment.End,
-                ) {
-                    GlassRailButton(
-                        icon = if (followMe) Icons.Outlined.MyLocation
-                            else Icons.Outlined.LocationSearching,
-                        contentDescription = if (followMe) "Stop following my location"
-                            else "Follow my location",
-                        tinted = followMe,
-                        onClick = onToggleFollow,
-                    )
-                    GlassRailButton(
-                        icon = Icons.Outlined.Layers,
-                        contentDescription = "Map layers",
-                        tinted = layersOpen,
-                        onClick = { onLayersOpenChange(!layersOpen) },
-                    )
-                    // Inline rather than a Popup on purpose. A Popup is its own
-                    // window, so the button sitting outside it counted as an
-                    // outside-click *and* still ran its own onClick: the panel
-                    // closed and reopened on the same tap, and the button could
-                    // never close it. One window, one handler, and the toggle is
-                    // correct by construction.
-                    AnimatedVisibility(visible = layersOpen, enter = fadeIn(), exit = fadeOut()) {
-                        Card(
-                            modifier = Modifier.glassBorder(MaterialTheme.shapes.large),
-                            shape = MaterialTheme.shapes.large,
-                            colors = glassCardColors(),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        AnimatedVisibility(visible = convoyName != null, enter = fadeIn(), exit = fadeOut()) {
+            ConvoyPill(name = convoyName ?: "")
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            // End-aligned because the layers panel below is wider than the
+            // 40.dp buttons: without this the column widens to the card and
+            // centres the buttons in it, shifting them off the rail.
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.End,
+            ) {
+                GlassRailButton(
+                    icon = if (followMe) Icons.Outlined.MyLocation
+                        else Icons.Outlined.LocationSearching,
+                    contentDescription = if (followMe) "Stop following my location"
+                        else "Follow my location",
+                    tinted = followMe,
+                    onClick = onToggleFollow,
+                )
+                GlassRailButton(
+                    icon = Icons.Outlined.Layers,
+                    contentDescription = "Map layers",
+                    tinted = layersOpen,
+                    onClick = { onLayersOpenChange(!layersOpen) },
+                )
+                // Inline rather than a Popup on purpose. A Popup is its own
+                // window, so the button sitting outside it counted as an
+                // outside-click *and* still ran its own onClick: the panel
+                // closed and reopened on the same tap, and the button could
+                // never close it. One window, one handler, and the toggle is
+                // correct by construction.
+                AnimatedVisibility(visible = layersOpen, enter = fadeIn(), exit = fadeOut()) {
+                    Card(
+                        modifier = Modifier.glassBorder(MaterialTheme.shapes.large),
+                        shape = MaterialTheme.shapes.large,
+                        colors = glassCardColors(),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Row(
-                                Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    if (fogEnabled) Icons.Outlined.Visibility
-                                        else Icons.Outlined.VisibilityOff,
-                                    contentDescription = null,
-                                )
-                                Text("Fog of war", modifier = Modifier.weight(1f))
-                                Switch(checked = fogEnabled, onCheckedChange = { onToggleFog() })
-                            }
+                            Icon(
+                                if (fogEnabled) Icons.Outlined.Visibility
+                                    else Icons.Outlined.VisibilityOff,
+                                contentDescription = null,
+                            )
+                            Text("Fog of war", modifier = Modifier.weight(1f))
+                            Switch(checked = fogEnabled, onCheckedChange = { onToggleFog() })
                         }
                     }
                 }
@@ -128,7 +109,7 @@ internal fun MapTopChrome(
     }
 }
 
-/** Small pill under the search bar naming the convoy this device is currently
+/** Small pill at the top of the map naming the convoy this device is currently
  *  live in, i.e. whenever [ConvoyLiveClient.connected] is true. */
 @Composable
 private fun ConvoyPill(name: String, modifier: Modifier = Modifier) {

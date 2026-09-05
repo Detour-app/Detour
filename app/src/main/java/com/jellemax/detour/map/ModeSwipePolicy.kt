@@ -7,7 +7,15 @@ import kotlin.math.abs
  * Every decision the spin dock's mode swipe makes. Pure: values in, one answer
  * out, no clock of its own, no Compose and no Android.
  *
- * It lives here rather than inside `SpinDock` because this repo has no Compose
+ * **Currently unreferenced.** The dock this drove was the map's resting bottom
+ * card and, with it, the phone's only travel-mode switch; the home sheet that
+ * replaced it has no swipe. Kept, with its tests, because the rules here are
+ * the answer to "when may the mode change, and how far does a drag have to go"
+ * — questions any future switch asks again — and deleting tested logic while
+ * rebuilding the screen around it is how coverage disappears without anyone
+ * noticing.
+ *
+ * It lives here rather than inside that dock because this repo has no Compose
  * test infrastructure - CI runs `:app:testDebugUnitTest` and
  * `:shared:testDebugUnitTest` only, with no Robolectric and no `androidTest`
  * source set. Arithmetic left inside a composable is arithmetic no test can

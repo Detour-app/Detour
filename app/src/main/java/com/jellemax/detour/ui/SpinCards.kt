@@ -172,11 +172,11 @@ internal fun SpinSheet(
             }
 
             // Every number below comes off spinStateFrom's radiusText - the
-            // same %-decimal-below-maxKm/whole-number-at-or-above rule
-            // ModeCell (SpinDock.kt) reads off it, so the dock and the sheet
-            // never format the same radiusKm two different ways. directionDeg
-            // and candidates are irrelevant to this readout, so a null/empty
-            // roll is enough to reuse the mapper for it.
+            // same %-decimal-below-maxKm/whole-number-at-or-above rule the
+            // candidates card's rows read off it, so no two surfaces format
+            // the same radiusKm differently. directionDeg and candidates are
+            // irrelevant to this readout, so a null/empty roll is enough to
+            // reuse the mapper for it.
             val radiusState =
                 spinStateFrom(mode, radiusKm, null, emptyList(), Settings.decimalSeparatorChar())
             Row(

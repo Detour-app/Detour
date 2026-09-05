@@ -273,6 +273,11 @@ private fun AppRoot() {
             entry<Destination.Map> {
                 MapScreen(
                     onOpenHub = { backStack.push(Destination.Hub) },
+                    // The home sheet's two cards. Both destinations already
+                    // exist and are already reachable from the Hub; this is the
+                    // map handing them a second entry point, not a promotion.
+                    onOpenRoutes = { backStack.push(Destination.Routes) },
+                    onOpenSocial = { backStack.push(Destination.Social) },
                     retained = retainedMap,
                 )
             }

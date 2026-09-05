@@ -54,6 +54,21 @@ internal const val CAM_SNAP_METERS = 250.0
 // don't sit against the screen edge.
 internal const val FIT_PADDING_PX = 140
 
+// Extra padding under a fitted route/candidate spread, so whatever occupies the
+// map's bottom slot at the moment of the fit doesn't cover most of it. The two
+// occupants that can be there when one of MapScreen's four fits runs:
+//
+//   ~280 dp  the candidates card — header, three rows, the button row, its
+//            12 dp gutter and the gesture inset
+//   ~250 dp  the home sheet — HOME_SHEET_HEIGHT plus that same inset
+//
+// 300 dp clears the taller of the two with a little to spare. A dp figure and
+// not the screen fraction this used to be: both cards are sized by their
+// content, so a fraction only tracked the card's height by coincidence on the
+// phone it was eyeballed on, and over-padded every large screen by hundreds of
+// pixels. Same shape as TripDetailScreen's own FIT_BOTTOM_PADDING_DP.
+internal const val MAP_FIT_BOTTOM_PADDING_DP = 300
+
 // How many round trips to roll before picking one. GraphHopper's round_trip is
 // seed-driven and its curvature weighting only biases the search, so seeds
 // differ a lot in how much of the loop is actually bends — rolling a few and

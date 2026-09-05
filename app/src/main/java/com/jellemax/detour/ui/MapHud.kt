@@ -5,7 +5,6 @@ import android.content.pm.PackageManager
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,15 +15,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.outlined.Stop
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -51,7 +45,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.audio.PushToTalk
-import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.presentation.SpeedHudState
 import com.jellemax.detour.presentation.activeTripCardStateFrom
@@ -59,44 +52,6 @@ import com.jellemax.detour.tracking.TripStats
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-/** One-tap saved-place chips over the map, plus a "Save pin" chip when a
- *  destination pin is on screen. Scrolls horizontally when they overflow. */
-@Composable
-internal fun ShortcutChips(
-    places: List<SavedPlace>,
-    canSavePin: Boolean,
-    onPick: (SavedPlace) -> Unit,
-    onSavePin: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        if (canSavePin) {
-            AssistChip(
-                onClick = onSavePin,
-                label = { Text("Save pin") },
-                leadingIcon = { Icon(Icons.Default.Add, contentDescription = null,
-                    Modifier.size(18.dp)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = glassContainerColor()),
-            )
-        }
-        places.forEach { p ->
-            AssistChip(
-                onClick = { onPick(p) },
-                label = { Text(p.name, maxLines = 1) },
-                leadingIcon = { Icon(Icons.Default.Place, contentDescription = null,
-                    Modifier.size(18.dp)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = glassContainerColor()),
-            )
-        }
-    }
-}
 
 /** Always on screen while a trip is running, in the corner your thumb rests in. */
 @Composable
@@ -178,18 +133,6 @@ internal fun PushToTalkButton(talking: Boolean, modifier: Modifier = Modifier) {
  *  prototype's 56 px because the trajectcontrole average keeps a slot in here
  *  and "avg km/h" has to fit under it. */
 private val ISLAND_WIDTH = 72.dp
-
-/** How far the idle island hangs below the top chrome: the 40 dp search pill
- *  plus the 10 dp gap under it. The chrome's right-hand rail takes the same
- *  offset, so the two line up.
- *
- *  **Re-derive this when the search pill leaves the top chrome.** Moving it
- *  into a bottom sheet takes the 40 dp term away and nothing here will warn:
- *  the pill has no declared height at all — `SearchIsland` sizes it to its
- *  content — so there is no constant to go stale. The prototype drawn without
- *  a pill (`isHome.html`) puts the island and the rail both at `top: 44`,
- *  i.e. the value collapses to the chrome padding alone. */
-internal val ISLAND_TOP_OFFSET_IDLE = 50.dp
 
 /** Speed, the posted limit for the road we're on and — inside a
  *  trajectcontrole — the running average, stacked in one island at the top-left
