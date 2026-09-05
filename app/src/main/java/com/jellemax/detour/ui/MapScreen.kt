@@ -6,7 +6,6 @@ import android.graphics.RectF
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.util.Log
-import java.io.IOException
 import android.os.Build
 import android.os.SystemClock
 import android.view.MotionEvent
@@ -94,7 +93,7 @@ import com.jellemax.detour.ColdStartTiming
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
-import com.jellemax.detour.data.pickCandidate
+import com.jellemax.detour.data.pickThreeCandidates
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.data.Settings
@@ -131,7 +130,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -1562,23 +1560,14 @@ fun MapScreen(
                 } else {
                     val bearing = directionDeg?.toDouble()
                     val minMeters = minRadiusKm.toDouble() * 1000.0
-                    val picks = withTimeout(30_000) {
-                        coroutineScope {
-                            (1..3).map {
-                                async(Dispatchers.IO) {
-                                    runCatching {
-                                        pickCandidate(
-                                            serverConfig, loc, radiusKm.toDouble() * 1000.0,
-                                            minMeters, mode, poiKind, bearing, explored)
-                                    }
-                                }
-                            }.awaitAll()
-                        }
-                    }
-                    val results = picks.mapNotNull { it.getOrNull() }
-                    if (results.isEmpty()) {
-                        throw picks.firstNotNullOfOrNull { it.exceptionOrNull() }
-                            ?: IOException("Failed to find a destination")
+                    // pickThreeCandidates itself has no Dispatchers.IO
+                    // (commonMain has none by design — iOS calls it the same
+                    // way); withContext here is what keeps the three rolls
+                    // off the main thread on Android, same as before.
+                    val results = withContext(Dispatchers.IO) {
+                        pickThreeCandidates(
+                            serverConfig, loc, radiusKm.toDouble() * 1000.0,
+                            minMeters, mode, poiKind, bearing, explored)
                     }
                     candidates = results
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
