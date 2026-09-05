@@ -50,12 +50,11 @@ import com.jellemax.detour.tracking.TripStats
  *  map for the same destination. */
 private val DESTINATION_ORANGE = Color(0xFFFF9800)
 
-// Duplicates com.jellemax.detour.presentation.DIRECTION_NAMES (shared/, task 3's
-// mapper). Left in place rather than repointed at the shared copy: that list is
-// `internal` there, and `internal` is per Kotlin module - app depends on shared
-// as a normal Gradle module boundary (no friendPaths), so it is not visible
-// here. Bumping its shared visibility is a shared/ change, out of this file
-// list.
+// Duplicates com.jellemax.detour.presentation.DIRECTION_NAMES
+// (`shared/.../presentation/SpinState.kt`, next to `spinStateFrom`). Not
+// repointed at that copy: it is `internal` there, and `internal` is per Kotlin
+// module - app depends on shared across a normal Gradle module boundary (no
+// friendPaths), so it is not visible here.
 internal val DIRECTION_NAMES = listOf("North", "North-east", "East", "South-east",
     "South", "South-west", "West", "North-west")
 
@@ -138,24 +137,30 @@ internal fun SpinSheet(
                     style = MaterialTheme.typography.bodySmall)
             }
 
-            // Purely informational - spin() already biases every roll toward
-            // fog-of-war territory (ExploredArea.load(), read inside spin()'s
-            // own orchestration, untouched here). No onClick: there is no
-            // opt-out wired into spin() to toggle, so this isn't a control.
-            Row {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                ) {
-                    Row(
-                        Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+            // Purely informational - spin() biases the point/road roll toward
+            // fog-of-war territory by passing ExploredArea.load() into
+            // pickThreeCandidates. Round-trip mode takes neither
+            // (RoutingClient.roundTrip and RoundTripPlanner.plan have no
+            // ExploredArea parameter), so the badge is gated off there rather
+            // than claiming a bias the loop planner does not apply. No onClick:
+            // there is no opt-out wired into spin() to toggle, so this isn't a
+            // control.
+            if (!mode.roundTrip) {
+                Row {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     ) {
-                        Icon(Icons.Rounded.BlurOn, contentDescription = null,
-                            modifier = Modifier.size(15.dp),
-                            tint = MaterialTheme.colorScheme.primary)
-                        Text("Unexplored", style = MaterialTheme.typography.labelLarge)
+                        Row(
+                            Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Rounded.BlurOn, contentDescription = null,
+                                modifier = Modifier.size(15.dp),
+                                tint = MaterialTheme.colorScheme.primary)
+                            Text("Unexplored", style = MaterialTheme.typography.labelLarge)
+                        }
                     }
                 }
             }
@@ -235,11 +240,14 @@ internal fun SpinSheet(
             // The prototype's result callout: a spin's outcome (a loop's
             // distance, a chosen candidate's name and/or its route distance)
             // in one highlighted row instead of two independent optional
-            // lines of text. Re-spin reuses onSpin verbatim - spinning() ==
-            // false here, same as the primary button below, so it rolls
-            // rather than cancelling.
+            // lines of text. Hidden while a spin runs: spin() only clears the
+            // previous destination/route once its network work returns, so the
+            // row would otherwise keep advertising the last result as if it
+            // were the pending one - and its Re-spin shares onSpin with the
+            // button below, which toggles to Cancel while spinning. With the
+            // gate, Re-spin only renders when onSpin still rolls.
             val resultDistance = route?.distanceMeters?.let { formatDistanceKm(it) }
-            if (destinationName != null || resultDistance != null) {
+            if (!spinning && (destinationName != null || resultDistance != null)) {
                 Row(
                     Modifier
                         .fillMaxWidth()
