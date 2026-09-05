@@ -146,7 +146,6 @@ private enum class BottomCard { NAV, CANDIDATES, COLLAPSED, EXPANDED }
 @Composable
 fun MapScreen(
     onOpenHub: () -> Unit,
-    onOpenSearch: () -> Unit,
     retained: RetainedMap,
 ) {
     val context = LocalContext.current
@@ -238,6 +237,9 @@ fun MapScreen(
     // The map layers panel. Lives here rather than in MapTopChrome so the map's
     // own click listeners can close it — see where they clear it below.
     var layersOpen by remember { mutableStateOf(false) }
+    // The destination search island, hoisted for the same reason: a tap on the
+    // map is its outside-tap dismissal.
+    var searchOpen by remember { mutableStateOf(false) }
     // Stored traces reload on every store write; the live trace and fix come
     // straight from the tracking service, so fog and position update in real
     // time instead of only when a trip is saved.
@@ -313,15 +315,7 @@ fun MapScreen(
     // transition is a CameraAuthority.reduce dispatch, and the rules (including
     // the spin park that deliberately does not stamp) live there with their
     // tests rather than being spread across ten call sites.
-    // Seeded parked when a search pick is waiting, the same way `savedSpin`
-    // above seeds from its holder. This composition is brand new — pushing
-    // Search disposed the last one — so the authority would otherwise default to
-    // following, and the frame loop further down would launch with `cameraActive`
-    // true and snap the camera to the rider on its `neverPushed` first frame,
-    // over the top of the destination the pick is about to frame.
-    var camAuthority by remember {
-        mutableStateOf(CameraAuthority.State(camSuspended = PendingSearchPick.result.value != null))
-    }
+    var camAuthority by remember { mutableStateOf(CameraAuthority.State()) }
     // Dock (collapsed) is the resting state; the sheet only comes up when
     // tapped open, and folds back down on its own after a spin lands.
     var settingsCollapsed by rememberSaveable { mutableStateOf(true) }
@@ -363,6 +357,12 @@ fun MapScreen(
         }
     }
 
+    // The top chrome, and the island inside it, is replaced by the navigation
+    // banner once guidance starts. Close the island rather than leaving it open
+    // behind that banner, where its BackHandler is gone and back would leave the
+    // app instead of dismissing it.
+    LaunchedEffect(navigating) { if (navigating) searchOpen = false }
+
     // Keep the min-distance floor from exceeding the radius as the slider moves.
     LaunchedEffect(radiusKm) {
         if (minRadiusKm > radiusKm) minRadiusKm = radiusKm
@@ -402,34 +402,6 @@ fun MapScreen(
     val fogView = retained.fogView
     val mapLibreMap = retained.map
     val mapOverlays = retained.overlays
-
-    // SearchScreen can't write destination/route/camAuthority itself — pushing
-    // it as its own Destination disposes this composition, so the two are
-    // never composed together the way the dialog and this screen used to be.
-    // It hands the pick back through PendingSearchPick instead; this is the
-    // other half, run once on the way back. See that holder's doc.
-    val pendingSearchPick by PendingSearchPick.result.collectAsStateWithLifecycle()
-    LaunchedEffect(pendingSearchPick, mapLibreMap) {
-        val r = pendingSearchPick ?: return@LaunchedEffect
-        // Wait for the map rather than consuming the pick without it: on a cold
-        // start restored onto Search, `getMapAsync` has not fired yet when this
-        // first runs, and clearing here would leave the camera parked where it
-        // was with the pick gone. Keyed on the map so this re-runs once it lands.
-        val map = mapLibreMap ?: return@LaunchedEffect
-        destination = r.location
-        destinationName = r.name
-        route = null
-        camAuthority = CameraAuthority.reduce(
-            camAuthority,
-            CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
-        )
-        // Placed, not animated. The 800 ms flight the dialog version used was a
-        // glide across the visible map; this runs on a freshly composed screen,
-        // where there is nothing to glide from and any camera write from a
-        // sibling effect in the same frame would cancel the flight anyway.
-        setCamera(map, r.location.lat, r.location.lon, 14.0, 0f)
-        PendingSearchPick.clear()
-    }
 
     // Tell the tracker the map is being looked at, so it drops its battery-saving
     // batched fixes for navigation-grade ones while we're here. Tied to the
@@ -816,10 +788,12 @@ fun MapScreen(
         // while the follow loop is running.
         val onCameraMove = MapLibreMap.OnCameraMoveListener { fogView.invalidate() }
         val onCameraIdle = MapLibreMap.OnCameraIdleListener { fogView.invalidate() }
-        // Touching the map dismisses the layers panel, which is what the Popup's
-        // dismissOnClickOutside used to do before the panel moved inline.
+        // Touching the map dismisses the layers panel and the search island,
+        // which is what the Popup's dismissOnClickOutside used to do before the
+        // panel moved inline — and the island's outside-tap dismissal.
         val onLongClick = MapLibreMap.OnMapLongClickListener { ll ->
             layersOpen = false
+            searchOpen = false
             if (navigatingRef.value) return@OnMapLongClickListener false
             destination = LatLon(ll.latitude, ll.longitude)
             destinationName = "Dropped pin"
@@ -828,6 +802,7 @@ fun MapScreen(
         }
         val onClick = MapLibreMap.OnMapClickListener { ll ->
             layersOpen = false
+            searchOpen = false
             val p = map.projection.toScreenLocation(ll)
             val tap = RectF(p.x - 22f, p.y - 22f, p.x + 22f, p.y + 22f)
             val idx = map.queryRenderedFeatures(tap, LAYER_CANDIDATES)
@@ -1704,7 +1679,19 @@ fun MapScreen(
                             CameraAuthority.Action.FollowToggled,
                         )
                     },
-                    onSearch = onOpenSearch,
+                    searchOpen = searchOpen,
+                    onSearchOpenChange = { searchOpen = it },
+                    onPickDestination = { r ->
+                        destination = r.location
+                        destinationName = r.name
+                        route = null
+                        camAuthority = CameraAuthority.reduce(
+                            camAuthority,
+                            CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
+                        )
+                        mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
+                            LatLng(r.location.lat, r.location.lon), 14.0), 800)
+                    },
                     onToggleFog = { Settings.setFogEnabled(!fogEnabled) },
                     onOpenHub = onOpenHub,
                     modifier = Modifier

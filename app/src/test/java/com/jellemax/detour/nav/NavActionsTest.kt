@@ -94,16 +94,6 @@ class NavActionsTest {
     }
 
     @Test
-    fun `map to search and back`() {
-        // Search pushes straight off the map, not off the Hub — same shape as
-        // Hub itself, and unlike every destination in hubDestinations below.
-        val s = stack(Destination.Map)
-        s.push(Destination.Search)
-        s.pop()
-        assertEquals(listOf(Destination.Map), s)
-    }
-
-    @Test
     fun `every hub destination steps back to hub`() {
         // The old `else -> Screen.HUB` branch, which was right for seven of the
         // twelve screens and had to be spelled out for the rest.

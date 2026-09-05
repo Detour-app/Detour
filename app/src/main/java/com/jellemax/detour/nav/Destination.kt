@@ -46,21 +46,6 @@ sealed interface Destination : NavKey {
     @Serializable
     data object Map : Destination
 
-    /**
-     * Full-screen place search, opened from the map's search bar.
-     *
-     * No fields, unlike [TripDetail] or [RouteEditor]: those carry an id
-     * because the screen they open loads its own subject from it. Search
-     * produces its result rather than loading one, and that result isn't
-     * known until the rider is done typing — a key can't carry a value that
-     * doesn't exist yet when the push happens. It travels back through
-     * `PendingSearchPick` instead, the same one-shot-holder shape
-     * `PendingSignIn` already uses for a value crossing a composition
-     * boundary this way.
-     */
-    @Serializable
-    data object Search : Destination
-
     @Serializable
     data object Hub : Destination
 
