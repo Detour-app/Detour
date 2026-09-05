@@ -30,9 +30,9 @@ data class NavState(
     /** `nextInstruction?.sign ?: 0`, for the caller's own icon lookup. */
     val maneuverSign: Int,
     /** Null past the last turn or when there's only one left — same guard
-     *  `ThenPill` uses today to render nothing. */
+     *  `Navigation.kt`'s `ThenChip` uses today to render nothing. */
     val thenPill: NavThenPill?,
-    /** "12.4 km · 25 min", or "—" before the first fix. */
+    /** "12.4 km · 25 min left", or "—" before the first fix. */
     val remainingText: String,
     /** "Off route", "Arrival 14:32", or "" when there's nothing to say yet. */
     val arrivalText: String,
@@ -50,15 +50,15 @@ data class NavState(
 
 /**
  * Pure map from [NavEngine.Progress] — plus the handful of values that live
- * outside it in `MapScreen.kt` — to [NavState]. Ported from:
- *  - `app/.../ui/Navigation.kt`'s `NavigationBanner` (headline/maneuver text,
- *    lines 96-116), `ThenPill` (the pill's text, lines 129-148) and
- *    `NavigationBottomBar` (remaining/ETA text and the progress fraction,
- *    lines 171-201);
- *  - `MapScreen.kt`'s inline speed-limit source switch (line 1777-1778:
- *    `if (navigating) navProgress?.speedLimitKmh else retained.ambientSpeedLimitKmh`);
- *  - `MapScreen.kt`'s inline off-route comparison (line 1860-1861:
- *    `(navProgress?.offRouteMeters ?: 0.0) > NavPolicy.OFF_ROUTE_METERS`).
+ * outside it in `MapScreen.kt` — to [NavState]. Ported from (named, not cited
+ * by line, so this stays true across edits):
+ *  - `app/.../ui/Navigation.kt`'s `NavigationBanner` (headline/maneuver text),
+ *    `ThenChip` (the pill's text) and `NavigationBottomBar` (remaining/ETA
+ *    text and the progress fraction);
+ *  - `MapScreen.kt`'s inline speed-limit source switch
+ *    (`if (navigating) navProgress?.speedLimitKmh else retained.ambientSpeedLimitKmh`);
+ *  - `MapScreen.kt`'s inline off-route comparison
+ *    (`(navProgress?.offRouteMeters ?: 0.0) > NavPolicy.OFF_ROUTE_METERS`).
  *
  * Does not own `NavEngine.progress()` itself, `NavPolicy.decide`, the reroute
  * network call, `NavVoice`/`NavAnnouncer`, `BleNavServer`, or the maneuver
@@ -100,7 +100,7 @@ fun navStateFrom(
     }
     val remainingText = progress?.let {
         val minutes = formatFixed((it.remainingTimeMs ?: 0L) / 60_000.0, 0)
-        "${formatDistanceKm(it.remainingMeters)} · $minutes min"
+        "${formatDistanceKm(it.remainingMeters)} · $minutes min left"
     } ?: "—"
     val arrivalText = when {
         offRoute -> "Off route"

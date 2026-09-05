@@ -42,8 +42,11 @@ kotlin {
             implementation("com.squareup.okio:okio:3.9.0")
             // The auto-theme's local clock hour and the nav ETA's zone;
             // java.util.Calendar has no common equivalent. `api`, not
-            // `implementation`: TimeZone is a parameter type on formatEta and
-            // navStateFrom, so a caller in :app cannot name it otherwise.
+            // `implementation`: TimeZone is a parameter type on navStateFrom,
+            // and Kotlin must resolve every parameter type of a function to
+            // type-check a call to it — so :app fails to compile the call
+            // without this on its compile classpath, even though it names
+            // TimeZone nowhere and leaves `zone` defaulted.
             api("org.jetbrains.kotlinx:kotlinx-datetime:0.6.0")
         }
         androidMain.dependencies {

@@ -133,7 +133,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import kotlinx.datetime.TimeZone
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -1514,11 +1513,11 @@ fun MapScreen(
 
     // The banner, its "then" chip, the bottom bar and the HUD's limit source all
     // read one mapper call, so none of them formats a number of its own.
-    // derivedStateOf keeps the reads at the leaves: a progress tick then
-    // invalidates those three readouts instead of this whole screen, and the
-    // clock is read once per tick rather than once per frame.
-    val navZone = remember { TimeZone.currentSystemDefault() }
-    val navState by remember {
+    // derivedStateOf bounds how often that work happens, not which scopes
+    // recompose: the mapper runs — and the clock is read — once per progress
+    // tick rather than once per frame. This screen's body still recomposes per
+    // tick, as it already does for liveFix and retained.displaySpeedKmh.
+    val navState by remember(retained) {
         derivedStateOf {
             navStateFrom(
                 progress = navProgress,
@@ -1530,7 +1529,6 @@ fun MapScreen(
                 // :shared cannot see NavPolicy, so that default is a second
                 // copy of the threshold and would drift without a word.
                 offRouteThresholdMeters = NavPolicy.OFF_ROUTE_METERS,
-                zone = navZone,
             )
         }
     }

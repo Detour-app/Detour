@@ -9,7 +9,7 @@ import kotlin.test.assertNull
 
 /**
  * The pure mapping behind the nav banner, the "then" pill and the bottom bar
- * (`app/.../ui/Navigation.kt`'s `NavigationBanner`, `ThenPill` and
+ * (`app/.../ui/Navigation.kt`'s `NavigationBanner`, `ThenChip` and
  * `NavigationBottomBar`), plus the speed-limit source switch and the
  * off-route comparison `MapScreen.kt` has always computed inline. Does not
  * cover `NavEngine.progress()` itself, `NavPolicy.decide`, the reroute call,
@@ -134,7 +134,7 @@ class NavStateTest {
             progress = progress(remainingMeters = 12_400.0, remainingTimeMs = 25 * 60_000L),
             navigating = true, rerouting = false, ambientSpeedLimitKmh = null, nowMs = 0L,
         )
-        assertEquals("12.4 km · 25 min", state.remainingText)
+        assertEquals("12.4 km · 25 min left", state.remainingText)
     }
 
     @Test fun anEtaIsNowPlusRemainingTimeInTheGivenZone() {
