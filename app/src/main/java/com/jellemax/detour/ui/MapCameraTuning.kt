@@ -25,6 +25,13 @@ internal const val SPEED_TAU = 0.20
 // stop recomposing so a steady cruise doesn't repaint the HUD every frame.
 internal const val SPEED_EPS_KMH = 0.15
 
+// How far over the posted limit the speed readout tolerates before it turns
+// red. One home for a threshold two surfaces draw: this HUD's dial and the
+// Android Auto renderer's, which paints its own disc rather than sharing a
+// composable. `:shared`'s speedHudStateFrom takes it as an argument and the
+// call sites name it, so the mapper stays pure and this stays the only value.
+internal const val OVER_LIMIT_TOLERANCE_KMH = 5.0
+
 // A standstill-only optimisation: these decide when a camera that has converged on a
 // target that is itself not moving may stop doing work — ~0.2 m of pan (well sub-pixel
 // at driving zooms), a hair of zoom (rotation is gated by CAM_BEARING_EPS_DEG in

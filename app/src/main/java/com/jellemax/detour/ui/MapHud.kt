@@ -181,7 +181,7 @@ internal fun SpeedHud(
     averageLimitKmh: Double? = null,
     modifier: Modifier = Modifier,
 ) {
-    val speeding = limitKmh != null && speedKmh > limitKmh + 5
+    val speeding = limitKmh != null && speedKmh > limitKmh + OVER_LIMIT_TOLERANCE_KMH
     Row(
         modifier,
         horizontalArrangement = Arrangement.spacedBy(8.dp),

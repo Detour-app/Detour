@@ -1249,16 +1249,16 @@ human*; until they are done, the phone's voice is *shipped*, not *verified*.
 
 ---
 
-## 13. Over-limit thresholds: four copies of `+5`, two of `+3`, all currently agreeing
+## 13. Over-limit thresholds: `+5` on two surfaces, `+3.0` on two, all currently agreeing
 
 **What.** Two separate "you are speeding" rules: the HUD turns the speed readout red, and the
-camera warner chimes. Each threshold is written once per surface.
+camera warner chimes. Each threshold was written once per surface.
 
-**Copies — HUD red at `limit + 5`:**
+**As found — HUD red at `limit + 5`, three copies:**
 
-- Phone: `app/…/ui/MapHud.kt:184` — `val speeding = limitKmh != null && speedKmh > limitKmh + 5`
-- Android Auto: `app/…/car/CarMapRenderer.kt:635` — `val speeding = limit != null && speed > limit + 5`
-- Wear: `wear/…/MainActivity.kt:140` — `val speeding = it.speedLimitKmh?.let { limit -> it.speedKmh > limit + 5 } ?: false`
+- Phone: `app/…/ui/MapHud.kt` — `val speeding = limitKmh != null && speedKmh > limitKmh + 5`
+- Android Auto: `app/…/car/CarMapRenderer.kt` — `val speeding = limit != null && speed > limit + 5`
+- Wear: `wear/…/MainActivity.kt:140` — `it.speedKmh > limit + 5`
 
 **Copies — chime at `limit + 3.0`:**
 
@@ -1268,23 +1268,36 @@ camera warner chimes. Each threshold is written once per surface.
 Also duplicated alongside them: the camera-ahead wedge, `45.0` at `MapScreen.kt:863` and
 `NavScreen.kt:407`.
 
-**How they differ.** **They do not.** All three `+5`s and both `+3.0`s agree today, and the two
-thresholds being different from each other is deliberate and sensible — the visual nudge is
+**The Wear copy no longer exists, and this entry's argument rested on it.** `db79c69` ("Remove
+Wear OS support…") deleted the module; `settings.gradle.kts` now includes `:app` and `:shared` and
+nothing else, and both surviving `+5`s are in `:app`. The recommendation below — *"`+5` cannot go
+to `shared/` usefully while Wear is excluded from it"* — was therefore about a surface that had
+already gone, and it was followed once in that state. Corrected in place rather than deleted, so
+the shape of the mistake stays on record: **an entry whose premise has evaporated is worse than an
+open one**, because it still reads as verified and gets followed again.
+
+**How they differ.** They do not. Both surviving `+5`s and both `+3.0`s agreed throughout, and the
+two thresholds being different from each other is deliberate and sensible — the visual nudge is
 tolerant, the audible interrupt is not.
 
-**Why it is in the register anyway.** This is the state that *becomes* a divergence, and
-`SKILL.md:2.1` names it: *"One copy plus a comment naming the other copy is not a second
-implementation — but it is the state that becomes one, so count copies, not intentions."* Five
-un-deduplicated literals across three surfaces, zero tests, and the one that would drift silently
-is Wear, which cannot consume `shared/` and whose 185 lines nobody reads.
+**RESOLVED (`+5` half) — one app-side constant: `OVER_LIMIT_TOLERANCE_KMH` in
+`app/…/ui/MapCameraTuning.kt`,** beside the speed readout's other tuning values (`SPEED_TAU`,
+`SPEED_EPS_KMH`). Both remaining consumers read it — `ui/MapHud.kt`'s `SpeedHud`, and
+`car/CarMapRenderer.kt`, which paints its own dial onto a `Canvas` rather than sharing the
+composable and so needs the number itself rather than the state.
 
-**Which is better, and why.** No choice to make. Both values are agreed.
+It stays in `app/` on today's evidence rather than the stale argument above: `shared/`'s
+`speedHudStateFrom` takes the tolerance as a **parameter**, so the mapper stays pure and owns no
+copy of the value, while both consumers of the value are Android views. Call sites pass it by
+name, exactly as `MapScreen.kt` passes `NavPolicy.OFF_ROUTE_METERS` to `navStateFrom` (entry 8) —
+which is what stops a caller that forgets from silently inheriting the mapper's own default as a
+third copy.
 
-**Blast radius.** None — a pure deduplication, provably behaviour-preserving.
+**Still open — the `+3.0` half and the `45.0` wedge.** Both belong to stage 3's `CameraWarner`,
+unchanged by the above.
 
-**Recommendation: survive — both values, hoisted.** `+3.0` belongs to stage 3's `CameraWarner`
-(along with the `45.0` wedge). `+5` cannot go to `shared/` usefully while Wear is excluded from
-it, so put it in `app/` and leave the watch's copy with a comment naming the source.
+**Blast radius.** None for the resolved half: a pure deduplication of two literals that already
+agreed, with the threshold's behaviour pinned by `SpeedHudStateTest`.
 
 **Blocks stage 3: no, but it is consumed by it.** `CameraWarner` should own `+3.0` and `45.0`.
 
@@ -1889,7 +1902,7 @@ items plus one open question plus a bug — so the buckets add to more than 22 b
 | 8 | `60` literal vs `NavPolicy.OFF_ROUTE_METERS` | latent | phone | no | **RESOLVED — constant `7d57087`, car indicator `6551f37`** |
 | 22 | Trip dates: fixed pattern vs locale-derived | drift | phone | no | survive: **iOS's** |
 | 3 | Camera easing `dt` clamp, 0.1 vs 0.25 | not really divergent | either | no | leave both; unify the other seven constants |
-| 13 | `+5` / `+3.0` / `45.0` literals | not yet divergent | phone, car, wear | consumed by it | survive: both values, hoisted |
+| 13 | `+5` / `+3.0` / `45.0` literals | not yet divergent | phone, car (wear removed in `db79c69`) | consumed by it | **`+5` RESOLVED** — hoisted to `OVER_LIMIT_TOLERANCE_KMH` in `app/…/ui/MapCameraTuning.kt`; `+3.0` and `45.0` are stage 3's |
 
 ### What stage 3 actually consumes
 
