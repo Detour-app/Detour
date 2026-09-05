@@ -151,3 +151,29 @@ fun formatEta(epochMs: Long, zone: TimeZone = TimeZone.currentSystemDefault()): 
     val dt = Instant.fromEpochMilliseconds(epochMs).toLocalDateTime(zone)
     return "${dt.hour.toString().padStart(2, '0')}:${dt.minute.toString().padStart(2, '0')}"
 }
+
+/**
+ * Stopwatch-style elapsed time: "7:19" under an hour, "1:12:36" at or past
+ * it. Distinct from [formatDurationHistory] on purpose — the live trip card
+ * counts seconds, a history row does not, and "7:19" is ambiguous the moment
+ * it sits next to "1:12:36" in a list.
+ *
+ * The single implementation of this wording: `app/.../ui/Format.kt`'s
+ * `formatDuration` delegates here rather than keeping its own
+ * `"%d:%02d:%02d".format(...)` copy, so the trip card and the shared HUD
+ * state can't drift. Digits only, no separator argument — there is no decimal
+ * point in a clock.
+ *
+ * A negative [ms] clamps to "0:00": subtracting a trip's start from a `nowMs`
+ * that a caller has skewed (or from a phone whose clock stepped backwards)
+ * must not print a negative stopwatch.
+ */
+fun formatDurationClock(ms: Long): String {
+    val totalSeconds = ms.coerceAtLeast(0) / 1000
+    val h = totalSeconds / 3600
+    val m = (totalSeconds % 3600) / 60
+    val s = totalSeconds % 60
+    val mm = m.toString().padStart(2, '0')
+    val ss = s.toString().padStart(2, '0')
+    return if (h > 0) "$h:$mm:$ss" else "$m:$ss"
+}

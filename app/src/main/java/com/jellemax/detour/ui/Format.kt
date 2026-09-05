@@ -6,16 +6,15 @@ import java.util.Date
 import java.util.Locale
 import com.jellemax.detour.presentation.formatFixed
 import com.jellemax.detour.presentation.formatDistanceKm as sharedFormatDistanceKm
+import com.jellemax.detour.presentation.formatDurationClock as sharedFormatDurationClock
 import com.jellemax.detour.presentation.formatDurationHistory as sharedFormatDurationHistory
 import com.jellemax.detour.presentation.formatGForce as sharedFormatGForce
 
-fun formatDuration(ms: Long): String {
-    val totalSeconds = ms / 1000
-    val h = totalSeconds / 3600
-    val m = (totalSeconds % 3600) / 60
-    val s = totalSeconds % 60
-    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
-}
+// Same delegation as the three below: the wording lives in commonMain
+// (presentation.formatDurationClock) so the live trip card and the shared
+// HUD display state render one implementation of "7:19" / "1:12:36" instead
+// of two. Keeps the name app callers already use.
+fun formatDuration(ms: Long): String = sharedFormatDurationClock(ms)
 
 // History shows past trips side by side ("1:12:36" next to "7:19"), where the
 // live card's seconds-precision "M:SS" is ambiguous — is "7:19" seven minutes
