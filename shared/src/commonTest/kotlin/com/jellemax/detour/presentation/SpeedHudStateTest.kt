@@ -91,4 +91,26 @@ class SpeedHudStateTest {
     @Test fun averageIsNotOverWithoutASectionLimitToBeOver() {
         assertFalse(state(averageKmh = 130.0, averageLimitKmh = null).averageOverLimit)
     }
+
+    @Test fun averageOverLimitIsIndependentOfTheDialsOwnRed() {
+        // The case the island has to render: over right now *and* over on
+        // average, which is the ordinary case inside a trajectcontrole. Both
+        // flags are true at once, so a renderer that shows the average's state
+        // only while the dial is calm is dropping a signal, not deduplicating
+        // one.
+        val both = state(
+            speedKmh = 130.0, limitKmh = 100.0,
+            averageKmh = 104.0, averageLimitKmh = 100.0,
+        )
+        assertTrue(both.speeding)
+        assertTrue(both.averageOverLimit)
+        // And the converse: braking back under the posted limit does not clear
+        // the average that the camera pair has already banked.
+        val braking = state(
+            speedKmh = 90.0, limitKmh = 100.0,
+            averageKmh = 104.0, averageLimitKmh = 100.0,
+        )
+        assertFalse(braking.speeding)
+        assertTrue(braking.averageOverLimit)
+    }
 }

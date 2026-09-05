@@ -1708,18 +1708,17 @@ fun MapScreen(
                 // one island at the top-left — isHome.html's left:14/top:44,
                 // widened so the average keeps its slot.
                 //
-                // Idle, it sits level with the top chrome's right-hand rail:
-                // that rail hangs under the 40 dp search pill and the 10 dp gap
-                // below it, and this takes the same offset. Navigating, the
-                // banner above has already pushed it clear and it only needs
-                // the gap.
+                // Idle, it sits level with the top chrome's right-hand rail —
+                // see ISLAND_TOP_OFFSET_IDLE for what that offset is made of
+                // and when it has to be re-derived. Navigating, the banner
+                // above has already pushed it clear and it only needs the gap.
                 //
                 // Drawn unconditionally. The standstill fade — "stopping at a
                 // light fades the dial out" — is deliberately gone: a parked map
                 // now keeps its instruments, as the head unit always has. See
                 // the divergence register's entry 18.
                 Column(
-                    Modifier.padding(top = if (navigating) 10.dp else 50.dp),
+                    Modifier.padding(top = if (navigating) 10.dp else ISLAND_TOP_OFFSET_IDLE),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     SpeedHud(

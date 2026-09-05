@@ -29,6 +29,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -178,6 +179,18 @@ internal fun PushToTalkButton(talking: Boolean, modifier: Modifier = Modifier) {
  *  and "avg km/h" has to fit under it. */
 private val ISLAND_WIDTH = 72.dp
 
+/** How far the idle island hangs below the top chrome: the 40 dp search pill
+ *  plus the 10 dp gap under it. The chrome's right-hand rail takes the same
+ *  offset, so the two line up.
+ *
+ *  **Re-derive this when the search pill leaves the top chrome.** Moving it
+ *  into a bottom sheet takes the 40 dp term away and nothing here will warn:
+ *  the pill has no declared height at all — `SearchIsland` sizes it to its
+ *  content — so there is no constant to go stale. The prototype drawn without
+ *  a pill (`isHome.html`) puts the island and the rail both at `top: 44`,
+ *  i.e. the value collapses to the chrome padding alone. */
+internal val ISLAND_TOP_OFFSET_IDLE = 50.dp
+
 /** Speed, the posted limit for the road we're on and — inside a
  *  trajectcontrole — the running average, stacked in one island at the top-left
  *  of the map. The whole island turns red once we're over the limit by more
@@ -219,21 +232,42 @@ internal fun SpeedHud(state: SpeedHudState, modifier: Modifier = Modifier) {
                 modifier = Modifier.padding(bottom = 8.dp),
             )
             // Inside a trajectcontrole: the running average is the number the
-            // camera pair actually measures, so it sits under the live speed
-            // and turns red on the section's own limit rather than the dial's.
+            // camera pair actually measures — the one that writes the fine —
+            // so it gets a rule above it and reads as its own instrument
+            // rather than a second line of the dial.
+            //
+            // Its over-limit state is signalled independently of the dial's:
+            // "over right now *and* over on average" is the ordinary case in a
+            // section, and is exactly when the average is the number that
+            // matters. Error red on the red island would be unreadable, so the
+            // rule carries the signal instead of the digits — it thickens and
+            // takes the accent, `error` on the glass island and
+            // `onErrorContainer` on the red one, and the label drops its
+            // muting with it.
             state.averageText?.let { average ->
+                val overAccent = when {
+                    !state.averageOverLimit -> null
+                    state.speeding -> MaterialTheme.colorScheme.onErrorContainer
+                    else -> MaterialTheme.colorScheme.error
+                }
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    thickness = if (overAccent == null) 1.dp else 2.dp,
+                    color = overAccent ?: (if (state.speeding) onIslandMuted
+                        else MaterialTheme.colorScheme.outlineVariant).copy(alpha = 0.4f),
+                )
                 Text(
                     average,
                     fontSize = 17.sp,
                     lineHeight = 19.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (state.averageOverLimit && !state.speeding)
-                        MaterialTheme.colorScheme.error else onIsland,
+                    color = overAccent ?: onIsland,
+                    modifier = Modifier.padding(top = 4.dp),
                 )
                 Text(
                     "avg km/h",
                     style = MaterialTheme.typography.labelSmall,
-                    color = onIslandMuted,
+                    color = if (overAccent == null) onIslandMuted else onIsland,
                     maxLines = 1,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
