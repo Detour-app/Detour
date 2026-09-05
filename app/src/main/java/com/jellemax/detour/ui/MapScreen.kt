@@ -107,7 +107,15 @@ import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.drive.SpinRoundOutcome
+import com.jellemax.detour.presentation.HomeBottomCard
+import com.jellemax.detour.presentation.displayCandidates
+import com.jellemax.detour.presentation.homeBottomCard
+import com.jellemax.detour.presentation.inAppNavAvailable
 import com.jellemax.detour.presentation.navStateFrom
+import com.jellemax.detour.presentation.obd2FedThisTrip
+import com.jellemax.detour.presentation.pushToTalkShown
+import com.jellemax.detour.presentation.reachMeters
+import com.jellemax.detour.presentation.shortcutChipsShown
 import com.jellemax.detour.presentation.spinStateFrom
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
@@ -141,9 +149,6 @@ import org.maplibre.android.maps.Style
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.random.Random
-
-/** What currently occupies the bottom-card slot on the map. */
-private enum class BottomCard { NAV, CANDIDATES, COLLAPSED, EXPANDED }
 
 @Composable
 fun MapScreen(
@@ -622,13 +627,9 @@ fun MapScreen(
         mapLibreMap?.let { cameraForPoints(it, listOf(loc, c.destination), FIT_PADDING_PX, fitBottomPaddingPx) }
     }
 
-    // What's actually shown on the map/card: my own spin's candidates,
-    // unless a convoy spin is on the table, in which case everyone - the
-    // sharer included, see ConvoyLiveClient.sendSpinOffer - shows the same
-    // three from the offer instead. Keeps map pins and votes pointed at
-    // the same coordinates on every device even when they came from a
-    // spin nobody on this phone actually rolled.
-    val displayCandidates = spinOffer?.asRouteCandidates() ?: candidates
+    // What's actually shown on the map/card - see the shared rule for why a
+    // convoy offer outranks this phone's own spin (ConvoyLiveClient.sendSpinOffer).
+    val displayCandidates = displayCandidates(spinOffer?.asRouteCandidates(), candidates)
 
     /** Non-null while something in flight makes a mode change wrong to allow.
      *  Navigation and an open candidate round need no entry here: both replace
@@ -638,13 +639,21 @@ fun MapScreen(
         tracking = stats != null,
     )
 
-    // The same three tests as the bottomCard when-chain below, in the same
-    // order. The countdown has to know whether the dock is actually on screen:
-    // it is absent while navigating, while a candidate round is open and while
-    // the sheet is expanded, and a hint armed during any of those would fire on
-    // the dock's very next composition - as part of the screen arriving, which
-    // is the one thing HINT_DELAY_MS exists to prevent.
-    val dockShown = !navigating && displayCandidates.isEmpty() && settingsCollapsed
+    // One slot, four occupants. Decided once, here, and consumed twice: by the
+    // AnimatedContent far below that actually renders the card, and by the
+    // hint countdown immediately below, which has to know whether the dock is
+    // on screen at all - it is absent while navigating, while a candidate
+    // round is open and while the sheet is expanded, and a hint armed during
+    // any of those would fire on the dock's very next composition, as part of
+    // the screen arriving, which is the one thing HINT_DELAY_MS exists to
+    // prevent. These used to be two hand-matched copies of the same three
+    // tests, 1200 lines apart.
+    val bottomCard = homeBottomCard(
+        navigating = navigating,
+        hasCandidates = displayCandidates.isNotEmpty(),
+        collapsed = settingsCollapsed,
+    )
+    val dockShown = bottomCard == HomeBottomCard.COLLAPSED
 
     // Scheduled here rather than inside SpinDock because SpinDock is disposed
     // every time the sheet expands or a candidate round opens - a guard in there
@@ -710,20 +719,16 @@ fun MapScreen(
     LaunchedEffect(mapOverlays, myLocation, destination, route, radiusKm, mode,
         directionDeg, navigating, displayCandidates) {
         val overlays = mapOverlays ?: return@LaunchedEffect
-        // For round trips the slider is trip length; reach ≈ length / 4. Hidden
-        // while navigating. Null myLocation hides it too.
-        val reachMeters = myLocation?.let {
-            when {
-                navigating -> null
-                mode.roundTrip -> radiusKm * 250.0
-                else -> radiusKm * 1000.0
-            }
-        }
         overlays.render(
             myLocation = myLocation,
             destination = destination,
             routePolyline = route?.polyline,
-            reachMeters = reachMeters,
+            reachMeters = reachMeters(
+                hasLocation = myLocation != null,
+                navigating = navigating,
+                roundTrip = mode.roundTrip,
+                radiusKm = radiusKm.toDouble(),
+            ),
             directionDeg = directionDeg?.toInt(),
             candidates = displayCandidates.mapIndexed { i, c ->
                 CandidatePin(c.destination, CANDIDATE_COLORS[i % CANDIDATE_COLORS.size])
@@ -1749,7 +1754,11 @@ fun MapScreen(
             // carries positions and votes but drops voice frames, so a button
             // shown here would transmit into nothing and read as a bug.
             AnimatedVisibility(
-                visible = Features.pushToTalk && convoyConnected && activeConvoyId != null,
+                visible = pushToTalkShown(
+                    featureEnabled = Features.pushToTalk,
+                    convoyConnected = convoyConnected,
+                    hasActiveConvoy = activeConvoyId != null,
+                ),
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp),
@@ -1802,17 +1811,11 @@ fun MapScreen(
                                 averageLimitKmh = sectionLimitKmh,
                             )
                             // Diagnostics: an adapter that fed this trip and has
-                            // since dropped. Derived from timestamps, not a
-                            // per-trip accumulator — clears itself on reconnect.
-                            // lastDataAtMs is never reset by Obd2Connection, so
-                            // this must be data seen *after* the trip started —
-                            // a previous trip's adapter that has since been
-                            // unplugged is not this trip's signal to lose.
-                            val obd2FedThisTrip = stats?.let { s ->
-                                obd2LastDataAtMs?.let { it > s.startTimeMs }
-                            } == true
+                            // since dropped. Obd2Connection never resets
+                            // lastDataAtMs, hence the shared after-the-start
+                            // test rather than a per-trip accumulator.
                             Obd2SignalLostLabel(
-                                lost = obd2FedThisTrip &&
+                                lost = obd2FedThisTrip(stats?.startTimeMs, obd2LastDataAtMs) &&
                                     obd2State != Obd2ConnectionState.CONNECTED,
                             )
                         }
@@ -1834,7 +1837,11 @@ fun MapScreen(
                 // Shortcut chips: one-tap a saved place to set it as destination,
                 // or save the pin you just dropped. Hidden while navigating.
                 AnimatedVisibility(
-                    visible = !navigating && (savedPlaces.isNotEmpty() || destination != null),
+                    visible = shortcutChipsShown(
+                        navigating = navigating,
+                        hasSavedPlaces = savedPlaces.isNotEmpty(),
+                        hasDestination = destination != null,
+                    ),
                     enter = expandVertically() + fadeIn(),
                     exit = shrinkVertically() + fadeOut(),
                 ) {
@@ -1856,14 +1863,17 @@ fun MapScreen(
                     )
                 }
 
-                // One slot, four occupants; animate the handover instead of
-                // hard-swapping so the bottom of the screen stops popping.
-                val bottomCard = when {
-                    navigating -> BottomCard.NAV
-                    displayCandidates.isNotEmpty() -> BottomCard.CANDIDATES
-                    settingsCollapsed -> BottomCard.COLLAPSED
-                    else -> BottomCard.EXPANDED
-                }
+                // bottomCard is decided once, up where dockShown reads it too;
+                // animate the handover here instead of hard-swapping so the
+                // bottom of the screen stops popping.
+                //
+                // Shared by the two cards that offer a "navigate" button, so
+                // they cannot disagree about whether one is possible.
+                val inAppAvailable = inAppNavAvailable(
+                    serverUsable = serverConfig.usable,
+                    hasDestination = destination != null,
+                    hasRouteInstructions = route?.instructions?.isNotEmpty() == true,
+                )
                 // Same trick as shownStats: the exiting candidates pane must
                 // not render an empty card after a cancel clears the list.
                 val shownCandidates = remember { mutableStateOf(displayCandidates) }
@@ -1877,11 +1887,11 @@ fun MapScreen(
                     label = "bottomCard",
                 ) { card ->
                     when (card) {
-                        BottomCard.NAV -> NavigationBottomBar(
+                        HomeBottomCard.NAV -> NavigationBottomBar(
                             state = navState,
                             onExit = { stopNavigation() },
                         )
-                        BottomCard.CANDIDATES -> CandidatesCard(
+                        HomeBottomCard.CANDIDATES -> CandidatesCard(
                             candidates = shownCandidates.value,
                             // mode/radiusKm/directionDeg feed spinStateFrom's other
                             // readouts too (SpinDock/SpinSheet, elsewhere in this
@@ -1918,7 +1928,7 @@ fun MapScreen(
                                 }
                             },
                         )
-                        BottomCard.COLLAPSED -> SpinDock(
+                        HomeBottomCard.COLLAPSED -> SpinDock(
                             mode = mode,
                             radiusKm = radiusKm,
                             directionDeg = directionDeg,
@@ -1926,9 +1936,7 @@ fun MapScreen(
                             destination = destination,
                             route = route,
                             origin = myLocation,
-                            inAppAvailable = serverConfig.usable &&
-                                (destination != null ||
-                                    route?.instructions?.isNotEmpty() == true),
+                            inAppAvailable = inAppAvailable,
                             onSpin = { if (spinning) spinJob?.cancel() else spin() },
                             onExpand = { settingsCollapsed = false },
                             onNavigateInApp = { startNavigation() },
@@ -1959,7 +1967,7 @@ fun MapScreen(
                             hintVariant = ModeSwipePolicy.HintVariant.of(swipeHintVariantName),
                             onHintPlayed = { hintRequest = false },
                         )
-                        BottomCard.EXPANDED -> SpinSheet(
+                        HomeBottomCard.EXPANDED -> SpinSheet(
                             mode = mode,
                             radiusKm = radiusKm,
                             onRadiusChange = { radiusKm = it },
@@ -1976,9 +1984,7 @@ fun MapScreen(
                             destination = destination,
                             origin = myLocation,
                             stats = stats,
-                            inAppAvailable = serverConfig.usable &&
-                                (destination != null ||
-                                    route?.instructions?.isNotEmpty() == true),
+                            inAppAvailable = inAppAvailable,
                             onSpin = { if (spinning) spinJob?.cancel() else spin() },
                             onCollapse = { settingsCollapsed = true },
                             onNavigateInApp = { startNavigation() },
