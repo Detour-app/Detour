@@ -101,8 +101,16 @@ fun SearchScreen(onBack: () -> Unit) {
     // The same accuracy filter MapScreen applies to this fix, read
     // independently: the two screens are never composed at the same time, so
     // there is no `myLocation` of MapScreen's to be handed instead.
+    //
+    // Sticky, the way the `myLocation` it stands in for was: the fix this is
+    // derived from goes in and out of the accuracy gate as the sky opens and
+    // closes, and a search must keep biasing off the last good position rather
+    // than losing its proximity ranking the moment one fix comes back wide.
     val liveFix by TripTrackingService.lastFix.collectAsStateWithLifecycle()
-    val near = liveFix?.takeIf { it.accuracyMeters <= 100f }?.let { LatLon(it.lat, it.lon) }
+    var near by remember { mutableStateOf<LatLon?>(null) }
+    LaunchedEffect(liveFix) {
+        liveFix?.takeIf { it.accuracyMeters <= 100f }?.let { near = LatLon(it.lat, it.lon) }
+    }
 
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }

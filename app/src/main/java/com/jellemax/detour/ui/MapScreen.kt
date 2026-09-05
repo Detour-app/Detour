@@ -313,7 +313,15 @@ fun MapScreen(
     // transition is a CameraAuthority.reduce dispatch, and the rules (including
     // the spin park that deliberately does not stamp) live there with their
     // tests rather than being spread across ten call sites.
-    var camAuthority by remember { mutableStateOf(CameraAuthority.State()) }
+    // Seeded parked when a search pick is waiting, the same way `savedSpin`
+    // above seeds from its holder. This composition is brand new — pushing
+    // Search disposed the last one — so the authority would otherwise default to
+    // following, and the frame loop further down would launch with `cameraActive`
+    // true and snap the camera to the rider on its `neverPushed` first frame,
+    // over the top of the destination the pick is about to frame.
+    var camAuthority by remember {
+        mutableStateOf(CameraAuthority.State(camSuspended = PendingSearchPick.result.value != null))
+    }
     // Dock (collapsed) is the resting state; the sheet only comes up when
     // tapped open, and folds back down on its own after a spin lands.
     var settingsCollapsed by rememberSaveable { mutableStateOf(true) }
@@ -401,8 +409,13 @@ fun MapScreen(
     // It hands the pick back through PendingSearchPick instead; this is the
     // other half, run once on the way back. See that holder's doc.
     val pendingSearchPick by PendingSearchPick.result.collectAsStateWithLifecycle()
-    LaunchedEffect(pendingSearchPick) {
+    LaunchedEffect(pendingSearchPick, mapLibreMap) {
         val r = pendingSearchPick ?: return@LaunchedEffect
+        // Wait for the map rather than consuming the pick without it: on a cold
+        // start restored onto Search, `getMapAsync` has not fired yet when this
+        // first runs, and clearing here would leave the camera parked where it
+        // was with the pick gone. Keyed on the map so this re-runs once it lands.
+        val map = mapLibreMap ?: return@LaunchedEffect
         destination = r.location
         destinationName = r.name
         route = null
@@ -410,8 +423,11 @@ fun MapScreen(
             camAuthority,
             CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
         )
-        mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
-            LatLng(r.location.lat, r.location.lon), 14.0), 800)
+        // Placed, not animated. The 800 ms flight the dialog version used was a
+        // glide across the visible map; this runs on a freshly composed screen,
+        // where there is nothing to glide from and any camera write from a
+        // sibling effect in the same frame would cancel the flight anyway.
+        setCamera(map, r.location.lat, r.location.lon, 14.0, 0f)
         PendingSearchPick.clear()
     }
 
