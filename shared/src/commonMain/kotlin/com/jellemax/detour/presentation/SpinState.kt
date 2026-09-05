@@ -5,10 +5,10 @@ import com.jellemax.detour.data.TravelMode
 
 /**
  * Compass names for the eight 45°-wide bearing buckets a spin's direction
- * picker offers, starting from north. Ported verbatim from
- * `com.jellemax.detour.ui.DIRECTION_NAMES` (`app/.../ui/SpinCards.kt`).
+ * picker offers, starting from north. Public so `SpinCards.kt`'s picker can
+ * point at this list instead of keeping its own copy.
  */
-internal val DIRECTION_NAMES = listOf(
+val DIRECTION_NAMES = listOf(
     "North", "North-east", "East", "South-east",
     "South", "South-west", "West", "North-west",
 )
@@ -56,24 +56,21 @@ internal fun radiusText(maxKm: Float, radiusKm: Float): String =
 
 /**
  * `ModeCell`'s inline `directionDeg?.let { DIRECTION_NAMES[(it / 45f).toInt()] }
- * ?: "any direction"`, ported unchanged - bug included. The picker that
- * drives `directionDeg` in the app only ever sets it to null or one of the
- * eight bucket centres (0, 45, ..., 315), for which this always resolves.
- * Nothing in the type stops a caller from passing anything else, though, and
- * outside that range the ported arithmetic misbehaves exactly as it does
- * today:
- *  - 360 divides to bucket index 8, one past the last name, and throws
- *    `IndexOutOfBoundsException` - same for any other exact multiple of 360.
- *  - a negative exact multiple of 45 (-45, -90, ...) truncates to a negative
- *    index and throws the same way.
- *  - a negative bearing that is *not* a multiple of 45 (e.g. -10) truncates
- *    toward zero and silently lands on bucket 0 ("North") instead of
- *    throwing or wrapping - wrong, but not a crash.
+ * ?: "any direction"`, with the bucket index floor-mod-wrapped into `0..7`
+ * instead of indexing raw: the original truncated toward zero, so 360 (and
+ * any other multiple of 360) landed one past the last name and threw
+ * `IndexOutOfBoundsException`, a negative multiple of 45 threw the same way,
+ * and a negative non-multiple (e.g. -10) silently landed on bucket 0
+ * ("North") instead of wrapping to the bucket it actually belongs in.
+ * `Float.mod` floors before wrapping the degrees into `0f..360f` (plain `%`
+ * keeps the dividend's sign, which is exactly the bug above), and the outer
+ * `Int.mod(8)` is a second floor-mod as insurance against float rounding
+ * pushing the division a hair past index 7.
  * `internal`, matching [radiusText], so a test can reach it without a full
  * [SpinState] on the way.
  */
 internal fun directionText(directionDeg: Float?): String =
-    directionDeg?.let { DIRECTION_NAMES[(it / 45f).toInt()] } ?: "any direction"
+    directionDeg?.let { DIRECTION_NAMES[((it.mod(360f) / 45f).toInt()).mod(8)] } ?: "any direction"
 
 /**
  * `CandidatesCard`'s per-row `Column` and duration `Surface`, ported as one

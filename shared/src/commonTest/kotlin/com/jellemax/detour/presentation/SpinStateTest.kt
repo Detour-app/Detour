@@ -6,7 +6,6 @@ import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.TravelMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -87,20 +86,34 @@ class SpinStateTest {
         assertEquals("North-west", directionText(359.9f))
     }
 
-    @Test fun exactlyThreeHundredSixtyDegreesThrowsRatherThanWrapping() {
-        // Ported bug: 360 / 45 = 8.0, one past DIRECTION_NAMES' last index (7).
-        assertFailsWith<IndexOutOfBoundsException> { directionText(360f) }
+    @Test fun exactlyThreeHundredSixtyDegreesWrapsToNorth() {
+        // 360 is a full turn back to 0 - wraps to bucket 0 instead of
+        // indexing one past DIRECTION_NAMES' last entry.
+        assertEquals("North", directionText(360f))
     }
 
-    @Test fun aNegativeMultipleOfFortyFiveThrows() {
-        // -45 / 45 = -1.0 - a negative index, same exception as the 360 case.
-        assertFailsWith<IndexOutOfBoundsException> { directionText(-45f) }
+    @Test fun aNegativeMultipleOfFortyFiveWrapsToTheMatchingPositiveBucket() {
+        // -45 is the same bearing as 315 - wraps to "North-west" instead of
+        // indexing -1.
+        assertEquals("North-west", directionText(-45f))
     }
 
-    @Test fun aNegativeNonMultipleTruncatesToNorthWithoutThrowing() {
-        // -10 / 45 truncates toward zero to 0, so this silently (and wrongly)
-        // reads "North" rather than throwing or wrapping. Ported as-is.
-        assertEquals("North", directionText(-10f))
+    @Test fun aNegativeNonMultipleWrapsToItsActualBucketNotNorth() {
+        // -10 is the same bearing as 350, which falls in the 315..360 bucket -
+        // "North-west", not the old truncate-toward-zero "North".
+        assertEquals("North-west", directionText(-10f))
+    }
+
+    @Test fun aLargePositiveMultipleOfAFullTurnWrapsCorrectly() {
+        // 720 is two full turns past 0 - the old code could never even
+        // express this without throwing at 360 first.
+        assertEquals("North", directionText(720f))
+    }
+
+    @Test fun aLargeNegativeBearingWrapsCorrectly() {
+        // -400 is the same bearing as 320 (-400 + 2*360), landing in the
+        // 315..360 bucket.
+        assertEquals("North-west", directionText(-400f))
     }
 
     // --- candidateRow: distance/duration strings ------------------------------

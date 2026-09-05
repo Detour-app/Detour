@@ -41,6 +41,7 @@ import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.PoiKind
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.presentation.DIRECTION_NAMES
 import com.jellemax.detour.presentation.spinStateFrom
 import com.jellemax.detour.tracking.TripStats
 
@@ -49,14 +50,6 @@ import com.jellemax.detour.tracking.TripStats
  *  reused here so the result callout's pin matches the pin already on the
  *  map for the same destination. */
 private val DESTINATION_ORANGE = Color(0xFFFF9800)
-
-// Duplicates com.jellemax.detour.presentation.DIRECTION_NAMES
-// (`shared/.../presentation/SpinState.kt`, next to `spinStateFrom`). Not
-// repointed at that copy: it is `internal` there, and `internal` is per Kotlin
-// module - app depends on shared across a normal Gradle module boundary (no
-// friendPaths), so it is not visible here.
-internal val DIRECTION_NAMES = listOf("North", "North-east", "East", "South-east",
-    "South", "South-west", "West", "North-west")
 
 /** The spin sheet: everything the dock's left cell expands into. Same glass
  *  card the dock uses, just taller — a drag-handle bar stands in for an
