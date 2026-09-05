@@ -173,4 +173,34 @@ class SpinStateTest {
         )
         assertEquals(listOf("A", "B", "C"), state.candidates.map { it.name })
     }
+
+    // --- the ranges the spin sheet's slider is bound to -----------------------
+
+    /**
+     * The spin sheet's mode control resets the radius to the new mode's
+     * `defaultKm` rather than carrying the old one across, because the slider
+     * is bound to `minKm..maxKm` and the two ranges only partly overlap. That
+     * reset is only safe while every default sits inside its own mode's range;
+     * a default outside it would put the slider's thumb off the track the
+     * moment the mode changed.
+     */
+    @Test fun everyModesDefaultRadiusIsInsideItsOwnSliderRange() {
+        for (mode in TravelMode.entries) {
+            assertTrue(mode.minKm < mode.maxKm, "${mode.label} has an empty range")
+            assertTrue(
+                mode.defaultKm in mode.minKm..mode.maxKm,
+                "${mode.label} default ${mode.defaultKm} is outside ${mode.minKm}..${mode.maxKm}",
+            )
+        }
+    }
+
+    /**
+     * And the reset is only *necessary* while some radius valid in one mode is
+     * invalid in the other - if the ranges nested, carrying the value over
+     * would do. Car's default is below Moto's floor today, which is exactly
+     * the case that would strand the slider.
+     */
+    @Test fun aRadiusValidForOneModeCanBeOutOfRangeForTheOther() {
+        assertTrue(TravelMode.CAR.defaultKm !in TravelMode.MOTO.minKm..TravelMode.MOTO.maxKm)
+    }
 }

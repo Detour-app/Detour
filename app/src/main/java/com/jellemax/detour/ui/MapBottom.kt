@@ -87,6 +87,7 @@ internal fun BoxScope.MapBottomSlot(
     onShare: (() -> Unit)?,
     onGoWithLead: (() -> Unit)?,
     mode: TravelMode,
+    onSelectMode: (TravelMode) -> Unit,
     radiusKm: Float,
     onRadiusChange: (Float) -> Unit,
     minRadiusKm: Float,
@@ -209,6 +210,7 @@ internal fun BoxScope.MapBottomSlot(
                     HomeBottomCard.COLLAPSED -> Unit
                     HomeBottomCard.EXPANDED -> SpinSheet(
                         mode = mode,
+                        onSelectMode = onSelectMode,
                         radiusKm = radiusKm,
                         onRadiusChange = onRadiusChange,
                         minRadiusKm = minRadiusKm,

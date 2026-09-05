@@ -1600,6 +1600,36 @@ fun MapScreen(
         }
     }
 
+    /**
+     * Switch travel mode from the spin sheet, the one surface where every
+     * consequence of the choice is visible at once: the profile the route is
+     * built with, whether the spin produces a loop or a destination, and the
+     * range the slider covers.
+     *
+     * The radius is reset to the new mode's own default rather than carried
+     * over or clamped. The two ranges barely overlap (Car 5-100 km, Moto
+     * 30-400 km), so a carried-over value is either outside the new range
+     * entirely - a 25 km car radius is below Moto's 30 km floor, and the
+     * slider would render its thumb off the track - or a number that meant
+     * something different in the mode it was chosen in: for Moto the slider
+     * is total loop length, not a radius. A default is in range by
+     * construction and means what it says. `minRadiusKm` goes with it,
+     * because its own range is `0f..radiusKm`.
+     */
+    fun selectMode(m: TravelMode) {
+        if (m == mode) return
+        Settings.setTripMode(m)
+        radiusKm = m.defaultKm
+        minRadiusKm = 0f
+        destination = null
+        destinationName = null
+        route = null
+        candidates = emptyList()
+        // A convoy spin's candidates are mode-specific too - a switch away
+        // must not leave a stale vote round on everyone's screen.
+        if (spinOffer != null) ConvoyLiveClient.clearSpinOffer()
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -1790,6 +1820,28 @@ fun MapScreen(
                     }
                 },
                 mode = mode,
+                // A refusal goes to the snackbar, not to `error`: that field
+                // renders as a red line inside the sheet, which a "not right
+                // now" is not, and its LaunchedEffect re-keys on value, so a
+                // second identical refusal in a row would raise nothing at
+                // all. Replace rather than queue - two refused taps are one
+                // situation, not a backlog to sit through.
+                onSelectMode = { m ->
+                    // Navigation and an open candidate round need no entry
+                    // here: both replace the spin sheet with a different card
+                    // in the same slot, so the control is not on screen.
+                    val blocked = when {
+                        // The Spin button cancels a spin, so name the one with
+                        // a visible exit first when both are true.
+                        spinning -> "Cancel the spin to change mode"
+                        stats != null -> "Stop the trip to change mode"
+                        else -> null
+                    }
+                    if (blocked == null) selectMode(m) else scope.launch {
+                        snackbarHostState.currentSnackbarData?.dismiss()
+                        snackbarHostState.showSnackbar(blocked)
+                    }
+                },
                 radiusKm = radiusKm,
                 onRadiusChange = { radiusKm = it },
                 minRadiusKm = minRadiusKm,

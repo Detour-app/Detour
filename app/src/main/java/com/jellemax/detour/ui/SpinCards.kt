@@ -35,6 +35,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.data.LatLon
@@ -58,6 +60,7 @@ private val DESTINATION_ORANGE = Color(0xFFFF9800)
 @Composable
 internal fun SpinSheet(
     mode: TravelMode,
+    onSelectMode: (TravelMode) -> Unit,
     radiusKm: Float,
     onRadiusChange: (Float) -> Unit,
     minRadiusKm: Float,
@@ -130,6 +133,24 @@ internal fun SpinSheet(
                 Text(it, color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall)
             }
+
+            // The phone's only travel-mode switch, and it sits above every row
+            // the mode governs - the Unexplored badge, the destination-type
+            // row, the slider's label and its range all react below it, so a
+            // change reads as an effect of this control rather than as the
+            // sheet rearranging itself. The row itself carries the
+            // description: the pills are two words with no shared subject, and
+            // "Switch to Moto" was the accessibility action the retired swipe
+            // gesture used to expose.
+            Text("Mode", style = MaterialTheme.typography.labelLarge)
+            ScrollingPillRow(
+                options = TravelMode.entries.map { it.label },
+                selectedIndex = TravelMode.entries.indexOf(mode),
+                onSelect = { onSelectMode(TravelMode.entries[it]) },
+                modifier = Modifier.semantics {
+                    contentDescription = "Travel mode, ${mode.label} selected"
+                },
+            )
 
             // Purely informational - spin() biases the point/road roll toward
             // fog-of-war territory by passing ExploredArea.load() into
