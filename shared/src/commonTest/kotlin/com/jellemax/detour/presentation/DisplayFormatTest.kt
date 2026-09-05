@@ -1,5 +1,6 @@
 package com.jellemax.detour.presentation
 
+import kotlinx.datetime.TimeZone
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -124,5 +125,35 @@ class DisplayFormatTest {
         // confusing negative duration.
         assertEquals("just now", relativeAge(tsMs = 61_000L, nowMs = 0L))
         assertEquals("just now", relativeAge(tsMs = 999_999_999L, nowMs = 0L))
+    }
+
+    // formatDistanceKm: the "%.0f m" / "%.1f km" split at the 1000 m boundary,
+    // ported from app/.../ui/Format.kt for the nav display to use.
+
+    @Test fun distanceUnderAKilometreReadsInWholeMetres() {
+        assertEquals("850 m", formatDistanceKm(850.0))
+    }
+
+    @Test fun distanceAtOrAboveAKilometreReadsInKilometresToOneDecimal() {
+        assertEquals("1.2 km", formatDistanceKm(1_200.0))
+        assertEquals("1.0 km", formatDistanceKm(1_000.0))
+    }
+
+    // formatEta: kotlinx-datetime's substitute for SimpleDateFormat("HH:mm").
+    // zone is pinned to UTC so the assertions don't depend on the machine
+    // running them.
+
+    @Test fun etaIsZeroPaddedAtMidnight() {
+        assertEquals("00:00", formatEta(epochMs = 0L, zone = TimeZone.UTC))
+    }
+
+    @Test fun etaZeroPadsASingleDigitHour() {
+        assertEquals("09:05", formatEta(epochMs = (9 * 3_600 + 5 * 60) * 1_000L,
+            zone = TimeZone.UTC))
+    }
+
+    @Test fun etaReadsTheLastMinuteOfTheDay() {
+        assertEquals("23:59", formatEta(epochMs = (23 * 3_600 + 59 * 60) * 1_000L,
+            zone = TimeZone.UTC))
     }
 }

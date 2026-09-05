@@ -1,5 +1,8 @@
 package com.jellemax.detour.presentation
 
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import kotlin.math.abs
 import kotlin.math.floor
 
@@ -82,4 +85,26 @@ fun relativeAge(tsMs: Long, nowMs: Long): String {
         minutes < 60 * 24 -> "${minutes / 60}h ago"
         else -> "${minutes / (60 * 24)}d ago"
     }
+}
+
+/**
+ * "850 m" under a kilometre, "1.2 km" at or above it — `app/.../ui/Format.kt`'s
+ * `formatDistanceKm` (`if (meters < 1000) "%.0f m" else "%.1f km"`), ported via
+ * [formatFixed]. `internal`: a nav display needs this today, and it is the
+ * canonical copy new commonMain callers should reach for rather than writing
+ * their own — `SpinState.kt`'s own private `formatDistanceMeters` predates
+ * this one and was left alone rather than touched by an unrelated task.
+ */
+internal fun formatDistanceKm(meters: Double): String =
+    if (meters < 1000) "${formatFixed(meters, 0)} m" else "${formatFixed(meters / 1000, 1)} km"
+
+/**
+ * Wall-clock time of day as "HH:mm", 24-hour, zero-padded — commonMain's
+ * substitute for `SimpleDateFormat("HH:mm", Locale.getDefault())`. [zone]
+ * defaults to the device's own zone for real callers; a test pins it
+ * explicitly so the assertion does not depend on the machine running it.
+ */
+fun formatEta(epochMs: Long, zone: TimeZone = TimeZone.currentSystemDefault()): String {
+    val dt = Instant.fromEpochMilliseconds(epochMs).toLocalDateTime(zone)
+    return "${dt.hour.toString().padStart(2, '0')}:${dt.minute.toString().padStart(2, '0')}"
 }
