@@ -139,6 +139,26 @@ class DisplayFormatTest {
         assertEquals("1.0 km", formatDistanceKm(1_000.0))
     }
 
+    @Test fun distanceJustUnderAKilometreRoundsUpButStaysInMetres() {
+        // The branch is decided on the raw value, before rounding: 999.6 is
+        // still "< 1000", so it renders as rounded metres a metre short of
+        // "1.0 km". Long-standing behaviour, kept deliberately.
+        assertEquals("1000 m", formatDistanceKm(999.6))
+    }
+
+    // formatGForce: one decimal, no locale — the trip card shows it beside a
+    // formatDistanceKm reading, so the two must agree on the separator.
+
+    @Test fun gForceReadsToOneDecimal() {
+        assertEquals("1.3 g", formatGForce(1.3))
+        assertEquals("0.0 g", formatGForce(0.0))
+    }
+
+    @Test fun gForceRoundsHalfAwayFromZero() {
+        assertEquals("1.3 g", formatGForce(1.25))
+        assertEquals("2.0 g", formatGForce(1.96))
+    }
+
     // formatEta: kotlinx-datetime's substitute for SimpleDateFormat("HH:mm").
     // zone is pinned to UTC so the assertions don't depend on the machine
     // running them.

@@ -3,7 +3,9 @@ package com.jellemax.detour.ui
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.jellemax.detour.presentation.formatDistanceKm as sharedFormatDistanceKm
 import com.jellemax.detour.presentation.formatDurationHistory as sharedFormatDurationHistory
+import com.jellemax.detour.presentation.formatGForce as sharedFormatGForce
 
 fun formatDuration(ms: Long): String {
     val totalSeconds = ms / 1000
@@ -26,8 +28,12 @@ fun formatDurationHistory(ms: Long): String = sharedFormatDurationHistory(ms)
 
 fun formatSpeedKmh(mps: Double): String = "%.0f km/h".format(mps * 3.6)
 
-fun formatDistanceKm(meters: Double): String =
-    if (meters < 1000) "%.0f m".format(meters) else "%.1f km".format(meters / 1000)
+// Both of these used to be "%.1f"-based String.format calls with no Locale, so
+// they followed Locale.getDefault(): a nl-BE rider saw "20,5 km" and "1,0 g" in
+// the trip HUD while the nav bar, already on commonMain, read "33.3 km" — two
+// decimal separators on one screen. Delegating leaves one implementation, which
+// is also the one that can't drift.
+fun formatDistanceKm(meters: Double): String = sharedFormatDistanceKm(meters)
 
 // Built once, reused. A fresh SimpleDateFormat per call re-parses the ICU
 // pattern (~1-2 ms) — cheap alone, but LazyColumn composes many rows per fling
@@ -43,4 +49,5 @@ fun formatTimeOfDay(timeMs: Long): String = timeOfDayFormat.format(Date(timeMs))
 
 fun formatLeanAngle(deg: Double): String = "%.0f°".format(deg)
 
-fun formatGForce(g: Double): String = "%.1f g".format(g)
+// Same story as formatDistanceKm above: one locale-independent implementation.
+fun formatGForce(g: Double): String = sharedFormatGForce(g)

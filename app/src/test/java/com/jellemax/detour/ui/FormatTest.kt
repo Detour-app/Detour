@@ -7,12 +7,10 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Pins `Format.kt`'s current output, including the two functions that call
- * `String.format` with no `Locale` argument (`formatDistanceKm`,
- * `formatGForce`) and so follow `Locale.getDefault()` rather than a fixed
- * one. Each locale-sensitive case is checked under both a period-decimal
- * locale (US) and a comma-decimal one (nl-BE), so a future switch to a fixed
- * `Locale.US` shows up here as a deliberate, visible diff.
+ * Pins `Format.kt`'s current output. The two decimal-bearing readouts
+ * (`formatDistanceKm`, `formatGForce`) now delegate to commonMain, which has
+ * no `Locale` at all, so each is checked under both a period-decimal locale
+ * (US) and a comma-decimal one (nl-BE) and must read identically in both.
  */
 class FormatTest {
 
@@ -53,11 +51,11 @@ class FormatTest {
     }
 
     @Test
-    fun distanceAtOrAboveAKilometreUsesACommaDecimalInNlBe() {
+    fun distanceAtOrAboveAKilometreStillUsesAPeriodDecimalInNlBe() {
         Locale.setDefault(Locale("nl", "BE"))
-        assertEquals("1,0 km", formatDistanceKm(1000.0))
-        assertEquals("9,0 km", formatDistanceKm(9000.0))
-        assertEquals("12,4 km", formatDistanceKm(12400.0))
+        assertEquals("1.0 km", formatDistanceKm(1000.0))
+        assertEquals("9.0 km", formatDistanceKm(9000.0))
+        assertEquals("12.4 km", formatDistanceKm(12400.0))
     }
 
     // --- formatGForce ----------------------------------------------------
@@ -68,9 +66,9 @@ class FormatTest {
     }
 
     @Test
-    fun gForceUsesACommaDecimalInNlBe() {
+    fun gForceStillUsesAPeriodDecimalInNlBe() {
         Locale.setDefault(Locale("nl", "BE"))
-        assertEquals("1,3 g", formatGForce(1.3))
+        assertEquals("1.3 g", formatGForce(1.3))
     }
 
     // --- formatSpeedKmh ----------------------------------------------------

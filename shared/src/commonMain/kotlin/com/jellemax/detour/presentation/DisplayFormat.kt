@@ -88,14 +88,28 @@ fun relativeAge(tsMs: Long, nowMs: Long): String {
 }
 
 /**
- * "850 m" under a kilometre, "1.2 km" at or above it — `app/.../ui/Format.kt`'s
- * `formatDistanceKm` (`if (meters < 1000) "%.0f m" else "%.1f km"`), ported via
- * [formatFixed]. `internal`: the nav and spin displays both need it, and it is
- * the canonical copy new commonMain callers should reach for rather than
- * writing their own.
+ * "850 m" under a kilometre, "1.2 km" at or above it, rendered via [formatFixed].
+ * The single implementation: `app/.../ui/Format.kt`'s `formatDistanceKm`
+ * delegates here rather than keeping its own `"%.1f km".format(...)` copy, which
+ * followed `Locale.getDefault()` and so put "20,5 km" on the same screen as the
+ * nav bar's "33.3 km" for a comma-decimal rider.
+ *
+ * The branch is decided on the raw value, before rounding: 999.6 m is still
+ * "< 1000" and renders "1000 m", not "1.0 km". Long-standing behaviour, pinned
+ * by tests here and by the nav display's.
+ *
+ * Public (not `internal`) so `:app` can call it across the module boundary.
  */
-internal fun formatDistanceKm(meters: Double): String =
+fun formatDistanceKm(meters: Double): String =
     if (meters < 1000) "${formatFixed(meters, 0)} m" else "${formatFixed(meters / 1000, 1)} km"
+
+/**
+ * Peak lateral acceleration as "1.3 g", one decimal. Same story as
+ * [formatDistanceKm]: `app/.../ui/Format.kt`'s `formatGForce` delegates here so
+ * the g readout and the distance beside it on the trip card can't disagree
+ * about which decimal separator to use.
+ */
+fun formatGForce(g: Double): String = "${formatFixed(g, 1)} g"
 
 /**
  * Wall-clock time of day as "HH:mm", 24-hour, zero-padded — commonMain's
