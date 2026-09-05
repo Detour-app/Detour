@@ -54,9 +54,10 @@ import com.jellemax.detour.tracking.TripStats
  *  map for the same destination. */
 private val DESTINATION_ORANGE = Color(0xFFFF9800)
 
-/** The spin sheet: everything the dock's left cell expands into. Same glass
- *  card the dock uses, just taller — a drag-handle bar stands in for an
- *  actual drag gesture, tap it (or the chevron) to fold back to the dock. */
+/** The spin sheet: everything the home sheet's Spin chip expands into. Same
+ *  glass card the home sheet uses, just taller — a drag-handle bar stands in
+ *  for an actual drag gesture, tap it (or the chevron) to fold back to the
+ *  home sheet. */
 @Composable
 internal fun SpinSheet(
     mode: TravelMode,

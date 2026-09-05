@@ -307,8 +307,9 @@ fun MapScreen(
     // the spin park that deliberately does not stamp) live there with their
     // tests rather than being spread across ten call sites.
     var camAuthority by remember { mutableStateOf(CameraAuthority.State()) }
-    // Dock (collapsed) is the resting state; the sheet only comes up when
-    // tapped open, and folds back down on its own after a spin lands.
+    // Collapsed is the resting state; the spin sheet only comes up when the
+    // home sheet's Spin chip opens it, and folds back down on its own after a
+    // spin lands.
     var settingsCollapsed by rememberSaveable { mutableStateOf(true) }
     // The prefetched way set, the fetch throttle, the miss counter and the
     // snapped value: SpeedLimitTracker's, in shared/…/drive/, where the policy
@@ -1671,12 +1672,13 @@ fun MapScreen(
                 // widened so the average keeps its slot.
                 //
                 // Idle, it sits level with the top chrome's right-hand rail,
-                // which needs no offset at all: the rail is now the first thing
-                // in that chrome, so both are at the chrome's own 12 dp padding
-                // and nothing else. The 50 dp this used to add was the search
-                // pill's height plus the gap under it, and the pill has moved
-                // into the home sheet. Navigating, the banner above has already
-                // pushed the island clear and it only needs the gap.
+                // which needs no offset at all: both are at the chrome's own
+                // 12 dp padding and nothing else, and everything that chrome
+                // draws — the convoy pill included — is End-aligned, so nothing
+                // of it shares this corner. The 50 dp this used to add was the
+                // search pill's height plus the gap under it, and the pill has
+                // moved into the home sheet. Navigating, the banner above has
+                // already pushed the island clear and it only needs the gap.
                 //
                 // Drawn unconditionally. The standstill fade — "stopping at a
                 // light fades the dial out" — is deliberately gone: a parked map

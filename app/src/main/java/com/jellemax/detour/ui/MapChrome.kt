@@ -31,12 +31,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-/** Map top chrome: the convoy pill, and a right-aligned rail of the two
- *  controls worth reaching for while driving (follow toggle, layers).
+/** Map top chrome: a right-aligned rail of the two controls worth reaching for
+ *  while driving (follow toggle, layers), headed by the convoy pill.
  *  Everything else moved to the Hub or, with the redesign, to the home sheet —
- *  the "Where to?" bar and the avatar included. */
+ *  the "Where to?" bar and the avatar included.
+ *
+ *  Everything here is End-aligned, the pill included. The speed island is drawn
+ *  by `MapScreen` from the same origin — top inset plus the same 12 dp — and
+ *  Start-aligned, so anything this chrome puts at its own Start would sit on
+ *  top of the island rather than beside it. Keeping the pill in the rail's
+ *  column is what makes that impossible by construction, instead of by a top
+ *  offset on the island that has to be re-derived whenever this column's first
+ *  child changes. */
 @Composable
 internal fun MapTopChrome(
     followMe: Boolean,
@@ -50,58 +59,56 @@ internal fun MapTopChrome(
     onToggleFog: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        AnimatedVisibility(visible = convoyName != null, enter = fadeIn(), exit = fadeOut()) {
-            ConvoyPill(name = convoyName ?: "")
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            // End-aligned because the layers panel below is wider than the
-            // 40.dp buttons: without this the column widens to the card and
-            // centres the buttons in it, shifting them off the rail.
-            Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                horizontalAlignment = Alignment.End,
-            ) {
-                GlassRailButton(
-                    icon = if (followMe) Icons.Outlined.MyLocation
-                        else Icons.Outlined.LocationSearching,
-                    contentDescription = if (followMe) "Stop following my location"
-                        else "Follow my location",
-                    tinted = followMe,
-                    onClick = onToggleFollow,
-                )
-                GlassRailButton(
-                    icon = Icons.Outlined.Layers,
-                    contentDescription = "Map layers",
-                    tinted = layersOpen,
-                    onClick = { onLayersOpenChange(!layersOpen) },
-                )
-                // Inline rather than a Popup on purpose. A Popup is its own
-                // window, so the button sitting outside it counted as an
-                // outside-click *and* still ran its own onClick: the panel
-                // closed and reopened on the same tap, and the button could
-                // never close it. One window, one handler, and the toggle is
-                // correct by construction.
-                AnimatedVisibility(visible = layersOpen, enter = fadeIn(), exit = fadeOut()) {
-                    Card(
-                        modifier = Modifier.glassBorder(MaterialTheme.shapes.large),
-                        shape = MaterialTheme.shapes.large,
-                        colors = glassCardColors(),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        // End-aligned because the layers panel below is wider than the
+        // 40.dp buttons: without this the column widens to the card and
+        // centres the buttons in it, shifting them off the rail.
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.End,
+        ) {
+            AnimatedVisibility(visible = convoyName != null, enter = fadeIn(), exit = fadeOut()) {
+                ConvoyPill(name = convoyName ?: "")
+            }
+            GlassRailButton(
+                icon = if (followMe) Icons.Outlined.MyLocation
+                    else Icons.Outlined.LocationSearching,
+                contentDescription = if (followMe) "Stop following my location"
+                    else "Follow my location",
+                tinted = followMe,
+                onClick = onToggleFollow,
+            )
+            GlassRailButton(
+                icon = Icons.Outlined.Layers,
+                contentDescription = "Map layers",
+                tinted = layersOpen,
+                onClick = { onLayersOpenChange(!layersOpen) },
+            )
+            // Inline rather than a Popup on purpose. A Popup is its own
+            // window, so the button sitting outside it counted as an
+            // outside-click *and* still ran its own onClick: the panel
+            // closed and reopened on the same tap, and the button could
+            // never close it. One window, one handler, and the toggle is
+            // correct by construction.
+            AnimatedVisibility(visible = layersOpen, enter = fadeIn(), exit = fadeOut()) {
+                Card(
+                    modifier = Modifier.glassBorder(MaterialTheme.shapes.large),
+                    shape = MaterialTheme.shapes.large,
+                    colors = glassCardColors(),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(
-                            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                if (fogEnabled) Icons.Outlined.Visibility
-                                    else Icons.Outlined.VisibilityOff,
-                                contentDescription = null,
-                            )
-                            Text("Fog of war", modifier = Modifier.weight(1f))
-                            Switch(checked = fogEnabled, onCheckedChange = { onToggleFog() })
-                        }
+                        Icon(
+                            if (fogEnabled) Icons.Outlined.Visibility
+                                else Icons.Outlined.VisibilityOff,
+                            contentDescription = null,
+                        )
+                        Text("Fog of war", modifier = Modifier.weight(1f))
+                        Switch(checked = fogEnabled, onCheckedChange = { onToggleFog() })
                     }
                 }
             }
@@ -109,8 +116,12 @@ internal fun MapTopChrome(
     }
 }
 
-/** Small pill at the top of the map naming the convoy this device is currently
- *  live in, i.e. whenever [ConvoyLiveClient.connected] is true. */
+/** Small pill at the head of the top-right rail naming the convoy this device
+ *  is currently live in, i.e. whenever [ConvoyLiveClient.connected] is true.
+ *
+ *  Single-line: the name comes off the server with no length cap, and a wrapped
+ *  one would both grow the pill downwards into the rail and widen it across the
+ *  map towards the speed island on the opposite corner. */
 @Composable
 private fun ConvoyPill(name: String, modifier: Modifier = Modifier) {
     Card(
@@ -130,7 +141,12 @@ private fun ConvoyPill(name: String, modifier: Modifier = Modifier) {
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(8.dp))
-            Text(name, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                name,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
