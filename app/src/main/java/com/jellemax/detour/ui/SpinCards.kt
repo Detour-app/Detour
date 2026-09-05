@@ -194,6 +194,44 @@ internal fun SpinSheet(
                 )
             }
 
+            Slider(
+                value = radiusKm,
+                onValueChange = onRadiusChange,
+                valueRange = mode.minKm..mode.maxKm,
+            )
+
+            if (!mode.roundTrip) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("Min distance", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        // "Off" is a state label, not a number - kept as a literal.
+                        // The km case reuses radiusText's own mode.maxKm cutoff via
+                        // spinStateFrom rather than re-deriving it here, so a
+                        // min-distance reading is always formatted exactly the
+                        // same way a radius reading is.
+                        if (minRadiusKm <= 0f) "Off"
+                        else spinStateFrom(mode, minRadiusKm, null, emptyList()).radiusText,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Slider(
+                    value = minRadiusKm,
+                    onValueChange = onMinRadiusChange,
+                    valueRange = 0f..radiusKm,
+                )
+            }
+
+            Text("Direction", style = MaterialTheme.typography.labelLarge)
+            ScrollingPillRow(
+                options = listOf("Any") + DIRECTION_NAMES,
+                selectedIndex = directionDeg?.let { (it / 45f).toInt() + 1 } ?: 0,
+                onSelect = { i -> onDirectionChange(if (i == 0) null else (i - 1) * 45f) },
+            )
+
             // The prototype's result callout: a spin's outcome (a loop's
             // distance, a chosen candidate's name and/or its route distance)
             // in one highlighted row instead of two independent optional
@@ -233,44 +271,6 @@ internal fun SpinSheet(
                     )
                 }
             }
-
-            Slider(
-                value = radiusKm,
-                onValueChange = onRadiusChange,
-                valueRange = mode.minKm..mode.maxKm,
-            )
-
-            if (!mode.roundTrip) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text("Min distance", style = MaterialTheme.typography.labelLarge)
-                    Text(
-                        // "Off" is a state label, not a number - kept as a literal.
-                        // The km case reuses radiusText's own mode.maxKm cutoff via
-                        // spinStateFrom rather than re-deriving it here, so a
-                        // min-distance reading is always formatted exactly the
-                        // same way a radius reading is.
-                        if (minRadiusKm <= 0f) "Off"
-                        else spinStateFrom(mode, minRadiusKm, null, emptyList()).radiusText,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-                Slider(
-                    value = minRadiusKm,
-                    onValueChange = onMinRadiusChange,
-                    valueRange = 0f..radiusKm,
-                )
-            }
-
-            Text("Direction", style = MaterialTheme.typography.labelLarge)
-            ScrollingPillRow(
-                options = listOf("Any") + DIRECTION_NAMES,
-                selectedIndex = directionDeg?.let { (it / 45f).toInt() + 1 } ?: 0,
-                onSelect = { i -> onDirectionChange(if (i == 0) null else (i - 1) * 45f) },
-            )
 
             Button(
                 onClick = onSpin,
