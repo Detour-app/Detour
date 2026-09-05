@@ -517,8 +517,15 @@ fun MapScreen(
                     ?: client.lastLocation.await()
                 if (loc != null) {
                     myLocation = LatLon(loc.latitude, loc.longitude)
-                    mapLibreMap?.moveCamera(CameraUpdateFactory.newLatLngZoom(
-                        LatLng(loc.latitude, loc.longitude), Settings.defaultZoom.value.toDouble()))
+                    // Only take the camera if it is still ours to take. This
+                    // await can run for seconds, and a parked camera means the
+                    // rider has since chosen something to look at - a search
+                    // pick, a saved place, a spin result. Centring on them here
+                    // would yank the map back off it long after the tap.
+                    if (!camAuthority.camSuspended) {
+                        mapLibreMap?.moveCamera(CameraUpdateFactory.newLatLngZoom(
+                            LatLng(loc.latitude, loc.longitude), Settings.defaultZoom.value.toDouble()))
+                    }
                 } else {
                     error = "Could not get location; is GPS on?"
                 }
@@ -1243,9 +1250,19 @@ fun MapScreen(
     LaunchedEffect(cameraActive, haveFix, mapLibreMap) {
         val map = mapLibreMap ?: return@LaunchedEffect
         if (!cameraActive) {
-            // Level back to north-up when we stop following.
-            map.cameraPosition.target?.let {
-                setCamera(map, it.latitude, it.longitude, map.cameraPosition.zoom, 0f)
+            // Level back to north-up when we stop following - but only when
+            // there is a rotation to undo. Writing the camera unconditionally
+            // here cancels whatever flight is in progress, and parking is
+            // exactly what a destination framing does on its way in: the pick
+            // dispatches DestinationFramed, `cameraActive` flips false, this
+            // effect restarts, and it would pin the camera to wherever the
+            // animation had reached - the rider - a frame after the pick asked
+            // for the destination. A spin never showed it because SpinStarted
+            // has already parked before the framing, so nothing transitions.
+            if (map.cameraPosition.bearing != 0.0) {
+                map.cameraPosition.target?.let {
+                    setCamera(map, it.latitude, it.longitude, map.cameraPosition.zoom, 0f)
+                }
             }
             return@LaunchedEffect
         }
