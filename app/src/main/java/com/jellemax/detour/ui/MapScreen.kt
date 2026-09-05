@@ -111,6 +111,7 @@ import com.jellemax.detour.map.CAM_BEARING_TAU
 import com.jellemax.detour.map.CameraAuthority
 import com.jellemax.detour.map.FollowCamera
 import com.jellemax.detour.map.MapMotion
+import com.jellemax.detour.map.ModeSwipePolicy
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.bearingDelta
 import com.jellemax.detour.map.smoothBearing
@@ -1830,13 +1831,10 @@ fun MapScreen(
                     // Navigation and an open candidate round need no entry
                     // here: both replace the spin sheet with a different card
                     // in the same slot, so the control is not on screen.
-                    val blocked = when {
-                        // The Spin button cancels a spin, so name the one with
-                        // a visible exit first when both are true.
-                        spinning -> "Cancel the spin to change mode"
-                        stats != null -> "Stop the trip to change mode"
-                        else -> null
-                    }
+                    val blocked = ModeSwipePolicy.blockedReason(
+                        spinning = spinning,
+                        tracking = stats != null,
+                    )
                     if (blocked == null) selectMode(m) else scope.launch {
                         snackbarHostState.currentSnackbarData?.dismiss()
                         snackbarHostState.showSnackbar(blocked)
