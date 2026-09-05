@@ -10,8 +10,16 @@ re-derived with `grep -n` rather than carried forward.
 
 ## Why this file exists
 
-Detour implements the same behaviour on four client surfaces: `app/…/ui/` (phone Compose),
-`app/…/car/` (Android Auto), `wear/`, and `iosApp/` (SwiftUI), over a KMP `shared/` core.
+Detour implements the same behaviour on **three** client surfaces: `app/…/ui/` (phone Compose),
+`app/…/car/` (Android Auto), and `iosApp/` (SwiftUI), over a KMP `shared/` core.
+
+**Corrected.** It was four when this register was written. `db79c69` (*"Remove Wear OS support…"*)
+deleted `wear/`: it is no longer in `settings.gradle.kts`, and `app/…/wear/NavRelay.kt`, the phone
+half of it, is gone with it. Every entry below was derived against the four-surface tree at
+`a0f7f42`, so a Wear citation in an entry is as-found, not as-is. The entries where that changes
+the substance — 1, 4, 11, 13, 14, 19 — carry their own correction in place, on entry 13's
+precedent: **an entry whose premise has evaporated is worse than an open one**, because it still
+reads as verified and gets followed again.
 
 Where two copies are **identical**, extracting them is a pure refactor: the diff is provably
 behaviour-preserving and nobody needs to be consulted. Where they have **drifted**, extraction
@@ -58,14 +66,18 @@ val limit = progress?.speedLimitKmh
 val tooFast = limit != null && currentSpeedKmh > limit + 3.0
 ```
 
-There is a third, quieter copy of the same decision. `app/src/main/java/com/jellemax/detour/wear/NavRelay.kt:28`
-sends the watch only the route's posted limit, never the ambient one:
+There was a third, quieter copy of the same decision. `app/src/main/java/com/jellemax/detour/wear/NavRelay.kt:28`
+sent the watch only the route's posted limit, never the ambient one:
 
 ```kotlin
 put("speedLimitKmh", progress.speedLimitKmh ?: JSONObject.NULL)
 ```
 
-and the car HUD does the same at `app/src/main/java/com/jellemax/detour/car/NavScreen.kt:231`
+**That copy is gone.** `db79c69` deleted the watch and the phone-side relay that fed it, so this
+entry is now two copies, phone and car, and the recommendation below is unaffected: it was always
+about which limit the *chime* reads.
+
+The car HUD does the same at `app/src/main/java/com/jellemax/detour/car/NavScreen.kt:231`
 (`renderer.updateHud(currentSpeedKmh, p.speedLimitKmh)`) while
 `app/src/main/java/com/jellemax/detour/car/SpinScreen.kt:150` passes the ambient one
 (`renderer.updateHud(fix.speedMps * 3.6, ambientLimitKmh)`). So the car's split is structural:
@@ -116,8 +128,9 @@ the phone loses camera warnings on every untagged road, silently, with no indica
 switched off.
 
 **Blast radius.** Phone (chime gains a correct instead of a stale fallback), Android Auto
-(gains chime coverage on untagged roads), Wear (unchanged — it draws no camera warning),
-`README.md:383-385`.
+(gains chime coverage on untagged roads), `README.md:383-385`. As found this also listed *"Wear
+(unchanged — it draws no camera warning)"*; that surface was deleted in `db79c69`, and it was
+already the row that changed nothing.
 
 **Recommendation: survive — the phone's fallback, with the staleness bug fixed in the same
 extraction.** The stale-limit half is a bug (§B1) and is not a product decision. The
@@ -331,9 +344,12 @@ arrow. Four surfaces, four tables.
 | Surface | Location | Codes handled |
 |---|---|---|
 | Phone | `app/…/ui/Navigation.kt:57-71` `signIcon` | `-98 -8 8 -7 7 -3 -2 -1 1 2 3 4 5 6` |
-| Wear | `wear/…/MainActivity.kt:53-67` `signIcon` | identical set, identical bodies |
+| ~~Wear~~ | ~~`wear/…/MainActivity.kt:53-67` `signIcon`~~ | ~~identical set, identical bodies~~ |
 | Android Auto | `app/…/car/NavScreen.kt:583-601` `maneuverType` | the same set **plus `-6`** |
 | iOS | `iosApp/Detour/NavScreen.swift:232-249` `maneuverIcon` | the same set as phone/wear |
+
+**Three copies, not four.** `db79c69` deleted `wear/` and its table with it. The row stays struck
+through rather than removed so the count this entry argues from stays legible.
 
 The car's extra branch, `app/…/car/NavScreen.kt:588`:
 
@@ -346,7 +362,7 @@ real turn-by-turn"*. **Deliberate, and it fixed a crash** — the car's `Maneuve
 stricter than an icon lookup, so an unhandled roundabout-exit sign was not a wrong arrow there,
 it was an exception.
 
-Phone and wear are byte-identical bodies. Every other surface sends `-6` to its `else`/`default`
+Phone and wear were byte-identical bodies. Every other surface sends `-6` to its `else`/`default`
 branch, i.e. draws "carry straight on" where GraphHopper said "leave the roundabout".
 
 **iOS: check the current state, not the earlier claim.** Audit 13 §"Divergence has already
@@ -380,15 +396,20 @@ been debugged against a real roundabout. It is the better copy.
 **What a user loses either way.** Nothing on any surface. The three tables gain a branch; the
 car's table loses nothing.
 
-**Blast radius.** Phone, Wear, iOS. Note that **`wear/` cannot consume `shared/`** —
-`wear/build.gradle.kts` has no `:shared` dependency, and `SKILL.md:52-56` and
+**Blast radius.** Phone, iOS.
+
+**Corrected.** As found this read *"Phone, Wear, iOS"*, and went on: *"**`wear/` cannot consume
+`shared/`** — `wear/build.gradle.kts` has no `:shared` dependency, and `SKILL.md:52-56` and
 `specs/stage-3-hazard-machines-to-shared.md:125-128` both say it should stay that way rather than
 pull ktor/okio/datetime into a 185-line APK to dedupe a 16-line `when`. So a `shared/` extraction
-recovers three of the four copies, and the watch keeps a hand-maintained one by design.
+recovers three of the four copies, and the watch keeps a hand-maintained one by design."* That
+carve-out is void since `db79c69`: there is no module that cannot consume `shared/`, so an
+extraction now recovers **every** remaining copy and the recommendation below gets simpler rather
+than weaker.
 
 **Recommendation: survive — the car's code set (including `-6`), as a `shared/` sign→semantic
 enum with a per-surface glyph table.** Two layers, not one: the *semantics* (`sign → SHARP_LEFT`)
-are identical on all four and belong in `commonMain`; the *glyph* (`ImageVector` /
+are identical on all three and belong in `commonMain`; the *glyph* (`ImageVector` /
 `Maneuver.TYPE_*` / SF Symbol) is per-platform and must stay so — iOS's collapses are legitimate
 and would be destroyed by a shared glyph mapping.
 
@@ -1091,8 +1112,10 @@ if (result != null) {
 `result.sections` is never read. `grep -rn 'speedSections\|\.sections' app/…/car/` returns
 nothing else.
 
-iOS and Wear have neither the tracker nor the data — `grep -rn 'SpeedCameras' iosApp/` is empty,
-even though `shared/…/SpeedCameras.kt` is commonMain and callable from Swift.
+iOS has neither the tracker nor the data — `grep -rn 'SpeedCameras' iosApp/` is empty, even
+though `shared/…/SpeedCameras.kt` is commonMain and callable from Swift. **As found this read
+"iOS and Wear"**; `db79c69` deleted `wear/`, which removes a surface from the gap without closing
+any of it.
 
 **How they differ, in what a user notices.** Enter a trajectcontrole. The phone shows a running
 average that turns red once it exceeds the section limit — the number that actually determines
@@ -1282,9 +1305,15 @@ tolerant, the audible interrupt is not.
 
 **RESOLVED (`+5` half) — one app-side constant: `OVER_LIMIT_TOLERANCE_KMH` in
 `app/…/ui/MapCameraTuning.kt`,** beside the speed readout's other tuning values (`SPEED_TAU`,
-`SPEED_EPS_KMH`). Both remaining consumers read it — `ui/MapHud.kt`'s `SpeedHud`, and
-`car/CarMapRenderer.kt`, which paints its own dial onto a `Canvas` rather than sharing the
-composable and so needs the number itself rather than the state.
+`SPEED_EPS_KMH`). Both remaining consumers read it — the phone at **`MapScreen.kt:1699`**, the
+`speedHudStateFrom` call site that builds the island's state, and `car/CarMapRenderer.kt`, which
+paints its own dial onto a `Canvas` rather than sharing the composable and so needs the number
+itself rather than the state.
+
+**Pointer corrected.** This named `ui/MapHud.kt`'s `SpeedHud` as the phone's consumer. It was, for
+one stage: `SpeedHud` now takes a finished `SpeedHudState` and no longer imports the constant, and
+the threshold enters at the call site instead. Nothing failed when that moved — which is the point
+of writing the new site down rather than the composable's name.
 
 It stays in `app/` on today's evidence rather than the stale argument above: `shared/`'s
 `speedHudStateFrom` takes the tolerance as a **parameter**, so the mapper stays pure and owns no
@@ -1305,8 +1334,19 @@ agreed, with the threshold's behaviour pinned by `SpeedHudStateTest`.
 
 ## 14. The Wear relay sends an instruction text the watch throws away
 
-**What.** The phone sends the watch the next maneuver. It includes the written instruction. The
-watch never displays it.
+**OBSOLETE — both halves of this entry have been deleted.** `db79c69` (*"Remove Wear OS
+support…"*) removed the watch app, and with it `app/…/wear/NavRelay.kt`, the phone-side writer
+quoted below. There is no longer a sender, a receiver, or a field: the product question this entry
+posed — *display the text or stop sending it* — was answered by the third option, stopping both.
+Nothing here is actionable and nothing here should be extracted.
+
+Kept rather than deleted, on the precedent set in entry 13 and for the same reason: **an entry
+whose premise has evaporated is worse than an open one**, because it still reads as verified and
+gets followed again. Entry 14 sat in §A as *needs-a-human* long after there was no human decision
+left to make. Everything below is as-found at `a0f7f42`.
+
+**What (as found).** The phone sends the watch the next maneuver. It includes the written
+instruction. The watch never displays it.
 
 **Copies.** Writer — `app/…/wear/NavRelay.kt:24-29`:
 
@@ -1356,8 +1396,10 @@ the fix is already arriving over the wire.
 **Blast radius.** Wear only. The relay already sends the field, so no phone change is needed
 either way.
 
-**Recommendation: needs-a-human — but a small one.** Either display it or stop sending it; the
-current state (transmitted, parsed away) is the one option nobody chose.
+**Recommendation (as found): needs-a-human — but a small one.** Either display it or stop sending
+it; the current state (transmitted, parsed away) is the one option nobody chose.
+
+**Recommendation now: none — obsolete.** Both surfaces named above were deleted in `db79c69`.
 
 **Blocks stage 3: no.**
 
@@ -1650,8 +1692,9 @@ differently.
 
 - Phone — `app/…/ui/Navigation.kt:107`: `else -> formatDistanceKm(progress.distanceToTurnMeters)`,
   which is `"%.0f m"` under 1 km (`app/…/ui/Format.kt:28-29`) → `"437 m"`.
-- Wear — `wear/…/MainActivity.kt:69-70`, a verbatim second copy of the same helper, called at
-  `:134` → also `"437 m"`.
+- ~~Wear — `wear/…/MainActivity.kt:69-70`, a verbatim second copy of the same helper, called at
+  `:134` → also `"437 m"`.~~ **Deleted in `db79c69` with the rest of `wear/`; two surfaces
+  disagree here now, not three.**
 - iOS — `iosApp/Detour/NavScreen.swift:213-218`:
 
 ```swift
@@ -1678,9 +1721,12 @@ for months without complaint.
 **What a user loses either way.** Quantise Android and a rider watching the last 50 m loses
 resolution exactly where it matters. Keep it precise and the banner flickers.
 
-**Blast radius.** Phone and Wear if quantised; iOS if not. Note Wear's copy of `formatDistance` is
-a **second copy of `Format.kt`'s rule** (`wear/…/MainActivity.kt:69-70`) that cannot be
-deduplicated via `shared/`.
+**Blast radius.** Phone if quantised; iOS if not.
+
+**Corrected.** As found this read *"Phone and Wear if quantised; iOS if not. Note Wear's copy of
+`formatDistance` is a **second copy of `Format.kt`'s rule** (`wear/…/MainActivity.kt:69-70`) that
+cannot be deduplicated via `shared/`."* Since `db79c69` there is no second Android copy and no
+module excluded from `shared/`, so whichever way the decision goes it lands in one place.
 
 **Recommendation: needs-a-human, low stakes.** Whichever way it goes, fix the two comments that
 claim to describe display behaviour.
@@ -1898,11 +1944,14 @@ entry in the register where iOS is the better copy.
 - **12 have a defensible better copy on the evidence** and need no decision: 2, 4, 6a–6e, 7, 8, 9,
   13, 17, 20, 22. Note that **entry 22 is the one place iOS is the better copy** — a register that
   always picks the phone is not measuring anything.
-- **8 carry a genuine product decision.** Four are substantial and listed in §C; four more (14, 18,
+- **7 carry a genuine product decision.** Four are substantial and listed in §C; three more (18,
   19, 21) are real but small enough that a one-line answer unblocks each — **18 has since had
-  its one-line answer** (RULING D5-2, entry 18).
+  its one-line answer** (RULING D5-2, entry 18). This was 8 until `db79c69` deleted `wear/` and
+  took entry 14's whole subject with it.
 - **1 is not really a divergence at all** (entry 3) and the register's recommendation is to leave
   it alone.
+- **1 is obsolete** (entry 14): both the writer and the reader it compares were deleted in
+  `db79c69`, so there is nothing left to decide. Corrected in place, not removed.
 
 Several entries are mixed — entry 1 is a product decision *and* a bug, entry 5 is five settled
 items plus one open question plus a bug — so the buckets add to more than 22 by design.
@@ -1910,7 +1959,7 @@ items plus one open question plus a bug — so the buckets add to more than 22 b
 | # | Divergence | Kind | Surfaces affected | Blocks stage 3 | Verdict |
 |---|---|---|---|:-:|---|
 | 16 | **iOS PTT has no microphone permission at all** | **bug** | iOS | no | **permission RESOLVED `858dc1e`**; ordering + socket gate open (§B5) |
-| 1 | Camera chime falls back to the ambient limit | product decision + bug | phone, car, wear, `README.md` | **yes** | survive: phone's fallback; **staleness RESOLVED `bac833a`** (the car's reset), fallback for the car is stage 3's |
+| 1 | Camera chime falls back to the ambient limit | product decision + bug | phone, car, `README.md` (wear removed in `db79c69`) | **yes** | survive: phone's fallback; **staleness RESOLVED `bac833a`** (the car's reset), fallback for the car is stage 3's |
 | 5 | Trip auto-detection: six rules | product decision + bug | iOS | no (out of scope) | survive: Android on 5a/b/c/e/f; **5d RESOLVED — threshold `3928ce0`, gate `35b8993`**; rest open |
 | 6 | Convoy relay: `left`, pruning, dead sockets | 5 bugs + 1 trade-off | iOS | no (out of scope) | survive: Android on 6a–6e; **6a + 6b RESOLVED `aff8407`**; 6c–6e open |
 | 15 | Camera warning: chime vs chime+speak+toast | **product decision** | phone | partly | **RESOLVED `ae32722`** — full parity: chime + speak, no toast; audibility still unheard |
@@ -1919,14 +1968,14 @@ items plus one open question plus a bug — so the buckets add to more than 22 b
 | 12 | Voice: phone silent, iOS mute doesn't cut | **product decision** + bug | phone, iOS | no | **RESOLVED — policy `c95b19d`, car `c9547ee`, iOS `fb59b8e` + `4e45f4a` + `04b0f98`, phone `e7cb39f`/`31b2ba5`/`d682603`**; turn prompts foregrounded-only (stage 4), and no audio verified |
 | 20 | Place search: length, debounce, proximity | drift | car, iOS | no | survive: the phone's parameters |
 | 9 | Three-candidate roll: phone's copy vs `shared/` | product decision | phone, iOS | no | survive: `shared/` + phone's timeout |
-| 4 | Maneuver sign table, four copies, `-6` | drift | phone, wear, iOS | no | survive: car's code set, split glyph layer |
+| 4 | Maneuver sign table, ~~four~~ three copies, `-6` | drift | phone, iOS (wear removed in `db79c69`) | no | survive: car's code set, split glyph layer |
 | 17 | Car free-drive map ignores speed-adaptive zoom | drift | car | no | survive: the shared rule |
 | 10 | Car search drops the avoid-* settings | plain bug | car | no | **RESOLVED `c7f698a`**; the same line's hardcoded car profile is still open |
-| 19 | Distance-to-turn: metres vs 100 m steps | product decision | phone, wear, iOS | no | **needs-a-human**, low stakes |
+| 19 | Distance-to-turn: metres vs 100 m steps | product decision | phone, iOS (wear removed in `db79c69`) | no | **needs-a-human**, low stakes |
 | 7 | `fetchLocation`, five one-shot lookups | drift | phone, car | no | survive: high-accuracy shape, parameterised |
 | 18 | Speed HUD fades at standstill on the phone only | product decision | phone | constrains it | **RESOLVED** — user's RULING D5-2: the phone draws it unconditionally, as the car does |
 | 21 | Catch-up order reversed; iOS lacks a self-filter | product decision + gap | one platform, iOS | no | **ordering RESOLVED `5d8b162`** — newest-on-top on both, catch-up self-filter now shared; iOS's **live-path** self-filter still open |
-| 14 | Wear discards the instruction text | product decision (small) | wear | no | **needs-a-human** (§C4-adjacent) |
+| 14 | Wear discards the instruction text | product decision (small) | none — wear removed in `db79c69` | no | **OBSOLETE** — writer and reader both deleted; no decision left |
 | 8 | `60` literal vs `NavPolicy.OFF_ROUTE_METERS` | latent | phone | no | **RESOLVED — constant `7d57087`, car indicator `6551f37`** |
 | 22 | Trip dates: fixed pattern vs locale-derived | drift | phone | no | survive: **iOS's** |
 | 3 | Camera easing `dt` clamp, 0.1 vs 0.25 | not really divergent | either | no | leave both; unify the other seven constants |
