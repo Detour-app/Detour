@@ -1,0 +1,59 @@
+# Path-routes one hostname to the three services a rider can otherwise only
+# reach as three separate addresses (Settings → Server → "Different address
+# per service"). See CONTRIBUTING.md's "one-hostname layout".
+#
+# The API and Photon both answer under /api — that's the whole reason a
+# split deployment exists at all (CONTRIBUTING.md says so explicitly). What
+# makes one hostname possible here is that Photon answers *only* the exact
+# path `/api/` (query params carry the search), while every API route is
+# `/api/<something>`. nginx's `=` (exact) location always wins over a prefix
+# one regardless of file order, so the two can't collide.
+#
+# A .template: the official nginx image's entrypoint runs envsubst over
+# every file here and writes the result to /etc/nginx/conf.d before nginx
+# starts (see docker-compose.proxy.yml). envsubst only touches names that
+# are actually set as container env vars — $host, $remote_addr and $scheme
+# below are nginx's own request variables, never exported, so they pass
+# through untouched; only ${PHOTON_UPSTREAM} and ${GRAPHHOPPER_UPSTREAM} get
+# substituted.
+server {
+    listen 80;
+    server_name _;
+
+    # Photon: exact "/api/" only (its query-string search endpoint).
+    # PHOTON_UPSTREAM is a required env var (docker-compose.proxy.yml) —
+    # Photon isn't part of this compose project, so it can't be addressed
+    # by service name.
+    location = /api/ {
+        proxy_pass ${PHOTON_UPSTREAM}/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # The sync + social API: everything else under /api, including the
+    # convoy live relay's WebSocket upgrade (Startup.cs enables it ahead of
+    # auth, but the route itself is still one of this prefix's controllers).
+    # Addressed by compose service name — the API is in this project and on
+    # the shared `edge` network, so it never needs a copied-in IP.
+    location /api/ {
+        proxy_pass http://api:7500/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 1h;
+    }
+
+    # GraphHopper. GRAPHHOPPER_UPSTREAM is required the same way
+    # PHOTON_UPSTREAM is, and for the same reason: another LAN host outside
+    # this compose project.
+    location /route {
+        proxy_pass ${GRAPHHOPPER_UPSTREAM}/route;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
