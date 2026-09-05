@@ -75,3 +75,6 @@ tools/mocklocation/baseline/*.log
 # while, which put a second, drifting description of the code next to the code.
 # Kept locally so a plan in flight survives a branch switch; not pushed.
 docs/superpowers/
+
+# Local dev OSM extracts and routing graph caches - hundreds of MB, fetched not authored.
+docker/dev/data/

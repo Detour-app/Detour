@@ -6,6 +6,8 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,23 +16,26 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.outlined.Route
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Navigation
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Route
+import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -48,12 +53,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.Friends
+import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RiderRef
 import com.jellemax.detour.data.RouteFiles
 import com.jellemax.detour.data.RouteGpx
@@ -62,6 +75,11 @@ import com.jellemax.detour.data.RouteStop
 import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.presentation.RouteCard
+import com.jellemax.detour.presentation.RoutesPresenter
+import com.jellemax.detour.presentation.gmapsTravelMode
+import com.jellemax.detour.presentation.routesStateFrom
+import com.jellemax.detour.presentation.thumbnailPoints
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -72,18 +90,6 @@ private fun shareRouteGpxIntent(uri: Uri): Intent = Intent(Intent.ACTION_SEND).a
     type = RouteGpx.MIME_TYPE
     putExtra(Intent.EXTRA_STREAM, uri)
     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-}
-
-/**
- * Google Maps' `maps/dir/` directions URL takes the long-form travel modes
- * below — NOT [TravelMode.gmapsMode]'s single-letter codes ("d"),
- * which only mean anything to the `google.navigation:q=` scheme
- * navigateGoogleMaps (MapScreen.kt) uses. Mapped explicitly so the two URL
- * schemes' spellings don't get conflated by a future "simplification".
- */
-private fun gmapsDirectionsTravelMode(mode: TravelMode): String = when (mode) {
-    TravelMode.MOTO -> "two-wheeler"
-    TravelMode.CAR -> "driving"
 }
 
 /**
@@ -111,7 +117,7 @@ private fun navigateStopsExternally(context: Context, stops: List<RouteStop>, mo
         "https://www.google.com/maps/dir/?api=1" +
             "&origin=${origin.lat},${origin.lon}" +
             "&destination=${destination.lat},${destination.lon}" +
-            "&travelmode=${gmapsDirectionsTravelMode(mode)}" +
+            "&travelmode=${gmapsTravelMode(mode)}" +
             waypointsParam
     )
     return try {
@@ -120,14 +126,6 @@ private fun navigateStopsExternally(context: Context, stops: List<RouteStop>, mo
     } catch (e: ActivityNotFoundException) {
         "No app to open a multi-stop route"
     }
-}
-
-/** "N stops · 12.3 km · 25 min", trimmed to whatever the route actually knows. */
-private fun routeSubtitle(route: SavedRoute): String {
-    val parts = mutableListOf("${route.stops.size} stops")
-    route.distanceMeters?.let { parts.add(formatDistanceKm(it)) }
-    route.timeMs?.let { parts.add(formatDurationHistory(it)) }
-    return parts.joinToString(" · ")
 }
 
 /**
@@ -146,8 +144,24 @@ fun RoutesScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    LaunchedEffect(Unit) { RouteStore.ensureLoaded() }
+    val presenter = remember { RoutesPresenter() }
+    val presenterState by presenter.state.collectAsStateWithLifecycle()
+    // RoutesPresenter.refresh() is `suspend` but never actually suspends — it
+    // blocks on disk internally (RouteStore.ensureLoaded()), so this hop to
+    // Dispatchers.IO is what keeps that off the main thread. See its KDoc.
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { presenter.refresh() } }
+
+    // The card list is derived here from RouteStore.routes directly rather
+    // than from presenter.state. rename/remove below (and every other
+    // mutation RouteStore exposes) are synchronous mutations that write
+    // straight through that StateFlow before returning; presenter.state only
+    // ever tracks whether the initial load happened, so reading a cached list
+    // from it would leave the screen stale after any of them — see
+    // RoutesPresenter's KDoc. presenterState.loaded (which DOES only change
+    // once, at the initial load) still gates the loading spinner below so it
+    // doesn't flash empty before that first read completes.
     val routes by RouteStore.routes.collectAsStateWithLifecycle()
+    val cards = remember(routes) { routesStateFrom(routes) }
 
     var renaming by remember { mutableStateOf<SavedRoute?>(null) }
     var deleting by remember { mutableStateOf<SavedRoute?>(null) }
@@ -239,23 +253,44 @@ fun RoutesScreen(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             SubScreenTopBar("Routes", onBack, scrollBehavior) {
-                IconButton(onClick = {
-                    status = null
-                    importLauncher.launch(RouteFiles.IMPORT_MIME_TYPES)
-                }) {
-                    Icon(Icons.Filled.FileUpload, contentDescription = "Import route")
-                }
                 IconButton(enabled = !refreshing, onClick = { refresh() }) {
                     if (refreshing) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.Filled.Refresh, contentDescription = "Pull shared routes")
+                    else Icon(Icons.Rounded.Refresh, contentDescription = "Pull shared routes")
                 }
-                IconButton(onClick = onCreateNew) {
-                    Icon(Icons.Filled.Add, contentDescription = "New route")
+                IconButton(
+                    onClick = {
+                        status = null
+                        importLauncher.launch(RouteFiles.IMPORT_MIME_TYPES)
+                    },
+                    modifier = Modifier.padding(end = 8.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainer),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Rounded.UploadFile, contentDescription = "Import route")
+                    }
                 }
             }
         },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = onCreateNew,
+                icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                text = { Text("New route") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            )
+        },
     ) { padding ->
-        if (routes.isEmpty()) {
+        if (!presenterState.loaded) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else if (routes.isEmpty()) {
             Column(
                 Modifier
                     .fillMaxSize()
@@ -264,7 +299,7 @@ fun RoutesScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Icon(
-                    Icons.Outlined.Route, contentDescription = null,
+                    Icons.Rounded.Route, contentDescription = null,
                     Modifier.size(48.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -287,78 +322,27 @@ fun RoutesScreen(
                 }
                 LazyColumn(
                     Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    items(routes, key = { it.id }) { route ->
-                        Card {
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clickable { navigate(route) }
-                                    .padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(route.mode.icon, contentDescription = null)
-                                Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                                    Text(route.name, style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold)
-                                    Text(
-                                        routeSubtitle(route),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                    if (route.sharedBy.isNotEmpty()) {
-                                        Text(
-                                            "from ${route.sharedBy}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.primary,
-                                        )
-                                    }
-                                }
-                                IconButton(onClick = { navigate(route) }) {
-                                    Icon(Icons.Filled.PlayArrow, contentDescription = "Navigate ${route.name}")
-                                }
-                                Box {
-                                    IconButton(onClick = { menuOpenFor = route.id }) {
-                                        Icon(Icons.Filled.MoreVert, contentDescription = "More for ${route.name}")
-                                    }
-                                    DropdownMenu(
-                                        expanded = menuOpenFor == route.id,
-                                        onDismissRequest = { menuOpenFor = null },
-                                    ) {
-                                        DropdownMenuItem(
-                                            text = { Text("Rename") },
-                                            onClick = { renaming = route; menuOpenFor = null },
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Edit") },
-                                            onClick = { menuOpenFor = null; onEdit(route) },
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Share as file") },
-                                            onClick = { menuOpenFor = null; shareFile(route) },
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Export…") },
-                                            onClick = {
-                                                menuOpenFor = null
-                                                exportTarget = route
-                                                exportLauncher.launch(RouteGpx.fileName(route))
-                                            },
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Send to a friend") },
-                                            onClick = { menuOpenFor = null; sharingTo = route },
-                                        )
-                                        DropdownMenuItem(
-                                            text = { Text("Delete") },
-                                            onClick = { menuOpenFor = null; deleting = route },
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                    items(routes.zip(cards), key = { (route, _) -> route.id }) { (route, card) ->
+                        RouteCardItem(
+                            card = card,
+                            menuOpen = menuOpenFor == route.id,
+                            onNavigate = { navigate(route) },
+                            onOpenMenu = { menuOpenFor = route.id },
+                            onDismissMenu = { menuOpenFor = null },
+                            onRename = { menuOpenFor = null; renaming = route },
+                            onEdit = { menuOpenFor = null; onEdit(route) },
+                            onShareFile = { menuOpenFor = null; shareFile(route) },
+                            onExport = {
+                                menuOpenFor = null
+                                exportTarget = route
+                                exportLauncher.launch(RouteGpx.fileName(route))
+                            },
+                            onShareToFriend = { menuOpenFor = null; sharingTo = route },
+                            onDelete = { menuOpenFor = null; deleting = route },
+                        )
                     }
                 }
             }
@@ -398,6 +382,130 @@ fun RoutesScreen(
                 }
             },
         )
+    }
+}
+
+/**
+ * One route card: a thumbnail strip over a name/subtitle/Ride-pill/overflow
+ * detail row, per the prototype. Wrapped in [ListCard] for the shared
+ * shell (20dp corners, surfaceContainerLow, faint outline) — Card clips its
+ * content to that shape, which is what rounds the thumbnail's top corners.
+ */
+@Composable
+private fun RouteCardItem(
+    card: RouteCard,
+    menuOpen: Boolean,
+    onNavigate: () -> Unit,
+    onOpenMenu: () -> Unit,
+    onDismissMenu: () -> Unit,
+    onRename: () -> Unit,
+    onEdit: () -> Unit,
+    onShareFile: () -> Unit,
+    onExport: () -> Unit,
+    onShareToFriend: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    ListCard {
+        RouteThumbnail(card.polyline, Modifier.fillMaxWidth().height(96.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    card.name,
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    card.subtitle,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            RidePillButton(onClick = onNavigate)
+            Box {
+                IconButton(onClick = onOpenMenu) {
+                    Icon(
+                        Icons.Rounded.MoreVert, contentDescription = "More for ${card.name}",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = onDismissMenu) {
+                    DropdownMenuItem(text = { Text("Rename") }, onClick = onRename)
+                    DropdownMenuItem(text = { Text("Edit") }, onClick = onEdit)
+                    DropdownMenuItem(text = { Text("Share as file") }, onClick = onShareFile)
+                    DropdownMenuItem(text = { Text("Export…") }, onClick = onExport)
+                    DropdownMenuItem(text = { Text("Send to a friend") }, onClick = onShareToFriend)
+                    DropdownMenuItem(text = { Text("Delete") }, onClick = onDelete)
+                }
+            }
+        }
+    }
+}
+
+/** The filled "Ride" pill: 36dp tall, fully-rounded (18dp radius), primary
+ *  background, per the prototype. */
+@Composable
+private fun RidePillButton(onClick: () -> Unit) {
+    Row(
+        Modifier
+            .height(36.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.primary)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Rounded.Navigation, contentDescription = null,
+            Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimary,
+        )
+        Text(
+            "Ride",
+            color = MaterialTheme.colorScheme.onPrimary,
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+/**
+ * The 96dp thumbnail strip: [polyline] traced as a stroked path with its
+ * first/last points marked, normalised into the strip's own pixel box by
+ * [com.jellemax.detour.presentation.thumbnailPoints]. An empty polyline (an
+ * imported route that has never been routed) draws nothing — there's no
+ * shape to show yet, and inventing one would be the defect.
+ */
+@Composable
+private fun RouteThumbnail(polyline: List<LatLon>, modifier: Modifier = Modifier) {
+    val routeColor = MaterialTheme.colorScheme.primary
+    Box(modifier.background(MaterialTheme.colorScheme.surface)) {
+        if (polyline.isNotEmpty()) {
+            Canvas(Modifier.fillMaxSize()) {
+                val points = thumbnailPoints(
+                    polyline, size.width.toDouble(), size.height.toDouble(), padding = 20.0,
+                )
+                if (points.isEmpty()) return@Canvas
+                val path = Path()
+                points.forEachIndexed { index, p ->
+                    val offset = Offset(p.x.toFloat(), p.y.toFloat())
+                    if (index == 0) path.moveTo(offset.x, offset.y) else path.lineTo(offset.x, offset.y)
+                }
+                drawPath(
+                    path, routeColor,
+                    style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
+                )
+                val first = points.first()
+                val last = points.last()
+                drawCircle(routeColor, radius = 6.dp.toPx(), center = Offset(first.x.toFloat(), first.y.toFloat()))
+                drawCircle(routeColor, radius = 6.dp.toPx(), center = Offset(last.x.toFloat(), last.y.toFloat()))
+            }
+        }
     }
 }
 

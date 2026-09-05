@@ -7,33 +7,37 @@ import android.os.Build
 import android.os.PowerManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.rounded.Add as AddIcon
+import androidx.compose.material.icons.rounded.Check as AcceptIcon
+import androidx.compose.material.icons.rounded.Close as DeclineIcon
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.ShareLocation
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -49,6 +53,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -60,14 +65,19 @@ import com.jellemax.detour.data.CirclesState
 import com.jellemax.detour.data.CirclesStore
 import com.jellemax.detour.data.Features
 import com.jellemax.detour.data.Group
-import com.jellemax.detour.data.GroupMember
 import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.SyncClient
-import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.notif.CircleNotifySettings
 import com.jellemax.detour.notif.CircleNotifyService
+import com.jellemax.detour.presentation.CircleDetailPresenter
+import com.jellemax.detour.presentation.CircleMemberRow
+import com.jellemax.detour.presentation.CircleRow
+import com.jellemax.detour.presentation.CirclesListPresenter
+import com.jellemax.detour.presentation.CirclesListState
+import com.jellemax.detour.presentation.circleDetailStateFrom
+import com.jellemax.detour.presentation.circlesListStateFrom
 import kotlinx.coroutines.launch
 
 /** A plain geofence radius suggestion — big enough that ordinary GPS jitter
@@ -99,6 +109,7 @@ private fun CirclesScaffold(
     title: String,
     onBack: () -> Unit,
     error: String?,
+    actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     // Two different reasons a rider can't be shown circles yet, gated
@@ -111,10 +122,15 @@ private fun CirclesScaffold(
     // show those fail closed with nothing on screen to explain why.
     val username by Account.username.collectAsStateWithLifecycle()
     val riderId by Account.riderId.collectAsStateWithLifecycle()
+    // Same three-tier gate the body below checks — [actions] (the list's
+    // "new circle" button) is only ever useful once the body would actually
+    // render content to act on, so it shares the gate rather than needing
+    // its own busy/blank checks at the call site.
+    val ready = SyncClient.configured() && username.isNotBlank() && riderId.value.isNotBlank()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = { SubScreenTopBar(title, onBack, scrollBehavior) },
+        topBar = { SubScreenTopBar(title, onBack, scrollBehavior) { if (ready) actions() } },
     ) { padding ->
         Column(
             Modifier
@@ -174,27 +190,53 @@ fun CirclesScreen(onBack: () -> Unit, onOpenCircle: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val state by CirclesStore.state.collectAsStateWithLifecycle()
+    val riderId by Account.riderId.collectAsStateWithLifecycle()
     var createOpen by remember { mutableStateOf(false) }
 
-    // Fires on every entry, and stepping Hub -> Circles -> Hub -> Circles is
-    // not a new visit. reloadIfStale skips the round trip inside its window;
-    // every mutation on this screen still calls reload() unconditionally.
-    LaunchedEffect(Unit) { CirclesStore.reloadIfStale() }
+    // The presenter owns only the load kick — CirclesStore is mutable and
+    // every mutation below reloads it directly, so there is nothing else for
+    // a cached snapshot here to do but go stale. See CirclesListPresenter's
+    // KDoc. Fires on every entry, and stepping Hub -> Circles -> Hub ->
+    // Circles is not a new visit; reloadIfStale skips the round trip inside
+    // its window.
+    val presenter = remember { CirclesListPresenter() }
+    LaunchedEffect(Unit) { presenter.refresh() }
 
-    CirclesScaffold("Circles", onBack, state.error) {
+    // Pure map from the store's raw circles to display rows, recomputed on
+    // the render path rather than cached — see circlesListStateFrom's KDoc.
+    val listState = remember(state.circles, riderId) { circlesListStateFrom(state.circles, riderId) }
+
+    CirclesScaffold(
+        title = "Circles",
+        onBack = onBack,
+        error = state.error,
+        actions = {
+            IconButton(onClick = { createOpen = true }, modifier = Modifier.padding(end = 8.dp)) {
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.AddIcon, contentDescription = "New circle")
+                }
+            }
+        },
+    ) {
         CircleListSection(
-            circles = state.circles,
+            listState = listState,
             busy = state.busy,
-            onOpen = { c -> onOpenCircle(c.id) },
-            onCreate = { createOpen = true },
-            onAccept = { c ->
+            loaded = state.loadedAtMs != null,
+            onOpen = onOpenCircle,
+            onAccept = { id ->
                 scope.launch {
-                    if (CirclesStore.respond(c.id, true)) CircleNotifyService.refresh(context)
+                    if (CirclesStore.respond(id, true)) CircleNotifyService.refresh(context)
                 }
             },
-            onDecline = { c ->
+            onDecline = { id ->
                 scope.launch {
-                    if (CirclesStore.respond(c.id, false)) CircleNotifyService.refresh(context)
+                    if (CirclesStore.respond(id, false)) CircleNotifyService.refresh(context)
                 }
             },
         )
@@ -216,12 +258,13 @@ fun CirclesScreen(onBack: () -> Unit, onOpenCircle: (String) -> Unit) {
 /**
  * One circle.
  *
- * Tells the store which circle is open rather than reading it from there.
- * `selectOnly`, not `select`: [CircleDetailSection]'s own
- * `LaunchedEffect(circle.id)` does the one detail load this pair needs the moment
- * it enters composition, and calling `select` here too would fire it twice. That
- * is the same pairing the notification path relied on before, moved to where the
- * destination is.
+ * [CircleDetailPresenter.open] does `selectOnly(circleId)` then
+ * `reloadIfStale()` — the same load-kick-only shape as [CirclesListPresenter],
+ * see its KDoc. That call refreshes the circle *list* if stale; it does not
+ * fetch this pane's places/events. That fetch is a second, separate call —
+ * `CirclesStore.select(circle.id)` — owned by [CircleDetailSection]'s own
+ * `LaunchedEffect(circle.id)`, exactly as before: firing it here too would
+ * double the request the moment both mount together.
  *
  * A [circleId] that names no real circle pops back to the list rather than
  * showing a blank screen. The store used to absorb this — `loaded` drops a
@@ -238,10 +281,8 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit) {
     val state by CirclesStore.state.collectAsStateWithLifecycle()
     var inviteFor by remember { mutableStateOf<Group?>(null) }
 
-    LaunchedEffect(circleId) {
-        CirclesStore.selectOnly(circleId)
-        CirclesStore.reloadIfStale()
-    }
+    val presenter = remember { CircleDetailPresenter() }
+    LaunchedEffect(circleId) { presenter.open(circleId) }
 
     val circle = state.circles.find { it.id == circleId }
 
@@ -256,13 +297,38 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit) {
     // store, so it can no longer reopen a detail nobody asked for. It still
     // scopes places and events, which is what it was always for.
 
-    CirclesScaffold(circle?.name ?: "Circle", onBack, state.error) {
+    CirclesScaffold(
+        title = circle?.name ?: "Circle",
+        onBack = onBack,
+        error = state.error,
+        actions = {
+            // The prototype's top-bar person_add, same treatment as the
+            // list's "New circle" button above: the label survives as the
+            // contentDescription, not visible text.
+            circle?.let { c ->
+                IconButton(
+                    onClick = { inviteFor = c },
+                    enabled = !state.busy,
+                    modifier = Modifier.padding(end = 8.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceContainer),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Rounded.PersonAdd, contentDescription = "Invite")
+                    }
+                }
+            }
+        },
+    ) {
         circle?.let {
             CircleDetailSection(
                 circle = it,
                 riderId = riderId,
                 state = state,
-                onInvite = { inviteFor = it },
                 onLeave = {
                     scope.launch {
                         if (CirclesStore.leave(it.id)) CircleNotifyService.refresh(context)
@@ -293,82 +359,90 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit) {
 
 @Composable
 private fun CircleListSection(
-    circles: List<Group>,
+    listState: CirclesListState,
     busy: Boolean,
-    onOpen: (Group) -> Unit,
-    onCreate: () -> Unit,
-    onAccept: (Group) -> Unit,
-    onDecline: (Group) -> Unit,
+    /** True once the list has actually loaded ([CirclesState.loadedAtMs] is
+     *  non-null) — distinct from [listState.accepted] being empty, which is
+     *  also what a cold, not-yet-answered load looks like. Without this, a
+     *  rider with real circles is told "No circles yet" for the length of
+     *  the first round trip. */
+    loaded: Boolean,
+    onOpen: (String) -> Unit,
+    onAccept: (String) -> Unit,
+    onDecline: (String) -> Unit,
 ) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("Your circles", style = MaterialTheme.typography.titleSmall,
+    if (listState.invited.isNotEmpty()) {
+        Text("Invites", style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary)
-        TextButton(onClick = onCreate) {
-            Icon(Icons.Outlined.Add, contentDescription = null, Modifier.size(18.dp))
-            Text("New circle")
+        ListCard {
+            listState.invited.forEachIndexed { i, row ->
+                if (i > 0) CardDivider()
+                CircleInviteRow(
+                    row = row,
+                    busy = busy,
+                    onAccept = { onAccept(row.id) },
+                    onDecline = { onDecline(row.id) },
+                )
+            }
         }
     }
 
-    if (circles.isEmpty()) {
-        Text(
-            "No circles yet. A circle is always-on, low-cadence location sharing with " +
-                "family or roommates — unlike a convoy it doesn't end when a ride does, " +
-                "and there's no push-to-talk.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    Text("Your circles", style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary)
+    if (listState.accepted.isEmpty()) {
+        if (loaded) {
+            Text(
+                "No circles yet. A circle is always-on, low-cadence location sharing with " +
+                    "family or roommates — unlike a convoy it doesn't end when a ride does, " +
+                    "and there's no push-to-talk.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         return
     }
 
-    for (circle in circles) {
-        Card(
-            Modifier
-                .fillMaxWidth()
-                .then(
-                    if (circle.status == "accepted") Modifier.clickable { onOpen(circle) }
-                    else Modifier
+    ListCard {
+        listState.accepted.forEachIndexed { i, row ->
+            if (i > 0) CardDivider()
+            HubRow(
+                icon = Icons.Rounded.ShareLocation,
+                title = row.name,
+                subtitle = row.memberLine,
+                trailingText = if (row.sharing) "Sharing" else "Not sharing",
+                onClick = { onOpen(row.id) },
+                paintCard = false,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CircleInviteRow(row: CircleRow, busy: Boolean, onAccept: () -> Unit, onDecline: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, top = 8.dp, bottom = 8.dp, end = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column {
+            Text(row.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+            Text(row.memberLine, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            IconButton(
+                enabled = !busy,
+                onClick = onAccept,
+                modifier = Modifier.size(30.dp),
+                colors = IconButtonDefaults.iconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 ),
-        ) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(circle.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-                    if (circle.status == "invited") {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            IconButton(
-                                enabled = !busy,
-                                onClick = { onAccept(circle) },
-                                modifier = Modifier.size(30.dp),
-                                colors = IconButtonDefaults.iconButtonColors(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                ),
-                            ) { Icon(Icons.Outlined.Check, contentDescription = "Accept ${circle.name}", Modifier.size(16.dp)) }
-                            IconButton(enabled = !busy, onClick = { onDecline(circle) }, modifier = Modifier.size(30.dp)) {
-                                Icon(Icons.Outlined.Close, contentDescription = "Decline ${circle.name}", Modifier.size(16.dp))
-                            }
-                        }
-                    }
-                }
-                Text(
-                    circle.members.joinToString(", ") {
-                        it.username + if (it.status == "invited") " (invited)" else ""
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            ) { Icon(Icons.Rounded.AcceptIcon, contentDescription = "Accept ${row.name}", Modifier.size(16.dp)) }
+            IconButton(enabled = !busy, onClick = onDecline, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Rounded.DeclineIcon, contentDescription = "Decline ${row.name}", Modifier.size(16.dp))
             }
         }
     }
@@ -379,7 +453,6 @@ private fun CircleDetailSection(
     circle: Group,
     riderId: RiderId,
     state: CirclesState,
-    onInvite: () -> Unit,
     onLeave: () -> Unit,
     onToggleSharing: (Boolean) -> Unit,
 ) {
@@ -457,60 +530,76 @@ private fun CircleDetailSection(
         CirclesStore.select(circle.id)
     }
 
-    val mine = circle.members.find { it.id == riderId }
+    // Pure map from the store's raw circle/places/events to display rows,
+    // recomputed on the render path — see circleDetailStateFrom's KDoc.
+    // nowMs is a single snapshot taken here and threaded through, never read
+    // inside the mapper or per row. detailBusy/detailError are deliberately
+    // not part of this mapper's output (same KDoc) — read straight off
+    // `state` below, same as before.
+    val nowMs = System.currentTimeMillis()
+    val detail = circleDetailStateFrom(circle, riderId, state.places, state.events.take(20), nowMs)
 
     Text("Members", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-    for (member in circle.members) {
-        MemberRow(member, isMe = member.id == riderId)
-    }
-
-    if (mine != null) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column {
-                Text("Share my location", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    if (mine.sharing) "Posting your position to this circle every couple of minutes"
-                    else "Paused — nothing is being shared",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(checked = mine.sharing, enabled = !state.busy, onCheckedChange = onToggleSharing)
-        }
-
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column {
-                Text("Notify me about arrivals", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    when {
-                        !Features.liveRelay -> Features.liveRelayNotice
-                        notifyEnabled -> "A notification when someone arrives at or leaves a shared place"
-                        else -> "Off"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(
-                checked = notifyEnabled && Features.liveRelay,
-                enabled = !state.busy && Features.liveRelay,
-                onCheckedChange = ::onToggleNotify,
-            )
+    ListCard {
+        detail.members.forEachIndexed { i, row ->
+            if (i > 0) CardDivider()
+            CircleMemberListRow(row)
         }
     }
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(enabled = !state.busy, onClick = onInvite) { Text("Invite") }
-        TextButton(enabled = !state.busy, onClick = onLeave) { Text("Leave") }
+    val mySharing = detail.mySharing
+    if (mySharing != null) {
+        ListCard {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Share my location", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (mySharing) "Posting your position to this circle every couple of minutes"
+                        else "Paused — nothing is being shared",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = mySharing, enabled = !state.busy, onCheckedChange = onToggleSharing)
+            }
+            CardDivider()
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Notify me about arrivals", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        when {
+                            !Features.liveRelay -> Features.liveRelayNotice
+                            notifyEnabled -> "A notification when someone arrives at or leaves a shared place"
+                            else -> "Off"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = notifyEnabled && Features.liveRelay,
+                    enabled = !state.busy && Features.liveRelay,
+                    onCheckedChange = ::onToggleNotify,
+                )
+            }
+        }
     }
+
+    // Invite moved to the top bar (person_add, see CircleDetailScreen) —
+    // Leave stays here, the one action left with no natural home in chrome.
+    TextButton(enabled = !state.busy, onClick = onLeave) { Text("Leave") }
 
     Row(
         Modifier.fillMaxWidth(),
@@ -520,10 +609,10 @@ private fun CircleDetailSection(
         Text("Shared places", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { scope.launch { CirclesStore.select(circle.id) } }) {
-                Icon(Icons.Outlined.Refresh, contentDescription = "Refresh")
+                Icon(Icons.Rounded.Refresh, contentDescription = "Refresh")
             }
             TextButton(enabled = savedPlaces.isNotEmpty(), onClick = { shareOpen = true }) {
-                Icon(Icons.Outlined.Add, contentDescription = null, Modifier.size(18.dp))
+                Icon(Icons.Rounded.AddIcon, contentDescription = null, Modifier.size(18.dp))
                 Text("Share")
             }
         }
@@ -531,16 +620,24 @@ private fun CircleDetailSection(
     state.detailError?.let {
         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
-    if (state.places.isEmpty()) {
-        Text(
-            "No places shared yet. Sharing one lets the circle see arrivals and " +
-                "departures there — the place stays yours, only revoked when you leave.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    if (detail.places.isEmpty()) {
+        // Gated on detailBusy for the same reason the list's "No circles
+        // yet" is gated on loaded above: selecting() clears places to empty
+        // the instant a circle opens, and detailStarting() sets detailBusy
+        // right after — so without this, a circle with real shared places
+        // flashes "none" for the length of that first load.
+        if (!state.detailBusy) {
+            Text(
+                "No places shared yet. Sharing one lets the circle see arrivals and " +
+                    "departures there — the place stays yours, only revoked when you leave.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     } else {
-        for (place in state.places) {
-            Card {
+        ListCard {
+            detail.places.forEachIndexed { i, row ->
+                if (i > 0) CardDivider()
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -549,20 +646,19 @@ private fun CircleDetailSection(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column {
-                        Text(place.place.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                        Text(row.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                         Text(
-                            "Shared by ${circle.members.handleFor(place.ownerId)} · " +
-                                "${place.radiusM.toInt()} m radius",
+                            row.subtitle,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    if (place.ownerId == riderId) {
+                    if (row.removable) {
                         IconButton(
                             enabled = !state.detailBusy,
-                            onClick = { scope.launch { CirclesStore.unsharePlace(place.serverId) } },
+                            onClick = { scope.launch { CirclesStore.unsharePlace(row.serverId) } },
                         ) {
-                            Icon(Icons.Outlined.Delete, contentDescription = "Remove ${place.place.name}",
+                            Icon(Icons.Rounded.DeleteOutline, contentDescription = "Remove ${row.name}",
                                 tint = MaterialTheme.colorScheme.error)
                         }
                     }
@@ -572,22 +668,22 @@ private fun CircleDetailSection(
     }
 
     Text("Recent activity", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-    if (state.events.isEmpty()) {
+    if (detail.events.isEmpty()) {
         Text(
             "No arrivals or departures yet.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     } else {
-        for (event in state.events.take(20)) {
-            // The place may since have been unshared/deleted; say so rather
-            // than dropping the event, which happened and stays true either way.
-            val placeName = state.places.find { it.place.id == event.placeId }?.place?.name ?: "a since-removed place"
-            val verb = if (event.kind == "arrive") "arrived at" else "left"
-            Text(
-                "${circle.members.handleFor(event.riderId)} $verb $placeName — ${relativeAge(event.tsMs)}",
-                style = MaterialTheme.typography.bodySmall,
-            )
+        ListCard {
+            detail.events.forEachIndexed { i, row ->
+                if (i > 0) CardDivider()
+                Text(
+                    row.text,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                )
+            }
         }
     }
 
@@ -637,21 +733,22 @@ private fun BatteryOptimizationDialog(onDismiss: () -> Unit) {
     )
 }
 
+/** One row of the shared mapper's [CircleMemberRow] — `displayName` already
+ *  carries the "(you)"/"· invited" suffixes, `sharing` gates the icon
+ *  directly, nothing recomputed here. */
 @Composable
-private fun MemberRow(member: GroupMember, isMe: Boolean) {
-    val suffix = buildString {
-        if (isMe) append(" (you)")
-        if (member.status == "invited") append(" · invited")
-    }
+private fun CircleMemberListRow(row: CircleMemberRow) {
     Row(
-        Modifier.fillMaxWidth(),
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(member.username + suffix, style = MaterialTheme.typography.bodyMedium)
+        Text(row.displayName, style = MaterialTheme.typography.bodyMedium)
         Icon(
-            if (member.sharing) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
-            contentDescription = if (member.sharing) "Sharing location" else "Not sharing",
+            if (row.sharing) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+            contentDescription = if (row.sharing) "Sharing location" else "Not sharing",
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(18.dp),
         )
@@ -756,14 +853,3 @@ private fun SharePlaceDialog(
     )
 }
 
-/** Coarse relative age ("3m ago", "2h ago") — exact seconds never matter for
- *  a feature whose fixes only update every couple of minutes anyway. */
-private fun relativeAge(tsMs: Long): String {
-    val minutes = (System.currentTimeMillis() - tsMs).coerceAtLeast(0) / 60_000L
-    return when {
-        minutes < 1 -> "just now"
-        minutes < 60 -> "${minutes}m ago"
-        minutes < 60 * 24 -> "${minutes / 60}h ago"
-        else -> "${minutes / (60 * 24)}d ago"
-    }
-}

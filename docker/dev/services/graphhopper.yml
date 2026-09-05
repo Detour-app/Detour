@@ -1,0 +1,75 @@
+name: ${PROJECT_NAME:-detour-dev}
+
+services:
+  # ---------------------------------------------------------------------------
+  # GraphHopper — routing, for local development.
+  #
+  # backend/INSTALL.md is right that this repo does not package routing for
+  # production: a real deployment picks its own region, its own extract cadence
+  # and its own hardware. This service exists so a developer can exercise the
+  # features that need a route at all — in-app turn-by-turn, and the routed
+  # (rather than straight-line) distance and ETA on spin candidates. Without a
+  # router those paths cannot run: RoutingClient has no public fallback the way
+  # Geocoder does, so `route` comes back null and navigation never starts.
+  #
+  # The image is israelhikingmap's rather than an official one — GraphHopper
+  # publishes no image to Docker Hub. Pinned to 8.0 because the profile syntax
+  # in config/graphhopper/config.yml (`vehicle: car`) was replaced by
+  # `custom_model_files` in 9.x; moving the tag without rewriting that config
+  # gives a container that starts and then rejects every profile.
+  #
+  # The OSM extract is NOT in git — 662 MB of Belgium. Fetch it once:
+  #
+  #   curl -L -o docker/dev/data/graphhopper/belgium-latest.osm.pbf \
+  #     https://download.geofabrik.de/europe/belgium-latest.osm.pbf
+  #
+  # Swap regions by putting a different .pbf there and pointing config.yml's
+  # datareader.file at it. Routing only answers inside the extract's bounds; a
+  # request outside them returns "Cannot find point", which reads in the app
+  # exactly like a routing outage.
+  #
+  # First start builds the graph and the contraction hierarchies for both
+  # profiles: minutes, and several GB of heap. That lands in the named volume,
+  # so later starts are seconds. Deleting the volume pays for it again — and so
+  # does changing the extract or the profile set, since the cache is keyed to
+  # both.
+  # ---------------------------------------------------------------------------
+  graphhopper:
+    image: israelhikingmap/graphhopper:8.0
+    restart: unless-stopped
+    networks:
+      - detour-int
+    ports:
+      - 127.0.0.1:7510:8989
+    volumes:
+      # Read-only: a graph rebuild must not be able to corrupt the download.
+      - ../data/graphhopper:/osm:ro
+      - graphhopper-data:/graph
+      - ../config/graphhopper/config.yml:/config.yml:ro
+    environment:
+      TZ: ${TZ:-Europe/Brussels}
+    # The image's default entrypoint runs its own config-example.yml. Point it
+    # at ours instead; every path it needs is already in that file.
+    # -XX:-UseContainerSupport: this image's JDK reads cgroup v1 layouts and
+    # NPEs out of CgroupV2Subsystem.getInstance on a cgroup v2 host, before any
+    # GraphHopper code runs. Turning container awareness off skips that probe;
+    # the heap is pinned below anyway, which is the only thing the probe would
+    # have informed.
+    entrypoint:
+      ["java", "-XX:-UseContainerSupport", "-Xmx6g", "-Xms1g", "-jar",
+       "/graphhopper/graphhopper-web-8.0-SNAPSHOT.jar", "server", "/config.yml"]
+    healthcheck:
+      # /health reports up only once the graph is loaded, so this stays
+      # unhealthy through the whole first build rather than flapping. The long
+      # start_period is that build.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8989/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20m
+
+networks:
+  detour-int:
+
+volumes:
+  graphhopper-data:

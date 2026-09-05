@@ -465,7 +465,7 @@ fun tripBehaviorLine(trip: Trip): String? {
         parts += if (pct == 0) "OBD2 <1%" else "OBD2 $pct%"
     }
     tripFuelEconomyLper100Km(trip)?.let {
-        parts += (if (ds.fuelEstimated) "~" else "") + "%.1f L/100km".format(it)
+        parts += (if (ds.fuelEstimated) "~" else "") + formatFuelPer100Km(it)
     }
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }

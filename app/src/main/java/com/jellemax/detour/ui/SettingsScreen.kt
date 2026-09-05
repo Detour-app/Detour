@@ -101,6 +101,7 @@ import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.nav.Destination
+import com.jellemax.detour.presentation.formatFixed
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.tracking.DormancyBlocker
@@ -288,12 +289,13 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
 fun SettingsSpokeScreen(spoke: Destination.SettingsSpoke, onBack: () -> Unit) {
     val context = LocalContext.current
     val theme by Settings.theme.collectAsStateWithLifecycle()
+    val decimalSeparator by Settings.decimalSeparator.collectAsStateWithLifecycle()
     val autoDetect by Settings.autoDetectDrives.collectAsStateWithLifecycle()
 
     SettingsScaffold(spokeTitle(spoke), onBack, spacing = 16.dp) {
         when (spoke) {
             Destination.SettingsAppearanceMap -> {
-                AppearanceSection(theme)
+                AppearanceSection(theme, decimalSeparator)
                 MapIconSection()
                 RouteColorSection(theme)
                 MapSection()
@@ -321,7 +323,7 @@ fun SettingsSpokeScreen(spoke: Destination.SettingsSpoke, onBack: () -> Unit) {
 }
 
 @Composable
-private fun AppearanceSection(theme: Settings.Theme) {
+private fun AppearanceSection(theme: Settings.Theme, separator: Settings.DecimalSeparator) {
     SettingsSection("Appearance") {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             Settings.Theme.entries.forEachIndexed { index, t ->
@@ -345,6 +347,37 @@ private fun AppearanceSection(theme: Settings.Theme) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+
+        Text("Decimal separator", style = MaterialTheme.typography.bodyLarge)
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            Settings.DecimalSeparator.entries.forEachIndexed { index, d ->
+                SegmentedButton(
+                    selected = separator == d,
+                    onClick = { Settings.setDecimalSeparator(d) },
+                    shape = SegmentedButtonDefaults.itemShape(
+                        index = index, count = Settings.DecimalSeparator.entries.size,
+                    ),
+                    label = {
+                        Text(
+                            when (d) {
+                                Settings.DecimalSeparator.SYSTEM -> "System"
+                                Settings.DecimalSeparator.POINT -> "1.2"
+                                Settings.DecimalSeparator.COMMA -> "1,2"
+                            },
+                        )
+                    },
+                )
+            }
+        }
+        Text(
+            "How readouts with a decimal — distances, g, fuel economy, " +
+                "mount offset, map zoom — are written. Speeds round to whole " +
+                "km/h, so they never show one either way. Map coordinates " +
+                "always use a point, so a latitude/longitude pair stays " +
+                "readable.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -757,7 +790,7 @@ private fun MapSection() {
         ) {
             Text("Default zoom", style = MaterialTheme.typography.bodyLarge)
             Text(
-                "%.1f".format(defaultZoom),
+                formatFixed(defaultZoom.toDouble(), 1, Settings.decimalSeparatorChar()),
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Bold,
             )
@@ -1278,7 +1311,7 @@ private fun LeanCalibrationSection() {
             status = if (samples.isNotEmpty()) {
                 val avg = samples.average()
                 Settings.setLeanOffsetDeg(avg.toFloat())
-                "Calibrated: offset %.1f°".format(avg)
+                "Calibrated: offset ${formatFixed(avg, 1, Settings.decimalSeparatorChar())}°"
             } else {
                 "No readings — try again"
             }
@@ -1296,7 +1329,7 @@ private fun LeanCalibrationSection() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            "Current offset: %.1f°".format(offsetDeg),
+            "Current offset: ${formatFixed(offsetDeg.toDouble(), 1, Settings.decimalSeparatorChar())}°",
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Bold,
         )

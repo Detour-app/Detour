@@ -7,7 +7,19 @@ import kotlin.math.abs
  * Every decision the spin dock's mode swipe makes. Pure: values in, one answer
  * out, no clock of its own, no Compose and no Android.
  *
- * It lives here rather than inside `SpinDock` because this repo has no Compose
+ * **Only [blockedReason] is still called.** The dock this drove was the map's
+ * resting bottom card and, with it, the phone's only travel-mode switch; the
+ * sheet that replaced it offers the two modes as a plain choice with no swipe,
+ * so the gesture arithmetic below has no caller. That arithmetic is kept, with
+ * its tests, because it answers "how far does a drag have to go" for whatever
+ * asks next, and because deleting tested logic while rebuilding the screen
+ * around it is how coverage disappears without anyone noticing.
+ *
+ * [blockedReason] is the half that outlived the gesture: *when* the mode may
+ * change is a rule about the app's state, not about fingers, so the control
+ * that replaced the swipe asks the same question and gets the same answer.
+ *
+ * It lives here rather than inside that dock because this repo has no Compose
  * test infrastructure - CI runs `:app:testDebugUnitTest` and
  * `:shared:testDebugUnitTest` only, with no Robolectric and no `androidTest`
  * source set. Arithmetic left inside a composable is arithmetic no test can

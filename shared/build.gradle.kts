@@ -40,8 +40,13 @@ kotlin {
             // from core.
             implementation("io.ktor:ktor-client-encoding:2.3.12")
             implementation("com.squareup.okio:okio:3.9.0")
-            // Only for the auto-theme's local clock hour; java.util.Calendar
-            // has no common equivalent.
+            // The auto-theme's local clock hour and the nav ETA's zone;
+            // java.util.Calendar has no common equivalent. `implementation` is
+            // enough only because no *public* declaration a consumer calls
+            // takes a TimeZone: Kotlin resolves every parameter type of a
+            // called function whether or not the caller passes it, so one such
+            // parameter would force this back to `api`. navStateFrom keeps its
+            // zone-taking form `internal` for exactly that reason.
             implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.0")
         }
         androidMain.dependencies {
