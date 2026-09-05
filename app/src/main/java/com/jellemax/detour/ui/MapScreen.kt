@@ -629,7 +629,7 @@ fun MapScreen(
 
     // What's actually shown on the map/card - see the shared rule for why a
     // convoy offer outranks this phone's own spin (ConvoyLiveClient.sendSpinOffer).
-    val displayCandidates = displayCandidates(spinOffer?.asRouteCandidates(), candidates)
+    val visibleCandidates = displayCandidates(spinOffer?.asRouteCandidates(), candidates)
 
     /** Non-null while something in flight makes a mode change wrong to allow.
      *  Navigation and an open candidate round need no entry here: both replace
@@ -650,7 +650,7 @@ fun MapScreen(
     // tests, 1200 lines apart.
     val bottomCard = homeBottomCard(
         navigating = navigating,
-        hasCandidates = displayCandidates.isNotEmpty(),
+        hasCandidates = visibleCandidates.isNotEmpty(),
         collapsed = settingsCollapsed,
     )
     val dockShown = bottomCard == HomeBottomCard.COLLAPSED
@@ -717,7 +717,7 @@ fun MapScreen(
     // Push overlay state to the map whenever anything drawable changes. The
     // layers are created once per style; here we only swap their GeoJSON data.
     LaunchedEffect(mapOverlays, myLocation, destination, route, radiusKm, mode,
-        directionDeg, navigating, displayCandidates) {
+        directionDeg, navigating, visibleCandidates) {
         val overlays = mapOverlays ?: return@LaunchedEffect
         overlays.render(
             myLocation = myLocation,
@@ -730,7 +730,7 @@ fun MapScreen(
                 radiusKm = radiusKm.toDouble(),
             ),
             directionDeg = directionDeg?.toInt(),
-            candidates = displayCandidates.mapIndexed { i, c ->
+            candidates = visibleCandidates.mapIndexed { i, c ->
                 CandidatePin(c.destination, CANDIDATE_COLORS[i % CANDIDATE_COLORS.size])
             },
             // The marker loop below owns SRC_POSITION and writes it every frame, so this
@@ -786,7 +786,7 @@ fun MapScreen(
     // Long-press drops a destination pin; a tap on a candidate dot commits to it
     // (or, mid convoy-vote, casts a vote instead - see spinOfferRef below).
     // Registered once the map is ready; the listeners read live state via refs.
-    val candidatesRef = rememberUpdatedState(displayCandidates)
+    val candidatesRef = rememberUpdatedState(visibleCandidates)
     val spinOfferRef = rememberUpdatedState(spinOffer)
     val navigatingRef = rememberUpdatedState(navigating)
     // A DisposableEffect, not a LaunchedEffect, and that is load-bearing now the
@@ -1832,7 +1832,7 @@ fun MapScreen(
                 bottomCard = bottomCard,
                 navState = navState,
                 onExitNavigation = { stopNavigation() },
-                displayCandidates = displayCandidates,
+                displayCandidates = visibleCandidates,
                 // Non-null only once a spin has actually been shared - that's
                 // also what tells the card to show votes instead of Reroll.
                 convoyVotes = spinOffer?.let { spinVotes },
