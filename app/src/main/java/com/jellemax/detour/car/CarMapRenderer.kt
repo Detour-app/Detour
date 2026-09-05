@@ -375,13 +375,13 @@ class CarMapRenderer(
         view.getMapAsync { map ->
             map.uiSettings.isCompassEnabled = false
             map.uiSettings.isRotateGesturesEnabled = false
-            // Attribution has to stay, but every other corner is taken: the
-            // host draws its ETA card bottom left and the action strip top
-            // right, and the HUD owns the bottom right.
+            // The MapLibre wordmark is dropped outright (no license reason to
+            // keep it), but OSM's attribution has to stay, and every corner is
+            // taken: the host draws its ETA card bottom left and the action
+            // strip top right, and the HUD owns the bottom right.
+            map.uiSettings.isLogoEnabled = false
             val edge = (8 * carContext.resources.displayMetrics.density).toInt()
-            map.uiSettings.logoGravity = Gravity.TOP or Gravity.START
             map.uiSettings.attributionGravity = Gravity.TOP or Gravity.START
-            map.uiSettings.setLogoMargins(edge, edge, 0, 0)
             map.uiSettings.setAttributionMargins(edge, edge, 0, 0)
             mapLibreMap = map
             applyPadding(map)

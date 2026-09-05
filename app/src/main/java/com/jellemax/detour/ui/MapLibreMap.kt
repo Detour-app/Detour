@@ -239,6 +239,19 @@ class MapOverlays(
             PropertyFactory.circleColor(Expression.get("color")),
             PropertyFactory.circleStrokeColor("#FFFFFF"),
             PropertyFactory.circleStrokeWidth(2.5f)))
+
+        // Issue #174: OpenFreeMap's dark style draws its one-way arrow sprite
+        // pointing up (its y-axis), but icon-rotation-alignment:map on a
+        // line-placed symbol aligns the icon's x-axis to the line — a fixed
+        // 90° mismatch on every street, regardless of that street's own
+        // bearing. Not ours to fix at the source (hosted style/sprite), so
+        // correct it here with the extra quarter turn once the style has
+        // loaded these two layers. Dark theme only: positron doesn't define
+        // them at all.
+        style.getLayerAs<SymbolLayer>("road_oneway")
+            ?.setProperties(PropertyFactory.iconRotate(90f))
+        style.getLayerAs<SymbolLayer>("road_oneway_opposite")
+            ?.setProperties(PropertyFactory.iconRotate(270f))
     }
 
     // A theme flip loads a new Style asynchronously (RetainedMap.rememberRetainedMap
@@ -254,6 +267,8 @@ class MapOverlays(
         get() = style.isFullyLoaded
 
     private fun setData(sourceId: String, fc: FeatureCollection) {
+        // render() drives this once per source per GPS fix, which is why the
+        // whole class routes through one boolean rather than catching per call.
         if (!styleUsable) return
         (style.getSource(sourceId) as? GeoJsonSource)?.setGeoJson(fc)
     }

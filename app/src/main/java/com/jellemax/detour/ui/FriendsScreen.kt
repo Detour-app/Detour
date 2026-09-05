@@ -526,7 +526,11 @@ private fun ConvoysSection() {
         pendingLiveConvoyId = null
     }
     fun goLive(convoyId: String) {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+        // Push-to-talk is off (Features.pushToTalk); asking for the mic to
+        // serve a button nobody can reach spends the user's one-time consent
+        // on a capability this build cannot deliver (#154).
+        if (!Features.pushToTalk ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
         ) {
             ConvoyLiveService.start(context, convoyId)

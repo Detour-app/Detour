@@ -243,6 +243,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
         mapView.onResume()
         mapView.getMapAsync { map ->
             map.uiSettings.isCompassEnabled = false
+            map.uiSettings.isLogoEnabled = false
             mapLibreMap = map
         }
         onDispose {
