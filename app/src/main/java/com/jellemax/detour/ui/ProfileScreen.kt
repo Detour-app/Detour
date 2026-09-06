@@ -42,6 +42,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.convoy.ConvoyLiveService
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.presentation.avatarInitialOf
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -129,8 +130,7 @@ fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
             }
 
             if (signOutError.isNotEmpty()) {
-                Text(signOutError, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error)
+                Text(signOutError, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
         }
     }
@@ -157,6 +157,9 @@ fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
                     runCatching { Account.signOut() }
                         .onSuccess { onSignedOut() }
                         .onFailure {
+                            // runCatching swallows cancellation too; leaving
+                            // the screen is not a failed sign-out to report.
+                            if (it is CancellationException) throw it
                             signingOut = false
                             signOutError = "Sign-out did not finish — you may still be " +
                                 "signed in on this device. Try again."
