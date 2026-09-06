@@ -1308,10 +1308,9 @@ tolerant, the audible interrupt is not.
 limit they are compared against. **Three** consumers read them:
 `shared/…/presentation/TripHudState.kt`'s `speedHudStateFrom`, which the phone island's call site
 in `MapScreen.kt` now leaves at its default; `car/CarMapRenderer.kt`, which paints its own dial
-onto a `Canvas` rather
-than sharing the composable and so needs the answer itself rather than the state; and
-`tracking/TripTrackingService.kt`'s `updateSpeedLimit`, which folds the same answer into the
-recorded `secondsOverLimit`.
+onto a `Canvas` rather than sharing the composable and so needs the answer itself rather than the
+state; and `tracking/TripTrackingService.kt`'s `updateSpeedLimit`, which folds the same answer
+into the recorded `secondsOverLimit`.
 
 **Pointer corrected.** This named `ui/MapHud.kt`'s `SpeedHud` as the phone's consumer. It was, for
 one stage: `SpeedHud` now takes a finished `SpeedHudState` and no longer imports the constant, and
@@ -1324,9 +1323,12 @@ the new site down rather than the composable's name.
 premise evaporated the moment a third consumer turned up that is not a view. `TripTrackingService`
 had been comparing with a `× 1.10` margin of its own all along, so at a 120 sign the dials called
 125 the boundary and the recorder called 132, and the active-trip card could read "Over limit"
-beside a 100 km/h dial under a 120 sign. Keeping the constant in `ui/` would have made `tracking/`
-import from `ui/`, which nothing does, so the value and the comparison moved together into
-`drive/`. Same lesson as the Wear correction above, one entry earlier in its own life: **an entry
+beside a 100 km/h dial under a 120 sign. `ui/` could not hold the value once the *comparison* had
+to be shared as well: `speedHudStateFrom` is in `:shared`, which cannot see `:app` at all, so a
+rule a core mapper and the recorder both apply has exactly one home both can reach. Not
+`presentation/` either — the recorder folds the answer into a stored trip statistic, which is not
+display — so value and comparison moved together into `drive/`, beside the machine that produces
+the limit. Same lesson as the Wear correction above, one entry earlier in its own life: **an entry
 whose premise has evaporated still reads as verified and gets followed again.** The call sites no
 longer each name the value either — the mapper keeps its named parameter, because a caller may be
 stricter than the app and `SpeedHudStateTest` is, but it now defaults to the shared constant, so
