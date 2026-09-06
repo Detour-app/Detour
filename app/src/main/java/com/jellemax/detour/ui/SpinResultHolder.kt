@@ -42,6 +42,12 @@ internal object SpinResultHolder {
  * affordances (the spin sheet's nav button/menu) a spin result gets — the
  * existing in-app nav path, reused rather than duplicated.
  *
+ * Those affordances live in the spin sheet, which rests collapsed, so this
+ * promise was empty until MapScreen started opening the sheet for a non-null
+ * `destination` — the `LaunchedEffect(destination)` beside `settingsCollapsed`
+ * is what keeps it. Seeding the holder alone shows a line on a map and nothing
+ * to press.
+ *
  * Only the destination carries over; [startNavigation] always re-fetches a
  * live two-point route from wherever the user actually is when they tap Go,
  * so a route with stops in between this one and the destination would have

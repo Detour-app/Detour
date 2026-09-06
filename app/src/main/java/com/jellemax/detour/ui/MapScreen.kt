@@ -307,10 +307,21 @@ fun MapScreen(
     // the spin park that deliberately does not stamp) live there with their
     // tests rather than being spread across ten call sites.
     var camAuthority by remember { mutableStateOf(CameraAuthority.State()) }
-    // Collapsed is the resting state; the spin sheet only comes up when the
-    // home sheet's Spin chip opens it, and folds back down on its own after a
-    // spin lands.
+    // Collapsed is the resting state; the spin sheet comes up when the home
+    // sheet's Spin chip opens it, or when a destination is set (below).
     var settingsCollapsed by rememberSaveable { mutableStateOf(true) }
+    // Having somewhere to go and no way to start going there was the dead end:
+    // the Go button and the destination readout are the spin sheet's (SpinCards
+    // NavButton and the result callout), so a destination picked while the
+    // sheet was down left a marker on the map and nothing to act on.
+    //
+    // One effect rather than a line in each callback that sets `destination`:
+    // there are six of them (search result, saved place, long-pressed pin, spin
+    // candidate, convoy candidate) and the sixth is not a callback at all —
+    // seedRouteNavigation writes the holder from RoutesScreen, so a ridden
+    // saved route arrives already set, before the first composition here. That
+    // is the case its KDoc has always promised and no call-site line can reach.
+    LaunchedEffect(destination) { if (destination != null) settingsCollapsed = false }
     // The prefetched way set, the fetch throttle, the miss counter and the
     // snapped value: SpeedLimitTracker's, in shared/…/drive/, where the policy
     // lives with its tests. retained.ambientSpeedLimitKmh stays its own state because the

@@ -42,7 +42,14 @@ import kotlinx.serialization.Serializable
 @Serializable
 sealed interface Destination : NavKey {
 
-    /** The map. The root of the stack: back from here leaves the app. */
+    /**
+     * The map. The root of the stack: back from the root entry leaves the app.
+     *
+     * Not necessarily the *only* Map entry. Riding a saved route pushes a
+     * second one on top of Routes so back returns to the list rather than
+     * dropping the rider out of it; [push] refuses a push onto the same
+     * destination, so two Map entries can never be adjacent.
+     */
     @Serializable
     data object Map : Destination
 

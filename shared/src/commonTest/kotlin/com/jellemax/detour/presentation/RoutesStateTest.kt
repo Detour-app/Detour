@@ -6,6 +6,7 @@ import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.TravelMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -115,7 +116,44 @@ class RoutesStateTest {
         assertEquals(7L, card.id)
         assertEquals("Commute scenic", card.name)
         assertEquals("32 km · 2 stops · shared by mika", card.subtitle)
+        assertEquals("Ride", card.actionLabel)
     }
+
+    @Test fun aTwoStopRouteRidesInTheApp() {
+        // The in-app path carries the whole route, so the pill promises a ride.
+        assertFalse(routeOpensExternally(stopCount = 2))
+    }
+
+    @Test fun aRouteWithViaStopsSaysItLeavesTheApp() {
+        // seedRouteNavigation would drop the middle stops, so RoutesScreen hands
+        // these to Google Maps instead. Same pill, so the label has to say so —
+        // that mismatch is the whole point of this predicate.
+        assertTrue(routeOpensExternally(stopCount = 3))
+        assertEquals("Open in Maps", cardFor(stopCount = 5).actionLabel)
+    }
+
+    @Test fun aRouteTooShortToRideStillReadsAsARide() {
+        // A one-stop route can't be ridden at all (RouteEditorScreen refuses to
+        // save one), but nothing here leaves the app either — the label must not
+        // flip to "Open in Maps" at the bottom end of the range.
+        assertFalse(routeOpensExternally(stopCount = 1))
+        assertEquals("Ride", cardFor(stopCount = 1).actionLabel)
+    }
+
+    private fun cardFor(stopCount: Int): RouteCard = routesStateFrom(
+        listOf(
+            SavedRoute(
+                id = 1L,
+                name = "Tour",
+                createdMs = 0L,
+                mode = TravelMode.MOTO,
+                stops = List(stopCount) { RouteStop(LatLon(50.0 + it, 5.0)) },
+                polyline = emptyList(),
+                distanceMeters = null,
+                timeMs = null,
+            )
+        )
+    ).single()
 
     @Test fun thumbnailPointsSpanTheBoxMinusItsPadding() {
         val line = listOf(LatLon(50.0, 5.0), LatLon(51.0, 6.0))

@@ -372,9 +372,18 @@ private fun AppRoot() {
                     onBack = { backStack.pop() },
                     onCreateNew = { backStack.push(Destination.RouteEditor(null)) },
                     onEdit = { route -> backStack.push(Destination.RouteEditor(route.id)) },
-                    // Not a pop: Routes sits two deep, so popping once would land
-                    // on Hub. See NavActions.returnToMap.
-                    onNavigate = { backStack.returnToMap() },
+                    // A push, not returnToMap(): riding a saved route used to
+                    // clear the stack, so a rider who tapped Ride to look at a
+                    // route could not get back to the list to pick another one.
+                    // Pushing keeps Routes underneath, so back returns to it.
+                    //
+                    // Map appearing twice in the stack is legitimate and
+                    // deliberate — NavActionsTest names this exact path. push()
+                    // ignores a push onto the same destination, so [Map, Map] is
+                    // unreachable, and NavDisplay only composes the top entry
+                    // (plus the one it is animating from), so the single
+                    // retained MapView is never asked for two parents at once.
+                    onNavigate = { backStack.push(Destination.Map) },
                 )
             }
             entry<Destination.RouteEditor> { key ->
