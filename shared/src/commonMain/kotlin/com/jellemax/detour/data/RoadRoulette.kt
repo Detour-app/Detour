@@ -30,6 +30,9 @@ data class OverpassWay(val nodes: List<Long>, val points: List<LatLon>)
  */
 object RoadRoulette {
 
+    /** internal, not private, so the mirror-fallthrough test can count them:
+     *  the budget below is a slice per mirror and there is no other way to
+     *  assert that the slices add up to it. */
     internal val ENDPOINTS = listOf(
         "https://overpass-api.de/api/interpreter",
         "https://overpass.kumi.systems/api/interpreter",
@@ -411,9 +414,10 @@ object RoadRoulette {
     }
 
     /**
-     * Runs an Overpass query, rotating across mirrors until one answers with
-     * JSON. Each mirror gets [MIRROR_TIMEOUT_MS] and no more, so a primary that
-     * is down but not *refusing* costs its slice rather than the whole budget.
+     * Runs an Overpass query, rotating across mirrors until one actually
+     * answers ([isOverpassAnswer]). Each mirror gets [MIRROR_TIMEOUT_MS] and no
+     * more, so a primary that is down but not *refusing* costs its slice rather
+     * than the whole budget.
      *
      * Sequential, not raced: two requests per query would double what this app
      * asks of a volunteer-run API for the sake of the seconds a slice already
@@ -426,12 +430,12 @@ object RoadRoulette {
         for (endpoint in mirrorOrder(endpointOffset)) {
             try {
                 val body = post(endpoint, query)
-                if (looksLikeJson(body)) return body
-                // Not an error to this mirror, so it never reached the catch
-                // below: the next one is still worth asking. Letting the HTML
-                // through instead left every caller to parse it, fail, and
-                // report "no data" with a healthy mirror sitting untried.
-                lastError = IOException("Overpass returned a non-JSON body")
+                if (isOverpassAnswer(body)) return body
+                // A refusal the mirror dressed as a 200, so it never reached
+                // the catch below: the next mirror is still worth asking.
+                // Passing it on instead left every caller to read it as "no
+                // data here" with a healthy mirror sitting untried.
+                lastError = IOException("Overpass returned no answer")
             } catch (e: IOException) {
                 lastError = e
             }
@@ -445,14 +449,40 @@ object RoadRoulette {
         ENDPOINTS.indices.map { ENDPOINTS[(it + offset).mod(ENDPOINTS.size)] }
 
     /**
-     * Whether [body] is the JSON an Overpass answer should be. A mirror under
-     * load answers 200 with an HTML "runtime error" page, which is a failure of
-     * this mirror and not of the query — see [rawQuery].
+     * Whether [body] is an answer, rather than one of the two ways a mirror
+     * says no with a 200 on it — see [rawQuery], which tries the next mirror
+     * when this is false.
      *
-     * A prefix test rather than a parse: the body runs to megabytes, and the
-     * caller parses it properly anyway.
+     * The first is the HTML "runtime error" page a busy server sends, which
+     * the caller cannot parse. The second is the dangerous one, and is the way
+     * a server-side timeout comes back to a query carrying `[out:json]` —
+     * which every query here does: a perfectly well-formed envelope with an
+     * empty `elements` and a top-level `remark`
+     * ("runtime error: Query timed out ..."). That one parses, so it reaches
+     * the caller as "this area has nothing in it": the prefetch resets its
+     * backoff, marks the area held and never asks again, which is exactly the
+     * silence this whole file is about. Overpass also uses `remark` for
+     * warnings served alongside partial data, and partial is not an answer for
+     * a prefetch either, so any remark at all sends us to the next mirror.
+     *
+     * Parsed rather than scanned for `"remark"`: `remark` is an OSM tag too,
+     * and `out tags` prints the ones mappers wrote, so a substring test would
+     * throw away good answers. It costs a second parse of a body the caller
+     * parses again — small against the network call that produced it, and
+     * against the alternative of handing every caller a JsonObject it would
+     * have to re-shape.
      */
-    internal fun looksLikeJson(body: String): Boolean = body.trimStart().startsWith('{')
+    internal fun isOverpassAnswer(body: String): Boolean {
+        if (!body.trimStart().startsWith('{')) return false
+        val root = try {
+            jsonObjectOf(body)
+        } catch (e: SerializationException) {
+            return false
+        } catch (e: IllegalArgumentException) {
+            return false
+        }
+        return root.optString("remark").isBlank()
+    }
 
     private suspend fun post(endpoint: String, query: String): String = try {
         Http.request(
