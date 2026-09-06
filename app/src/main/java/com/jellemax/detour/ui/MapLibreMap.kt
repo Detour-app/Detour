@@ -1,31 +1,13 @@
 package com.jellemax.detour.ui
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Matrix
-import android.graphics.Paint
-import android.graphics.Path
-import android.graphics.PointF
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffXfermode
-import android.graphics.RenderEffect
-import android.graphics.Shader
-import android.os.Build
-import android.view.View
 import androidx.annotation.DrawableRes
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import com.jellemax.detour.R
-import com.jellemax.detour.data.FogGeometry
-import com.jellemax.detour.data.FogSegment
-import com.jellemax.detour.data.FogTransform
 import com.jellemax.detour.data.LatLon
-import com.jellemax.detour.data.LatLonBox
 import com.jellemax.detour.data.NamedMemberFix
 import com.jellemax.detour.data.NavEngine
-import com.jellemax.detour.data.Perf
 import com.jellemax.detour.data.RouteColors
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
@@ -35,7 +17,6 @@ import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
-import org.maplibre.android.maps.Projection
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
@@ -52,7 +33,6 @@ import org.maplibre.geojson.Point
 import org.maplibre.geojson.Polygon
 import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.max
 import kotlin.math.sin
 
 /** OpenFreeMap hosted vector styles, keyless and free. Neutral greys — "positron"
