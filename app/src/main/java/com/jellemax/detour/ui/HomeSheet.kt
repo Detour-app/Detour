@@ -46,7 +46,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.SavedPlace
-import com.jellemax.detour.data.TravelMode
 
 /**
  * How tall the sheet stands at `fontScale` 1, excluding the gesture inset it
@@ -107,9 +106,6 @@ private const val SHEET_ALPHA = 0.96f
  * @param canSavePin whether there is a dropped pin to save. The `Save pin` chip
  *   is drawn either way — the prototype's `+` is unconditional — and disabled
  *   rather than hidden when there is nothing to save.
- * @param mode the travel mode a spin would roll under. A readout, not a
- *   control — the switch itself lives in `SpinSheet`, one tap away through the
- *   same chip; see [ShortcutChipRow].
  */
 @Composable
 internal fun ColumnScope.HomeSheet(
@@ -122,7 +118,6 @@ internal fun ColumnScope.HomeSheet(
     onPickPlace: (SavedPlace) -> Unit,
     canSavePin: Boolean,
     onSavePin: () -> Unit,
-    mode: TravelMode,
     onSpinSettings: () -> Unit,
     onOpenRoutes: () -> Unit,
     onOpenSocial: () -> Unit,
@@ -168,7 +163,6 @@ internal fun ColumnScope.HomeSheet(
                     canSavePin = canSavePin,
                     onPick = onPickPlace,
                     onSavePin = onSavePin,
-                    mode = mode,
                     onSpinSettings = onSpinSettings,
                 )
                 Row(
@@ -220,14 +214,6 @@ private fun DragHandle() {
  * One-tap a saved place, open the spin settings, or save the pin you just
  * dropped. Scrolls horizontally when the places overflow, as the chips over the
  * map used to.
- *
- * The Spin chip also names [mode]. The dock that used to show it went with the
- * mode switch into `SpinSheet`, leaving the idle map with nothing that said
- * whether it was about to roll a car route or a moto one — and mode decides the
- * radius default, round-trip planning, the routing profile and whether lean and
- * g-force get recorded. Spelt out rather than left to [TravelMode.icon]: a bare
- * vehicle glyph reads as a filter as easily as a state, and this is the chip
- * that opens the control that changes it, so the word costs nothing.
  */
 @Composable
 private fun ShortcutChipRow(
@@ -235,7 +221,6 @@ private fun ShortcutChipRow(
     canSavePin: Boolean,
     onPick: (SavedPlace) -> Unit,
     onSavePin: () -> Unit,
-    mode: TravelMode,
     onSpinSettings: () -> Unit,
 ) {
     Row(
@@ -261,7 +246,7 @@ private fun ShortcutChipRow(
         // only way to reach it — and, with it, the only way to roll a spin.
         AssistChip(
             onClick = onSpinSettings,
-            label = { Text("Spin · ${mode.label}", fontWeight = FontWeight.SemiBold) },
+            label = { Text("Spin", fontWeight = FontWeight.SemiBold) },
             leadingIcon = {
                 Icon(Icons.Outlined.Casino, contentDescription = null, Modifier.size(18.dp))
             },

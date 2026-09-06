@@ -258,6 +258,7 @@ private fun FriendsSection(username: String) {
     // arrival: see the key list on the LaunchedEffect below.
     val riderId by Account.riderId.collectAsStateWithLifecycle()
 
+    var removeTarget by remember { mutableStateOf<LeaderboardRow?>(null) }
     val presenter = remember { FriendsPresenter() }
     // Keyed on both, same reasoning as the old refreshOwn call this replaces:
     // [username] arrives first, [riderId] a beat later once /me answers.
@@ -327,9 +328,28 @@ private fun FriendsSection(username: String) {
         ListCard {
             board.rows.forEachIndexed { i, row ->
                 if (i > 0) CardDivider()
-                LeaderboardRowItem(rank = i + 1, row = row)
+                val onRemove: (() -> Unit)? = if (row.isMe) null else ({ removeTarget = row })
+                LeaderboardRowItem(rank = i + 1, row = row, onRemove = onRemove)
             }
         }
+    }
+
+    removeTarget?.let { row ->
+        AlertDialog(
+            onDismissRequest = { removeTarget = null },
+            title = { Text("Remove ${row.username}?") },
+            text = { Text("You'll stop seeing each other's totals and any routes shared between you will be removed.") },
+            confirmButton = {
+                TextButton(
+                    enabled = !storeState.busy,
+                    onClick = {
+                        scope.launch { FriendsStore.remove(row.riderId) }
+                        removeTarget = null
+                    },
+                ) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { removeTarget = null }) { Text("Cancel") } },
+        )
     }
 }
 
@@ -374,7 +394,7 @@ private fun RequestRow(name: String, busy: Boolean, onAccept: () -> Unit, onDecl
  * even when you're not in front.
  */
 @Composable
-private fun LeaderboardRowItem(rank: Int, row: LeaderboardRow) {
+private fun LeaderboardRowItem(rank: Int, row: LeaderboardRow, onRemove: (() -> Unit)?) {
     val highlight = row.isMe || rank == 1
     Row(
         Modifier
@@ -428,6 +448,16 @@ private fun LeaderboardRowItem(rank: Int, row: LeaderboardRow) {
             fontWeight = FontWeight.Bold,
             color = if (highlight) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
         )
+        if (onRemove != null) {
+            IconButton(onClick = onRemove, modifier = Modifier.size(30.dp)) {
+                Icon(
+                    Icons.Outlined.Close,
+                    contentDescription = "Remove ${row.username}",
+                    Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 
