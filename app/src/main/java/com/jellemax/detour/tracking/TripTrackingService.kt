@@ -77,7 +77,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlin.math.abs
 import kotlin.math.roundToLong
-import kotlin.math.atan2
 import kotlin.math.sqrt
 
 data class TripStats(
@@ -402,6 +401,9 @@ class TripTrackingService : Service() {
 
     private lateinit var fusedClient: FusedLocationProviderClient
     private lateinit var sensorManager: SensorManager
+    /** The rotation-vector sensor and lean bookkeeping; see its own KDoc for
+     *  why [recordLean] stays here rather than moving with it. */
+    private lateinit var motionSensors: RideMotionSensors
     private var lastLocation: Location? = null
     // The raw GPS speed of the last fix, kept for the OBD2 speed-refresh loop:
     // between GPS callbacks it has no other way to re-run resolveDisplaySpeedMps'
@@ -492,14 +494,16 @@ class TripTrackingService : Service() {
         }
     }
 
-    private val rotationMatrix = FloatArray(9)
-
     /** Set in [onDestroy] before teardown so a late [reconcileObd2Connections]
      *  (via [endTrip]) can't re-dial an adapter as the service dies. */
     @Volatile private var destroyed = false
 
     // Written on the sensor thread, read when the trip is saved.
-    @Volatile private var currentLeanDeg = 0.0
+    /** Mirrors whatever [motionSensors] last reported through its `onLean`
+     *  callback — board lean when fresh, else the phone's own smoothed
+     *  reading — for the live HUD readout only. [recordLean] below is what
+     *  decides whether the same value also becomes part of the recorded trip. */
+    @Volatile private var lastLeanDeg = 0.0
     @Volatile private var maxLeanDeg = 0.0
     // Seeded at 1.0, not 0: a stationary accelerometer reads gravity, so the
     // magnitude idles at 1 g. Starting the EMA from 0 would put the first real
@@ -507,16 +511,7 @@ class TripTrackingService : Service() {
     // reject every sample for the rest of the trip.
     @Volatile private var currentG = 1.0
     @Volatile private var maxG = 0.0
-    /** Deepest lean since the last trace point, sign kept; see [addTracePoint]. */
-    @Volatile private var segmentPeakLeanDeg = 0.0
-    /** Whether this vehicle's lean is being measured at all — a car's points
-     *  record no lean rather than a misleading zero. */
-    @Volatile private var leanTracked = false
     private var lastSensorEmitMs = 0L
-    /** Mount-to-bike misalignment, subtracted from every raw lean reading;
-     *  see [Settings.leanOffsetDeg]. Cached at trip start — it only changes
-     *  from the settings screen, never mid-trip. */
-    private var leanOffsetDeg = 0.0
 
     @Volatile private var speedEventState = HardEventDetector.SpeedState()
     @Volatile private var headingEventState = HardEventDetector.HeadingState()
@@ -599,19 +594,17 @@ class TripTrackingService : Service() {
                 ?.let { it.speedKmh / 3.6 }
             ?: gpsSpeedMps
 
-    /** Board lean is only trusted for a vehicle whose mode tracks lean at all
-     *  — the same rule [startMotionSensors] applies to the phone's own sensor,
-     *  so a car trip with a board still connected doesn't suddenly grow one. */
-    private fun freshBoardLeanDeg(mode: TravelMode?): Double? {
-        if (mode?.tracksLean != true) return null
-        val telemetry = freshBoardTelemetry() ?: return null
-        return if (telemetry.hasLean) telemetry.leanDeg else null
-    }
-
-    /** Shared by the phone's own rotation-vector sensor and fresh board
-     *  telemetry — whichever is currently authoritative calls this, so the
-     *  recorded max reflects one source at a time, not whichever updated last. */
+    /**
+     * Shared by [motionSensors]'s two trigger points (a fresh phone reading,
+     * or a throttled poll of the board's own lean telemetry) — whichever is
+     * currently authoritative reaches here, so the recorded max reflects one
+     * source at a time, not whichever updated last. Stays on the service
+     * rather than moving with the sensor: it needs the running trip's own
+     * speed to gate a reading and [HardEventDetector]'s cornering latch,
+     * neither of which [motionSensors] has any business holding.
+     */
     private fun recordLean(deg: Double) {
+        lastLeanDeg = deg
         if (abs(deg) > MAX_PLAUSIBLE_LEAN_DEG) return
         // Below riding speed, "lean" is steering-head rake, not the bike
         // actually leaning — see MIN_LEAN_SPEED_MPS. Skip the sample, but if the
@@ -626,85 +619,40 @@ class TripTrackingService : Service() {
             return
         }
         maxLeanDeg = maxOf(maxLeanDeg, abs(deg))
-        if (abs(deg) > abs(segmentPeakLeanDeg)) segmentPeakLeanDeg = deg
+        motionSensors.notePeak(deg)
         val (cornering, newEvent) = HardEventDetector.onLeanSample(leanCorneringNow, deg)
         leanCorneringNow = cornering
         if (newEvent) hardCornerCount++
     }
 
     /**
-     * Lean angle (from the rotation-vector sensor) and g-force (accelerometer
-     * magnitude) only make sense while a trip is running, so these sensors are
-     * only registered between [beginTrip] and [endTrip]. Lean angle assumes the
-     * phone is mounted upright facing forward, e.g. a handlebar mount — a phone
-     * in a pocket will read garbage.
-     *
-     * Lean is *not* [SensorManager.getOrientation]'s roll. That roll is only
-     * defined for a phone lying flattish: a phone standing upright sits exactly
-     * on its gimbal-lock singularity (pitch -90°), where roll degenerates and
-     * reads ±180° regardless of how the bike is leaning — which is why every
-     * ride recorded a max lean of about 180°.
-     *
-     * The gravity direction has no such singularity. The rotation matrix's
-     * third row is world-up expressed in device axes, so the angle between it
-     * and the device's own up axis, about the axis out of the screen, is the
-     * lean: 0 with the phone upright, positive leaning right. A mount tilted
-     * back towards the rider only moves gravity along that third axis, so it
-     * does not bias the reading.
+     * G-force (accelerometer magnitude) only makes sense while a trip is
+     * running, so this sensor is only registered between [beginTrip] and
+     * [endTrip]. Lean now comes from [motionSensors] — [recordLean] above is
+     * where its readings rejoin this trip's own state.
      */
-    private val sensorListener = object : SensorEventListener {
+    private val gForceListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
             if (_stats.value == null) return
-            when (event.sensor.type) {
-                Sensor.TYPE_ROTATION_VECTOR -> {
-                    SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-                    // Third row of the rotation matrix = world up in device axes.
-                    // Negated x so a lean to the right reads positive: tipping
-                    // right moves gravity towards the device's -x side.
-                    val upX = -rotationMatrix[6]
-                    val upY = rotationMatrix[7]
-                    val rawLeanDeg = Math.toDegrees(atan2(upX, upY).toDouble()) - leanOffsetDeg
-                    // Drop single-sample fusion glitches before they ever reach
-                    // the EMA — see MAX_LEAN_SLEW_DEG. The EMA below only damps
-                    // a glitch's contribution, it can't remove it outright.
-                    if (abs(rawLeanDeg - currentLeanDeg) <= MAX_LEAN_SLEW_DEG) {
-                        currentLeanDeg += LEAN_EMA_ALPHA * (rawLeanDeg - currentLeanDeg)
-                        // Only this sensor's own reading feeds the recorded max while
-                        // the board isn't supplying a fresher one — see recordLean()
-                        // and freshBoardLeanDeg(). (MAX_PLAUSIBLE_LEAN_DEG below still
-                        // guards against the phone being handled, not a lean.)
-                        if (freshBoardLeanDeg(_stats.value?.mode) == null) recordLean(currentLeanDeg)
-                    }
-                }
-                Sensor.TYPE_ACCELEROMETER -> {
-                    val (x, y, z) = event.values
-                    val rawG = sqrt((x * x + y * y + z * z).toDouble()) /
-                        SensorManager.GRAVITY_EARTH
-                    // Drop single-sample shocks before they ever reach the EMA —
-                    // see MAX_G_SLEW.
-                    if (abs(rawG - currentG) <= MAX_G_SLEW) {
-                        currentG += G_EMA_ALPHA * (rawG - currentG)
-                        // MAX_PLAUSIBLE_G still guards the recorded max even
-                        // once a shock has been smoothed into currentG.
-                        if (currentG <= MAX_PLAUSIBLE_G) maxG = maxOf(maxG, currentG)
-                    }
-                }
+            val (x, y, z) = event.values
+            val rawG = sqrt((x * x + y * y + z * z).toDouble()) /
+                SensorManager.GRAVITY_EARTH
+            // Drop single-sample shocks before they ever reach the EMA —
+            // see MAX_G_SLEW.
+            if (abs(rawG - currentG) <= MAX_G_SLEW) {
+                currentG += G_EMA_ALPHA * (rawG - currentG)
+                // MAX_PLAUSIBLE_G still guards the recorded max even
+                // once a shock has been smoothed into currentG.
+                if (currentG <= MAX_PLAUSIBLE_G) maxG = maxOf(maxG, currentG)
             }
             // Peaks are folded in on every event above; publishing them at 5 Hz
             // keeps the trip card live without recomposing it 100x a second.
             val now = SystemClock.elapsedRealtime()
             if (now - lastSensorEmitMs < SENSOR_EMIT_INTERVAL_MS) return
             lastSensorEmitMs = now
-            // The board updates at 4 Hz (see BOARD_TELEMETRY_STALE_MS), close
-            // enough to this 5 Hz tick that sampling it here rather than on
-            // its own event is a fine match — recorded here rather than in the
-            // ROTATION_VECTOR branch above since that branch only fires from
-            // the phone's own sensor, never from a BLE write.
-            val boardLeanDeg = freshBoardLeanDeg(_stats.value?.mode)
-            if (boardLeanDeg != null) recordLean(boardLeanDeg)
             _stats.update {
                 it?.copy(
-                    currentLeanAngleDeg = boardLeanDeg ?: currentLeanDeg,
+                    currentLeanAngleDeg = lastLeanDeg,
                     maxLeanAngleDeg = maxLeanDeg,
                     currentGForce = currentG,
                     maxGForce = maxG,
@@ -718,27 +666,19 @@ class TripTrackingService : Service() {
     /** Registers only the sensors this vehicle has a meaningful reading for, so
      *  a car trip never records a lean angle and a bicycle wakes neither sensor. */
     private fun startMotionSensors(mode: TravelMode) {
-        // SENSOR_DELAY_UI (~60ms) resolves a lean or a braking spike just as well
-        // as SENSOR_DELAY_GAME (~20ms) and wakes the CPU a third as often.
-        leanTracked = false
-        if (mode.tracksLean) {
-            leanOffsetDeg = Settings.leanOffsetDeg.value.toDouble()
-            sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let {
-                sensorManager.registerListener(sensorListener, it, SensorManager.SENSOR_DELAY_UI)
-                leanTracked = true
-            }
-        }
+        motionSensors.start(mode)
+        // SENSOR_DELAY_UI (~60ms) resolves a braking spike just as well as
+        // SENSOR_DELAY_GAME (~20ms) and wakes the CPU a third as often.
         if (mode.tracksGForce) {
             sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
-                sensorManager.registerListener(sensorListener, it, SensorManager.SENSOR_DELAY_UI)
+                sensorManager.registerListener(gForceListener, it, SensorManager.SENSOR_DELAY_UI)
             }
         }
     }
 
     private fun stopMotionSensors() {
-        sensorManager.unregisterListener(sensorListener)
-        leanTracked = false
-        segmentPeakLeanDeg = 0.0
+        sensorManager.unregisterListener(gForceListener)
+        motionSensors.stop()
     }
 
     // --- Bluetooth vehicle auto-detect -------------------------------------
@@ -979,6 +919,11 @@ class TripTrackingService : Service() {
         if (!::sensorManager.isInitialized) {
             sensorManager = getSystemService(SensorManager::class.java)
         }
+        if (!::motionSensors.isInitialized) {
+            motionSensors = RideMotionSensors(
+                this, LEAN_EMA_ALPHA, MAX_LEAN_SLEW_DEG, SENSOR_EMIT_INTERVAL_MS, BOARD_TELEMETRY_STALE_MS,
+            ) { deg -> recordLean(deg) }
+        }
 
         // Before the action, so a trip started in this same command classifies
         // against devices that were already connected when the service woke.
@@ -1054,7 +999,7 @@ class TripTrackingService : Service() {
         probeUntilMs = null
         pendingStopAtMs = null
         resetStartDetector()
-        currentLeanDeg = 0.0; maxLeanDeg = 0.0
+        lastLeanDeg = 0.0; maxLeanDeg = 0.0
         // 1.0, not 0: the resting magnitude is 1 g — see the field declaration.
         currentG = 1.0; maxG = 0.0
         speedEventState = HardEventDetector.SpeedState()
@@ -1917,10 +1862,10 @@ class TripTrackingService : Service() {
                 at = p,
                 timeMs = timeMs,
                 speedKmh = speedMps * 3.6,
-                leanDeg = if (leanTracked) segmentPeakLeanDeg else null,
+                leanDeg = motionSensors.peakLeanSinceLastTracePoint(),
             )
         )
-        segmentPeakLeanDeg = 0.0
+        motionSensors.resetPeakLean()
         if (tracePoints.size >= 200) flushTrace(keepLast = true)
         _liveTrace.value = tracePoints.map { it.at }
         maybeDiscoverMunicipality(p)
