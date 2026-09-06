@@ -251,16 +251,26 @@ Under **Background location updates**, tick:
   often off or the app behind the driver's music app while this runs.
 - **Other** — see below.
 
-Tick **Geofencing**. Detour registers exactly one geofence: a single
-transition-EXIT circle around the position where the rider parked, used only
-to let the trip-tracking foreground service stop itself while the phone is
-stationary and be woken by the system when the rider rides away (`ParkGeofence`
-in `app/.../tracking/`). It carries no radius of interest beyond that wake and
-is removed the moment the service starts.
+Tick **Geofencing**. Detour registers two kinds of geofence:
 
-The auto-stop "back where you started" check and a circle's arrive/depart
-events still use no geofence API — both are plain on-device arithmetic against
-fixes that already arrive (`GeofenceEvaluator` in `shared/`).
+- One transition-EXIT circle around the position where the rider parked, used
+  only to let the trip-tracking foreground service stop itself while the
+  phone is stationary and be woken by the system when the rider rides away
+  (`ParkGeofence` in `app/.../tracking/`). It carries no radius of interest
+  beyond that wake and is removed the moment the service starts.
+- A pair of circles (dwell + exit) for each circle place the rider is
+  presently within a few kilometres of, used to post an arrival/departure the
+  moment the OS delivers the transition instead of waiting for the next
+  2-minute poll (`PlaceGeofenceGate` in `app/.../tracking/`). Only places
+  currently nearby are registered — never the rider's full set of shared
+  places — and a fence is deregistered the moment the rider leaves that
+  proximity radius.
+
+The auto-stop "back where you started" check still uses no geofence API —
+plain on-device arithmetic against fixes that already arrive. A circle's
+arrive/depart decision is `GeofenceEvaluator` arithmetic either way; on
+Android the OS geofences above are what makes the *posting* immediate rather
+than the decision itself changing.
 
 "Other" description:
 
