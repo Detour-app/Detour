@@ -1705,11 +1705,11 @@ fun MapScreen(
                             limitKmh = navState.speedLimitKmh,
                             averageKmh = sectionAvgKmh,
                             averageLimitKmh = sectionLimitKmh,
-                            // Named, never inherited: the app's threshold lives
-                            // in MapCameraTuning and the car dial reads the same
-                            // constant, exactly as NavPolicy.OFF_ROUTE_METERS is
-                            // passed to navStateFrom above.
-                            overLimitToleranceKmh = OVER_LIMIT_TOLERANCE_KMH,
+                            // Threshold left at its default: it is
+                            // SpeedLimitTracker.OVER_LIMIT_TOLERANCE_KMH, the
+                            // one the car dial and the trip recorder compare
+                            // against too, so naming it here would only be a
+                            // second place for it to drift.
                         ),
                     )
                     // Diagnostics: an adapter that fed this trip and has since
