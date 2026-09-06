@@ -2,7 +2,6 @@
 <SmellBaseline>
   <ManuallySuppressedIssues></ManuallySuppressedIssues>
   <CurrentIssues>
-    <ID>ComplexCondition:MapLibreMap.kt$FogView$tS &gt; north || tN &lt; south || tW &gt; east || tE &lt; west</ID>
     <ID>ComplexCondition:MapScreen.kt$Features.pushToTalk &amp;&amp; convoyConnected &amp;&amp; activeConvoyId != null &amp;&amp; ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED</ID>
     <ID>ComposableNaming:TripCardRenderer.kt$heroStat</ID>
     <ID>ComposableNaming:TripCardRenderer.kt$secondaryStat</ID>
@@ -73,7 +72,6 @@
     <ID>LongParameterList:TripCardRenderer.kt$( cardData: CardData, mapSnapshot: TripCardMapSnapshot?, routeColor: Color, backgroundTop: Color, textColor: Color, mutedColor: Color, dark: Boolean, trimmed: Boolean, )</ID>
     <ID>LongParameterList:TripCardRenderer.kt$( cardData: CardData, snapshot: TripCardMapSnapshot, routeColor: Color, backgroundTop: Color, dark: Boolean, fullBleed: Boolean = false, modifier: Modifier = Modifier, )</ID>
     <ID>LoopWithTooManyJumpStatements:CarMapRenderer.kt$CarMapRenderer$while</ID>
-    <ID>LoopWithTooManyJumpStatements:MapLibreMap.kt$FogView$for</ID>
     <ID>LoopWithTooManyJumpStatements:PlaceGeofenceReceiver.kt$PlaceGeofenceReceiver$for</ID>
     <ID>MatchingDeclarationName:TripOpen.kt$PendingTripOpen</ID>
     <ID>MaxLineLength:BleNavServer.kt$*</ID>

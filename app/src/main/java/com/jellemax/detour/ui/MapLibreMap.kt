@@ -30,6 +30,7 @@ import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.Projection
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
@@ -773,39 +774,13 @@ class FogView(context: Context) : View(context) {
         val west = vb.longitudeWest - padDeg
 
         val pt = PointF()
+        val viewport = Viewport(north, south, east, west)
         for (i in traces.indices) {
-            val trace = traces[i]
-            if (trace.isEmpty()) continue
-            val b = traceBounds.getOrNull(i) ?: continue
-            if (b.south > north || b.north < south || b.west > east || b.east < west) continue
-            drawnTraces++
-            projected += trace.size
-            val path = Path()
-            var first = true
-            for (p in trace) {
-                val sp = proj.toScreenLocation(LatLng(p.lat, p.lon))
-                if (first) { path.moveTo(sp.x * s, sp.y * s); first = false }
-                else path.lineTo(sp.x * s, sp.y * s)
-            }
-            bufCanvas.drawPath(path, clearPaint)
+            val drawn = drawTraceIfVisible(bufCanvas, traces[i], traceBounds.getOrNull(i), viewport, proj, s)
+            if (drawn > 0) { drawnTraces++; projected += drawn }
         }
-        run {
-            val trace = liveTrace
-            val b = liveTraceBounds
-            if (trace.isNotEmpty() && b != null &&
-                !(b.south > north || b.north < south || b.west > east || b.east < west)) {
-                drawnTraces++
-                projected += trace.size
-                val path = Path()
-                var first = true
-                for (p in trace) {
-                    val sp = proj.toScreenLocation(LatLng(p.lat, p.lon))
-                    if (first) { path.moveTo(sp.x * s, sp.y * s); first = false }
-                    else path.lineTo(sp.x * s, sp.y * s)
-                }
-                bufCanvas.drawPath(path, clearPaint)
-            }
-        }
+        val liveDrawn = drawTraceIfVisible(bufCanvas, liveTrace, liveTraceBounds, viewport, proj, s)
+        if (liveDrawn > 0) { drawnTraces++; projected += liveDrawn }
         for (loc in listOfNotNull(currentLocation) + peers) {
             val sp = proj.toScreenLocation(LatLng(loc.lat, loc.lon))
             pt.set(sp.x * s, sp.y * s)
@@ -819,6 +794,35 @@ class FogView(context: Context) : View(context) {
         Perf.end(perfMark, "FogView.onDraw") {
             listOf("points" to projected, "traces" to drawnTraces)
         }
+    }
+
+    /** The padded viewport onDraw culls traces against, computed once per frame. */
+    private class Viewport(val north: Double, val south: Double, val east: Double, val west: Double)
+
+    /** Culls [trace] against its cached [bounds] and, if visible, punches its clear-corridor
+     *  path into [bufCanvas]. Returns the point count drawn (0 when culled or empty) — shared by
+     *  the traces loop and the live trace in [onDraw] so there is one copy of this walk, not two. */
+    private fun drawTraceIfVisible(
+        bufCanvas: Canvas,
+        trace: List<LatLon>,
+        bounds: Bounds?,
+        viewport: Viewport,
+        proj: Projection,
+        s: Float,
+    ): Int {
+        if (trace.isEmpty() || bounds == null) return 0
+        val outOfLat = bounds.south > viewport.north || bounds.north < viewport.south
+        val outOfLon = bounds.west > viewport.east || bounds.east < viewport.west
+        if (outOfLat || outOfLon) return 0
+        val path = Path()
+        var first = true
+        for (p in trace) {
+            val sp = proj.toScreenLocation(LatLng(p.lat, p.lon))
+            if (first) { path.moveTo(sp.x * s, sp.y * s); first = false }
+            else path.lineTo(sp.x * s, sp.y * s)
+        }
+        bufCanvas.drawPath(path, clearPaint)
+        return trace.size
     }
 
     companion object {
