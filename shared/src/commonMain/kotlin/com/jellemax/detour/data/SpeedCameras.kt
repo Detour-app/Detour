@@ -76,7 +76,7 @@ object SpeedCameras {
         radiusMeters: Double = PREFETCH_RADIUS_M,
     ): Result? {
         val r = radiusMeters.toInt()
-        val query = "[out:json][timeout:20];(" +
+        val query = "[out:json][timeout:${RoadRoulette.SERVER_TIMEOUT_S}];(" +
             "node(around:$r,${center.lat},${center.lon})[\"highway\"=\"speed_camera\"];" +
             "relation(around:$r,${center.lat},${center.lon})[\"enforcement\"=\"average_speed\"];" +
             ");out geom;"

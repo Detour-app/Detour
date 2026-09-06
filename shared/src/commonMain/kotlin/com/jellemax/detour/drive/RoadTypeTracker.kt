@@ -61,7 +61,7 @@ object RoadTypeTracker {
      *  failed fetch as "confirmed no roads here", which moves [State.waysCenter] and stops
      *  ever retrying near this position. */
     suspend fun fetchWays(center: LatLon, radiusMeters: Double = FETCH_RADIUS_M): List<ClassifiedWay>? {
-        val query = "[out:json][timeout:15];" +
+        val query = "[out:json][timeout:${RoadRoulette.SERVER_TIMEOUT_S}];" +
             "way(around:${radiusMeters.toInt()},${center.lat},${center.lon})" +
             "[\"highway\"~\"^(${RoadRoulette.DRIVABLE_HIGHWAYS})$\"];" +
             "out tags geom;"
@@ -72,7 +72,7 @@ object RoadTypeTracker {
         }
         // A busy Overpass mirror answers 200 with an HTML "runtime error" page, so parsing
         // fails on a perfectly good HTTP response — the same two catches
-        // RoadRoulette.speedLimitWays needs for the same reason (RoadRoulette.kt:285-291).
+        // RoadRoulette.speedLimitWays needs for the same reason (RoadRoulette.kt:303-314).
         val elements = try {
             jsonObjectOf(json).optArray("elements")
         } catch (e: SerializationException) {
