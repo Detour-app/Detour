@@ -263,9 +263,7 @@ class NavScreen(
         // marker per tick from the same fix `follow` above just handed it. A per-fix
         // write would fight that, hopping the marker a second of travel at 1 Hz
         // under a camera that glides.
-        // Not p.drivenFraction: that is a share of the route's *ground* length,
-        // and the map normalises the same line by its projected length.
-        renderer.setDrivenFraction(NavEngine.lineProgress(route.polyline, pos))
+        renderer.setDrivenFraction(p.drivenFraction)
 
         announce(p)
         pushTrip(p)

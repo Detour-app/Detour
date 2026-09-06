@@ -424,41 +424,87 @@ class NavEngineTest {
     }
 
     @Test
-    fun lineProgressSnapsToTheNearestPointOnTheLine() {
-        // Beside the line rather than on it: the snap is what decides the answer.
+    fun cutSplitsTheLineInTwoDisjointHalvesThatMeet() {
+        val cut = NavEngine.cut(straightLine, 0.3)
+        // The whole point: the halves share the cut point and nothing else, so
+        // neither can be drawn over a stretch that belongs to the other.
+        assertEquals(cut.behind.last(), cut.ahead.first())
+        assertEquals(straightLine.first(), cut.behind.first())
+        assertEquals(straightLine.last(), cut.ahead.last())
         assertEquals(
-            0.5,
-            NavEngine.lineProgress(straightLine, LatLon(50.02, 3.001)),
-            absoluteTolerance = 1e-3,
+            straightLineMeters,
+            NavEngine.lengthMeters(cut.behind) + NavEngine.lengthMeters(cut.ahead),
+            absoluteTolerance = 0.5,
         )
-        // Off either end it clamps rather than running past the line.
         assertEquals(
-            0.0, NavEngine.lineProgress(straightLine, LatLon(49.5, 3.0)), absoluteTolerance = 1e-9)
-        assertEquals(
-            1.0, NavEngine.lineProgress(straightLine, LatLon(50.5, 3.0)), absoluteTolerance = 1e-9)
-        // Nothing to be along.
-        assertEquals(
-            0.0, NavEngine.lineProgress(emptyList(), LatLon(50.0, 3.0)), absoluteTolerance = 0.0)
-        assertEquals(
-            0.0,
-            NavEngine.lineProgress(listOf(LatLon(50.0, 3.0)), LatLon(50.0, 3.0)),
-            absoluteTolerance = 0.0,
-        )
+            straightLineMeters * 0.3, NavEngine.lengthMeters(cut.behind), absoluteTolerance = 0.5)
+        // No vertex of the line is in both halves.
+        assertTrue(cut.behind.dropLast(1).none { it in cut.ahead })
     }
 
     @Test
-    fun lineProgressMeasuresTheLineInMercatorNotOnTheGround() {
-        // Two degrees of latitude, so Mercator's stretch northwards is big
-        // enough to see: the northern half of the line is the longer one there,
-        // which puts the ground-halfway point short of halfway along it. The
-        // expected value is ln(tan(45° + φ/2)) evaluated at the three latitudes
-        // — the projection's own definition, not a number read off a run.
-        val meridian = listOf(LatLon(50.0, 3.0), LatLon(51.0, 3.0), LatLon(52.0, 3.0))
-        val halfway = NavEngine.lineProgress(meridian, LatLon(51.0, 3.0))
-        assertEquals(0.494611, halfway, absoluteTolerance = 1e-5)
-        // And that this is worth the trouble: drivenFraction, measured on the
-        // ground, would have said 0.5 — a kilometre out on a line this long.
-        assertTrue(0.5 - halfway > 0.005)
+    fun cutGivesTheWholeLineToWhicheverSideOwnsIt() {
+        // Nothing driven: it is all still ahead, and there is no behind to draw.
+        assertTrue(NavEngine.cut(straightLine, 0.0).behind.isEmpty())
+        assertEquals(straightLine, NavEngine.cut(straightLine, 0.0).ahead)
+        // Finished: all behind, and the ahead half is not a one-point stub.
+        assertEquals(straightLine.size, NavEngine.cut(straightLine, 1.0).behind.size)
+        assertTrue(NavEngine.cut(straightLine, 1.0).ahead.isEmpty())
+        // Not a line at all.
+        assertTrue(NavEngine.cut(listOf(LatLon(50.0, 3.0)), 0.5).behind.isEmpty())
+        assertTrue(NavEngine.cut(emptyList(), 0.5).ahead.isEmpty())
+    }
+
+    @Test
+    fun advanceSnapsThePositionOntoTheLine() {
+        // Beside the line at its midpoint: the snapped point is the tail's far
+        // end, so it has to land *on* the line, not beside it.
+        val a = NavEngine.advance(straightLine, LatLon(50.02, 3.001), null)
+        assertEquals(3.0, a.at.lon, absoluteTolerance = 1e-9)
+        assertEquals(50.02, a.at.lat, absoluteTolerance = 1e-6)
+        assertEquals(0.5, a.fraction, absoluteTolerance = 1e-3)
+        assertEquals(straightLineMeters, a.lineMeters, absoluteTolerance = 0.5)
+        // Mid-segment, so the snap interpolates rather than picking a vertex.
+        val mid = NavEngine.advance(straightLine, LatLon(50.005, 3.0), null)
+        assertEquals(50.005, mid.at.lat, absoluteTolerance = 1e-6)
+        assertEquals(0, mid.index)
+    }
+
+    @Test
+    fun advanceOnlyEverMovesForwardAlongTheLine() {
+        // A line that doubles back on itself: the second half rides the first
+        // half's tarmac in reverse, which is what makes a global nearest-point
+        // search pick the wrong leg. Continuing from a snap on the outbound leg
+        // must stay on it.
+        val outAndBack = (0..4).map { LatLon(50.0 + it * 0.01, 3.0) } +
+            (3 downTo 0).map { LatLon(50.0 + it * 0.01, 3.0) }
+        val outbound = NavEngine.advance(outAndBack, LatLon(50.015, 3.0), null)
+        assertEquals(1, outbound.index)
+        // The same tarmac, further on — and just as near the return leg, which
+        // is what a global search gets wrong. Continued from the outbound snap
+        // it stays outbound.
+        val next = NavEngine.advance(outAndBack, LatLon(50.025, 3.0), outbound)
+        assertEquals(2, next.index)
+        assertTrue(next.meters > outbound.meters)
+        // And the window never walks backwards past the vertex it opened on.
+        val behind = NavEngine.advance(outAndBack, LatLon(50.0, 3.0), next)
+        assertTrue(behind.meters >= outbound.meters)
+    }
+
+    @Test
+    fun advanceClosesAGapItCannotSeeInOneStep() {
+        // A resumed app: the position jumps far beyond the window. Each call
+        // walks a window's worth, so a few frames close it rather than stalling
+        // the seam where the app went to sleep.
+        val long = (0..200).map { LatLon(50.0 + it * 0.001, 3.0) }
+        var a = NavEngine.advance(long, LatLon(50.0, 3.0), null)
+        val oneStep = NavEngine.advance(long, LatLon(50.19, 3.0), a)
+        // One window is not enough to see it…
+        assertTrue(oneStep.fraction < 0.2)
+        // …but a handful of frames is, rather than the seam stalling where the
+        // app went to sleep.
+        repeat(16) { a = NavEngine.advance(long, LatLon(50.19, 3.0), a) }
+        assertEquals(0.95, a.fraction, absoluteTolerance = 0.02)
     }
 
     @Test
@@ -477,54 +523,6 @@ class NavEngineTest {
         assertEquals(1.0, progress(0.0, 1000.0).drivenFraction, absoluteTolerance = 1e-9)
         // A route with no measurable length can't have been driven along.
         assertEquals(0.0, progress(0.0, 0.0).drivenFraction, absoluteTolerance = 1e-9)
-    }
-}
-
-/**
- * The colour ramp the maps paint a part-driven route with. A renderer will
- * reject stops that are not strictly ascending, and will paint the wrong thing
- * if they stop short of either end of the line, so those two are what these pin.
- */
-class RouteColorsTest {
-
-    private val theme = Settings.RouteColor.THEME
-
-    private fun ramp(fraction: Double) = RouteColors.drivenRamp(theme, darkTheme = true, fraction)
-
-    @Test
-    fun rampIsAscendingAndSpansTheWholeLine() {
-        for (fraction in listOf(0.0, 0.001, 0.25, 0.5, 0.999, 1.0, -1.0, 2.0)) {
-            val stops = ramp(fraction)
-            assertEquals(4, stops.size, "a ramp is always four stops: $fraction")
-            assertEquals(0.0, stops.first().at, absoluteTolerance = 0.0)
-            assertEquals(1.0, stops.last().at, absoluteTolerance = 0.0)
-            assertTrue(
-                stops.zipWithNext().all { (a, b) -> b.at > a.at },
-                "stops must strictly ascend: $fraction -> ${stops.map { it.at }}",
-            )
-        }
-    }
-
-    @Test
-    fun anUndrivenRouteIsOneColourEndToEnd() {
-        val ahead = RouteColors.hex(theme, darkTheme = true)
-        assertEquals(List(4) { ahead }, ramp(0.0).map { it.hex })
-        // And a finished one is the dimmed colour end to end.
-        val behind = RouteColors.drivenHex(theme, darkTheme = true)
-        assertEquals(List(4) { behind }, ramp(1.0).map { it.hex })
-    }
-
-    @Test
-    fun theSeamSitsWhereTheRiderIs() {
-        val stops = ramp(0.5)
-        val behind = RouteColors.drivenHex(theme, darkTheme = true)
-        // Dimmed right up to the seam, then a blend, then bright to the end.
-        assertEquals(behind, stops[1].hex)
-        assertEquals(0.5, stops[1].at, absoluteTolerance = 0.0)
-        assertEquals(RouteColors.hex(theme, darkTheme = true), stops[2].hex)
-        // The blend is short: a fraction of a percent of the line, not a fade
-        // across it.
-        assertTrue(stops[2].at - stops[1].at < 0.01)
     }
 }
 

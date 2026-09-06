@@ -36,56 +36,15 @@ object RouteColors {
      * basemap, so the road behind reads as spent while keeping enough of its
      * hue to still be recognisably *the route*.
      *
-     * Opaque rather than translucent, still. Android now paints it as one end
-     * of a gradient along a single line rather than as a second line laid over
-     * the first, so it no longer has anything to hide — but the route line sits
-     * on a dark casing, and an alpha here would let that casing decide how dim
-     * "driven" comes out. Opaque keeps the two ends of [drivenRamp] the same
-     * distance apart wherever the line runs.
+     * Opaque rather than translucent on purpose. The two long halves of the
+     * route are drawn as disjoint geometries now, so this one no longer covers
+     * the bright line — but the short tail that carries the seam from the last
+     * step point up to the rider does, every frame, and a translucent colour
+     * there would simply let the bright line show through instead of dimming
+     * it (see `MapOverlays` on Android).
      */
     fun drivenHex(color: Settings.RouteColor, darkTheme: Boolean): String =
         mix(hex(color, darkTheme), if (darkTheme) DRIVEN_TOWARDS_DARK else DRIVEN_TOWARDS_LIGHT, DRIVEN_MIX)
-
-    /** One entry of a route-line colour ramp: [hex] at [at] of the way along
-     *  the line. */
-    data class ColorStop(val at: Double, val hex: String)
-
-    /**
-     * The route line as a colour ramp along its own length, with
-     * [drivenFraction] (0..1) of it behind you: [drivenHex] up to the seam,
-     * [hex] after it. Always four stops, strictly ascending, spanning 0..1 —
-     * a renderer rejects a ramp whose stops repeat a position, and a fixed
-     * shape is one a caller can hand straight to an interpolation.
-     *
-     * The seam is a short blend rather than a hard edge because the ramp is
-     * *sampled*, not drawn: MapLibre bakes it into a 256-pixel texture spanning
-     * the whole line, so a hard step snaps to whichever of those 256 positions
-     * is nearest and jumps a whole one at a time as you drive. Blending across
-     * one sample keeps the sampled values changing continuously while the seam
-     * advances, which is what lets it glide instead of hop.
-     */
-    fun drivenRamp(
-        color: Settings.RouteColor,
-        darkTheme: Boolean,
-        drivenFraction: Double,
-    ): List<ColorStop> {
-        val ahead = hex(color, darkTheme)
-        val behind = drivenHex(color, darkTheme)
-        val f = drivenFraction.coerceIn(0.0, 1.0)
-        // Within one blend of either end there is no seam to place: both sides
-        // take the same colour, and the two inner stops stay only to keep the
-        // four ascending. Parked just inside the end the seam is nearest, so
-        // the ramp still reads in the direction of travel.
-        val seam = f.coerceIn(SEAM_BLEND, 1.0 - 2.0 * SEAM_BLEND)
-        val start = if (f < SEAM_BLEND) ahead else behind
-        val end = if (f > 1.0 - SEAM_BLEND) behind else ahead
-        return listOf(
-            ColorStop(0.0, start),
-            ColorStop(seam, start),
-            ColorStop(seam + SEAM_BLEND, end),
-            ColorStop(1.0, end),
-        )
-    }
 
     /** Picker label. */
     fun label(color: Settings.RouteColor): String = when (color) {
@@ -107,11 +66,6 @@ object RouteColors {
      *  that a glance separates "behind me" from "ahead of me" without a second
      *  look, low enough that the hue survives it. */
     private const val DRIVEN_MIX = 0.62
-
-    /** How much of the line the seam between driven and undriven fades over,
-     *  as a share of the line's length: one pixel of MapLibre's 256-pixel
-     *  gradient ramp, the narrowest blend that still moves smoothly. */
-    private const val SEAM_BLEND = 1.0 / 256.0
 
     /** What the driven colour is blended *towards*: the dark route casing under
      *  the night basemap, white under the day one. Fading towards the map is

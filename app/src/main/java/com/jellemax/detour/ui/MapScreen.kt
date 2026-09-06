@@ -1403,6 +1403,11 @@ fun MapScreen(
         var lastLon = Double.NaN
         var pushedBearing: Float? = null
         var markerBearing: Float? = null
+        // Where the marker last snapped onto the route, and the line it snapped to.
+        // Losing these costs one full-route search on the next frame, not a wrong
+        // seam — [NavEngine.advance] re-seeds itself from a null.
+        var along: NavEngine.Along? = null
+        var alongLine: List<LatLon>? = null
         var lastNs = withFrameNanos { it }
         while (true) {
             val ns = withFrameNanos { it }
@@ -1457,8 +1462,19 @@ fun MapScreen(
                 // `navigating` and `route` are read live rather than keyed: this
                 // loop must not restart when either changes (see the accumulators
                 // above), and a snapshot read inside the body sees them anyway.
-                if (navigating) route?.let {
-                    overlays.setDrivenFraction(NavEngine.lineProgress(it.polyline, here))
+                if (navigating) route?.let { r ->
+                    // A different line invalidates the snap taken along the old one.
+                    if (alongLine !== r.polyline) {
+                        alongLine = r.polyline
+                        along = null
+                    }
+                    // Windowed from the previous frame's snap, so this costs a
+                    // handful of segments rather than the whole route, and cannot
+                    // hop to the other leg where the route rides its own tarmac
+                    // twice. The first frame of a drive pays one full search.
+                    val a = NavEngine.advance(r.polyline, here, along)
+                    along = a
+                    overlays.setDrivenFraction(a.fraction, a.at)
                 }
                 lastLat = here.lat
                 lastLon = here.lon

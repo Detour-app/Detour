@@ -3,14 +3,21 @@ package com.jellemax.detour.data
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.hypot
-import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
-import kotlin.math.tan
 
 /** Route-following math for in-app navigation. Pure functions, no state. */
 object NavEngine {
+
+    /** How many segments ahead [advance] looks. Sixteen covers a second of
+     *  motorway at any vertex spacing the routers produce, and closes a
+     *  background-sized gap in a handful of frames. */
+    private const val ADVANCE_SEGMENTS = 16
+
+    /** [NavEngine.cut]'s two halves of a route: the road behind you and the
+     *  road ahead, sharing only the point they meet at. */
+    data class Cut(val behind: List<LatLon>, val ahead: List<LatLon>)
 
     data class Progress(
         /** Distance from the current position to the nearest point on the route. */
@@ -118,93 +125,136 @@ object NavEngine {
     }
 
     /**
-     * The first [fraction] (0..1) of [line] — the part already driven, for a map
-     * that draws the road behind you differently from the road ahead.
+     * [line] cut in two at [fraction] (0..1) of its length: the part already
+     * driven and the part still ahead, meeting at exactly one point and
+     * sharing nothing else.
+     *
+     * Disjoint on purpose. A map that draws the road behind you differently
+     * has to be given two geometries, not one geometry twice: paint a copy of
+     * the first N metres over the whole route and every stretch the route
+     * rides twice — a round trip's outbound leg, an out-and-back, a
+     * self-crossing — comes out dimmed in both directions, telling the rider
+     * the road in front of them is done.
      *
      * The cut lands *inside* a segment rather than at the nearest vertex: on a
      * motorway the router can leave kilometres between two points, and a line
-     * that only advances when one is passed reads as a stuck map. Empty when
-     * there is nothing to draw yet, and never a single point (a one-point
-     * LineString is not a line).
+     * that only advances when one is passed reads as a stuck map. Either half
+     * is empty rather than a single point when there is nothing to draw — a
+     * one-point LineString is not a line.
      */
-    fun prefix(line: List<LatLon>, fraction: Double): List<LatLon> {
-        if (line.size < 2) return emptyList()
+    fun cut(line: List<LatLon>, fraction: Double): Cut {
+        if (line.size < 2) return Cut(emptyList(), emptyList())
         val target = lengthMeters(line) * fraction.coerceIn(0.0, 1.0)
-        if (target <= 0.0) return emptyList()
-        val out = ArrayList<LatLon>(line.size)
-        out.add(line[0])
+        if (target <= 0.0) return Cut(emptyList(), line)
+        val behind = ArrayList<LatLon>(line.size)
+        behind.add(line[0])
         var walked = 0.0
         for (i in 0 until line.size - 1) {
             val segment = segmentMeters(line[i], line[i + 1])
             if (walked + segment >= target) {
                 val t = if (segment <= 0.0) 0.0 else (target - walked) / segment
-                out.add(
-                    LatLon(
-                        line[i].lat + (line[i + 1].lat - line[i].lat) * t,
-                        line[i].lon + (line[i + 1].lon - line[i].lon) * t,
-                    ),
+                val at = LatLon(
+                    line[i].lat + (line[i + 1].lat - line[i].lat) * t,
+                    line[i].lon + (line[i + 1].lon - line[i].lon) * t,
                 )
-                return out
+                behind.add(at)
+                // The cut point opens the far half. Skip the vertex it landed
+                // on when it landed *on* one, or the ahead line starts with the
+                // same point twice — and at the very last vertex that leaves
+                // one point, which is not a line at all.
+                val ahead = ArrayList<LatLon>(line.size - i)
+                ahead.add(at)
+                for (j in (if (t >= 1.0) i + 2 else i + 1) until line.size) ahead.add(line[j])
+                return Cut(behind, if (ahead.size >= 2) ahead else emptyList())
             }
             walked += segment
-            out.add(line[i + 1])
+            behind.add(line[i + 1])
         }
         // Rounding only: the loop above returns for every fraction under 1.
-        return out
+        return Cut(behind, emptyList())
+    }
+
+    /** The part of [line] behind you at [fraction] — [cut]'s near half. */
+    fun prefix(line: List<LatLon>, fraction: Double): List<LatLon> = cut(line, fraction).behind
+
+    /**
+     * Where a position sits along a route: the segment it snapped to, the
+     * snapped point itself, and how far along the line that is. [lineMeters]
+     * rides along so [fraction] needs no second walk of the line.
+     *
+     * Distances are [lengthMeters]' arithmetic, so [fraction] and [cut] agree
+     * about where the same point is.
+     */
+    data class Along(
+        /** [at] lies between `line[index]` and `line[index + 1]`. */
+        val index: Int,
+        val at: LatLon,
+        val meters: Double,
+        val lineMeters: Double,
+    ) {
+        /** [meters] as a share of the whole line, 0..1. */
+        val fraction: Double
+            get() = if (lineMeters > 0.0) (meters / lineMeters).coerceIn(0.0, 1.0) else 0.0
     }
 
     /**
-     * Where [pos] sits along [line], 0..1, measured the way a renderer's
-     * `line-progress` measures it: as a share of the line's length in Web
-     * Mercator rather than on the ground.
+     * Re-snap [pos] onto [line], continuing from [from].
      *
-     * That distinction is the whole reason this exists next to
-     * [Progress.drivenFraction], which is a share of the *ground* length. A
-     * map normalises a line by its projected length, and Mercator stretches
-     * northwards by sec(latitude) — so on a route that climbs a degree or two
-     * of latitude the two fractions disagree by enough to leave the seam
-     * between driven and undriven a few hundred metres off the rider. Ground
-     * metres are the honest number for a distance readout; this one is the
-     * honest number for painting.
+     * Given a [from], only the [ADVANCE_SEGMENTS] segments starting at the one
+     * it sat on are searched, which is what makes this affordable once per
+     * displayed frame and is also what keeps it honest: a global nearest-point
+     * search run at frame rate strobes between legs wherever a route rides the
+     * same tarmac twice, because both legs are equally near. A forward window
+     * cannot pick the wrong one, and cannot go backwards past the vertex it
+     * started on.
      *
-     * Same nearest-segment snap as [progress], and allocation-free: this runs
-     * once per displayed frame while navigating.
+     * When [pos] is beyond the window — the app was in the background, or a fix
+     * jumped — the snap clamps to the far end of the window and the next frame
+     * carries on from there, closing a kilometre of gap in a few frames rather
+     * than needing a full search. Pass a null [from] to search the whole line,
+     * which is what seeds the first frame of a drive.
      */
-    fun lineProgress(line: List<LatLon>, pos: LatLon): Double {
-        if (line.size < 2) return 0.0
-        val px = pos.lon
-        val py = mercatorLat(pos.lat)
-        var ax = line[0].lon
-        var ay = mercatorLat(line[0].lat)
-        var walked = 0.0
+    fun advance(line: List<LatLon>, pos: LatLon, from: Along?): Along {
+        if (line.size < 2) return Along(0, pos, 0.0, 0.0)
+        val windowed = from != null && from.index < line.size - 1
+        val first = if (windowed) from!!.index else 0
+        val last = if (windowed) min(line.size - 1, first + ADVANCE_SEGMENTS) else line.size - 1
+        // How far along the line the vertex the window opens on is.
+        var cum = if (windowed) max(0.0, from!!.meters - segmentMeters(line[first], from.at)) else 0.0
+        val total = if (windowed) from!!.lineMeters else lengthMeters(line)
+
+        // Local equirectangular projection around pos, the same one [progress]
+        // snaps with; the distances *along* stay [segmentMeters]'.
+        val mPerLat = 111_320.0
+        val mPerLon = 111_320.0 * cos(pos.lat * PI / 180.0)
         var bestDist = Double.MAX_VALUE
-        var bestAlong = 0.0
-        for (i in 1 until line.size) {
-            val bx = line[i].lon
-            val by = mercatorLat(line[i].lat)
-            val dx = bx - ax
-            val dy = by - ay
+        var best = Along(first, line[first], cum, total)
+        for (i in first until last) {
+            val ax = (line[i].lon - pos.lon) * mPerLon
+            val ay = (line[i].lat - pos.lat) * mPerLat
+            val dx = (line[i + 1].lon - pos.lon) * mPerLon - ax
+            val dy = (line[i + 1].lat - pos.lat) * mPerLat - ay
             val segLen2 = dx * dx + dy * dy
-            val segLen = sqrt(segLen2)
-            // Project pos onto segment A→B, clamped to it.
             val t = if (segLen2 == 0.0) 0.0
-                else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / segLen2))
-            val d = hypot(px - (ax + t * dx), py - (ay + t * dy))
+                else max(0.0, min(1.0, -(ax * dx + ay * dy) / segLen2))
+            val d = hypot(ax + t * dx, ay + t * dy)
+            val segment = segmentMeters(line[i], line[i + 1])
             if (d < bestDist) {
                 bestDist = d
-                bestAlong = walked + t * segLen
+                best = Along(
+                    index = i,
+                    at = LatLon(
+                        line[i].lat + (line[i + 1].lat - line[i].lat) * t,
+                        line[i].lon + (line[i + 1].lon - line[i].lon) * t,
+                    ),
+                    meters = (cum + t * segment).coerceIn(0.0, total),
+                    lineMeters = total,
+                )
             }
-            walked += segLen
-            ax = bx
-            ay = by
+            cum += segment
         }
-        return if (walked > 0.0) (bestAlong / walked).coerceIn(0.0, 1.0) else 0.0
+        return best
     }
-
-    /** Latitude on the Web Mercator y-axis, in degrees so it shares a scale
-     *  with the longitudes [lineProgress] pairs it with. */
-    private fun mercatorLat(lat: Double): Double =
-        ln(tan(PI / 4.0 + lat * PI / 360.0)) * 180.0 / PI
 
     /** Straight-line metres between two neighbouring route points. */
     private fun segmentMeters(a: LatLon, b: LatLon): Double {
