@@ -97,7 +97,15 @@ object PlaceGeofenceGate {
         val client = LocationServices.getGeofencingClient(context)
         if (diff.toRemove.isNotEmpty()) {
             client.removeGeofences(diff.toRemove.toList())
-            Settings.setRegisteredPlaceFenceIds(registered - diff.toRemove)
+                .addOnSuccessListener {
+                    Settings.setRegisteredPlaceFenceIds(Settings.registeredPlaceFenceIds() - diff.toRemove)
+                    Log.i(TAG, "removed ${diff.toRemove.size} place fence(s)")
+                }
+                // Left registered on failure — a fence GMS never actually
+                // dropped must stay in the persisted set, or it can't
+                // appear as a toRemove candidate on the next sync and leaks
+                // toward Android's 100-fence ceiling.
+                .addOnFailureListener { Log.w(TAG, "remove failed", it) }
         }
         if (diff.toAdd.isEmpty()) return
 
