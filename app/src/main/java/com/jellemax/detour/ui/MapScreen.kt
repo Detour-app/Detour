@@ -322,6 +322,19 @@ fun MapScreen(
     // saved route arrives already set, before the first composition here. That
     // is the case its KDoc has always promised and no call-site line can reach.
     LaunchedEffect(destination) { if (destination != null) settingsCollapsed = false }
+    // And the mirror of it: a trip starting hands the bottom surface back to
+    // the driving sheet. The spin sheet outranks the driving occupant on
+    // purpose (see homeBottomCard) so a destination dropped mid-trip still
+    // reaches Go — but left open across a trip *start* that same rule would
+    // hide the trip's numbers and End trip with them, and End trip has no
+    // floating button to fall back on any more.
+    //
+    // One effect rather than a line beside each `TripTrackingService.start`,
+    // for the reason the destination effect above gives: a trip also starts
+    // where no lambda here can see it — auto-detection, Android Auto, the
+    // notification. Keyed on the derived boolean, not on `stats`, so this
+    // fires on the edge rather than on every accumulated metre.
+    LaunchedEffect(stats != null) { if (stats != null) settingsCollapsed = true }
     // The prefetched way set, the fetch throttle, the miss counter and the
     // snapped value: SpeedLimitTracker's, in shared/…/drive/, where the policy
     // lives with its tests. retained.ambientSpeedLimitKmh stays its own state because the
@@ -621,13 +634,15 @@ fun MapScreen(
     // convoy offer outranks this phone's own spin (ConvoyLiveClient.sendSpinOffer).
     val visibleCandidates = displayCandidates(spinOffer?.asRouteCandidates(), candidates)
 
-    // One slot, four occupants, decided once here rather than re-derived where
-    // each of them is drawn. The home sheet is the resting one; the other three
-    // displace it.
+    // One slot, five occupants, decided once here rather than re-derived where
+    // each of them is drawn. The home sheet is the resting one; the other four
+    // displace it — see the mapper for why a recording trip is the last of them
+    // to get a say.
     val bottomCard = homeBottomCard(
         navigating = navigating,
         hasCandidates = visibleCandidates.isNotEmpty(),
         collapsed = settingsCollapsed,
+        driving = stats != null,
     )
 
     // The search island lives in the home sheet, so anything that displaces the

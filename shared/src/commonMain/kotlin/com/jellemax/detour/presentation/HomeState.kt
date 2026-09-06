@@ -4,7 +4,7 @@ import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.SavedPlace
 
 /** What currently occupies the map screen's single bottom-card slot. */
-enum class HomeBottomCard { NAV, CANDIDATES, COLLAPSED, EXPANDED }
+enum class HomeBottomCard { NAV, CANDIDATES, COLLAPSED, EXPANDED, DRIVING }
 
 /**
  * Picks the one card that occupies the map's bottom slot — first match wins.
@@ -16,16 +16,35 @@ enum class HomeBottomCard { NAV, CANDIDATES, COLLAPSED, EXPANDED }
  * part of the screen arriving, which is the one thing the hint's delay existed
  * to prevent. The hint and the dock it taught are both gone; this stayed, as
  * the one place the slot's occupant is decided.
+ *
+ * ## Precedence: what the rider asked for, before what is merely true
+ *
+ * Turn-by-turn, then a spin round waiting on an answer, then a sheet
+ * something opened, and only then [driving] — a trip recording is a fact
+ * about the phone, not a request. Two consequences worth naming:
+ *
+ *  - a trip recorded *while navigating* still shows the nav bar, because the
+ *    turn you are about to take outranks the numbers you are accumulating;
+ *  - a destination dropped mid-trip still reaches the spin sheet's Go button.
+ *    `MapScreen` opens that sheet on every new destination, so ranking
+ *    [DRIVING] above it would have swallowed the one control a fresh
+ *    destination exists for.
+ *
+ * So [DRIVING] displaces exactly one occupant, [COLLAPSED] — the idle home
+ * sheet, whose search bar and Routes/Social cards are what nobody wants in
+ * the thumb zone at 80 km/h. That is the whole of its job.
  */
 fun homeBottomCard(
     navigating: Boolean,
     hasCandidates: Boolean,
     collapsed: Boolean,
+    driving: Boolean,
 ): HomeBottomCard = when {
     navigating -> HomeBottomCard.NAV
     hasCandidates -> HomeBottomCard.CANDIDATES
-    collapsed -> HomeBottomCard.COLLAPSED
-    else -> HomeBottomCard.EXPANDED
+    !collapsed -> HomeBottomCard.EXPANDED
+    driving -> HomeBottomCard.DRIVING
+    else -> HomeBottomCard.COLLAPSED
 }
 
 /**
