@@ -141,8 +141,11 @@ internal fun BoxScope.MapBottomSlot(
         if (stats != null) shownStats.value = stats
         // Whether the card shows its summary figures is screen-local UI state
         // (§4.2), held out here rather than inside the card so the sheet can
-        // take it over once it has a driving state of its own.
-        val tripCardExpanded = remember { mutableStateOf(false) }
+        // take it over once it has a driving state of its own. Keyed on the
+        // trip, because this slot outlives it: unkeyed, a rider who expanded
+        // trip one gets trip two opened on all six stats. Keyed on the
+        // *retained* stats so the card does not fold while it animates out.
+        val tripCardExpanded = remember(shownStats.value?.startTimeMs) { mutableStateOf(false) }
         AnimatedVisibility(
             visible = stats != null,
             enter = expandVertically() + fadeIn(),
