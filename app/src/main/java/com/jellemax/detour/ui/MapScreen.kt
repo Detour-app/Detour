@@ -112,6 +112,9 @@ import com.jellemax.detour.map.fetchNavRoute
 import com.jellemax.detour.map.navStart
 import com.jellemax.detour.map.runSpin
 import com.jellemax.detour.map.NavPolicy
+import com.jellemax.detour.map.needsBackgroundDisclosure
+import com.jellemax.detour.map.requiredStartupPermissions
+import com.jellemax.detour.map.shouldRequestMic
 import com.jellemax.detour.map.bearingDelta
 import com.jellemax.detour.map.smoothBearing
 import com.jellemax.detour.obd2.Obd2Connection
@@ -531,9 +534,14 @@ fun MapScreen(
         // which needs no microphone.
         // Features.pushToTalk: off means no talk button ever renders, so
         // asking for the mic here would buy nothing this build (#154).
-        if (Features.pushToTalk && convoyConnected && activeConvoyId != null &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
-            PackageManager.PERMISSION_GRANTED
+        if (shouldRequestMic(
+                pushToTalkEnabled = Features.pushToTalk,
+                convoyConnected = convoyConnected,
+                hasActiveConvoy = activeConvoyId != null,
+                micGranted = ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.RECORD_AUDIO,
+                ) == PackageManager.PERMISSION_GRANTED,
+            )
         ) {
             micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
@@ -542,10 +550,12 @@ fun MapScreen(
     fun onLocationGranted() {
         fetchLocation()
         TripTrackingService.startMonitoring(context)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            ContextCompat.checkSelfPermission(
-                context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-            != PackageManager.PERMISSION_GRANTED
+        if (needsBackgroundDisclosure(
+                sdkInt = Build.VERSION.SDK_INT,
+                backgroundGranted = ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+                ) == PackageManager.PERMISSION_GRANTED,
+            )
         ) {
             showBgLocationDisclosure = true
         }
@@ -562,16 +572,7 @@ fun MapScreen(
     }
 
     LaunchedEffect(Unit) {
-        val needed = buildList {
-            add(Manifest.permission.ACCESS_FINE_LOCATION)
-            add(Manifest.permission.ACCESS_COARSE_LOCATION)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                add(Manifest.permission.ACTIVITY_RECOGNITION)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
+        val needed = requiredStartupPermissions(Build.VERSION.SDK_INT)
         val missing = needed.any {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
