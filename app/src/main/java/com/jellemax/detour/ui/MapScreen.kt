@@ -1019,6 +1019,19 @@ fun MapScreen(
                     if (result != null) {
                         retained.speedCameras = result.cameras
                         retained.speedSections = result.sections
+                    } else if (prefetch.failures == 1 && retained.speedCameras.isEmpty()) {
+                        // "Couldn't load" and "none around here" draw the same
+                        // empty map, and that is the one thing the rider cannot
+                        // work out for themselves. Said once per run of
+                        // failures (CameraPrefetch counts them, and backs off,
+                        // so repeating it every retry would be noise) and only
+                        // while we hold nothing — markers on screen are their
+                        // own answer. Its own coroutine because showSnackbar
+                        // suspends until dismissed, and this job is the
+                        // in-flight guard above.
+                        scope.launch {
+                            snackbarHostState.showSnackbar("Couldn't load speed cameras")
+                        }
                     }
                 }
             }

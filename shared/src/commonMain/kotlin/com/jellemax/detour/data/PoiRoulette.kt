@@ -35,7 +35,7 @@ object PoiRoulette {
     ): Poi {
         val around = "(around:${radiusMeters.toInt()},${center.lat},${center.lon})"
         val query = """
-            [out:json][timeout:15];
+            [out:json][timeout:${RoadRoulette.SERVER_TIMEOUT_S}];
             (${kind.selectors.joinToString("") { "$it$around;" }});
             out center 300;
         """.trimIndent()
