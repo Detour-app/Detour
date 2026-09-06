@@ -360,14 +360,12 @@ fun RoutesScreen(
         )
     }
     deleting?.let { route ->
-        AlertDialog(
-            onDismissRequest = { deleting = null },
-            title = { Text("Delete route?") },
-            text = { Text("\"${route.name}\" will be removed from this device.") },
-            confirmButton = {
-                TextButton(onClick = { RouteStore.remove(route.id); deleting = null }) { Text("Delete") }
-            },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+        ConfirmDialog(
+            title = "Delete route?",
+            text = "\"${route.name}\" will be removed from this device.",
+            confirmLabel = "Delete",
+            onConfirm = { RouteStore.remove(route.id) },
+            onDismiss = { deleting = null },
         )
     }
     sharingTo?.let { route ->

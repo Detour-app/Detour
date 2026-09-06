@@ -76,6 +76,7 @@ import com.jellemax.detour.presentation.CircleMemberRow
 import com.jellemax.detour.presentation.CircleRow
 import com.jellemax.detour.presentation.CirclesListPresenter
 import com.jellemax.detour.presentation.CirclesListState
+import com.jellemax.detour.presentation.SharedPlaceRow
 import com.jellemax.detour.presentation.circleDetailStateFrom
 import com.jellemax.detour.presentation.circlesListStateFrom
 import kotlinx.coroutines.launch
@@ -371,6 +372,9 @@ private fun CircleListSection(
     onAccept: (String) -> Unit,
     onDecline: (String) -> Unit,
 ) {
+    // Declining is final — the invite is gone for both sides and only a fresh
+    // one from the circle brings it back — so it asks first.
+    var declining by remember { mutableStateOf<CircleRow?>(null) }
     if (listState.invited.isNotEmpty()) {
         Text("Invites", style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary)
@@ -381,10 +385,19 @@ private fun CircleListSection(
                     row = row,
                     busy = busy,
                     onAccept = { onAccept(row.id) },
-                    onDecline = { onDecline(row.id) },
+                    onDecline = { declining = row },
                 )
             }
         }
+    }
+    declining?.let { row ->
+        ConfirmDialog(
+            title = "Decline ${row.name}?",
+            text = "The invite disappears. Joining later needs a new invite from the circle.",
+            confirmLabel = "Decline",
+            onConfirm = { onDecline(row.id) },
+            onDismiss = { declining = null },
+        )
     }
 
     Text("Your circles", style = MaterialTheme.typography.titleSmall,
@@ -431,17 +444,21 @@ private fun CircleInviteRow(row: CircleRow, busy: Boolean, onAccept: () -> Unit,
             Text(row.memberLine, style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // No .size() on either button: a caller-supplied size sits outside
+        // IconButton's own minimumInteractiveComponentSize() and pins it to
+        // fixed constraints, so the 48dp touch target it reserves is coerced
+        // straight back away. Left at the default, accept and decline get the
+        // full target, and the gap keeps a mis-aimed thumb out of the wrong one.
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             IconButton(
                 enabled = !busy,
                 onClick = onAccept,
-                modifier = Modifier.size(30.dp),
                 colors = IconButtonDefaults.iconButtonColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 ),
             ) { Icon(Icons.Rounded.AcceptIcon, contentDescription = "Accept ${row.name}", Modifier.size(16.dp)) }
-            IconButton(enabled = !busy, onClick = onDecline, modifier = Modifier.size(30.dp)) {
+            IconButton(enabled = !busy, onClick = onDecline) {
                 Icon(Icons.Rounded.DeclineIcon, contentDescription = "Decline ${row.name}", Modifier.size(16.dp))
             }
         }
@@ -460,6 +477,8 @@ private fun CircleDetailSection(
     val context = LocalContext.current
     val savedPlaces by SavedPlaces.places.collectAsStateWithLifecycle()
     var shareOpen by remember { mutableStateOf(false) }
+    var confirmLeave by remember { mutableStateOf(false) }
+    var unsharing by remember { mutableStateOf<SharedPlaceRow?>(null) }
 
     // Local-only preference (see CircleNotifySettings) - not part of `circle`
     // itself, unlike `sharing`, which really is server state.
@@ -599,7 +618,7 @@ private fun CircleDetailSection(
 
     // Invite moved to the top bar (person_add, see CircleDetailScreen) —
     // Leave stays here, the one action left with no natural home in chrome.
-    TextButton(enabled = !state.busy, onClick = onLeave) { Text("Leave") }
+    TextButton(enabled = !state.busy, onClick = { confirmLeave = true }) { Text("Leave") }
 
     Row(
         Modifier.fillMaxWidth(),
@@ -656,7 +675,7 @@ private fun CircleDetailSection(
                     if (row.removable) {
                         IconButton(
                             enabled = !state.detailBusy,
-                            onClick = { scope.launch { CirclesStore.unsharePlace(row.serverId) } },
+                            onClick = { unsharing = row },
                         ) {
                             Icon(Icons.Rounded.DeleteOutline, contentDescription = "Remove ${row.name}",
                                 tint = MaterialTheme.colorScheme.error)
@@ -695,6 +714,28 @@ private fun CircleDetailSection(
                 scope.launch { CirclesStore.sharePlace(circle.id, place, radiusM) }
                 shareOpen = false
             },
+        )
+    }
+
+    if (confirmLeave) {
+        ConfirmDialog(
+            title = "Leave ${circle.name}?",
+            text = "You stop sharing your location with this circle and the places you " +
+                "shared into it are revoked. Getting back in needs a new invite.",
+            confirmLabel = "Leave",
+            onConfirm = onLeave,
+            onDismiss = { confirmLeave = false },
+        )
+    }
+
+    unsharing?.let { row ->
+        ConfirmDialog(
+            title = "Stop sharing ${row.name}?",
+            text = "The circle stops seeing arrivals and departures there, and the ones " +
+                "already recorded lose the place's name. You can share it again later.",
+            confirmLabel = "Stop sharing",
+            onConfirm = { scope.launch { CirclesStore.unsharePlace(row.serverId) } },
+            onDismiss = { unsharing = null },
         )
     }
 

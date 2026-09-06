@@ -402,21 +402,13 @@ private fun TripCard(
     }
 
     if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete this trip?") },
-            text = {
-                Text("${trip.mode.label} · ${formatDate(trip.startTimeMs)} — " +
-                    "${formatDistanceKm(trip.distanceMeters)}. This can't be undone.")
-            },
-            confirmButton = {
-                TextButton(onClick = { confirmDelete = false; onDelete() }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
-            },
+        ConfirmDialog(
+            title = "Delete this trip?",
+            text = "${trip.mode.label} · ${formatDate(trip.startTimeMs)} — " +
+                "${formatDistanceKm(trip.distanceMeters)}. This can't be undone.",
+            confirmLabel = "Delete",
+            onConfirm = onDelete,
+            onDismiss = { confirmDelete = false },
         )
     }
 
