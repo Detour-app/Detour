@@ -187,6 +187,7 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
     // large history), which is what made opening and scrolling feel stuck. Null
     // means "still loading"; the reloads after an edit go through IO too.
     var entries by remember { mutableStateOf<List<HistoryEntry>?>(null) }
+    var deleteError by remember { mutableStateOf("") }
     fun reload() = scope.launch {
         entries = withContext(Dispatchers.IO) {
             val trips = TripStore.load()
@@ -234,6 +235,15 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
                 contentPadding = PaddingValues(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                if (deleteError.isNotEmpty()) {
+                    item {
+                        Text(
+                            deleteError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
                 for ((_, monthEntries) in byMonth) {
                     val totalKm = monthEntries.sumOf { it.trip.distanceMeters } / 1000.0
                     item {
@@ -263,10 +273,20 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
                             },
                             onDelete = {
                                 scope.launch {
-                                    withContext(Dispatchers.IO) {
-                                        TripStore.delete(entry.trip.startTimeMs)
+                                    // TripStore.delete rewrites trips.json and
+                                    // the tombstone file; either write can fail.
+                                    // Reloading anyway would redraw the row with
+                                    // no hint that the delete never happened.
+                                    val deleted = withContext(Dispatchers.IO) {
+                                        runCatching { TripStore.delete(entry.trip.startTimeMs) }
                                     }
-                                    reload()
+                                    if (deleted.isFailure) {
+                                        deleteError = "Could not delete that trip — " +
+                                            "it is still in your history. Try again."
+                                    } else {
+                                        deleteError = ""
+                                        reload()
+                                    }
                                 }
                             },
                         )
