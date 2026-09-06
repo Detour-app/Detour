@@ -39,9 +39,10 @@ import com.jellemax.detour.tracking.TripStats
 import kotlin.random.Random
 
 /**
- * Everything that sits along the bottom edge of the map: the single slot that
- * the navigation bar, the candidates pane, the home sheet, the driving sheet
- * and the spin sheet take turns occupying.
+ * The single slot along the bottom edge of the map that the nav sheet, the
+ * candidates pane, the drive sheet, the home sheet and the spin sheet take
+ * turns occupying. While a trip records, the ride sheets carry its stats and
+ * its End action; nothing floats above the slot any more.
  *
  * Stateless by construction. Every `remember`, every effect and every write
  * that decides what belongs here stays with the map screen; this takes the
@@ -57,6 +58,7 @@ import kotlin.random.Random
 internal fun BoxScope.MapBottomSlot(
     stats: TripStats?,
     onEndTrip: () -> Unit,
+    rideToggle: SheetToggle,
     savedPlaces: List<SavedPlace>,
     destination: LatLon?,
     destinationName: String?,
@@ -116,13 +118,6 @@ internal fun BoxScope.MapBottomSlot(
             .statusBarsPadding(),
         verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
     ) {
-        // Whether the driving sheet stands at its expanded height is
-        // screen-local UI state (§4.2). One boolean for both halves of that
-        // sheet, so the drag gesture #205 adds has a single thing to flip.
-        // Keyed on the trip, because this slot outlives it: unkeyed, a rider
-        // who expanded trip one gets trip two opened on all six stats.
-        val drivingExpanded = remember(stats?.startTimeMs) { mutableStateOf(false) }
-
         // The seed behind the home sheet's "one other place" chip. Held here,
         // not in the sheet, because the sheet leaves the composition whenever
         // another occupant takes the slot — so a seed rolled there re-rolled
@@ -138,9 +133,12 @@ internal fun BoxScope.MapBottomSlot(
             hasDestination = destination != null,
             hasRouteInstructions = route?.instructions?.isNotEmpty() == true,
         )
-        // The exiting candidates pane still composes for a few frames after the
-        // list is cleared; keep the last value so a cancel animates out with
-        // content rather than emptying the card first.
+        // The exiting sheet still composes for a few frames after `stats`
+        // goes null; keep the last value so it animates out with content.
+        val shownStats = remember { mutableStateOf(stats) }
+        if (stats != null) shownStats.value = stats
+        // Same trick: the exiting candidates pane must not render an empty
+        // card after a cancel clears the list.
         val shownCandidates = remember { mutableStateOf(displayCandidates) }
         if (displayCandidates.isNotEmpty()) shownCandidates.value = displayCandidates
         AnimatedContent(
@@ -151,26 +149,53 @@ internal fun BoxScope.MapBottomSlot(
             },
             label = "bottomCard",
         ) { card ->
-            // The two sheets run to the bottom edge of the screen and consume
-            // the gesture inset inside their own surface, so they must not be
-            // given it here as well — and they are drawn below this rather
-            // than in the when-chain, so their branch here is an empty Box
-            // that must not be padded into a gap of its own. The other three
-            // float above that edge and still take it as padding — the mode
-            // bar that used to carry it for them is what left (#70), not the
-            // need for it.
+            // The home sheet runs to the bottom edge of the screen and consumes
+            // the gesture inset inside its own surface, so it must not be given
+            // it here as well — and it is drawn below this rather than in the
+            // when-chain, so its branch here is an empty Box that must not be
+            // padded into a gap of its own. The other four float above that
+            // edge and still take it as padding — the mode bar that used to
+            // carry it for them is what left (#70), not the need for it.
             Box(
-                if (card == HomeBottomCard.COLLAPSED || card == HomeBottomCard.DRIVING) Modifier
+                if (card == HomeBottomCard.COLLAPSED) Modifier
                 else Modifier
                     .navigationBarsPadding()
                     .padding(horizontal = 12.dp)
                     .padding(bottom = 12.dp),
             ) {
                 when (card) {
-                    HomeBottomCard.NAV -> NavigationBottomBar(
+                    HomeBottomCard.NAV -> NavSheet(
+                        toggle = rideToggle,
                         state = navState,
-                        onExit = onExitNavigation,
+                        destinationName = destinationName,
+                        stats = stats,
+                        onEndNavigation = onExitNavigation,
+                        onEndTrip = onEndTrip,
                     )
+                    HomeBottomCard.DRIVE -> shownStats.value?.let { trip ->
+                        DriveSheet(
+                            toggle = rideToggle,
+                            stats = trip,
+                            whereTo = WhereTo(
+                                username = username,
+                                onAvatarClick = onOpenHub,
+                                open = searchOpen,
+                                onOpenChange = onSearchOpenChange,
+                                onPick = onPickDestination,
+                            ),
+                            go = GoTarget(
+                                destination = destination,
+                                destinationName = destinationName,
+                                route = route,
+                                origin = myLocation,
+                                mode = mode,
+                                inAppAvailable = inAppAvailable,
+                                onNavigateInApp = onNavigateInApp,
+                                onNavigate = onNavigate,
+                            ),
+                            onEndTrip = onEndTrip,
+                        )
+                    }
                     HomeBottomCard.CANDIDATES -> CandidatesCard(
                         candidates = shownCandidates.value,
                         // mode/radiusKm feed spinStateFrom's radius readout too
@@ -194,7 +219,7 @@ internal fun BoxScope.MapBottomSlot(
                         // of them draws a button that closes the round.
                         onGoWithLead = onGoWithLead,
                     )
-                    HomeBottomCard.COLLAPSED, HomeBottomCard.DRIVING -> Unit
+                    HomeBottomCard.COLLAPSED -> Unit
                     HomeBottomCard.EXPANDED -> SpinSheet(
                         mode = mode,
                         onSelectMode = onSelectMode,
@@ -227,18 +252,8 @@ internal fun BoxScope.MapBottomSlot(
         // Outside the AnimatedContent, and that is deliberate: the home sheet
         // owns a text field and its results, so cross-fading it in and out
         // would drop a half-typed query and the keyboard with it every time a
-        // spin landed. They are the resting occupants of the slot above, hence
-        // the same test — the driving sheet joins it here because the two swap
-        // for each other whenever a trip starts or ends, and a cross-fade
-        // between one full-width sheet and another is just a flicker.
-        if (bottomCard == HomeBottomCard.DRIVING && stats != null) {
-            DrivingSheet(
-                stats = stats,
-                expanded = drivingExpanded.value,
-                onToggle = { drivingExpanded.value = !drivingExpanded.value },
-                onEndTrip = onEndTrip,
-            )
-        }
+        // spin landed. It is the resting occupant of the slot above, hence the
+        // same test.
         if (bottomCard == HomeBottomCard.COLLAPSED) {
             HomeSheet(
                 username = username,

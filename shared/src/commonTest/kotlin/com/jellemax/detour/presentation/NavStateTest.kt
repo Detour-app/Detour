@@ -9,9 +9,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 /**
- * The pure mapping behind the nav banner, the "then" pill and the bottom bar
- * (`app/.../ui/Navigation.kt`'s `NavigationBanner`, `ThenChip` and
- * `NavigationBottomBar`), plus the speed-limit source switch and the
+ * The pure mapping behind the nav banner, the "then" pill and the nav sheet
+ * (`app/.../ui/Navigation.kt`'s `NavigationBanner` and `ThenChip`,
+ * `RideSheet.kt`'s `NavSheet`), plus the speed-limit source switch and the
  * off-route comparison `MapScreen.kt` has always computed inline. Does not
  * cover `NavEngine.progress()` itself, `NavPolicy.decide`, the reroute call,
  * `NavVoice`, or `BleNavServer` - those stay in `MapScreen.kt`/`NavPolicy.kt`.

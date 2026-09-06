@@ -6,8 +6,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Pins the live trip card as `MapHud.kt` renders it today: `ActiveTripCard`'s
- * readouts and its second-row gate.
+ * Pins the live trip numbers as `RideSheet.kt`'s `TripStatsRows` renders them
+ * today: the readouts and the second-row gate.
  */
 class ActiveTripCardStateTest {
 

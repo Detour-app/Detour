@@ -2,140 +2,77 @@ package com.jellemax.detour.presentation
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
 
 /**
- * Pins the map screen's bottom-card selection as `MapScreen.kt` computes it
- * today, in two places:
+ * Pins the map screen's bottom-slot selection: one of five occupants, first
+ * match wins — the nav sheet, the candidate list, the drive sheet, the
+ * collapsed home sheet, or the expanded spin sheet.
  *
- *  - the `bottomCard` when-chain that picks one of five cards for the
- *    screen's single bottom slot - the nav banner, the candidate list, the
- *    expanded settings sheet, the driving sheet, or the idle home sheet -
- *    first match wins;
- *  - `dockShown`, which re-derives the same conditions in the same order to
- *    decide whether the mode-swipe dock is on screen at all. `dockShown` is
- *    true exactly when the when-chain would land on
- *    [HomeBottomCard.COLLAPSED].
- *
- * The precedence between the five is the contract, not an implementation
- * detail: it is what decides whether a rider recording a trip sees the turn
- * card, the candidates, the Go button or the trip numbers. Each ordering
- * rule gets a test naming the case it protects.
+ * The home sheet is the resting occupant, so the last test checks the
+ * precedence the other way round too: COLLAPSED exactly when nothing else
+ * claims the slot, over every combination of the four inputs.
  */
 class HomeStateTest {
 
-    @Test fun navigatingWinsOverCandidatesAndCollapsed() {
+    @Test fun navigatingWinsOverEverything() {
         assertEquals(
             HomeBottomCard.NAV,
-            homeBottomCard(
-                navigating = true, hasCandidates = true, collapsed = true, driving = false,
-            ),
+            homeBottomCard(navigating = true, hasCandidates = true, tripActive = true, collapsed = true),
         )
     }
 
-    @Test fun candidatesWinOverCollapsedWhenNotNavigating() {
+    @Test fun candidatesWinOverTheDriveSheetWhenNotNavigating() {
+        // A convoy vote round still surfaces on a moving phone.
         assertEquals(
             HomeBottomCard.CANDIDATES,
-            homeBottomCard(
-                navigating = false, hasCandidates = true, collapsed = true, driving = false,
-            ),
+            homeBottomCard(navigating = false, hasCandidates = true, tripActive = true, collapsed = true),
         )
     }
 
-    @Test fun collapsedShowsTheDockWhenNothingElseClaimsTheSlot() {
+    @Test fun aTripWithoutARouteShowsTheDriveSheet() {
+        assertEquals(
+            HomeBottomCard.DRIVE,
+            homeBottomCard(navigating = false, hasCandidates = false, tripActive = true, collapsed = true),
+        )
+    }
+
+    @Test fun theDriveSheetOutranksTheExpandedSpinSheet() {
+        // #221 flips `collapsed` off whenever a destination is set; mid-trip
+        // that must not swap the drive sheet for the spin sheet.
+        assertEquals(
+            HomeBottomCard.DRIVE,
+            homeBottomCard(navigating = false, hasCandidates = false, tripActive = true, collapsed = false),
+        )
+    }
+
+    @Test fun collapsedShowsTheHomeSheetWhenNothingElseClaimsTheSlot() {
         assertEquals(
             HomeBottomCard.COLLAPSED,
-            homeBottomCard(
-                navigating = false, hasCandidates = false, collapsed = true, driving = false,
-            ),
+            homeBottomCard(navigating = false, hasCandidates = false, tripActive = false, collapsed = true),
         )
     }
 
     @Test fun expandedIsTheFallbackWhenNothingElseApplies() {
         assertEquals(
             HomeBottomCard.EXPANDED,
-            homeBottomCard(
-                navigating = false, hasCandidates = false, collapsed = false, driving = false,
-            ),
+            homeBottomCard(navigating = false, hasCandidates = false, tripActive = false, collapsed = false),
         )
     }
 
-    @Test fun aRecordingTripTakesTheSlotTheIdleHomeSheetWouldHaveHad() {
-        assertEquals(
-            HomeBottomCard.DRIVING,
-            homeBottomCard(
-                navigating = false, hasCandidates = false, collapsed = true, driving = true,
-            ),
-        )
-    }
-
-    @Test fun navigationOutranksARecordingTrip() {
-        // Recording a trip while navigating is the normal case, not an odd
-        // one: the turn you are about to take beats the numbers piling up.
-        assertEquals(
-            HomeBottomCard.NAV,
-            homeBottomCard(
-                navigating = true, hasCandidates = false, collapsed = true, driving = true,
-            ),
-        )
-    }
-
-    @Test fun anOpenCandidateRoundOutranksARecordingTrip() {
-        assertEquals(
-            HomeBottomCard.CANDIDATES,
-            homeBottomCard(
-                navigating = false, hasCandidates = true, collapsed = true, driving = true,
-            ),
-        )
-    }
-
-    @Test fun aDestinationDroppedMidTripStillGetsTheSpinSheet() {
-        // MapScreen opens the spin sheet (collapsed = false) on every new
-        // destination, because that sheet holds the Go button. Ranking
-        // DRIVING above it would drop a picked destination back into the
-        // dead end #190 closed.
-        assertEquals(
-            HomeBottomCard.EXPANDED,
-            homeBottomCard(
-                navigating = false, hasCandidates = false, collapsed = false, driving = true,
-            ),
-        )
-    }
-
-    @Test fun theIdleHomeSheetIsNeverOnScreenWhileATripRecords() {
-        // The whole point of the driving occupant: no search bar and no
-        // Routes/Social cards in the thumb zone mid-ride, whatever else is
-        // true at the time.
+    @Test fun theHomeSheetRestsExactlyWhenNothingElseClaimsTheSlot() {
+        // Checked over all sixteen inputs so a rewrite that reorders the
+        // chain, rather than just renaming it, still fails here.
         for (navigating in listOf(false, true)) {
             for (hasCandidates in listOf(false, true)) {
-                for (collapsed in listOf(false, true)) {
-                    assertNotEquals(
-                        HomeBottomCard.COLLAPSED,
-                        homeBottomCard(navigating, hasCandidates, collapsed, driving = true),
-                        "navigating=$navigating hasCandidates=$hasCandidates collapsed=$collapsed",
-                    )
-                }
-            }
-        }
-    }
-
-    @Test fun dockShownAgreesWithTheWhenChainAcrossEveryCombination() {
-        // MapScreen.kt's `dockShown` (`!navigating && candidates.isEmpty() &&
-        // settingsCollapsed`) is the same three-way precedence as the
-        // when-chain, collapsed into one boolean - true iff the chain would
-        // pick COLLAPSED. Checked over all sixteen inputs so a rewrite that
-        // reorders the chain, rather than just renaming it, still fails here.
-        for (navigating in listOf(false, true)) {
-            for (hasCandidates in listOf(false, true)) {
-                for (collapsed in listOf(false, true)) {
-                    for (driving in listOf(false, true)) {
-                        val card = homeBottomCard(navigating, hasCandidates, collapsed, driving)
-                        val dockShown = !navigating && !hasCandidates && collapsed && !driving
+                for (tripActive in listOf(false, true)) {
+                    for (collapsed in listOf(false, true)) {
+                        val card = homeBottomCard(navigating, hasCandidates, tripActive, collapsed)
+                        val homeShown = !navigating && !hasCandidates && !tripActive && collapsed
                         assertEquals(
-                            dockShown,
+                            homeShown,
                             card == HomeBottomCard.COLLAPSED,
                             "navigating=$navigating hasCandidates=$hasCandidates " +
-                                "collapsed=$collapsed driving=$driving",
+                                "tripActive=$tripActive collapsed=$collapsed",
                         )
                     }
                 }

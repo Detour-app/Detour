@@ -91,7 +91,8 @@ fun speedHudStateFrom(
 
 /**
  * Pure map from the trip's accumulated numbers to [ActiveTripCardState].
- * Ported from `app/.../ui/MapHud.kt`'s `ActiveTripCard`.
+ * Ported from what was `app/.../ui/MapHud.kt`'s `ActiveTripCard`, now
+ * `RideSheet.kt`'s `TripStatsRows`.
  *
  * Takes primitives rather than the app's `TripStats`: it is declared inside
  * `TripTrackingService.kt` and cannot cross into `:shared`. The caller unpacks
