@@ -47,6 +47,7 @@ import com.jellemax.detour.drive.HardEventDetector
 import com.jellemax.detour.drive.RoadTypeTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.drive.StopDetector
+import com.jellemax.detour.drive.TripFixMath
 import com.jellemax.detour.notif.TripEndedNotification
 import com.jellemax.detour.obd2.Obd2Connection
 import com.jellemax.detour.obd2.ObdTelemetry
@@ -172,6 +173,27 @@ class TripTrackingService : Service() {
         private const val MIN_FAST_RUN_METERS = 120.0
         /** Fixes looser than this never contribute to a start decision. */
         private const val MAX_START_ACCURACY_M = 25f
+
+        /** Loosest fix still worth *drawing*: the fog-of-war trace, and with it
+         *  the auto-stop-at-origin check that rides on the same point. A scatter
+         *  fix past this would paint explored ground the rider never saw. */
+        private const val MAX_TRACE_ACCURACY_M = 50f
+        /** Loosest fix still allowed to *bank distance* into the running trip.
+         *  Deliberately a separate constant from [MAX_TRACE_ACCURACY_M] even
+         *  though the two are equal today: one governs what is drawn, the other
+         *  what is recorded as the rider's mileage, and tuning trace quality
+         *  must not silently move an odometer. */
+        private const val MAX_DISTANCE_ACCURACY_M = 50f
+        /** Shortest gap between two fixes that can carry a Δt. A gap of 0 is a
+         *  redelivered fix on a frozen clock, whose hop was banked already.
+         *  Not private: [cappedFixDtSec] gates on the same floor. */
+        internal const val MIN_FIX_GAP_MS = 1L
+        /** Longest gap between two fixes that can still be treated as one
+         *  continuous stretch — past this it is a tunnel, a Doze window or a BT
+         *  dropout, and whatever happened in between was not observed. Shared
+         *  with [cappedFixDtSec]: one window, two clocks (see its KDoc). */
+        internal const val MAX_FIX_GAP_MS = 15_000L
+
         /** Not private: [DriveTransitions] opens the IN_VEHICLE confirmation
          *  window against this. */
         internal const val PROBE_WINDOW_MS = 3 * 60_000L
@@ -1209,7 +1231,7 @@ class TripTrackingService : Service() {
 
     /** Idle/probe/sleep: extend the explored trace, watch for a drive starting. */
     private fun onIdleLocation(location: Location, speed: Double) {
-        if (location.accuracy <= 50f) {
+        if (location.accuracy <= MAX_TRACE_ACCURACY_M) {
             addTracePoint(
                 LatLon(location.latitude, location.longitude), location.time, speed)
         }
@@ -1257,36 +1279,58 @@ class TripTrackingService : Service() {
         }
     }
 
-    private fun onTripLocation(location: Location, speed: Double, stats: TripStats) {
-        val now = System.currentTimeMillis()
-
-        var distance = stats.distanceMeters
+    /** The trip's distance with this fix's hop added, or unchanged when the fix
+     *  fails the accuracy/recency gate — only accurate, recent fixes accumulate
+     *  distance, so a GPS jump can't be banked as mileage. Geodesy stays on
+     *  Android's WGS84 [Location.distanceTo]; [TripFixMath.distanceHopMeters]
+     *  is the gate around it. */
+    private fun accumulateDistance(location: Location, stats: TripStats): Double {
         val last = lastLocation
-        // Only accumulate distance for accurate, recent fixes to avoid GPS jumps.
-        if (last != null && location.accuracy <= 50f &&
-            location.time - last.time in 1..15_000
+        return stats.distanceMeters + TripFixMath.distanceHopMeters(
+            rawHopMeters = last?.distanceTo(location)?.toDouble() ?: 0.0,
+            lastFixMs = last?.time,
+            fixMs = location.time,
+            accuracyM = location.accuracy,
+            maxAccuracyM = MAX_DISTANCE_ACCURACY_M,
+            minGapMs = MIN_FIX_GAP_MS,
+            maxGapMs = MAX_FIX_GAP_MS,
+        )
+    }
+
+    /** Extends the fog-of-war trace with this fix and, riding on the same
+     *  point, watches for the trip closing back on where it started.
+     *
+     *  Returns true when it ended the trip, in which case the caller must stop
+     *  processing this fix.
+     */
+    private fun appendTracePoint(
+        location: Location,
+        speed: Double,
+        stats: TripStats,
+        now: Long,
+    ): Boolean {
+        if (location.accuracy > MAX_TRACE_ACCURACY_M) return false
+        val p = LatLon(location.latitude, location.longitude)
+        addTracePoint(p, location.time, speed)
+
+        // Auto-stop when back at the starting point after a real trip.
+        if (origin == null) origin = p
+        val start = origin ?: return false
+        val fromStart = RoadRoulette.distanceMeters(p, start)
+        if (fromStart > 400) awayFromOrigin = true
+        if (awayFromOrigin && fromStart < 120 &&
+            now - stats.startTimeMs > 5 * 60_000
         ) {
-            distance += last.distanceTo(location).toDouble()
+            endTrip()
+            return true
         }
+        return false
+    }
 
-        if (location.accuracy <= 50f) {
-            val p = LatLon(location.latitude, location.longitude)
-            addTracePoint(p, location.time, speed)
-
-            // Auto-stop when back at the starting point after a real trip.
-            if (origin == null) origin = p
-            origin?.let { start ->
-                val fromStart = RoadRoulette.distanceMeters(p, start)
-                if (fromStart > 400) awayFromOrigin = true
-                if (awayFromOrigin && fromStart < 120 &&
-                    now - stats.startTimeMs > 5 * 60_000
-                ) {
-                    endTrip()
-                    return
-                }
-            }
-        }
-
+    /** Keeps the "still moving" clock, then decides whether the rider has left
+     *  the vehicle for good. Returns true when it ended the trip, in which case
+     *  the caller must stop processing this fix. */
+    private fun checkVehicleExit(speed: Double, now: Long): Boolean {
         if (speed > 2.0) lastMovingMs = now
 
         // Left the vehicle and stayed slow through the grace period: trip over.
@@ -1295,16 +1339,33 @@ class TripTrackingService : Service() {
                 pendingStopAtMs = null
             } else if (now - exitedAt > EXIT_GRACE_MS) {
                 endTrip()
-                return
+                return true
             }
         }
         // Fallback if the vehicle-exit event never arrives. Also stops the
         // high-accuracy fixes draining the battery in a car park.
         if (autoStarted && now - lastMovingMs > STATIONARY_END_MS) {
             endTrip()
-            return
+            return true
         }
+        return false
+    }
 
+    /** Everything the rest of the per-fix pipeline needs to know about this
+     *  fix's speed, decided once from one telemetry snapshot so no two readers
+     *  can disagree about it. */
+    private data class FixSpeed(
+        val obd: ObdTelemetry?,
+        val effectiveMps: Double,
+        val isReal: Boolean,
+        val recordedFixMs: Long,
+    )
+
+    /** OBD2 -> board -> GPS, plus the two things that ride on which source won:
+     *  whether the number is a measurement at all, and which clock its Δt
+     *  should be taken against. Also folds this fix into the per-trip OBD2
+     *  attribution counters. */
+    private fun resolveSpeed(location: Location, speed: Double, stats: TripStats): FixSpeed {
         // One OBD2 snapshot for this fix: the speed chain, the attribution
         // counter, the engine-summary fold and speedIsReal all read the same
         // values, so a poll landing mid-function can't make them disagree.
@@ -1318,7 +1379,7 @@ class TripTrackingService : Service() {
         // Best-available speed for the recorded-trip pipeline (hard-event / stop
         // detectors, SpeedLimitTracker, RoadTypeTracker, persisted topSpeedMps).
         // See resolveDisplaySpeedMps for the OBD2/board/GPS priority. `speed`
-        // above still drives auto-start/stop and the fog trace, which stay on the
+        // still drives auto-start/stop and the fog trace, which stay on the
         // phone's own GPS pipeline regardless of what's paired.
         val effectiveSpeedMps = resolveDisplaySpeedMps(speed, stats.mode, obd, board)
 
@@ -1326,7 +1387,7 @@ class TripTrackingService : Service() {
         // obd2SpeedPct. Same decision resolveDisplaySpeedMps uses for its OBD2
         // arm — board telemetry winning does not count, GPS fallback does not
         // count.
-        // Non-null iff effectiveSpeedMps below is the OBD adapter's reading
+        // Non-null iff effectiveSpeedMps is the OBD adapter's reading
         // (not board telemetry, not the GPS fallback). Drives both the per-trip
         // attribution counter and the recorded-trip fix clock (#98).
         val obdSpeedMps = obdSpeedMpsFrom(obd, speed, stats.mode)
@@ -1335,73 +1396,93 @@ class TripTrackingService : Service() {
             obd2SpeedFixes++
         }
 
-        // Engine summary: fold this fix's OBD2 telemetry into the accumulators
-        // endTrip turns into DrivingStats.maxRpm/avgRpm/throttle. Sampled here
-        // on the same snapshot and the same mode/freshness gate as the speed arm
-        // above — it was a free-running Obd2Connection.telemetry collector, which
-        // raced endTrip's non-suspending read of these vars and recorded
-        // emissions the speed path would have rejected. onTripLocation only runs
-        // mid-trip, so this is trip-scoped by construction.
-        if (stats.mode.tracksGForce && obd != null) {
-            if (obd.hasRpm) {
-                obdMaxRpm = maxOf(obdMaxRpm, obd.rpmValue)
-                obdRpmSum += obd.rpmValue
-                obdRpmSamples++
-            }
-            if (obd.hasThrottle) {
-                obdMaxThrottlePct = maxOf(obdMaxThrottlePct, obd.throttlePct)
-                obdThrottleSamples++
-                if (obd.throttlePct > WIDE_OPEN_THROTTLE_PCT) obdWideOpenThrottleSamples++
-            }
-            if (obd.hasFuelRate) {
-                // Fuel is a rate, so it's integrated over time, not averaged like
-                // RPM above: this fix's L/h held over the gap since the last fuel
-                // sample, dropped (not saturated) when that gap is outside 1..15s.
-                // The gap is measured on the OBD reading's own arrival clock
-                // (receivedAtMs), not the GPS fix clock: fuelRateLph was valid at
-                // that instant, and the ~1 Hz OBD poll cadence is not the GPS
-                // fix cadence. It also keeps integrating correctly through a
-                // short GPS-staleness window (a redelivered stale fix freezes
-                // location.time) as long as the adapter is alive and the gap is
-                // inside the 15s cap (#98).
-                val fixMs = obd.receivedAtMs
-                cappedFixDtSec(fixMs, lastFuelSampleMs)?.let { dtSec ->
-                    fuelMlAccum += obd.fuelRateLph * (1000.0 / 3600.0) * dtSec
-                    // Distance covered while a fuel reading was live — the L/100km
-                    // denominator, so a mid-trip disconnect can't make a partial
-                    // measurement look like a whole-trip figure.
-                    fuelSampledMeters += (distance - stats.distanceMeters).coerceAtLeast(0.0)
-                }
-                lastFuelSampleMs = fixMs
-                if (obd.fuelEstimated) fuelWasEstimated = true
-            }
+        return FixSpeed(
+            obd = obd,
+            effectiveMps = effectiveSpeedMps,
+            // speedOf() hands back a fabricated 0.0 sentinel for a coarse/no-speed
+            // fix (see its own doc) — not a real zero-speed measurement. Feeding
+            // that into the physics-based detectors as if it were real reads a
+            // tunnel/parking-garage GPS gap as "suddenly stopped": a false hard
+            // brake, and potentially a false stop. Real iff this fix's own
+            // hasSpeed() is set, or fresh OBD2/board telemetry supplied the number
+            // effectiveSpeedMps is using.
+            isReal = TripFixMath.speedIsReal(
+                fixHasSpeed = location.hasSpeed(),
+                boardHasSpeed = board != null && board.hasSpeed,
+                modeTracksGForce = stats.mode.tracksGForce,
+                obdHasSpeed = obd != null && obd.hasSpeed,
+            ),
+            // The hard-brake/accel and stop detectors derive Δt from this
+            // timestamp. When the speed reading came from the OBD adapter, use
+            // that reading's own arrival clock so PID 0D's ~1 Hz jitter lands in
+            // the Δt rather than being flattened to a nominal second (#98). A GPS
+            // speed keeps the GPS clock. Heading-rate cornering stays on
+            // location.time — its signal is the GPS bearing.
+            recordedFixMs = TripFixMath.recordedFixMs(
+                obdDroveSpeed = obdSpeedMps != null,
+                obdReceivedAtMs = obd?.receivedAtMs,
+                locationTimeMs = location.time,
+            ),
+        )
+    }
+
+    /**
+     * Folds this fix's OBD2 telemetry into the accumulators endTrip turns into
+     * DrivingStats.maxRpm/avgRpm/throttle. Sampled here on the same snapshot
+     * and the same mode/freshness gate as the speed arm — it was a free-running
+     * Obd2Connection.telemetry collector, which raced endTrip's non-suspending
+     * read of these vars and recorded emissions the speed path would have
+     * rejected. onTripLocation only runs mid-trip, so this is trip-scoped by
+     * construction.
+     *
+     * [hopMeters] is the distance this fix banked, for the L/100km denominator.
+     */
+    private fun foldEngineSummary(obd: ObdTelemetry?, stats: TripStats, hopMeters: Double) {
+        if (!stats.mode.tracksGForce || obd == null) return
+        if (obd.hasRpm) {
+            obdMaxRpm = maxOf(obdMaxRpm, obd.rpmValue)
+            obdRpmSum += obd.rpmValue
+            obdRpmSamples++
         }
+        if (obd.hasThrottle) {
+            obdMaxThrottlePct = maxOf(obdMaxThrottlePct, obd.throttlePct)
+            obdThrottleSamples++
+            if (obd.throttlePct > WIDE_OPEN_THROTTLE_PCT) obdWideOpenThrottleSamples++
+        }
+        if (!obd.hasFuelRate) return
+        // Fuel is a rate, so it's integrated over time, not averaged like
+        // RPM above: this fix's L/h held over the gap since the last fuel
+        // sample, dropped (not saturated) when that gap is outside 1..15s.
+        // The gap is measured on the OBD reading's own arrival clock
+        // (receivedAtMs), not the GPS fix clock: fuelRateLph was valid at
+        // that instant, and the ~1 Hz OBD poll cadence is not the GPS
+        // fix cadence. It also keeps integrating correctly through a
+        // short GPS-staleness window (a redelivered stale fix freezes
+        // location.time) as long as the adapter is alive and the gap is
+        // inside the 15s cap (#98).
+        val fixMs = obd.receivedAtMs
+        cappedFixDtSec(fixMs, lastFuelSampleMs)?.let { dtSec ->
+            fuelMlAccum += obd.fuelRateLph * (1000.0 / 3600.0) * dtSec
+            // Distance covered while a fuel reading was live — the L/100km
+            // denominator, so a mid-trip disconnect can't make a partial
+            // measurement look like a whole-trip figure.
+            fuelSampledMeters += hopMeters.coerceAtLeast(0.0)
+        }
+        lastFuelSampleMs = fixMs
+        if (obd.fuelEstimated) fuelWasEstimated = true
+    }
 
-        // speedOf() hands back a fabricated 0.0 sentinel for a coarse/no-speed fix
-        // (see its own doc below) — not a real zero-speed measurement. Feeding
-        // that into the physics-based detectors below as if it were real reads a
-        // tunnel/parking-garage GPS gap as "suddenly stopped": a false hard brake,
-        // and potentially a false stop. Real iff this fix's own hasSpeed() is set,
-        // or fresh OBD2/board telemetry supplied the number effectiveSpeedMps is using.
-        val speedIsReal = location.hasSpeed() ||
-            board?.takeIf { it.hasSpeed } != null ||
-            (stats.mode.tracksGForce && obd?.hasSpeed == true)
-
-        // The hard-brake/accel and stop detectors derive Δt from the timestamp
-        // passed here. When the speed reading came from the OBD adapter, use
-        // that reading's own arrival clock so PID 0D's ~1 Hz jitter lands in
-        // the Δt rather than being flattened to a nominal second (#98). A GPS
-        // speed keeps the GPS clock. Heading-rate cornering stays on
-        // location.time — its signal is the GPS bearing.
-        val recordedFixMs = if (obdSpeedMps != null && obd != null) obd.receivedAtMs else location.time
-
+    /** Hard brake/accel, cornering and the stop detector, all fed from the one
+     *  [FixSpeed] this fix resolved. */
+    private fun detectHardEvents(location: Location, stats: TripStats, fix: FixSpeed) {
         // Thresholds here are scoped to car/moto (tracksGForce) — a bike or walk
         // decelerating normally must not print a "hard brake" meant for a vehicle.
         // Cornering is separately gated: heading-rate below to CAR, lean-based
         // cornering (recordLean) to tracksLean.
         if (stats.mode.tracksGForce) {
-            if (speedIsReal) {
-                val speedResult = HardEventDetector.onSpeedFix(speedEventState, effectiveSpeedMps, recordedFixMs)
+            if (fix.isReal) {
+                val speedResult =
+                    HardEventDetector.onSpeedFix(speedEventState, fix.effectiveMps, fix.recordedFixMs)
                 speedEventState = speedResult.state
                 if (speedResult.hardBrake) hardBrakeCount++
                 if (speedResult.hardAccel) hardAccelCount++
@@ -1410,7 +1491,7 @@ class TripTrackingService : Service() {
             // MIN_CORNER_SPEED_MPS gate harmlessly inside onHeadingFix.
             if (stats.mode == TravelMode.CAR && location.hasBearing()) {
                 val (nextHeadingState, cornerEvent) = HardEventDetector.onHeadingFix(
-                    headingEventState, location.bearing.toDouble(), effectiveSpeedMps, location.time)
+                    headingEventState, location.bearing.toDouble(), fix.effectiveMps, location.time)
                 headingEventState = nextHeadingState
                 if (cornerEvent) hardCornerCount++
             }
@@ -1420,18 +1501,28 @@ class TripTrackingService : Service() {
         // so this still needs the speedIsReal guard. Skipping entirely (rather
         // than feeding the sentinel) lets the state's stale lastFixMs carry
         // forward, so the next real fix's own Δt naturally spans the gap.
-        if (speedIsReal) {
-            stopState = StopDetector.onFix(stopState, effectiveSpeedMps, recordedFixMs)
+        if (fix.isReal) {
+            stopState = StopDetector.onFix(stopState, fix.effectiveMps, fix.recordedFixMs)
         }
+    }
 
+    /** Advances the trip's speed-limit state for this fix (fetching ways when
+     *  the tracker asks for them) and folds any time spent over the limit into
+     *  `secondsOverLimit`.
+     *
+     *  Returns whether the rider is over the limit right now, or null on a fix
+     *  with no real speed measurement — the caller carries the previous value
+     *  forward rather than flickering the HUD signal off.
+     */
+    private fun updateSpeedLimit(location: Location, fix: FixSpeed, now: Long): Boolean? {
         val here = LatLon(location.latitude, location.longitude)
         val bearing = if (location.hasBearing()) location.bearing.toDouble() else null
-        if (effectiveSpeedMps >= SpeedLimitTracker.MIN_MPS &&
+        if (fix.effectiveMps >= SpeedLimitTracker.MIN_MPS &&
             SpeedLimitTracker.needsWays(tripLimitState, here, now) &&
             tripLimitFetchJob?.isActive != true
         ) {
             tripLimitState = SpeedLimitTracker.fetchStarted(tripLimitState, now)
-            // serviceScope is already Dispatchers.IO (`:1343`), so no withContext needed here.
+            // serviceScope is already Dispatchers.IO, so no withContext needed here.
             tripLimitFetchJob = serviceScope.launch {
                 val ways = runCatching { RoadRoulette.speedLimitWays(here) }
                     .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
@@ -1439,63 +1530,94 @@ class TripTrackingService : Service() {
                 tripLimitState = SpeedLimitTracker.withWays(tripLimitState, ways, here)
             }
         }
-        tripLimitState = SpeedLimitTracker.onFix(tripLimitState, here, bearing, effectiveSpeedMps)
+        tripLimitState = SpeedLimitTracker.onFix(tripLimitState, here, bearing, fix.effectiveMps)
         val limitKmh = tripLimitState.limitKmh
-        // Same speedIsReal guard as above, and the same reason: a fabricated
-        // zero must not read as "suddenly under the limit" nor have its (bogus)
-        // duration folded into secondsOverLimit. lastLimitFixMs is left stale on
-        // a skipped fix so the next real fix's Δt naturally spans the gap.
-        var currentlyOverLimitNow: Boolean? = null
-        if (speedIsReal) {
-            val over = limitKmh != null && effectiveSpeedMps * 3.6 > limitKmh * OVER_LIMIT_MARGIN
-            if (over) cappedFixDtSec(location.time, lastLimitFixMs)?.let { secondsOverLimit += it }
-            lastLimitFixMs = location.time
-            currentlyOverLimitNow = over
-        }
+        // Same speedIsReal guard as the detectors, and the same reason: a
+        // fabricated zero must not read as "suddenly under the limit" nor have
+        // its (bogus) duration folded into secondsOverLimit. lastLimitFixMs is
+        // left stale on a skipped fix so the next real fix's Δt spans the gap.
+        if (!fix.isReal) return null
+        val over = limitKmh != null && fix.effectiveMps * 3.6 > limitKmh * OVER_LIMIT_MARGIN
+        if (over) cappedFixDtSec(location.time, lastLimitFixMs)?.let { secondsOverLimit += it }
+        lastLimitFixMs = location.time
+        return over
+    }
 
-        // Reuses the hop the distance accumulator above already computed under both its
-        // guards (accuracy AND recency) rather than tracking a third `lastFixLocation`
-        // anchor with only the accuracy half of that gate — an accuracy-only guard would
-        // let a post-tunnel/post-parking-garage GPS re-acquire, fully accurate but far from
-        // the last real fix, attribute several kilometres to whatever class the reacquire
-        // fix snaps to. `distance` already equals `stats.distanceMeters + hop` if the
-        // accumulator's guard passed, or is unchanged if it didn't. No speedIsReal guard
-        // needed here — this is driven by the accuracy+recency-gated distance hop, not
-        // raw speed.
-        val roadTypeHop = distance - stats.distanceMeters
+    /**
+     * Attributes this fix's banked distance to a road class, fetching ways when
+     * the tracker asks for them.
+     *
+     * [hopMeters] reuses the hop the distance accumulator already computed under
+     * both its guards (accuracy AND recency) rather than tracking a third
+     * `lastFixLocation` anchor with only the accuracy half of that gate — an
+     * accuracy-only guard would let a post-tunnel/post-parking-garage GPS
+     * re-acquire, fully accurate but far from the last real fix, attribute
+     * several kilometres to whatever class the reacquire fix snaps to. It is
+     * zero when the accumulator's guard did not pass. No speedIsReal guard
+     * needed here — this is driven by the accuracy+recency-gated distance hop,
+     * not raw speed.
+     */
+    private fun updateRoadType(
+        location: Location,
+        stats: TripStats,
+        fix: FixSpeed,
+        hopMeters: Double,
+        now: Long,
+    ) {
         // Scoped to car/moto (tracksGForce), same reasoning as the hard-event
-        // block above: a walk/bike's road-type mix isn't part of this stat.
-        if (stats.mode.tracksGForce) {
-            if (effectiveSpeedMps >= SpeedLimitTracker.MIN_MPS &&
-                RoadTypeTracker.needsWays(roadTypeState, here, now) &&
-                roadTypeFetchJob?.isActive != true
-            ) {
-                roadTypeState = RoadTypeTracker.fetchStarted(roadTypeState, now)
-                // serviceScope is already Dispatchers.IO (`:1358`), so no withContext needed here.
-                // Rethrow cancellation rather than let runCatching swallow it (same pattern
-                // Task 4 established for SpeedLimitTracker's fetch) — RoadTypeTracker.fetchWays
-                // is nullable with the identical null-vs-empty contract, so getOrNull, not
-                // getOrDefault(emptyList()): collapsing a cancelled/failed fetch to emptyList()
-                // would make withWays treat it as "confirmed no roads here."
-                roadTypeFetchJob = serviceScope.launch {
-                    val ways = runCatching { RoadTypeTracker.fetchWays(here) }
-                        .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
-                        .getOrNull()
-                    roadTypeState = RoadTypeTracker.withWays(roadTypeState, ways, here)
-                }
-            }
-            if (roadTypeHop > 0.0) {
-                roadTypeState = RoadTypeTracker.onFix(roadTypeState, here, bearing, roadTypeHop)
+        // block: a walk/bike's road-type mix isn't part of this stat.
+        if (!stats.mode.tracksGForce) return
+        val here = LatLon(location.latitude, location.longitude)
+        if (fix.effectiveMps >= SpeedLimitTracker.MIN_MPS &&
+            RoadTypeTracker.needsWays(roadTypeState, here, now) &&
+            roadTypeFetchJob?.isActive != true
+        ) {
+            roadTypeState = RoadTypeTracker.fetchStarted(roadTypeState, now)
+            // serviceScope is already Dispatchers.IO, so no withContext needed here.
+            // Rethrow cancellation rather than let runCatching swallow it (same pattern
+            // Task 4 established for SpeedLimitTracker's fetch) — RoadTypeTracker.fetchWays
+            // is nullable with the identical null-vs-empty contract, so getOrNull, not
+            // getOrDefault(emptyList()): collapsing a cancelled/failed fetch to emptyList()
+            // would make withWays treat it as "confirmed no roads here."
+            roadTypeFetchJob = serviceScope.launch {
+                val ways = runCatching { RoadTypeTracker.fetchWays(here) }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                    .getOrNull()
+                roadTypeState = RoadTypeTracker.withWays(roadTypeState, ways, here)
             }
         }
+        if (hopMeters > 0.0) {
+            val bearing = if (location.hasBearing()) location.bearing.toDouble() else null
+            roadTypeState = RoadTypeTracker.onFix(roadTypeState, here, bearing, hopMeters)
+        }
+    }
+
+    private fun onTripLocation(location: Location, speed: Double, stats: TripStats) {
+        val now = System.currentTimeMillis()
+
+        val distance = accumulateDistance(location, stats)
+        // The one hop this fix banked, reused by the fuel-economy denominator and
+        // by road-type attribution rather than measured a second time.
+        val hopMeters = TripFixMath.roadTypeHopMeters(distance, stats.distanceMeters)
+
+        if (appendTracePoint(location, speed, stats, now)) return
+
+        if (checkVehicleExit(speed, now)) return
+
+        val fix = resolveSpeed(location, speed, stats)
+
+        foldEngineSummary(fix.obd, stats, hopMeters)
+        detectHardEvents(location, stats, fix)
+        val currentlyOverLimitNow = updateSpeedLimit(location, fix, now)
+        updateRoadType(location, stats, fix, hopMeters, now)
 
         // update (not value =) so the 5 Hz sensor writes aren't clobbered here.
         _stats.update {
             it?.copy(
                 durationMs = now - it.startTimeMs,
                 distanceMeters = distance,
-                currentSpeedMps = effectiveSpeedMps,
-                topSpeedMps = maxOf(it.topSpeedMps, effectiveSpeedMps),
+                currentSpeedMps = fix.effectiveMps,
+                topSpeedMps = maxOf(it.topSpeedMps, fix.effectiveMps),
                 hardBrakeCount = hardBrakeCount,
                 hardAccelCount = hardAccelCount,
                 hardCornerCount = hardCornerCount,
@@ -1705,13 +1827,23 @@ internal fun obdSpeedMpsFrom(
     ?.let { it.speedKmh / 3.6 }
 
 /** Seconds between [lastMs] and [nowMs], or null when [lastMs] is unset (0) or
- *  the gap is outside 1..15_000 ms — a tunnel, a Doze window, a BT dropout.
+ *  the gap is outside [TripTrackingService.MIN_FIX_GAP_MS]..[TripTrackingService.MAX_FIX_GAP_MS]
+ *  — a tunnel, a Doze window, a BT dropout.
  *  Dropping the Δt (rather than clamping it) means the *next* real fix's own
  *  gap spans the lost interval, instead of this fix inventing a saturated 15 s
  *  of fuel burn or over-limit time. Shared by the fuel integrator and
- *  secondsOverLimit; the trace-distance gate keeps its own GPS-clock check. */
+ *  secondsOverLimit; the trace-distance gate keeps its own GPS-clock check.
+ *
+ *  Same window as the distance accumulator's, but a different clock: that gate
+ *  measures GPS fix times, this one the OBD reading's own arrival time. Kept
+ *  separate for exactly that reason — do not fold one into the other. */
 internal fun cappedFixDtSec(nowMs: Long, lastMs: Long): Double? =
-    (nowMs - lastMs).takeIf { lastMs > 0L && it in 1L..15_000L }?.let { it / 1000.0 }
+    (nowMs - lastMs)
+        .takeIf {
+            lastMs > 0L &&
+                it in TripTrackingService.MIN_FIX_GAP_MS..TripTrackingService.MAX_FIX_GAP_MS
+        }
+        ?.let { it / 1000.0 }
 
 /** Which OBD2 adapter the connection loop should be on right now, or null to
  *  stay disconnected. Pure so the connect/disconnect decision is testable
