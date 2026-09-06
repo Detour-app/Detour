@@ -30,6 +30,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,6 +44,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -144,6 +148,10 @@ fun SearchIsland(
         if (!open) {
             query = ""
             error = null
+            // Closed mid-lookup, the flag would otherwise stay true until the
+            // query-keyed effect below restarted — one frame of spinner in the
+            // closed pill, where the avatar belongs.
+            searching = false
             return@LaunchedEffect
         }
         recents = withContext(Dispatchers.IO) { RecentSearchStore.load() }
@@ -256,7 +264,11 @@ fun SearchIsland(
                 Modifier
                     .fillMaxWidth()
                     .then(if (open) Modifier else Modifier.clickable { onOpenChange(true) })
-                    .padding(start = 16.dp, top = 6.dp, bottom = 6.dp, end = 6.dp),
+                    // No vertical or end padding: the 48 dp trailing slot below
+                    // supplies both geometrically, and it is what sets the
+                    // pill's height. That makes the pill itself a 48 dp target
+                    // too, where the 6 dp around a 28 dp avatar made it 40.
+                    .padding(start = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
@@ -268,7 +280,7 @@ fun SearchIsland(
                 if (open) {
                     // BasicTextField rather than an OutlinedTextField: this bar
                     // is what the island hangs off, and a 56 dp text field
-                    // dropped into a 40 dp pill would jump the anchor — and the
+                    // dropped into a 48 dp pill would jump the anchor — and the
                     // results with it — on every open.
                     BasicTextField(
                         value = query,
@@ -298,25 +310,12 @@ fun SearchIsland(
                         modifier = Modifier.weight(1f),
                     )
                 }
-                // Fixed at the avatar's size whatever it holds, for the same
-                // no-jump reason as the field above.
-                Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                // Fixed at 48 dp whatever it holds, for the same no-jump reason
+                // as the field above — and 48 rather than the avatar's own size
+                // because this slot is the only door to the Hub, so it has to
+                // stay hittable gloved and in motion.
+                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                     when {
-                        !open -> Box(
-                            Modifier
-                                .fillMaxSize()
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary)
-                                .clickable(onClick = onAvatarClick),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                            )
-                        }
                         searching -> CircularProgressIndicator(
                             Modifier.size(20.dp),
                             strokeWidth = 2.dp,
@@ -332,6 +331,35 @@ fun SearchIsland(
                                 Icons.Rounded.Clear,
                                 contentDescription = "Clear",
                                 modifier = Modifier.size(20.dp),
+                            )
+                        }
+                        // The resting occupant, not an `!open` branch: with the
+                        // island open and nothing typed the slot simply stood
+                        // empty, and hiding the only route to the Hub because
+                        // the keyboard is up bought nothing.
+                        //
+                        // minimumInteractiveComponentSize() comes before the
+                        // size, so the 40 dp circle keeps its own ripple while
+                        // the layout reserves the full 48 — outside it, the
+                        // fixed size would clamp the target back to 40.
+                        else -> Box(
+                            Modifier
+                                .minimumInteractiveComponentSize()
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary)
+                                .clickable(onClick = onAvatarClick, role = Role.Button)
+                                // The initial alone told TalkBack nothing about
+                                // where the tap goes; this names the screen it
+                                // opens ("You", plus the Settings button on it).
+                                .semantics { contentDescription = "You and settings" },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimary,
                             )
                         }
                     }

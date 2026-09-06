@@ -175,7 +175,7 @@ fun rememberRetainedMap(darkTheme: Boolean): RetainedMap {
     // added on top rather than assumed away, which the flat 84 dp did.
     //
     // The sheet's text is font-scaled and its constant is not, so the fixed
-    // 224 dp went *inside* the sheet's own 0.96-alpha surface — the ⓘ button
+    // 232 dp went *inside* the sheet's own 0.96-alpha surface — the ⓘ button
     // simply gone — from about the system's "Large" setting upwards. Only the
     // text grows, hence the growth term rather than a multiply; see
     // HOME_SHEET_FONT_SCALE_GROWTH for why a flat one over-corrects.
