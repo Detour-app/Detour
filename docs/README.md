@@ -3,6 +3,12 @@
 Everything that isn't the [README](../README.md) (what the app does) or
 [CONTRIBUTING](../CONTRIBUTING.md) (how to build and change it).
 
+## Writing code
+
+| Document | Read it when |
+| --- | --- |
+| [guidelines/](guidelines/README.md) | Writing or reviewing any Kotlin in `shared/`, `app/` or the Kotlin facing `iosApp/`. Where code belongs, who owns state, when a file splits, naming, tests, and the standing decisions behind them. Its own index maps section numbers to files. |
+
 ## Design and behaviour
 
 | Document | Read it when |

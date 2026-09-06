@@ -174,6 +174,9 @@ are fine — delete them once they're merged rather than leaving them on origin.
 
 - **One topic per PR.** A security fix and a UI tweak are two PRs, even if
   they're both small.
+- **Kotlin changes are reviewed against [docs/guidelines/](docs/guidelines/README.md).**
+  `docs/guidelines/checklist.md` is the list; cite the section number when you
+  raise something, and say why when you're deliberately breaking a rule.
 - **The build must pass.** CI builds the release APK and bundle on every
   change — a red build blocks review, don't ask for an
   exception. A push to `main` additionally signs them, publishes a GitHub
