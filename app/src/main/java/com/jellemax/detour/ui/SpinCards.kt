@@ -144,7 +144,7 @@ internal fun SpinSheet(
             // "Switch to Moto" was the accessibility action the retired swipe
             // gesture used to expose.
             Text("Mode", style = MaterialTheme.typography.labelLarge)
-            ScrollingPillRow(
+            ChoiceRow(
                 options = TravelMode.entries.map { it.label },
                 selectedIndex = TravelMode.entries.indexOf(mode),
                 onSelect = { onSelectMode(TravelMode.entries[it]) },
@@ -186,7 +186,7 @@ internal fun SpinSheet(
             // same way it always gated the old dropdown, rather than adding a
             // "Loop" option to pick.
             if (!mode.roundTrip) {
-                ScrollingPillRow(
+                ChoiceRow(
                     options = PoiKind.entries.map { it.label },
                     selectedIndex = PoiKind.entries.indexOf(poiKind),
                     onSelect = { onPoiKindChange(PoiKind.entries[it]) },
@@ -250,7 +250,7 @@ internal fun SpinSheet(
             }
 
             Text("Direction", style = MaterialTheme.typography.labelLarge)
-            ScrollingPillRow(
+            ChoiceRow(
                 options = listOf("Any") + DIRECTION_NAMES,
                 selectedIndex = directionDeg?.let { (it / 45f).toInt() + 1 } ?: 0,
                 onSelect = { i -> onDirectionChange(if (i == 0) null else (i - 1) * 45f) },
