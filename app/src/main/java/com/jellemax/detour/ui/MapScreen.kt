@@ -563,7 +563,7 @@ fun MapScreen(
     // time the sheet opened. Every slot change lands on a closed sheet.
     LaunchedEffect(bottomCard) {
         if (bottomCard != HomeBottomCard.COLLAPSED) s.searchOpen = false
-        rideSheetExpanded = false
+        s.rideSheetExpanded = false
     }
 
     /** Commits a convoy spin's leading (or explicitly chosen) candidate,
@@ -1145,8 +1145,8 @@ fun MapScreen(
             MapBottomSlot(
                 stats = stats,
                 onEndTrip = { TripTrackingService.stop(context) },
-                rideToggle = SheetToggle(rideSheetExpanded) {
-                    rideSheetExpanded = !rideSheetExpanded
+                rideToggle = SheetToggle(s.rideSheetExpanded) {
+                    s.rideSheetExpanded = !s.rideSheetExpanded
                 },
                 savedPlaces = savedPlaces,
                 destination = s.destination,

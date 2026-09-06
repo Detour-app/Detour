@@ -75,6 +75,11 @@ internal class MapScreenState(seed: SpinResult) {
 
     // --- chrome ----------------------------------------------------------
     var layersOpen: Boolean by mutableStateOf(false)
+
+    /** Whether the drive or nav sheet is open. Plain state, not saveable: the
+     *  effect on `bottomCard` closes it on every slot change, first composition
+     *  included, so a rotation would lose it either way. */
+    var rideSheetExpanded: Boolean by mutableStateOf(false)
     var searchOpen: Boolean by mutableStateOf(false)
     var savePinTarget: LatLon? by mutableStateOf(null)
     var showBgLocationDisclosure: Boolean by mutableStateOf(false)
