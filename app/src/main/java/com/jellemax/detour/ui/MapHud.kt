@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -46,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.audio.PushToTalk
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.presentation.ActiveTripCardState
 import com.jellemax.detour.presentation.SpeedHudState
 import com.jellemax.detour.presentation.activeTripCardStateFrom
 import com.jellemax.detour.tracking.TripStats
@@ -249,9 +251,22 @@ internal fun Obd2SignalLostLabel(lost: Boolean) {
 }
 
 /** Live trip numbers, minus the ones already on screen: current speed is the
- *  HUD, and a car has no lean angle worth printing. */
+ *  HUD, and a car has no lean angle worth printing.
+ *
+ *  Collapsed the card is the two numbers a rider reads mid-drive: elapsed time
+ *  and distance. Top speed, lean, max lean, max G and the hard-event counts are
+ *  trip-summary figures — worth reading at a stop, not at 80 km/h — so they wait
+ *  behind [expanded]. Which stats show is a render decision here; the mapper
+ *  computes the same strings either way.
+ *
+ *  [expanded] is the caller's so the bottom surface that holds the card can
+ *  drive it; tapping the card asks for the flip through [onToggle]. */
 @Composable
-internal fun ActiveTripCard(stats: TripStats) {
+internal fun ActiveTripCard(
+    stats: TripStats,
+    expanded: Boolean = false,
+    onToggle: () -> Unit = {},
+) {
     // Tick every second so duration counts up even without GPS updates. The
     // tick stays here — it is a UI concern — but the clock goes *into* the
     // mapper as nowMs rather than being read inside a formatter.
@@ -280,6 +295,7 @@ internal fun ActiveTripCard(stats: TripStats) {
         sep = Settings.decimalSeparatorChar(),
     )
     Card(
+        onClick = onToggle,
         modifier = Modifier.glassBorder(MaterialTheme.shapes.extraLarge),
         shape = MaterialTheme.shapes.extraLarge,
         colors = CardDefaults.cardColors(
@@ -293,18 +309,13 @@ internal fun ActiveTripCard(stats: TripStats) {
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            StatItem("Time", state.durationText)
-            StatItem("Distance", state.distanceText)
-            StatItem("Top", state.topSpeedText)
-            if (stats.mode.tracksLean) {
-                StatItem("Lean", state.leanText)
-                StatItem("Max lean", state.maxLeanText)
-            }
-            if (stats.mode.tracksGForce) {
-                StatItem("Max G", state.maxGForceText)
-            }
+            // Two columns, each half the card: the pair still fits without
+            // clipping at the largest font scale, which six columns did not.
+            StatItem("Time", state.durationText, Modifier.weight(1f))
+            StatItem("Distance", state.distanceText, Modifier.weight(1f))
         }
-        if (state.detailsShown) {
+        if (expanded) TripSummaryStats(stats, state)
+        if (expanded && state.detailsShown) {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -339,11 +350,37 @@ internal fun ActiveTripCard(stats: TripStats) {
     }
 }
 
+/** The figures the expanded card adds: what the trip peaked at, plus the lean
+ *  numbers a leaning mode records. Flows onto a second line rather than
+ *  clipping — four columns of "Max lean" do not fit across a phone once the
+ *  rider has font scaling turned up. */
 @Composable
-private fun StatItem(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun TripSummaryStats(stats: TripStats, state: ActiveTripCardState) {
+    FlowRow(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        StatItem("Top", state.topSpeedText)
+        if (stats.mode.tracksLean) {
+            StatItem("Lean", state.leanText)
+            StatItem("Max lean", state.maxLeanText)
+        }
+        if (stats.mode.tracksGForce) {
+            StatItem("Max G", state.maxGForceText)
+        }
+    }
+}
+
+@Composable
+private fun StatItem(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        // The number never wraps: a two-line "12.4 km" would push the row's
+        // own height around as the trip counts up.
+        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+            maxLines = 1)
     }
 }
