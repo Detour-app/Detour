@@ -58,7 +58,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Always on screen while a trip is running, in the corner your thumb rests in. */
+/** Ends the recording trip. Lives in the expanded driving sheet
+ *  ([DrivingSheet]) rather than floating over the map: as its own button it sat
+ *  above the trip card, above the bottom slot and above the home sheet, roughly
+ *  300 dp from the bottom edge — nowhere near the corner a thumb rests in, and
+ *  covering map either way. */
 @Composable
 internal fun EndTripButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Button(
