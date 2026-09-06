@@ -39,6 +39,7 @@ import com.jellemax.detour.nav.tripNotificationStack
 import com.jellemax.detour.data.Oidc
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.ble.BleNavServer
+import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.Auth
 import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.Settings
@@ -316,6 +317,18 @@ private fun AppRoot() {
             entry<Destination.Social> {
                 SocialScreen(
                     onBack = { backStack.pop() },
+                    // Profile has no signed-out state — it offers a rider who
+                    // never signed in a "Sign out" button — so a guest goes to
+                    // Hub, which carries the sign-in card. Auth.clear() blanks
+                    // the handle in the same write that blanks the token, which
+                    // is what makes it the thing screens read to tell the two
+                    // apart, and what the avatar's own label reads.
+                    onOpenAccount = {
+                        backStack.push(
+                            if (Account.username.value.isBlank()) Destination.Hub
+                            else Destination.Profile
+                        )
+                    },
                     onOpenFriends = { backStack.push(Destination.Friends) },
                     onOpenCircles = { backStack.push(Destination.Circles) },
                 )

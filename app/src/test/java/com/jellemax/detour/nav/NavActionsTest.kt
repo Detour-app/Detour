@@ -130,6 +130,35 @@ class NavActionsTest {
         assertEquals(listOf(Destination.Map, Destination.Hub, Destination.Badges), s)
     }
 
+    // ---- Social: a second parent for the account screens -------------------
+
+    @Test
+    fun `the account opened from social steps back to social, not to hub`() {
+        // Social's avatar used to be a second back arrow. It pushes Profile now,
+        // and Profile was reachable only from Hub before, so this is the edge
+        // the graph gained. Back has to reach the screen the rider left.
+        val s = stack(Destination.Map, Destination.Social)
+        s.push(Destination.Profile)
+        s.pop()
+        assertEquals(listOf(Destination.Map, Destination.Social), s)
+    }
+
+    @Test
+    fun `a guest opening the account from social gets a second hub entry`() {
+        // Signed out the avatar goes to Hub, which owns the sign-in card, and
+        // Hub may already be underneath. push() only guards the top, so this is
+        // a real second entry and not a swallowed double tap — back returns to
+        // Social rather than to the Hub the rider came through.
+        val s = stack(Destination.Map, Destination.Hub, Destination.Social)
+        s.push(Destination.Hub)
+        assertEquals(
+            listOf(Destination.Map, Destination.Hub, Destination.Social, Destination.Hub),
+            s,
+        )
+        s.pop()
+        assertEquals(listOf(Destination.Map, Destination.Hub, Destination.Social), s)
+    }
+
     // ---- the edge the depth inference could not express --------------------
 
     @Test
