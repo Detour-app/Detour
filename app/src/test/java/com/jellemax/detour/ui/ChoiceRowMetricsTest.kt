@@ -15,9 +15,21 @@ import org.junit.Test
  * The label widths are Roboto advances at 14sp (labelLarge), summed from the
  * font's `hmtx` table and rounded up a little for the bold weight the selected
  * segment draws in: "Food & drink" 78.1dp regular, "North-east" 65.7dp,
- * "System" 46.4dp, "Moto" 32.8dp, "Light" 31.1dp. The row widths are the real
- * ones: 304dp for the spin sheet (360dp screen − 12dp sheet inset − 16dp card
- * padding, both sides) and 328dp for a Settings section (360dp − 16dp).
+ * "System" 46.4dp, "Moto" 32.8dp, "Light" 31.1dp.
+ *
+ * The row widths are the ones that actually ship on a 360dp screen, each
+ * traced to the paddings between the row and the window:
+ *
+ *  - 304dp in the spin sheet: 360 − 12dp of slot inset (MapBottom.kt:158)
+ *    − 16dp of card padding (SpinCards.kt:99), both sides.
+ *  - 296dp in a Settings section: 360 − 16dp of scaffold padding
+ *    (SettingsScreen.kt:159) − 16dp inside the section's card
+ *    (SettingsScreen.kt:1259), both sides.
+ *
+ * The trip card's two pickers sit in an AlertDialog, whose width is the
+ * platform's rather than a padding that can be read off a parent, so no case
+ * here claims one; both are 3 items or fewer and so never scroll whatever it
+ * turns out to be.
  */
 class ChoiceRowMetricsTest {
 
@@ -36,23 +48,37 @@ class ChoiceRowMetricsTest {
     fun `four-entry theme row tightens rather than scrolls at fontScale 1`() {
         // Theme is SYSTEM, LIGHT, DARK, AUTO - four, not three, so it is over
         // MAX_NON_SCROLLING and stays unscrolled on the arithmetic alone.
-        // Widest is "System", 49.4dp; a Settings section is 328dp wide.
-        val m = choiceRowMetrics(rowWidthDp = 328f, widestLabelDp = 49.4f, count = 4)
-        assertEquals((328f - 24f) / 4f, m.itemWidthDp, eps)
+        // Widest is "System", 49.4dp, in a 68dp share of the 296dp row: it
+        // clears the tight padding by 2.6dp.
+        val m = choiceRowMetrics(rowWidthDp = 296f, widestLabelDp = 49.4f, count = 4)
+        assertEquals((296f - 24f) / 4f, m.itemWidthDp, eps)
         assertEquals(8f, m.paddingDp, eps)
         assertEquals(1f, m.fontScale, eps)
         assertFalse(m.scrolls)
     }
 
     @Test
-    fun `four-entry theme row shrinks within the floor at fontScale 1_3`() {
-        // "System" at 1.3x = 64.2dp. 76dp of share minus 16dp of padding
-        // leaves 60dp, so the label draws at 0.93 - above the 12/14 floor,
-        // and so still equal width and still not scrolling.
-        val m = choiceRowMetrics(rowWidthDp = 328f, widestLabelDp = 64.2f, count = 4)
+    fun `four-entry theme row scrolls at fontScale 1_3`() {
+        // "System" at 1.3x is 64.2dp, and 68dp of share less 16dp of padding
+        // leaves 52dp - a 0.81 label, under the 12/14 floor. Four entries are
+        // over MAX_NON_SCROLLING, so the row scrolls rather than clip, from
+        // about fontScale 1.23 up. Equal widths survive; the sideways flick is
+        // the price.
+        val m = choiceRowMetrics(rowWidthDp = 296f, widestLabelDp = 64.2f, count = 4)
+        assertTrue(m.scrolls)
+        assertEquals(64.2f + 28f, m.itemWidthDp, eps)
+        assertEquals(1f, m.fontScale, eps)
+    }
+
+    @Test
+    fun `three-entry decimal separator row keeps the wide padding at fontScale 1_3`() {
+        // The same "System" label, but three entries give it a 93.3dp share of
+        // the same 296dp row, so it never leaves the first rung.
+        val m = choiceRowMetrics(rowWidthDp = 296f, widestLabelDp = 64.2f, count = 3)
+        assertEquals((296f - 16f) / 3f, m.itemWidthDp, eps)
+        assertEquals(14f, m.paddingDp, eps)
+        assertEquals(1f, m.fontScale, eps)
         assertFalse(m.scrolls)
-        assertEquals(60f / 64.2f, m.fontScale, eps)
-        assertTrue(m.fontScale >= 12f / 14f)
     }
 
     @Test

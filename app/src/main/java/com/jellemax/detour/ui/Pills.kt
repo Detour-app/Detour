@@ -43,18 +43,23 @@ private const val SHRINK_FLOOR = 12f / 14f
  *  one). Only reachable by a two- or three-item row, which may not scroll. */
 private const val MIN_SCALE = 0.5f
 
-/** Up to this many segments the row never scrolls: Mode (2) and the decimal
- *  separator (3) are switchers small enough that being able to flick one
- *  sideways would read as breakage rather than as a control.
+/** Up to this many segments the row never scrolls: Mode (2, in the spin
+ *  sheet) and the decimal separator (3, in Settings) are switchers small
+ *  enough that being able to flick one sideways would read as breakage rather
+ *  than as a control. Both have width to spare - the decimal row's widest
+ *  label, "System" at 49dp, sits in a 93dp share and still fits with the wide
+ *  padding at fontScale 1.3.
  *
  *  Theme is four entries (SYSTEM, LIGHT, DARK, AUTO), so it is not covered by
- *  this rule - it does not need to be. Its widest label, "System", is 49dp at
- *  labelLarge against a 76dp share of a 328dp Settings section, so it lands on
- *  the tighter padding at fontScale 1 and on a 0.94 label at 1.3, both without
- *  scrolling; it would only scroll above roughly fontScale 1.4. Raising this
- *  to 4 to cover it would force the destination-type row - "Food & drink" in
- *  a 70dp share - to shrink past the floor instead, which is the clipping
- *  this component exists to prevent. */
+ *  this rule, and at 296dp - a 360dp screen less the scaffold's 16dp
+ *  (SettingsScreen.kt:159) and the section card's 16dp
+ *  (SettingsScreen.kt:1259), both sides - its 68dp share takes "System" on the
+ *  tighter padding at fontScale 1 with 2.6dp to spare, and scrolls from about
+ *  fontScale 1.23 up. Accepted rather than papered over: raising this to 4
+ *  would sweep in the destination-type row, where "Food & drink" has a 70dp
+ *  share and would have to shrink past the floor - the clipping this component
+ *  exists to prevent. A scrolling row of four equal segments is the intended
+ *  last rung; a clipped label is the bug. */
 private const val MAX_NON_SCROLLING = 3
 
 /** How [ChoiceRow] resolves one row: every segment [itemWidthDp] wide, its
