@@ -2,7 +2,6 @@ package com.jellemax.detour.tracking
 
 import android.Manifest
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -21,11 +20,6 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import com.google.android.gms.location.ActivityRecognition
-import com.google.android.gms.location.ActivityTransition
-import com.google.android.gms.location.ActivityTransitionRequest
-import com.google.android.gms.location.ActivityTransitionResult
-import com.google.android.gms.location.DetectedActivity
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationResult
@@ -148,7 +142,10 @@ class TripTrackingService : Service() {
         const val EXTRA_DEST_LON = "dest_lon"
         private const val ACTION_START_TRIP = "com.jellemax.detour.START_TRIP"
         private const val ACTION_END_TRIP = "com.jellemax.detour.END_TRIP"
-        private const val ACTION_TRANSITION = "com.jellemax.detour.ACTIVITY_TRANSITION"
+        /** Not private: [DriveTransitions] builds the same PendingIntent action
+         *  to (un)register with GMS - tuning/identifiers stay declared once, on
+         *  this companion, and are referenced from there rather than copied. */
+        internal const val ACTION_TRANSITION = "com.jellemax.detour.ACTIVITY_TRANSITION"
         private const val ACTION_REFRESH = "com.jellemax.detour.REFRESH"
         private const val ACTION_GEOFENCE_WAKE = "com.jellemax.detour.GEOFENCE_WAKE"
 
@@ -160,12 +157,12 @@ class TripTrackingService : Service() {
          *  the dog past 150 m — costs one grace window of foreground service and
          *  then parks again, rather than staying up indefinitely. */
         private const val GEOFENCE_WAKE_GRACE_MS = 90_000L
-        /** Retry delay after a failed [registerActivityTransitions] request
+        /** Retry delay after a failed [DriveTransitions.register] request
          *  (#144). Short: the failure this guards against is a transient
          *  Play Services race, not a real outage, so there is nothing gained
          *  by waiting longer - and the whole point is not stranding parking
          *  (#90) until some unrelated onStartCommand happens to arrive. */
-        private const val AR_REGISTER_RETRY_MS = 15_000L
+        internal const val AR_REGISTER_RETRY_MS = 15_000L
 
         // Auto start/stop tuning.
         private const val FAST_SPEED_MPS = 7.0          // ~25 km/h, no vehicle hint
@@ -175,10 +172,13 @@ class TripTrackingService : Service() {
         private const val MIN_FAST_RUN_METERS = 120.0
         /** Fixes looser than this never contribute to a start decision. */
         private const val MAX_START_ACCURACY_M = 25f
-        private const val PROBE_WINDOW_MS = 3 * 60_000L
+        /** Not private: [DriveTransitions] opens the IN_VEHICLE confirmation
+         *  window against this. */
+        internal const val PROBE_WINDOW_MS = 3 * 60_000L
         /** A probe opened by speed alone, with no IN_VEHICLE to back it up. Kept
-         *  short: one freak fix shouldn't buy three minutes of GPS. */
-        private const val SPEED_PROBE_WINDOW_MS = 60_000L
+         *  short: one freak fix shouldn't buy three minutes of GPS. Not private:
+         *  [DriveTransitions.startSpeedProbe] opens against this. */
+        internal const val SPEED_PROBE_WINDOW_MS = 60_000L
         private const val EXIT_GRACE_MS = 2 * 60_000L   // after IN_VEHICLE exit
         private const val STATIONARY_END_MS = 5 * 60_000L
         private const val MIN_AUTO_TRIP_METERS = 500.0
@@ -416,18 +416,8 @@ class TripTrackingService : Service() {
     private var autoStarted = false
     private var pendingStopAtMs: Long? = null
     private var lastMovingMs = 0L
-    private var transitionsRegistered = false
     private var circleSyncStarted = false
     private var obdSpeedRefreshStarted = false
-
-    /** Activity recognition says the phone is STILL, and no trip is running.
-     *  Only ever set from an AR STILL transition, so with the
-     *  ACTIVITY_RECOGNITION runtime permission denied this stays false forever
-     *  and STOP_WITH_GEOFENCE dormancy (issue #90) never engages — the service
-     *  stays always-on exactly as it did pre-#90. That degradation is deliberate. */
-    private var stationary = false
-    /** Deadline of the IN_VEHICLE confirmation window; null when not probing. */
-    private var probeUntilMs: Long? = null
 
     // Run of consecutive fast, accurate fixes that would start a trip.
     private var fastFixes = 0
@@ -470,8 +460,10 @@ class TripTrackingService : Service() {
      *  See that function for why the evaluation is posted rather than run. */
     private var dormancyEvaluationPending = false
 
-    /** Carries the coalesced dormancy evaluation, and the bounded activity-
-     *  transition registration retry (see [registerActivityTransitions]). */
+    /** Carries the coalesced dormancy evaluation. The bounded activity-
+     *  transition registration retry (#144) has its own handler now, inside
+     *  [driveTransitions] — see [DriveTransitions.cancelPendingRegister] for
+     *  why [onDestroy] still has to reach it separately. */
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var lastMunicipalityLookupMs = 0L
@@ -488,6 +480,38 @@ class TripTrackingService : Service() {
             requestDormancyEvaluation()
         }
     }
+
+    /** Activity-recognition registration, and the STILL/IN_VEHICLE state that
+     *  drives auto-start/auto-sleep - see its own KDoc for the IN_VEHICLE
+     *  probe-window coupling to the start detector. Eager, not guarded-init
+     *  like [motionSensors]/[locationRequests]: [buildNotification] reads
+     *  [DriveTransitions.stationary] from inside `onStartCommand`'s
+     *  `startForeground()` call, before that guarded-init block runs on a
+     *  cold start - the same reason [locationCallback] above is eager too. */
+    private val driveTransitions = DriveTransitions(
+        context = this,
+        tripActive = { _stats.value != null },
+        onVehicleEnter = {
+            pendingStopAtMs = null
+            // Only ever a no-op reset while a trip is running - see
+            // DriveTransitions' KDoc: fastFixes/fastRunStart are already
+            // 0/null for the life of any trip, so folding this call in
+            // unconditionally changes nothing observable.
+            resetStartDetector()
+        },
+        onVehicleExit = {
+            // Don't end immediately — could be a fuel stop. The grace period
+            // is checked against speed in onTripLocation.
+            if (_stats.value != null && autoStarted) {
+                pendingStopAtMs = System.currentTimeMillis()
+            }
+        },
+        onStill = {
+            resetStartDetector()
+            flushTrace()
+        },
+        onWalking = { resetStartDetector() },
+    )
 
     /** Set in [onDestroy] before teardown, so a dormancy evaluation coalesced
      *  behind it ([maybeGoDormant], [requestDormancyEvaluation]) can't act on
@@ -796,7 +820,7 @@ class TripTrackingService : Service() {
         }
 
         ensureLocationUpdates()
-        registerActivityTransitions()
+        driveTransitions.register()
         // No disarm here any more: applyGeofence() owns the fence and the single
         // evaluation this queues reconciles it, so an awake service takes it down
         // once instead of on every start (issue #146).
@@ -814,8 +838,7 @@ class TripTrackingService : Service() {
         autoStarted = auto
         origin = null
         awayFromOrigin = false
-        stationary = false
-        probeUntilMs = null
+        driveTransitions.reset()
         pendingStopAtMs = null
         resetStartDetector()
         lastLeanDeg = 0.0; maxLeanDeg = 0.0
@@ -983,10 +1006,10 @@ class TripTrackingService : Service() {
         if (stopping) return
         val mode = currentLocationMode(
             hasActiveTrip = _stats.value != null,
-            probing = probeUntilMs?.let { System.currentTimeMillis() < it } == true,
+            probing = driveTransitions.probing,
             uiVisible = uiVisible,
             convoyActive = convoyActive,
-            stationary = stationary,
+            stationary = driveTransitions.stationary,
         )
         if (locationRequests.ensureFor(mode)) updateNotification()
     }
@@ -1009,7 +1032,7 @@ class TripTrackingService : Service() {
             tripActive = _stats.value != null,
             convoyActive = convoyActive,  // companion field, same as currentLocationMode() reads
             uiVisible = uiVisible,
-            stationary = stationary,
+            stationary = driveTransitions.stationary,
             justWokenByGeofence = System.currentTimeMillis() < geofenceWakeGraceUntilMs,
         )
         // Resolved to what will actually be acted on *before* the geofence is
@@ -1034,9 +1057,9 @@ class TripTrackingService : Service() {
             }
             DormancyDecision.STOP_BARE -> {
                 Log.i(ParkGeofence.TAG, "parking: $resolved (auto-detect off)")
-                unregisterActivityTransitions()
+                driveTransitions.unregister()
                 // Nothing to restore if this is superseded: with auto-detect off
-                // there is no fence to bring back, and registerActivityTransitions()
+                // there is no fence to bring back, and DriveTransitions.register()
                 // stands down on that same setting, so the newer start's own call
                 // is a no-op too.
                 stopDormant()
@@ -1145,121 +1168,11 @@ class TripTrackingService : Service() {
         return true
     }
 
-    private fun activityTransitionPendingIntent(): PendingIntent =
-        PendingIntent.getForegroundService(
-            this, 1,
-            Intent(this, TripTrackingService::class.java).setAction(ACTION_TRANSITION),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
-        )
-
-    private fun registerActivityTransitions() {
-        if (transitionsRegistered) return
-        if (!Settings.autoDetectDrives.value) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            ContextCompat.checkSelfPermission(
-                this, android.Manifest.permission.ACTIVITY_RECOGNITION,
-            ) != PackageManager.PERMISSION_GRANTED
-        ) return
-
-        fun transition(activity: Int, type: Int) = ActivityTransition.Builder()
-            .setActivityType(activity)
-            .setActivityTransition(type)
-            .build()
-
-        val transitions = listOf(
-            transition(DetectedActivity.IN_VEHICLE, ActivityTransition.ACTIVITY_TRANSITION_ENTER),
-            transition(DetectedActivity.IN_VEHICLE, ActivityTransition.ACTIVITY_TRANSITION_EXIT),
-            // STILL drives the sleep mode; WALKING cancels a stray vehicle probe.
-            transition(DetectedActivity.STILL, ActivityTransition.ACTIVITY_TRANSITION_ENTER),
-            transition(DetectedActivity.STILL, ActivityTransition.ACTIVITY_TRANSITION_EXIT),
-            transition(DetectedActivity.WALKING, ActivityTransition.ACTIVITY_TRANSITION_ENTER),
-        )
-        try {
-            ActivityRecognition.getClient(this)
-                .requestActivityTransitionUpdates(
-                    ActivityTransitionRequest(transitions), activityTransitionPendingIntent())
-                .addOnSuccessListener { transitionsRegistered = true }
-                .addOnFailureListener { e ->
-                    // #144: this request can fail asynchronously - plausibly
-                    // when it lands right after unregisterActivityTransitions()
-                    // removed the same PendingIntent moments earlier, which is
-                    // exactly what an auto-detect toggle off-then-on does. With
-                    // no failure path, transitionsRegistered stayed false
-                    // forever, silently: parking (#90) never engages again
-                    // until some *other* onStartCommand happens to arrive,
-                    // which a continuously-running foreground service may not
-                    // see for a very long time. Logged so this is no longer
-                    // invisible, and retried on a short bounded delay rather
-                    // than left to chance - the retry re-checks
-                    // transitionsRegistered/autoDetectDrives/the permission at
-                    // the top of this function, so it's a no-op if any of
-                    // those changed in the meantime.
-                    Log.w(ParkGeofence.TAG, "activity transition registration failed", e)
-                    mainHandler.postDelayed(
-                        { registerActivityTransitions() }, AR_REGISTER_RETRY_MS)
-                }
-        } catch (e: SecurityException) {
-            // No activity recognition permission; speed fallback still works.
-        }
-    }
-
-    private fun unregisterActivityTransitions() {
-        // No `transitionsRegistered` guard: that flag is per-instance, but the
-        // AR registration is PendingIntent-scoped and outlives the instance
-        // (deliberately, on STOP_WITH_GEOFENCE). A fresh instance reaching
-        // STOP_BARE must still be able to tear down a registration an earlier
-        // instance left standing. removeActivityTransitionUpdates on an
-        // unregistered PendingIntent is harmless.
-        try {
-            ActivityRecognition.getClient(this)
-                .removeActivityTransitionUpdates(activityTransitionPendingIntent())
-        } catch (e: SecurityException) {
-            // Nothing to clean up.
-        }
-        transitionsRegistered = false
-    }
-
+    /** Wiring for [DriveTransitions.onTransitionIntent]: the trailing
+     *  re-evaluation is service-only (a STILL ENTER may have just parked us),
+     *  so it stays here rather than in the collaborator. */
     private fun handleTransition(intent: Intent) {
-        val result = ActivityTransitionResult.extractResult(intent) ?: return
-        for (event in result.transitionEvents) {
-            val entering = event.transitionType == ActivityTransition.ACTIVITY_TRANSITION_ENTER
-            when (event.activityType) {
-                DetectedActivity.STILL -> {
-                    if (_stats.value == null) stationary = entering
-                    if (entering) {
-                        resetStartDetector()
-                        flushTrace()
-                    }
-                }
-                DetectedActivity.IN_VEHICLE -> {
-                    if (entering) {
-                        stationary = false
-                        pendingStopAtMs = null
-                        // IN_VEHICLE on its own is not evidence of a drive — it
-                        // fires for a phone on a desk next to a fan. Open a window
-                        // in which a modest sustained speed is enough to confirm.
-                        if (_stats.value == null && Settings.autoDetectDrives.value) {
-                            probeUntilMs = System.currentTimeMillis() + PROBE_WINDOW_MS
-                            resetStartDetector()
-                        }
-                    } else {
-                        probeUntilMs = null
-                        // Don't end immediately — could be a fuel stop. The grace
-                        // period is checked against speed in onTripLocation.
-                        if (_stats.value != null && autoStarted) {
-                            pendingStopAtMs = System.currentTimeMillis()
-                        }
-                    }
-                }
-                DetectedActivity.WALKING -> {
-                    if (entering && _stats.value == null) {
-                        stationary = false
-                        probeUntilMs = null // walking never becomes a drive
-                        resetStartDetector()
-                    }
-                }
-            }
-        }
+        driveTransitions.onTransitionIntent(intent)
         ensureLocationUpdates()
         requestDormancyEvaluation()  // a STILL ENTER may have just parked us
     }
@@ -1309,7 +1222,7 @@ class TripTrackingService : Service() {
             return
         }
 
-        val probing = probeUntilMs?.let { System.currentTimeMillis() < it } == true
+        val probing = driveTransitions.probing
         if (speed < (if (probing) PROBE_SPEED_MPS else FAST_SPEED_MPS)) {
             resetStartDetector()
             return
@@ -1320,10 +1233,7 @@ class TripTrackingService : Service() {
         // for IN_VEHICLE, then confirmed against fixes that arrived every 20 s.
         // Escalating here puts us on 4 s fixes immediately — the run below is
         // then confirmed in seconds. The evidence bar for starting is unchanged.
-        if (!probing) {
-            probeUntilMs = System.currentTimeMillis() + SPEED_PROBE_WINDOW_MS
-            stationary = false
-        }
+        if (!probing) driveTransitions.startSpeedProbe()
 
         val here = LatLon(location.latitude, location.longitude)
         val runStart = fastRunStart
@@ -1719,6 +1629,7 @@ class TripTrackingService : Service() {
         // maybeGoDormant() would bail on `destroyed` anyway; dropping it keeps
         // the handler from holding this instance past its own destruction.
         mainHandler.removeCallbacksAndMessages(null)
+        driveTransitions.cancelPendingRegister()
         if (::locationRequests.isInitialized) locationRequests.stop()
         vehicleLinks.stop()
         // endTrip()'s save-and-notify tail runs on serviceScope (round-1 fix,
@@ -1759,11 +1670,11 @@ class TripTrackingService : Service() {
 
     private fun updateNotification() {
         if (stopping) return
-        notifications.update(_stats.value, stationary, ACTION_END_TRIP)
+        notifications.update(_stats.value, driveTransitions.stationary, ACTION_END_TRIP)
     }
 
     private fun buildNotification(): android.app.Notification =
-        notifications.build(_stats.value, stationary, ACTION_END_TRIP)
+        notifications.build(_stats.value, driveTransitions.stationary, ACTION_END_TRIP)
 }
 
 /** Fresh OBD2 vehicle speed in m/s from an already-taken [telemetry] snapshot,
