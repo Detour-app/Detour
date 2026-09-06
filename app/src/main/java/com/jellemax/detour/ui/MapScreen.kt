@@ -325,8 +325,6 @@ fun MapScreen(
     // speed since entering it, and the posted limit it's judged against.
     // Seeded from the retained machine, so a return mid-section shows the
     // reading it was showing rather than nothing.
-    var sectionAvgKmh by remember { mutableStateOf(retained.sectionState.reading.averageKmh) }
-    var sectionLimitKmh by remember { mutableStateOf(retained.sectionState.reading.limitKmh) }
 
     // Where the camera is heading. GPS delivers a fix about once a second; the
     // frame loop further down eases the map toward these targets every frame,
@@ -1169,11 +1167,13 @@ fun MapScreen(
                 speedMps = fix.speedMps,
                 nowMs = System.currentTimeMillis(),
             )
+            // One owner. The reading was also mirrored into two `remember`ed
+            // vars here, which is a second copy of a value that already has a
+            // home in `retained.sectionState` — and a second copy is a second
+            // thing that can be stale. The HUD reads the machine's own state
+            // directly now, so "they can no longer disagree" stops being a
+            // property the assignment order has to maintain.
             retained.sectionState = st
-            // Two states, one assignment source: they can no longer disagree
-            // across a recomposition. Collapsing them into one is stage 4's.
-            sectionAvgKmh = st.reading.averageKmh
-            sectionLimitKmh = st.reading.limitKmh
         }
     }
 
@@ -1762,8 +1762,8 @@ fun MapScreen(
                         state = speedHudStateFrom(
                             speedKmh = retained.displaySpeedKmh,
                             limitKmh = navState.speedLimitKmh,
-                            averageKmh = sectionAvgKmh,
-                            averageLimitKmh = sectionLimitKmh,
+                            averageKmh = retained.sectionState.reading.averageKmh,
+                            averageLimitKmh = retained.sectionState.reading.limitKmh,
                             // Threshold left at its default: it is
                             // SpeedLimitTracker.OVER_LIMIT_TOLERANCE_KMH, the
                             // one the car dial and the trip recorder compare
