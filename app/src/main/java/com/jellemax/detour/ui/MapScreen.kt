@@ -890,31 +890,9 @@ fun MapScreen(
         )
     }
 
-    // The speedometer, eased per frame toward the display speed. Keyed on
-    // nothing: it runs for as long as the map is composed, so the number is
-    // always gliding rather than stepping once per fix. displaySpeedMps, not
-    // liveFix.speedMps — a paired OBD2 adapter refreshes it between GPS fixes.
-    val displaySpeedMps by TripTrackingService.displaySpeedMps.collectAsStateWithLifecycle()
-    val speedTarget = rememberUpdatedState(displaySpeedMps * 3.6)
-    LaunchedEffect(Unit) {
-        var lastNs = withFrameNanos { it }
-        while (true) {
-            val ns = withFrameNanos { it }
-            // Cap only guards a post-resume gap (the frame clock pauses while
-            // backgrounded); 0.25s ~= one tau, enough that heavy frame jank
-            // during fast motion no longer starves the ease. exp() form is
-            // stable at any dt, so this is a smoothness knob, not a safety one.
-            val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.25)
-            lastNs = ns
-            val target = speedTarget.value
-            val gap = target - retained.displaySpeedKmh
-            retained.displaySpeedKmh =
-                if (abs(gap) < SPEED_EPS_KMH) target
-                else retained.displaySpeedKmh + gap * (1.0 - exp(-dt / SPEED_TAU))
-        }
-    }
+    // The speedometer ease, and the camera + position-dot loops, in MapCamera.kt.
+    MapSpeedEase(retained = retained)
 
-    // The camera ease and the position-dot loop, in MapCamera.kt.
     MapCameraLoops(
         s = s,
         retained = retained,
