@@ -37,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,6 +48,10 @@ import androidx.compose.ui.unit.dp
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.presentation.homeShortcutPlaces
+import com.jellemax.detour.presentation.isHome
+import com.jellemax.detour.presentation.isWork
+import kotlin.random.Random
 
 /**
  * How tall the sheet stands at `fontScale` 1, excluding the gesture inset it
@@ -160,12 +165,19 @@ internal fun ColumnScope.HomeSheet(
                 // bar, give way to the bar rather than the other way round.
                 modifier = Modifier.weight(1f, fill = false),
             )
+            // Rolled once per composition of the sheet, and above the branch
+            // below so that opening and closing the search bar — which takes
+            // the row off screen — does not re-roll the third chip mid-visit.
+            // Leaving the map and coming back is what re-rolls it.
+            val shortcuts = remember(savedPlaces) {
+                homeShortcutPlaces(savedPlaces, Random.nextInt())
+            }
             // Nothing below the bar survives a search: the results need the
             // room, and neither a shortcut nor a card is worth reaching for
             // with a half-typed query on screen.
             if (!searchOpen) {
                 ShortcutChipRow(
-                    places = savedPlaces,
+                    places = shortcuts,
                     canSavePin = canSavePin,
                     onPick = onPickPlace,
                     onSavePin = onSavePin,
@@ -219,8 +231,10 @@ private fun DragHandle() {
 
 /**
  * One-tap a saved place, open the spin settings, or save the pin you just
- * dropped. Scrolls horizontally when the places overflow, as the chips over the
- * map used to.
+ * dropped.
+ *
+ * [places] is what [homeShortcutPlaces] selected — Home, Work and one other,
+ * at most — not the whole store the map's chips used to render.
  *
  * The Spin chip also names [mode]. The dock that used to show it went with the
  * mode switch into `SpinSheet`, leaving the idle map with nothing that said
@@ -240,23 +254,39 @@ private fun ShortcutChipRow(
     onSpinSettings: () -> Unit,
 ) {
     Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(top = 12.dp)
-            .horizontalScroll(rememberScrollState()),
+        Modifier.fillMaxWidth().padding(top = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        places.forEach { p ->
-            AssistChip(
-                onClick = { onPick(p) },
-                label = { Text(p.name, maxLines = 1) },
-                leadingIcon = {
-                    Icon(p.glyph, contentDescription = null, Modifier.size(18.dp))
-                },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                ),
-            )
+        // The places give way rather than push: they scroll inside whatever
+        // the two chips after them leave, so Spin and Save pin are on screen
+        // at 360 dp however long a saved name is. Capping the row at three
+        // places is not enough on its own — three place chips plus those two
+        // add up to roughly 450 dp of content in the 328 dp a 360 dp screen
+        // leaves, so this is the common case, not the overflow one. Weighted
+        // `fill = false` so the region still shrinks to its content when one
+        // short name is all there is; at the largest font scales the two fixed
+        // chips fill the row on their own and the places get no width, which is
+        // the right thing to lose first.
+        if (places.isNotEmpty()) {
+            Row(
+                Modifier
+                    .weight(1f, fill = false)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                places.forEach { p ->
+                    AssistChip(
+                        onClick = { onPick(p) },
+                        label = { Text(p.name, maxLines = 1) },
+                        leadingIcon = {
+                            Icon(p.glyph, contentDescription = null, Modifier.size(18.dp))
+                        },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        ),
+                    )
+                }
+            }
         }
         // The dice moved into the spin sheet with the dock, so this is now the
         // only way to reach it — and, with it, the only way to roll a spin.
@@ -290,14 +320,14 @@ private fun ShortcutChipRow(
     }
 }
 
-/** Which glyph a saved place gets. Matched on the name, because [SavedPlace]
- *  carries no icon or type and a field added purely to pick a glyph would be a
- *  schema change for a decoration. Anything unrecognised keeps the pin the
- *  chips over the map always drew. */
+/** Which glyph a saved place gets. Matched on the name by [isHome] and
+ *  [isWork] — the same two predicates that decide which places lead the row, so
+ *  the chip that ranks as Home cannot end up drawing a plain pin. Anything
+ *  unrecognised keeps the pin the chips over the map always drew. */
 private val SavedPlace.glyph: ImageVector
     get() = when {
-        name.equals("home", ignoreCase = true) -> Icons.Outlined.Home
-        name.equals("work", ignoreCase = true) -> Icons.Outlined.Work
+        isHome -> Icons.Outlined.Home
+        isWork -> Icons.Outlined.Work
         else -> Icons.Outlined.Place
     }
 
