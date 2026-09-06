@@ -334,7 +334,20 @@ fun MapScreen(
     // where no lambda here can see it — auto-detection, Android Auto, the
     // notification. Keyed on the derived boolean, not on `stats`, so this
     // fires on the edge rather than on every accumulated metre.
-    LaunchedEffect(stats != null) { if (stats != null) settingsCollapsed = true }
+    //
+    // Not while there is somewhere to go, though. This runs *after* the
+    // effect above, so on a trip start — and on a restore, where both run —
+    // it would win, close the spin sheet and take the Go button (SpinCards'
+    // NavButton, which no other occupant carries) with it. Auto-detect is on
+    // by default, so that is the ordinary case, not a corner: pick a
+    // destination, start riding, lose the way to start navigating to it. The
+    // sheet's own collapse control is still one tap from the driving sheet
+    // when the rider is done with it. `destination` is read live rather than
+    // keyed on, so setting one mid-trip does not re-run this and re-collapse
+    // the sheet it just opened.
+    LaunchedEffect(stats != null) {
+        if (stats != null && destination == null) settingsCollapsed = true
+    }
     // The prefetched way set, the fetch throttle, the miss counter and the
     // snapped value: SpeedLimitTracker's, in shared/…/drive/, where the policy
     // lives with its tests. retained.ambientSpeedLimitKmh stays its own state because the
