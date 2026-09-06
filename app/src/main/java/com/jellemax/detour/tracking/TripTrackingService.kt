@@ -1980,6 +1980,7 @@ class TripTrackingService : Service() {
                 fix.lat, fix.lon, fix.accuracyMeters.toDouble(), fix.timeMs, fixAgeMs,
                 System.currentTimeMillis(),
             )
+            PlaceGeofenceGate.sync(this@TripTrackingService, CirclePresence.lastGateCandidates)
         }
     }
 

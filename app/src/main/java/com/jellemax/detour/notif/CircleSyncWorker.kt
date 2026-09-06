@@ -13,6 +13,7 @@ import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CirclePresence
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
+import com.jellemax.detour.tracking.PlaceGeofenceGate
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
@@ -57,6 +58,7 @@ class CircleSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker
                 loc.latitude, loc.longitude, loc.accuracy.toDouble(),
                 loc.time, ageMs, System.currentTimeMillis(),
             )
+            PlaceGeofenceGate.sync(applicationContext, CirclePresence.lastGateCandidates)
             Result.success()
         } catch (e: CancellationException) {
             throw e   // a stopped worker is not a failure — don't convert to retry

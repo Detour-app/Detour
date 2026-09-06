@@ -19,6 +19,11 @@ import com.jellemax.detour.notif.CircleSyncWorker
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        // The OS drops every registered geofence on reboot without telling
+        // the app (issue #91) — forget what PlaceGeofenceGate thinks is
+        // registered so the next tick's sync rebuilds from scratch instead
+        // of a stale "already registered" record blocking re-add.
+        PlaceGeofenceGate.forgetAllRegistered()
         try {
             TripTrackingService.startMonitoring(context)
         } catch (e: Exception) {
