@@ -754,19 +754,12 @@ private fun FogSection(context: Context) {
     }
 
     if (confirmReset) {
-        AlertDialog(
-            onDismissRequest = { confirmReset = false },
-            title = { Text("Reset explored area?") },
-            text = { Text("All fog-of-war progress will be permanently deleted. Saved trips are kept.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    TraceStore.clear()
-                    confirmReset = false
-                }) { Text("Reset", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmReset = false }) { Text("Cancel") }
-            },
+        ConfirmDialog(
+            title = "Reset explored area?",
+            text = "All fog-of-war progress will be permanently deleted. Saved trips are kept.",
+            confirmLabel = "Reset",
+            onConfirm = { TraceStore.clear() },
+            onDismiss = { confirmReset = false },
         )
     }
 }
@@ -845,10 +838,19 @@ private fun ConfigFileSection() {
             "Export failed: ${e.message}"
         }
     }
+    // The picked file is held rather than applied: importing overwrites the
+    // server URL and the sign-in token with no preview and no undo, so the
+    // confirmation goes here, after the file is known, not in front of the
+    // picker where it would only be asking about opening one.
+    var pendingImport by remember { mutableStateOf<Uri?>(null) }
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
+        pendingImport = uri
+    }
+
+    fun runImport(uri: Uri) {
         status = try {
             ConfigFile.import(context, uri)
             "Config imported — restart the app to use the new servers"
@@ -882,6 +884,17 @@ private fun ConfigFileSection() {
             }) { Text("Import config") }
         }
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    }
+
+    pendingImport?.let { uri ->
+        ConfirmDialog(
+            title = "Import this config?",
+            text = "It replaces the server addresses and the sign-in token on this " +
+                "device with the file's. What is there now is not recoverable.",
+            confirmLabel = "Import",
+            onConfirm = { runImport(uri) },
+            onDismiss = { pendingImport = null },
+        )
     }
 }
 
@@ -1052,6 +1065,8 @@ private fun VehicleSection() {
 
     // Which mode's "add device" picker is open, if any.
     var addTarget by remember { mutableStateOf<TravelMode?>(null) }
+    // Which device's removal is waiting to be confirmed, by address.
+    var removing by remember { mutableStateOf<String?>(null) }
 
     SettingsSection("Vehicles") {
         Text(
@@ -1105,15 +1120,25 @@ private fun VehicleSection() {
                         Text(display, style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f))
                         IconButton(
-                            onClick = {
-                                Settings.removeVehicleDevice(d.address)
-                                TripTrackingService.refresh(context)
-                            },
+                            onClick = { removing = d.address },
                             modifier = Modifier.size(28.dp),
                         ) {
                             Icon(Icons.Outlined.Close, contentDescription = "Remove ${d.name}",
                                 Modifier.size(18.dp))
                         }
+                    }
+                    if (removing == d.address) {
+                        ConfirmDialog(
+                            title = "Remove $display?",
+                            text = "Trips stop logging as ${mode.label} when this device " +
+                                "connects. You can add it back from the paired list.",
+                            confirmLabel = "Remove",
+                            onConfirm = {
+                                Settings.removeVehicleDevice(d.address)
+                                TripTrackingService.refresh(context)
+                            },
+                            onDismiss = { removing = null },
+                        )
                     }
                 }
             }
@@ -1405,13 +1430,35 @@ private fun ServerSection() {
                 saved = true
             }) { Text(if (saved) "Saved ✓" else "Save server") }
             if (custom != null) {
-                TextButton(onClick = {
-                    RoutingServer.clearCustom()
-                    url = ""; apiUrl = ""; routingUrl = ""; geocoderUrl = ""
-                    idpIssuer = ""
-                    saved = true
-                }) { Text("Remove custom server") }
+                RemoveCustomServerButton(
+                    builtInAvailable = builtInAvailable,
+                    onRemove = {
+                        RoutingServer.clearCustom()
+                        url = ""; apiUrl = ""; routingUrl = ""; geocoderUrl = ""
+                        idpIssuer = ""
+                        saved = true
+                    },
+                )
             }
         }
+    }
+}
+
+/** Clearing all five addresses in one tap, so it asks first. Its own
+ *  composable because the confirmation is state nothing else on the Server
+ *  card reads. */
+@Composable
+private fun RemoveCustomServerButton(builtInAvailable: Boolean, onRemove: () -> Unit) {
+    var confirming by remember { mutableStateOf(false) }
+    TextButton(onClick = { confirming = true }) { Text("Remove custom server") }
+    if (confirming) {
+        ConfirmDialog(
+            title = "Remove the custom server?",
+            text = "All five addresses are cleared and the app falls back to " +
+                if (builtInAvailable) "the built-in server." else "the public servers.",
+            confirmLabel = "Remove",
+            onConfirm = onRemove,
+            onDismiss = { confirming = false },
+        )
     }
 }

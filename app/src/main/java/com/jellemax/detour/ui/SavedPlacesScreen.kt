@@ -79,6 +79,7 @@ fun SavedPlacesScreen(onBack: () -> Unit) {
 
     var addOpen by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<PlaceRow?>(null) }
+    var deleting by remember { mutableStateOf<PlaceRow?>(null) }
     var menuOpenFor by remember { mutableStateOf<Long?>(null) }
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -105,25 +106,7 @@ fun SavedPlacesScreen(onBack: () -> Unit) {
                 CircularProgressIndicator()
             }
         } else if (rows.isEmpty()) {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(
-                    Icons.Rounded.Place, contentDescription = null,
-                    Modifier.size(48.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text("No saved places yet", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Add Home, Work, or anywhere you stop often.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            NoPlacesYet(Modifier.fillMaxSize().padding(padding))
         } else {
             Column(
                 Modifier
@@ -140,7 +123,7 @@ fun SavedPlacesScreen(onBack: () -> Unit) {
                             onOpenMenu = { menuOpenFor = row.id },
                             onDismissMenu = { menuOpenFor = null },
                             onRename = { menuOpenFor = null; editing = row },
-                            onDelete = { menuOpenFor = null; SavedPlaces.remove(row.id) },
+                            onDelete = { menuOpenFor = null; deleting = row },
                         )
                         if (index < rows.lastIndex) {
                             CardDivider()
@@ -165,6 +148,37 @@ fun SavedPlacesScreen(onBack: () -> Unit) {
             initial = row.name,
             onSave = { SavedPlaces.rename(row.id, it); editing = null },
             onDismiss = { editing = null },
+        )
+    }
+    deleting?.let { row ->
+        ConfirmDialog(
+            title = "Delete this place?",
+            text = "\"${row.name}\" will be removed from this device. This can't be undone.",
+            confirmLabel = "Delete",
+            onConfirm = { SavedPlaces.remove(row.id) },
+            onDismiss = { deleting = null },
+        )
+    }
+}
+
+/** Shown once the first load has landed and there is genuinely nothing to list. */
+@Composable
+private fun NoPlacesYet(modifier: Modifier = Modifier) {
+    Column(
+        modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            Icons.Rounded.Place, contentDescription = null,
+            Modifier.size(48.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text("No saved places yet", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Add Home, Work, or anywhere you stop often.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

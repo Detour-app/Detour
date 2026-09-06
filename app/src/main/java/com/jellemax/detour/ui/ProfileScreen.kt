@@ -62,6 +62,7 @@ fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
     val username by Account.username.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var signingOut by remember { mutableStateOf(false) }
+    var confirmSignOut by remember { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -107,14 +108,7 @@ fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
 
             OutlinedButton(
                 enabled = !signingOut,
-                onClick = {
-                    // A signed-out session must not keep broadcasting: leaves the
-                    // live socket with no valid identity behind it otherwise. Same
-                    // order and reasoning as FriendsScreen's own sign-out.
-                    ConvoyLiveService.stop(context)
-                    signingOut = true
-                    scope.launch { runCatching { Account.signOut() }; onSignedOut() }
-                },
+                onClick = { confirmSignOut = true },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(44.dp),
@@ -133,5 +127,23 @@ fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
                 )
             }
         }
+    }
+
+    if (confirmSignOut) {
+        ConfirmDialog(
+            title = "Sign out?",
+            text = "Signing back in takes a trip through your browser. Trips, explored " +
+                "area and badges stay on this device.",
+            confirmLabel = "Sign out",
+            onConfirm = {
+                // A signed-out session must not keep broadcasting: leaves the
+                // live socket with no valid identity behind it otherwise. Same
+                // order and reasoning as FriendsScreen's own sign-out.
+                ConvoyLiveService.stop(context)
+                signingOut = true
+                scope.launch { runCatching { Account.signOut() }; onSignedOut() }
+            },
+            onDismiss = { confirmSignOut = false },
+        )
     }
 }

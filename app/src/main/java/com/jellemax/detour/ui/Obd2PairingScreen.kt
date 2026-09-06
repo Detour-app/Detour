@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.Button
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -107,6 +106,10 @@ fun Obd2PairingScreen() {
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> hasPerm = granted }
+
+    // Which vehicle's adapter is waiting on a confirmed "Forget", by the
+    // vehicle's own device address.
+    var forgetting by remember { mutableStateOf<String?>(null) }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
@@ -230,14 +233,27 @@ fun Obd2PairingScreen() {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text("Adapter: $pairedName", style = MaterialTheme.typography.bodyMedium)
-                        Button(onClick = {
-                            Settings.setObd2Address(vehicle.address, null)
-                            // Otherwise a connection to a now-unpaired device lingers
-                            // until the next ACL event or service restart.
-                            Obd2Connection.disconnect()
-                        }) {
+                        // Outlined, not filled: unpairing was the loudest button on
+                        // this screen while every constructive action beside it was
+                        // outlined.
+                        OutlinedButton(onClick = { forgetting = vehicle.address }) {
                             Text("Forget")
                         }
+                    }
+                    if (forgetting == vehicle.address) {
+                        ConfirmDialog(
+                            title = "Forget $pairedName?",
+                            text = "${vehicle.name} goes back to GPS speed until the adapter " +
+                                "is paired again from this screen.",
+                            confirmLabel = "Forget",
+                            onConfirm = {
+                                Settings.setObd2Address(vehicle.address, null)
+                                // Otherwise a connection to a now-unpaired device lingers
+                                // until the next ACL event or service restart.
+                                Obd2Connection.disconnect()
+                            },
+                            onDismiss = { forgetting = null },
+                        )
                     }
                     // Fuel type + calibration only matter for the MAF estimate,
                     // and only once an adapter is paired.

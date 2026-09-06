@@ -72,6 +72,7 @@ import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.net.ConvoyLiveClient
+import com.jellemax.detour.presentation.FriendRequestRow
 import com.jellemax.detour.presentation.FriendsPresenter
 import com.jellemax.detour.presentation.LeaderboardRow
 import com.jellemax.detour.presentation.friendsBoardStateFrom
@@ -285,6 +286,10 @@ private fun FriendsSection(username: String) {
         friendsBoardStateFrom(storeState.leaderboard, storeState.own, loaded)
     }
 
+    // Declining deletes the request outright — the server keeps no trace of a
+    // declined one — so it asks before it does.
+    var declining by remember { mutableStateOf<FriendRequestRow?>(null) }
+
     // Requests first — answering them is the one thing here that's actually
     // time-sensitive; the leaderboard just sits and waits to be looked at.
     if (board.incoming.isNotEmpty()) {
@@ -297,10 +302,20 @@ private fun FriendsSection(username: String) {
                     name = rider.username,
                     busy = storeState.busy,
                     onAccept = { scope.launch { FriendsStore.respond(rider.id, true) } },
-                    onDecline = { scope.launch { FriendsStore.respond(rider.id, false) } },
+                    onDecline = { declining = rider },
                 )
             }
         }
+    }
+    declining?.let { rider ->
+        ConfirmDialog(
+            title = "Decline ${rider.username}?",
+            text = "The request disappears from both sides. Becoming friends later means " +
+                "one of you asking again.",
+            confirmLabel = "Decline",
+            onConfirm = { scope.launch { FriendsStore.respond(rider.id, false) } },
+            onDismiss = { declining = null },
+        )
     }
 
     board.waitingOnLabel?.let {
@@ -343,11 +358,15 @@ private fun RequestRow(name: String, busy: Boolean, onAccept: () -> Unit, onDecl
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(name, style = MaterialTheme.typography.bodyLarge)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // No .size() on either button: a caller-supplied size sits outside
+        // IconButton's own minimumInteractiveComponentSize() and pins it to
+        // fixed constraints, so the 48dp touch target it reserves is coerced
+        // straight back away. Left at the default, accept and decline get the
+        // full target, and the gap keeps a mis-aimed thumb out of the wrong one.
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             IconButton(
                 enabled = !busy,
                 onClick = onAccept,
-                modifier = Modifier.size(30.dp),
                 colors = IconButtonDefaults.iconButtonColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -356,7 +375,6 @@ private fun RequestRow(name: String, busy: Boolean, onAccept: () -> Unit, onDecl
             IconButton(
                 enabled = !busy,
                 onClick = onDecline,
-                modifier = Modifier.size(30.dp),
             ) { Icon(Icons.Rounded.DeclineIcon, contentDescription = "Decline $name", Modifier.size(16.dp)) }
         }
     }
@@ -652,17 +670,17 @@ private fun ConvoyRow(
             ) {
                 Text(convoy.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
                 if (convoy.status == "invited") {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Sized like RequestRow's pair above, for the same reason.
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         IconButton(
                             enabled = !busy,
                             onClick = onAccept,
-                            modifier = Modifier.size(30.dp),
                             colors = IconButtonDefaults.iconButtonColors(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                             ),
                         ) { Icon(Icons.Outlined.Check, contentDescription = "Accept ${convoy.name}", Modifier.size(16.dp)) }
-                        IconButton(enabled = !busy, onClick = onDecline, modifier = Modifier.size(30.dp)) {
+                        IconButton(enabled = !busy, onClick = onDecline) {
                             Icon(Icons.Outlined.Close, contentDescription = "Decline ${convoy.name}", Modifier.size(16.dp))
                         }
                     }
