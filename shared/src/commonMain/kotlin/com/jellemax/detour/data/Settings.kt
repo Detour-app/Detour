@@ -576,6 +576,15 @@ object Settings {
         prefs.put("place_event_last_seen_$circleId", tsMs)
     }
 
+    /** Which OS place-geofence ids (`PlaceGeofenceGate`'s
+     *  `"$circleId:$placeId:enter"`/`":exit"` encoding) Android currently
+     *  believes are registered with `GeofencingClient` — issue #91. */
+    fun registeredPlaceFenceIds(): Set<String> = decodePlaceFenceIds(prefs.string("place_fence_ids", ""))
+
+    fun setRegisteredPlaceFenceIds(ids: Set<String>) {
+        prefs.put("place_fence_ids", encodePlaceFenceIds(ids))
+    }
+
     /** The push registration token last handed to the server (an FCM token on
      *  Android), so sign-out can `DELETE /api/devices` for it and a re-register
      *  can skip when nothing changed. Empty when never registered. */
@@ -625,3 +634,13 @@ object Settings {
         prefs.put("notify_arrivals_$circleId", on)
     }
 }
+
+/** Comma-joined rather than JSON: every id [placeFenceId] produces is already
+ *  colon-delimited and circle ids are server UUIDs, so a comma can't appear
+ *  in one. Extracted from [Settings.setRegisteredPlaceFenceIds] so it's
+ *  testable without a real [Prefs] backend — see [SettingsPlaceFenceIdsTest]. */
+internal fun encodePlaceFenceIds(ids: Set<String>): String = ids.joinToString(",")
+
+/** The inverse of [encodePlaceFenceIds]. `""` (prefs.string's default for an
+ *  unset key) decodes to an empty set, not a set containing `""`. */
+internal fun decodePlaceFenceIds(raw: String): Set<String> = raw.split(",").filter { it.isNotBlank() }.toSet()
