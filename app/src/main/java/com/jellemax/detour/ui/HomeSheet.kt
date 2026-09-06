@@ -27,7 +27,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Diversity3
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Route
 import androidx.compose.material.icons.outlined.Work
 import androidx.compose.material3.AssistChip
@@ -244,7 +243,7 @@ private fun DragHandle() {
  * is about to roll a car route or a moto one — mode decides the radius default,
  * round-trip planning, the routing profile and whether lean and g-force get
  * recorded. The word was preferred to [TravelMode.icon] while it "cost
- * nothing"; with five chips to fit in 328 dp it costs 36 of them, which is the
+ * nothing"; with five chips to fit in 328 dp it costs 34 of them, which is the
  * premise that changed. The glyph keeps the mode on the idle sheet, the
  * segmented control it opens spells it out and announces it
  * (`SpinCards.kt`), and the dice it replaces was saying what the word `Spin`
@@ -266,12 +265,13 @@ private fun ShortcutChipRow(
         // The places give way rather than push: they scroll inside whatever
         // the two chips after them leave, so Spin and Save pin are on screen
         // however long a saved name is. Capping the row at three places was
-        // not enough on its own — five chips only add up to less than the row
-        // once Home and Work drop their labels, Spin drops the mode word and
-        // Save pin drops to its `+`. [PLACE_CHIP_MAX_WIDTH] carries that
-        // arithmetic. The scroll stays as the overflow insurance for a long
-        // name and for the largest font scales, where the two fixed chips take
-        // the row and the places are the right thing to lose first.
+        // not enough on its own — an M3 chip spends 50 dp on chrome before a
+        // character of label, so five of them only fit once Home and Work drop
+        // their labels, the third place drops its glyph, Spin drops the mode
+        // word and Save pin drops to its `+`. [PLACE_CHIP_MAX_WIDTH] carries
+        // that arithmetic. The scroll stays as the overflow insurance for a
+        // long name and for the largest font scales, where the two fixed chips
+        // take the row and the places are the right thing to lose first.
         if (places.isNotEmpty()) {
             Row(
                 Modifier
@@ -303,7 +303,10 @@ private fun ShortcutChipRow(
         // The `+` alone. The words cost 54 dp the row does not have, and a
         // plus beside the place chips is the prototype's own affordance for
         // adding one; the name it lost is the icon's description, so a screen
-        // reader still reads "Save pin".
+        // reader still reads "Save pin". In the label slot rather than as a
+        // leading icon, so it takes `labelColor` like the Home and Work glyphs
+        // — a leading icon would default to `primary` (AssistChipTokens
+        // .IconColor) and make this the second accent chip in the row.
         AssistChip(
             onClick = onSavePin,
             enabled = canSavePin,
@@ -322,65 +325,70 @@ private fun ShortcutChipRow(
  *
  * The row has to hold five chips inside the 328 dp a 360 dp screen leaves at
  * `fontScale` 1 (360 − 2 × 16 dp of sheet padding), and an `AssistChip` spends
- * 42 dp on its leading icon and paddings before a single character of label:
+ * **50 dp** on chrome before a character of label. That is two paddings, not
+ * one: the chip pads itself 8 dp each side (`AssistChipPadding`, material3
+ * 1.4.0 `Chip.kt:2958,2955`, applied at `:2059`) *and* the label slot pads
+ * itself another 8 dp each side (`:2076`), with the measured width being the
+ * plain sum of leading icon, padded label and trailing icon (`:2281`). So an
+ * 18 dp glyph costs 16 + 18 + 16 whether it sits in the leading slot or is the
+ * whole label, and a text-only chip still costs 16 + 16.
  *
  * ```
- *  34  Home             glyph, no label
- *  34  Work             glyph, no label
- * 112  the third place  42 + up to 70 dp of name — this constant
- *  70  Spin             42 + "Spin"
- *  34  Save pin         the `+` alone
+ *  50  Home             glyph, no label
+ *  50  Work             glyph, no label
+ *  60  the third place  32 + up to 28 dp of name — this constant
+ *  80  Spin             50 + "Spin"
+ *  50  Save pin         the `+` alone
  *  32  four 8 dp gaps
  * ---
- * 316, inside 328 with the longest name this allows; 272 for a short one.
+ * 322, inside 328 at the longest name this allows.
  * ```
  *
- * The row it used to draw — three named place chips with glyphs, `Spin · Car`
- * and `Save pin` — came to about 455 dp, so Spin and Save pin started off the
- * right edge on that screen.
+ * The 42/34 dp this KDoc claimed before counted the chip's padding once and
+ * missed the label slot's own, which is why the row it described as 316 dp
+ * really drew about 372 and clipped the third chip's tail. The row before that
+ * — three named place chips with glyphs, `Spin · Car` and `Save pin` — was
+ * about 490 dp, so Spin and Save pin started off the right edge entirely.
+ *
+ * 28 dp of name is four or five characters, which is the honest ceiling for
+ * five chips on a 360 dp screen; anything longer ellipsizes and the region
+ * scrolls.
  */
-private val PLACE_CHIP_MAX_WIDTH = 112.dp
+private val PLACE_CHIP_MAX_WIDTH = 60.dp
 
 /** A saved place's chip. Home and Work are the glyph alone: the house and the
  *  briefcase say exactly what those two words say, and the row cannot afford
  *  to say it twice — their name goes to the screen reader as the icon's
- *  description instead. Every other place keeps its name, capped and
- *  ellipsized, because for those the name is the only thing that identifies
- *  the place. */
+ *  description instead. Matched by [isHome]/[isWork], the same predicates that
+ *  put them at the head of the row.
+ *
+ *  Every other place is its name alone, capped and ellipsized: the name is the
+ *  only thing that identifies it, and the pin glyph that used to lead it said
+ *  nothing while costing 18 dp of that name (see [PLACE_CHIP_MAX_WIDTH]).
+ *  Dropping it also settles the tint — every glyph in the row now renders at
+ *  `labelColor`, leaving `primary` to the one chip that means it. */
 @Composable
 private fun PlaceChip(place: SavedPlace, onPick: (SavedPlace) -> Unit) {
-    val glyphOnly = place.isHome || place.isWork
+    val glyph = when {
+        place.isHome -> Icons.Outlined.Home
+        place.isWork -> Icons.Outlined.Work
+        else -> null
+    }
     AssistChip(
         onClick = { onPick(place) },
         modifier = Modifier.widthIn(max = PLACE_CHIP_MAX_WIDTH),
         label = {
-            if (glyphOnly) {
-                Icon(place.glyph, contentDescription = place.name, Modifier.size(18.dp))
+            if (glyph != null) {
+                Icon(glyph, contentDescription = place.name, Modifier.size(18.dp))
             } else {
                 Text(place.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-        },
-        leadingIcon = if (glyphOnly) {
-            null
-        } else {
-            { Icon(place.glyph, contentDescription = null, Modifier.size(18.dp)) }
         },
         colors = AssistChipDefaults.assistChipColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
         ),
     )
 }
-
-/** Which glyph a saved place gets. Matched on the name by [isHome] and
- *  [isWork] — the same two predicates that decide which places lead the row, so
- *  the chip that ranks as Home cannot end up drawing a plain pin. Anything
- *  unrecognised keeps the pin the chips over the map always drew. */
-private val SavedPlace.glyph: ImageVector
-    get() = when {
-        isHome -> Icons.Outlined.Home
-        isWork -> Icons.Outlined.Work
-        else -> Icons.Outlined.Place
-    }
 
 /** One of the two cards along the bottom of the sheet. Convoys is deliberately
  *  absent: there is no convoy destination to open, and the prototype's badge
