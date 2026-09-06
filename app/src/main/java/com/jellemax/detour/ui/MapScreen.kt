@@ -104,9 +104,12 @@ import com.jellemax.detour.map.CameraAuthority
 import com.jellemax.detour.map.FollowCamera
 import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.map.ModeSwipePolicy
+import com.jellemax.detour.map.NavStart
 import com.jellemax.detour.map.SpinOutcome
 import com.jellemax.detour.map.SpinParams
 import com.jellemax.detour.map.modeSwitch
+import com.jellemax.detour.map.fetchNavRoute
+import com.jellemax.detour.map.navStart
 import com.jellemax.detour.map.runSpin
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.bearingDelta
@@ -867,28 +870,23 @@ fun MapScreen(
         // that silence after pressing Start is indistinguishable from a broken
         // voice.
         announcer.routeChanged()
-        val dest = destination
-        if (dest == null) {
-            // Round trip: the spin already fetched the loop with instructions.
-            if (route?.instructions?.isNotEmpty() == true) {
-                navigating = true
-            } else {
+        // Which of the three cases this is lives in map/NavStart, with tests.
+        when (val start = navStart(destination, route)) {
+            NavStart.UseExistingRoute -> navigating = true
+            NavStart.NoTurnData ->
                 error = "No turn data for this loop — spin again with the routing server reachable"
-            }
-            return
-        }
-        rerouting = true
-        scope.launch {
-            try {
-                route = withContext(Dispatchers.IO) {
-                    RoutingClient.route(serverConfig, loc, dest, mode.ghProfile,
-                        Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
+            is NavStart.FetchTo -> {
+                rerouting = true
+                scope.launch {
+                    try {
+                        route = fetchNavRoute(serverConfig, loc, start.destination, mode)
+                        navigating = true
+                    } catch (e: Exception) {
+                        error = "Navigation failed: ${e.message}"
+                    } finally {
+                        rerouting = false
+                    }
                 }
-                navigating = true
-            } catch (e: Exception) {
-                error = "Navigation failed: ${e.message}"
-            } finally {
-                rerouting = false
             }
         }
     }
@@ -1579,10 +1577,7 @@ fun MapScreen(
                 announceAloud(announcer.rerouting())
                 scope.launch {
                     try {
-                        route = withContext(Dispatchers.IO) {
-                            RoutingClient.route(serverConfig, pos, target, mode.ghProfile,
-                                Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
-                        }
+                        route = fetchNavRoute(serverConfig, pos, target, mode)
                         // Instruction indices belong to the old polyline; start
                         // the new line's prompts from scratch.
                         announcer.routeChanged()
