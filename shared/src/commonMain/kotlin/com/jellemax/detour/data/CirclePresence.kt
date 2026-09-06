@@ -207,9 +207,9 @@ object CirclePresence {
                 // must not stop the others from posting this tick.
             }
         }
-        // Only on a successful circles fetch — same "an outage proves
-        // nothing" rule as currentIntervalMs and evaluators above.
-        if (circles != null) lastGateCandidates = nearbyPlaces(lat, lon, placesByCircle)
+        if (shouldUpdateGateCandidates(circles != null, placesByCircle, plan.sharing)) {
+            lastGateCandidates = nearbyPlaces(lat, lon, placesByCircle)
+        }
         return currentIntervalMs
     }
 
@@ -295,6 +295,24 @@ object CirclePresence {
         if (sessionChanged(lastSeenEpoch, current)) evaluators = emptyMap()
         lastSeenEpoch = current
     }
+
+    /**
+     * Whether this pass learned enough about the world to overwrite
+     * [lastGateCandidates] — the same "an outage proves nothing" rule
+     * [planTick] applies to the interval, extended past the fetch itself.
+     *
+     * A fetch can succeed and still yield no places for circles we *are*
+     * sharing into: every fix untrusted (a parked phone — exactly when the
+     * fences matter most) or every per-circle call failing. Writing an empty
+     * list then deregisters the fences of a rider who hasn't moved. Genuinely
+     * sharing with nobody ([sharing] empty) is the honest empty answer and
+     * does write through.
+     */
+    internal fun shouldUpdateGateCandidates(
+        circlesFetched: Boolean,
+        placesByCircle: List<Pair<String, List<CirclePlace>>>,
+        sharing: List<Group>,
+    ): Boolean = circlesFetched && (placesByCircle.isNotEmpty() || sharing.isEmpty())
 
     /** One place close enough to this fix that Android should register an
      *  OS geofence for it (issue #91) — [distanceM] is carried along so

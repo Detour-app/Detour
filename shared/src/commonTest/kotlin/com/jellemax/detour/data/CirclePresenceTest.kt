@@ -334,4 +334,32 @@ class CirclePresenceTest {
         assertEquals(CirclePresence.MAX_GATE_CANDIDATES, result.size)
         assertEquals(1L, result.first().placeId) // nearest kept, not an arbitrary cutoff
     }
+
+    // --- shouldUpdateGateCandidates: when an empty result is a real answer -
+
+    private val sharingOne = listOf(circle("c1", member("me", sharing = true)))
+    private val onePlace = listOf("c1" to listOf(place(id = 1, lat = 0.0, lon = 0.0)))
+
+    @Test
+    fun aFailedCircleListNeverOverwritesTheGateCandidates() {
+        assertFalse(CirclePresence.shouldUpdateGateCandidates(false, onePlace, sharingOne))
+        assertFalse(CirclePresence.shouldUpdateGateCandidates(false, emptyList(), sharingOne))
+    }
+
+    @Test
+    fun sharingCirclesThatYieldedNoPlacesAreTreatedLikeAnOutage() {
+        // Every fix untrusted, or every per-circle call threw: not evidence
+        // the rider walked away from the place they're parked at.
+        assertFalse(CirclePresence.shouldUpdateGateCandidates(true, emptyList(), sharingOne))
+    }
+
+    @Test
+    fun sharingWithNobodyIsAnHonestEmptyAnswer() {
+        assertTrue(CirclePresence.shouldUpdateGateCandidates(true, emptyList(), emptyList()))
+    }
+
+    @Test
+    fun aSuccessfulPassWithPlacesWritesThrough() {
+        assertTrue(CirclePresence.shouldUpdateGateCandidates(true, onePlace, sharingOne))
+    }
 }
