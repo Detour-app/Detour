@@ -203,6 +203,35 @@ private fun AppRoot() {
     // spin errors, which genuinely are the map's.
     val appSnackbar = remember { SnackbarHostState() }
 
+    // A sign-in that fails on the way back from the browser had exactly one
+    // reader — FriendsScreen, the screen with the button on it — and `screen` in
+    // AppRoot is a plain `remember`. So whenever Android restarted the app behind
+    // the browser, the redirect landed on a fresh process that composes the map,
+    // and the reason went nowhere at all. That is the case most likely to fail,
+    // which made it the case least likely to be explained.
+    //
+    // Its own effect rather than a write into `error` above: that var has a dozen
+    // writers already, and a sign-in failure is not a spin failure. Repeats are
+    // not a concern here — every Sign in tap clears this first, so a second
+    // identical failure still re-keys from null.
+    val signInError by PendingSignIn.error.collectAsStateWithLifecycle()
+    LaunchedEffect(signInError) {
+        signInError?.let { appSnackbar.showSnackbar(it) }
+    }
+    // And the same for a sign-in that worked, which said even less: the avatar in
+    // the top corner turned from a question mark into a letter, and that was the
+    // whole announcement. Cleared once shown so returning to the map later does
+    // not re-announce it — the failure above needs no such call, because every
+    // Sign in tap clears it on the way out.
+    val signedInAs by PendingSignIn.signedInAs.collectAsStateWithLifecycle()
+    LaunchedEffect(signedInAs) {
+        val handle = signedInAs ?: return@LaunchedEffect
+        appSnackbar.showSnackbar(
+            if (handle.isBlank()) "Signed in" else "Signed in as $handle"
+        )
+        PendingSignIn.clearSignedIn()
+    }
+
     // The back stack the app owns, rooted at the map. This replaced `screen` — a
     // single value that could not say which way the rider moved, because
     // SETTINGS -> HUB and HUB -> SETTINGS are the same pair of values in the
