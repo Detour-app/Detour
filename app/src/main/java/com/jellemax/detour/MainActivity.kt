@@ -50,6 +50,7 @@ import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.Auth
 import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.SyncClient
+import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
@@ -203,6 +204,15 @@ private fun AppRoot() {
     // cold start happens to land there. MapScreen keeps a host of its own for
     // spin errors, which genuinely are the map's.
     val appSnackbar = remember { SnackbarHostState() }
+
+    // Wrapped, not bare: ensureLoaded() is not suspend and reads JSON off
+    // disk, so the off-main-thread guarantee rests entirely on the caller —
+    // see PlacesPresenter's KDoc. Bare inside MapScreen, where this used to
+    // live, it ran on the main thread during the first frame of the app's
+    // start destination, which is the one frame a cold start cannot spare.
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { SavedPlaces.ensureLoaded() }
+    }
 
     // A sign-in that fails on the way back from the browser had exactly one
     // reader — FriendsScreen, the screen with the button on it — and `screen` in

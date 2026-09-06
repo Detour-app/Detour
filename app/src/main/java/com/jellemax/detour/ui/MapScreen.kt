@@ -150,7 +150,6 @@ fun MapScreen(
     }
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
-    LaunchedEffect(Unit) { SavedPlaces.ensureLoaded() }
     val savedPlaces by SavedPlaces.places.collectAsStateWithLifecycle()
     // Non-null while a name is being entered for the current dropped/destination pin.
     var savePinTarget by remember { mutableStateOf<LatLon?>(null) }
