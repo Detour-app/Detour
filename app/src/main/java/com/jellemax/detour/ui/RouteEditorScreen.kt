@@ -61,6 +61,7 @@ import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.presentation.formatCoordinatePair
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
@@ -351,7 +352,12 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                             modifier = Modifier.padding(end = 4.dp),
                         )
                         Text(
-                            stop.name.ifBlank { "%.5f, %.5f".format(stop.at.lat, stop.at.lon) },
+                            // Coordinates keep '.' whatever the rider's
+                            // separator setting says: the pair is already
+                            // comma-separated, so a comma decimal would read
+                            // "50,85137, 5,69097". Shared with the Saved places
+                            // subtitle so the two cannot drift.
+                            stop.name.ifBlank { formatCoordinatePair(stop.at.lat, stop.at.lon) },
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f),
                         )

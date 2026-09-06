@@ -61,11 +61,13 @@ import com.jellemax.detour.ui.HubScreen
 import com.jellemax.detour.ui.MapScreen
 import com.jellemax.detour.ui.GraphiteDark
 import com.jellemax.detour.ui.GraphiteLight
+import com.jellemax.detour.ui.ProfileScreen
 import com.jellemax.detour.ui.RouteEditorScreen
 import com.jellemax.detour.ui.RoutesScreen
 import com.jellemax.detour.ui.SavedPlacesScreen
 import com.jellemax.detour.ui.SettingsScreen
 import com.jellemax.detour.ui.SettingsSpokeScreen
+import com.jellemax.detour.ui.SocialScreen
 import com.jellemax.detour.ui.TripDetailScreen
 import com.jellemax.detour.ui.isAppDarkTheme
 import com.jellemax.detour.ui.rememberRetainedMap
@@ -271,19 +273,24 @@ private fun AppRoot() {
             entry<Destination.Map> {
                 MapScreen(
                     onOpenHub = { backStack.push(Destination.Hub) },
+                    // The home sheet's two cards. Both destinations already
+                    // exist and are already reachable from the Hub; this is the
+                    // map handing them a second entry point, not a promotion.
+                    onOpenRoutes = { backStack.push(Destination.Routes) },
+                    onOpenSocial = { backStack.push(Destination.Social) },
                     retained = retainedMap,
                 )
             }
             entry<Destination.Hub> {
                 HubScreen(
                     onBack = { backStack.pop() },
-                    onOpenHistory = { backStack.push(Destination.History) },
-                    onOpenBadges = { backStack.push(Destination.Badges) },
-                    onOpenFriends = { backStack.push(Destination.Friends) },
-                    onOpenCircles = { backStack.push(Destination.Circles) },
+                    onOpenProfile = { backStack.push(Destination.Profile) },
+                    onOpenSocial = { backStack.push(Destination.Social) },
                     onOpenSettings = { backStack.push(Destination.Settings) },
-                    onOpenSavedPlaces = { backStack.push(Destination.SavedPlaces) },
+                    onOpenHistory = { backStack.push(Destination.History) },
                     onOpenRoutes = { backStack.push(Destination.Routes) },
+                    onOpenSavedPlaces = { backStack.push(Destination.SavedPlaces) },
+                    onOpenBadges = { backStack.push(Destination.Badges) },
                 )
             }
             entry<Destination.History> {
@@ -305,6 +312,19 @@ private fun AppRoot() {
             }
             entry<Destination.CoverageMap> {
                 CoverageMapScreen(onBack = { backStack.pop() })
+            }
+            entry<Destination.Social> {
+                SocialScreen(
+                    onBack = { backStack.pop() },
+                    onOpenFriends = { backStack.push(Destination.Friends) },
+                    onOpenCircles = { backStack.push(Destination.Circles) },
+                )
+            }
+            entry<Destination.Profile> {
+                ProfileScreen(
+                    onBack = { backStack.pop() },
+                    onSignedOut = { backStack.returnToMap() },
+                )
             }
             entry<Destination.Friends> { FriendsScreen(onBack = { backStack.pop() }) }
             entry<Destination.Circles> {

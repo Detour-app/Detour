@@ -81,3 +81,15 @@ expect val fileSystem: FileSystem
 expect class PlatformLock() {
     fun <T> withLock(block: () -> T): T
 }
+
+/**
+ * The decimal separator this device's locale writes numbers with: '.' in en-US,
+ * ',' in nl-BE. The one thing the shared core asks the OS about formatting.
+ *
+ * Nothing in `presentation` calls this. The formatters take the separator as an
+ * argument (defaulting to '.') and the render path resolves it once via
+ * [Settings.decimalSeparatorChar] and passes it down — a mapper that read the
+ * locale itself would be impure and untestable, the same reason `nowMs` is a
+ * parameter rather than a clock read.
+ */
+expect fun systemDecimalSeparator(): Char

@@ -1,6 +1,8 @@
 package com.jellemax.detour.ui
 
 import android.content.Context
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -11,7 +13,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.dp
 import com.jellemax.detour.ColdStartTiming
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.SpeedCameras
@@ -163,10 +164,27 @@ class RetainedMap(context: Context) {
 @Composable
 fun rememberRetainedMap(darkTheme: Boolean): RetainedMap {
     val context = LocalContext.current
-    // Keeps OSM/OpenFreeMap attribution above the collapsed spin bar. Applied
-    // here rather than in MapScreen because it is set on the map object, which
-    // is now configured once rather than once per entry.
-    val attributionBottomMarginPx = with(LocalDensity.current) { 84.dp.roundToPx() }
+    // Keeps OSM/OpenFreeMap attribution clear of the home sheet, which is the
+    // map's resting bottom occupant and taller than the spin dock this figure
+    // used to be tuned to. Applied here rather than in MapScreen because it is
+    // set on the map object, which is configured once rather than once per
+    // entry.
+    //
+    // Attribution is a basemap licence obligation, so this errs high: the sheet
+    // states its own height, and the gesture inset it consumes internally is
+    // added on top rather than assumed away, which the flat 84 dp did.
+    //
+    // The sheet's text is font-scaled and its constant is not, so the fixed
+    // 224 dp went *inside* the sheet's own 0.96-alpha surface — the ⓘ button
+    // simply gone — from about the system's "Large" setting upwards. Only the
+    // text grows, hence the growth term rather than a multiply; see
+    // HOME_SHEET_FONT_SCALE_GROWTH for why a flat one over-corrects.
+    val density = LocalDensity.current
+    val attributionBottomMarginPx = with(density) {
+        val grown = HOME_SHEET_HEIGHT +
+            HOME_SHEET_FONT_SCALE_GROWTH * (density.fontScale.coerceAtLeast(1f) - 1f)
+        grown.roundToPx()
+    } + WindowInsets.navigationBars.getBottom(density)
     val retained = remember { RetainedMap(context) }
 
     // Keyed on `retained`, which never changes while this composable is in the
@@ -184,7 +202,6 @@ fun rememberRetainedMap(darkTheme: Boolean): RetainedMap {
             // license requirement — OSM's attribution (the ⓘ button below)
             // is the one that has to stay.
             map.uiSettings.isLogoEnabled = false
-            map.uiSettings.setAttributionMargins(0, 0, 0, attributionBottomMarginPx)
             retained.map = map
         }
         onDispose {
@@ -193,6 +210,14 @@ fun rememberRetainedMap(darkTheme: Boolean): RetainedMap {
             retained.mapView.onStop()
             retained.mapView.onDestroy()
         }
+    }
+
+    // Its own effect, not a line in the callback above: that effect is keyed on
+    // `retained` and runs once for the Activity, and the gesture inset is
+    // frequently still zero on the first composition. Keyed on the margin, this
+    // lands the real value the moment the insets do.
+    LaunchedEffect(retained.map, attributionBottomMarginPx) {
+        retained.map?.uiSettings?.setAttributionMargins(0, 0, 0, attributionBottomMarginPx)
     }
 
     // (Re)load the style on a theme flip, rebuild the overlay layers on the new

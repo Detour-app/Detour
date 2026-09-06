@@ -5,6 +5,7 @@ import okio.Path
 import okio.Path.Companion.toPath
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSLock
+import platform.Foundation.NSNumberFormatter
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSUserDefaults
 import platform.Foundation.NSUserDomainMask
@@ -97,3 +98,12 @@ actual class PlatformLock actual constructor() {
         }
     }
 }
+
+/**
+ * A fresh [NSNumberFormatter] already carries `NSLocale.currentLocale`, so it
+ * reports the separator the user's region setting writes numbers with. Falls
+ * back to '.' if the property ever comes back empty; the binding types it
+ * nullable.
+ */
+actual fun systemDecimalSeparator(): Char =
+    NSNumberFormatter().decimalSeparator?.firstOrNull() ?: '.'

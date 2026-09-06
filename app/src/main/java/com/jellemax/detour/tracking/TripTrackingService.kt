@@ -1,18 +1,10 @@
 package com.jellemax.detour.tracking
 
 import android.Manifest
-import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothProfile
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.hardware.Sensor
@@ -26,22 +18,12 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import com.google.android.gms.location.ActivityRecognition
-import com.google.android.gms.location.ActivityTransition
-import com.google.android.gms.location.ActivityTransitionRequest
-import com.google.android.gms.location.ActivityTransitionResult
-import com.google.android.gms.location.DetectedActivity
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
-import com.jellemax.detour.MainActivity
-import com.jellemax.detour.R
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.ble.BoardTelemetry
 import com.jellemax.detour.data.syncQuietly
@@ -49,7 +31,6 @@ import com.jellemax.detour.data.BadgeDef
 import com.jellemax.detour.data.BadgeStore
 import com.jellemax.detour.data.CirclePresence
 import com.jellemax.detour.data.Coverage
-import com.jellemax.detour.data.Curviness
 import com.jellemax.detour.data.DrivingStats
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MunicipalityStore
@@ -59,17 +40,14 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
-import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
-import com.jellemax.detour.drive.FuelType
 import com.jellemax.detour.drive.HardEventDetector
 import com.jellemax.detour.drive.RoadTypeTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.drive.StopDetector
-import com.jellemax.detour.notif.TripEndedNotification
+import com.jellemax.detour.drive.TripFixMath
 import com.jellemax.detour.obd2.Obd2Connection
 import com.jellemax.detour.obd2.ObdTelemetry
-import com.jellemax.detour.ui.loadTripPoints
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -80,8 +58,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlin.math.abs
-import kotlin.math.roundToLong
-import kotlin.math.atan2
 import kotlin.math.sqrt
 
 data class TripStats(
@@ -152,14 +128,20 @@ data class Fix(
  */
 class TripTrackingService : Service() {
 
-    private enum class LocationMode { SLEEP, IDLE, LIVE, PROBE, TRIP }
+    /** Module-visible (not private) so [LocationRequests] and
+     *  [currentLocationMode] — moved out to their own file, but this stays put
+     *  per the tuning-lives-in-one-place rule — can reference it. */
+    internal enum class LocationMode { SLEEP, IDLE, LIVE, PROBE, TRIP }
 
     companion object {
         const val EXTRA_DEST_LAT = "dest_lat"
         const val EXTRA_DEST_LON = "dest_lon"
         private const val ACTION_START_TRIP = "com.jellemax.detour.START_TRIP"
         private const val ACTION_END_TRIP = "com.jellemax.detour.END_TRIP"
-        private const val ACTION_TRANSITION = "com.jellemax.detour.ACTIVITY_TRANSITION"
+        /** Not private: [DriveTransitions] builds the same PendingIntent action
+         *  to (un)register with GMS - tuning/identifiers stay declared once, on
+         *  this companion, and are referenced from there rather than copied. */
+        internal const val ACTION_TRANSITION = "com.jellemax.detour.ACTIVITY_TRANSITION"
         private const val ACTION_REFRESH = "com.jellemax.detour.REFRESH"
         private const val ACTION_GEOFENCE_WAKE = "com.jellemax.detour.GEOFENCE_WAKE"
 
@@ -171,16 +153,12 @@ class TripTrackingService : Service() {
          *  the dog past 150 m — costs one grace window of foreground service and
          *  then parks again, rather than staying up indefinitely. */
         private const val GEOFENCE_WAKE_GRACE_MS = 90_000L
-        /** Retry delay after a failed [registerActivityTransitions] request
+        /** Retry delay after a failed [DriveTransitions.register] request
          *  (#144). Short: the failure this guards against is a transient
          *  Play Services race, not a real outage, so there is nothing gained
          *  by waiting longer - and the whole point is not stranding parking
          *  (#90) until some unrelated onStartCommand happens to arrive. */
-        private const val AR_REGISTER_RETRY_MS = 15_000L
-        // One definition, shared with the trip-ended notification that posts to
-        // the same channel from notif/.
-        private const val CHANNEL_ID = TripEndedNotification.CHANNEL_ID
-        private const val NOTIFICATION_ID = 1
+        internal const val AR_REGISTER_RETRY_MS = 15_000L
 
         // Auto start/stop tuning.
         private const val FAST_SPEED_MPS = 7.0          // ~25 km/h, no vehicle hint
@@ -190,24 +168,52 @@ class TripTrackingService : Service() {
         private const val MIN_FAST_RUN_METERS = 120.0
         /** Fixes looser than this never contribute to a start decision. */
         private const val MAX_START_ACCURACY_M = 25f
-        private const val PROBE_WINDOW_MS = 3 * 60_000L
+
+        /** Loosest fix still worth *drawing*: the fog-of-war trace, and with it
+         *  the auto-stop-at-origin check that rides on the same point. A scatter
+         *  fix past this would paint explored ground the rider never saw. */
+        private const val MAX_TRACE_ACCURACY_M = 50f
+        /** Loosest fix still allowed to *bank distance* into the running trip.
+         *  Deliberately a separate constant from [MAX_TRACE_ACCURACY_M] even
+         *  though the two are equal today: one governs what is drawn, the other
+         *  what is recorded as the rider's mileage, and tuning trace quality
+         *  must not silently move an odometer. */
+        private const val MAX_DISTANCE_ACCURACY_M = 50f
+        /** Shortest gap between two fixes that can carry a Δt. A gap of 0 is a
+         *  redelivered fix on a frozen clock, whose hop was banked already.
+         *  Not private: [cappedFixDtSec] gates on the same floor. */
+        internal const val MIN_FIX_GAP_MS = 1L
+        /** Longest gap between two fixes that can still be treated as one
+         *  continuous stretch — past this it is a tunnel, a Doze window or a BT
+         *  dropout, and whatever happened in between was not observed. Shared
+         *  with [cappedFixDtSec]: one window, two clocks (see its KDoc). */
+        internal const val MAX_FIX_GAP_MS = 15_000L
+
+        /** Not private: [DriveTransitions] opens the IN_VEHICLE confirmation
+         *  window against this. */
+        internal const val PROBE_WINDOW_MS = 3 * 60_000L
         /** A probe opened by speed alone, with no IN_VEHICLE to back it up. Kept
-         *  short: one freak fix shouldn't buy three minutes of GPS. */
-        private const val SPEED_PROBE_WINDOW_MS = 60_000L
+         *  short: one freak fix shouldn't buy three minutes of GPS. Not private:
+         *  [DriveTransitions.startSpeedProbe] opens against this. */
+        internal const val SPEED_PROBE_WINDOW_MS = 60_000L
         private const val EXIT_GRACE_MS = 2 * 60_000L   // after IN_VEHICLE exit
         private const val STATIONARY_END_MS = 5 * 60_000L
-        private const val MIN_AUTO_TRIP_METERS = 500.0
+        /** The four worth-saving thresholds are not private: [TripSession.end]
+         *  applies them. Same rule as [AR_REGISTER_RETRY_MS] and
+         *  [PROBE_WINDOW_MS] above — tuning stays declared once, here, and is
+         *  referenced from the collaborator rather than copied into it. */
+        internal const val MIN_AUTO_TRIP_METERS = 500.0
         // A trip whose average pace stays under this, with no mapped vehicle
         // connected, was never a drive — a walk, a jog, pushing a bike. Judged
         // on average (not top) speed so one GPS spike can't rescue it, and
         // only after enough of the trip to tell a real walk from the first
         // slow seconds of a drive. Dropped at endTrip() rather than saved
         // under a mode that doesn't fit it.
-        private const val SLOW_NO_VEHICLE_AVG_MAX_MPS = 2.5    // ~9 km/h
-        private const val SLOW_NO_VEHICLE_MIN_JUDGE_MS = 90_000L
+        internal const val SLOW_NO_VEHICLE_AVG_MAX_MPS = 2.5    // ~9 km/h
+        internal const val SLOW_NO_VEHICLE_MIN_JUDGE_MS = 90_000L
         /** ...but average pace alone calls a car stuck in town traffic slow.
          *  Nothing that has ever hit this speed gets dropped, whatever its average. */
-        private const val SLOW_NO_VEHICLE_TOP_MAX_MPS = 6.0    // ~22 km/h
+        internal const val SLOW_NO_VEHICLE_TOP_MAX_MPS = 6.0    // ~22 km/h
         /** Which vehicle wins when several mapped devices are connected at
          *  once, weakest first. */
         private val MODE_PRIORITY = listOf(TravelMode.CAR, TravelMode.MOTO)
@@ -409,7 +415,14 @@ class TripTrackingService : Service() {
     }
 
     private lateinit var fusedClient: FusedLocationProviderClient
+    /** What to ask [fusedClient] for; see [currentLocationMode] for the mode
+     *  decision this acts on. Constructed alongside [fusedClient] once it
+     *  exists, same guarded-init shape as [motionSensors] below. */
+    private lateinit var locationRequests: LocationRequests
     private lateinit var sensorManager: SensorManager
+    /** The rotation-vector sensor and lean bookkeeping; see its own KDoc for
+     *  why [recordLean] stays here rather than moving with it. */
+    private lateinit var motionSensors: RideMotionSensors
     private var lastLocation: Location? = null
     // The raw GPS speed of the last fix, kept for the OBD2 speed-refresh loop:
     // between GPS callbacks it has no other way to re-run resolveDisplaySpeedMps'
@@ -424,26 +437,13 @@ class TripTrackingService : Service() {
     private var autoStarted = false
     private var pendingStopAtMs: Long? = null
     private var lastMovingMs = 0L
-    private var transitionsRegistered = false
     private var circleSyncStarted = false
     private var obdSpeedRefreshStarted = false
-
-    /** Activity recognition says the phone is STILL, and no trip is running.
-     *  Only ever set from an AR STILL transition, so with the
-     *  ACTIVITY_RECOGNITION runtime permission denied this stays false forever
-     *  and STOP_WITH_GEOFENCE dormancy (issue #90) never engages — the service
-     *  stays always-on exactly as it did pre-#90. That degradation is deliberate. */
-    private var stationary = false
-    /** Deadline of the IN_VEHICLE confirmation window; null when not probing. */
-    private var probeUntilMs: Long? = null
 
     // Run of consecutive fast, accurate fixes that would start a trip.
     private var fastFixes = 0
     private var fastRunStartMs = 0L
     private var fastRunStart: LatLon? = null
-
-    /** Which mode the active location request was made for; null = none yet. */
-    private var activeMode: LocationMode? = null
 
     /** Wall clock past which a geofence wake no longer protects this instance
      *  from re-parking; 0 when this start was not a geofence wake. Per-instance
@@ -481,8 +481,10 @@ class TripTrackingService : Service() {
      *  See that function for why the evaluation is posted rather than run. */
     private var dormancyEvaluationPending = false
 
-    /** Carries the coalesced dormancy evaluation, and the bounded activity-
-     *  transition registration retry (see [registerActivityTransitions]). */
+    /** Carries the coalesced dormancy evaluation. The bounded activity-
+     *  transition registration retry (#144) has its own handler now, inside
+     *  [driveTransitions] — see [DriveTransitions.cancelPendingRegister] for
+     *  why [onDestroy] still has to reach it separately. */
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var lastMunicipalityLookupMs = 0L
@@ -500,69 +502,47 @@ class TripTrackingService : Service() {
         }
     }
 
-    private val rotationMatrix = FloatArray(9)
+    /** Activity-recognition registration, and the STILL/IN_VEHICLE state that
+     *  drives auto-start/auto-sleep - see its own KDoc for the IN_VEHICLE
+     *  probe-window coupling to the start detector. Eager, not guarded-init
+     *  like [motionSensors]/[locationRequests]: [buildNotification] reads
+     *  [DriveTransitions.stationary] from inside `onStartCommand`'s
+     *  `startForeground()` call, before that guarded-init block runs on a
+     *  cold start - the same reason [locationCallback] above is eager too. */
+    private val driveTransitions = DriveTransitions(
+        context = this,
+        tripActive = { _stats.value != null },
+        onVehicleEnter = {
+            pendingStopAtMs = null
+            // Only ever a no-op reset while a trip is running - see
+            // DriveTransitions' KDoc: fastFixes/fastRunStart are already
+            // 0/null for the life of any trip, so folding this call in
+            // unconditionally changes nothing observable.
+            resetStartDetector()
+        },
+        onVehicleExit = {
+            // Don't end immediately — could be a fuel stop. The grace period
+            // is checked against speed in onTripLocation.
+            if (_stats.value != null && autoStarted) {
+                pendingStopAtMs = System.currentTimeMillis()
+            }
+        },
+        onStill = {
+            resetStartDetector()
+            flushTrace()
+        },
+        onWalking = { resetStartDetector() },
+    )
 
-    /** Set in [onDestroy] before teardown so a late [reconcileObd2Connections]
-     *  (via [endTrip]) can't re-dial an adapter as the service dies. */
+    /** Set in [onDestroy] before teardown, so a dormancy evaluation coalesced
+     *  behind it ([maybeGoDormant], [requestDormancyEvaluation]) can't act on
+     *  an instance that's already going away. [VehicleLinks] keeps its own
+     *  copy of this same guard for its own reconcileObd2Connections. */
     @Volatile private var destroyed = false
 
-    // Written on the sensor thread, read when the trip is saved.
-    @Volatile private var currentLeanDeg = 0.0
-    @Volatile private var maxLeanDeg = 0.0
-    // Seeded at 1.0, not 0: a stationary accelerometer reads gravity, so the
-    // magnitude idles at 1 g. Starting the EMA from 0 would put the first real
-    // sample a full 1 g away — past MAX_G_SLEW — and the slew gate would then
-    // reject every sample for the rest of the trip.
-    @Volatile private var currentG = 1.0
-    @Volatile private var maxG = 0.0
-    /** Deepest lean since the last trace point, sign kept; see [addTracePoint]. */
-    @Volatile private var segmentPeakLeanDeg = 0.0
-    /** Whether this vehicle's lean is being measured at all — a car's points
-     *  record no lean rather than a misleading zero. */
-    @Volatile private var leanTracked = false
+    /** Throttles the 5 Hz stats publish out of [gForceListener]. Not part of
+     *  the recorded trip, so it stays here rather than in [TripSession]. */
     private var lastSensorEmitMs = 0L
-    /** Mount-to-bike misalignment, subtracted from every raw lean reading;
-     *  see [Settings.leanOffsetDeg]. Cached at trip start — it only changes
-     *  from the settings screen, never mid-trip. */
-    private var leanOffsetDeg = 0.0
-
-    @Volatile private var speedEventState = HardEventDetector.SpeedState()
-    @Volatile private var headingEventState = HardEventDetector.HeadingState()
-    /** Threaded into [HardEventDetector.onLeanSample] from [recordLean] — a
-     *  car trip never calls it, so it only ever moves for a moto trip. */
-    @Volatile private var leanCorneringNow = false
-    @Volatile private var hardCornerCount = 0
-    @Volatile private var hardBrakeCount = 0
-    @Volatile private var hardAccelCount = 0
-    @Volatile private var obd2SpeedFixes = 0
-    @Volatile private var speedFixesTotal = 0
-    // OBD2 engine summary, folded from each fix's telemetry snapshot in
-    // onTripLocation for the duration of a trip.
-    @Volatile private var obdMaxRpm = 0.0
-    @Volatile private var obdMaxThrottlePct = 0.0
-    @Volatile private var obdRpmSum = 0.0
-    @Volatile private var obdRpmSamples = 0
-    @Volatile private var obdWideOpenThrottleSamples = 0
-    @Volatile private var obdThrottleSamples = 0
-    // Fuel burned this trip: rate × elapsed, integrated per fix. Millilitres as a
-    // Double while accumulating; rounded to a Long on the saved trip.
-    @Volatile private var fuelMlAccum = 0.0
-    @Volatile private var fuelSampledMeters = 0.0
-    @Volatile private var lastFuelSampleMs = 0L
-    @Volatile private var fuelWasEstimated = false
-    @Volatile private var stopState = StopDetector.State()
-    @Volatile private var tripLimitState = SpeedLimitTracker.State()
-    @Volatile private var tripLimitFetchJob: kotlinx.coroutines.Job? = null
-    @Volatile private var secondsOverLimit = 0.0
-    @Volatile private var lastLimitFixMs = 0L
-    @Volatile private var roadTypeState = RoadTypeTracker.State()
-    @Volatile private var roadTypeFetchJob: kotlinx.coroutines.Job? = null
-
-    /** The last trip-save [endTrip] kicked off. Since #90 that save can start
-     *  from a path that then stops the service (dormancy → stopSelf) before
-     *  [onDestroy]'s own [endTrip] call runs, so onDestroy needs a handle to it
-     *  to join before cancelling [serviceScope]. */
-    @Volatile private var lastSaveJob: kotlinx.coroutines.Job? = null
 
     /**
      * The board's own GPS and IMU, treated as truth over the phone's
@@ -593,33 +573,33 @@ class TripTrackingService : Service() {
 
     /** OBD2 -> board telemetry -> phone GPS, highest priority first, each used
      *  only while fresh. Single definition of the priority chain that
-     *  onTripLocation's effectiveSpeedMps and _lastFix both read. [obd] defaults
-     *  to a fresh snapshot; onTripLocation passes the one it already took for
-     *  that fix so its speed, attribution and engine-summary reads agree. */
+     *  onTripLocation's effectiveSpeedMps and _lastFix both read. [obd] and
+     *  [board] default to fresh snapshots; onTripLocation passes the ones it
+     *  already took for that fix so its speed, attribution, engine-summary and
+     *  speedIsReal reads all agree. */
     private fun resolveDisplaySpeedMps(
         gpsSpeedMps: Double,
         mode: TravelMode,
         obd: ObdTelemetry? = freshObdTelemetry(),
+        board: BoardTelemetry? = freshBoardTelemetry(),
     ): Double =
         obdSpeedMpsFrom(obd, gpsSpeedMps, mode)
-            ?: freshBoardTelemetry()
+            ?: board
                 ?.takeIf { it.hasSpeed }
                 ?.let { it.speedKmh / 3.6 }
             ?: gpsSpeedMps
 
-    /** Board lean is only trusted for a vehicle whose mode tracks lean at all
-     *  — the same rule [startMotionSensors] applies to the phone's own sensor,
-     *  so a car trip with a board still connected doesn't suddenly grow one. */
-    private fun freshBoardLeanDeg(mode: TravelMode?): Double? {
-        if (mode?.tracksLean != true) return null
-        val telemetry = freshBoardTelemetry() ?: return null
-        return if (telemetry.hasLean) telemetry.leanDeg else null
-    }
-
-    /** Shared by the phone's own rotation-vector sensor and fresh board
-     *  telemetry — whichever is currently authoritative calls this, so the
-     *  recorded max reflects one source at a time, not whichever updated last. */
+    /**
+     * Shared by [motionSensors]'s two trigger points (a fresh phone reading,
+     * or a throttled poll of the board's own lean telemetry) — whichever is
+     * currently authoritative reaches here, so the recorded max reflects one
+     * source at a time, not whichever updated last. Stays on the service
+     * rather than moving with the sensor: it needs the running trip's own
+     * speed to gate a reading and [HardEventDetector]'s cornering latch,
+     * neither of which [motionSensors] has any business holding.
+     */
     private fun recordLean(deg: Double) {
+        session.lastLeanDeg = deg
         if (abs(deg) > MAX_PLAUSIBLE_LEAN_DEG) return
         // Below riding speed, "lean" is steering-head rake, not the bike
         // actually leaning — see MIN_LEAN_SPEED_MPS. Skip the sample, but if the
@@ -630,92 +610,47 @@ class TripTrackingService : Service() {
         // past the threshold → keep the latch, same as onHeadingFix holds it
         // through an unmeasurable fix rather than re-firing on a brief dip.
         if ((_stats.value?.currentSpeedMps ?: 0.0) < MIN_LEAN_SPEED_MPS) {
-            if (abs(deg) < HardEventDetector.HARD_CORNER_LEAN_DEG) leanCorneringNow = false
+            if (abs(deg) < HardEventDetector.HARD_CORNER_LEAN_DEG) session.leanCorneringNow = false
             return
         }
-        maxLeanDeg = maxOf(maxLeanDeg, abs(deg))
-        if (abs(deg) > abs(segmentPeakLeanDeg)) segmentPeakLeanDeg = deg
-        val (cornering, newEvent) = HardEventDetector.onLeanSample(leanCorneringNow, deg)
-        leanCorneringNow = cornering
-        if (newEvent) hardCornerCount++
+        session.maxLeanDeg = maxOf(session.maxLeanDeg, abs(deg))
+        motionSensors.notePeak(deg)
+        val (cornering, newEvent) = HardEventDetector.onLeanSample(session.leanCorneringNow, deg)
+        session.leanCorneringNow = cornering
+        if (newEvent) session.hardCornerCount++
     }
 
     /**
-     * Lean angle (from the rotation-vector sensor) and g-force (accelerometer
-     * magnitude) only make sense while a trip is running, so these sensors are
-     * only registered between [beginTrip] and [endTrip]. Lean angle assumes the
-     * phone is mounted upright facing forward, e.g. a handlebar mount — a phone
-     * in a pocket will read garbage.
-     *
-     * Lean is *not* [SensorManager.getOrientation]'s roll. That roll is only
-     * defined for a phone lying flattish: a phone standing upright sits exactly
-     * on its gimbal-lock singularity (pitch -90°), where roll degenerates and
-     * reads ±180° regardless of how the bike is leaning — which is why every
-     * ride recorded a max lean of about 180°.
-     *
-     * The gravity direction has no such singularity. The rotation matrix's
-     * third row is world-up expressed in device axes, so the angle between it
-     * and the device's own up axis, about the axis out of the screen, is the
-     * lean: 0 with the phone upright, positive leaning right. A mount tilted
-     * back towards the rider only moves gravity along that third axis, so it
-     * does not bias the reading.
+     * G-force (accelerometer magnitude) only makes sense while a trip is
+     * running, so this sensor is only registered between [beginTrip] and
+     * [endTrip]. Lean now comes from [motionSensors] — [recordLean] above is
+     * where its readings rejoin this trip's own state.
      */
-    private val sensorListener = object : SensorEventListener {
+    private val gForceListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
             if (_stats.value == null) return
-            when (event.sensor.type) {
-                Sensor.TYPE_ROTATION_VECTOR -> {
-                    SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-                    // Third row of the rotation matrix = world up in device axes.
-                    // Negated x so a lean to the right reads positive: tipping
-                    // right moves gravity towards the device's -x side.
-                    val upX = -rotationMatrix[6]
-                    val upY = rotationMatrix[7]
-                    val rawLeanDeg = Math.toDegrees(atan2(upX, upY).toDouble()) - leanOffsetDeg
-                    // Drop single-sample fusion glitches before they ever reach
-                    // the EMA — see MAX_LEAN_SLEW_DEG. The EMA below only damps
-                    // a glitch's contribution, it can't remove it outright.
-                    if (abs(rawLeanDeg - currentLeanDeg) <= MAX_LEAN_SLEW_DEG) {
-                        currentLeanDeg += LEAN_EMA_ALPHA * (rawLeanDeg - currentLeanDeg)
-                        // Only this sensor's own reading feeds the recorded max while
-                        // the board isn't supplying a fresher one — see recordLean()
-                        // and freshBoardLeanDeg(). (MAX_PLAUSIBLE_LEAN_DEG below still
-                        // guards against the phone being handled, not a lean.)
-                        if (freshBoardLeanDeg(_stats.value?.mode) == null) recordLean(currentLeanDeg)
-                    }
-                }
-                Sensor.TYPE_ACCELEROMETER -> {
-                    val (x, y, z) = event.values
-                    val rawG = sqrt((x * x + y * y + z * z).toDouble()) /
-                        SensorManager.GRAVITY_EARTH
-                    // Drop single-sample shocks before they ever reach the EMA —
-                    // see MAX_G_SLEW.
-                    if (abs(rawG - currentG) <= MAX_G_SLEW) {
-                        currentG += G_EMA_ALPHA * (rawG - currentG)
-                        // MAX_PLAUSIBLE_G still guards the recorded max even
-                        // once a shock has been smoothed into currentG.
-                        if (currentG <= MAX_PLAUSIBLE_G) maxG = maxOf(maxG, currentG)
-                    }
-                }
+            val (x, y, z) = event.values
+            val rawG = sqrt((x * x + y * y + z * z).toDouble()) /
+                SensorManager.GRAVITY_EARTH
+            // Drop single-sample shocks before they ever reach the EMA —
+            // see MAX_G_SLEW.
+            if (abs(rawG - session.currentG) <= MAX_G_SLEW) {
+                session.currentG += G_EMA_ALPHA * (rawG - session.currentG)
+                // MAX_PLAUSIBLE_G still guards the recorded max even
+                // once a shock has been smoothed into currentG.
+                if (session.currentG <= MAX_PLAUSIBLE_G) session.maxG = maxOf(session.maxG, session.currentG)
             }
             // Peaks are folded in on every event above; publishing them at 5 Hz
             // keeps the trip card live without recomposing it 100x a second.
             val now = SystemClock.elapsedRealtime()
             if (now - lastSensorEmitMs < SENSOR_EMIT_INTERVAL_MS) return
             lastSensorEmitMs = now
-            // The board updates at 4 Hz (see BOARD_TELEMETRY_STALE_MS), close
-            // enough to this 5 Hz tick that sampling it here rather than on
-            // its own event is a fine match — recorded here rather than in the
-            // ROTATION_VECTOR branch above since that branch only fires from
-            // the phone's own sensor, never from a BLE write.
-            val boardLeanDeg = freshBoardLeanDeg(_stats.value?.mode)
-            if (boardLeanDeg != null) recordLean(boardLeanDeg)
             _stats.update {
                 it?.copy(
-                    currentLeanAngleDeg = boardLeanDeg ?: currentLeanDeg,
-                    maxLeanAngleDeg = maxLeanDeg,
-                    currentGForce = currentG,
-                    maxGForce = maxG,
+                    currentLeanAngleDeg = session.lastLeanDeg,
+                    maxLeanAngleDeg = session.maxLeanDeg,
+                    currentGForce = session.currentG,
+                    maxGForce = session.maxG,
                 )
             }
         }
@@ -726,231 +661,36 @@ class TripTrackingService : Service() {
     /** Registers only the sensors this vehicle has a meaningful reading for, so
      *  a car trip never records a lean angle and a bicycle wakes neither sensor. */
     private fun startMotionSensors(mode: TravelMode) {
-        // SENSOR_DELAY_UI (~60ms) resolves a lean or a braking spike just as well
-        // as SENSOR_DELAY_GAME (~20ms) and wakes the CPU a third as often.
-        leanTracked = false
-        if (mode.tracksLean) {
-            leanOffsetDeg = Settings.leanOffsetDeg.value.toDouble()
-            sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let {
-                sensorManager.registerListener(sensorListener, it, SensorManager.SENSOR_DELAY_UI)
-                leanTracked = true
-            }
-        }
+        motionSensors.start(mode)
+        // SENSOR_DELAY_UI (~60ms) resolves a braking spike just as well as
+        // SENSOR_DELAY_GAME (~20ms) and wakes the CPU a third as often.
         if (mode.tracksGForce) {
             sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
-                sensorManager.registerListener(sensorListener, it, SensorManager.SENSOR_DELAY_UI)
+                sensorManager.registerListener(gForceListener, it, SensorManager.SENSOR_DELAY_UI)
             }
         }
     }
 
     private fun stopMotionSensors() {
-        sensorManager.unregisterListener(sensorListener)
-        leanTracked = false
-        segmentPeakLeanDeg = 0.0
+        sensorManager.unregisterListener(gForceListener)
+        motionSensors.stop()
     }
 
-    // --- Bluetooth vehicle auto-detect -------------------------------------
-    // Mapped Classic devices (Cardo, car infotainment) pick the trip mode,
-    // falling back to the default when none is connected. Addresses of
-    // currently-connected mapped devices.
-    private val connectedVehicles = LinkedHashSet<String>()
-    private var btRegistered = false
-
-    private val btReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            val device = deviceFrom(intent) ?: return
-            val address = try { device.address } catch (e: SecurityException) { return } ?: return
-            when (intent.action) {
-                BluetoothDevice.ACTION_ACL_CONNECTED -> {
-                    if (Settings.vehicleDevices.value.containsKey(address)) {
-                        connectedVehicles.remove(address) // move to newest
-                        connectedVehicles.add(address)
-                        refreshTripMode()
-                    }
-                    reconcileObd2Connections()
-                }
-                BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
-                    if (connectedVehicles.remove(address)) refreshTripMode()
-                    reconcileObd2Connections()
-                }
-            }
-        }
-    }
-
-    /** Turning the adapter off drops every link without an ACL_DISCONNECTED per
-     *  device, so without this the car stays "connected" for the rest of the
-     *  service's life and the next ride is logged as a drive. */
-    private val btStateReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)) {
-                BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF -> {
-                    if (connectedVehicles.isNotEmpty()) {
-                        connectedVehicles.clear()
-                        refreshTripMode()
-                    }
-                    Obd2Connection.disconnect()
-                }
-                BluetoothAdapter.STATE_ON -> {
-                    seedConnectedVehicles()
-                    // STATE_OFF called Obd2Connection.disconnect(); nothing
-                    // re-dials a phone-initiated SPP link on its own. Reconcile
-                    // picks it back up if a trip or the UI still wants it.
-                    reconcileObd2Connections()
-                }
-            }
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    private fun deviceFrom(intent: Intent): BluetoothDevice? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-        else intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-
-    /** True when we're allowed to touch bonded devices/connection state. Below
-     *  API 31 the normal BLUETOOTH permission is granted at install. */
-    private fun hasBtPermission(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) ==
-            PackageManager.PERMISSION_GRANTED
-
-    /** Register the connect/disconnect watcher once, and seed it with whatever
-     *  is already connected (so it works if the app opens mid-drive). No-op
-     *  until permission is granted; retried on the next service command. */
-    private fun ensureBluetoothWatch() {
-        if (btRegistered || !hasBtPermission()) return
-        val filter = IntentFilter().apply {
-            addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
-            addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
-        }
-        ContextCompat.registerReceiver(this, btReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
-        ContextCompat.registerReceiver(
-            this,
-            btStateReceiver,
-            IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
-            ContextCompat.RECEIVER_NOT_EXPORTED,
-        )
-        btRegistered = true
-        seedConnectedVehicles()
-        reconcileObd2Connections()
-    }
-
-    /** Which OBD2 adapter [Obd2Connection] should be on, or null to stay
-     *  disconnected. See [pickObd2Address] for the rules. */
-    private fun desiredObd2Address(): String? {
-        val map = Settings.vehicleDevices.value
-        val tripVehicle = resolvedVehicle()
-        return pickObd2Address(
-            tripActive = _stats.value != null,
-            uiVisible = uiVisible,
-            tripVehicleResolved = tripVehicle != null,
-            tripVehicleObd2Address = tripVehicle?.obd2Address,
-            connectedObd2Addresses = connectedVehicles.mapNotNull { map[it]?.obd2Address },
-            configuredObd2Addresses = map.values.mapNotNull { it.obd2Address }.distinct(),
-        )
-    }
-
-    /** Bring [Obd2Connection] in line with [desiredObd2Address]: drop a link to
-     *  the wrong adapter (or any link at all when none is wanted), open one to
-     *  the right adapter when idle. Called from every edge that can change the
-     *  answer — trip start/stop, UI visibility ([ACTION_REFRESH]), a Bluetooth
-     *  connect/disconnect/toggle, and a Settings change. Replaces the old
-     *  unconditional dial-every-configured-adapter seed: a parked adapter is no
-     *  longer retried around the clock (#96), and only the vehicle being driven
-     *  is ever dialled, so an absent adapter can't block a present one (#97). */
-    private fun reconcileObd2Connections() {
-        if (destroyed) return
-        val target = desiredObd2Address()
-        if (Obd2Connection.linkedAddress.value.let { it != null && it != target }) {
-            Obd2Connection.disconnect()
-        }
-        if (target != null && Obd2Connection.linkedAddress.value == null) {
-            val v = Settings.vehicleDevices.value.values.firstOrNull { it.obd2Address == target }
-            Obd2Connection.connect(
-                applicationContext, target,
-                fuelType = v?.fuelType ?: FuelType.PETROL,
-                calibrationPct = v?.fuelCalibrationPct ?: 100,
-            )
-        }
-    }
-
-    /**
-     * Ask the headset/A2DP profiles which mapped devices are connected right
-     * now, since ACL broadcasts only fire on change, not for existing links.
-     *
-     * The answer replaces what we believed rather than adding to it: a missed
-     * disconnect (adapter reset, device out of range, service asleep) otherwise
-     * pins the trip to a vehicle that was left behind hours ago. Both profiles
-     * are asked before we commit, so the two callbacks can't erase each other.
-     */
-    private fun seedConnectedVehicles() {
-        val map = Settings.vehicleDevices.value
-        if (map.isEmpty() || !hasBtPermission()) return
-        val adapter = getSystemService(BluetoothManager::class.java)?.adapter ?: return
-        val profiles = listOf(BluetoothProfile.HEADSET, BluetoothProfile.A2DP)
-        val found = LinkedHashSet<String>()
-        var pending = profiles.size
-        // Runs once the last profile has answered (or failed to).
-        val commit = {
-            if (connectedVehicles != found) {
-                connectedVehicles.clear()
-                connectedVehicles.addAll(found)
-                refreshTripMode()
-            }
-        }
-        val listener = object : BluetoothProfile.ServiceListener {
-            override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                try {
-                    proxy.connectedDevices.forEach { d ->
-                        if (map.containsKey(d.address)) found.add(d.address)
-                    }
-                } catch (e: SecurityException) {
-                    // permission revoked between the check and here; ignore
-                } finally {
-                    adapter.closeProfileProxy(profile, proxy)
-                }
-                if (--pending == 0) commit()
-            }
-            /** A profile the phone doesn't support never calls back connected. */
-            override fun onServiceDisconnected(profile: Int) {
-                if (--pending == 0) commit()
-            }
-        }
-        profiles.forEach {
-            if (!adapter.getProfileProxy(this, listener, it)) pending--
-        }
-        if (pending == 0) commit()
-    }
-
-    /** The connected mapped vehicle that classifies the trip. The heaviest
-     *  mode wins (see [MODE_PRIORITY]), not the last to connect: the helmet
-     *  intercom and the car radio can both be up while the bike sits in the
-     *  garage. Null when no mapped device is connected. */
-    private fun resolvedVehicle(): Settings.VehicleDevice? {
-        val map = Settings.vehicleDevices.value
-        return connectedVehicles.mapNotNull { map[it] }
-            .maxByOrNull { MODE_PRIORITY.indexOf(it.mode) }
-    }
-
-    /** What the running trip is logged as — the resolved vehicle's mode
-     *  (Cardo → moto, infotainment → car), else the spin tab's mode. The tab
-     *  itself is never changed here: classification is the trip's, not the
-     *  UI's. Whether a trip is worth keeping at all is decided in [endTrip]. */
-    private fun resolvedMode(): TravelMode =
-        resolvedVehicle()?.mode ?: Settings.tripMode.value
-
-    /** Retag the running trip if its mode should change (a mapped device
-     *  connected or left). Restarts motion sensors to match. */
-    private fun refreshTripMode() {
-        val mode = resolvedMode()
-        if (_stats.value != null && _stats.value?.mode != mode) {
+    /** Bluetooth vehicle auto-detect and OBD2 link reconciliation — which
+     *  mapped device is connected picks the trip mode, and which OBD2 adapter
+     *  should be dialled. See [VehicleLinks]. */
+    private val vehicleLinks = VehicleLinks(
+        context = this,
+        modePriority = MODE_PRIORITY,
+        uiVisible = { uiVisible },
+        currentTripMode = { _stats.value?.mode },
+        onModeChanged = { mode ->
             _stats.update { it?.copy(mode = mode) }
             stopMotionSensors()
             startMotionSensors(mode)
             updateNotification()
-        }
-        reconcileObd2Connections()
-    }
+        },
+    )
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Both before anything else can consult them: this instance is alive and
@@ -970,7 +710,7 @@ class TripTrackingService : Service() {
         val foreground = runCatching {
             ServiceCompat.startForeground(
                 this,
-                NOTIFICATION_ID,
+                TripNotifications.NOTIFICATION_ID,
                 buildNotification(),
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0,
@@ -984,13 +724,27 @@ class TripTrackingService : Service() {
         if (!::fusedClient.isInitialized) {
             fusedClient = LocationServices.getFusedLocationProviderClient(this)
         }
+        if (!::locationRequests.isInitialized) {
+            locationRequests = LocationRequests(fusedClient, locationCallback) {
+                // Location permission pulled out from under an already-running
+                // service - clear the notification now rather than leave it
+                // dangling for the ~5 s until the process dies.
+                ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
+        }
         if (!::sensorManager.isInitialized) {
             sensorManager = getSystemService(SensorManager::class.java)
+        }
+        if (!::motionSensors.isInitialized) {
+            motionSensors = RideMotionSensors(
+                this, LEAN_EMA_ALPHA, MAX_LEAN_SLEW_DEG, SENSOR_EMIT_INTERVAL_MS, ::freshBoardTelemetry,
+            ) { deg -> recordLean(deg) }
         }
 
         // Before the action, so a trip started in this same command classifies
         // against devices that were already connected when the service woke.
-        ensureBluetoothWatch()
+        vehicleLinks.start()
 
         // Circles' second sink on this same fix stream (see circleSyncLoop's
         // doc) - started once and left running for the life of this always-on
@@ -1014,7 +768,7 @@ class TripTrackingService : Service() {
             serviceScope.launch(Dispatchers.Main.immediate) {
                 Obd2Connection.telemetry.collect { _ ->
                     if (_lastFix.value == null) return@collect
-                    val refreshed = resolveDisplaySpeedMps(lastGpsSpeedMps, resolvedMode())
+                    val refreshed = resolveDisplaySpeedMps(lastGpsSpeedMps, vehicleLinks.resolvedMode())
                     if (refreshed != _displaySpeedMps.value) _displaySpeedMps.value = refreshed
                 }
             }
@@ -1032,7 +786,7 @@ class TripTrackingService : Service() {
             }
             ACTION_END_TRIP -> endTrip()
             ACTION_TRANSITION -> handleTransition(intent)
-            ACTION_REFRESH -> reconcileObd2Connections()
+            ACTION_REFRESH -> vehicleLinks.reconcileObd2Connections()
             ACTION_GEOFENCE_WAKE -> {
                 geofenceWakeGraceUntilMs = System.currentTimeMillis() + GEOFENCE_WAKE_GRACE_MS
                 Log.i(ParkGeofence.TAG, "woken by geofence; holding for ${GEOFENCE_WAKE_GRACE_MS}ms")
@@ -1040,7 +794,7 @@ class TripTrackingService : Service() {
         }
 
         ensureLocationUpdates()
-        registerActivityTransitions()
+        driveTransitions.register()
         // No disarm here any more: applyGeofence() owns the fence and the single
         // evaluation this queues reconciles it, so an awake service takes it down
         // once instead of on every start (issue #146).
@@ -1058,49 +812,20 @@ class TripTrackingService : Service() {
         autoStarted = auto
         origin = null
         awayFromOrigin = false
-        stationary = false
-        probeUntilMs = null
+        driveTransitions.reset()
         pendingStopAtMs = null
         resetStartDetector()
-        currentLeanDeg = 0.0; maxLeanDeg = 0.0
-        // 1.0, not 0: the resting magnitude is 1 g — see the field declaration.
-        currentG = 1.0; maxG = 0.0
-        speedEventState = HardEventDetector.SpeedState()
-        headingEventState = HardEventDetector.HeadingState()
-        leanCorneringNow = false
-        hardCornerCount = 0
-        hardBrakeCount = 0
-        hardAccelCount = 0
-        obd2SpeedFixes = 0
-        speedFixesTotal = 0
-        obdMaxRpm = 0.0
-        obdMaxThrottlePct = 0.0
-        obdRpmSum = 0.0
-        obdRpmSamples = 0
-        obdWideOpenThrottleSamples = 0
-        obdThrottleSamples = 0
-        fuelMlAccum = 0.0
-        fuelSampledMeters = 0.0
-        lastFuelSampleMs = 0L
-        fuelWasEstimated = false
-        stopState = StopDetector.State()
-        tripLimitState = SpeedLimitTracker.State()
-        tripLimitFetchJob?.cancel()
-        tripLimitFetchJob = null
-        secondsOverLimit = 0.0
-        lastLimitFixMs = startTimeMs
-        roadTypeState = RoadTypeTracker.State()
-        roadTypeFetchJob?.cancel()
-        roadTypeFetchJob = null
+        motionSensors.resetLean()
+        session.begin(startTimeMs)
         lastMovingMs = System.currentTimeMillis()
         // Re-check what's actually linked: the set may have gone stale since the
-        // last trip. Answers async, retagging through refreshTripMode.
-        seedConnectedVehicles()
+        // last trip. Answers async, retagging through VehicleLinks.refreshTripMode.
+        vehicleLinks.seedConnectedVehicles()
         // Classify by connected device / pace / tab; refined live as the trip runs.
         _stats.value = TripStats(startTimeMs = startTimeMs, distanceMeters = initialDistanceMeters)
-        val mode = resolvedMode()
+        val mode = vehicleLinks.resolvedMode()
         _stats.value = _stats.value?.copy(mode = mode)
-        reconcileObd2Connections()
+        vehicleLinks.reconcileObd2Connections()
         ensureLocationUpdates()
         startMotionSensors(mode)
         updateNotification()
@@ -1117,175 +842,35 @@ class TripTrackingService : Service() {
         val stats = _stats.value ?: return null
         val wasAuto = autoStarted
         stopMotionSensors()
-        tripLimitFetchJob?.cancel()
-        tripLimitFetchJob = null
-        roadTypeFetchJob?.cancel()
-        roadTypeFetchJob = null
+        session.cancelFetchJobs()
         flushTrace()
-        // An auto trip with no mapped vehicle that never left walking pace
-        // wasn't a drive; don't save it under whatever mode the tab happened
-        // to have selected. Judged the same way MIN_AUTO_TRIP_METERS judges
-        // "never went anywhere" — a second false-positive filter, not a
-        // classification.
-        val looksLikeAWalk = stats.durationMs > SLOW_NO_VEHICLE_MIN_JUDGE_MS &&
-            connectedVehicles.mapNotNull { Settings.vehicleDevices.value[it]?.mode }.isEmpty() &&
-            (stats.distanceMeters / (stats.durationMs / 1000.0)) < SLOW_NO_VEHICLE_AVG_MAX_MPS &&
-            stats.topSpeedMps < SLOW_NO_VEHICLE_TOP_MAX_MPS
-        val worthSaving =
-            if (wasAuto) stats.distanceMeters >= MIN_AUTO_TRIP_METERS && !looksLikeAWalk
-            else stats.durationMs > 0
-        var saveJob: kotlinx.coroutines.Job? = null
-        if (worthSaving) {
-            val durationSec = stats.durationMs / 1000.0
-            val trip = Trip(
-                startTimeMs = stats.startTimeMs,
-                endTimeMs = System.currentTimeMillis(),
-                distanceMeters = stats.distanceMeters,
-                topSpeedMps = stats.topSpeedMps,
-                maxLeanAngleDeg = maxLeanDeg,
-                maxGForce = maxG,
-                destinationLat = destLat,
-                destinationLon = destLon,
-                mode = stats.mode,
-                drivingStats = DrivingStats(
-                    hardBrakeCount = hardBrakeCount,
-                    hardAccelCount = hardAccelCount,
-                    hardCornerCount = hardCornerCount,
-                    secondsOverLimit = secondsOverLimit.toLong(),
-                    pctOverLimit = if (durationSec > 0) secondsOverLimit / durationSec * 100.0 else 0.0,
-                    roadTypeMeters = roadTypeState.meters,
-                    // Post-hoc, over the trace this trip just flushed above — see
-                    // Curviness.traceScore's KDoc for why this can't run live.
-                    twistinessScore = 0.0, // placeholder, replaced inside the launch below
-                    stopCount = stopState.stopCount,
-                    idleMs = stopState.idleMs,
-                    obd2SpeedPct = if (speedFixesTotal > 0)
-                        obd2SpeedFixes * 100.0 / speedFixesTotal else 0.0,
-                    maxRpm = obdMaxRpm,
-                    maxThrottlePct = obdMaxThrottlePct,
-                    pctWideOpenThrottle = if (obdThrottleSamples > 0)
-                        obdWideOpenThrottleSamples * 100.0 / obdThrottleSamples else 0.0,
-                    avgRpm = if (obdRpmSamples > 0) obdRpmSum / obdRpmSamples else 0.0,
-                    fuelMilliliters = fuelMlAccum.roundToLong(),
-                    fuelSampledMeters = fuelSampledMeters.roundToLong(),
-                    fuelEstimated = fuelWasEstimated,
-                ),
-            )
-            // Two separate coroutines, not one: onDestroy's runBlocking joins
-            // saveJob to guarantee the trip survives process death, and that join
-            // must be bounded by a cheap file write, not by loadTripPoints — which
-            // reads the whole traces.jsonl back and parses every line before
-            // filtering to this trip's window (same class of cost HistoryScreen.kt's
-            // own Dispatchers.IO comment documents for the smaller trips.json).
-            // `trip` above is already fully built from this-instant state, so
-            // nothing here needs to run before the field resets below.
-            val save = serviceScope.launch {
-                TripStore.save(trip)
-                checkBadges()
-                // Only tell the user about trips they didn't end themselves.
-                if (wasAuto) TripEndedNotification.show(this@TripTrackingService, stats.startTimeMs)
-            }
-            saveJob = save
-            // Unawaited — best-effort. onDestroy only joins saveJob above (and
-            // then syncs itself), so if the process dies before this finishes the
-            // trip still exists (saved above) with twistinessScore at its
-            // placeholder default; only the expensive post-hoc score is lost, not
-            // the whole trip. Joins `save` first: updateDrivingStats loads
-            // trips.json and no-ops if the trip isn't there yet, and a bare
-            // TripStore.save call has no dedup so it can't be used to race ahead.
-            // syncQuietly() runs AFTER the twistiness write, not in saveJob: a
-            // sync response applies via TripStore.replaceRaw (SyncClient.kt),
-            // which overwrites the local trips file wholesale — syncing before
-            // the write would let that response clobber it straight back to the
-            // placeholder on a signed-in device.
-            serviceScope.launch {
-                save.join()
-                val twistiness = runCatching {
-                    Curviness.traceScore(loadTripPoints(trip).map { it.at })
-                }.getOrDefault(0.0)
-                TripStore.updateDrivingStats(trip.startTimeMs, trip.drivingStats.copy(twistinessScore = twistiness))
-                SyncClient.syncQuietly()
-            }
-        }
+        val saveJob = session.end(stats, wasAuto, destLat, destLon)
         _stats.value = null
-        reconcileObd2Connections()
+        vehicleLinks.reconcileObd2Connections()
         destLat = null
         destLon = null
         autoStarted = false
         pendingStopAtMs = null
         ensureLocationUpdates()
         updateNotification()
-        if (saveJob != null) lastSaveJob = saveJob
+        if (saveJob != null) session.lastSaveJob = saveJob
         requestDormancyEvaluation()  // trip's over — nothing may need us foreground now
         return saveJob
     }
 
-    private fun currentMode(): LocationMode = when {
-        _stats.value != null -> LocationMode.TRIP
-        probeUntilMs?.let { System.currentTimeMillis() < it } == true -> LocationMode.PROBE
-        // Beats SLEEP: someone watching the map wants a live speed even if
-        // activity recognition still thinks the phone is sitting still, and a
-        // joined convoy wants the same cadence whether or not the map is open.
-        uiVisible || convoyActive -> LocationMode.LIVE
-        stationary -> LocationMode.SLEEP
-        else -> LocationMode.IDLE
-    }
-
-    private fun locationRequest(mode: LocationMode): LocationRequest = when (mode) {
-        // Passive costs no radio time of its own: we only see fixes some other
-        // app already paid for. Enough to notice a drive if STILL-exit is late.
-        LocationMode.SLEEP ->
-            LocationRequest.Builder(Priority.PRIORITY_PASSIVE, 60_000L)
-                .setMinUpdateDistanceMeters(100f)
-                .build()
-        // Still batched, but a burst held for a minute meant a drive that began
-        // 60 s ago was invisible to the start detector for 60 s. IDLE only runs
-        // while you're actually moving around on foot (STILL parks us in SLEEP),
-        // so the shorter window costs little and is what the detector reacts to.
-        LocationMode.IDLE ->
-            LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 20_000L)
-                .setMinUpdateDistanceMeters(30f)
-                .setMaxUpdateDelayMillis(20_000L)
-                .setWaitForAccurateLocation(false)
-                .build()
-        // Same appetite as a trip: the map is open, the screen is on, and the
-        // radio is the small cost next to the display.
-        LocationMode.LIVE, LocationMode.TRIP ->
-            LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1_000L)
-                // GNSS tops out around 1 Hz, but fused will hand over anything
-                // faster it has (sensor-fused, another app's request) instead of
-                // holding it back to the nominal interval.
-                .setMinUpdateIntervalMillis(200L)
-                .setWaitForAccurateLocation(false)
-                .build()
-        LocationMode.PROBE ->
-            LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 4_000L).build()
-    }
-
-    /** (Re)request location updates matching the current mode. */
+    /** (Re)request location updates matching the current mode - see
+     *  [currentLocationMode] and [LocationRequests]. */
     private fun ensureLocationUpdates() {
         if (stopping) return
-        val mode = currentMode()
-        if (activeMode == mode) return
-        fusedClient.removeLocationUpdates(locationCallback)
-        try {
-            fusedClient.requestLocationUpdates(
-                locationRequest(mode), locationCallback, Looper.getMainLooper())
-            activeMode = mode
-            updateNotification()
-        } catch (e: SecurityException) {
-            // Location permission revoked mid-run. Clear the notification now
-            // rather than leave it dangling for the ~5 s until the process dies.
-            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-            stopSelf()
-        }
+        val mode = currentLocationMode(
+            hasActiveTrip = _stats.value != null,
+            probing = driveTransitions.probing,
+            uiVisible = uiVisible,
+            convoyActive = convoyActive,
+            stationary = driveTransitions.stationary,
+        )
+        if (locationRequests.ensureFor(mode)) updateNotification()
     }
-
-    /** Last position this service knows about, freshest first, for arming the
-     *  park geofence. Null until the very first fix. */
-    private fun lastKnownLatLon(): Pair<Double, Double>? =
-        _lastFix.value?.let { it.lat to it.lon }
-            ?: lastLocation?.let { it.latitude to it.longitude }
 
     /**
      * The stop path (issue #90). Reached once per main-thread pass via
@@ -1303,9 +888,9 @@ class TripTrackingService : Service() {
         val decision = dormancyDecision(
             autoDetect = Settings.autoDetectDrives.value,
             tripActive = _stats.value != null,
-            convoyActive = convoyActive,  // companion field, same as currentMode() reads
+            convoyActive = convoyActive,  // companion field, same as currentLocationMode() reads
             uiVisible = uiVisible,
-            stationary = stationary,
+            stationary = driveTransitions.stationary,
             justWokenByGeofence = System.currentTimeMillis() < geofenceWakeGraceUntilMs,
         )
         // Resolved to what will actually be acted on *before* the geofence is
@@ -1330,9 +915,9 @@ class TripTrackingService : Service() {
             }
             DormancyDecision.STOP_BARE -> {
                 Log.i(ParkGeofence.TAG, "parking: $resolved (auto-detect off)")
-                unregisterActivityTransitions()
+                driveTransitions.unregister()
                 // Nothing to restore if this is superseded: with auto-detect off
-                // there is no fence to bring back, and registerActivityTransitions()
+                // there is no fence to bring back, and DriveTransitions.register()
                 // stands down on that same setting, so the newer start's own call
                 // is a no-op too.
                 stopDormant()
@@ -1359,7 +944,7 @@ class TripTrackingService : Service() {
             ) != PackageManager.PERMISSION_GRANTED -> "no ACCESS_BACKGROUND_LOCATION"
         // No position yet (booted stationary, no fix before STILL ENTER). The
         // location callback re-evaluates on the first fix.
-        lastKnownLatLon() == null -> "no position to arm at yet"
+        locationRequests.lastKnownLatLon(lastLocation) == null -> "no position to arm at yet"
         else -> null
     }
 
@@ -1375,7 +960,7 @@ class TripTrackingService : Service() {
         when (geofenceAction(decision, geofenceRequested)) {
             GeofenceAction.NONE -> return
             GeofenceAction.ARM -> {
-                val (lat, lon) = lastKnownLatLon() ?: return
+                val (lat, lon) = locationRequests.lastKnownLatLon(lastLocation) ?: return
                 ParkGeofence.arm(this, lat, lon)
                 geofenceRequested = true
             }
@@ -1434,129 +1019,18 @@ class TripTrackingService : Service() {
             return false
         }
         stopping = true
-        if (::fusedClient.isInitialized) fusedClient.removeLocationUpdates(locationCallback)
-        activeMode = null
+        if (::locationRequests.isInitialized) locationRequests.stop()
         flushTrace()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-        getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+        getSystemService(NotificationManager::class.java).cancel(TripNotifications.NOTIFICATION_ID)
         return true
     }
 
-    private fun activityTransitionPendingIntent(): PendingIntent =
-        PendingIntent.getForegroundService(
-            this, 1,
-            Intent(this, TripTrackingService::class.java).setAction(ACTION_TRANSITION),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
-        )
-
-    private fun registerActivityTransitions() {
-        if (transitionsRegistered) return
-        if (!Settings.autoDetectDrives.value) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            ContextCompat.checkSelfPermission(
-                this, android.Manifest.permission.ACTIVITY_RECOGNITION,
-            ) != PackageManager.PERMISSION_GRANTED
-        ) return
-
-        fun transition(activity: Int, type: Int) = ActivityTransition.Builder()
-            .setActivityType(activity)
-            .setActivityTransition(type)
-            .build()
-
-        val transitions = listOf(
-            transition(DetectedActivity.IN_VEHICLE, ActivityTransition.ACTIVITY_TRANSITION_ENTER),
-            transition(DetectedActivity.IN_VEHICLE, ActivityTransition.ACTIVITY_TRANSITION_EXIT),
-            // STILL drives the sleep mode; WALKING cancels a stray vehicle probe.
-            transition(DetectedActivity.STILL, ActivityTransition.ACTIVITY_TRANSITION_ENTER),
-            transition(DetectedActivity.STILL, ActivityTransition.ACTIVITY_TRANSITION_EXIT),
-            transition(DetectedActivity.WALKING, ActivityTransition.ACTIVITY_TRANSITION_ENTER),
-        )
-        try {
-            ActivityRecognition.getClient(this)
-                .requestActivityTransitionUpdates(
-                    ActivityTransitionRequest(transitions), activityTransitionPendingIntent())
-                .addOnSuccessListener { transitionsRegistered = true }
-                .addOnFailureListener { e ->
-                    // #144: this request can fail asynchronously - plausibly
-                    // when it lands right after unregisterActivityTransitions()
-                    // removed the same PendingIntent moments earlier, which is
-                    // exactly what an auto-detect toggle off-then-on does. With
-                    // no failure path, transitionsRegistered stayed false
-                    // forever, silently: parking (#90) never engages again
-                    // until some *other* onStartCommand happens to arrive,
-                    // which a continuously-running foreground service may not
-                    // see for a very long time. Logged so this is no longer
-                    // invisible, and retried on a short bounded delay rather
-                    // than left to chance - the retry re-checks
-                    // transitionsRegistered/autoDetectDrives/the permission at
-                    // the top of this function, so it's a no-op if any of
-                    // those changed in the meantime.
-                    Log.w(ParkGeofence.TAG, "activity transition registration failed", e)
-                    mainHandler.postDelayed(
-                        { registerActivityTransitions() }, AR_REGISTER_RETRY_MS)
-                }
-        } catch (e: SecurityException) {
-            // No activity recognition permission; speed fallback still works.
-        }
-    }
-
-    private fun unregisterActivityTransitions() {
-        // No `transitionsRegistered` guard: that flag is per-instance, but the
-        // AR registration is PendingIntent-scoped and outlives the instance
-        // (deliberately, on STOP_WITH_GEOFENCE). A fresh instance reaching
-        // STOP_BARE must still be able to tear down a registration an earlier
-        // instance left standing. removeActivityTransitionUpdates on an
-        // unregistered PendingIntent is harmless.
-        try {
-            ActivityRecognition.getClient(this)
-                .removeActivityTransitionUpdates(activityTransitionPendingIntent())
-        } catch (e: SecurityException) {
-            // Nothing to clean up.
-        }
-        transitionsRegistered = false
-    }
-
+    /** Wiring for [DriveTransitions.onTransitionIntent]: the trailing
+     *  re-evaluation is service-only (a STILL ENTER may have just parked us),
+     *  so it stays here rather than in the collaborator. */
     private fun handleTransition(intent: Intent) {
-        val result = ActivityTransitionResult.extractResult(intent) ?: return
-        for (event in result.transitionEvents) {
-            val entering = event.transitionType == ActivityTransition.ACTIVITY_TRANSITION_ENTER
-            when (event.activityType) {
-                DetectedActivity.STILL -> {
-                    if (_stats.value == null) stationary = entering
-                    if (entering) {
-                        resetStartDetector()
-                        flushTrace()
-                    }
-                }
-                DetectedActivity.IN_VEHICLE -> {
-                    if (entering) {
-                        stationary = false
-                        pendingStopAtMs = null
-                        // IN_VEHICLE on its own is not evidence of a drive — it
-                        // fires for a phone on a desk next to a fan. Open a window
-                        // in which a modest sustained speed is enough to confirm.
-                        if (_stats.value == null && Settings.autoDetectDrives.value) {
-                            probeUntilMs = System.currentTimeMillis() + PROBE_WINDOW_MS
-                            resetStartDetector()
-                        }
-                    } else {
-                        probeUntilMs = null
-                        // Don't end immediately — could be a fuel stop. The grace
-                        // period is checked against speed in onTripLocation.
-                        if (_stats.value != null && autoStarted) {
-                            pendingStopAtMs = System.currentTimeMillis()
-                        }
-                    }
-                }
-                DetectedActivity.WALKING -> {
-                    if (entering && _stats.value == null) {
-                        stationary = false
-                        probeUntilMs = null // walking never becomes a drive
-                        resetStartDetector()
-                    }
-                }
-            }
-        }
+        driveTransitions.onTransitionIntent(intent)
         ensureLocationUpdates()
         requestDormancyEvaluation()  // a STILL ENTER may have just parked us
     }
@@ -1572,7 +1046,7 @@ class TripTrackingService : Service() {
         val fix = Fix(
             lat = location.latitude,
             lon = location.longitude,
-            speedMps = resolveDisplaySpeedMps(speed, resolvedMode()),
+            speedMps = resolveDisplaySpeedMps(speed, vehicleLinks.resolvedMode()),
             bearingDeg = if (location.hasBearing()) location.bearing else null,
             accuracyMeters = location.accuracy,
             timeMs = location.time,
@@ -1591,7 +1065,7 @@ class TripTrackingService : Service() {
 
     /** Idle/probe/sleep: extend the explored trace, watch for a drive starting. */
     private fun onIdleLocation(location: Location, speed: Double) {
-        if (location.accuracy <= 50f) {
+        if (location.accuracy <= MAX_TRACE_ACCURACY_M) {
             addTracePoint(
                 LatLon(location.latitude, location.longitude), location.time, speed)
         }
@@ -1606,7 +1080,7 @@ class TripTrackingService : Service() {
             return
         }
 
-        val probing = probeUntilMs?.let { System.currentTimeMillis() < it } == true
+        val probing = driveTransitions.probing
         if (speed < (if (probing) PROBE_SPEED_MPS else FAST_SPEED_MPS)) {
             resetStartDetector()
             return
@@ -1617,10 +1091,7 @@ class TripTrackingService : Service() {
         // for IN_VEHICLE, then confirmed against fixes that arrived every 20 s.
         // Escalating here puts us on 4 s fixes immediately — the run below is
         // then confirmed in seconds. The evidence bar for starting is unchanged.
-        if (!probing) {
-            probeUntilMs = System.currentTimeMillis() + SPEED_PROBE_WINDOW_MS
-            stationary = false
-        }
+        if (!probing) driveTransitions.startSpeedProbe()
 
         val here = LatLon(location.latitude, location.longitude)
         val runStart = fastRunStart
@@ -1642,36 +1113,54 @@ class TripTrackingService : Service() {
         }
     }
 
-    private fun onTripLocation(location: Location, speed: Double, stats: TripStats) {
-        val now = System.currentTimeMillis()
-
-        var distance = stats.distanceMeters
+    /** The trip's distance with this fix's hop added, or unchanged when the fix
+     *  fails [TripFixMath.distanceHopMeters]'s accuracy/recency gate. */
+    private fun accumulateDistance(location: Location, stats: TripStats): Double {
         val last = lastLocation
-        // Only accumulate distance for accurate, recent fixes to avoid GPS jumps.
-        if (last != null && location.accuracy <= 50f &&
-            location.time - last.time in 1..15_000
+        return stats.distanceMeters + TripFixMath.distanceHopMeters(
+            rawHopMeters = last?.distanceTo(location)?.toDouble() ?: 0.0,
+            lastFixMs = last?.time,
+            fixMs = location.time,
+            accuracyM = location.accuracy,
+            maxAccuracyM = MAX_DISTANCE_ACCURACY_M,
+            minGapMs = MIN_FIX_GAP_MS,
+            maxGapMs = MAX_FIX_GAP_MS,
+        )
+    }
+
+    /** Extends the fog-of-war trace with this fix and, riding on the same
+     *  point, watches for the trip closing back on where it started.
+     *  Returns true if it ended the trip. */
+    private fun appendTracePoint(
+        location: Location,
+        speed: Double,
+        stats: TripStats,
+        now: Long,
+    ): Boolean {
+        // Negated `<=` rather than `>`, same reason as TripFixMath.distanceHopMeters:
+        // every comparison with a NaN accuracy is false, so `>` would fall through
+        // and append the point to the persisted trace. No usable accuracy, no draw.
+        if (!(location.accuracy <= MAX_TRACE_ACCURACY_M)) return false
+        val p = LatLon(location.latitude, location.longitude)
+        addTracePoint(p, location.time, speed)
+
+        // Auto-stop when back at the starting point after a real trip.
+        if (origin == null) origin = p
+        val start = origin ?: return false
+        val fromStart = RoadRoulette.distanceMeters(p, start)
+        if (fromStart > 400) awayFromOrigin = true
+        if (awayFromOrigin && fromStart < 120 &&
+            now - stats.startTimeMs > 5 * 60_000
         ) {
-            distance += last.distanceTo(location).toDouble()
+            endTrip()
+            return true
         }
+        return false
+    }
 
-        if (location.accuracy <= 50f) {
-            val p = LatLon(location.latitude, location.longitude)
-            addTracePoint(p, location.time, speed)
-
-            // Auto-stop when back at the starting point after a real trip.
-            if (origin == null) origin = p
-            origin?.let { start ->
-                val fromStart = RoadRoulette.distanceMeters(p, start)
-                if (fromStart > 400) awayFromOrigin = true
-                if (awayFromOrigin && fromStart < 120 &&
-                    now - stats.startTimeMs > 5 * 60_000
-                ) {
-                    endTrip()
-                    return
-                }
-            }
-        }
-
+    /** Keeps the "still moving" clock, then decides whether the rider has left
+     *  the vehicle for good. Returns true if it ended the trip. */
+    private fun checkVehicleExit(speed: Double, now: Long): Boolean {
         if (speed > 2.0) lastMovingMs = now
 
         // Left the vehicle and stayed slow through the grace period: trip over.
@@ -1680,119 +1169,155 @@ class TripTrackingService : Service() {
                 pendingStopAtMs = null
             } else if (now - exitedAt > EXIT_GRACE_MS) {
                 endTrip()
-                return
+                return true
             }
         }
         // Fallback if the vehicle-exit event never arrives. Also stops the
         // high-accuracy fixes draining the battery in a car park.
         if (autoStarted && now - lastMovingMs > STATIONARY_END_MS) {
             endTrip()
-            return
+            return true
         }
+        return false
+    }
 
+    /** Everything the rest of the per-fix pipeline needs to know about this
+     *  fix's speed, decided once from one telemetry snapshot so no two readers
+     *  can disagree about it. */
+    private data class FixSpeed(
+        val obd: ObdTelemetry?,
+        val effectiveMps: Double,
+        val isReal: Boolean,
+        val recordedFixMs: Long,
+    )
+
+    private fun resolveSpeed(location: Location, speed: Double, stats: TripStats): FixSpeed {
         // One OBD2 snapshot for this fix: the speed chain, the attribution
         // counter, the engine-summary fold and speedIsReal all read the same
         // values, so a poll landing mid-function can't make them disagree.
         val obd = freshObdTelemetry()
+        // Same rule for the board's BLE telemetry, and for the same reason: the
+        // speed chain and speedIsReal below both consult it, and a packet
+        // landing between two reads would let speedIsReal vouch for a number
+        // effectiveSpeedMps never saw (or drop a fix it did).
+        val board = freshBoardTelemetry()
 
         // Best-available speed for the recorded-trip pipeline (hard-event / stop
         // detectors, SpeedLimitTracker, RoadTypeTracker, persisted topSpeedMps).
         // See resolveDisplaySpeedMps for the OBD2/board/GPS priority. `speed`
-        // above still drives auto-start/stop and the fog trace, which stay on the
+        // still drives auto-start/stop and the fog trace, which stay on the
         // phone's own GPS pipeline regardless of what's paired.
-        val effectiveSpeedMps = resolveDisplaySpeedMps(speed, stats.mode, obd)
+        val effectiveSpeedMps = resolveDisplaySpeedMps(speed, stats.mode, obd, board)
 
         // Which source actually drove that number, for the per-trip
         // obd2SpeedPct. Same decision resolveDisplaySpeedMps uses for its OBD2
         // arm — board telemetry winning does not count, GPS fallback does not
         // count.
-        // Non-null iff effectiveSpeedMps below is the OBD adapter's reading
+        // Non-null iff effectiveSpeedMps is the OBD adapter's reading
         // (not board telemetry, not the GPS fallback). Drives both the per-trip
         // attribution counter and the recorded-trip fix clock (#98).
         val obdSpeedMps = obdSpeedMpsFrom(obd, speed, stats.mode)
-        speedFixesTotal++
+        session.speedFixesTotal++
         if (obdSpeedMps != null) {
-            obd2SpeedFixes++
+            session.obd2SpeedFixes++
         }
 
-        // Engine summary: fold this fix's OBD2 telemetry into the accumulators
-        // endTrip turns into DrivingStats.maxRpm/avgRpm/throttle. Sampled here
-        // on the same snapshot and the same mode/freshness gate as the speed arm
-        // above — it was a free-running Obd2Connection.telemetry collector, which
-        // raced endTrip's non-suspending read of these vars and recorded
-        // emissions the speed path would have rejected. onTripLocation only runs
-        // mid-trip, so this is trip-scoped by construction.
-        if (stats.mode.tracksGForce && obd != null) {
-            if (obd.hasRpm) {
-                obdMaxRpm = maxOf(obdMaxRpm, obd.rpmValue)
-                obdRpmSum += obd.rpmValue
-                obdRpmSamples++
-            }
-            if (obd.hasThrottle) {
-                obdMaxThrottlePct = maxOf(obdMaxThrottlePct, obd.throttlePct)
-                obdThrottleSamples++
-                if (obd.throttlePct > WIDE_OPEN_THROTTLE_PCT) obdWideOpenThrottleSamples++
-            }
-            if (obd.hasFuelRate) {
-                // Fuel is a rate, so it's integrated over time, not averaged like
-                // RPM above: this fix's L/h held over the gap since the last fuel
-                // sample, dropped (not saturated) when that gap is outside 1..15s.
-                // The gap is measured on the OBD reading's own arrival clock
-                // (receivedAtMs), not the GPS fix clock: fuelRateLph was valid at
-                // that instant, and the ~1 Hz OBD poll cadence is not the GPS
-                // fix cadence. It also keeps integrating correctly through a
-                // short GPS-staleness window (a redelivered stale fix freezes
-                // location.time) as long as the adapter is alive and the gap is
-                // inside the 15s cap (#98).
-                val fixMs = obd.receivedAtMs
-                cappedFixDtSec(fixMs, lastFuelSampleMs)?.let { dtSec ->
-                    fuelMlAccum += obd.fuelRateLph * (1000.0 / 3600.0) * dtSec
-                    // Distance covered while a fuel reading was live — the L/100km
-                    // denominator, so a mid-trip disconnect can't make a partial
-                    // measurement look like a whole-trip figure.
-                    fuelSampledMeters += (distance - stats.distanceMeters).coerceAtLeast(0.0)
-                }
-                lastFuelSampleMs = fixMs
-                if (obd.fuelEstimated) fuelWasEstimated = true
-            }
+        return FixSpeed(
+            obd = obd,
+            effectiveMps = effectiveSpeedMps,
+            // speedOf() hands back a fabricated 0.0 sentinel for a coarse/no-speed
+            // fix (see its own doc) — not a real zero-speed measurement. Feeding
+            // that into the physics-based detectors as if it were real reads a
+            // tunnel/parking-garage GPS gap as "suddenly stopped": a false hard
+            // brake, and potentially a false stop. Real iff this fix's own
+            // hasSpeed() is set, or fresh OBD2/board telemetry supplied the number
+            // effectiveSpeedMps is using.
+            isReal = TripFixMath.speedIsReal(
+                fixHasSpeed = location.hasSpeed(),
+                boardHasSpeed = board != null && board.hasSpeed,
+                modeTracksGForce = stats.mode.tracksGForce,
+                obdHasSpeed = obd != null && obd.hasSpeed,
+            ),
+            // The hard-brake/accel and stop detectors derive Δt from this
+            // timestamp. When the speed reading came from the OBD adapter, use
+            // that reading's own arrival clock so PID 0D's ~1 Hz jitter lands in
+            // the Δt rather than being flattened to a nominal second (#98). A GPS
+            // speed keeps the GPS clock. Heading-rate cornering stays on
+            // location.time — its signal is the GPS bearing.
+            recordedFixMs = TripFixMath.recordedFixMs(
+                obdDroveSpeed = obdSpeedMps != null,
+                obdReceivedAtMs = obd?.receivedAtMs,
+                locationTimeMs = location.time,
+            ),
+        )
+    }
+
+    /**
+     * Folds this fix's OBD2 telemetry into the accumulators endTrip turns into
+     * DrivingStats.maxRpm/avgRpm/throttle. Sampled here on the same snapshot
+     * and the same mode/freshness gate as the speed arm — it was a free-running
+     * Obd2Connection.telemetry collector, which raced endTrip's non-suspending
+     * read of these vars and recorded emissions the speed path would have
+     * rejected. onTripLocation only runs mid-trip, so this is trip-scoped by
+     * construction.
+     *
+     * [hopMeters] is the distance this fix banked, for the L/100km denominator.
+     */
+    private fun foldEngineSummary(obd: ObdTelemetry?, stats: TripStats, hopMeters: Double) {
+        if (!stats.mode.tracksGForce || obd == null) return
+        if (obd.hasRpm) {
+            session.obdMaxRpm = maxOf(session.obdMaxRpm, obd.rpmValue)
+            session.obdRpmSum += obd.rpmValue
+            session.obdRpmSamples++
         }
+        if (obd.hasThrottle) {
+            session.obdMaxThrottlePct = maxOf(session.obdMaxThrottlePct, obd.throttlePct)
+            session.obdThrottleSamples++
+            if (obd.throttlePct > WIDE_OPEN_THROTTLE_PCT) session.obdWideOpenThrottleSamples++
+        }
+        if (!obd.hasFuelRate) return
+        // Fuel is a rate, so it's integrated over time, not averaged like
+        // RPM above: this fix's L/h held over the gap since the last fuel
+        // sample, dropped (not saturated) when that gap is outside 1..15s.
+        // The gap is measured on the OBD reading's own arrival clock
+        // (receivedAtMs), not the GPS fix clock: fuelRateLph was valid at
+        // that instant, and the ~1 Hz OBD poll cadence is not the GPS
+        // fix cadence. It also keeps integrating correctly through a
+        // short GPS-staleness window (a redelivered stale fix freezes
+        // location.time) as long as the adapter is alive and the gap is
+        // inside the 15s cap (#98).
+        val fixMs = obd.receivedAtMs
+        cappedFixDtSec(fixMs, session.lastFuelSampleMs)?.let { dtSec ->
+            session.fuelMlAccum += obd.fuelRateLph * (1000.0 / 3600.0) * dtSec
+            // Distance covered while a fuel reading was live — the L/100km
+            // denominator, so a mid-trip disconnect can't make a partial
+            // measurement look like a whole-trip figure.
+            session.fuelSampledMeters += hopMeters.coerceAtLeast(0.0)
+        }
+        session.lastFuelSampleMs = fixMs
+        if (obd.fuelEstimated) session.fuelWasEstimated = true
+    }
 
-        // speedOf() hands back a fabricated 0.0 sentinel for a coarse/no-speed fix
-        // (see its own doc below) — not a real zero-speed measurement. Feeding
-        // that into the physics-based detectors below as if it were real reads a
-        // tunnel/parking-garage GPS gap as "suddenly stopped": a false hard brake,
-        // and potentially a false stop. Real iff this fix's own hasSpeed() is set,
-        // or fresh OBD2/board telemetry supplied the number effectiveSpeedMps is using.
-        val speedIsReal = location.hasSpeed() ||
-            freshBoardTelemetry()?.takeIf { it.hasSpeed } != null ||
-            (stats.mode.tracksGForce && obd?.hasSpeed == true)
-
-        // The hard-brake/accel and stop detectors derive Δt from the timestamp
-        // passed here. When the speed reading came from the OBD adapter, use
-        // that reading's own arrival clock so PID 0D's ~1 Hz jitter lands in
-        // the Δt rather than being flattened to a nominal second (#98). A GPS
-        // speed keeps the GPS clock. Heading-rate cornering stays on
-        // location.time — its signal is the GPS bearing.
-        val recordedFixMs = if (obdSpeedMps != null && obd != null) obd.receivedAtMs else location.time
-
+    private fun detectHardEvents(location: Location, stats: TripStats, fix: FixSpeed) {
         // Thresholds here are scoped to car/moto (tracksGForce) — a bike or walk
         // decelerating normally must not print a "hard brake" meant for a vehicle.
         // Cornering is separately gated: heading-rate below to CAR, lean-based
         // cornering (recordLean) to tracksLean.
         if (stats.mode.tracksGForce) {
-            if (speedIsReal) {
-                val speedResult = HardEventDetector.onSpeedFix(speedEventState, effectiveSpeedMps, recordedFixMs)
-                speedEventState = speedResult.state
-                if (speedResult.hardBrake) hardBrakeCount++
-                if (speedResult.hardAccel) hardAccelCount++
+            if (fix.isReal) {
+                val speedResult =
+                    HardEventDetector.onSpeedFix(session.speedEventState, fix.effectiveMps, fix.recordedFixMs)
+                session.speedEventState = speedResult.state
+                if (speedResult.hardBrake) session.hardBrakeCount++
+                if (speedResult.hardAccel) session.hardAccelCount++
             }
             // No speedIsReal guard needed: a fabricated 0.0 here just fails the
             // MIN_CORNER_SPEED_MPS gate harmlessly inside onHeadingFix.
             if (stats.mode == TravelMode.CAR && location.hasBearing()) {
                 val (nextHeadingState, cornerEvent) = HardEventDetector.onHeadingFix(
-                    headingEventState, location.bearing.toDouble(), effectiveSpeedMps, location.time)
-                headingEventState = nextHeadingState
-                if (cornerEvent) hardCornerCount++
+                    session.headingEventState, location.bearing.toDouble(), fix.effectiveMps, location.time)
+                session.headingEventState = nextHeadingState
+                if (cornerEvent) session.hardCornerCount++
             }
         }
         // Stops/speeding are meaningful for every mode, so no tracksGForce gate
@@ -1800,93 +1325,129 @@ class TripTrackingService : Service() {
         // so this still needs the speedIsReal guard. Skipping entirely (rather
         // than feeding the sentinel) lets the state's stale lastFixMs carry
         // forward, so the next real fix's own Δt naturally spans the gap.
-        if (speedIsReal) {
-            stopState = StopDetector.onFix(stopState, effectiveSpeedMps, recordedFixMs)
+        if (fix.isReal) {
+            session.stopState = StopDetector.onFix(session.stopState, fix.effectiveMps, fix.recordedFixMs)
         }
+    }
 
+    /** Advances the trip's speed-limit state for this fix (fetching ways when
+     *  the tracker asks for them) and folds any time spent over the limit into
+     *  `secondsOverLimit`. Null when the fix carried no real speed measurement. */
+    private fun updateSpeedLimit(location: Location, fix: FixSpeed, now: Long): Boolean? {
         val here = LatLon(location.latitude, location.longitude)
         val bearing = if (location.hasBearing()) location.bearing.toDouble() else null
-        if (effectiveSpeedMps >= SpeedLimitTracker.MIN_MPS &&
-            SpeedLimitTracker.needsWays(tripLimitState, here, now) &&
-            tripLimitFetchJob?.isActive != true
+        if (fix.effectiveMps >= SpeedLimitTracker.MIN_MPS &&
+            SpeedLimitTracker.needsWays(session.tripLimitState, here, now) &&
+            session.tripLimitFetchJob?.isActive != true
         ) {
-            tripLimitState = SpeedLimitTracker.fetchStarted(tripLimitState, now)
-            // serviceScope is already Dispatchers.IO (`:1343`), so no withContext needed here.
-            tripLimitFetchJob = serviceScope.launch {
+            session.tripLimitState = SpeedLimitTracker.fetchStarted(session.tripLimitState, now)
+            // serviceScope is already Dispatchers.IO, so no withContext needed here.
+            session.tripLimitFetchJob = serviceScope.launch {
                 val ways = runCatching { RoadRoulette.speedLimitWays(here) }
                     .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
                     .getOrNull()
-                tripLimitState = SpeedLimitTracker.withWays(tripLimitState, ways, here)
+                session.tripLimitState = SpeedLimitTracker.withWays(session.tripLimitState, ways, here)
             }
         }
-        tripLimitState = SpeedLimitTracker.onFix(tripLimitState, here, bearing, effectiveSpeedMps)
-        val limitKmh = tripLimitState.limitKmh
-        // Same speedIsReal guard as above, and the same reason: a fabricated
-        // zero must not read as "suddenly under the limit" nor have its (bogus)
-        // duration folded into secondsOverLimit. lastLimitFixMs is left stale on
-        // a skipped fix so the next real fix's Δt naturally spans the gap.
-        var currentlyOverLimitNow: Boolean? = null
-        if (speedIsReal) {
-            val over = limitKmh != null && effectiveSpeedMps * 3.6 > limitKmh * OVER_LIMIT_MARGIN
-            if (over) cappedFixDtSec(location.time, lastLimitFixMs)?.let { secondsOverLimit += it }
-            lastLimitFixMs = location.time
-            currentlyOverLimitNow = over
-        }
+        session.tripLimitState = SpeedLimitTracker.onFix(session.tripLimitState, here, bearing, fix.effectiveMps)
+        val limitKmh = session.tripLimitState.limitKmh
+        // Same speedIsReal guard as the detectors, and the same reason: a
+        // fabricated zero must not read as "suddenly under the limit" nor have
+        // its (bogus) duration folded into secondsOverLimit. lastLimitFixMs is
+        // left stale on a skipped fix so the next real fix's Δt spans the gap.
+        if (!fix.isReal) return null
+        val over = limitKmh != null && fix.effectiveMps * 3.6 > limitKmh * OVER_LIMIT_MARGIN
+        if (over) cappedFixDtSec(location.time, session.lastLimitFixMs)?.let { session.secondsOverLimit += it }
+        session.lastLimitFixMs = location.time
+        return over
+    }
 
-        // Reuses the hop the distance accumulator above already computed under both its
-        // guards (accuracy AND recency) rather than tracking a third `lastFixLocation`
-        // anchor with only the accuracy half of that gate — an accuracy-only guard would
-        // let a post-tunnel/post-parking-garage GPS re-acquire, fully accurate but far from
-        // the last real fix, attribute several kilometres to whatever class the reacquire
-        // fix snaps to. `distance` already equals `stats.distanceMeters + hop` if the
-        // accumulator's guard passed, or is unchanged if it didn't. No speedIsReal guard
-        // needed here — this is driven by the accuracy+recency-gated distance hop, not
-        // raw speed.
-        val roadTypeHop = distance - stats.distanceMeters
+    /**
+     * Attributes this fix's banked distance to a road class, fetching ways when
+     * the tracker asks for them.
+     *
+     * [hopMeters] reuses the hop the distance accumulator already computed under
+     * both its guards (accuracy AND recency) rather than tracking a third
+     * `lastFixLocation` anchor with only the accuracy half of that gate — an
+     * accuracy-only guard would let a post-tunnel/post-parking-garage GPS
+     * re-acquire, fully accurate but far from the last real fix, attribute
+     * several kilometres to whatever class the reacquire fix snaps to. It is
+     * zero when the accumulator's guard did not pass. No speedIsReal guard
+     * needed here — this is driven by the accuracy+recency-gated distance hop,
+     * not raw speed.
+     */
+    private fun updateRoadType(
+        location: Location,
+        stats: TripStats,
+        fix: FixSpeed,
+        hopMeters: Double,
+        now: Long,
+    ) {
         // Scoped to car/moto (tracksGForce), same reasoning as the hard-event
-        // block above: a walk/bike's road-type mix isn't part of this stat.
-        if (stats.mode.tracksGForce) {
-            if (effectiveSpeedMps >= SpeedLimitTracker.MIN_MPS &&
-                RoadTypeTracker.needsWays(roadTypeState, here, now) &&
-                roadTypeFetchJob?.isActive != true
-            ) {
-                roadTypeState = RoadTypeTracker.fetchStarted(roadTypeState, now)
-                // serviceScope is already Dispatchers.IO (`:1358`), so no withContext needed here.
-                // Rethrow cancellation rather than let runCatching swallow it (same pattern
-                // Task 4 established for SpeedLimitTracker's fetch) — RoadTypeTracker.fetchWays
-                // is nullable with the identical null-vs-empty contract, so getOrNull, not
-                // getOrDefault(emptyList()): collapsing a cancelled/failed fetch to emptyList()
-                // would make withWays treat it as "confirmed no roads here."
-                roadTypeFetchJob = serviceScope.launch {
-                    val ways = runCatching { RoadTypeTracker.fetchWays(here) }
-                        .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
-                        .getOrNull()
-                    roadTypeState = RoadTypeTracker.withWays(roadTypeState, ways, here)
-                }
-            }
-            if (roadTypeHop > 0.0) {
-                roadTypeState = RoadTypeTracker.onFix(roadTypeState, here, bearing, roadTypeHop)
+        // block: a walk/bike's road-type mix isn't part of this stat.
+        if (!stats.mode.tracksGForce) return
+        val here = LatLon(location.latitude, location.longitude)
+        if (fix.effectiveMps >= SpeedLimitTracker.MIN_MPS &&
+            RoadTypeTracker.needsWays(session.roadTypeState, here, now) &&
+            session.roadTypeFetchJob?.isActive != true
+        ) {
+            session.roadTypeState = RoadTypeTracker.fetchStarted(session.roadTypeState, now)
+            // serviceScope is already Dispatchers.IO, so no withContext needed here.
+            // Rethrow cancellation rather than let runCatching swallow it (same pattern
+            // Task 4 established for SpeedLimitTracker's fetch) — RoadTypeTracker.fetchWays
+            // is nullable with the identical null-vs-empty contract, so getOrNull, not
+            // getOrDefault(emptyList()): collapsing a cancelled/failed fetch to emptyList()
+            // would make withWays treat it as "confirmed no roads here."
+            session.roadTypeFetchJob = serviceScope.launch {
+                val ways = runCatching { RoadTypeTracker.fetchWays(here) }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+                    .getOrNull()
+                session.roadTypeState = RoadTypeTracker.withWays(session.roadTypeState, ways, here)
             }
         }
+        if (hopMeters > 0.0) {
+            val bearing = if (location.hasBearing()) location.bearing.toDouble() else null
+            session.roadTypeState = RoadTypeTracker.onFix(session.roadTypeState, here, bearing, hopMeters)
+        }
+    }
+
+    private fun onTripLocation(location: Location, speed: Double, stats: TripStats) {
+        val now = System.currentTimeMillis()
+
+        val distance = accumulateDistance(location, stats)
+        // The one hop this fix banked, reused by the fuel-economy denominator and
+        // by road-type attribution rather than measured a second time.
+        val hopMeters = TripFixMath.roadTypeHopMeters(distance, stats.distanceMeters)
+
+        if (appendTracePoint(location, speed, stats, now)) return
+
+        if (checkVehicleExit(speed, now)) return
+
+        val fix = resolveSpeed(location, speed, stats)
+
+        foldEngineSummary(fix.obd, stats, hopMeters)
+        detectHardEvents(location, stats, fix)
+        val currentlyOverLimitNow = updateSpeedLimit(location, fix, now)
+        updateRoadType(location, stats, fix, hopMeters, now)
 
         // update (not value =) so the 5 Hz sensor writes aren't clobbered here.
         _stats.update {
             it?.copy(
                 durationMs = now - it.startTimeMs,
                 distanceMeters = distance,
-                currentSpeedMps = effectiveSpeedMps,
-                topSpeedMps = maxOf(it.topSpeedMps, effectiveSpeedMps),
-                hardBrakeCount = hardBrakeCount,
-                hardAccelCount = hardAccelCount,
-                hardCornerCount = hardCornerCount,
-                stopCount = stopState.stopCount,
+                currentSpeedMps = fix.effectiveMps,
+                topSpeedMps = maxOf(it.topSpeedMps, fix.effectiveMps),
+                hardBrakeCount = session.hardBrakeCount,
+                hardAccelCount = session.hardAccelCount,
+                hardCornerCount = session.hardCornerCount,
+                stopCount = session.stopState.stopCount,
                 // Carries the previous value forward on a fix with no real speed
                 // measurement, rather than flickering the HUD signal off.
                 currentlyOverLimit = currentlyOverLimitNow ?: it.currentlyOverLimit,
             )
         }
         // Pick up a mode-bar change made while the trip is running.
-        refreshTripMode()
+        vehicleLinks.refreshTripMode()
     }
 
     private fun speedOf(location: Location): Double {
@@ -1925,10 +1486,10 @@ class TripTrackingService : Service() {
                 at = p,
                 timeMs = timeMs,
                 speedKmh = speedMps * 3.6,
-                leanDeg = if (leanTracked) segmentPeakLeanDeg else null,
+                leanDeg = motionSensors.peakLeanSinceLastTracePoint(),
             )
         )
-        segmentPeakLeanDeg = 0.0
+        motionSensors.resetPeakLean()
         if (tracePoints.size >= 200) flushTrace(keepLast = true)
         _liveTrace.value = tracePoints.map { it.at }
         maybeDiscoverMunicipality(p)
@@ -2011,21 +1572,28 @@ class TripTrackingService : Service() {
      *  down with the service in onDestroy. */
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** The running trip's own recorded state and its two ends — see
+     *  [TripSession]. Declared after [serviceScope] because it takes it by
+     *  value; a `val` above that line would capture an uninitialised scope.
+     *  Private, which is what keeps [TripSession.end] — and with it the
+     *  [SyncClient.syncQuietly] on its tail — reachable only through this
+     *  service's own [endTrip]. */
+    private val session = TripSession(
+        context = this,
+        scope = serviceScope,
+        resolvedVehicle = vehicleLinks::resolvedVehicle,
+        checkBadges = ::checkBadges,
+    )
+
     override fun onDestroy() {
         destroyed = true
         // A coalesced evaluation may still be queued behind this teardown.
         // maybeGoDormant() would bail on `destroyed` anyway; dropping it keeps
         // the handler from holding this instance past its own destruction.
         mainHandler.removeCallbacksAndMessages(null)
-        if (::fusedClient.isInitialized) {
-            fusedClient.removeLocationUpdates(locationCallback)
-        }
-        if (btRegistered) {
-            runCatching { unregisterReceiver(btReceiver) }
-            runCatching { unregisterReceiver(btStateReceiver) }
-            btRegistered = false
-        }
-        Obd2Connection.disconnect()
+        driveTransitions.cancelPendingRegister()
+        if (::locationRequests.isInitialized) locationRequests.stop()
+        vehicleLinks.stop()
         // endTrip()'s save-and-notify tail runs on serviceScope (round-1 fix,
         // off the main thread on every other call site) — but the service is
         // dying right here, so cancelling that scope before the tail runs would
@@ -2037,7 +1605,7 @@ class TripTrackingService : Service() {
         // while its save is still running; join that one instead. `isActive`
         // keeps the old "only sync when a trip just ended" behaviour: a save
         // that already finished needs neither a join nor another sync.
-        val saveJob = endTrip() ?: lastSaveJob?.takeIf { it.isActive }
+        val saveJob = endTrip() ?: session.lastSaveJob?.takeIf { it.isActive }
         if (saveJob != null) {
             kotlinx.coroutines.runBlocking { saveJob.join() }
             // endTrip's own syncQuietly() rides on the unawaited twistiness
@@ -2056,69 +1624,19 @@ class TripTrackingService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun createChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID, "Trip tracking", NotificationManager.IMPORTANCE_LOW,
-        )
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-    }
+    private val notifications = TripNotifications(this)
 
-    private fun notifyBadgesEarned(badges: List<BadgeDef>) {
-        val title = if (badges.size == 1) "Badge earned!" else "${badges.size} badges earned!"
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(title)
-            .setContentText(badges.joinToString(", ") { it.title })
-            .setSmallIcon(android.R.drawable.btn_star_big_on)
-            .setContentIntent(
-                PendingIntent.getActivity(
-                    this, 0, Intent(this, MainActivity::class.java),
-                    PendingIntent.FLAG_IMMUTABLE,
-                )
-            )
-            .setAutoCancel(true)
-            .build()
-        getSystemService(NotificationManager::class.java).notify(3, notification)
-    }
+    private fun createChannel() = notifications.createChannel()
+
+    private fun notifyBadgesEarned(badges: List<BadgeDef>) = notifications.badgesEarned(badges)
 
     private fun updateNotification() {
         if (stopping) return
-        getSystemService(NotificationManager::class.java)
-            .notify(NOTIFICATION_ID, buildNotification())
+        notifications.update(_stats.value, driveTransitions.stationary, ACTION_END_TRIP)
     }
 
-    private fun buildNotification(): android.app.Notification {
-        val contentIntent = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE,
-        )
-        val stats = _stats.value
-        val text = when {
-            stats != null -> "Tracking your ${stats.mode.label.lowercase()} trip…"
-            !Settings.autoDetectDrives.value -> "Auto-tracking off"
-            stationary -> "Standing by"
-            else -> "Watching for trips"
-        }
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.app_name))
-            .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .setContentIntent(contentIntent)
-            .setOngoing(true)
-        // Ending a trip from the shade beats unlocking, finding the app, and
-        // hunting for a button — which is the situation you are in at a kerbside.
-        if (stats != null) {
-            builder.addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                "End trip",
-                PendingIntent.getForegroundService(
-                    this, 2,
-                    Intent(this, TripTrackingService::class.java).setAction(ACTION_END_TRIP),
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                ),
-            )
-        }
-        return builder.build()
-    }
+    private fun buildNotification(): android.app.Notification =
+        notifications.build(_stats.value, driveTransitions.stationary, ACTION_END_TRIP)
 }
 
 /** Fresh OBD2 vehicle speed in m/s from an already-taken [telemetry] snapshot,
@@ -2142,17 +1660,29 @@ internal fun obdSpeedMpsFrom(
     ?.let { it.speedKmh / 3.6 }
 
 /** Seconds between [lastMs] and [nowMs], or null when [lastMs] is unset (0) or
- *  the gap is outside 1..15_000 ms — a tunnel, a Doze window, a BT dropout.
+ *  the gap is outside [TripTrackingService.MIN_FIX_GAP_MS]..[TripTrackingService.MAX_FIX_GAP_MS]
+ *  — a tunnel, a Doze window, a BT dropout.
  *  Dropping the Δt (rather than clamping it) means the *next* real fix's own
  *  gap spans the lost interval, instead of this fix inventing a saturated 15 s
  *  of fuel burn or over-limit time. Shared by the fuel integrator and
- *  secondsOverLimit; the trace-distance gate keeps its own GPS-clock check. */
+ *  secondsOverLimit; the trace-distance gate keeps its own GPS-clock check.
+ *
+ *  Same window as the distance accumulator's, but not the same clock: that gate
+ *  always measures GPS fix times, while this one measures whichever clock the
+ *  caller passes — the OBD reading's arrival time for the fuel accumulators,
+ *  location.time for secondsOverLimit. Kept separate for exactly that reason —
+ *  do not fold one into the other. */
 internal fun cappedFixDtSec(nowMs: Long, lastMs: Long): Double? =
-    (nowMs - lastMs).takeIf { lastMs > 0L && it in 1L..15_000L }?.let { it / 1000.0 }
+    (nowMs - lastMs)
+        .takeIf {
+            lastMs > 0L &&
+                it in TripTrackingService.MIN_FIX_GAP_MS..TripTrackingService.MAX_FIX_GAP_MS
+        }
+        ?.let { it / 1000.0 }
 
 /** Which OBD2 adapter the connection loop should be on right now, or null to
  *  stay disconnected. Pure so the connect/disconnect decision is testable
- *  without a service; the caller ([TripTrackingService.desiredObd2Address])
+ *  without a service; the caller ([VehicleLinks.desiredObd2Address])
  *  gathers the inputs and acts on the result.
  *
  *  - nothing while parked with the app closed and no trip running (#96);

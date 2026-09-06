@@ -240,9 +240,9 @@ object RiderTotals {
      *
      * The expensive call, deliberately separate from [current] so it happens
      * *after* the rider has their numbers rather than before. Callers are the
-     * places already off the main thread — `HubScreen`, `BadgesScreen`,
-     * `FriendsStore.refreshOwn`, and the trip-end badge check in
-     * `TripTrackingService`.
+     * places already off the main thread — `YouPresenter.refresh` (the You
+     * screen), `BadgesScreen`, `FriendsStore.refreshOwn`, and the trip-end
+     * badge check in `TripTrackingService`.
      *
      * A no-op when the record is fresh, and when another caller is already
      * folding.

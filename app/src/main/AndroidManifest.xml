@@ -56,9 +56,16 @@
             android:name="androidx.car.app.minCarApiLevel"
             android:value="1" />
 
+        <!-- windowSoftInputMode: enableEdgeToEdge() alone is not enough below
+             API 30, where WindowInsets.ime commonly reports 0 without
+             adjustResize - and the home sheet's search results expand upward
+             out of a bottom-anchored bar, so they need the sheet to actually
+             lift for the keyboard. Redundant but harmless on API 30+, where the
+             insets API reports the IME either way. -->
         <activity
             android:name=".MainActivity"
             android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

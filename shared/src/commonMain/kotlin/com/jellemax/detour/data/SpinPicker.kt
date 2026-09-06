@@ -4,7 +4,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeout
 import okio.IOException
+
+/** The phone's own bound, moved here so iOS gets it too — see
+ *  `docs/refactor/mapscreen/15-divergence-register.md` entry 9: a spin
+ *  against a wedged routing server used to hang forever on iOS while Android
+ *  bailed out after 30s with a specific message. */
+private const val SPIN_TIMEOUT_MS = 30_000L
 
 /** One spin result awaiting a pick; [route] is null when the routing server
  *  couldn't be reached — the card then shows straight-line distance only. */
@@ -40,15 +47,27 @@ suspend fun pickThreeCandidates(
     poiKind: PoiKind,
     bearing: Double?,
     explored: ExploredArea,
-): List<RouteCandidate> = coroutineScope {
-    val rolls = (1..3).map {
-        async {
-            runCatching {
-                pickCandidate(
-                    config, loc, radiusMeters, minRadiusMeters, mode, poiKind, bearing, explored)
+): List<RouteCandidate> = withTimeout(SPIN_TIMEOUT_MS) {
+    coroutineScope {
+        val rolls = (1..3).map {
+            async {
+                runCatching {
+                    pickCandidate(
+                        config, loc, radiusMeters, minRadiusMeters, mode, poiKind, bearing, explored)
+                }
             }
-        }
-    }.awaitAll()
+        }.awaitAll()
+        collectRolls(rolls)
+    }
+}
+
+/** The composition rule for a spin's three rolls, pulled out of
+ *  [pickThreeCandidates] so it is testable without the network I/O
+ *  [pickCandidate] does: a cancelled roll always propagates rather than
+ *  being counted as a failure (see the class doc above), and only when every
+ *  roll failed does the caller see an error — the first real one, not a
+ *  generic message. */
+internal fun collectRolls(rolls: List<Result<RouteCandidate>>): List<RouteCandidate> {
     rolls.forEach { roll ->
         val e = roll.exceptionOrNull()
         if (e is CancellationException) throw e
@@ -58,7 +77,7 @@ suspend fun pickThreeCandidates(
         throw rolls.firstNotNullOfOrNull { it.exceptionOrNull() }
             ?: IOException("Failed to find a destination")
     }
-    found
+    return found
 }
 
 /** Picks one destination candidate and eagerly routes to it, so the card list

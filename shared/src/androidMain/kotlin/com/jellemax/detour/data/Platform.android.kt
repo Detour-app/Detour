@@ -3,6 +3,8 @@ package com.jellemax.detour.data
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
+import java.text.DecimalFormatSymbols
+import java.util.Locale
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import okio.FileSystem
@@ -64,4 +66,29 @@ actual val fileSystem: FileSystem get() = FileSystem.SYSTEM
 actual class PlatformLock actual constructor() {
     private val lock = ReentrantLock()
     actual fun <T> withLock(block: () -> T): T = lock.withLock(block)
+}
+
+/** The locale this separator was resolved for, paired with the separator
+ *  itself. One `@Volatile` reference rather than two fields, so a reader can
+ *  never see a locale published ahead of the character it goes with. */
+@Volatile private var separatorCache: Pair<Locale, Char>? = null
+
+/** `DecimalFormatSymbols` follows `Locale.getDefault()`, which is what a test
+ *  moves when it wants to see this device look Belgian.
+ *
+ *  Resolved once per locale, not once per call. Under SYSTEM this sits behind
+ *  every distance and g readout in the app, including the ones a `LazyColumn`
+ *  recomposes for each trip-history row on a fling, and `getInstance()` builds
+ *  a fresh symbol set off the locale's ICU data each time it is asked.
+ *
+ *  Keyed on the [Locale] rather than cached outright, so changing the device
+ *  language recomputes on the very next call instead of leaving a stale
+ *  separator behind until the process is killed — the same reason the tests
+ *  can move `Locale.getDefault()` mid-method and still see the new one. */
+actual fun systemDecimalSeparator(): Char {
+    val locale = Locale.getDefault()
+    separatorCache?.let { (cached, separator) -> if (cached == locale) return separator }
+    val separator = DecimalFormatSymbols.getInstance(locale).decimalSeparator
+    separatorCache = locale to separator
+    return separator
 }

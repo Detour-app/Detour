@@ -3,8 +3,6 @@ package com.jellemax.detour.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +19,6 @@ import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.LocationSearching
 import androidx.compose.material.icons.outlined.MyLocation
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Card
@@ -33,82 +30,85 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-/** Map top chrome: a full-width search pill with an avatar that opens the Hub,
- *  and a right-aligned rail of the two controls worth reaching for while
- *  driving (follow toggle, layers). Everything else moved to the Hub. */
+/** Map top chrome: a right-aligned rail of the two controls worth reaching for
+ *  while driving (follow toggle, layers), headed by the convoy pill.
+ *  Everything else moved to the Hub or, with the redesign, to the home sheet —
+ *  the "Where to?" bar and the avatar included.
+ *
+ *  Everything here is End-aligned, the pill included. The speed island is drawn
+ *  by `MapScreen` from the same origin — top inset plus the same 12 dp — and
+ *  Start-aligned, so anything this chrome puts at its own Start would sit on
+ *  top of the island rather than beside it. Keeping the pill in the rail's
+ *  column is what makes that impossible by construction, instead of by a top
+ *  offset on the island that has to be re-derived whenever this column's first
+ *  child changes. */
 @Composable
 internal fun MapTopChrome(
     followMe: Boolean,
     fogEnabled: Boolean,
-    username: String,
     convoyName: String?,
     // Hoisted to MapScreen so a tap on the map can close the panel — the job
     // the Popup's dismissOnClickOutside used to do.
     layersOpen: Boolean,
     onLayersOpenChange: (Boolean) -> Unit,
     onToggleFollow: () -> Unit,
-    onSearch: () -> Unit,
     onToggleFog: () -> Unit,
-    onOpenHub: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        SearchPill(username = username, onSearch = onSearch, onAvatarClick = onOpenHub)
-        AnimatedVisibility(visible = convoyName != null, enter = fadeIn(), exit = fadeOut()) {
-            ConvoyPill(name = convoyName ?: "")
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            // End-aligned because the layers panel below is wider than the 40.dp
-            // buttons: without this the column widens to the card and centres
-            // the buttons in it, shifting them off the rail.
-            Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                horizontalAlignment = Alignment.End,
-            ) {
-                GlassRailButton(
-                    icon = if (followMe) Icons.Outlined.MyLocation else Icons.Outlined.LocationSearching,
-                    contentDescription = if (followMe) "Stop following my location"
-                        else "Follow my location",
-                    tinted = followMe,
-                    onClick = onToggleFollow,
-                )
-                GlassRailButton(
-                    icon = Icons.Outlined.Layers,
-                    contentDescription = "Map layers",
-                    tinted = layersOpen,
-                    onClick = { onLayersOpenChange(!layersOpen) },
-                )
-                // Inline rather than a Popup on purpose. A Popup is its own
-                // window, so the button sitting outside it counted as an
-                // outside-click *and* still ran its own onClick: the panel
-                // closed and reopened on the same tap, and the button could
-                // never close it. One window, one handler, and the toggle is
-                // correct by construction.
-                AnimatedVisibility(visible = layersOpen, enter = fadeIn(), exit = fadeOut()) {
-                    Card(
-                        modifier = Modifier.glassBorder(MaterialTheme.shapes.large),
-                        shape = MaterialTheme.shapes.large,
-                        colors = glassCardColors(),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        // End-aligned because the layers panel below is wider than the
+        // 40.dp buttons: without this the column widens to the card and
+        // centres the buttons in it, shifting them off the rail.
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.End,
+        ) {
+            AnimatedVisibility(visible = convoyName != null, enter = fadeIn(), exit = fadeOut()) {
+                ConvoyPill(name = convoyName ?: "")
+            }
+            GlassRailButton(
+                icon = if (followMe) Icons.Outlined.MyLocation
+                    else Icons.Outlined.LocationSearching,
+                contentDescription = if (followMe) "Stop following my location"
+                    else "Follow my location",
+                tinted = followMe,
+                onClick = onToggleFollow,
+            )
+            GlassRailButton(
+                icon = Icons.Outlined.Layers,
+                contentDescription = "Map layers",
+                tinted = layersOpen,
+                onClick = { onLayersOpenChange(!layersOpen) },
+            )
+            // Inline rather than a Popup on purpose. A Popup is its own
+            // window, so the button sitting outside it counted as an
+            // outside-click *and* still ran its own onClick: the panel
+            // closed and reopened on the same tap, and the button could
+            // never close it. One window, one handler, and the toggle is
+            // correct by construction.
+            AnimatedVisibility(visible = layersOpen, enter = fadeIn(), exit = fadeOut()) {
+                Card(
+                    modifier = Modifier.glassBorder(MaterialTheme.shapes.large),
+                    shape = MaterialTheme.shapes.large,
+                    colors = glassCardColors(),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(
-                            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                if (fogEnabled) Icons.Outlined.Visibility
-                                    else Icons.Outlined.VisibilityOff,
-                                contentDescription = null,
-                            )
-                            Text("Fog of war", modifier = Modifier.weight(1f))
-                            Switch(checked = fogEnabled, onCheckedChange = { onToggleFog() })
-                        }
+                        Icon(
+                            if (fogEnabled) Icons.Outlined.Visibility
+                                else Icons.Outlined.VisibilityOff,
+                            contentDescription = null,
+                        )
+                        Text("Fog of war", modifier = Modifier.weight(1f))
+                        Switch(checked = fogEnabled, onCheckedChange = { onToggleFog() })
                     }
                 }
             }
@@ -116,58 +116,12 @@ internal fun MapTopChrome(
     }
 }
 
-/** Full-width glass search pill: tapping the body opens search, tapping the
- *  avatar opens the Hub. */
-@Composable
-private fun SearchPill(
-    username: String,
-    onSearch: () -> Unit,
-    onAvatarClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth().glassBorder(CircleShape),
-        shape = CircleShape,
-        colors = CardDefaults.cardColors(containerColor = glassContainerColor()),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onSearch)
-                .padding(start = 16.dp, top = 6.dp, bottom = 6.dp, end = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Outlined.Search, contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.width(10.dp))
-            Text(
-                "Where to?",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
-            )
-            Box(
-                Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-                    .clickable(onClick = onAvatarClick),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    username.firstOrNull()?.uppercaseChar()?.toString() ?: "?",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                )
-            }
-        }
-    }
-}
-
-/** Small pill under [SearchPill] naming the convoy this device is currently
- *  live in, i.e. whenever [ConvoyLiveClient.connected] is true. */
+/** Small pill at the head of the top-right rail naming the convoy this device
+ *  is currently live in, i.e. whenever [ConvoyLiveClient.connected] is true.
+ *
+ *  Single-line: the name comes off the server with no length cap, and a wrapped
+ *  one would both grow the pill downwards into the rail and widen it across the
+ *  map towards the speed island on the opposite corner. */
 @Composable
 private fun ConvoyPill(name: String, modifier: Modifier = Modifier) {
     Card(
@@ -187,7 +141,12 @@ private fun ConvoyPill(name: String, modifier: Modifier = Modifier) {
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(8.dp))
-            Text(name, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                name,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

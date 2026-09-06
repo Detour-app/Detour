@@ -16,9 +16,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
-/** One pill in a [PillRow]: rounded, filled when selected. No new dependency —
- *  built on Surface rather than SegmentedButton so it can scroll horizontally
- *  (the direction row) or fill the width evenly (the destination-type row). */
+/** One pill in a [ScrollingPillRow]: rounded, filled when selected. No new
+ *  dependency — built on Surface rather than SegmentedButton so the row can
+ *  scroll horizontally rather than compress its pills to fit. */
 @Composable
 private fun Pill(
     label: String,
@@ -46,23 +46,16 @@ private fun Pill(
     }
 }
 
-/** A row of equal-width pill segments — the destination-type control. */
-@Composable
-internal fun SegmentedPillRow(
-    options: List<String>,
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        options.forEachIndexed { i, label ->
-            Pill(label, i == selectedIndex, { onSelect(i) }, Modifier.weight(1f))
-        }
-    }
-}
-
-/** A horizontally scrolling row of pills — the direction picker, which has
- *  too many options (9) to fit evenly on a phone width. */
+/** A horizontally scrolling row of pills — the direction picker (9 options)
+ *  and the destination-type row.
+ *
+ *  The destination-type row used to be its own equal-width variant, which
+ *  divided the width evenly and so sized every pill to 1/n regardless of its
+ *  label. "Food & drink" and "Viewpoint" did not fit their quarter and were
+ *  cut mid-word, because [Pill] is `maxLines = 1` and the default overflow is
+ *  `Clip` — no ellipsis, so the label simply ended. Sizing each pill to its
+ *  own content fixes that, and scrolling absorbs the overflow on a narrow
+ *  screen instead of truncating. */
 @Composable
 internal fun ScrollingPillRow(
     options: List<String>,

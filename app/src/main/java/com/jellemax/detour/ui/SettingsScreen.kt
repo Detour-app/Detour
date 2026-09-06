@@ -38,17 +38,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Brightness6
-import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.DirectionsCar
-import androidx.compose.material.icons.outlined.Navigation
-import androidx.compose.material.icons.outlined.Speed
-import androidx.compose.material.icons.outlined.SystemUpdate
-import androidx.compose.material.icons.outlined.Tv
-import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -91,7 +82,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.jellemax.detour.BuildConfig
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.syncQuietly
 import com.jellemax.detour.data.TravelMode
@@ -101,13 +91,12 @@ import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.nav.Destination
+import com.jellemax.detour.presentation.formatFixed
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.tracking.DormancyBlocker
 import com.jellemax.detour.tracking.dormancyBlocker
 import com.jellemax.detour.tracking.TripTrackingService
-import com.jellemax.detour.update.ManualCheck
-import com.jellemax.detour.update.UpdateChecker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -122,7 +111,9 @@ import kotlin.math.atan2
  * both the title and a hand-maintained `depth` — the depth is gone with the
  * inference it fed.
  */
-private fun spokeTitle(spoke: Destination.SettingsSpoke): String = when (spoke) {
+// internal, not private: SettingsHub.kt is a second file in this package
+// holding the Settings root, and it calls this to title each row.
+internal fun spokeTitle(spoke: Destination.SettingsSpoke): String = when (spoke) {
     Destination.SettingsAppearanceMap -> "Appearance & map"
     Destination.SettingsTrackingVehicles -> "Tracking & vehicles"
     Destination.SettingsNavigation -> "Navigation"
@@ -130,15 +121,6 @@ private fun spokeTitle(spoke: Destination.SettingsSpoke): String = when (spoke) 
     Destination.SettingsDisplaysMedia -> "Displays & media"
     Destination.SettingsServersSync -> "Servers & sync"
     Destination.SettingsObd2 -> "OBD2 adapter"
-}
-
-private fun updateCheckSubtitle(state: ManualCheck): String = when (state) {
-    ManualCheck.Idle -> "Check for a new release"
-    ManualCheck.Running -> "Checking…"
-    ManualCheck.UpToDate -> "No update found"
-    is ManualCheck.Found -> "Detour ${state.version} available"
-    ManualCheck.Failed -> "Couldn't reach GitHub"
-    is ManualCheck.RateLimited -> "Checked a few times just now — try again shortly"
 }
 
 /**
@@ -156,9 +138,12 @@ private fun updateCheckSubtitle(state: ManualCheck): String = when (state) {
  * per-spoke — #66 put `rememberScrollState()` inside the animated lambda — so
  * only the bar's own state changes hands.
  */
+// internal, not private: SettingsHub.kt is a second file in this package
+// holding the Settings root, and it shares this scaffold rather than
+// duplicating it.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SettingsScaffold(
+internal fun SettingsScaffold(
     title: String,
     onBack: () -> Unit,
     spacing: Dp,
@@ -182,102 +167,6 @@ private fun SettingsScaffold(
 }
 
 /**
- * The Settings root: one row per spoke, plus the update check, which is not a
- * spoke — it acts in place rather than navigating anywhere.
- *
- * [onOpenSpoke] replaced `page = SettingsPage.X`. The screen no longer holds any
- * navigation state and no longer has a `BackHandler` — there is nothing left for
- * one to intercept, because a spoke is an entry on the app's stack and back pops
- * it like any other.
- */
-@Composable
-fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) -> Unit) {
-    val theme by Settings.theme.collectAsStateWithLifecycle()
-    val autoDetect by Settings.autoDetectDrives.collectAsStateWithLifecycle()
-    val avoidHighways by Settings.avoidHighways.collectAsStateWithLifecycle()
-    val fogRadius by Settings.fogRadiusMeters.collectAsStateWithLifecycle()
-    val externalDisplayEnabled by Settings.externalDisplayEnabled.collectAsStateWithLifecycle()
-    val authUsername by Settings.authUsername.collectAsStateWithLifecycle()
-    val manualCheck by UpdateChecker.lastManualCheck.collectAsStateWithLifecycle()
-    val updateScope = rememberCoroutineScope()
-    val context = LocalContext.current
-
-    SettingsScaffold("Settings", onBack, spacing = 10.dp) {
-        HubRow(
-            icon = Icons.Outlined.Brightness6,
-            title = spokeTitle(Destination.SettingsAppearanceMap),
-            subtitle = theme.name.lowercase().replaceFirstChar { it.uppercase() } + " theme",
-            onClick = { onOpenSpoke(Destination.SettingsAppearanceMap) },
-        )
-        HubRow(
-            icon = Icons.Outlined.DirectionsCar,
-            title = spokeTitle(Destination.SettingsTrackingVehicles),
-            subtitle = "Auto-detect drives: " + (if (autoDetect) "on" else "off"),
-            onClick = { onOpenSpoke(Destination.SettingsTrackingVehicles) },
-        )
-        HubRow(
-            icon = Icons.Outlined.Navigation,
-            title = spokeTitle(Destination.SettingsNavigation),
-            subtitle = "Avoid highways: " + (if (avoidHighways) "on" else "off"),
-            onClick = { onOpenSpoke(Destination.SettingsNavigation) },
-        )
-        HubRow(
-            icon = Icons.Outlined.VisibilityOff,
-            title = spokeTitle(Destination.SettingsFog),
-            subtitle = "${fogRadius.toInt()} m reveal radius",
-            onClick = { onOpenSpoke(Destination.SettingsFog) },
-        )
-        HubRow(
-            icon = Icons.Outlined.Tv,
-            title = spokeTitle(Destination.SettingsDisplaysMedia),
-            subtitle = "External display: " + (if (externalDisplayEnabled) "on" else "off"),
-            onClick = { onOpenSpoke(Destination.SettingsDisplaysMedia) },
-        )
-        HubRow(
-            icon = Icons.Outlined.Cloud,
-            title = spokeTitle(Destination.SettingsServersSync),
-            subtitle = if (authUsername.isBlank()) "Not signed in"
-                else "Signed in as $authUsername",
-            onClick = { onOpenSpoke(Destination.SettingsServersSync) },
-        )
-        HubRow(
-            icon = Icons.Outlined.Speed,
-            title = spokeTitle(Destination.SettingsObd2),
-            subtitle = "Connect a vehicle's OBD2 adapter for accurate speed",
-            onClick = { onOpenSpoke(Destination.SettingsObd2) },
-        )
-        // Only where there is a repository to check. A build made without
-        // UPDATE_REPO in the environment has no update mechanism at all, and a
-        // row that silently does nothing when tapped is worse than no row.
-        if (UpdateChecker.isConfigured) {
-            HubRow(
-                icon = Icons.Outlined.SystemUpdate,
-                title = "Check for updates",
-                subtitle = updateCheckSubtitle(manualCheck),
-                onClick = {
-                    // Guarded on Running only. A tap with no tokens left is
-                    // allowed through so the budget can refuse it out loud —
-                    // the subtitle is the whole feedback loop, and a dead row
-                    // would be the silence this issue is about.
-                    if (manualCheck !is ManualCheck.Running) {
-                        updateScope.launch { UpdateChecker.manualCheck(context) }
-                    }
-                },
-            )
-        }
-        Text(
-            "Detour ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 12.dp),
-            textAlign = TextAlign.Center,
-        )
-    }
-}
-
-/**
  * One spoke, with its own top bar.
  *
  * The `when` is exhaustive over [Destination.SettingsSpoke] rather than over the
@@ -288,12 +177,13 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
 fun SettingsSpokeScreen(spoke: Destination.SettingsSpoke, onBack: () -> Unit) {
     val context = LocalContext.current
     val theme by Settings.theme.collectAsStateWithLifecycle()
+    val decimalSeparator by Settings.decimalSeparator.collectAsStateWithLifecycle()
     val autoDetect by Settings.autoDetectDrives.collectAsStateWithLifecycle()
 
     SettingsScaffold(spokeTitle(spoke), onBack, spacing = 16.dp) {
         when (spoke) {
             Destination.SettingsAppearanceMap -> {
-                AppearanceSection(theme)
+                AppearanceSection(theme, decimalSeparator)
                 MapIconSection()
                 RouteColorSection(theme)
                 MapSection()
@@ -321,7 +211,7 @@ fun SettingsSpokeScreen(spoke: Destination.SettingsSpoke, onBack: () -> Unit) {
 }
 
 @Composable
-private fun AppearanceSection(theme: Settings.Theme) {
+private fun AppearanceSection(theme: Settings.Theme, separator: Settings.DecimalSeparator) {
     SettingsSection("Appearance") {
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
             Settings.Theme.entries.forEachIndexed { index, t ->
@@ -345,6 +235,37 @@ private fun AppearanceSection(theme: Settings.Theme) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+
+        Text("Decimal separator", style = MaterialTheme.typography.bodyLarge)
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            Settings.DecimalSeparator.entries.forEachIndexed { index, d ->
+                SegmentedButton(
+                    selected = separator == d,
+                    onClick = { Settings.setDecimalSeparator(d) },
+                    shape = SegmentedButtonDefaults.itemShape(
+                        index = index, count = Settings.DecimalSeparator.entries.size,
+                    ),
+                    label = {
+                        Text(
+                            when (d) {
+                                Settings.DecimalSeparator.SYSTEM -> "System"
+                                Settings.DecimalSeparator.POINT -> "1.2"
+                                Settings.DecimalSeparator.COMMA -> "1,2"
+                            },
+                        )
+                    },
+                )
+            }
+        }
+        Text(
+            "How readouts with a decimal — distances, g, fuel economy, " +
+                "mount offset, map zoom — are written. Speeds round to whole " +
+                "km/h, so they never show one either way. Map coordinates " +
+                "always use a point, so a latitude/longitude pair stays " +
+                "readable.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -757,7 +678,7 @@ private fun MapSection() {
         ) {
             Text("Default zoom", style = MaterialTheme.typography.bodyLarge)
             Text(
-                "%.1f".format(defaultZoom),
+                formatFixed(defaultZoom.toDouble(), 1, Settings.decimalSeparatorChar()),
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Bold,
             )
@@ -1278,7 +1199,7 @@ private fun LeanCalibrationSection() {
             status = if (samples.isNotEmpty()) {
                 val avg = samples.average()
                 Settings.setLeanOffsetDeg(avg.toFloat())
-                "Calibrated: offset %.1f°".format(avg)
+                "Calibrated: offset ${formatFixed(avg, 1, Settings.decimalSeparatorChar())}°"
             } else {
                 "No readings — try again"
             }
@@ -1296,7 +1217,7 @@ private fun LeanCalibrationSection() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            "Current offset: %.1f°".format(offsetDeg),
+            "Current offset: ${formatFixed(offsetDeg.toDouble(), 1, Settings.decimalSeparatorChar())}°",
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Bold,
         )
@@ -1318,17 +1239,22 @@ private fun LeanCalibrationSection() {
 
 /** internal, not private: SettingsDiagnostics.kt is a second file in this
  *  package holding a section, because this one is already past the 1000-line
- *  limit. Duplicating the card there would let the two drift. */
+ *  limit. Duplicating the card there would let the two drift.
+ *
+ *  The header sits above the card, not inside it, so a settings group reads the
+ *  same as the You screen's RIDES group — one design, one definition. The title
+ *  is uppercased here rather than at all 16 call sites. */
 @Composable
 internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
-    Card {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            content()
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel(title.uppercase())
+        ListCard {
+            Column(
+                Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                content()
+            }
         }
     }
 }

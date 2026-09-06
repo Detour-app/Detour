@@ -7,33 +7,36 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ForkLeft
-import androidx.compose.material.icons.filled.ForkRight
-import androidx.compose.material.icons.filled.RoundaboutLeft
-import androidx.compose.material.icons.filled.SportsScore
-import androidx.compose.material.icons.filled.Straight
-import androidx.compose.material.icons.filled.TurnLeft
-import androidx.compose.material.icons.filled.TurnRight
-import androidx.compose.material.icons.filled.TurnSharpLeft
-import androidx.compose.material.icons.filled.TurnSharpRight
-import androidx.compose.material.icons.filled.TurnSlightLeft
-import androidx.compose.material.icons.filled.TurnSlightRight
-import androidx.compose.material.icons.filled.UTurnLeft
-import androidx.compose.material.icons.filled.UTurnRight
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ForkLeft
+import androidx.compose.material.icons.rounded.ForkRight
+import androidx.compose.material.icons.rounded.RoundaboutLeft
+import androidx.compose.material.icons.rounded.SportsScore
+import androidx.compose.material.icons.rounded.Straight
+import androidx.compose.material.icons.rounded.TurnLeft
+import androidx.compose.material.icons.rounded.TurnRight
+import androidx.compose.material.icons.rounded.TurnSharpLeft
+import androidx.compose.material.icons.rounded.TurnSharpRight
+import androidx.compose.material.icons.rounded.TurnSlightLeft
+import androidx.compose.material.icons.rounded.TurnSlightRight
+import androidx.compose.material.icons.rounded.UTurnLeft
+import androidx.compose.material.icons.rounded.UTurnRight
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -43,119 +46,107 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.jellemax.detour.data.NavEngine
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.jellemax.detour.presentation.NavState
+import com.jellemax.detour.presentation.NavThenPill
 
 /** GraphHopper sign code → maneuver arrow. */
 private fun signIcon(sign: Int): ImageVector = when (sign) {
-    -98, -8 -> Icons.Default.UTurnLeft
-    8 -> Icons.Default.UTurnRight
-    -7 -> Icons.Default.ForkLeft
-    7 -> Icons.Default.ForkRight
-    -3 -> Icons.Default.TurnSharpLeft
-    -2 -> Icons.Default.TurnLeft
-    -1 -> Icons.Default.TurnSlightLeft
-    1 -> Icons.Default.TurnSlightRight
-    2 -> Icons.Default.TurnRight
-    3 -> Icons.Default.TurnSharpRight
-    4, 5 -> Icons.Default.SportsScore
-    6 -> Icons.Default.RoundaboutLeft
-    else -> Icons.Default.Straight
+    -98, -8 -> Icons.Rounded.UTurnLeft
+    8 -> Icons.Rounded.UTurnRight
+    -7 -> Icons.Rounded.ForkLeft
+    7 -> Icons.Rounded.ForkRight
+    -3 -> Icons.Rounded.TurnSharpLeft
+    -2 -> Icons.Rounded.TurnLeft
+    -1 -> Icons.Rounded.TurnSlightLeft
+    1 -> Icons.Rounded.TurnSlightRight
+    2 -> Icons.Rounded.TurnRight
+    3 -> Icons.Rounded.TurnSharpRight
+    4, 5 -> Icons.Rounded.SportsScore
+    6 -> Icons.Rounded.RoundaboutLeft
+    else -> Icons.Rounded.Straight
 }
 
-/** Top banner during navigation: next maneuver, distance to it. */
+/**
+ * Top banner during navigation: the maneuver arrow, how far to it, the
+ * instruction, and — in the trailing slot — the maneuver after it. Every
+ * readout is a pre-formatted string off [state]; nothing is computed here.
+ */
 @Composable
-fun NavigationBanner(
-    progress: NavEngine.Progress?,
-    rerouting: Boolean,
-    modifier: Modifier = Modifier,
-) {
+fun NavigationBanner(state: NavState, modifier: Modifier = Modifier) {
     Card(
         modifier = modifier.glassBorder(MaterialTheme.shapes.extraLarge),
         shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            // Kept a touch more opaque than the other overlays: the turn
-            // instruction has to read at a glance at speed.
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Row(
-            Modifier.padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // The speed limit lives on the speed HUD; showing it twice was noise.
-            val instruction = progress?.nextInstruction
-            Icon(
-                signIcon(instruction?.sign ?: 0),
-                contentDescription = null,
-                Modifier.size(64.dp),
-            )
-            Column {
-                Text(
-                    when {
-                        rerouting -> "Rerouting…"
-                        progress == null -> "Waiting for GPS…"
-                        else -> formatDistanceKm(progress.distanceToTurnMeters)
-                    },
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    instruction?.text ?: "",
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 2,
-                )
-            }
-        }
-    }
-}
-
-/** Small glass pill under the banner naming the maneuver after the current
- *  one, so a driver can see a turn-then-turn coming before the first is done. */
-@Composable
-fun ThenPill(
-    progress: NavEngine.Progress?,
-    modifier: Modifier = Modifier,
-) {
-    val nextNext = progress?.nextNextInstruction ?: return
-    val distance = progress.distanceToNextNextMeters ?: return
-    Card(
-        modifier = modifier.glassBorder(CircleShape),
-        shape = CircleShape,
         colors = glassCardColors(),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                "then",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            // The speed limit lives on the speed HUD; showing it twice was noise.
+            Icon(
+                signIcon(state.maneuverSign),
+                contentDescription = null,
+                Modifier.size(38.dp),
+                tint = MaterialTheme.colorScheme.primary,
             )
-            Icon(signIcon(nextNext.sign), contentDescription = null, Modifier.size(20.dp))
-            Text(formatDistanceKm(distance), style = MaterialTheme.typography.labelMedium)
+            Column(Modifier.weight(1f)) {
+                Text(
+                    state.headlineText,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    state.maneuverText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+            }
+            state.thenPill?.let { ThenChip(it) }
         }
     }
 }
 
-/** Bottom bar during navigation: route progress, remaining distance, arrival
- *  time, exit. */
+/** The maneuver after the current one, tucked into the banner's trailing slot
+ *  so a driver can see a turn-then-turn coming before the first is done. Drawn
+ *  only when there is one: past the last turn [NavState.thenPill] is null. */
+@Composable
+private fun ThenChip(pill: NavThenPill) {
+    Column(
+        Modifier
+            .clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            signIcon(pill.sign),
+            contentDescription = null,
+            Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            "then ${pill.distanceText}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Bottom bar during navigation: route progress, arrival time, what is left of
+ *  the route, and the way out. */
 @Composable
 fun NavigationBottomBar(
-    progress: NavEngine.Progress?,
-    offRoute: Boolean,
+    state: NavState,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -166,50 +157,47 @@ fun NavigationBottomBar(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column {
-            // Guard divide-by-zero: no route yet (routeMeters == 0) reads as
-            // just-departed rather than crashing the fraction.
-            val fraction = progress?.let {
-                if (it.routeMeters > 0) (1.0 - it.remainingMeters / it.routeMeters)
-                    .coerceIn(0.0, 1.0).toFloat()
-                else 0f
-            } ?: 0f
-            RouteProgressTrack(fraction, Modifier.fillMaxWidth())
+            RouteProgressTrack(state.progressFraction, Modifier.fillMaxWidth())
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                    .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
+                Column(Modifier.weight(1f)) {
                     Text(
-                        progress?.let {
-                            "${formatDistanceKm(it.remainingMeters)} · " +
-                                "%.0f min".format((it.remainingTimeMs ?: 0L) / 60_000.0)
-                        } ?: "—",
+                        state.arrivalText,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
+                        color = if (state.offRoute) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        when {
-                            offRoute -> "Off route"
-                            else -> progress?.remainingTimeMs?.let { "Arrival ${eta(it)}" } ?: ""
-                        },
+                        state.remainingText,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (offRoute) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                IconButton(
+                OutlinedButton(
                     onClick = onExit,
-                    modifier = Modifier.size(34.dp),
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    // The visible label is "End"; keep the fuller phrase for a
+                    // screen reader, which has no map next to it for context.
+                    modifier = Modifier.semantics { contentDescription = "End navigation" },
+                    shape = CircleShape,
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.error.copy(alpha = 0.5f),
                     ),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.14f),
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = "Exit navigation",
-                        Modifier.size(18.dp))
+                    Icon(Icons.Rounded.Close, contentDescription = null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("End", style = MaterialTheme.typography.labelLarge)
                 }
             }
         }
@@ -244,14 +232,15 @@ private fun RouteProgressTrack(fraction: Float, modifier: Modifier = Modifier) {
     }
 }
 
-private fun eta(remainingMs: Long): String =
-    SimpleDateFormat("HH:mm", Locale.getDefault())
-        .format(Date(System.currentTimeMillis() + remainingMs))
-
-/** EU-style round speed limit sign: white disc, thick red ring, big black number. */
+/** EU-style round speed limit sign: white disc, thick red ring, big black
+ *  number. Takes the number already rendered (`speedHudStateFrom`'s
+ *  `limitSignText`) —
+ *  a sign shows the posted figure and the truncation that gets there lives with
+ *  the rest of the HUD's wording, in `:shared`. Null draws nothing, which is how
+ *  callers say "no posted limit here". */
 @Composable
-fun SpeedLimitSign(kmh: Double?, size: Dp = 64.dp, modifier: Modifier = Modifier) {
-    if (kmh == null) return
+fun SpeedLimitSign(text: String?, size: Dp = 64.dp, modifier: Modifier = Modifier) {
+    if (text == null) return
     Box(
         modifier
             .size(size)
@@ -263,7 +252,7 @@ fun SpeedLimitSign(kmh: Double?, size: Dp = 64.dp, modifier: Modifier = Modifier
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            kmh.toInt().toString(),
+            text,
             color = Color.Black,
             fontWeight = FontWeight.Black,
             fontSize = (size.value * 0.38f).sp,

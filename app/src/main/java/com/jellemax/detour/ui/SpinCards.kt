@@ -1,6 +1,7 @@
 package com.jellemax.detour.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,9 +15,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Casino
-import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.rounded.BlurOn
+import androidx.compose.material.icons.rounded.Casino
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -26,27 +29,39 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.PoiKind
 import com.jellemax.detour.data.RouteResult
+import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.presentation.DIRECTION_NAMES
+import com.jellemax.detour.presentation.spinStateFrom
 import com.jellemax.detour.tracking.TripStats
 
-internal val DIRECTION_NAMES = listOf("North", "North-east", "East", "South-east",
-    "South", "South-west", "West", "North-west")
+/** Same hue `MapLibreMap.kt` paints for the live "reach" circle on the map -
+ *  not a `GraphiteTheme` token (that circle is native map paint, not Compose),
+ *  reused here so the result callout's pin matches the pin already on the
+ *  map for the same destination. */
+private val DESTINATION_ORANGE = Color(0xFFFF9800)
 
-/** The spin sheet: everything the dock's left cell expands into. Same glass
- *  card the dock uses, just taller — a drag-handle bar stands in for an
- *  actual drag gesture, tap it (or the chevron) to fold back to the dock. */
+/** The spin sheet: everything the home sheet's Spin chip expands into. Same
+ *  glass card the home sheet uses, just taller — a drag-handle bar stands in
+ *  for an actual drag gesture, tap it (or the chevron) to fold back to the
+ *  home sheet. */
 @Composable
 internal fun SpinSheet(
     mode: TravelMode,
+    onSelectMode: (TravelMode) -> Unit,
     radiusKm: Float,
     onRadiusChange: (Float) -> Unit,
     minRadiusKm: Float,
@@ -98,13 +113,20 @@ internal fun SpinSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    "Spin a destination",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.Casino, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "Spin the map",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
                 IconButton(onClick = onCollapse, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Outlined.ExpandMore, contentDescription = "Collapse")
+                    Icon(Icons.Rounded.ExpandMore, contentDescription = "Collapse")
                 }
             }
 
@@ -113,18 +135,71 @@ internal fun SpinSheet(
                     style = MaterialTheme.typography.bodySmall)
             }
 
+            // The phone's only travel-mode switch, and it sits above every row
+            // the mode governs - the Unexplored badge, the destination-type
+            // row, the slider's label and its range all react below it, so a
+            // change reads as an effect of this control rather than as the
+            // sheet rearranging itself. The row itself carries the
+            // description: the pills are two words with no shared subject, and
+            // "Switch to Moto" was the accessibility action the retired swipe
+            // gesture used to expose.
+            Text("Mode", style = MaterialTheme.typography.labelLarge)
+            ScrollingPillRow(
+                options = TravelMode.entries.map { it.label },
+                selectedIndex = TravelMode.entries.indexOf(mode),
+                onSelect = { onSelectMode(TravelMode.entries[it]) },
+                modifier = Modifier.semantics {
+                    contentDescription = "Travel mode, ${mode.label} selected"
+                },
+            )
+
+            // Purely informational - spin() biases the point/road roll toward
+            // fog-of-war territory by passing ExploredArea.load() into
+            // pickThreeCandidates. Round-trip mode takes neither
+            // (RoutingClient.roundTrip and RoundTripPlanner.plan have no
+            // ExploredArea parameter), so the badge is gated off there rather
+            // than claiming a bias the loop planner does not apply. No onClick:
+            // there is no opt-out wired into spin() to toggle, so this isn't a
+            // control.
+            if (!mode.roundTrip) {
+                Row {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Rounded.BlurOn, contentDescription = null,
+                                modifier = Modifier.size(15.dp),
+                                tint = MaterialTheme.colorScheme.primary)
+                            Text("Unexplored", style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                }
+            }
+
             // roundTrip is a fixed property of the mode (only Moto has it), not
             // a chooseable segment — so it gates the destination-type row the
             // same way it always gated the old dropdown, rather than adding a
             // "Loop" option to pick.
             if (!mode.roundTrip) {
-                SegmentedPillRow(
+                ScrollingPillRow(
                     options = PoiKind.entries.map { it.label },
                     selectedIndex = PoiKind.entries.indexOf(poiKind),
                     onSelect = { onPoiKindChange(PoiKind.entries[it]) },
                 )
             }
 
+            // Every number below comes off spinStateFrom's radiusText - the
+            // same %-decimal-below-maxKm/whole-number-at-or-above rule the
+            // candidates card's rows read off it, so no two surfaces format
+            // the same radiusKm differently. The candidate list is irrelevant
+            // to this readout, so an empty roll is enough to reuse the mapper.
+            val radiusState =
+                spinStateFrom(mode, radiusKm, emptyList(), Settings.decimalSeparatorChar())
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -134,18 +209,12 @@ internal fun SpinSheet(
                     style = MaterialTheme.typography.labelLarge,
                 )
                 Text(
-                    if (mode.maxKm <= 10f) "%.1f km".format(radiusKm)
-                    else "${radiusKm.toInt()} km",
+                    radiusState.radiusText,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                 )
             }
-            route?.distanceMeters?.let {
-                Text("Loop found: ${formatDistanceKm(it)}", style = MaterialTheme.typography.bodySmall)
-            }
-            destinationName?.let {
-                Text("→ $it", style = MaterialTheme.typography.bodySmall)
-            }
+
             Slider(
                 value = radiusKm,
                 onValueChange = onRadiusChange,
@@ -159,9 +228,16 @@ internal fun SpinSheet(
                 ) {
                     Text("Min distance", style = MaterialTheme.typography.labelLarge)
                     Text(
+                        // "Off" is a state label, not a number - kept as a literal.
+                        // The km case reuses radiusText's own mode.maxKm cutoff via
+                        // spinStateFrom rather than re-deriving it here, so a
+                        // min-distance reading is always formatted exactly the
+                        // same way a radius reading is.
                         if (minRadiusKm <= 0f) "Off"
-                        else if (mode.maxKm <= 10f) "%.1f km".format(minRadiusKm)
-                        else "${minRadiusKm.toInt()} km",
+                        else spinStateFrom(
+                            mode, minRadiusKm, emptyList(),
+                            Settings.decimalSeparatorChar(),
+                        ).radiusText,
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                     )
@@ -180,6 +256,49 @@ internal fun SpinSheet(
                 onSelect = { i -> onDirectionChange(if (i == 0) null else (i - 1) * 45f) },
             )
 
+            // The prototype's result callout: a spin's outcome (a loop's
+            // distance, a chosen candidate's name and/or its route distance)
+            // in one highlighted row instead of two independent optional
+            // lines of text. Hidden while a spin runs: spin() only clears the
+            // previous destination/route once its network work returns, so the
+            // row would otherwise keep advertising the last result as if it
+            // were the pending one - and its Re-spin shares onSpin with the
+            // button below, which toggles to Cancel while spinning. With the
+            // gate, Re-spin only renders when onSpin still rolls.
+            val resultDistance = route?.distanceMeters?.let { formatDistanceKm(it) }
+            if (!spinning && (destinationName != null || resultDistance != null)) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.large)
+                        .border(1.dp, DESTINATION_ORANGE.copy(alpha = 0.4f), MaterialTheme.shapes.large)
+                        .padding(horizontal = 13.dp, vertical = 11.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Rounded.LocationOn, contentDescription = null,
+                        tint = DESTINATION_ORANGE)
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            destinationName ?: "Loop found",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        resultDistance?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Text(
+                        "Re-spin",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clickable(onClick = onSpin),
+                    )
+                }
+            }
+
             Button(
                 onClick = onSpin,
                 modifier = Modifier
@@ -189,7 +308,7 @@ internal fun SpinSheet(
                 if (spinning) {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                 } else {
-                    Icon(Icons.Outlined.Casino, contentDescription = null, Modifier.size(20.dp))
+                    Icon(Icons.Rounded.Casino, contentDescription = null, Modifier.size(20.dp))
                 }
                 Spacer(Modifier.width(10.dp))
                 Text(
@@ -212,7 +331,7 @@ internal fun SpinSheet(
                 )
                 if (stats == null) {
                     OutlinedButton(onClick = onTrack, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Outlined.PlayArrow, contentDescription = null, Modifier.size(18.dp))
+                        Icon(Icons.Rounded.PlayArrow, contentDescription = null, Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("Track ${mode.label.lowercase()}", maxLines = 1)
                     }
