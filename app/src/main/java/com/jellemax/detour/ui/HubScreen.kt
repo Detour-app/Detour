@@ -55,7 +55,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.auth.AuthBrowser
 import com.jellemax.detour.auth.PendingSignIn
@@ -170,14 +169,7 @@ fun HubScreen(
 
             YouStatsRow(state)
 
-            Text(
-                "RIDES",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 1.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 4.dp),
-            )
+            SectionLabel("RIDES")
 
             ListCard {
                 HubRow(
