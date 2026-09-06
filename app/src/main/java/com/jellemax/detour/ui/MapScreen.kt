@@ -87,7 +87,6 @@ import com.jellemax.detour.data.pickThreeCandidates
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
-import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.drive.CameraPrefetch
@@ -353,22 +352,6 @@ fun MapScreen(
     // Keep the min-distance floor from exceeding the radius as the slider moves.
     LaunchedEffect(radiusKm) {
         if (minRadiusKm > radiusKm) minRadiusKm = radiusKm
-    }
-
-    // Pull from the sync server on launch: restores everything after a
-    // reinstall and picks up trips recorded while the app was closed. Gated
-    // by SyncClient.syncIfDue() so relaunching soon after a sync (the common
-    // case) doesn't re-pay the full-history round trip every time.
-    LaunchedEffect(Unit) {
-        if (SyncClient.configured() && Account.signedIn) {
-            withContext(Dispatchers.IO) {
-                try {
-                    SyncClient.syncIfDue()
-                } catch (e: Exception) {
-                    // offline, server down, or signed out; next launch catches up
-                }
-            }
-        }
     }
 
     // Re-fetch when sharing is switched on, and drop what we hold the moment it

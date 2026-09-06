@@ -49,6 +49,7 @@ import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.Auth
 import com.jellemax.detour.data.RouteStore
+import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
@@ -240,6 +241,22 @@ private fun AppRoot() {
     // rememberNavBackStack, not remember: the stack goes into saved state, so it
     // survives a rotation and a process death. `screen` was a plain `remember`,
     // which is why a rotation anywhere in the app used to return the rider to the
+    // Pull from the sync server on launch: restores everything after a
+    // reinstall and picks up trips recorded while the app was closed. Gated
+    // by SyncClient.syncIfDue() so relaunching soon after a sync (the common
+    // case) doesn't re-pay the full-history round trip every time.
+    LaunchedEffect(Unit) {
+        if (SyncClient.configured() && Account.signedIn) {
+            withContext(Dispatchers.IO) {
+                try {
+                    SyncClient.syncIfDue()
+                } catch (e: Exception) {
+                    // offline, server down, or signed out; next launch catches up
+                }
+            }
+        }
+    }
+
     // map.
     val backStack = rememberNavBackStack(Destination.Map)
 
