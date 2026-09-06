@@ -601,16 +601,18 @@ class TripTrackingService : Service() {
 
     /** OBD2 -> board telemetry -> phone GPS, highest priority first, each used
      *  only while fresh. Single definition of the priority chain that
-     *  onTripLocation's effectiveSpeedMps and _lastFix both read. [obd] defaults
-     *  to a fresh snapshot; onTripLocation passes the one it already took for
-     *  that fix so its speed, attribution and engine-summary reads agree. */
+     *  onTripLocation's effectiveSpeedMps and _lastFix both read. [obd] and
+     *  [board] default to fresh snapshots; onTripLocation passes the ones it
+     *  already took for that fix so its speed, attribution, engine-summary and
+     *  speedIsReal reads all agree. */
     private fun resolveDisplaySpeedMps(
         gpsSpeedMps: Double,
         mode: TravelMode,
         obd: ObdTelemetry? = freshObdTelemetry(),
+        board: BoardTelemetry? = freshBoardTelemetry(),
     ): Double =
         obdSpeedMpsFrom(obd, gpsSpeedMps, mode)
-            ?: freshBoardTelemetry()
+            ?: board
                 ?.takeIf { it.hasSpeed }
                 ?.let { it.speedKmh / 3.6 }
             ?: gpsSpeedMps
@@ -1307,13 +1309,18 @@ class TripTrackingService : Service() {
         // counter, the engine-summary fold and speedIsReal all read the same
         // values, so a poll landing mid-function can't make them disagree.
         val obd = freshObdTelemetry()
+        // Same rule for the board's BLE telemetry, and for the same reason: the
+        // speed chain and speedIsReal below both consult it, and a packet
+        // landing between two reads would let speedIsReal vouch for a number
+        // effectiveSpeedMps never saw (or drop a fix it did).
+        val board = freshBoardTelemetry()
 
         // Best-available speed for the recorded-trip pipeline (hard-event / stop
         // detectors, SpeedLimitTracker, RoadTypeTracker, persisted topSpeedMps).
         // See resolveDisplaySpeedMps for the OBD2/board/GPS priority. `speed`
         // above still drives auto-start/stop and the fog trace, which stay on the
         // phone's own GPS pipeline regardless of what's paired.
-        val effectiveSpeedMps = resolveDisplaySpeedMps(speed, stats.mode, obd)
+        val effectiveSpeedMps = resolveDisplaySpeedMps(speed, stats.mode, obd, board)
 
         // Which source actually drove that number, for the per-trip
         // obd2SpeedPct. Same decision resolveDisplaySpeedMps uses for its OBD2
@@ -1377,7 +1384,7 @@ class TripTrackingService : Service() {
         // and potentially a false stop. Real iff this fix's own hasSpeed() is set,
         // or fresh OBD2/board telemetry supplied the number effectiveSpeedMps is using.
         val speedIsReal = location.hasSpeed() ||
-            freshBoardTelemetry()?.takeIf { it.hasSpeed } != null ||
+            board?.takeIf { it.hasSpeed } != null ||
             (stats.mode.tracksGForce && obd?.hasSpeed == true)
 
         // The hard-brake/accel and stop detectors derive Δt from the timestamp
