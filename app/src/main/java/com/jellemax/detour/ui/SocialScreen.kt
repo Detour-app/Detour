@@ -57,6 +57,15 @@ fun SocialScreen(
     val username by Account.username.collectAsStateWithLifecycle()
     val riderId by Account.riderId.collectAsStateWithLifecycle()
 
+    // The same predicate You decides guest-vs-signed-in on, re-read whenever the
+    // collected username above recomposes this — which is how HubScreen already
+    // reaches it (its YouPresenter.refresh() is keyed on Account.username and
+    // reads Account.signedIn). A blank handle is *not* the question: a signed-in
+    // rider can have one, because Auth.carriedUsername refuses to carry a stored
+    // name forward when the access token's subject does not match the stored
+    // account scope.
+    val signedIn = Account.signedIn
+
     // Same staleness reload CirclesScreen does on entry (Hub -> Social -> Hub ->
     // Social is not a new visit); reloadIfStale skips the round trip inside its
     // window.
@@ -82,12 +91,12 @@ fun SocialScreen(
                     modifier = Modifier
                         .padding(end = 16.dp)
                         // Names the screen the tap actually opens. A guest gets
-                        // You, which is where the sign-in card lives; the blank
-                        // handle is the same thing [onOpenAccount] routes on,
-                        // so the label and the destination cannot disagree.
+                        // You, which is where the sign-in card lives; this reads
+                        // the same predicate [onOpenAccount] routes on, so the
+                        // label and the destination cannot disagree.
                         .semantics {
                             contentDescription =
-                                if (username.isBlank()) "Sign in" else "Profile & account"
+                                if (signedIn) "Profile & account" else "Sign in"
                         },
                 ) {
                     Box(

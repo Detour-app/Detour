@@ -319,14 +319,15 @@ private fun AppRoot() {
                     onBack = { backStack.pop() },
                     // Profile has no signed-out state — it offers a rider who
                     // never signed in a "Sign out" button — so a guest goes to
-                    // Hub, which carries the sign-in card. Auth.clear() blanks
-                    // the handle in the same write that blanks the token, which
-                    // is what makes it the thing screens read to tell the two
-                    // apart, and what the avatar's own label reads.
+                    // Hub, which carries the sign-in card. Account.signedIn is
+                    // the refresh token and nothing else, which is what You
+                    // decides the same thing on; the handle is no substitute,
+                    // since Auth.carriedUsername leaves a signed-in rider blank
+                    // whenever the token's subject and the stored account scope
+                    // disagree. Social's avatar labels itself off this too.
                     onOpenAccount = {
                         backStack.push(
-                            if (Account.username.value.isBlank()) Destination.Hub
-                            else Destination.Profile
+                            if (Account.signedIn) Destination.Profile else Destination.Hub
                         )
                     },
                     onOpenFriends = { backStack.push(Destination.Friends) },
