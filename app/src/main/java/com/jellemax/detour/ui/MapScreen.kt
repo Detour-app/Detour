@@ -1451,6 +1451,15 @@ fun MapScreen(
                 // exactly when a lagging fog is most visible.
                 fogView.currentLocation = here
                 fogView.invalidate()
+                // And so does the seam between the road behind and the road ahead,
+                // off the same eased point rather than off the fix — the whole
+                // reason it used to advance in steps under a marker that glided.
+                // `navigating` and `route` are read live rather than keyed: this
+                // loop must not restart when either changes (see the accumulators
+                // above), and a snapshot read inside the body sees them anyway.
+                if (navigating) route?.let {
+                    overlays.setDrivenFraction(NavEngine.lineProgress(it.polyline, here))
+                }
                 lastLat = here.lat
                 lastLon = here.lon
             }
@@ -1474,10 +1483,10 @@ fun MapScreen(
         val pos = LatLon(fix.lat, fix.lon)
         val progress = NavEngine.progress(r, pos) ?: return@LaunchedEffect
         navProgress = progress
-        // Fade out the road already behind you. Cheap when it changes nothing —
-        // the overlay drops an update that wouldn't move the line (see
-        // MapOverlays.setDrivenFraction).
-        mapOverlays?.setDrivenFraction(progress.drivenFraction)
+        // No setDrivenFraction here: the marker's frame loop above fades the road
+        // behind you off its own eased position. A per-fix write would fight that,
+        // dragging the seam back to the raw fix once a second under a marker that
+        // has already moved on.
         BleNavServer.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
 
         // Same policy the head unit and iOS read, so the three surfaces cannot

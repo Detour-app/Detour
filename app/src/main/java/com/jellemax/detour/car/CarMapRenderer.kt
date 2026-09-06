@@ -284,8 +284,11 @@ class CarMapRenderer(
     }
 
     /** How much of the route is behind us (0..1), so the map can fade it out.
-     *  A per-fix call, and a cheap one: the overlay skips an update that
-     *  wouldn't visibly move the line. */
+     *  A per-fix call, and a cheap one: the overlay repaints the line rather
+     *  than re-pushing its geometry, and skips a fraction it has already drawn.
+     *  Per fix rather than per camera tick because a head unit's frame budget
+     *  is the scarce thing here — the seam lands a second of travel behind the
+     *  marker at worst, which the phone's frame loop no longer does. */
     fun setDrivenFraction(fraction: Double?) {
         drivenFraction = fraction
         withOverlays { it.setDrivenFraction(fraction) }

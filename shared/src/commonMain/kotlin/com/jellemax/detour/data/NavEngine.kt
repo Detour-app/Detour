@@ -3,9 +3,11 @@ package com.jellemax.detour.data
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.hypot
+import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
+import kotlin.math.tan
 
 /** Route-following math for in-app navigation. Pure functions, no state. */
 object NavEngine {
@@ -150,6 +152,59 @@ object NavEngine {
         // Rounding only: the loop above returns for every fraction under 1.
         return out
     }
+
+    /**
+     * Where [pos] sits along [line], 0..1, measured the way a renderer's
+     * `line-progress` measures it: as a share of the line's length in Web
+     * Mercator rather than on the ground.
+     *
+     * That distinction is the whole reason this exists next to
+     * [Progress.drivenFraction], which is a share of the *ground* length. A
+     * map normalises a line by its projected length, and Mercator stretches
+     * northwards by sec(latitude) — so on a route that climbs a degree or two
+     * of latitude the two fractions disagree by enough to leave the seam
+     * between driven and undriven a few hundred metres off the rider. Ground
+     * metres are the honest number for a distance readout; this one is the
+     * honest number for painting.
+     *
+     * Same nearest-segment snap as [progress], and allocation-free: this runs
+     * once per displayed frame while navigating.
+     */
+    fun lineProgress(line: List<LatLon>, pos: LatLon): Double {
+        if (line.size < 2) return 0.0
+        val px = pos.lon
+        val py = mercatorLat(pos.lat)
+        var ax = line[0].lon
+        var ay = mercatorLat(line[0].lat)
+        var walked = 0.0
+        var bestDist = Double.MAX_VALUE
+        var bestAlong = 0.0
+        for (i in 1 until line.size) {
+            val bx = line[i].lon
+            val by = mercatorLat(line[i].lat)
+            val dx = bx - ax
+            val dy = by - ay
+            val segLen2 = dx * dx + dy * dy
+            val segLen = sqrt(segLen2)
+            // Project pos onto segment A→B, clamped to it.
+            val t = if (segLen2 == 0.0) 0.0
+                else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / segLen2))
+            val d = hypot(px - (ax + t * dx), py - (ay + t * dy))
+            if (d < bestDist) {
+                bestDist = d
+                bestAlong = walked + t * segLen
+            }
+            walked += segLen
+            ax = bx
+            ay = by
+        }
+        return if (walked > 0.0) (bestAlong / walked).coerceIn(0.0, 1.0) else 0.0
+    }
+
+    /** Latitude on the Web Mercator y-axis, in degrees so it shares a scale
+     *  with the longitudes [lineProgress] pairs it with. */
+    private fun mercatorLat(lat: Double): Double =
+        ln(tan(PI / 4.0 + lat * PI / 360.0)) * 180.0 / PI
 
     /** Straight-line metres between two neighbouring route points. */
     private fun segmentMeters(a: LatLon, b: LatLon): Double {

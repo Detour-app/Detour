@@ -424,6 +424,44 @@ class NavEngineTest {
     }
 
     @Test
+    fun lineProgressSnapsToTheNearestPointOnTheLine() {
+        // Beside the line rather than on it: the snap is what decides the answer.
+        assertEquals(
+            0.5,
+            NavEngine.lineProgress(straightLine, LatLon(50.02, 3.001)),
+            absoluteTolerance = 1e-3,
+        )
+        // Off either end it clamps rather than running past the line.
+        assertEquals(
+            0.0, NavEngine.lineProgress(straightLine, LatLon(49.5, 3.0)), absoluteTolerance = 1e-9)
+        assertEquals(
+            1.0, NavEngine.lineProgress(straightLine, LatLon(50.5, 3.0)), absoluteTolerance = 1e-9)
+        // Nothing to be along.
+        assertEquals(
+            0.0, NavEngine.lineProgress(emptyList(), LatLon(50.0, 3.0)), absoluteTolerance = 0.0)
+        assertEquals(
+            0.0,
+            NavEngine.lineProgress(listOf(LatLon(50.0, 3.0)), LatLon(50.0, 3.0)),
+            absoluteTolerance = 0.0,
+        )
+    }
+
+    @Test
+    fun lineProgressMeasuresTheLineInMercatorNotOnTheGround() {
+        // Two degrees of latitude, so Mercator's stretch northwards is big
+        // enough to see: the northern half of the line is the longer one there,
+        // which puts the ground-halfway point short of halfway along it. The
+        // expected value is ln(tan(45° + φ/2)) evaluated at the three latitudes
+        // — the projection's own definition, not a number read off a run.
+        val meridian = listOf(LatLon(50.0, 3.0), LatLon(51.0, 3.0), LatLon(52.0, 3.0))
+        val halfway = NavEngine.lineProgress(meridian, LatLon(51.0, 3.0))
+        assertEquals(0.494611, halfway, absoluteTolerance = 1e-5)
+        // And that this is worth the trouble: drivenFraction, measured on the
+        // ground, would have said 0.5 — a kilometre out on a line this long.
+        assertTrue(0.5 - halfway > 0.005)
+    }
+
+    @Test
     fun drivenFractionIsRemainingTheOtherWayRound() {
         fun progress(remaining: Double, routeMeters: Double) = NavEngine.Progress(
             offRouteMeters = 0.0,
@@ -439,6 +477,54 @@ class NavEngineTest {
         assertEquals(1.0, progress(0.0, 1000.0).drivenFraction, absoluteTolerance = 1e-9)
         // A route with no measurable length can't have been driven along.
         assertEquals(0.0, progress(0.0, 0.0).drivenFraction, absoluteTolerance = 1e-9)
+    }
+}
+
+/**
+ * The colour ramp the maps paint a part-driven route with. A renderer will
+ * reject stops that are not strictly ascending, and will paint the wrong thing
+ * if they stop short of either end of the line, so those two are what these pin.
+ */
+class RouteColorsTest {
+
+    private val theme = Settings.RouteColor.THEME
+
+    private fun ramp(fraction: Double) = RouteColors.drivenRamp(theme, darkTheme = true, fraction)
+
+    @Test
+    fun rampIsAscendingAndSpansTheWholeLine() {
+        for (fraction in listOf(0.0, 0.001, 0.25, 0.5, 0.999, 1.0, -1.0, 2.0)) {
+            val stops = ramp(fraction)
+            assertEquals(4, stops.size, "a ramp is always four stops: $fraction")
+            assertEquals(0.0, stops.first().at, absoluteTolerance = 0.0)
+            assertEquals(1.0, stops.last().at, absoluteTolerance = 0.0)
+            assertTrue(
+                stops.zipWithNext().all { (a, b) -> b.at > a.at },
+                "stops must strictly ascend: $fraction -> ${stops.map { it.at }}",
+            )
+        }
+    }
+
+    @Test
+    fun anUndrivenRouteIsOneColourEndToEnd() {
+        val ahead = RouteColors.hex(theme, darkTheme = true)
+        assertEquals(List(4) { ahead }, ramp(0.0).map { it.hex })
+        // And a finished one is the dimmed colour end to end.
+        val behind = RouteColors.drivenHex(theme, darkTheme = true)
+        assertEquals(List(4) { behind }, ramp(1.0).map { it.hex })
+    }
+
+    @Test
+    fun theSeamSitsWhereTheRiderIs() {
+        val stops = ramp(0.5)
+        val behind = RouteColors.drivenHex(theme, darkTheme = true)
+        // Dimmed right up to the seam, then a blend, then bright to the end.
+        assertEquals(behind, stops[1].hex)
+        assertEquals(0.5, stops[1].at, absoluteTolerance = 0.0)
+        assertEquals(RouteColors.hex(theme, darkTheme = true), stops[2].hex)
+        // The blend is short: a fraction of a percent of the line, not a fade
+        // across it.
+        assertTrue(stops[2].at - stops[1].at < 0.01)
     }
 }
 
