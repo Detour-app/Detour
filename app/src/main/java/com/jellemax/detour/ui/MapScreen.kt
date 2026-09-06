@@ -1795,7 +1795,6 @@ fun MapScreen(
                     )
                     mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
                         LatLng(p.location.lat, p.location.lon), 14.0), 600)
-                    startNavigation()
                 },
                 onSavePin = { destination?.let { savePinTarget = it } },
                 bottomCard = bottomCard,

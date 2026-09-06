@@ -252,6 +252,7 @@ internal fun BoxScope.MapBottomSlot(
                 onPickPlace = onPickPlace,
                 canSavePin = destination != null,
                 onSavePin = onSavePin,
+                mode = mode,
                 onSpinSettings = onExpand,
                 onOpenRoutes = onOpenRoutes,
                 onOpenSocial = onOpenSocial,

@@ -205,13 +205,6 @@ object FriendsStore {
     suspend fun respond(riderId: RiderId, accept: Boolean): Boolean =
         act { Friends.respond(riderId, accept) } != null
 
-    /** Ends a friendship. Same shape as [respond]: mutate, then reload, so a
-     *  removal that crossed with a server-side change (theirs, or another of
-     *  ours) cannot leave the list disagreeing with the server. */
-    @Throws(Exception::class)
-    suspend fun remove(riderId: RiderId): Boolean =
-        act { Friends.remove(riderId) } != null
-
     /**
      * Runs a mutation, then reloads. Never throws for an ordinary failure:
      * the per-platform helpers this replaces never rethrew to their callers
