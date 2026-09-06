@@ -3,6 +3,7 @@ package com.jellemax.detour.tracking
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import com.jellemax.detour.data.Settings
 import com.jellemax.detour.notif.CircleNotifyService
 import com.jellemax.detour.notif.CircleSyncWorker
 
@@ -19,6 +20,13 @@ import com.jellemax.detour.notif.CircleSyncWorker
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        // Every background entry point does this first (see
+        // `CircleSyncWorker.doWork`, `CircleNotifyService.onCreate`):
+        // `Application.onCreate` doesn't, so anything touching `Settings`
+        // from a cold boot process — `forgetAllRegistered` below — would
+        // otherwise throw "Settings.init() not called" before tracking,
+        // notifications and the sync worker get a chance to start.
+        Settings.init()
         // The OS drops every registered geofence on reboot without telling
         // the app (issue #91) — forget what PlaceGeofenceGate thinks is
         // registered so the next tick's sync rebuilds from scratch instead

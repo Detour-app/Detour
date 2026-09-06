@@ -22,6 +22,16 @@ class SettingsPlaceFenceIdsTest {
     }
 
     @Test
+    fun confirmedInsideKeysRoundTripThroughTheSameCodec() {
+        // Settings.confirmedInsidePlaceIds stores "$circleId:$placeId" — no
+        // fence-kind suffix, and still comma-free, which is the one property
+        // the shared codec depends on.
+        val keys = setOf("c1:1", "c2:9")
+        assertEquals(keys, decodePlaceFenceIds(encodePlaceFenceIds(keys)))
+        assertEquals(emptySet(), decodePlaceFenceIds(encodePlaceFenceIds(keys - "c1:1" - "c2:9")))
+    }
+
+    @Test
     fun decodingTheStoredDefaultGivesAnEmptySet() {
         // "" is prefs.string's default when the key was never written.
         assertEquals(emptySet(), decodePlaceFenceIds(""))

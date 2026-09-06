@@ -125,7 +125,11 @@ object PlaceGeofenceGate {
     /** Clears the persisted registered-set without touching `GeofencingClient` —
      *  for when the OS has already dropped every fence itself (a reboot,
      *  `GEOFENCE_NOT_AVAILABLE`) and the next [sync] just needs to treat
-     *  every candidate as unregistered. */
+     *  every candidate as unregistered.
+     *
+     *  Registration bookkeeping only: [Settings.confirmedInsidePlaceIds] is
+     *  left alone on purpose, since a reboot says nothing about whether the
+     *  rider is still standing at the place. */
     fun forgetAllRegistered() = Settings.setRegisteredPlaceFenceIds(emptySet())
 
     private fun buildRequest(candidates: List<GateCandidate>, toAdd: Set<String>): GeofencingRequest? {
