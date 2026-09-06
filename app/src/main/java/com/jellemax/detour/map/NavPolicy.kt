@@ -26,6 +26,26 @@ internal object NavPolicy {
      *  rather than immediately. */
     const val REROUTE_COOLDOWN_MS = 15_000L
 
+    /**
+     * Near enough the drawn line that the route's own geometry is better
+     * evidence of where the rider is, and which way they are pointing, than the
+     * raw fix: the marker is drawn on the snapped point and the camera takes
+     * the segment's bearing (`ui/MapScreen.kt`'s marker loop).
+     *
+     * A null [progress] is *not* on route — there is no snap to draw yet, so
+     * the fix is all there is. `navStateFrom`'s off-route flag defaults the
+     * other way round, a null reading as on route, because it is answering
+     * "shall I put Off route on the banner", and doing that before the first
+     * fix would be a lie. Two questions, two defaults; they are not each
+     * other's complement.
+     *
+     * `car/NavScreen.kt`'s private `offRoute` is the same bound, phrased for a
+     * Progress it always has. Pointing it here is a car-side change and belongs
+     * with the head unit adopting the snapped point.
+     */
+    fun onRoute(progress: NavEngine.Progress?): Boolean =
+        progress != null && progress.offRouteMeters <= OFF_ROUTE_METERS
+
     sealed interface Decision {
         /** Keep following the line that is already drawn. */
         data object Continue : Decision

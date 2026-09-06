@@ -506,6 +506,18 @@ fun MapScreen(
         onDispose { mapView.setOnTouchListener(null) }
     }
 
+    // Nothing rotates the map out from under a heading-up camera while navigating.
+    // The map has no compass (RetainedMap turns it off), and a two-finger brush
+    // parks the camera before it turns anything, so a stray rotation used to sit
+    // there — skewed, unlabelled and with no way back — until the rider drove off
+    // fast enough for FollowCamera to resume. Pinch and pan are untouched; only the
+    // rotation goes, which is what the head unit has always done
+    // (car/CarMapRenderer.kt). Off route it stays off too: the camera is still
+    // heading-up, and a reroute is not the moment to hand rotation back.
+    LaunchedEffect(mapLibreMap, navigating) {
+        mapLibreMap?.uiSettings?.isRotateGesturesEnabled = !navigating
+    }
+
     // Driving off takes the camera back; the rule is FollowCamera's. The keys are
     // derived booleans on purpose - keying on the collections themselves would
     // restart this collector on every convoy vote.
@@ -1230,7 +1242,16 @@ fun MapScreen(
     LaunchedEffect(liveFix, defaultZoom) {
         val fix = liveFix ?: return@LaunchedEffect
         retained.camTarget = LatLon(fix.lat, fix.lon)
-        if (fix.bearingDeg != null && fix.speedMps > 2.0) retained.camTargetBearing = fix.bearingDeg
+        // Only while there is no road to take the heading from: on route the
+        // marker loop below owns this target and writes the bearing of the
+        // route segment it snapped to, which is the direction of travel without
+        // the fix's noise on a straight or its lag through a junction. Off
+        // route, or not navigating at all, the fix is all there is — and below
+        // 2 m/s a reported bearing is noise, so the last one is held.
+        val onRoute = navigating && NavPolicy.onRoute(navProgress)
+        if (!onRoute && fix.bearingDeg != null && fix.speedMps > 2.0) {
+            retained.camTargetBearing = fix.bearingDeg
+        }
         retained.camTargetZoom = NavEngine.cameraZoom(
             defaultZoom.toDouble(),
             fix.speedMps,
@@ -1424,6 +1445,52 @@ fun MapScreen(
                 nowElapsedMs = SystemClock.elapsedRealtime(),
                 leadSeconds = 0.0,
             )
+            val moved = here.lat != lastLat || here.lon != lastLon
+            // Near enough the drawn line that the route is better evidence of where
+            // the rider is, and which way they point, than the fix. `navProgress` is
+            // a delegated snapshot value, so this reads live the way `navigating` and
+            // `route` do; it is one fix behind, which a decision that only flips at
+            // 60 m can afford. `navigating` and a line are in the test because the
+            // block below is `along`'s only writer: ending a navigation, or dropping
+            // the route under one, would otherwise leave the marker parked on the
+            // last snapped point while the rider drives on.
+            val onRoute = navigating && route != null && NavPolicy.onRoute(navProgress)
+            // The snap comes before the push, because on route it *is* the marker's
+            // position and the segment it lands on is the heading everything turns
+            // to. Gated on `moved`: a standing vehicle re-snaps to the point it is
+            // already drawn at.
+            // `navigating` and `route` are read live rather than keyed: this
+            // loop must not restart when either changes (see the accumulators
+            // above), and a snapshot read inside the body sees them anyway.
+            if (moved && navigating) route?.let { r ->
+                // A different line invalidates the snap taken along the old one.
+                if (alongLine !== r.polyline) {
+                    alongLine = r.polyline
+                    along = null
+                }
+                // Windowed from the previous frame's snap, so this costs a
+                // handful of segments rather than the whole route, and cannot
+                // hop to the other leg where the route rides its own tarmac
+                // twice. The first frame of a drive pays one full search.
+                val a = NavEngine.advance(r.polyline, here, along)
+                along = a
+                // The seam between the road behind and the road ahead moves off
+                // this same eased point rather than off the fix — the whole
+                // reason it used to advance in steps under a marker that glided.
+                overlays.setDrivenFraction(a.fraction, a.at)
+                // Heading-up along the road rather than along the GPS, and written
+                // here because this is where the snap lives: the per-fix path's own
+                // snap is a global nearest-point search, which names the other leg
+                // where a route rides the same tarmac twice — a camera reading that
+                // swings 180 degrees. Compose does not invalidate on an equal write
+                // and a segment bearing only changes at a vertex, so this is quiet
+                // in between (hazards §6); nothing reads it from a composition.
+                if (onRoute) a.bearingDeg?.let { retained.camTargetBearing = it.toFloat() }
+            }
+            // Drawn on the line while on it. A raw fix wanders off the drawn route
+            // by its own error, which reads as the rider driving beside the road;
+            // off route there is no line to trust, so the fix stands.
+            val at = if (onRoute) along?.at ?: here else here
             retained.camTargetBearing?.let { target ->
                 markerBearing = smoothBearing(
                     markerBearing, target, (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat())
@@ -1432,7 +1499,6 @@ fun MapScreen(
             // accumulator rather than a snapshot — the two effects sit a screen apart in this
             // file and reusing the name invites conflating them.
             val easedBearing = markerBearing
-            val moved = here.lat != lastLat || here.lon != lastLon
             // The gate covers the bearing as well as the position, or a vehicle stopped
             // mid-rotation would ease its nose and never push it. CAM_BEARING_EPS_DEG keeps
             // the standstill optimisation the position half already had: once the marker
@@ -1440,7 +1506,7 @@ fun MapScreen(
             val turned = easedBearing != null && (pushedBearing == null ||
                 bearingDelta(pushedBearing, easedBearing) > CAM_BEARING_EPS_DEG)
             if (moved || turned) {
-                overlays.setPosition(here, easedBearing?.toDouble())
+                overlays.setPosition(at, easedBearing?.toDouble())
                 // Whatever the reason for the push, the bearing just drawn is this one, so
                 // that is what the next frame must compare against. Advancing it only on a
                 // `turned` push would leave the reference describing something no longer on
@@ -1448,9 +1514,11 @@ fun MapScreen(
                 pushedBearing = easedBearing
             }
             if (moved) {
-                // The fog reveals around the same interpolated position, or its hole
+                // The fog reveals around the interpolated position, or its hole
                 // trails the dot by the prediction lead — about 14 m at 100 km/h,
-                // snapping forward once a second. The invalidate is for the parked
+                // snapping forward once a second. `here`, not the snapped `at`:
+                // the fog records where the rider actually went, and a route is
+                // not evidence of that. The invalidate is for the parked
                 // camera: while following, the camera-move listener below already
                 // redraws every frame, but parked nothing else would, and that is
                 // exactly when a lagging fog is most visible.

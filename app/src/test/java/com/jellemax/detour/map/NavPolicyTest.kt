@@ -1,7 +1,10 @@
 package com.jellemax.detour.map
 
+import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavEngine
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -17,6 +20,8 @@ class NavPolicyTest {
      *  are whatever a Progress needs in order to exist. */
     private fun progress(remainingMeters: Double, offRouteMeters: Double) = NavEngine.Progress(
         offRouteMeters = offRouteMeters,
+        snappedAt = LatLon(50.0, 3.0),
+        segmentBearingDeg = null,
         nextInstruction = null,
         distanceToTurnMeters = remainingMeters,
         remainingMeters = remainingMeters,
@@ -139,5 +144,19 @@ class NavPolicyTest {
             NavPolicy.Decision.Reroute,
             decide(2_000.0, 300.0, lastRerouteMs = 0L, nowMs = 1_700_000_000_000L),
         )
+    }
+
+    /** The bound the marker and the camera read: on route they take the route's
+     *  own geometry, off it they fall back to the raw fix. It has to agree with
+     *  [NavPolicy.decide], which reroutes strictly past the threshold — so the
+     *  threshold itself is still on route, on both. */
+    @Test
+    fun onRouteIsTheRerouteThresholdReadFromTheOtherSide() {
+        assertTrue(NavPolicy.onRoute(progress(500.0, offRouteMeters = 59.0)))
+        assertTrue(NavPolicy.onRoute(progress(500.0, offRouteMeters = NavPolicy.OFF_ROUTE_METERS)))
+        assertFalse(NavPolicy.onRoute(progress(500.0, offRouteMeters = 60.1)))
+        // Nothing has snapped yet, so there is no snapped point to draw and the
+        // fix is all there is.
+        assertFalse(NavPolicy.onRoute(null))
     }
 }

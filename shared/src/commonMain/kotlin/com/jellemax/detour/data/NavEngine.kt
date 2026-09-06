@@ -22,6 +22,23 @@ object NavEngine {
     data class Progress(
         /** Distance from the current position to the nearest point on the route. */
         val offRouteMeters: Double,
+        /** The position snapped onto the route: the point [offRouteMeters] was
+         *  measured to. Drawn instead of the fix while on route, so the marker
+         *  rides the line rather than wandering off it by the GPS error. */
+        val snappedAt: LatLon,
+        /**
+         * Compass bearing of the route segment [snappedAt] landed on, degrees
+         * from north; null when that segment has zero length, because a router
+         * may repeat a point and a heading-up camera must not read that as
+         * north.
+         *
+         * The snap behind it is a *global* nearest-point search, so where a
+         * route rides the same tarmac twice this can name the other leg and be
+         * 180 degrees out. [advance] is the windowed, forward-only answer, and
+         * is what the phone's camera and marker follow; anything driving a
+         * rotation off this one wants that instead.
+         */
+        val segmentBearingDeg: Double?,
         /** The upcoming maneuver (arrival instruction near the end). */
         val nextInstruction: NavInstruction?,
         val distanceToTurnMeters: Double,
@@ -70,6 +87,7 @@ object NavEngine {
         var bestDist = Double.MAX_VALUE
         var bestIndex = 0
         var bestAlong = 0.0
+        var bestT = 0.0
         for (i in 0 until line.size - 1) {
             val ax = x(line[i]); val ay = y(line[i])
             val bx = x(line[i + 1]); val by = y(line[i + 1])
@@ -84,6 +102,7 @@ object NavEngine {
                 bestDist = d
                 bestIndex = i
                 bestAlong = cumAt[i] + t * segLen
+                bestT = t
             }
             cumAt[i + 1] = cumAt[i] + segLen
         }
@@ -101,6 +120,8 @@ object NavEngine {
 
         return Progress(
             offRouteMeters = bestDist,
+            snappedAt = interpolate(line[bestIndex], line[bestIndex + 1], bestT),
+            segmentBearingDeg = segmentBearing(line, bestIndex),
             nextInstruction = next,
             distanceToTurnMeters = distToTurn,
             remainingMeters = remaining,
@@ -153,10 +174,7 @@ object NavEngine {
             val segment = segmentMeters(line[i], line[i + 1])
             if (walked + segment >= target) {
                 val t = if (segment <= 0.0) 0.0 else (target - walked) / segment
-                val at = LatLon(
-                    line[i].lat + (line[i + 1].lat - line[i].lat) * t,
-                    line[i].lon + (line[i + 1].lon - line[i].lon) * t,
-                )
+                val at = interpolate(line[i], line[i + 1], t)
                 behind.add(at)
                 // The cut point opens the far half. Skip the vertex it landed
                 // on when it landed *on* one, or the ahead line starts with the
@@ -191,6 +209,12 @@ object NavEngine {
         val at: LatLon,
         val meters: Double,
         val lineMeters: Double,
+        /** Compass bearing of that segment, degrees from north; null on a
+         *  zero-length one. The road's own direction, which is what a
+         *  heading-up camera and the marker's nose both want: it does not
+         *  twitch with GPS noise on a straight, and it turns with the road at
+         *  a junction instead of lagging it by the fix's own smoothing. */
+        val bearingDeg: Double?,
         /**
          * Distance along the line to `line[index]` — the vertex, not [at].
          *
@@ -237,7 +261,7 @@ object NavEngine {
      * which is what seeds the first frame of a drive.
      */
     fun advance(line: List<LatLon>, pos: LatLon, from: Along?): Along {
-        if (line.size < 2) return Along(0, pos, 0.0, 0.0)
+        if (line.size < 2) return Along(0, pos, 0.0, 0.0, null)
         val windowed = from != null && from.index < line.size - 1
         val first = if (windowed) from!!.index else 0
         val last = if (windowed) min(line.size - 1, first + ADVANCE_SEGMENTS) else line.size - 1
@@ -251,7 +275,7 @@ object NavEngine {
         val mPerLon = 111_320.0 * cos(pos.lat * PI / 180.0)
         var bestDist = Double.MAX_VALUE
         var bestT = 0.0
-        var best = Along(first, line[first], cum, total, cum)
+        var best = Along(first, line[first], cum, total, segmentBearing(line, first), cum)
         for (i in first until last) {
             val ax = (line[i].lon - pos.lon) * mPerLon
             val ay = (line[i].lat - pos.lat) * mPerLat
@@ -267,12 +291,10 @@ object NavEngine {
                 bestT = t
                 best = Along(
                     index = i,
-                    at = LatLon(
-                        line[i].lat + (line[i + 1].lat - line[i].lat) * t,
-                        line[i].lon + (line[i + 1].lon - line[i].lon) * t,
-                    ),
+                    at = interpolate(line[i], line[i + 1], t),
                     meters = (cum + t * segment).coerceIn(0.0, total),
                     lineMeters = total,
+                    bearingDeg = segmentBearing(line, i),
                     indexMeters = cum,
                 )
             }
@@ -286,6 +308,20 @@ object NavEngine {
             best = best.copy(beyondWindow = true)
         }
         return best
+    }
+
+    /** The point [t] of the way from [a] to [b], 0..1. */
+    private fun interpolate(a: LatLon, b: LatLon, t: Double): LatLon =
+        LatLon(a.lat + (b.lat - a.lat) * t, a.lon + (b.lon - a.lon) * t)
+
+    /** Compass bearing of the segment starting at `line[i]`, or null where
+     *  there is no direction to report: past the last vertex, or on a segment
+     *  of zero length — a router can repeat a point, and calling that north
+     *  would swing a heading-up camera on a straight road. */
+    private fun segmentBearing(line: List<LatLon>, i: Int): Double? {
+        val a = line.getOrNull(i) ?: return null
+        val b = line.getOrNull(i + 1) ?: return null
+        return if (a == b) null else RoadRoulette.bearingDeg(a, b)
     }
 
     /** Straight-line metres between two neighbouring route points. */

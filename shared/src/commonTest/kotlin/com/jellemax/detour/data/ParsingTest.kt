@@ -348,6 +348,32 @@ class NavEngineTest {
     }
 
     @Test
+    fun progressCarriesTheSnappedPointAndTheSegmentBearing() {
+        // Beside the midpoint of a segment, 111 m north of an east-running road:
+        // the snap lands *on* the line at the same longitude, and the bearing is
+        // the road's rather than the rider's.
+        val p = NavEngine.progress(route(), LatLon(50.001, 3.0045))!!
+        assertEquals(50.0, p.snappedAt.lat, absoluteTolerance = 1e-6)
+        assertEquals(3.0045, p.snappedAt.lon, absoluteTolerance = 1e-6)
+        assertEquals(90.0, p.segmentBearingDeg!!, absoluteTolerance = 0.5)
+    }
+
+    @Test
+    fun aRepeatedRoutePointHasNoBearingRatherThanNorth() {
+        // Routers do emit the same point twice. A zero-length segment has no
+        // direction, and calling that 0.0 would swing a heading-up camera to
+        // north on a road running any other way.
+        val doubled = RouteResult(
+            polyline = listOf(LatLon(50.0, 3.0), LatLon(50.0, 3.0)),
+            waypoints = emptyList(),
+            distanceMeters = null,
+        )
+        val p = NavEngine.progress(doubled, LatLon(50.0, 3.0))!!
+        assertNull(p.segmentBearingDeg)
+        assertEquals(50.0, p.snappedAt.lat, absoluteTolerance = 1e-9)
+    }
+
+    @Test
     fun tooShortToFollow() {
         val degenerate = RouteResult(
             polyline = listOf(LatLon(50.0, 3.0)),
@@ -493,6 +519,21 @@ class NavEngineTest {
     }
 
     @Test
+    fun advanceTurnsItsBearingWithTheRoadThroughACorner() {
+        // North, then a right angle east. A corner is what the camera and the
+        // marker's nose are judged on: each has to read the leg it is actually
+        // on, not an average of the two or the leg it came from.
+        val corner = (0..2).map { LatLon(50.0 + it * 0.01, 3.0) } +
+            (1..2).map { LatLon(50.02, 3.0 + it * 0.01) }
+        val before = NavEngine.advance(corner, LatLon(50.015, 3.0), null)
+        assertEquals(0.0, before.bearingDeg!!, absoluteTolerance = 0.5)
+        // Continued from the snap before the corner, so it is the windowed
+        // search that has to walk round it.
+        val after = NavEngine.advance(corner, LatLon(50.02, 3.015), before)
+        assertEquals(90.0, after.bearingDeg!!, absoluteTolerance = 0.5)
+    }
+
+    @Test
     fun advanceClosesAGapItCannotSeeInOneStep() {
         // A resumed app: the position jumps far beyond the window. Each call
         // walks a window's worth, so a few frames close it rather than stalling
@@ -566,6 +607,8 @@ class NavEngineTest {
     fun drivenFractionIsRemainingTheOtherWayRound() {
         fun progress(remaining: Double, routeMeters: Double) = NavEngine.Progress(
             offRouteMeters = 0.0,
+            snappedAt = LatLon(50.0, 3.0),
+            segmentBearingDeg = null,
             nextInstruction = null,
             distanceToTurnMeters = remaining,
             remainingMeters = remaining,
