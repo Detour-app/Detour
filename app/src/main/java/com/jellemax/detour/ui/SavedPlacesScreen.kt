@@ -270,9 +270,19 @@ private fun AddPlaceDialog(
     // that self-triggered restart doesn't null out the just-made selection.
     LaunchedEffect(query) {
         if (query != picked?.name) picked = null
-        if (query == picked?.name) return@LaunchedEffect
+        // Every early exit below has to drop the spinner: a restart cancels
+        // whatever call was in flight, and the catch further down rethrows
+        // that cancellation instead of falling through to `searching = false`.
+        // Picking a suggestion mid-search re-keys this effect through the line
+        // below, so that one leaks the spinner just as readily as a deleted
+        // character does.
+        if (query == picked?.name) {
+            searching = false
+            return@LaunchedEffect
+        }
         if (query.length < 3) {
             results = emptyList()
+            searching = false
             searchStatus = null
             return@LaunchedEffect
         }
