@@ -15,8 +15,10 @@ data class SpeedHudState(
     /** The posted-limit sign's number, or null when there is no sign to draw —
      *  the same "render nothing" the sign composable does on a null limit. */
     val limitSignText: String?,
-    /** The trajectcontrole chip's running average — "Ø 98" — or null when no
-     *  average-speed section is in play. */
+    /** The trajectcontrole chip's running average, the rounded number and
+     *  nothing else — "98" — or null when no average-speed section is in play.
+     *  The word that says it is an average, and the unit, are the surface's:
+     *  the island already prints "km/h" under the dial. */
     val averageText: String?,
     /** The running average is past the section's own limit: the number the
      *  camera pair actually measures, so the chip goes red on this, not on
@@ -80,7 +82,7 @@ fun speedHudStateFrom(
     // Truncating, not rounding: a sign shows the posted number, and the
     // limits that reach it are whole km/h anyway.
     limitSignText = limitKmh?.let { it.toInt().toString() },
-    averageText = averageKmh?.let { "Ø ${formatFixed(it, 0)}" },
+    averageText = averageKmh?.let { formatFixed(it, 0) },
     averageOverLimit = averageKmh != null && averageLimitKmh != null &&
         averageKmh > averageLimitKmh,
 )

@@ -875,10 +875,13 @@ private class HudOverlay(context: android.content.Context) : View(context) {
             val over = sectionLimit != null && average > sectionLimit
             drawShadow(canvas, cx, cy, avgRadius)
             canvas.drawCircle(cx, cy, avgRadius, if (over) speedOverBgPaint else avgBgPaint)
-            // Ø, the same glyph the phone chip uses, so the two surfaces label
-            // this number identically. Both strings are fitted rather than
-            // sized outright: "Ø 120" and "avg km/h" are both wider than the
-            // speed disc's "120"/"km/h" in a disc that is 10% smaller.
+            // Ø, and the phone's island no longer uses it: there the average
+            // is the bare number under a rule, labelled "avg", which only
+            // works because it has a column to itself. In a disc alongside two
+            // others the glyph is what says "this one is the average" without
+            // a second line. Both strings are fitted rather than sized
+            // outright: "Ø 120" and "avg km/h" are both wider than the speed
+            // disc's "120"/"km/h" in a disc that is 10% smaller.
             val text = "Ø %.0f".format(average)
             fitText(speedTextPaint, text, avgDiameter * 0.34f, avgDiameter * 0.76f)
             fitText(unitTextPaint, "avg km/h", avgDiameter * 0.15f, avgDiameter * 0.80f)
