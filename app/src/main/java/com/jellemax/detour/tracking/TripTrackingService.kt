@@ -4,14 +4,8 @@ import android.Manifest
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothProfile
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.hardware.Sensor
@@ -57,7 +51,6 @@ import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
-import com.jellemax.detour.drive.FuelType
 import com.jellemax.detour.drive.HardEventDetector
 import com.jellemax.detour.drive.RoadTypeTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
@@ -494,8 +487,10 @@ class TripTrackingService : Service() {
         }
     }
 
-    /** Set in [onDestroy] before teardown so a late [reconcileObd2Connections]
-     *  (via [endTrip]) can't re-dial an adapter as the service dies. */
+    /** Set in [onDestroy] before teardown, so a dormancy evaluation coalesced
+     *  behind it ([maybeGoDormant], [requestDormancyEvaluation]) can't act on
+     *  an instance that's already going away. [VehicleLinks] keeps its own
+     *  copy of this same guard for its own reconcileObd2Connections. */
     @Volatile private var destroyed = false
 
     // Written on the sensor thread, read when the trip is saved.
@@ -681,208 +676,21 @@ class TripTrackingService : Service() {
         motionSensors.stop()
     }
 
-    // --- Bluetooth vehicle auto-detect -------------------------------------
-    // Mapped Classic devices (Cardo, car infotainment) pick the trip mode,
-    // falling back to the default when none is connected. Addresses of
-    // currently-connected mapped devices.
-    private val connectedVehicles = LinkedHashSet<String>()
-    private var btRegistered = false
-
-    private val btReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            val device = deviceFrom(intent) ?: return
-            val address = try { device.address } catch (e: SecurityException) { return } ?: return
-            when (intent.action) {
-                BluetoothDevice.ACTION_ACL_CONNECTED -> {
-                    if (Settings.vehicleDevices.value.containsKey(address)) {
-                        connectedVehicles.remove(address) // move to newest
-                        connectedVehicles.add(address)
-                        refreshTripMode()
-                    }
-                    reconcileObd2Connections()
-                }
-                BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
-                    if (connectedVehicles.remove(address)) refreshTripMode()
-                    reconcileObd2Connections()
-                }
-            }
-        }
-    }
-
-    /** Turning the adapter off drops every link without an ACL_DISCONNECTED per
-     *  device, so without this the car stays "connected" for the rest of the
-     *  service's life and the next ride is logged as a drive. */
-    private val btStateReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)) {
-                BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF -> {
-                    if (connectedVehicles.isNotEmpty()) {
-                        connectedVehicles.clear()
-                        refreshTripMode()
-                    }
-                    Obd2Connection.disconnect()
-                }
-                BluetoothAdapter.STATE_ON -> {
-                    seedConnectedVehicles()
-                    // STATE_OFF called Obd2Connection.disconnect(); nothing
-                    // re-dials a phone-initiated SPP link on its own. Reconcile
-                    // picks it back up if a trip or the UI still wants it.
-                    reconcileObd2Connections()
-                }
-            }
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    private fun deviceFrom(intent: Intent): BluetoothDevice? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-        else intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-
-    /** True when we're allowed to touch bonded devices/connection state. Below
-     *  API 31 the normal BLUETOOTH permission is granted at install. */
-    private fun hasBtPermission(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) ==
-            PackageManager.PERMISSION_GRANTED
-
-    /** Register the connect/disconnect watcher once, and seed it with whatever
-     *  is already connected (so it works if the app opens mid-drive). No-op
-     *  until permission is granted; retried on the next service command. */
-    private fun ensureBluetoothWatch() {
-        if (btRegistered || !hasBtPermission()) return
-        val filter = IntentFilter().apply {
-            addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
-            addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
-        }
-        ContextCompat.registerReceiver(this, btReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
-        ContextCompat.registerReceiver(
-            this,
-            btStateReceiver,
-            IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
-            ContextCompat.RECEIVER_NOT_EXPORTED,
-        )
-        btRegistered = true
-        seedConnectedVehicles()
-        reconcileObd2Connections()
-    }
-
-    /** Which OBD2 adapter [Obd2Connection] should be on, or null to stay
-     *  disconnected. See [pickObd2Address] for the rules. */
-    private fun desiredObd2Address(): String? {
-        val map = Settings.vehicleDevices.value
-        val tripVehicle = resolvedVehicle()
-        return pickObd2Address(
-            tripActive = _stats.value != null,
-            uiVisible = uiVisible,
-            tripVehicleResolved = tripVehicle != null,
-            tripVehicleObd2Address = tripVehicle?.obd2Address,
-            connectedObd2Addresses = connectedVehicles.mapNotNull { map[it]?.obd2Address },
-            configuredObd2Addresses = map.values.mapNotNull { it.obd2Address }.distinct(),
-        )
-    }
-
-    /** Bring [Obd2Connection] in line with [desiredObd2Address]: drop a link to
-     *  the wrong adapter (or any link at all when none is wanted), open one to
-     *  the right adapter when idle. Called from every edge that can change the
-     *  answer — trip start/stop, UI visibility ([ACTION_REFRESH]), a Bluetooth
-     *  connect/disconnect/toggle, and a Settings change. Replaces the old
-     *  unconditional dial-every-configured-adapter seed: a parked adapter is no
-     *  longer retried around the clock (#96), and only the vehicle being driven
-     *  is ever dialled, so an absent adapter can't block a present one (#97). */
-    private fun reconcileObd2Connections() {
-        if (destroyed) return
-        val target = desiredObd2Address()
-        if (Obd2Connection.linkedAddress.value.let { it != null && it != target }) {
-            Obd2Connection.disconnect()
-        }
-        if (target != null && Obd2Connection.linkedAddress.value == null) {
-            val v = Settings.vehicleDevices.value.values.firstOrNull { it.obd2Address == target }
-            Obd2Connection.connect(
-                applicationContext, target,
-                fuelType = v?.fuelType ?: FuelType.PETROL,
-                calibrationPct = v?.fuelCalibrationPct ?: 100,
-            )
-        }
-    }
-
-    /**
-     * Ask the headset/A2DP profiles which mapped devices are connected right
-     * now, since ACL broadcasts only fire on change, not for existing links.
-     *
-     * The answer replaces what we believed rather than adding to it: a missed
-     * disconnect (adapter reset, device out of range, service asleep) otherwise
-     * pins the trip to a vehicle that was left behind hours ago. Both profiles
-     * are asked before we commit, so the two callbacks can't erase each other.
-     */
-    private fun seedConnectedVehicles() {
-        val map = Settings.vehicleDevices.value
-        if (map.isEmpty() || !hasBtPermission()) return
-        val adapter = getSystemService(BluetoothManager::class.java)?.adapter ?: return
-        val profiles = listOf(BluetoothProfile.HEADSET, BluetoothProfile.A2DP)
-        val found = LinkedHashSet<String>()
-        var pending = profiles.size
-        // Runs once the last profile has answered (or failed to).
-        val commit = {
-            if (connectedVehicles != found) {
-                connectedVehicles.clear()
-                connectedVehicles.addAll(found)
-                refreshTripMode()
-            }
-        }
-        val listener = object : BluetoothProfile.ServiceListener {
-            override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                try {
-                    proxy.connectedDevices.forEach { d ->
-                        if (map.containsKey(d.address)) found.add(d.address)
-                    }
-                } catch (e: SecurityException) {
-                    // permission revoked between the check and here; ignore
-                } finally {
-                    adapter.closeProfileProxy(profile, proxy)
-                }
-                if (--pending == 0) commit()
-            }
-            /** A profile the phone doesn't support never calls back connected. */
-            override fun onServiceDisconnected(profile: Int) {
-                if (--pending == 0) commit()
-            }
-        }
-        profiles.forEach {
-            if (!adapter.getProfileProxy(this, listener, it)) pending--
-        }
-        if (pending == 0) commit()
-    }
-
-    /** The connected mapped vehicle that classifies the trip. The heaviest
-     *  mode wins (see [MODE_PRIORITY]), not the last to connect: the helmet
-     *  intercom and the car radio can both be up while the bike sits in the
-     *  garage. Null when no mapped device is connected. */
-    private fun resolvedVehicle(): Settings.VehicleDevice? {
-        val map = Settings.vehicleDevices.value
-        return connectedVehicles.mapNotNull { map[it] }
-            .maxByOrNull { MODE_PRIORITY.indexOf(it.mode) }
-    }
-
-    /** What the running trip is logged as — the resolved vehicle's mode
-     *  (Cardo → moto, infotainment → car), else the spin tab's mode. The tab
-     *  itself is never changed here: classification is the trip's, not the
-     *  UI's. Whether a trip is worth keeping at all is decided in [endTrip]. */
-    private fun resolvedMode(): TravelMode =
-        resolvedVehicle()?.mode ?: Settings.tripMode.value
-
-    /** Retag the running trip if its mode should change (a mapped device
-     *  connected or left). Restarts motion sensors to match. */
-    private fun refreshTripMode() {
-        val mode = resolvedMode()
-        if (_stats.value != null && _stats.value?.mode != mode) {
+    /** Bluetooth vehicle auto-detect and OBD2 link reconciliation — which
+     *  mapped device is connected picks the trip mode, and which OBD2 adapter
+     *  should be dialled. See [VehicleLinks]. */
+    private val vehicleLinks = VehicleLinks(
+        context = this,
+        modePriority = MODE_PRIORITY,
+        uiVisible = { uiVisible },
+        currentTripMode = { _stats.value?.mode },
+        onModeChanged = { mode ->
             _stats.update { it?.copy(mode = mode) }
             stopMotionSensors()
             startMotionSensors(mode)
             updateNotification()
-        }
-        reconcileObd2Connections()
-    }
+        },
+    )
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Both before anything else can consult them: this instance is alive and
@@ -927,7 +735,7 @@ class TripTrackingService : Service() {
 
         // Before the action, so a trip started in this same command classifies
         // against devices that were already connected when the service woke.
-        ensureBluetoothWatch()
+        vehicleLinks.start()
 
         // Circles' second sink on this same fix stream (see circleSyncLoop's
         // doc) - started once and left running for the life of this always-on
@@ -951,7 +759,7 @@ class TripTrackingService : Service() {
             serviceScope.launch(Dispatchers.Main.immediate) {
                 Obd2Connection.telemetry.collect { _ ->
                     if (_lastFix.value == null) return@collect
-                    val refreshed = resolveDisplaySpeedMps(lastGpsSpeedMps, resolvedMode())
+                    val refreshed = resolveDisplaySpeedMps(lastGpsSpeedMps, vehicleLinks.resolvedMode())
                     if (refreshed != _displaySpeedMps.value) _displaySpeedMps.value = refreshed
                 }
             }
@@ -969,7 +777,7 @@ class TripTrackingService : Service() {
             }
             ACTION_END_TRIP -> endTrip()
             ACTION_TRANSITION -> handleTransition(intent)
-            ACTION_REFRESH -> reconcileObd2Connections()
+            ACTION_REFRESH -> vehicleLinks.reconcileObd2Connections()
             ACTION_GEOFENCE_WAKE -> {
                 geofenceWakeGraceUntilMs = System.currentTimeMillis() + GEOFENCE_WAKE_GRACE_MS
                 Log.i(ParkGeofence.TAG, "woken by geofence; holding for ${GEOFENCE_WAKE_GRACE_MS}ms")
@@ -1032,13 +840,13 @@ class TripTrackingService : Service() {
         roadTypeFetchJob = null
         lastMovingMs = System.currentTimeMillis()
         // Re-check what's actually linked: the set may have gone stale since the
-        // last trip. Answers async, retagging through refreshTripMode.
-        seedConnectedVehicles()
+        // last trip. Answers async, retagging through VehicleLinks.refreshTripMode.
+        vehicleLinks.seedConnectedVehicles()
         // Classify by connected device / pace / tab; refined live as the trip runs.
         _stats.value = TripStats(startTimeMs = startTimeMs, distanceMeters = initialDistanceMeters)
-        val mode = resolvedMode()
+        val mode = vehicleLinks.resolvedMode()
         _stats.value = _stats.value?.copy(mode = mode)
-        reconcileObd2Connections()
+        vehicleLinks.reconcileObd2Connections()
         ensureLocationUpdates()
         startMotionSensors(mode)
         updateNotification()
@@ -1066,7 +874,7 @@ class TripTrackingService : Service() {
         // "never went anywhere" — a second false-positive filter, not a
         // classification.
         val looksLikeAWalk = stats.durationMs > SLOW_NO_VEHICLE_MIN_JUDGE_MS &&
-            connectedVehicles.mapNotNull { Settings.vehicleDevices.value[it]?.mode }.isEmpty() &&
+            vehicleLinks.resolvedVehicle() == null &&
             (stats.distanceMeters / (stats.durationMs / 1000.0)) < SLOW_NO_VEHICLE_AVG_MAX_MPS &&
             stats.topSpeedMps < SLOW_NO_VEHICLE_TOP_MAX_MPS
         val worthSaving =
@@ -1146,7 +954,7 @@ class TripTrackingService : Service() {
             }
         }
         _stats.value = null
-        reconcileObd2Connections()
+        vehicleLinks.reconcileObd2Connections()
         destLat = null
         destLon = null
         autoStarted = false
@@ -1510,7 +1318,7 @@ class TripTrackingService : Service() {
         val fix = Fix(
             lat = location.latitude,
             lon = location.longitude,
-            speedMps = resolveDisplaySpeedMps(speed, resolvedMode()),
+            speedMps = resolveDisplaySpeedMps(speed, vehicleLinks.resolvedMode()),
             bearingDeg = if (location.hasBearing()) location.bearing else null,
             accuracyMeters = location.accuracy,
             timeMs = location.time,
@@ -1824,7 +1632,7 @@ class TripTrackingService : Service() {
             )
         }
         // Pick up a mode-bar change made while the trip is running.
-        refreshTripMode()
+        vehicleLinks.refreshTripMode()
     }
 
     private fun speedOf(location: Location): Double {
@@ -1957,12 +1765,7 @@ class TripTrackingService : Service() {
         if (::fusedClient.isInitialized) {
             fusedClient.removeLocationUpdates(locationCallback)
         }
-        if (btRegistered) {
-            runCatching { unregisterReceiver(btReceiver) }
-            runCatching { unregisterReceiver(btStateReceiver) }
-            btRegistered = false
-        }
-        Obd2Connection.disconnect()
+        vehicleLinks.stop()
         // endTrip()'s save-and-notify tail runs on serviceScope (round-1 fix,
         // off the main thread on every other call site) — but the service is
         // dying right here, so cancelling that scope before the tail runs would
@@ -2039,7 +1842,7 @@ internal fun cappedFixDtSec(nowMs: Long, lastMs: Long): Double? =
 
 /** Which OBD2 adapter the connection loop should be on right now, or null to
  *  stay disconnected. Pure so the connect/disconnect decision is testable
- *  without a service; the caller ([TripTrackingService.desiredObd2Address])
+ *  without a service; the caller ([VehicleLinks.desiredObd2Address])
  *  gathers the inputs and acts on the result.
  *
  *  - nothing while parked with the app closed and no trip running (#96);
