@@ -8,8 +8,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Pins the speed HUD as `MapHud.kt` renders it today: `SpeedHud`'s dial and
- * posted-limit sign, and `SectionAverageChip`'s running average.
+ * Pins the speed HUD as `MapHud.kt` renders it today: `SpeedHud`'s dial,
+ * posted-limit sign and running average, all three in the one island.
  */
 class SpeedHudStateTest {
 

@@ -1090,13 +1090,44 @@ the car draws it, as it draws its speed.
 **Unverified:** no replay and no device ran for either surface, and nothing at all compiles the
 Swift. See `DECISION.md` § *What is not verified*.
 
+**The wording diverged (#201), and the claim above that iOS matches "the phone's" chip no longer
+holds.** All three surfaces still read the same average off the same `SectionAverageTracker`;
+they now word it three ways.
+
+- **Phone** — the rounded number and nothing else, under the rule, labelled `avg`:
+  `app/…/ui/MapHud.kt:196-224`, from `SpeedHudState.averageText`
+  (`shared/…/presentation/TripHudState.kt:87`, `averageKmh?.let { formatFixed(it, 0) }`). The unit
+  is printed once for the whole island, under the dial at `MapHud.kt:178`.
+- **Car** — `"Ø %.0f".format(average)` over `"avg km/h"`, both `fitText`-shrunk to fit:
+  `app/…/car/CarMapRenderer.kt:885-889`.
+- **iOS** — `String(format: "Ø %.0f", averageKmh)` over `"avg km/h"` in a 72 pt disc:
+  `iosApp/Detour/SectionAverage.swift:36-39`.
+
+**Deliberate, and the reason is layout, not drift.** The phone's average has a column to itself
+under a rule, so the word `avg` is enough and the unit belongs to the island; a 72 dp column
+printing `km/h` twice was the defect `#201` fixed. The other two are free-standing discs in a row
+of discs with no dial above them, so each carries its own unit, and `Ø` is what marks one of three
+discs as the average without spending a second line on the word. Both `#201`'s car and iOS
+comments now say this rather than claiming a parity that has gone.
+
+**The shared mapper is not the parity mechanism it looks like.** `averageText` has exactly one
+reader in the tree — `MapHud.kt:196`. The car and iOS each format their own string from the raw
+`Double`, and did so before `#201`; the strings agreeing until now was convention, not
+construction. So the mapper change reached one surface, and a future edit to `averageText` will
+reach one surface too. Recorded rather than fixed: making the other two read it is a per-surface
+call about discs versus columns, not a refactor. Same lesson as entry 13's corrections — **a
+claim of parity that nothing enforces still reads as verified and gets relied on.**
+
 **What.** Belgian and Dutch motorways measure your *average* speed between two gantries. The phone
 tracks that average and shows it. The car downloads the same section data and discards it.
 
 **Copies.** Phone — `app/…/ui/MapScreen.kt:878-939`, the section tracker, with its entry gate in
 `app/…/ui/MapCameraTuning.kt:86-99` (`sectionExitGate`) and `SECTION_GATE_METERS = 60.0` /
 `SECTION_WEDGE_DEG = 75.0` at `:69, :74`. Displayed by `SectionAverageChip`
-(`app/…/ui/MapHud.kt:234-250`).
+(`app/…/ui/MapHud.kt:234-250`). **That pointer is as-found and now dead**: `grep -rn
+'SectionAverageChip' app/` returns nothing. `#189` folded the readout into the top-left island's
+column, so the phone draws it inside `SpeedHud` — `app/…/ui/MapHud.kt:196-224` — and iOS is the
+only surface with a view still called that.
 
 Car — `app/…/car/NavScreen.kt:396-401`:
 

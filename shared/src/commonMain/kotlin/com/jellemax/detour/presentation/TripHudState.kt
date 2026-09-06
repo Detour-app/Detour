@@ -51,8 +51,10 @@ data class ActiveTripCardState(
 
 /**
  * Pure map from the live fix to [SpeedHudState]. Ported from (named, not cited
- * by line, so this stays true across edits) `app/.../ui/MapHud.kt`'s `SpeedHud`
- * and `SectionAverageChip`.
+ * by line, so this stays true across edits) `app/.../ui/MapHud.kt`'s `SpeedHud`,
+ * which is also where the section average is drawn now — the phone's
+ * `SectionAverageChip` was folded into the island's column and only iOS still
+ * has a view by that name.
  *
  * Separate from [activeTripCardStateFrom] because the two surfaces share
  * nothing: different inputs, no common output, and different lifetimes — the
