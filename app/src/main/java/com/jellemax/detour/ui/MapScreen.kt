@@ -261,8 +261,9 @@ fun MapScreen(
     // here rather than beside `destination` because it now also reads
     // `navigating`, and Kotlin resolves local declarations in order.
     LaunchedEffect(destination, destinationName, route, candidates, navigating) {
-        SpinResultHolder.state.value =
+        SpinResultHolder.publish(
             SpinResult(destination, destinationName, route, candidates, navigating)
+        )
     }
     var lastRerouteMs by remember { mutableLongStateOf(0L) }
     // Following is the resting state of the map. `camSuspended` is what a pan,
