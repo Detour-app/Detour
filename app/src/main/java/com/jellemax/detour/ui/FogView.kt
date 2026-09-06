@@ -52,9 +52,10 @@ class FogView(context: Context) : View(context) {
         }
     // Raw GPS tracks carry a point every few metres; the fog corridor is tens of
     // metres wide, so projecting every one through the per-point JNI call is the
-    // bulk of the pan cost. Store a decimated copy — points within ~25 m of the
-    // last kept one are dropped — which cuts the projection work several-fold with
-    // no visible change to the corridor.
+    // bulk of the cost of building a mask. What is set here is kept as it arrives
+    // and decimated into [stored] — points within ~25 m of the last kept one are
+    // dropped — which cuts the projection work several-fold with no visible change
+    // to the corridor. Nothing reads this property back; [stored] is what draws.
     var traces: List<List<LatLon>> = emptyList()
         set(value) {
             // Re-decimates the whole stored set on every store write, so it grows
@@ -543,8 +544,11 @@ class FogView(context: Context) : View(context) {
         // How far past the viewport, in buffer pixels, the corridor mask is
         // stroked. This is the whole budget the camera has to move on before a
         // re-projection, so it trades bitmap for frames: 96 here is ~288 screen
-        // pixels of pan (or a rotation of some 20° about the middle of a phone
-        // screen) and costs about a megapixel of ARGB on a 1440-wide device.
+        // pixels of pan, and costs about a megapixel of ARGB on a 1440-wide
+        // device. Rotation gets roughly margin/half-diagonal of the buffer in
+        // radians before a corner leaves the mask — about ten degrees on a
+        // phone, more on a squarer screen, since it is the buffer's long side
+        // that runs out of margin first.
         private const val FOG_MASK_MARGIN_PX = 96
         // The mask is placed by a similarity, which a tilted view is not; the app
         // never tilts of its own accord ([setCamera] pins tilt at 0), so this is
