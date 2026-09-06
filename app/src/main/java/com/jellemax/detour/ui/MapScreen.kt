@@ -108,6 +108,7 @@ import com.jellemax.detour.map.CameraAuthority
 import com.jellemax.detour.map.FollowCamera
 import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.map.ModeSwipePolicy
+import com.jellemax.detour.map.modeSwitch
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.bearingDelta
 import com.jellemax.detour.map.smoothBearing
@@ -1758,17 +1759,18 @@ fun MapScreen(
      * because its own range is `0f..radiusKm`.
      */
     fun selectMode(m: TravelMode) {
-        if (m == mode) return
+        // The rule about what a mode change invalidates lives in map/ModeSwitch,
+        // with its tests; null is the "already in that mode" no-op.
+        val next = modeSwitch(from = mode, to = m, hasSpinOffer = spinOffer != null)
+            ?: return
         Settings.setTripMode(m)
-        radiusKm = m.defaultKm
-        minRadiusKm = 0f
-        destination = null
-        destinationName = null
-        route = null
-        candidates = emptyList()
-        // A convoy spin's candidates are mode-specific too - a switch away
-        // must not leave a stale vote round on everyone's screen.
-        if (spinOffer != null) ConvoyLiveClient.clearSpinOffer()
+        radiusKm = next.radiusKm
+        minRadiusKm = next.minRadiusKm
+        destination = next.destination
+        destinationName = next.destinationName
+        route = next.route
+        candidates = next.candidates
+        if (next.clearSpinOffer) ConvoyLiveClient.clearSpinOffer()
     }
 
     Scaffold(
