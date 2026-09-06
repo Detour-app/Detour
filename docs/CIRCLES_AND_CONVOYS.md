@@ -265,12 +265,21 @@ purely a relay and becomes an observer.** Defensible — opt-in, pausable,
 latest-fix-only, deleted on leave — but it is the one place the server keeps
 somebody's position, and it should stay the only one.
 
-**Geofences are evaluated on the device.** A circle place has a radius; whether
-you crossed it is decided on your own phone, from fixes that already arrive, and
-only the resulting arrival or departure is posted. The stream of fixes behind it
-never leaves the device, which makes this both the cheaper option and the one
-consistent with everything else here. It also keeps the feature off the OS's
-per-app region-monitoring budget.
+**Geofences are decided on the device — and, on Android, backed by the OS as
+well (issue #91).** A circle place has a radius; whether you crossed it is
+`GeofenceEvaluator`'s dwell/hysteresis arithmetic either way. The fix stream
+itself still never leaves the device, and only the resulting arrival or
+departure is posted — that part is unchanged. What changed: Android also
+registers an OS geofence (two, actually — one per guard) for any place the
+rider is presently within a few km of (`CirclePresence.PROXIMITY_GATE_RADIUS_M`),
+so the transition fires the moment it happens instead of waiting for the next
+poll tick. Only places currently nearby are ever handed to Play services, not
+the rider's complete set — the poll tick stays as the correction path for
+whatever the OS geofence misses (a dropped fence, a place added while
+offline, a rider already inside the gate radius at cold start). This is a
+deliberate, reasoned reversal of the original on-device-only design — see
+`docs/superpowers/specs/2026-09-06-circle-place-geofencing-design.md`'s
+Decision section for why.
 
 Pausing is enforced **server-side as well as on the device**. Trusting the client
 would mean a stale build keeps broadcasting after the user believes they stopped.
@@ -295,10 +304,15 @@ would mean a stale build keeps broadcasting after the user believes they stopped
 independent location subscriptions — the convoy's and the circle's — running
 together during a ride and doubling the cost of the app's most expensive feature.
 There is one location stream; convoys and circles are both sinks on it, and the
-highest active cadence wins. Neither platform opens a second subscription. Circle arrive/depart uses no OS
-geofence — it is on-device `GeofenceEvaluator` arithmetic. (Android separately
-registers one unrelated geofence for parked-state service dormancy, issue #90;
-it plays no part in circle presence.)
+highest active cadence wins. Neither platform opens a second subscription.
+Circle arrive/depart is decided on-device by `GeofenceEvaluator` arithmetic
+either way; on Android it's *also* backed by an OS geofence for whichever
+places the rider is presently near (issue #91) — no longer purely off the OS's
+per-app region-monitoring budget, though the proximity gate keeps the
+registered set to a handful of nearby places rather than the rider's full
+set. (Android separately registers one further, unrelated geofence for
+parked-state service dormancy, issue #90; it plays no part in circle
+presence.)
 
 Cadences, and why:
 

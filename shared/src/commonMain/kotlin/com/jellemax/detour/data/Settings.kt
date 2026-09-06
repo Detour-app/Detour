@@ -562,6 +562,36 @@ object Settings {
         prefs.put("place_event_last_seen_$circleId", tsMs)
     }
 
+    /** Which OS place-geofence ids (`PlaceGeofenceGate`'s
+     *  `"$circleId:$placeId:enter"`/`":exit"` encoding) Android currently
+     *  believes are registered with `GeofencingClient` — issue #91. */
+    fun registeredPlaceFenceIds(): Set<String> = decodePlaceFenceIds(prefs.string("place_fence_ids", ""))
+
+    fun setRegisteredPlaceFenceIds(ids: Set<String>) {
+        prefs.put("place_fence_ids", encodePlaceFenceIds(ids))
+    }
+
+    /** Which places (`"$circleId:$placeId"`) the rider is currently *confirmed*
+     *  inside of, i.e. an OS `DWELL` already posted an arrive for — issue #91.
+     *
+     *  This is what makes the two-fence encoding equivalent to
+     *  [GeofenceEvaluator]'s hysteresis rather than merely similar to it:
+     *  there, a depart is reachable only from `inside == true`, which only a
+     *  dwell-confirmed arrive ever sets. The OS exit fence has no such memory
+     *  — it fires for anyone who clips the outer ring at 60km/h — so the
+     *  receiver checks this set before posting a depart.
+     *
+     *  Persisted, because the two transitions arrive in different processes
+     *  minutes or days apart, and deliberately *not* cleared by
+     *  `PlaceGeofenceGate.forgetAllRegistered`: a reboot or a Play services
+     *  update changes which fences exist, not whether the rider is standing
+     *  in the driveway. */
+    fun confirmedInsidePlaceIds(): Set<String> = decodePlaceFenceIds(prefs.string("confirmed_inside_place_ids", ""))
+
+    fun setConfirmedInsidePlaceIds(ids: Set<String>) {
+        prefs.put("confirmed_inside_place_ids", encodePlaceFenceIds(ids))
+    }
+
     /** The push registration token last handed to the server (an FCM token on
      *  Android), so sign-out can `DELETE /api/devices` for it and a re-register
      *  can skip when nothing changed. Empty when never registered. */
@@ -611,3 +641,15 @@ object Settings {
         prefs.put("notify_arrivals_$circleId", on)
     }
 }
+
+/** Comma-joined rather than JSON: every id [placeFenceId] produces is already
+ *  colon-delimited and circle ids are server UUIDs, so a comma can't appear
+ *  in one. Extracted from [Settings.setRegisteredPlaceFenceIds] so it's
+ *  testable without a real [Prefs] backend — see [SettingsPlaceFenceIdsTest].
+ *  A plain string-set codec, so [Settings.setConfirmedInsidePlaceIds] shares
+ *  it rather than spelling the same join out a second time. */
+internal fun encodePlaceFenceIds(ids: Set<String>): String = ids.joinToString(",")
+
+/** The inverse of [encodePlaceFenceIds]. `""` (prefs.string's default for an
+ *  unset key) decodes to an empty set, not a set containing `""`. */
+internal fun decodePlaceFenceIds(raw: String): Set<String> = raw.split(",").filter { it.isNotBlank() }.toSet()
