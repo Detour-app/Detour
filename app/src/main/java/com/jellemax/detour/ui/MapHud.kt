@@ -136,8 +136,10 @@ private val ISLAND_WIDTH = 72.dp
 
 /** Speed, the posted limit for the road we're on and — inside a
  *  trajectcontrole — the running average, stacked in one island at the top-left
- *  of the map. The whole island turns red once we're over the limit by more
- *  than the tolerance the caller passed to `speedHudStateFrom`.
+ *  of the map. The whole island turns red once we're over the limit by
+ *  `SpeedLimitTracker.isOverLimit` — the same rule the head unit's dial and the
+ *  trip recorder's over-limit time apply, so nothing on screen can contradict
+ *  this island.
  *
  *  Renders [state] and computes nothing: the numbers and their wording come
  *  from `:shared`. Drawn whether or not the vehicle is moving — a map parked at

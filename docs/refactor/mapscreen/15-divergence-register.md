@@ -1303,24 +1303,34 @@ open one**, because it still reads as verified and gets followed again.
 two thresholds being different from each other is deliberate and sensible — the visual nudge is
 tolerant, the audible interrupt is not.
 
-**RESOLVED (`+5` half) — one app-side constant: `OVER_LIMIT_TOLERANCE_KMH` in
-`app/…/ui/MapCameraTuning.kt`,** beside the speed readout's other tuning values (`SPEED_TAU`,
-`SPEED_EPS_KMH`). Both remaining consumers read it — the phone at **`MapScreen.kt:1699`**, the
-`speedHudStateFrom` call site that builds the island's state, and `car/CarMapRenderer.kt`, which
-paints its own dial onto a `Canvas` rather than sharing the composable and so needs the number
-itself rather than the state.
+**RESOLVED (`+5` half) — one constant and one predicate, `OVER_LIMIT_TOLERANCE_KMH` and
+`isOverLimit`, in `shared/…/drive/SpeedLimitTracker.kt`,** beside the machine that produces the
+limit they are compared against. **Three** consumers read them:
+`shared/…/presentation/TripHudState.kt`'s `speedHudStateFrom`, which the phone island's call site
+in `MapScreen.kt` now leaves at its default; `car/CarMapRenderer.kt`, which paints its own dial
+onto a `Canvas` rather
+than sharing the composable and so needs the answer itself rather than the state; and
+`tracking/TripTrackingService.kt`'s `updateSpeedLimit`, which folds the same answer into the
+recorded `secondsOverLimit`.
 
 **Pointer corrected.** This named `ui/MapHud.kt`'s `SpeedHud` as the phone's consumer. It was, for
 one stage: `SpeedHud` now takes a finished `SpeedHudState` and no longer imports the constant, and
-the threshold enters at the call site instead. Nothing failed when that moved — which is the point
-of writing the new site down rather than the composable's name.
+the threshold entered at the call site instead — and since #196 it does not enter there either,
+which the correction below covers. Nothing failed when that moved — which is the point of writing
+the new site down rather than the composable's name.
 
-It stays in `app/` on today's evidence rather than the stale argument above: `shared/`'s
-`speedHudStateFrom` takes the tolerance as a **parameter**, so the mapper stays pure and owns no
-copy of the value, while both consumers of the value are Android views. Call sites pass it by
-name, exactly as `MapScreen.kt` passes `NavPolicy.OFF_ROUTE_METERS` to `navStateFrom` (entry 8) —
-which is what stops a caller that forgets from silently inheriting the mapper's own default as a
-third copy.
+**Corrected again (#196).** This entry recorded the constant as staying in
+`app/…/ui/MapCameraTuning.kt` because "both consumers of the value are Android views" — and that
+premise evaporated the moment a third consumer turned up that is not a view. `TripTrackingService`
+had been comparing with a `× 1.10` margin of its own all along, so at a 120 sign the dials called
+125 the boundary and the recorder called 132, and the active-trip card could read "Over limit"
+beside a 100 km/h dial under a 120 sign. Keeping the constant in `ui/` would have made `tracking/`
+import from `ui/`, which nothing does, so the value and the comparison moved together into
+`drive/`. Same lesson as the Wear correction above, one entry earlier in its own life: **an entry
+whose premise has evaporated still reads as verified and gets followed again.** The call sites no
+longer each name the value either — the mapper keeps its named parameter, because a caller may be
+stricter than the app and `SpeedHudStateTest` is, but it now defaults to the shared constant, so
+one literal `5.0` exists in the tree instead of a rule three call sites have to pass correctly.
 
 **Still open — the `+3.0` half and the `45.0` wedge.** Both belong to stage 3's `CameraWarner`,
 unchanged by the above.
@@ -1979,7 +1989,7 @@ items plus one open question plus a bug — so the buckets add to more than 22 b
 | 8 | `60` literal vs `NavPolicy.OFF_ROUTE_METERS` | latent | phone | no | **RESOLVED — constant `7d57087`, car indicator `6551f37`** |
 | 22 | Trip dates: fixed pattern vs locale-derived | drift | phone | no | survive: **iOS's** |
 | 3 | Camera easing `dt` clamp, 0.1 vs 0.25 | not really divergent | either | no | leave both; unify the other seven constants |
-| 13 | `+5` / `+3.0` / `45.0` literals | not yet divergent | phone, car (wear removed in `db79c69`) | consumed by it | **`+5` RESOLVED** — hoisted to `OVER_LIMIT_TOLERANCE_KMH` in `app/…/ui/MapCameraTuning.kt`; `+3.0` and `45.0` are stage 3's |
+| 13 | `+5` / `+3.0` / `45.0` literals | not yet divergent | phone, car, trip recorder (wear removed in `db79c69`) | consumed by it | **`+5` RESOLVED** — `OVER_LIMIT_TOLERANCE_KMH` + `isOverLimit` in `shared/…/drive/SpeedLimitTracker.kt`, read by both dials and by `TripTrackingService` (#196); `+3.0` and `45.0` are stage 3's |
 
 ### What stage 3 actually consumes
 
