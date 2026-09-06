@@ -1303,7 +1303,10 @@ class TripTrackingService : Service() {
         stats: TripStats,
         now: Long,
     ): Boolean {
-        if (location.accuracy > MAX_TRACE_ACCURACY_M) return false
+        // Negated `<=` rather than `>`, same reason as TripFixMath.distanceHopMeters:
+        // every comparison with a NaN accuracy is false, so `>` would fall through
+        // and append the point to the persisted trace. No usable accuracy, no draw.
+        if (!(location.accuracy <= MAX_TRACE_ACCURACY_M)) return false
         val p = LatLon(location.latitude, location.longitude)
         addTracePoint(p, location.time, speed)
 
