@@ -1,7 +1,6 @@
 package com.jellemax.detour.tracking
 
 import android.Manifest
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
@@ -26,7 +25,6 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.ActivityRecognition
@@ -40,8 +38,6 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
-import com.jellemax.detour.MainActivity
-import com.jellemax.detour.R
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.ble.BoardTelemetry
 import com.jellemax.detour.data.syncQuietly
@@ -177,10 +173,6 @@ class TripTrackingService : Service() {
          *  by waiting longer - and the whole point is not stranding parking
          *  (#90) until some unrelated onStartCommand happens to arrive. */
         private const val AR_REGISTER_RETRY_MS = 15_000L
-        // One definition, shared with the trip-ended notification that posts to
-        // the same channel from notif/.
-        private const val CHANNEL_ID = TripEndedNotification.CHANNEL_ID
-        private const val NOTIFICATION_ID = 1
 
         // Auto start/stop tuning.
         private const val FAST_SPEED_MPS = 7.0          // ~25 km/h, no vehicle hint
@@ -970,7 +962,7 @@ class TripTrackingService : Service() {
         val foreground = runCatching {
             ServiceCompat.startForeground(
                 this,
-                NOTIFICATION_ID,
+                TripNotifications.NOTIFICATION_ID,
                 buildNotification(),
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0,
@@ -1438,7 +1430,7 @@ class TripTrackingService : Service() {
         activeMode = null
         flushTrace()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-        getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+        getSystemService(NotificationManager::class.java).cancel(TripNotifications.NOTIFICATION_ID)
         return true
     }
 
@@ -2055,69 +2047,19 @@ class TripTrackingService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun createChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID, "Trip tracking", NotificationManager.IMPORTANCE_LOW,
-        )
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-    }
+    private val notifications = TripNotifications(this)
 
-    private fun notifyBadgesEarned(badges: List<BadgeDef>) {
-        val title = if (badges.size == 1) "Badge earned!" else "${badges.size} badges earned!"
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(title)
-            .setContentText(badges.joinToString(", ") { it.title })
-            .setSmallIcon(android.R.drawable.btn_star_big_on)
-            .setContentIntent(
-                PendingIntent.getActivity(
-                    this, 0, Intent(this, MainActivity::class.java),
-                    PendingIntent.FLAG_IMMUTABLE,
-                )
-            )
-            .setAutoCancel(true)
-            .build()
-        getSystemService(NotificationManager::class.java).notify(3, notification)
-    }
+    private fun createChannel() = notifications.createChannel()
+
+    private fun notifyBadgesEarned(badges: List<BadgeDef>) = notifications.badgesEarned(badges)
 
     private fun updateNotification() {
         if (stopping) return
-        getSystemService(NotificationManager::class.java)
-            .notify(NOTIFICATION_ID, buildNotification())
+        notifications.update(_stats.value, stationary, ACTION_END_TRIP)
     }
 
-    private fun buildNotification(): android.app.Notification {
-        val contentIntent = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE,
-        )
-        val stats = _stats.value
-        val text = when {
-            stats != null -> "Tracking your ${stats.mode.label.lowercase()} trip…"
-            !Settings.autoDetectDrives.value -> "Auto-tracking off"
-            stationary -> "Standing by"
-            else -> "Watching for trips"
-        }
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.app_name))
-            .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .setContentIntent(contentIntent)
-            .setOngoing(true)
-        // Ending a trip from the shade beats unlocking, finding the app, and
-        // hunting for a button — which is the situation you are in at a kerbside.
-        if (stats != null) {
-            builder.addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                "End trip",
-                PendingIntent.getForegroundService(
-                    this, 2,
-                    Intent(this, TripTrackingService::class.java).setAction(ACTION_END_TRIP),
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                ),
-            )
-        }
-        return builder.build()
-    }
+    private fun buildNotification(): android.app.Notification =
+        notifications.build(_stats.value, stationary, ACTION_END_TRIP)
 }
 
 /** Fresh OBD2 vehicle speed in m/s from an already-taken [telemetry] snapshot,
