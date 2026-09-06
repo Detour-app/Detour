@@ -276,11 +276,7 @@ class FogView(context: Context) : View(context) {
 
         val bw = max(1, (w + FOG_DOWNSCALE - 1) / FOG_DOWNSCALE)
         val bh = max(1, (h + FOG_DOWNSCALE - 1) / FOG_DOWNSCALE)
-        val buf = buffer?.takeIf { it.width == bw && it.height == bh }
-            ?: Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888).also {
-                buffer = it
-                bufferCanvas = Canvas(it)
-            }
+        val buf = ensureBuffer(bw, bh)
         val bufCanvas = bufferCanvas ?: return
         paintBase(m, buf, bufCanvas, bw, bh)
 
@@ -313,6 +309,16 @@ class FogView(context: Context) : View(context) {
                 "points" to if (rebuilt) maskPoints else 0,
                 "traces" to if (rebuilt) maskTraces else 0,
             )
+        }
+    }
+
+    /** The scrim buffer at [bw] x [bh], reallocated with its canvas if the size changed. */
+    private fun ensureBuffer(bw: Int, bh: Int): Bitmap {
+        val standing = buffer
+        if (standing != null && standing.width == bw && standing.height == bh) return standing
+        return Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888).also {
+            buffer = it
+            bufferCanvas = Canvas(it)
         }
     }
 

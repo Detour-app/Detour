@@ -2,7 +2,6 @@
 <SmellBaseline>
   <ManuallySuppressedIssues></ManuallySuppressedIssues>
   <CurrentIssues>
-    <ID>ComplexCondition:MapLibreMap.kt$FogView$tS &gt; north || tN &lt; south || tW &gt; east || tE &lt; west</ID>
     <ID>ComplexCondition:MapScreen.kt$Features.pushToTalk &amp;&amp; convoyConnected &amp;&amp; activeConvoyId != null &amp;&amp; ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED</ID>
     <ID>ComposableNaming:TripCardRenderer.kt$heroStat</ID>
     <ID>ComposableNaming:TripCardRenderer.kt$secondaryStat</ID>
@@ -16,7 +15,6 @@
     <ID>CyclomaticComplexMethod:CirclesScreen.kt$@Composable private fun CircleDetailSection( circle: Group, riderId: RiderId, state: CirclesState, onLeave: () -&gt; Unit, onToggleSharing: (Boolean) -&gt; Unit, )</ID>
     <ID>CyclomaticComplexMethod:CoverageMapScreen.kt$@Composable fun CoverageMapScreen(onBack: () -&gt; Unit)</ID>
     <ID>CyclomaticComplexMethod:FriendsScreen.kt$@Composable private fun ConvoysSection()</ID>
-    <ID>CyclomaticComplexMethod:MapLibreMap.kt$FogView$override fun onDraw(canvas: Canvas)</ID>
     <ID>CyclomaticComplexMethod:MapLibreMap.kt$MapOverlays$fun render( myLocation: LatLon?, destination: LatLon?, routePolyline: List&lt;LatLon&gt;?, reachMeters: Double?, directionDeg: Int?, candidates: List&lt;CandidatePin&gt;, positionMarker: PositionMarker, positionBearingDeg: Double? = null, )</ID>
     <ID>CyclomaticComplexMethod:MapScreen.kt$@Composable fun MapScreen( onOpenHub: () -&gt; Unit, onOpenRoutes: () -&gt; Unit, onOpenSocial: () -&gt; Unit, retained: RetainedMap, )</ID>
     <ID>CyclomaticComplexMethod:NavScreen.kt$private fun maneuverType(sign: Int, exitNumber: Int): Int</ID>
@@ -75,7 +73,6 @@
     <ID>LongParameterList:TripCardRenderer.kt$( cardData: CardData, mapSnapshot: TripCardMapSnapshot?, routeColor: Color, backgroundTop: Color, textColor: Color, mutedColor: Color, dark: Boolean, trimmed: Boolean, )</ID>
     <ID>LongParameterList:TripCardRenderer.kt$( cardData: CardData, snapshot: TripCardMapSnapshot, routeColor: Color, backgroundTop: Color, dark: Boolean, fullBleed: Boolean = false, modifier: Modifier = Modifier, )</ID>
     <ID>LoopWithTooManyJumpStatements:CarMapRenderer.kt$CarMapRenderer$while</ID>
-    <ID>LoopWithTooManyJumpStatements:MapLibreMap.kt$FogView$for</ID>
     <ID>LoopWithTooManyJumpStatements:PlaceGeofenceReceiver.kt$PlaceGeofenceReceiver$for</ID>
     <ID>MatchingDeclarationName:TripOpen.kt$PendingTripOpen</ID>
     <ID>MaxLineLength:BleNavServer.kt$*</ID>
