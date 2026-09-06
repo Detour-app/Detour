@@ -3,6 +3,10 @@ package com.jellemax.detour.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.AnchoredDraggableState
+import androidx.compose.foundation.gestures.DraggableAnchors
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.anchoredDraggable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,12 +42,20 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.collapse
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.expand
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,6 +66,7 @@ import com.jellemax.detour.presentation.homeShortcutPlaces
 import com.jellemax.detour.presentation.isHome
 import com.jellemax.detour.presentation.isWork
 import com.jellemax.detour.tracking.TripStats
+import kotlin.math.roundToInt
 import kotlin.random.Random
 
 /**
@@ -120,6 +133,10 @@ private const val SHEET_ALPHA = 0.96f
  *   control — the switch itself lives in `SpinSheet`, one tap away through the
  *   same chip, which is where the Spin chip's glyph comes from; see
  *   [ShortcutChipRow].
+ * @param onSpinSettings opens `SpinSheet`. Reached from the Spin chip and, in
+ *   the same breath, from a drag up or a tap on [DragHandle] — the spin sheet
+ *   is the only state above this one, so "expand the sheet" and "open the spin
+ *   settings" are one action.
  */
 @Composable
 internal fun ColumnScope.HomeSheet(
@@ -137,6 +154,10 @@ internal fun ColumnScope.HomeSheet(
     onOpenRoutes: () -> Unit,
     onOpenSocial: () -> Unit,
 ) {
+    // The handle's "expand" is the spin sheet, so it is the Spin chip's own
+    // callback rather than a fourteenth parameter that would say the same
+    // thing: this sheet has exactly one state above it.
+    val drag = rememberSheetDrag(expanded = false, onToggle = onSpinSettings)
     Surface(
         modifier = Modifier.weight(1f, fill = false).fillMaxWidth(),
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
@@ -156,9 +177,12 @@ internal fun ColumnScope.HomeSheet(
                 // instead of covering the results that expand out of it.
                 .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
                 .padding(horizontal = 16.dp)
-                .padding(bottom = 14.dp),
+                .padding(bottom = 14.dp)
+                // Innermost, so a drag grows the sheet inside its own painted
+                // surface rather than lifting the surface off the screen edge.
+                .tracksHandle(drag),
         ) {
-            DragHandle()
+            DragHandle(drag = drag, expanded = false, onToggle = onSpinSettings)
             SearchIsland(
                 open = searchOpen,
                 onOpenChange = onSearchOpenChange,
@@ -218,8 +242,9 @@ internal fun ColumnScope.HomeSheet(
  * distance — under the same handle the idle sheet wears. Expanded it adds the
  * trip's summary figures and **End trip**, which used to float ~300 dp up the
  * map as a button of its own, above a card the rider could not fold.
- * [expanded] is the caller's single flag for both halves, so the drag gesture
- * #205 adds has one thing to flip.
+ * [expanded] is the caller's single flag for both halves, so the handle's drag
+ * has one thing to flip — and it flips both ways here, the only sheet in the
+ * slot whose two states are the same composable.
  *
  * Height is capped at [HOME_SHEET_HEIGHT] and the card scrolls inside that
  * cap. The basemap attribution is kept clear of the sheet by one margin set
@@ -236,6 +261,7 @@ internal fun DrivingSheet(
     onToggle: () -> Unit,
     onEndTrip: () -> Unit,
 ) {
+    val drag = rememberSheetDrag(expanded = expanded, onToggle = onToggle)
     Surface(
         modifier = Modifier.fillMaxWidth().heightIn(max = HOME_SHEET_HEIGHT),
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
@@ -253,9 +279,13 @@ internal fun DrivingSheet(
             Modifier
                 .windowInsetsPadding(WindowInsets.navigationBars)
                 .padding(horizontal = 16.dp)
-                .padding(bottom = 14.dp),
+                .padding(bottom = 14.dp)
+                // Inside the surface, and inside the cap above with it: a drag
+                // may lift this sheet but never past the height the basemap
+                // attribution was given clearance for.
+                .tracksHandle(drag),
         ) {
-            DragHandle()
+            DragHandle(drag = drag, expanded = expanded, onToggle = onToggle)
             Box(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                 ActiveTripCard(stats, expanded = expanded, onToggle = onToggle)
             }
@@ -270,19 +300,129 @@ internal fun DrivingSheet(
     }
 }
 
-/** Decoration, not a control: neither sheet is dragged yet, so there is
- *  nothing here to grab. It says "this is a sheet, and the map continues above
- *  it" — hence the cleared semantics, so a screen reader is not offered a
- *  handle that moves nothing. On [DrivingSheet], where there genuinely are two
- *  heights, the card below carries the tap and the "Show more"/"Show less"
- *  label until #205 makes this draggable. */
+/**
+ * How far the handle travels under the finger before a release counts as a
+ * throw to the sheet's other state. Half of it is what a slow drag has to
+ * cross — the foundation's default positional threshold is `distance / 2` —
+ * and a flick past its 125 dp/s velocity threshold crosses regardless.
+ *
+ * Deliberately short. The two states of each pair are two *different*
+ * composables taking turns in the slot ([MapBottomSlot]), not one sheet
+ * changing height, so a drag cannot resize one into the other mid-gesture:
+ * it moves the surface it is on, and the release performs the swap the tap
+ * has always performed. 56 dp is enough travel to read as a grab and short
+ * enough that landing back at rest is not a lurch.
+ */
+private val HANDLE_DRAG_RANGE = 56.dp
+
+/** A handle's two anchors: where its sheet sits, and far enough away that
+ *  letting go there means "swap". */
+internal enum class SheetDrag { REST, THROWN }
+
+/**
+ * The drag machine behind a sheet handle: one gesture, two anchors, and the
+ * sheet's existing toggle fired once the release settles on the far one.
+ *
+ * [expanded] picks the direction — a sheet standing at its lower state is
+ * dragged up, one at its upper state is dragged down — and is also the
+ * `remember` key, so the flip rebuilds the machine at rest instead of leaving
+ * the surface parked [HANDLE_DRAG_RANGE] from where it belongs. That matters
+ * only for [DrivingSheet], the one pair whose two states are the same
+ * composable; the other two leave the composition on the flip and take their
+ * machine with them.
+ *
+ * Passing no `flingBehavior` to [Modifier.anchoredDraggable] is what makes the
+ * release velocity-aware: the foundation default weighs it against 125 dp/s
+ * before falling back to the positional threshold, which is the physics this
+ * has no business hand-rolling.
+ */
 @Composable
-private fun DragHandle() {
+internal fun rememberSheetDrag(
+    expanded: Boolean,
+    onToggle: () -> Unit,
+): AnchoredDraggableState<SheetDrag> {
+    val density = LocalDensity.current
+    val drag = remember(density, expanded) {
+        val thrown = with(density) { HANDLE_DRAG_RANGE.toPx() } * if (expanded) 1f else -1f
+        AnchoredDraggableState(
+            SheetDrag.REST,
+            DraggableAnchors {
+                SheetDrag.REST at 0f
+                SheetDrag.THROWN at thrown
+            },
+        )
+    }
+    // Read through rememberUpdatedState because the effect restarts on the
+    // settle, not on a new lambda: a direct read would fire whichever toggle
+    // was current when the sheet last came to rest.
+    val toggle by rememberUpdatedState(onToggle)
+    val settled = drag.settledValue
+    LaunchedEffect(settled) { if (settled == SheetDrag.THROWN) toggle() }
+    return drag
+}
+
+/**
+ * Make a sheet follow the finger on its handle. Two directions, and **where
+ * this goes in the chain differs per direction** — the sheets in this slot are
+ * bottom-anchored, so their bottom edge is fixed and their top edge is the one
+ * that can move:
+ *
+ * - **Up** (a negative offset, the two full-width sheets) *grows* the surface
+ *   instead of moving it: sliding one up would open a strip of map underneath a
+ *   sheet that is supposed to be coming up. Growth has to happen **inside** the
+ *   `Surface`, on its content, or the surface paints its old height and leaves
+ *   the same hole. Growth is capped at the incoming constraint, so
+ *   [DrivingSheet]'s [HOME_SHEET_HEIGHT] ceiling — the one keeping the basemap
+ *   attribution clear — still holds mid-drag.
+ * - **Down** (a positive offset, the spin sheet) is a plain slide, which is
+ *   what a sheet being pushed away does. That one goes **on** the card, so the
+ *   background travels with the content rather than being left behind it.
+ *
+ * The offset is read inside `layout`, so a drag re-lays out the sheet without
+ * recomposing it every frame.
+ */
+internal fun Modifier.tracksHandle(drag: AnchoredDraggableState<SheetDrag>) =
+    layout { measurable, constraints ->
+        val dy = drag.requireOffset().roundToInt()
+        val placeable = measurable.measure(constraints)
+        val grown = (placeable.height - dy.coerceAtMost(0)).coerceAtMost(constraints.maxHeight)
+        layout(placeable.width, grown) { placeable.place(0, dy.coerceAtLeast(0)) }
+    }
+
+/**
+ * The bar every sheet in the slot wears, and now the control it has always
+ * looked like: drag it toward the sheet's other state, or tap it.
+ *
+ * Both gestures live on this 26 dp band alone, never on the sheet body — the
+ * home sheet's search results and the driving sheet's scrolling card keep their
+ * own gestures, and nothing here reaches the map, which the sheet covers
+ * anyway.
+ *
+ * The cleared semantics this used to carry are gone with the reason for them.
+ * A screen reader now finds the handle, is told what a tap does through
+ * [onToggle]'s click label, and is offered the standard expand/collapse action
+ * for [expanded]'s other side — which is the vocabulary a sheet is supposed to
+ * answer to, and what TalkBack's actions menu looks for.
+ */
+@Composable
+internal fun DragHandle(
+    drag: AnchoredDraggableState<SheetDrag>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    val label = if (expanded) "Collapse" else "Expand"
     Box(
         Modifier
             .fillMaxWidth()
-            .padding(top = 10.dp, bottom = 12.dp)
-            .clearAndSetSemantics { },
+            // Before the padding, so the whole band is grabbable rather than
+            // the 4 dp bar the eye sees.
+            .clickable(onClickLabel = label, onClick = onToggle)
+            .anchoredDraggable(drag, Orientation.Vertical)
+            .semantics {
+                contentDescription = "Sheet handle"
+                if (expanded) collapse { onToggle(); true } else expand { onToggle(); true }
+            }
+            .padding(top = 10.dp, bottom = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
         Box(

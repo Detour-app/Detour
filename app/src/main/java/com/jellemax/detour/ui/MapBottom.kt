@@ -117,7 +117,7 @@ internal fun BoxScope.MapBottomSlot(
     ) {
         // Whether the driving sheet stands at its expanded height is
         // screen-local UI state (§4.2). One boolean for both halves of that
-        // sheet, so the drag gesture #205 adds has a single thing to flip.
+        // sheet, so its handle's drag and its card's tap flip one thing.
         // Keyed on the trip, because this slot outlives it: unkeyed, a rider
         // who expanded trip one gets trip two opened on all six stats.
         val drivingExpanded = remember(stats?.startTimeMs) { mutableStateOf(false) }

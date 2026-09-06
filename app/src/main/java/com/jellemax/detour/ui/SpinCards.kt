@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -55,9 +54,9 @@ import com.jellemax.detour.tracking.TripStats
 private val DESTINATION_ORANGE = Color(0xFFFF9800)
 
 /** The spin sheet: everything the home sheet's Spin chip expands into. Same
- *  glass card the home sheet uses, just taller — a drag-handle bar stands in
- *  for an actual drag gesture, tap it (or the chevron) to fold back to the
- *  home sheet. */
+ *  glass card the home sheet uses, just taller — and the same [DragHandle],
+ *  so a drag down folds it back to the home sheet exactly as a drag up opened
+ *  it. Tapping the bar, or the chevron, still does the same. */
 @Composable
 internal fun SpinSheet(
     mode: TravelMode,
@@ -85,28 +84,22 @@ internal fun SpinSheet(
     onTrack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val drag = rememberSheetDrag(expanded = true, onToggle = onCollapse)
     Card(
-        modifier = modifier.glassBorder(MaterialTheme.shapes.extraLarge),
+        modifier = modifier.tracksHandle(drag).glassBorder(MaterialTheme.shapes.extraLarge),
         shape = MaterialTheme.shapes.extraLarge,
         colors = glassCardColors(),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onCollapse),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    Modifier
-                        .size(width = 34.dp, height = 4.dp)
-                        .background(
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                            CircleShape,
-                        ),
-                )
-            }
+        // No top padding: the handle brings its own 10 dp, the way it does on
+        // the home sheet. That is most of what the shared handle's taller
+        // grab band costs this card, which does not scroll and is already the
+        // tallest thing in the slot.
+        Column(
+            Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            DragHandle(drag = drag, expanded = true, onToggle = onCollapse)
 
             Row(
                 Modifier.fillMaxWidth(),
