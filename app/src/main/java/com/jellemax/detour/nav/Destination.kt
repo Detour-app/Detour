@@ -73,7 +73,8 @@ sealed interface Destination : NavKey {
     @Serializable
     data object Social : Destination
 
-    /** The rider's account: name, avatar, sign out. Reached from the You card. */
+    /** The rider's account: name, avatar, sign out. Reached from the You card
+     *  and from Social's avatar. */
     @Serializable
     data object Profile : Destination
 
