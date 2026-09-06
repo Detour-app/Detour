@@ -139,6 +139,14 @@ jobs:
       - name: Check credential fields use the secure components
         run: .claude/skills/detour-compose-state-hazards/scripts/check-secret-fields.sh
 
+      # Static analysis, gated on config/detekt/baseline-app.xml so it fails on
+      # new violations only. The rules that matter are the Compose ones —
+      # parameter drilling, forwarded state holders, and an empty
+      # CompositionLocal allowlist — see docs/guidelines/state-holders.md.
+      # Before the tests: it needs no compiled output and finishes in ~20s.
+      - name: Static analysis
+        run: ./gradlew :app:detekt
+
       # app/src/test and shared/ both hold unit tests that had never run in CI:
       # this job only ever assembled, and ios.yml — which does run the shared
       # tests — is path-gated on shared/** and iosApp/**, so a change under app/
