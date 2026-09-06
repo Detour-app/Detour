@@ -8,6 +8,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -15,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.jellemax.detour.data.SavedPlaces
 
 /** Prominent disclosure for background location, required by Play policy to
  *  appear — and be accepted — before the system permission prompt is raised.
@@ -73,4 +77,42 @@ internal fun SavePinDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/**
+ * When the map's two dialogs are up, and what they do.
+ *
+ * The dialogs themselves were already here; only the wiring that decides
+ * whether they are showing was still in `MapScreen`, reading four pieces of
+ * [MapScreenState] to do it. Both halves live together now, which is what makes
+ * the state they read a two-parameter dependency rather than four more values
+ * threaded through the screen.
+ */
+@Composable
+internal fun MapScreenDialogs(
+    s: MapScreenState,
+    bgLocationLauncher: ManagedActivityResultLauncher<String, Boolean>,
+) {
+    if (s.showBgLocationDisclosure) {
+        BackgroundLocationDisclosure(
+            onAllow = {
+                s.showBgLocationDisclosure = false
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    bgLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                }
+            },
+            onDismiss = { s.showBgLocationDisclosure = false },
+        )
+    }
+
+    s.savePinTarget?.let { target ->
+        SavePinDialog(
+            suggestedName = s.destinationName?.takeIf { it != "Dropped pin" } ?: "",
+            onSave = { name ->
+                SavedPlaces.add(name, target)
+                s.savePinTarget = null
+            },
+            onDismiss = { s.savePinTarget = null },
+        )
+    }
 }

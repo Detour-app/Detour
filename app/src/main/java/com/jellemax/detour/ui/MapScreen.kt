@@ -1927,27 +1927,8 @@ fun MapScreen(
         }
     }
 
-    if (s.showBgLocationDisclosure) {
-        BackgroundLocationDisclosure(
-            onAllow = {
-                s.showBgLocationDisclosure = false
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    bgLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-                }
-            },
-            onDismiss = { s.showBgLocationDisclosure = false },
-        )
-    }
-
-    s.savePinTarget?.let { target ->
-        SavePinDialog(
-            suggestedName = s.destinationName?.takeIf { it != "Dropped pin" } ?: "",
-            onSave = { name ->
-                SavedPlaces.add(name, target)
-                s.savePinTarget = null
-            },
-            onDismiss = { s.savePinTarget = null },
-        )
-    }
+    // The two dialogs and the state they read live together in MapDialogs.kt;
+    // this screen just says when they are up.
+    MapScreenDialogs(s = s, bgLocationLauncher = bgLocationLauncher)
 
 }
