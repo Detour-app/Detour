@@ -564,15 +564,24 @@ class FogView(context: Context) : View(context) {
             // with the rider's history. #84.
             val t = Perf.start()
             field = value.map { decimate(it) }
+            // Bounds computed here, once per store write, rather than every frame
+            // in onDraw (#213) — decimate already walks every point of every
+            // trace, so this rides along for free.
+            traceBounds = field.map { bounds(it) }
             Perf.end(t, "FogView.traces") {
                 listOf("segments" to value.size, "points" to value.sumOf { it.size })
             }
         }
+    private var traceBounds: List<Bounds?> = emptyList()
     // The in-progress trace, kept out of [traces] because it grows with every
     // GPS fix — folding it in re-decimated the whole stored set once a second.
     // This one small list is decimated alone instead.
     var liveTrace: List<LatLon> = emptyList()
-        set(value) { field = decimate(value) }
+        set(value) {
+            field = decimate(value)
+            liveTraceBounds = bounds(field)
+        }
+    private var liveTraceBounds: Bounds? = null
     var currentLocation: LatLon? = null
     // Everyone else the map is drawing: circle members and convoy peers. The
     // scrim sits over the GL surface, so a marker on ground you have never
@@ -764,16 +773,11 @@ class FogView(context: Context) : View(context) {
         val west = vb.longitudeWest - padDeg
 
         val pt = PointF()
-        for (trace in traces + listOf(liveTrace)) {
+        for (i in traces.indices) {
+            val trace = traces[i]
             if (trace.isEmpty()) continue
-            var tN = -90.0; var tS = 90.0; var tE = -180.0; var tW = 180.0
-            for (p in trace) {
-                if (p.lat > tN) tN = p.lat
-                if (p.lat < tS) tS = p.lat
-                if (p.lon > tE) tE = p.lon
-                if (p.lon < tW) tW = p.lon
-            }
-            if (tS > north || tN < south || tW > east || tE < west) continue
+            val b = traceBounds.getOrNull(i) ?: continue
+            if (b.south > north || b.north < south || b.west > east || b.east < west) continue
             drawnTraces++
             projected += trace.size
             val path = Path()
@@ -784,6 +788,23 @@ class FogView(context: Context) : View(context) {
                 else path.lineTo(sp.x * s, sp.y * s)
             }
             bufCanvas.drawPath(path, clearPaint)
+        }
+        run {
+            val trace = liveTrace
+            val b = liveTraceBounds
+            if (trace.isNotEmpty() && b != null &&
+                !(b.south > north || b.north < south || b.west > east || b.east < west)) {
+                drawnTraces++
+                projected += trace.size
+                val path = Path()
+                var first = true
+                for (p in trace) {
+                    val sp = proj.toScreenLocation(LatLng(p.lat, p.lon))
+                    if (first) { path.moveTo(sp.x * s, sp.y * s); first = false }
+                    else path.lineTo(sp.x * s, sp.y * s)
+                }
+                bufCanvas.drawPath(path, clearPaint)
+            }
         }
         for (loc in listOfNotNull(currentLocation) + peers) {
             val sp = proj.toScreenLocation(LatLng(loc.lat, loc.lon))
@@ -825,6 +846,23 @@ class FogView(context: Context) : View(context) {
         // seemed to appear from nothing at settle. Darker + more opaque puts the
         // moving-camera state in the same perceived band as the frost.
         private val FOG_LIGHT = FogTheme(r = 222, g = 228, b = 236, scrimAlpha = 205, frostTintAlpha = 120)
+
+        /** A trace's lat/lon bounding box, cached by the [traces]/[liveTrace]
+         *  setters so onDraw's viewport cull is a comparison, not a walk of
+         *  every point of every trace on every frame (#213). */
+        private class Bounds(val north: Double, val south: Double, val east: Double, val west: Double)
+
+        private fun bounds(trace: List<LatLon>): Bounds? {
+            if (trace.isEmpty()) return null
+            var n = -90.0; var s = 90.0; var e = -180.0; var w = 180.0
+            for (p in trace) {
+                if (p.lat > n) n = p.lat
+                if (p.lat < s) s = p.lat
+                if (p.lon > e) e = p.lon
+                if (p.lon < w) w = p.lon
+            }
+            return Bounds(n, s, e, w)
+        }
 
         /** Drop points within [DECIMATE_DEG] of the last kept one; endpoints stay. */
         private fun decimate(trace: List<LatLon>): List<LatLon> {
