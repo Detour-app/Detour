@@ -55,19 +55,20 @@ import com.jellemax.detour.data.TravelMode
  *
  * ```
  *  26  drag handle      10 top + 4 handle + 12 bottom
- *  40  "Where to?" bar  SearchIsland's pill: 6 + 28 avatar + 6
+ *  48  "Where to?" bar  SearchIsland's pill: its 48 dp trailing slot, which
+ *                       holds a 40 dp avatar and sets the pill's height
  *  44  chip row         12 gap + 32 AssistChip
  *  92  card row         14 gap + 14 + 26 icon + 6 + 20 labelLarge + 12
  *  14  bottom padding
  * ---
- * 216, and 224 here to keep 8 dp of headroom over it.
+ * 224, and 232 here to keep 8 dp of headroom over it.
  * ```
  *
  * Read by [rememberRetainedMap] to keep the basemap's attribution above the
  * sheet, which is a licence obligation rather than a cosmetic choice — so
  * re-derive this when the sheet's contents change, and prefer overshooting.
  */
-internal val HOME_SHEET_HEIGHT = 224.dp
+internal val HOME_SHEET_HEIGHT = 232.dp
 
 /**
  * How much taller the sheet gets per unit of `fontScale`. Only the text grows;
@@ -76,7 +77,7 @@ internal val HOME_SHEET_HEIGHT = 224.dp
  * at the largest accessibility setting to buy the ~48 dp actually needed.
  *
  * The three text runs that can grow the sheet, once each has overtaken the
- * fixed box it sits in: the 24 sp search field (past the 28 dp avatar), the
+ * fixed box it sits in: the 24 sp search field (past the 48 dp avatar slot), the
  * 20 sp chip label (past the 32 dp AssistChip minimum) and the 20 sp card
  * label, which grows from the start. 24 + 20 + 20 = 64 dp per unit — the
  * steepest the sheet ever grows, so `HOME_SHEET_HEIGHT + this * (fontScale -

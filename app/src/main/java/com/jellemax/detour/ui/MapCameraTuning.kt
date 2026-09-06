@@ -62,7 +62,7 @@ internal const val FIT_PADDING_PX = 140
 //           + 16 subtitle + 3x56 rows + 40 ButtonDefaults.MinHeight = 330 dp,
 //           plus MapBottomSlot's 12 dp gutter and a 48 dp three-button nav bar
 //           (366 dp on gesture nav)
-//   272 dp  the home sheet — HOME_SHEET_HEIGHT plus that same inset
+//   280 dp  the home sheet — HOME_SHEET_HEIGHT plus that same inset
 //  ~600 dp  the spin sheet — what the home sheet's Spin chip expands into, and
 //           the occupant `MapScreen.choose()` fits against whenever it is open.
 //           **Not covered: 390 is ~210 dp short of it.** Left that way on
