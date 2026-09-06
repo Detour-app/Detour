@@ -42,7 +42,10 @@ object TripFixMath {
         minGapMs: Long,
         maxGapMs: Long,
     ): Double {
-        if (lastFixMs == null || accuracyM > maxAccuracyM) return 0.0
+        // Negated `<=` rather than `>`: every comparison with a NaN accuracy is
+        // false, so `accuracyM > maxAccuracyM` would let a NaN through and bank
+        // the hop. A fix with no usable accuracy must be rejected, not trusted.
+        if (lastFixMs == null || !(accuracyM <= maxAccuracyM)) return 0.0
         val gapMs = fixMs - lastFixMs
         return if (gapMs in minGapMs..maxGapMs) rawHopMeters else 0.0
     }

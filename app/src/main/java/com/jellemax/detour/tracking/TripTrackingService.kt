@@ -1280,10 +1280,7 @@ class TripTrackingService : Service() {
     }
 
     /** The trip's distance with this fix's hop added, or unchanged when the fix
-     *  fails the accuracy/recency gate — only accurate, recent fixes accumulate
-     *  distance, so a GPS jump can't be banked as mileage. Geodesy stays on
-     *  Android's WGS84 [Location.distanceTo]; [TripFixMath.distanceHopMeters]
-     *  is the gate around it. */
+     *  fails [TripFixMath.distanceHopMeters]'s accuracy/recency gate. */
     private fun accumulateDistance(location: Location, stats: TripStats): Double {
         val last = lastLocation
         return stats.distanceMeters + TripFixMath.distanceHopMeters(
@@ -1299,10 +1296,7 @@ class TripTrackingService : Service() {
 
     /** Extends the fog-of-war trace with this fix and, riding on the same
      *  point, watches for the trip closing back on where it started.
-     *
-     *  Returns true when it ended the trip, in which case the caller must stop
-     *  processing this fix.
-     */
+     *  Returns true if it ended the trip. */
     private fun appendTracePoint(
         location: Location,
         speed: Double,
@@ -1328,8 +1322,7 @@ class TripTrackingService : Service() {
     }
 
     /** Keeps the "still moving" clock, then decides whether the rider has left
-     *  the vehicle for good. Returns true when it ended the trip, in which case
-     *  the caller must stop processing this fix. */
+     *  the vehicle for good. Returns true if it ended the trip. */
     private fun checkVehicleExit(speed: Double, now: Long): Boolean {
         if (speed > 2.0) lastMovingMs = now
 
@@ -1361,10 +1354,6 @@ class TripTrackingService : Service() {
         val recordedFixMs: Long,
     )
 
-    /** OBD2 -> board -> GPS, plus the two things that ride on which source won:
-     *  whether the number is a measurement at all, and which clock its Δt
-     *  should be taken against. Also folds this fix into the per-trip OBD2
-     *  attribution counters. */
     private fun resolveSpeed(location: Location, speed: Double, stats: TripStats): FixSpeed {
         // One OBD2 snapshot for this fix: the speed chain, the attribution
         // counter, the engine-summary fold and speedIsReal all read the same
@@ -1472,8 +1461,6 @@ class TripTrackingService : Service() {
         if (obd.fuelEstimated) fuelWasEstimated = true
     }
 
-    /** Hard brake/accel, cornering and the stop detector, all fed from the one
-     *  [FixSpeed] this fix resolved. */
     private fun detectHardEvents(location: Location, stats: TripStats, fix: FixSpeed) {
         // Thresholds here are scoped to car/moto (tracksGForce) — a bike or walk
         // decelerating normally must not print a "hard brake" meant for a vehicle.
@@ -1508,12 +1495,7 @@ class TripTrackingService : Service() {
 
     /** Advances the trip's speed-limit state for this fix (fetching ways when
      *  the tracker asks for them) and folds any time spent over the limit into
-     *  `secondsOverLimit`.
-     *
-     *  Returns whether the rider is over the limit right now, or null on a fix
-     *  with no real speed measurement — the caller carries the previous value
-     *  forward rather than flickering the HUD signal off.
-     */
+     *  `secondsOverLimit`. Null when the fix carried no real speed measurement. */
     private fun updateSpeedLimit(location: Location, fix: FixSpeed, now: Long): Boolean? {
         val here = LatLon(location.latitude, location.longitude)
         val bearing = if (location.hasBearing()) location.bearing.toDouble() else null
@@ -1834,9 +1816,11 @@ internal fun obdSpeedMpsFrom(
  *  of fuel burn or over-limit time. Shared by the fuel integrator and
  *  secondsOverLimit; the trace-distance gate keeps its own GPS-clock check.
  *
- *  Same window as the distance accumulator's, but a different clock: that gate
- *  measures GPS fix times, this one the OBD reading's own arrival time. Kept
- *  separate for exactly that reason — do not fold one into the other. */
+ *  Same window as the distance accumulator's, but not the same clock: that gate
+ *  always measures GPS fix times, while this one measures whichever clock the
+ *  caller passes — the OBD reading's arrival time for the fuel accumulators,
+ *  location.time for secondsOverLimit. Kept separate for exactly that reason —
+ *  do not fold one into the other. */
 internal fun cappedFixDtSec(nowMs: Long, lastMs: Long): Double? =
     (nowMs - lastMs)
         .takeIf {

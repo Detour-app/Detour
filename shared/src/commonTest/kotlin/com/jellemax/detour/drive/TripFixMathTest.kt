@@ -123,6 +123,27 @@ class TripFixMathTest {
         assertEquals(0.0, hopAt(1_000L, 50.1f), "a hair looser is out")
     }
 
+    @Test
+    fun aFixWithNoUsableAccuracyBanksNothing() {
+        // Every comparison with NaN is false, so a `> maxAccuracyM` gate would
+        // wave this through. A synthetic provider (this repo's own mock-location
+        // harness is one) can hand us an unset accuracy; banking its hop puts a
+        // silent error into persisted trip distance.
+        assertEquals(
+            0.0,
+            TripFixMath.distanceHopMeters(
+                rawHopMeters = 42.0,
+                lastFixMs = t0,
+                fixMs = t0 + 1_000L,
+                accuracyM = Float.NaN,
+                maxAccuracyM = maxAccuracyM,
+                minGapMs = minGapMs,
+                maxGapMs = maxGapMs,
+            ),
+            "a NaN accuracy must be rejected, not trusted",
+        )
+    }
+
     // ---- speedIsReal -------------------------------------------------------
 
     @Test
