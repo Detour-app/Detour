@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -137,6 +138,10 @@ internal fun SettingsScaffold(
     title: String,
     onBack: () -> Unit,
     spacing: Dp,
+    // Hoisted, not just remembered here, so a spoke can scroll itself: the
+    // Servers & sync status rows jump to the section they summarise, and that
+    // needs the same ScrollState the column is scrolling.
+    scrollState: ScrollState = rememberScrollState(),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -148,7 +153,7 @@ internal fun SettingsScaffold(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(spacing),
             content = content,
@@ -169,8 +174,9 @@ fun SettingsSpokeScreen(spoke: Destination.SettingsSpoke, onBack: () -> Unit) {
     val theme by Settings.theme.collectAsStateWithLifecycle()
     val decimalSeparator by Settings.decimalSeparator.collectAsStateWithLifecycle()
     val autoDetect by Settings.autoDetectDrives.collectAsStateWithLifecycle()
+    val scrollState = rememberScrollState()
 
-    SettingsScaffold(spokeTitle(spoke), onBack, spacing = 16.dp) {
+    SettingsScaffold(spokeTitle(spoke), onBack, spacing = 16.dp, scrollState = scrollState) {
         when (spoke) {
             Destination.SettingsAppearanceMap -> {
                 AppearanceSection(theme, decimalSeparator)
@@ -190,9 +196,7 @@ fun SettingsSpokeScreen(spoke: Destination.SettingsSpoke, onBack: () -> Unit) {
                 NowPlayingSection()
             }
             Destination.SettingsServersSync -> {
-                ServerSection()
-                SyncSection()
-                ConfigFileSection()
+                ServersSyncSpoke(scrollState)
                 DiagnosticsSection()
             }
             Destination.SettingsObd2 -> Obd2PairingScreen()
@@ -1110,8 +1114,12 @@ private fun LeanCalibrationSection() {
  *  same as the You screen's RIDES group — one design, one definition. The title
  *  is uppercased here rather than at all 16 call sites. */
 @Composable
-internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+internal fun SettingsSection(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionLabel(title.uppercase())
         ListCard {
             Column(
