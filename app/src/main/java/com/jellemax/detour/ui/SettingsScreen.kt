@@ -57,7 +57,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -73,7 +72,6 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -82,10 +80,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.syncQuietly
 import com.jellemax.detour.data.TravelMode
-import com.jellemax.detour.data.ConfigFile
 import com.jellemax.detour.data.RouteColors
-import com.jellemax.detour.data.RoutingServer
-import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.nav.Destination
 import com.jellemax.detour.presentation.formatFixed
@@ -94,10 +89,8 @@ import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.tracking.DormancyBlocker
 import com.jellemax.detour.tracking.dormancyBlocker
 import com.jellemax.detour.tracking.TripTrackingService
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlin.math.atan2
 
 /**
