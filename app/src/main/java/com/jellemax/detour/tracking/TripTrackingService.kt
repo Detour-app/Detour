@@ -77,10 +77,11 @@ data class TripStats(
     val hardAccelCount: Int = 0,
     val hardCornerCount: Int = 0,
     val stopCount: Int = 0,
-    /** True while the current fix reads over the posted limit (same margin as
-     *  [TripTrackingService.OVER_LIMIT_MARGIN]) — a live HUD signal, not a
-     *  count; carries the previous value forward on a fix with no real speed
-     *  measurement rather than flickering off. */
+    /** True while the current fix reads over the posted limit, by
+     *  [SpeedLimitTracker.isOverLimit] — the same rule the speed dial reddens
+     *  on, so the card cannot contradict the sign next to it. A live HUD
+     *  signal, not a count; carries the previous value forward on a fix with no
+     *  real speed measurement rather than flickering off. */
     val currentlyOverLimit: Boolean = false,
 )
 
@@ -273,9 +274,6 @@ class TripTrackingService : Service() {
         /** Floor between boundary lookups, so a drive along a coastline (where
          *  every point misses) can't turn into a stream of Overpass queries. */
         private const val MUNICIPALITY_LOOKUP_COOLDOWN_MS = 60_000L
-        /** 10% over the posted limit, provisional — a floor against GPS/rounding
-         *  noise reading a steady legal speed as a violation. */
-        private const val OVER_LIMIT_MARGIN = 1.10
 
         private val _stats = MutableStateFlow<TripStats?>(null)
         val stats: StateFlow<TripStats?> = _stats
@@ -1356,7 +1354,7 @@ class TripTrackingService : Service() {
         // its (bogus) duration folded into secondsOverLimit. lastLimitFixMs is
         // left stale on a skipped fix so the next real fix's Δt spans the gap.
         if (!fix.isReal) return null
-        val over = limitKmh != null && fix.effectiveMps * 3.6 > limitKmh * OVER_LIMIT_MARGIN
+        val over = SpeedLimitTracker.isOverLimit(fix.effectiveMps * 3.6, limitKmh)
         if (over) cappedFixDtSec(location.time, session.lastLimitFixMs)?.let { session.secondsOverLimit += it }
         session.lastLimitFixMs = location.time
         return over
