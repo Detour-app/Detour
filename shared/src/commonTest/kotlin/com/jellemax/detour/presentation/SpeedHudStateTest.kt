@@ -1,5 +1,6 @@
 package com.jellemax.detour.presentation
 
+import com.jellemax.detour.drive.SpeedLimitTracker
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -19,7 +20,7 @@ class SpeedHudStateTest {
         limitKmh: Double? = null,
         averageKmh: Double? = null,
         averageLimitKmh: Double? = null,
-        overLimitToleranceKmh: Double = 5.0,
+        overLimitToleranceKmh: Double = SpeedLimitTracker.OVER_LIMIT_TOLERANCE_KMH,
     ) = speedHudStateFrom(
         speedKmh = speedKmh,
         limitKmh = limitKmh,
