@@ -500,37 +500,6 @@ fun MapScreen(
         }
     }
 
-    // Background location must be requested separately from fine location,
-    // after it is granted (system requirement on Android 11+).
-    val bgLocationLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
-
-    // Mic permission is asked for once a convoy is actually joined, not
-    // upfront with location — nothing needs it until push-to-talk does.
-    val micPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
-    LaunchedEffect(convoyConnected, activeConvoyId) {
-        // activeConvoyId != null, not just convoyConnected: the same socket
-        // now also stays connected for a circle's arrival notifications with
-        // no convoy joined at all (see ConvoyLiveClient.setNotifyCircles),
-        // which needs no microphone.
-        // Features.pushToTalk: off means no talk button ever renders, so
-        // asking for the mic here would buy nothing this build (#154).
-        if (shouldRequestMic(
-                pushToTalkEnabled = Features.pushToTalk,
-                convoyConnected = convoyConnected,
-                hasActiveConvoy = activeConvoyId != null,
-                micGranted = ContextCompat.checkSelfPermission(
-                    context, Manifest.permission.RECORD_AUDIO,
-                ) == PackageManager.PERMISSION_GRANTED,
-            )
-        ) {
-            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        }
-    }
-
     fun onLocationGranted() {
         fetchLocation()
         TripTrackingService.startMonitoring(context)
@@ -545,28 +514,14 @@ fun MapScreen(
         }
     }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { grants ->
-        if (grants[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
-            onLocationGranted()
-        } else {
-            s.error = "Location permission is required"
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        val needed = requiredStartupPermissions(Build.VERSION.SDK_INT)
-        val missing = needed.any {
-            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-        }
-        if (!missing) {
-            onLocationGranted()
-        } else {
-            permissionLauncher.launch(needed.toTypedArray())
-        }
-    }
-
+    // Three launchers and two effects, in MapPermissions.kt; every decision
+    // they make is in map/PermissionPolicy.kt, with tests.
+    val bgLocationLauncher = rememberMapPermissions(
+        s = s,
+        convoyConnected = convoyConnected,
+        hasActiveConvoy = activeConvoyId != null,
+        onLocationGranted = { onLocationGranted() },
+    )
     /** Commit to one spin candidate and frame the trip to it. */
     fun choose(c: RouteCandidate) {
         s.destination = c.destination
