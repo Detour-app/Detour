@@ -163,6 +163,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".tracking.PlaceGeofenceReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".update.InstallResultReceiver"
             android:exported="false">
             <intent-filter>
