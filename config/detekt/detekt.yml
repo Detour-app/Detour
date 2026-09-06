@@ -1,0 +1,166 @@
+# Detekt configuration for Detour.
+#
+# Layered on top of detekt's defaults (`buildUponDefaultConfig = true` in the
+# root build.gradle.kts), so this file carries only what differs. Two groups:
+#
+#   1. `complexity` — the numeric thresholds from the house coding standard.
+#   2. `Compose`    — io.nlopez.compose.rules, which is what actually enforces
+#                     KOTLIN_GUIDE.md §14: state holders over parameter
+#                     drilling, slots over forwarded callbacks, and
+#                     CompositionLocal reserved for genuinely ambient things.
+#
+# Existing violations live in config/detekt/baseline-app.xml, so this gates new
+# code without demanding a 46-parameter cleanup first. Deleting a baseline
+# entry is how a fix gets locked in — never add one by hand.
+
+complexity:
+  # The single rule this whole file exists for. SpinSheet takes 23 parameters
+  # and SpinDock 19, both from one caller, because MapScreen has ~30 loose
+  # `var`s and nothing to group them into. See
+  # docs/guidelines/state-holders.md §14. 7 is the house hard limit.
+  LongParameterList:
+    active: true
+    functionThreshold: 7
+    constructorThreshold: 7
+    # Compose hoisting means most of the offenders are lambdas with no
+    # default, so counting defaults out would hide exactly the cases this is
+    # here to catch.
+    ignoreDefaultParameters: false
+    ignoreDataClasses: true
+  LongMethod:
+    active: true
+    threshold: 100
+  LargeClass:
+    active: true
+    threshold: 500
+  NestedBlockDepth:
+    active: true
+    threshold: 4
+  CyclomaticComplexMethod:
+    active: true
+    threshold: 15
+  TooManyFunctions:
+    # A Compose file is legitimately many small composables; the file-length
+    # and function-length rules already cover the real risk here.
+    active: false
+
+naming:
+  # detekt's default FunctionNaming does not know about Compose, so every
+  # @Composable's PascalCase name reads as a violation - 125 of them on the
+  # first run. Compose's own naming rule (Compose > ComposableNaming below) is
+  # what actually checks these.
+  FunctionNaming:
+    active: true
+    ignoreAnnotated: ['Composable']
+
+exceptions:
+  # The house pattern for a network call is catch-all plus a fallback message
+  # (FriendsStore.FALLBACK_ERROR and friends). Baselining these would still
+  # fail every new store action written the same way, so they are off rather
+  # than recorded.
+  TooGenericExceptionCaught:
+    active: false
+  SwallowedException:
+    active: false
+
+style:
+  MaxLineLength:
+    active: true
+    maxLineLength: 120
+    excludeCommentStatements: false
+  # Guard clauses are idiomatic Kotlin and this codebase leans on them hard
+  # (`?: return@LaunchedEffect` appears in most effects). Counting them is a
+  # fight with the language, not a quality signal.
+  ReturnCount:
+    active: false
+  # The repo has no formatter, and retrofitting one would rewrite every file.
+  # These would be pure noise against that.
+  WildcardImport:
+    active: false
+  MagicNumber:
+    active: false
+
+Compose:
+  # ---------------------------------------------------------------------
+  # The drilling rules. These are §14's teeth.
+  # ---------------------------------------------------------------------
+
+  # Do not hand a ViewModel or state holder down the tree. Passing the holder
+  # one level (screen -> its own content) is the pattern; passing it further
+  # is drilling with extra steps, and it is what makes a child untestable.
+  ViewModelForwarding:
+    active: true
+    # A `…Content` composable is the screen's own body by convention, so it
+    # may receive the holder. Anything else must take the data it needs.
+    allowedForwarding: .*Content
+
+  # CompositionLocal is NOT the answer to parameter drilling — Android's own
+  # docs say so, and §14 quotes them. The allowlist is deliberately EMPTY:
+  # the app defines zero CompositionLocals today, so this rule is enforceable
+  # strictly from day one with nothing baselined. Adding a name here is a
+  # design decision that needs its own argument in review.
+  CompositionLocalAllowlist:
+    active: true
+    allowedCompositionLocals: ''
+
+  CompositionLocalNaming:
+    active: true
+
+  # Slots are the other half of §14: a `content: @Composable () -> Unit`
+  # removes a parameter instead of relocating it.
+  ContentTrailingLambda:
+    active: true
+  ContentSlotReused:
+    active: true
+
+  # ---------------------------------------------------------------------
+  # Ordinary Compose hygiene. Cheap, and the repo already largely complies.
+  # ---------------------------------------------------------------------
+  ComposableAnnotationNaming:
+    active: true
+  ComposableNaming:
+    active: true
+  ComposableParamOrder:
+    active: true
+  ContentEmitterReturningValues:
+    active: true
+  DefaultsVisibility:
+    active: true
+  InvalidReadOnlyComposable:
+    active: true
+  LambdaParameterEventTrailing:
+    active: true
+  # A lambda captured by a restartable effect goes stale unless it is wrapped
+  # in rememberUpdatedState. This is the exact hazard detour-compose-state-hazards
+  # documents; having it linted is strictly better than having it reviewed.
+  LambdaParameterInRestartableEffect:
+    active: true
+  ModifierMissing:
+    active: true
+  ModifierNotUsedAtRoot:
+    active: true
+  ModifierWithoutDefault:
+    active: true
+  MultipleEmitters:
+    active: true
+  MutableParams:
+    active: true
+  MutableStateAutoboxing:
+    active: true
+  # A `mutableStateOf` outside a remember loses its value on recomposition.
+  RememberMissing:
+    active: true
+  UnstableCollections:
+    # Opt-in and noisy on a codebase that passes List<T> everywhere; the
+    # performance cost is real but this is not the change to make today.
+    active: false
+  ViewModelInjection:
+    # No DI framework and no ViewModels yet (see §12.3). Turn this on with
+    # the screen-model migration, not before.
+    active: false
+
+  # Opt-in in upstream, and worth having: a composable nested four content
+  # emitters deep is usually a missing extraction.
+  ComposableNestingDepth:
+    active: true
+    composableNestingDepthThreshold: 4
