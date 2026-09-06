@@ -9,6 +9,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.withFrameNanos
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavEngine
+import com.jellemax.detour.data.Settings
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
 import com.jellemax.detour.map.MapMotion
@@ -70,16 +71,16 @@ internal fun MapSpeedEase(retained: RetainedMap) {
 }
 
 @Composable
-internal fun MapCameraLoops(
-    s: MapScreenState,
-    retained: RetainedMap,
-    mapLibreMap: MapLibreMap?,
-    mapOverlays: MapOverlays?,
-    fogView: FogView,
-    cameraActive: Boolean,
-    liveFix: Fix?,
-    defaultZoom: Float,
-) {
+internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap) {
+    // Read off the holder rather than taken as parameters: all four were
+    // aliases for a field on it, and passing an alias is drilling with extra
+    // steps (state-holders.md §14.1).
+    val mapLibreMap = retained.map
+    val mapOverlays = retained.overlays
+    val fogView = retained.fogView
+    val cameraActive = s.camAuthority.cameraActive(s.navigating)
+    val liveFix by TripTrackingService.lastFix.collectAsStateWithLifecycle()
+    val defaultZoom by Settings.defaultZoom.collectAsStateWithLifecycle()
     // The camera itself: one loop, one frame at a time, easing toward whatever
     // the last fix asked for. Compose only produces frames while the activity is
     // resumed, so this costs nothing with the screen off.
@@ -98,11 +99,7 @@ internal fun MapCameraLoops(
             // animation had reached - the rider - a frame after the pick asked
             // for the destination. A spin never showed it because SpinStarted
             // has already parked before the framing, so nothing transitions.
-            if (map.cameraPosition.bearing != 0.0) {
-                map.cameraPosition.target?.let {
-                    setCamera(map, it.latitude, it.longitude, map.cameraPosition.zoom, 0f)
-                }
-            }
+            levelToNorthUp(map)
             return@LaunchedEffect
         }
         val start = retained.camTarget ?: s.myLocation ?: return@LaunchedEffect
@@ -215,7 +212,22 @@ internal fun MapCameraLoops(
             }
         }
     }
+}
 
+/**
+ * The position dot, interpolated per frame.
+ *
+ * Separate from [MapCameraLoops] because it must keep running when the camera
+ * does not: the camera loop returns early when it is inactive, and a parked
+ * camera — after a pan, with follow off, or with a spin result up — is exactly
+ * when the dot still has to move and turn.
+ */
+@Composable
+internal fun MapPositionMarker(s: MapScreenState, retained: RetainedMap) {
+    val mapOverlays = retained.overlays
+    val fogView = retained.fogView
+    val liveFix by TripTrackingService.lastFix.collectAsStateWithLifecycle()
+    val haveFix = retained.camTarget != null || s.myLocation != null
     // The dot, interpolated per frame. It used to be re-placed only when a fix arrived,
     // about once a second, at the raw fix position — so it stepped forward and the camera
     // slid after it. Worst when the camera is parked (after a pan, with follow off, or
@@ -376,4 +388,18 @@ internal fun MapCameraLoops(
             }
         }
     }
+}
+
+/**
+ * Puts the map back to north-up, and only when there is a rotation to undo.
+ *
+ * Writing the camera unconditionally cancels whatever flight is in progress,
+ * and parking is exactly what a destination framing does on its way in — so an
+ * unguarded write here would pin the camera to wherever the animation had
+ * reached, one frame after the pick asked for the destination.
+ */
+private fun levelToNorthUp(map: MapLibreMap) {
+    if (map.cameraPosition.bearing == 0.0) return
+    val at = map.cameraPosition.target ?: return
+    setCamera(map, at.latitude, at.longitude, map.cameraPosition.zoom, 0f)
 }

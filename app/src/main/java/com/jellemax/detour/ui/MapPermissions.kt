@@ -8,6 +8,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.data.Features
@@ -35,9 +37,13 @@ internal fun rememberMapPermissions(
     s: MapScreenState,
     convoyConnected: Boolean,
     hasActiveConvoy: Boolean,
-    onLocationGranted: () -> Unit,
+    onLocationReady: () -> Unit,
 ): ManagedActivityResultLauncher<String, Boolean> {
     val context = LocalContext.current
+    // rememberUpdatedState, because both users below sit inside effects that
+    // outlive a recomposition: a captured lambda would keep calling the first
+    // composition's copy (compose-state-hazards §1).
+    val ready by rememberUpdatedState(onLocationReady)
 
     // Background location must be requested separately from fine location,
     // after it is granted (system requirement on Android 11+).
@@ -68,7 +74,7 @@ internal fun rememberMapPermissions(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
         if (grants[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
-            onLocationGranted()
+            ready()
         } else {
             s.error = "Location permission is required"
         }
@@ -80,7 +86,7 @@ internal fun rememberMapPermissions(
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
         }
         if (!missing) {
-            onLocationGranted()
+            ready()
         } else {
             permissionLauncher.launch(needed.toTypedArray())
         }

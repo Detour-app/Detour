@@ -2,18 +2,24 @@ package com.jellemax.detour.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.audio.NavVoice
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.RoutingClient
-import com.jellemax.detour.data.ServerConfig
+import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.fetchNavRoute
 import com.jellemax.detour.tracking.Fix
+import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -38,14 +44,20 @@ import kotlinx.coroutines.withContext
 internal fun MapNavigationSession(
     s: MapScreenState,
     scope: CoroutineScope,
-    context: android.content.Context,
-    liveFix: Fix?,
     announcer: NavAnnouncer,
-    serverConfig: ServerConfig,
-    mode: TravelMode,
     announceAloud: (String) -> Unit,
-    onArrived: () -> Unit,
+    onArrive: () -> Unit,
 ) {
+    // Derived here rather than drilled in: each was an alias for something the
+    // holder or a Settings flow already owns (state-holders.md §14.1).
+    val context = LocalContext.current
+    val liveFix by TripTrackingService.lastFix.collectAsStateWithLifecycle()
+    val mode by Settings.tripMode.collectAsStateWithLifecycle()
+    val serverConfig = remember { RoutingServer.load() }
+    // Both are called from effects keyed on liveFix, which restarts every
+    // second; captured directly, each would freeze on its first composition.
+    val announce by rememberUpdatedState(announceAloud)
+    val arrive by rememberUpdatedState(onArrive)
     // Current speed for the external display when there's no route up —
     // BleNavServer.send() below covers the navigating case on the same
     // characteristic, so this only fires the other half of the time.
@@ -72,7 +84,7 @@ internal fun MapNavigationSession(
         // Same policy the head unit and iOS read, so the three surfaces cannot
         // word one maneuver three ways.
         announcer.onProgress(progress.nextInstruction, progress.distanceToTurnMeters)
-            ?.let { announceAloud(it) }
+            ?.let { announce(it) }
 
         // Arrival and reroute are NavPolicy's call, shared with car/NavScreen.kt.
         val dest = s.destination
@@ -86,7 +98,7 @@ internal fun MapNavigationSession(
         )) {
             // Point-to-point only; loops end back at the start on their own.
             NavPolicy.Decision.Arrived -> {
-                onArrived()
+                arrive()
                 return@LaunchedEffect
             }
             // Off route → fresh route to the destination. Launched on the screen
@@ -96,7 +108,7 @@ internal fun MapNavigationSession(
                 val target = dest ?: return@LaunchedEffect // Reroute implies a destination
                 s.rerouting = true
                 s.lastRerouteMs = now
-                announceAloud(announcer.rerouting())
+                announce(announcer.rerouting())
                 scope.launch {
                     try {
                         s.route = fetchNavRoute(serverConfig, pos, target, mode)

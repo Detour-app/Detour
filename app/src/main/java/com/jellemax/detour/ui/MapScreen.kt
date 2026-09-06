@@ -520,7 +520,7 @@ fun MapScreen(
         s = s,
         convoyConnected = convoyConnected,
         hasActiveConvoy = activeConvoyId != null,
-        onLocationGranted = { onLocationGranted() },
+        onLocationReady = { onLocationGranted() },
     )
     /** Commit to one spin candidate and frame the trip to it. */
     fun choose(c: RouteCandidate) {
@@ -893,28 +893,16 @@ fun MapScreen(
     // The speedometer ease, and the camera + position-dot loops, in MapCamera.kt.
     MapSpeedEase(retained = retained)
 
-    MapCameraLoops(
-        s = s,
-        retained = retained,
-        mapLibreMap = mapLibreMap,
-        mapOverlays = mapOverlays,
-        fogView = fogView,
-        cameraActive = cameraActive,
-        liveFix = liveFix,
-        defaultZoom = defaultZoom,
-    )
+    MapCameraLoops(s = s, retained = retained)
+    MapPositionMarker(s = s, retained = retained)
 
     // Progress, arrival, reroute and the external display, in MapNavigation.kt.
     MapNavigationSession(
         s = s,
         scope = scope,
-        context = context,
-        liveFix = liveFix,
         announcer = announcer,
-        serverConfig = serverConfig,
-        mode = mode,
         announceAloud = { announceAloud(it) },
-        onArrived = { stopNavigation() },
+        onArrive = { stopNavigation() },
     )
 
     // The banner, its "then" chip, the bottom bar and the HUD's limit source all

@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import com.jellemax.detour.data.LatLon
@@ -40,6 +41,7 @@ internal fun MapHazardAlerts(
     // the one case worth interrupting for. The rule, the one-chime-per-camera
     // latch and the wording are CameraWarner's (shared/…/drive/), where they live
     // with their tests; what to do about a warning is ours.
+    val announce by rememberUpdatedState(announceAloud)
     val speedCamerasRef = rememberUpdatedState(retained.speedCameras)
     val ambientLimitRef = rememberUpdatedState(retained.ambientSpeedLimitKmh)
     val navProgressRef = rememberUpdatedState(s.navProgress)
@@ -90,7 +92,7 @@ internal fun MapHazardAlerts(
                     // marker. The snackbarHostState this screen already owns is the
                     // error channel; routing a routine hazard through it would
                     // teach the rider to ignore errors.
-                    announceAloud(outcome.text)
+                    announce(outcome.text)
                 }
                 CameraWarner.Outcome.Silent -> {}
             }
