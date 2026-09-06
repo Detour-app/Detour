@@ -921,7 +921,7 @@ class TripTrackingService : Service() {
         }
         if (!::motionSensors.isInitialized) {
             motionSensors = RideMotionSensors(
-                this, LEAN_EMA_ALPHA, MAX_LEAN_SLEW_DEG, SENSOR_EMIT_INTERVAL_MS, BOARD_TELEMETRY_STALE_MS,
+                this, LEAN_EMA_ALPHA, MAX_LEAN_SLEW_DEG, SENSOR_EMIT_INTERVAL_MS, ::freshBoardTelemetry,
             ) { deg -> recordLean(deg) }
         }
 
@@ -1000,6 +1000,7 @@ class TripTrackingService : Service() {
         pendingStopAtMs = null
         resetStartDetector()
         lastLeanDeg = 0.0; maxLeanDeg = 0.0
+        motionSensors.resetLean()
         // 1.0, not 0: the resting magnitude is 1 g — see the field declaration.
         currentG = 1.0; maxG = 0.0
         speedEventState = HardEventDetector.SpeedState()

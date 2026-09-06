@@ -5,8 +5,9 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.os.SystemClock
-import com.jellemax.detour.ble.BleNavServer
+import android.os.Handler
+import android.os.Looper
+import com.jellemax.detour.ble.BoardTelemetry
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import kotlin.math.abs
@@ -22,8 +23,12 @@ import kotlin.math.atan2
  * Every accepted candidate reading goes to [onLean], at the same two trigger
  * points as before this moved out of the service: a fresh phone sample when
  * the board isn't supplying one, or a throttled poll of the board when it is.
- * What happens to that value from there — the speed gate below which "lean"
- * is just steering-head rake, the trip's own max lean, the
+ * The board poll runs on its own timer rather than piggybacking on a phone
+ * sensor event — a phone with no rotation-vector sensor at all still has a
+ * board to poll, and that's exactly the rider the BLE lean board is for.
+ *
+ * What happens to an accepted value from there — the speed gate below which
+ * "lean" is just steering-head rake, the trip's own max lean, the
  * [com.jellemax.detour.drive.HardEventDetector] cornering latch — needs
  * running-trip state this class has no business holding, so it stays on
  * [TripTrackingService.recordLean]. [onLean] is the wiring out to that.
@@ -41,14 +46,14 @@ class RideMotionSensors(
     private val leanEmaAlpha: Double,
     private val maxLeanSlewDeg: Double,
     private val sensorEmitIntervalMs: Long,
-    private val boardTelemetryStaleMs: Long,
+    private val freshBoardTelemetry: () -> BoardTelemetry?,
     private val onLean: (Double) -> Unit,
 ) {
     private val sensorManager = context.getSystemService(SensorManager::class.java)
     private val rotationMatrix = FloatArray(9)
+    private val boardPollHandler = Handler(Looper.getMainLooper())
 
     private var currentLeanDeg = 0.0
-    private var lastEmitMs = 0L
     private var mode: TravelMode? = null
     /** Mount-to-bike misalignment, subtracted from every raw lean reading;
      *  see [Settings.leanOffsetDeg]. Cached at trip start — it only changes
@@ -94,19 +99,23 @@ class RideMotionSensors(
             if (abs(rawLeanDeg - currentLeanDeg) <= maxLeanSlewDeg) {
                 currentLeanDeg += leanEmaAlpha * (rawLeanDeg - currentLeanDeg)
                 // Only this sensor's own reading feeds onLean while the board
-                // isn't supplying a fresher one — see the throttled poll below.
+                // isn't supplying a fresher one — see [boardPoll].
                 if (freshBoardLeanDeg() == null) onLean(currentLeanDeg)
             }
-            // The board updates at 4 Hz (see boardTelemetryStaleMs), so
-            // polling it this often is a fine match — throttled independently
-            // of the phone's own ~60 Hz rotation-vector samples above.
-            val now = SystemClock.elapsedRealtime()
-            if (now - lastEmitMs < sensorEmitIntervalMs) return
-            lastEmitMs = now
-            freshBoardLeanDeg()?.let(onLean)
         }
 
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
+
+    /** Polls the board independently of any phone sensor: the board updates
+     *  at 4 Hz (see [freshBoardTelemetry]'s own staleness window), so this
+     *  runs on its own [sensorEmitIntervalMs] timer rather than waiting on a
+     *  rotation-vector event that a gyro-less phone will never produce. */
+    private val boardPoll = object : Runnable {
+        override fun run() {
+            freshBoardLeanDeg()?.let(onLean)
+            boardPollHandler.postDelayed(this, sensorEmitIntervalMs)
+        }
     }
 
     /** Board lean is only trusted for a vehicle whose mode tracks lean at all
@@ -114,17 +123,23 @@ class RideMotionSensors(
      *  trip with a board still connected doesn't suddenly grow one. */
     private fun freshBoardLeanDeg(): Double? {
         if (mode?.tracksLean != true) return null
-        val telemetry = BleNavServer.boardTelemetry.value ?: return null
-        val age = System.currentTimeMillis() - telemetry.receivedAtMs
-        if (age !in 0..boardTelemetryStaleMs) return null
+        val telemetry = freshBoardTelemetry() ?: return null
         return if (telemetry.hasLean) telemetry.leanDeg else null
+    }
+
+    /** Zeroes the EMA for a genuinely new trip. Deliberately not called from
+     *  [start] itself: [start] also runs mid-trip when [TravelMode] changes
+     *  (a vehicle connects or drops), and resetting there would wedge the
+     *  slew gate against the bike's actual current lean until it came back
+     *  upright. Call this once, from [TripTrackingService.beginTrip]. */
+    fun resetLean() {
+        currentLeanDeg = 0.0
     }
 
     /** Registers the rotation-vector sensor only for a vehicle mode with a
      *  meaningful lean reading, so a car trip never records a lean angle. */
     fun start(mode: TravelMode) {
         this.mode = mode
-        currentLeanDeg = 0.0
         leanTracked = false
         if (!mode.tracksLean) return
         // SENSOR_DELAY_UI (~60ms) resolves a lean just as well as
@@ -134,10 +149,12 @@ class RideMotionSensors(
             sensorManager.registerListener(listener, it, SensorManager.SENSOR_DELAY_UI)
             leanTracked = true
         }
+        boardPollHandler.post(boardPoll)
     }
 
     fun stop() {
         sensorManager.unregisterListener(listener)
+        boardPollHandler.removeCallbacks(boardPoll)
         leanTracked = false
         segmentPeakLeanDeg = 0.0
     }
