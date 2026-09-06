@@ -99,6 +99,17 @@ object CirclePresence {
      *  "last seen" — and only checks this after; see [isFixTrusted]. */
     const val FIX_TRUST_MS = 15 * 60_000L
 
+    /** How close a fix has to be to a circle place before Android registers
+     *  an OS geofence for it (issue #91) — a place farther than this stays
+     *  on the poll-only path. Provisional like [FIX_TRUST_MS]'s neighbours:
+     *  big enough that a fence registers and settles before a motorway-speed
+     *  approach crosses it, not yet measured against a real drive. */
+    const val PROXIMITY_GATE_RADIUS_M = 5_000.0
+
+    /** Half Android's 100-geofence-per-app ceiling — two fences (enter,
+     *  exit) are registered per candidate place. */
+    const val MAX_GATE_CANDIDATES = 50
+
     /** One evaluator per circle, kept across ticks — see the class doc.
      *  Replaced wholesale rather than mutated in place, the same reason
      *  `MunicipalityStore.misses` is: `commonMain` has no
@@ -174,6 +185,7 @@ object CirclePresence {
             evaluators = retainJoinedCircles(evaluators, circles.map { it.id }.toSet())
         }
 
+        val placesByCircle = mutableListOf<Pair<String, List<CirclePlace>>>()
         for (circle in plan.sharing) {
             try {
                 CircleFixes.postFix(circle.id, lat, lon, accuracyM, fixTimeMs)
@@ -182,6 +194,7 @@ object CirclePresence {
                 // decision below.
                 if (!isFixTrusted(fixAgeMs)) continue
                 val places = CirclePlaces.places(circle.id)
+                placesByCircle += circle.id to places
                 val evaluator = evaluators[circle.id] ?: GeofenceEvaluator.withDefaults()
                 evaluators = evaluators + (circle.id to evaluator)
                 for (t in evaluateGeofences(evaluator, lat, lon, nowMs, places)) {
@@ -194,6 +207,9 @@ object CirclePresence {
                 // must not stop the others from posting this tick.
             }
         }
+        // Only on a successful circles fetch — same "an outage proves
+        // nothing" rule as currentIntervalMs and evaluators above.
+        if (circles != null) lastGateCandidates = nearbyPlaces(lat, lon, placesByCircle)
         return currentIntervalMs
     }
 
@@ -279,4 +295,50 @@ object CirclePresence {
         if (sessionChanged(lastSeenEpoch, current)) evaluators = emptyMap()
         lastSeenEpoch = current
     }
+
+    /** One place close enough to this fix that Android should register an
+     *  OS geofence for it (issue #91) — [distanceM] is carried along so
+     *  [nearbyPlaces] can sort nearest-first before truncating to
+     *  [MAX_GATE_CANDIDATES]. */
+    data class GateCandidate(
+        val circleId: String,
+        val placeId: Long,
+        val lat: Double,
+        val lon: Double,
+        val radiusM: Double,
+        val distanceM: Double,
+    )
+
+    /** The proximity-gate decision: every place across [placesByCircle]
+     *  within [gateRadiusM] of this fix, nearest first, capped at
+     *  [MAX_GATE_CANDIDATES]. Pure arithmetic on data [tick] already has —
+     *  no network call of its own, same reasoning as [evaluateGeofences]. */
+    internal fun nearbyPlaces(
+        lat: Double,
+        lon: Double,
+        placesByCircle: List<Pair<String, List<CirclePlace>>>,
+        gateRadiusM: Double = PROXIMITY_GATE_RADIUS_M,
+    ): List<GateCandidate> {
+        val here = LatLon(lat, lon)
+        return placesByCircle.flatMap { (circleId, places) ->
+            places.mapNotNull { p ->
+                val d = RoadRoulette.distanceMeters(here, p.place.location)
+                if (d <= gateRadiusM) {
+                    GateCandidate(circleId, p.place.id, p.place.location.lat, p.place.location.lon, p.radiusM, d)
+                } else null
+            }
+        }.sortedBy { it.distanceM }.take(MAX_GATE_CANDIDATES)
+    }
+
+    /** [nearbyPlaces]' result from the most recent successful [tick] pass —
+     *  Android reads this right after calling [tick] and feeds it to
+     *  `PlaceGeofenceGate.sync`. `@Volatile` and public-read for the same
+     *  cross-module reason [evaluators] is internal-for-tests: this one is
+     *  read from `app/`, a different Gradle module, so it can't be
+     *  `internal`. Left unchanged on a failed circle fetch, same as
+     *  [currentIntervalMs] — an outage is not evidence nobody is nearby a
+     *  place any more. */
+    @Volatile
+    var lastGateCandidates: List<GateCandidate> = emptyList()
+        internal set
 }

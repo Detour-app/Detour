@@ -175,10 +175,17 @@ data class GeofenceTransition(val placeId: Long, val kind: GeofenceKind, val tsM
  * arrive in chronological [tsMs] order for that state to mean anything.
  */
 class GeofenceEvaluator(
-    private val exitHysteresisFactor: Double = 1.3,
-    private val minDwellMs: Long = 60_000L,
+    private val exitHysteresisFactor: Double = EXIT_HYSTERESIS_FACTOR,
+    private val minDwellMs: Long = MIN_DWELL_MS,
 ) {
     companion object {
+        /** The two provisional guard constants, named rather than left as
+         *  inline literals so Android's OS-geofence fences (#91) can build
+         *  the same hysteresis/dwell values into `GeofencingRequest` instead
+         *  of restating them — see `PlaceGeofenceGate`. */
+        const val EXIT_HYSTERESIS_FACTOR = 1.3
+        const val MIN_DWELL_MS = 60_000L
+
         /** What Swift constructs. Kotlin/Native's Objective-C export drops
          *  default argument values, so `GeofenceEvaluator()` has nothing to
          *  bind to on that side — without this, iOS would have to restate
