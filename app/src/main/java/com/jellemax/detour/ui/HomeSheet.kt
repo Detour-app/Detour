@@ -182,7 +182,15 @@ internal fun ColumnScope.HomeSheet(
                 // surface rather than lifting the surface off the screen edge.
                 .tracksHandle(drag),
         ) {
-            DragHandle(drag = drag, expanded = false, onToggle = onSpinSettings)
+            DragHandle(
+                drag = drag,
+                expanded = false,
+                onToggle = onSpinSettings,
+                // A swipe is cheap to do by accident and the spin sheet
+                // takes this one off screen; the query goes with it. The
+                // tap stays live, because that one is meant.
+                canDrag = !searchOpen,
+            )
             SearchIsland(
                 open = searchOpen,
                 onOpenChange = onSearchOpenChange,
@@ -243,8 +251,12 @@ internal fun ColumnScope.HomeSheet(
  * trip's summary figures and **End trip**, which used to float ~300 dp up the
  * map as a button of its own, above a card the rider could not fold.
  * [expanded] is the caller's single flag for both halves, so the handle's drag
- * has one thing to flip — and it flips both ways here, the only sheet in the
- * slot whose two states are the same composable.
+ * has one thing to flip. It only flips it one way: a drag up expands, and
+ * folding back is the tap on the handle or on the card. This sheet paints its
+ * own background around the drag offset, so a downward drag would walk its
+ * content — **End trip** included — down behind the gesture inset instead of
+ * moving the sheet, and #205 asked for the two gestures the other two sheets
+ * have, not for a third.
  *
  * Height is capped at [HOME_SHEET_HEIGHT] and the card scrolls inside that
  * cap. The basemap attribution is kept clear of the sheet by one margin set
@@ -285,7 +297,12 @@ internal fun DrivingSheet(
                 // attribution was given clearance for.
                 .tracksHandle(drag),
         ) {
-            DragHandle(drag = drag, expanded = expanded, onToggle = onToggle)
+            DragHandle(
+                drag = drag,
+                expanded = expanded,
+                onToggle = onToggle,
+                canDrag = !expanded,
+            )
             Box(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                 ActiveTripCard(stats, expanded = expanded, onToggle = onToggle)
             }
@@ -331,6 +348,11 @@ internal enum class SheetDrag { REST, THROWN }
  * composable; the other two leave the composition on the flip and take their
  * machine with them.
  *
+ * Downward is only ever [SpinSheet]'s, for the reason [Modifier.tracksHandle]
+ * gives: it is the only sheet here that is not painting its own background
+ * around the offset. Every other caller passes `canDrag = false` in the state
+ * that would produce one.
+ *
  * Passing no `flingBehavior` to [Modifier.anchoredDraggable] is what makes the
  * release velocity-aware: the foundation default weighs it against 125 dp/s
  * before falling back to the positional threshold, which is the physics this
@@ -374,9 +396,14 @@ internal fun rememberSheetDrag(
  *   the same hole. Growth is capped at the incoming constraint, so
  *   [DrivingSheet]'s [HOME_SHEET_HEIGHT] ceiling — the one keeping the basemap
  *   attribution clear — still holds mid-drag.
- * - **Down** (a positive offset, the spin sheet) is a plain slide, which is
- *   what a sheet being pushed away does. That one goes **on** the card, so the
- *   background travels with the content rather than being left behind it.
+ * - **Down** (a positive offset) is a plain slide, which is what a sheet being
+ *   pushed away does. It goes **on** the card, so the background travels with
+ *   the content rather than being left behind it — and it is only ever correct
+ *   there. Applied inside a `Surface`, a positive offset would walk the content
+ *   down inside a box that does not move and clips, which is why the only
+ *   caller that can produce one is [SpinSheet]: this branch is chosen by the
+ *   sign of the offset, not by where the modifier sits, so the two
+ *   `Surface`-internal callers must never be able to drag downward.
  *
  * The offset is read inside `layout`, so a drag re-lays out the sheet without
  * recomposing it every frame.
@@ -403,12 +430,17 @@ internal fun Modifier.tracksHandle(drag: AnchoredDraggableState<SheetDrag>) =
  * [onToggle]'s click label, and is offered the standard expand/collapse action
  * for [expanded]'s other side — which is the vocabulary a sheet is supposed to
  * answer to, and what TalkBack's actions menu looks for.
+ *
+ * @param canDrag whether the *drag* is live. The tap, the click label and the
+ *   semantics action are never gated by it: a sheet that should not be thrown
+ *   by a stray swipe still has to be closeable deliberately, and by TalkBack.
  */
 @Composable
 internal fun DragHandle(
     drag: AnchoredDraggableState<SheetDrag>,
     expanded: Boolean,
     onToggle: () -> Unit,
+    canDrag: Boolean = true,
 ) {
     val label = if (expanded) "Collapse" else "Expand"
     Box(
@@ -417,7 +449,7 @@ internal fun DragHandle(
             // Before the padding, so the whole band is grabbable rather than
             // the 4 dp bar the eye sees.
             .clickable(onClickLabel = label, onClick = onToggle)
-            .anchoredDraggable(drag, Orientation.Vertical)
+            .anchoredDraggable(drag, Orientation.Vertical, enabled = canDrag)
             .semantics {
                 contentDescription = "Sheet handle"
                 if (expanded) collapse { onToggle(); true } else expand { onToggle(); true }
