@@ -33,13 +33,26 @@ class ChoiceRowMetricsTest {
     }
 
     @Test
-    fun `three-item theme row still fits at fontScale 1_3`() {
-        // "Light" at 1.3x = 42.5dp; a Settings section is 328dp wide.
-        val m = choiceRowMetrics(rowWidthDp = 328f, widestLabelDp = 42.5f, count = 3)
-        assertEquals((328f - 16f) / 3f, m.itemWidthDp, eps)
-        assertEquals(14f, m.paddingDp, eps)
+    fun `four-entry theme row tightens rather than scrolls at fontScale 1`() {
+        // Theme is SYSTEM, LIGHT, DARK, AUTO - four, not three, so it is over
+        // MAX_NON_SCROLLING and stays unscrolled on the arithmetic alone.
+        // Widest is "System", 49.4dp; a Settings section is 328dp wide.
+        val m = choiceRowMetrics(rowWidthDp = 328f, widestLabelDp = 49.4f, count = 4)
+        assertEquals((328f - 24f) / 4f, m.itemWidthDp, eps)
+        assertEquals(8f, m.paddingDp, eps)
         assertEquals(1f, m.fontScale, eps)
         assertFalse(m.scrolls)
+    }
+
+    @Test
+    fun `four-entry theme row shrinks within the floor at fontScale 1_3`() {
+        // "System" at 1.3x = 64.2dp. 76dp of share minus 16dp of padding
+        // leaves 60dp, so the label draws at 0.93 - above the 12/14 floor,
+        // and so still equal width and still not scrolling.
+        val m = choiceRowMetrics(rowWidthDp = 328f, widestLabelDp = 64.2f, count = 4)
+        assertFalse(m.scrolls)
+        assertEquals(60f / 64.2f, m.fontScale, eps)
+        assertTrue(m.fontScale >= 12f / 14f)
     }
 
     @Test

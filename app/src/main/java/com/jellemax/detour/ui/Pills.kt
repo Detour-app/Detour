@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -42,9 +43,18 @@ private const val SHRINK_FLOOR = 12f / 14f
  *  one). Only reachable by a two- or three-item row, which may not scroll. */
 private const val MIN_SCALE = 0.5f
 
-/** Up to this many segments the row never scrolls: Mode, theme and decimal
- *  separator are two- and three-item rows, and a switcher that small looks
- *  broken when it can be flicked sideways. */
+/** Up to this many segments the row never scrolls: Mode (2) and the decimal
+ *  separator (3) are switchers small enough that being able to flick one
+ *  sideways would read as breakage rather than as a control.
+ *
+ *  Theme is four entries (SYSTEM, LIGHT, DARK, AUTO), so it is not covered by
+ *  this rule - it does not need to be. Its widest label, "System", is 49dp at
+ *  labelLarge against a 76dp share of a 328dp Settings section, so it lands on
+ *  the tighter padding at fontScale 1 and on a 0.94 label at 1.3, both without
+ *  scrolling; it would only scroll above roughly fontScale 1.4. Raising this
+ *  to 4 to cover it would force the destination-type row - "Food & drink" in
+ *  a 70dp share - to shrink past the floor instead, which is the clipping
+ *  this component exists to prevent. */
 private const val MAX_NON_SCROLLING = 3
 
 /** How [ChoiceRow] resolves one row: every segment [itemWidthDp] wide, its
@@ -112,6 +122,12 @@ private fun ChoiceItem(
     val style = MaterialTheme.typography.labelLarge
     Surface(
         modifier = modifier
+            // A pill is ~36dp tall, so it needs the 48dp target reserved
+            // around it - Surface(onClick =) used to do this for free and a
+            // plain Surface does not. Before the width, per the ordering
+            // SearchIsland.kt:341-347 documents: outside it, the fixed size
+            // clamps the target back to the pill.
+            .minimumInteractiveComponentSize()
             .width(metrics.itemWidthDp.dp)
             // Clip before selectable so the ripple stays inside the pill.
             .clip(CircleShape)
