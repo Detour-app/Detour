@@ -67,7 +67,6 @@ import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleFixes
 import com.jellemax.detour.data.ConvoysStore
-import com.jellemax.detour.data.ExploredArea
 import com.jellemax.detour.data.FriendFog
 import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.LatLon
@@ -77,13 +76,10 @@ import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.PoiKind
 import com.jellemax.detour.data.RoadRoulette
-import com.jellemax.detour.data.Curviness
 import com.jellemax.detour.data.RouteCandidate
-import com.jellemax.detour.data.RoundTripPlanner
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
-import com.jellemax.detour.data.pickThreeCandidates
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
@@ -108,7 +104,10 @@ import com.jellemax.detour.map.CameraAuthority
 import com.jellemax.detour.map.FollowCamera
 import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.map.ModeSwipePolicy
+import com.jellemax.detour.map.SpinOutcome
+import com.jellemax.detour.map.SpinParams
 import com.jellemax.detour.map.modeSwitch
+import com.jellemax.detour.map.runSpin
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.bearingDelta
 import com.jellemax.detour.map.smoothBearing
@@ -119,10 +118,6 @@ import com.jellemax.detour.ble.BleNavServer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -133,7 +128,6 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import kotlin.math.abs
 import kotlin.math.exp
-import kotlin.random.Random
 
 @Composable
 fun MapScreen(
@@ -1640,102 +1634,42 @@ fun MapScreen(
             // parks without stamping the quiet window - see CameraAuthority.reduce:
             // that asymmetry is today's behaviour, kept deliberately.
             camAuthority = CameraAuthority.reduce(camAuthority, CameraAuthority.Action.SpinStarted)
-            var serverError: String? = null
             try {
-                // Bias destinations toward territory the fog hasn't uncovered.
-                val explored = withContext(Dispatchers.IO) { ExploredArea.load() }
-                if (mode.roundTrip) {
-                    // Prefer the self-hosted routing server (real road-following
-                    // loops, curviest of a few rolls); fall back to Overpass
-                    // sampling.
-                    val tripMeters = radiusKm * 1000.0
-                    var result: RouteResult? = null
-                    if (serverConfig.usable) {
-                        result = try {
-                            val rolls = coroutineScope {
-                                (1..CURVY_CANDIDATES).map {
-                                    async(Dispatchers.IO) {
-                                        runCatching {
-                                            val loop = RoutingClient.roundTrip(
-                                                serverConfig, loc, tripMeters, Random.nextLong(),
-                                                headingDeg = directionDeg?.toDouble(),
-                                                avoidSmallRoads = Settings.avoidSmallRoads.value)
-                                            // Scored here so it stays off the main
-                                            // thread with the request that produced it.
-                                            loop to Curviness.routeScore(
-                                                loop.polyline, loop.instructions)
-                                        }
-                                    }
-                                }.awaitAll()
-                            }
-                            val loops = rolls.mapNotNull { it.getOrNull() }
-                            if (loops.isEmpty()) {
-                                // Every roll failed the same way; report the first.
-                                val e = rolls.firstNotNullOfOrNull { it.exceptionOrNull() }
-                                if (e is CancellationException) throw e
-                                serverError = e?.message ?: e?.javaClass?.simpleName ?: "no route"
-                                null // fall back to Overpass below, but say why
-                            } else {
-                                loops.maxBy { it.second }.first
-                            }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            serverError = e.message ?: e.javaClass.simpleName
-                            null
+                // Producing the result lives in map/SpinRun, with its tests.
+                // What stays here is what a *screen* does with one: the buzz,
+                // the framing, and which var it lands in.
+                val outcome = runSpin(
+                    serverConfig, loc,
+                    SpinParams(mode, radiusKm, minRadiusKm, poiKind, directionDeg),
+                )
+                when (outcome) {
+                    is SpinOutcome.Loop -> {
+                        route = outcome.route
+                        destination = null
+                        destinationName = null
+                        outcome.warning?.let { error = it }
+                        // A spin result landing is the app's payoff moment; a
+                        // small buzz marks it without needing eyes on the screen.
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        mapLibreMap?.let {
+                            cameraForPoints(
+                                it, outcome.route.polyline + loc,
+                                FIT_PADDING_PX, fitBottomPaddingPx,
+                            )
                         }
                     }
-                    if (result == null) {
-                        val wps = RoundTripPlanner.plan(
-                            loc, tripMeters / 4.0, mode.highwayRegex,
-                            bearingDeg = directionDeg?.toDouble())
-                        result = RouteResult(
-                            polyline = listOf(loc) + wps + loc,
-                            waypoints = wps,
-                            distanceMeters = null,
-                        )
-                        if (serverError != null) {
-                            error = "Server route failed ($serverError) — approximate loop instead"
+                    is SpinOutcome.Candidates -> {
+                        candidates = outcome.candidates
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        mapLibreMap?.let {
+                            cameraForPoints(
+                                it, outcome.candidates.map { c -> c.destination } + loc,
+                                FIT_PADDING_PX, fitBottomPaddingPx,
+                            )
                         }
                     }
-                    route = result
-                    destination = null
-                    destinationName = null
-                    // A spin result landing is the app's payoff moment; a small
-                    // buzz marks it without needing eyes on the screen.
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    mapLibreMap?.let { cameraForPoints(it, result.polyline + loc, FIT_PADDING_PX, fitBottomPaddingPx) }
-                } else {
-                    val bearing = directionDeg?.toDouble()
-                    val minMeters = minRadiusKm.toDouble() * 1000.0
-                    // pickThreeCandidates itself has no Dispatchers.IO
-                    // (commonMain has none by design — iOS calls it the same
-                    // way); withContext here is what keeps the three rolls
-                    // off the main thread on Android, same as before.
-                    val results = withContext(Dispatchers.IO) {
-                        pickThreeCandidates(
-                            serverConfig, loc, radiusKm.toDouble() * 1000.0,
-                            minMeters, mode, poiKind, bearing, explored)
-                    }
-                    candidates = results
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    mapLibreMap?.let {
-                        cameraForPoints(it, results.map { c -> c.destination } + loc, FIT_PADDING_PX, fitBottomPaddingPx)
-                    }
+                    is SpinOutcome.Failed -> error = outcome.message
                 }
-            } catch (e: TimeoutCancellationException) {
-                // Don't let a fallback timeout hide why the own server failed.
-                error = serverError
-                    ?.let { "Server route failed ($it); fallback timed out too" }
-                    ?: if (mode.roundTrip && !serverConfig.usable) {
-                        "No routing server configured — public servers timed out"
-                    } else {
-                        "Road servers are slow right now — try again"
-                    }
-            } catch (e: CancellationException) {
-                throw e // user cancelled or screen left; finally still resets state
-            } catch (e: Exception) {
-                error = e.message ?: "Failed to find a road"
             } finally {
                 spinning = false
             }
