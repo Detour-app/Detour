@@ -18,7 +18,7 @@ import kotlin.test.assertTrue
  *
  * Deliberately no network: the fetch itself needs a Ktor engine, so what is
  * pinned here is the two decisions around it — which mirror is next, and
- * whether what came back is an answer.
+ * whether what came back is an answer at all.
  */
 class OverpassMirrorsTest {
 
@@ -76,18 +76,58 @@ class OverpassMirrorsTest {
     fun anOverloadedMirrorsErrorPageIsNotAnAnswer() {
         // What a busy Overpass actually sends, with a 200 on it.
         assertFalse(
-            RoadRoulette.looksLikeJson(
+            RoadRoulette.isOverpassAnswer(
                 "<html><body><p>Error: runtime error: Query timed out</p></body></html>",
             ),
         )
-        assertFalse(RoadRoulette.looksLikeJson("Error: rate_limited"))
-        assertFalse(RoadRoulette.looksLikeJson(""))
+        assertFalse(RoadRoulette.isOverpassAnswer("Error: rate_limited"))
+        assertFalse(RoadRoulette.isOverpassAnswer(""))
+        // Truncated mid-download: shaped like an answer, is not one.
+        assertFalse(RoadRoulette.isOverpassAnswer("""{"version":0.6,"elements":[{"type":"""))
+    }
+
+    @Test
+    fun aTimedOutQueryIsNotAnEmptyArea() {
+        // What `[out:json]` sends when the server-side timeout fires: a
+        // well-formed envelope, no elements, and the reason in `remark`. It
+        // parses, so passing it on reads as "no cameras around here" — the
+        // prefetch clears its backoff, marks the area held and never asks
+        // again, which is the silence #197 is about.
+        assertFalse(
+            RoadRoulette.isOverpassAnswer(
+                """
+                {
+                  "version": 0.6,
+                  "generator": "Overpass API 0.7.62.1 084b4234",
+                  "osm3s": { "timestamp_osm_base": "2026-09-06T10:14:21Z" },
+                  "elements": [],
+                  "remark": "runtime error: Query timed out in \"query\" at line 2 after 6 seconds."
+                }
+                """.trimIndent(),
+            ),
+        )
+    }
+
+    @Test
+    fun aWayMappedWithARemarkTagIsStillAnAnswer() {
+        // `remark` is an OSM tag as well as Overpass's error channel, and
+        // `out tags` prints the ones mappers wrote. A substring test for it
+        // would throw this answer away and then the other mirror's copy of it.
+        assertTrue(
+            RoadRoulette.isOverpassAnswer(
+                """
+                {"version":0.6,"elements":[
+                  {"type":"way","id":7,"tags":{"maxspeed":"50","remark":"access for residents"}}
+                ]}
+                """.trimIndent(),
+            ),
+        )
     }
 
     @Test
     fun anOverpassAnswerIsAnAnswerEvenWithNothingInIt() {
-        assertTrue(RoadRoulette.looksLikeJson("""{"version":0.6,"elements":[]}"""))
+        assertTrue(RoadRoulette.isOverpassAnswer("""{"version":0.6,"elements":[]}"""))
         // Servers are free to pretty-print, and one of these does.
-        assertTrue(RoadRoulette.looksLikeJson("\n  {\n  \"elements\": []\n}"))
+        assertTrue(RoadRoulette.isOverpassAnswer("\n  {\n  \"elements\": []\n}"))
     }
 }
