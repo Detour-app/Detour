@@ -48,7 +48,6 @@ import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -1388,17 +1387,22 @@ private fun LeanCalibrationSection() {
 
 /** internal, not private: SettingsDiagnostics.kt is a second file in this
  *  package holding a section, because this one is already past the 1000-line
- *  limit. Duplicating the card there would let the two drift. */
+ *  limit. Duplicating the card there would let the two drift.
+ *
+ *  The header sits above the card, not inside it, so a settings group reads the
+ *  same as the You screen's RIDES group — one design, one definition. The title
+ *  is uppercased here rather than at all 16 call sites. */
 @Composable
 internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
-    Card {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            content()
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel(title.uppercase())
+        ListCard {
+            Column(
+                Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                content()
+            }
         }
     }
 }
