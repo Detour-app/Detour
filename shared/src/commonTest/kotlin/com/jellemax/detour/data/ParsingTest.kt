@@ -508,6 +508,41 @@ class NavEngineTest {
     }
 
     @Test
+    fun advanceDoesNotDriftAcrossThousandsOfFrames() {
+        // A 24 km road running north-east from 51°N, ~600 m between vertices,
+        // walked at 30 m/s and 60 frames a second — the marker loop's real
+        // cadence over a plausible motorway leg, 39 000 frames of it.
+        //
+        // Diagonal on purpose, and this is the whole test: [segmentMeters]
+        // scales longitude by the cosine of its own midpoint latitude, so a
+        // part-segment and its whole are scaled by different numbers only when
+        // the segment changes both. Due north or due east, the residual below
+        // is identically zero and a fixture on either would pass whatever this
+        // code did.
+        val segments = 40
+        val line = (0..segments).map { LatLon(51.0 + it * 0.004, 4.0 + it * 0.006) }
+        // The line is straight in lat/lon, so a point on it is one parameter.
+        val perMeter = segments / NavEngine.lengthMeters(line)
+        fun at(metres: Double) = (metres * perMeter).let {
+            LatLon(51.0 + it * 0.004, 4.0 + it * 0.006)
+        }
+        val frames = 39_000
+        var walked = NavEngine.advance(line, line.first(), null)
+        for (frame in 1..frames) walked = NavEngine.advance(line, at(frame * 0.5), walked)
+
+        // Carrying the window's base from frame to frame has to land exactly
+        // where a fresh, un-carried search lands. It used to be *recovered*
+        // instead, by subtracting a part-segment back off the running total,
+        // and that residual is one-signed: sixty times a second over this line
+        // it walked the seam ~53 m off the rider — behind, heading north, and
+        // ahead heading south, where it dims road not yet ridden.
+        val fresh = NavEngine.advance(line, at(frames * 0.5), null)
+        assertEquals(fresh.meters, walked.meters, absoluteTolerance = 0.01)
+        // And it really did walk the line rather than sitting at the start.
+        assertTrue(walked.meters > 19_000.0)
+    }
+
+    @Test
     fun drivenFractionIsRemainingTheOtherWayRound() {
         fun progress(remaining: Double, routeMeters: Double) = NavEngine.Progress(
             offRouteMeters = 0.0,

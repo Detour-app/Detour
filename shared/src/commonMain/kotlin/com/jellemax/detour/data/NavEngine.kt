@@ -191,6 +191,19 @@ object NavEngine {
         val at: LatLon,
         val meters: Double,
         val lineMeters: Double,
+        /**
+         * Distance along the line to `line[index]` — the vertex, not [at].
+         *
+         * Carried rather than recovered. [advance] needs this to open its
+         * window, and subtracting `segmentMeters(line[index], at)` back off
+         * [meters] does not return it: [segmentMeters] takes the cosine of its
+         * own midpoint latitude, so the part-segment and the whole segment are
+         * scaled by different numbers and the difference does not cancel. It is
+         * one-signed, and a frame loop re-derives it sixty times a second — at
+         * 30 m/s over 20 km of 500 m vertex spacing it walks the seam 56 m
+         * ahead of the rider, dimming road not yet ridden.
+         */
+        val indexMeters: Double = 0.0,
     ) {
         /** [meters] as a share of the whole line, 0..1. */
         val fraction: Double
@@ -220,7 +233,7 @@ object NavEngine {
         val first = if (windowed) from!!.index else 0
         val last = if (windowed) min(line.size - 1, first + ADVANCE_SEGMENTS) else line.size - 1
         // How far along the line the vertex the window opens on is.
-        var cum = if (windowed) max(0.0, from!!.meters - segmentMeters(line[first], from.at)) else 0.0
+        var cum = if (windowed) from!!.indexMeters else 0.0
         val total = if (windowed) from!!.lineMeters else lengthMeters(line)
 
         // Local equirectangular projection around pos, the same one [progress]
@@ -228,7 +241,7 @@ object NavEngine {
         val mPerLat = 111_320.0
         val mPerLon = 111_320.0 * cos(pos.lat * PI / 180.0)
         var bestDist = Double.MAX_VALUE
-        var best = Along(first, line[first], cum, total)
+        var best = Along(first, line[first], cum, total, cum)
         for (i in first until last) {
             val ax = (line[i].lon - pos.lon) * mPerLon
             val ay = (line[i].lat - pos.lat) * mPerLat
@@ -249,6 +262,7 @@ object NavEngine {
                     ),
                     meters = (cum + t * segment).coerceIn(0.0, total),
                     lineMeters = total,
+                    indexMeters = cum,
                 )
             }
             cum += segment

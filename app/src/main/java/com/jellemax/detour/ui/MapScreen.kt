@@ -1456,28 +1456,37 @@ fun MapScreen(
                 // exactly when a lagging fog is most visible.
                 fogView.currentLocation = here
                 fogView.invalidate()
-                // And so does the seam between the road behind and the road ahead,
-                // off the same eased point rather than off the fix — the whole
-                // reason it used to advance in steps under a marker that glided.
-                // `navigating` and `route` are read live rather than keyed: this
-                // loop must not restart when either changes (see the accumulators
-                // above), and a snapshot read inside the body sees them anyway.
-                if (navigating) route?.let { r ->
-                    // A different line invalidates the snap taken along the old one.
-                    if (alongLine !== r.polyline) {
-                        alongLine = r.polyline
-                        along = null
-                    }
-                    // Windowed from the previous frame's snap, so this costs a
-                    // handful of segments rather than the whole route, and cannot
-                    // hop to the other leg where the route rides its own tarmac
-                    // twice. The first frame of a drive pays one full search.
-                    val a = NavEngine.advance(r.polyline, here, along)
-                    along = a
-                    overlays.setDrivenFraction(a.fraction, a.at)
-                }
                 lastLat = here.lat
                 lastLon = here.lon
+            }
+            // The seam between the road behind and the road ahead, off the same
+            // eased point rather than off the fix — the whole reason it used to
+            // advance in steps under a marker that glided.
+            //
+            // Outside the `moved` gate on purpose. The seam is the only thing here
+            // that can be stale without the position changing: come back from the
+            // background, or take a fix that jumps, and the snap below has a gap to
+            // walk that a stopped vehicle would otherwise feed it one frame at a
+            // time. Nothing is pushed for it — [MapOverlays.setDrivenFraction]
+            // drops a fraction inside its step and a tail that has not moved — so a
+            // standstill still costs one windowed search a frame and no GeoJSON.
+            //
+            // `navigating` and `route` are read live rather than keyed: this loop
+            // must not restart when either changes (see the accumulators above),
+            // and a snapshot read inside the body sees them anyway.
+            if (navigating) route?.let { r ->
+                // A different line invalidates the snap taken along the old one.
+                if (alongLine !== r.polyline) {
+                    alongLine = r.polyline
+                    along = null
+                }
+                // Windowed from the previous frame's snap, so this costs a handful
+                // of segments rather than the whole route, and cannot hop to the
+                // other leg where the route rides its own tarmac twice. The first
+                // frame of a drive pays one full search.
+                val a = NavEngine.advance(r.polyline, here, along)
+                along = a
+                overlays.setDrivenFraction(a.fraction, a.at)
             }
         }
     }
