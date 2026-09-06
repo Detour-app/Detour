@@ -309,8 +309,12 @@ fun MapScreen(
     var camAuthority by remember { mutableStateOf(CameraAuthority.State()) }
     // Collapsed is the resting state; the spin sheet only comes up when the
     // home sheet's Spin chip opens it, and folds back down on its own after a
-    // spin lands.
-    var settingsCollapsed by rememberSaveable { mutableStateOf(true) }
+    // spin lands. Starting expanded when savedSpin already carries a
+    // destination (a saved route's "Ride" seeding the holder and pushing this
+    // screen back onto the stack fresh) means the Go button that destination
+    // needs is on screen right away, instead of the sheet staying collapsed
+    // with no way back to it — see SpinResultHolder's KDoc and issue #190.
+    var settingsCollapsed by rememberSaveable { mutableStateOf(savedSpin.destination == null) }
     // The prefetched way set, the fetch throttle, the miss counter and the
     // snapped value: SpeedLimitTracker's, in shared/…/drive/, where the policy
     // lives with its tests. retained.ambientSpeedLimitKmh stays its own state because the
@@ -761,6 +765,9 @@ fun MapScreen(
             destination = LatLon(ll.latitude, ll.longitude)
             destinationName = "Dropped pin"
             route = null
+            // Surface the Go button (SpinSheet's, the only NavButton on the
+            // phone) instead of leaving a rider with a pin and no way to it.
+            settingsCollapsed = false
             true
         }
         val onClick = MapLibreMap.OnMapClickListener { ll ->
@@ -1782,6 +1789,10 @@ fun MapScreen(
                     )
                     mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
                         LatLng(r.location.lat, r.location.lon), 14.0), 800)
+                    // Surface the Go button (SpinSheet's, the only NavButton on
+                    // the phone) instead of leaving a rider with a pin and no
+                    // way to it.
+                    settingsCollapsed = false
                 },
                 onOpenRoutes = onOpenRoutes,
                 onOpenSocial = onOpenSocial,
@@ -1795,6 +1806,10 @@ fun MapScreen(
                     )
                     mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
                         LatLng(p.location.lat, p.location.lon), 14.0), 600)
+                    // Surface the Go button (SpinSheet's, the only NavButton on
+                    // the phone) instead of leaving a rider with a pin and no
+                    // way to it.
+                    settingsCollapsed = false
                 },
                 onSavePin = { destination?.let { savePinTarget = it } },
                 bottomCard = bottomCard,
