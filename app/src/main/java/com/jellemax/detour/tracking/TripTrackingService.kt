@@ -31,7 +31,6 @@ import com.jellemax.detour.data.BadgeDef
 import com.jellemax.detour.data.BadgeStore
 import com.jellemax.detour.data.CirclePresence
 import com.jellemax.detour.data.Coverage
-import com.jellemax.detour.data.Curviness
 import com.jellemax.detour.data.DrivingStats
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.MunicipalityStore
@@ -41,17 +40,14 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
-import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
 import com.jellemax.detour.drive.HardEventDetector
 import com.jellemax.detour.drive.RoadTypeTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.drive.StopDetector
 import com.jellemax.detour.drive.TripFixMath
-import com.jellemax.detour.notif.TripEndedNotification
 import com.jellemax.detour.obd2.Obd2Connection
 import com.jellemax.detour.obd2.ObdTelemetry
-import com.jellemax.detour.ui.loadTripPoints
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -62,7 +58,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlin.math.abs
-import kotlin.math.roundToLong
 import kotlin.math.sqrt
 
 data class TripStats(
