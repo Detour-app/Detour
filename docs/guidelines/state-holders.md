@@ -5,8 +5,10 @@
 **Enforced by `./gradlew :app:detekt`.** The rules with teeth are named in
 §14.7; everything before that is the reasoning they encode.
 
-Companion to [state.md](state.md) — §4 (state management) and §13 (the
-screen-model layer).
+This is the first page in `docs/guidelines/`. It stands alone; the wider
+Kotlin architecture guide it belongs to is being split out of
+`CONTRIBUTING.md` separately, and this page will cross-link to it when that
+lands.
 
 ---
 
@@ -57,26 +59,35 @@ disguise:
 
 ```kotlin
 // Drilling: onOpenHub exists only so a button three levels down can call it.
-MapBottomSlot(onOpenHub = onOpenHub, /* … */)
+SpinSheet(onNavigateInApp = onNavigateInApp, /* … */)
 
 // Slot: the caller supplies the button, and the parameter disappears.
-MapBottomSlot(actions = { HubButton(onClick = onOpenHub) }, /* … */)
+SpinSheet(actions = { NavigateButton(onClick = onNavigateInApp) }, /* … */)
 ```
 
 ---
 
 ### 14.5 Why this repo needs the rule written down
 
-`MapBottomSlot` (`app/…/ui/MapBottom.kt:60`) takes **46 parameters** — 21
-values and 25 callbacks — and has **exactly one caller**.
+`app/…/ui/SpinCards.kt` defines `SpinSheet` with **23 parameters**.
+`app/…/ui/SpinDock.kt` defines `SpinDock` with **19**. Both are called from
+exactly one place — `ui/MapScreen.kt` — and they are the same feature in two
+states, so most of those parameters are the same values passed twice:
 
-The hoisting is textbook-correct; that is what makes it instructive. Its caller
-holds ~30 loose `var … by remember` in one composable scope, so there is no
-object to pass, and a parameter list is the faithful mirror of that. The
+```
+mode, radiusKm, onRadiusChange, minRadiusKm, onMinRadiusChange,
+poiKind, onPoiKindChange, directionDeg, onDirectionChange,
+spinning, error, route, destination, destinationName, origin, …
+```
+
+The hoisting is textbook-correct, which is what makes it instructive. Their
+caller holds ~30 loose `var … by remember` in one composable scope, so there is
+no object to pass, and a parameter list is the faithful mirror of that. The
 signature is not the defect. It is the defect printed in the type system.
 
-Sorted, 31 of the 46 belong to one of four machines — spin, navigation, trip,
-convoy. Given a holder for each, the signature is about five parameters.
+Those first ten belong to one concept — a spin. Given a holder for it, both
+signatures lose ten parameters and gain one, and the two composables stop
+having to agree by hand about what a spin consists of.
 
 The same gap has been worked around three other ways already, which is how you
 know it is structural rather than local:
@@ -86,11 +97,9 @@ know it is structural rather than local:
 | `ui/RetainedMap.kt` | keeping state alive across navigation — an app-scoped owner, hand-built |
 | `ui/SpinResultHolder.kt` | keeping state alive across activity recreation — the same, globally |
 | `Auth.resetAccountScopedStores()` | clearing state that has no lifecycle to clear it |
-| `MapBottomSlot`'s 46 parameters | passing state that was never grouped |
+| `SpinSheet`/`SpinDock`'s parameter lists | passing state that was never grouped |
 
 Four workarounds, one missing layer.
-
----
 
 ### 14.6 Applying it
 
@@ -107,9 +116,14 @@ Adding a value to a composable that already takes many:
    argument in review.
 
 A holder is a plain class with a `StateFlow` or Compose state, owned by
-something with the right lifetime. See [state.md](state.md) §13 for the shape,
-and [decisions.md](decisions.md) §12.3 for why the lifetime question is still
-open on the map screen specifically.
+something with the right lifetime.
+
+Which lifetime is the open question on the map screen specifically. Detour has
+two today — process-global `object` stores, and composables that die with the
+screen — and several of `MapScreen`'s concerns (the navigation session, trip
+tracking, the camera) need to outlive the screen without being global.
+`RetainedMap` is a hand-built answer to exactly that. Until it is settled,
+prefer the narrowest lifetime that works and say in a comment why.
 
 ---
 
@@ -163,8 +177,7 @@ say why in the pull request.
 #### What tooling cannot enforce
 
 A linter counts parameters. It cannot tell you the 21 spin values are one
-concept. These stay review items, and they are in [checklist.md](checklist.md)
-§11:
+concept. These stay review items:
 
 - whether a holder models a real concept or is a bag of unrelated fields
 - whether a composable with one caller is hoisting for a reusability nobody
@@ -176,8 +189,8 @@ concept. These stay review items, and they are in [checklist.md](checklist.md)
 
 `:app` only. Compose lives there, and detekt 1.23 needs a KMP module's source
 sets pointed at explicitly, which `:shared` has not had done. `:shared` is
-governed by `commonMain`'s own constraints ([architecture.md](architecture.md)
-§2.1), which the
+governed by `commonMain`'s own constraints — no `Dispatchers`, no `java.*` —
+which the
 `ios.yml` metadata compile already gates.
 
 #### Known noise, and why it is off
