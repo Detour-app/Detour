@@ -23,8 +23,9 @@ object NavEngine {
         /** Distance from the current position to the nearest point on the route. */
         val offRouteMeters: Double,
         /** The position snapped onto the route: the point [offRouteMeters] was
-         *  measured to. Drawn instead of the fix while on route, so the marker
-         *  rides the line rather than wandering off it by the GPS error. */
+         *  measured to. Nothing draws it today — the phone's marker rides
+         *  [Along.at], which is the windowed snap — so this is the per-fix
+         *  answer, for a consumer that has a Progress and no frame loop. */
         val snappedAt: LatLon,
         /**
          * Compass bearing of the route segment [snappedAt] landed on, degrees
@@ -229,6 +230,22 @@ object NavEngine {
          */
         val indexMeters: Double = 0.0,
         /**
+         * How far [pos] was from [at] — the windowed snap's own off-route
+         * distance, measured to the segment it chose.
+         *
+         * Not [Progress.offRouteMeters]. That one measures to the globally
+         * nearest point on the whole route, so on an out-and-back it can be a
+         * few metres from the *other* leg while the rider is hundreds of metres
+         * from the one they are actually on. Anything deciding whether to draw
+         * this snap has to ask this field, or it will park the marker on a leg
+         * the rider left half an hour ago.
+         *
+         * Defaults to [Double.MAX_VALUE]: an `Along` nobody measured is as far
+         * off the line as it gets, so a caller that forgets falls back to the
+         * raw fix rather than silently snapping.
+         */
+        val offRouteMeters: Double = Double.MAX_VALUE,
+        /**
          * The window ran out before [pos] did: [at] is the far end of the
          * segments [advance] searched, not the nearest point to the rider.
          * The marker loop hands `null` back as the next `from`, so the frame
@@ -261,7 +278,8 @@ object NavEngine {
      * which is what seeds the first frame of a drive.
      */
     fun advance(line: List<LatLon>, pos: LatLon, from: Along?): Along {
-        if (line.size < 2) return Along(0, pos, 0.0, 0.0, null)
+        if (line.size < 2) return Along(
+            index = 0, at = pos, meters = 0.0, lineMeters = 0.0, bearingDeg = null)
         val windowed = from != null && from.index < line.size - 1
         val first = if (windowed) from!!.index else 0
         val last = if (windowed) min(line.size - 1, first + ADVANCE_SEGMENTS) else line.size - 1
@@ -296,6 +314,7 @@ object NavEngine {
                     lineMeters = total,
                     bearingDeg = segmentBearing(line, i),
                     indexMeters = cum,
+                    offRouteMeters = d,
                 )
             }
             cum += segment

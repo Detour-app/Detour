@@ -519,6 +519,30 @@ class NavEngineTest {
     }
 
     @Test
+    fun advanceReportsHowFarOffItsOwnLegTheRiderIs() {
+        // Out and back on two lanes 71 m apart, long enough that the window
+        // cannot see the return leg from the outbound one. Standing on the
+        // return leg, `progress` — a global nearest-point search — calls this
+        // on route, because the *other* leg is under the rider's feet. The
+        // windowed snap is still on the outbound leg and says so, which is the
+        // only honest answer for anything drawing a marker at that snap.
+        val loop = (0..40).map { LatLon(50.0 + it * 0.001, 3.0) } +
+            (39 downTo 0).map { LatLon(50.0 + it * 0.001, 3.001) }
+        val pos = LatLon(50.02, 3.001)
+        val route = RouteResult(polyline = loop, waypoints = emptyList(), distanceMeters = null)
+        assertTrue(
+            NavEngine.progress(route, pos)!!.offRouteMeters < 5.0,
+            "the global snap should land on the return leg",
+        )
+        val outbound = NavEngine.advance(loop, LatLon(50.001, 3.0), null)
+        val windowed = NavEngine.advance(loop, pos, outbound)
+        assertTrue(
+            windowed.offRouteMeters > 60.0,
+            "the windowed snap is still on the outbound leg: got ${windowed.offRouteMeters}",
+        )
+    }
+
+    @Test
     fun advanceTurnsItsBearingWithTheRoadThroughACorner() {
         // North, then a right angle east. A corner is what the camera and the
         // marker's nose are judged on: each has to read the leg it is actually

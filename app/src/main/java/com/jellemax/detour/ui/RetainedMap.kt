@@ -95,6 +95,22 @@ class RetainedMap(context: Context) {
     var camTargetZoom: Double? by mutableStateOf(null)
 
     /**
+     * Where the marker is drawn on the route, or null when it is drawn at the
+     * raw fix. Written once a frame by MapScreen's position-marker loop, which
+     * is the only place that holds the windowed snap.
+     *
+     * Here rather than in that loop's own locals because three effects need
+     * one answer and must not each decide it: the marker draws at this point,
+     * the camera aims at it (so the rider sits under the crosshair rather than
+     * beside it by the snap distance), and the per-fix effect uses its
+     * nullness to know whether the raw GPS bearing is still the camera's to
+     * write. It also carries `NavPolicy.snapToRoute`'s hysteresis between
+     * frames, and being retained means visiting the Hub mid-drive does not
+     * make the band re-enter from scratch.
+     */
+    var snappedAt: LatLon? by mutableStateOf(null)
+
+    /**
      * The eased speedometer reading, retained for the same reason as the
      * camera's target.
      *

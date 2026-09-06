@@ -27,24 +27,33 @@ internal object NavPolicy {
     const val REROUTE_COOLDOWN_MS = 15_000L
 
     /**
-     * Near enough the drawn line that the route's own geometry is better
-     * evidence of where the rider is, and which way they are pointing, than the
-     * raw fix: the marker is drawn on the snapped point and the camera takes
-     * the segment's bearing (`ui/MapScreen.kt`'s marker loop).
+     * Whether to draw the rider on the route's geometry rather than at the raw
+     * fix: the marker on the snapped point, the camera on that point and on the
+     * segment's bearing (`ui/MapScreen.kt`'s marker loop).
      *
-     * A null [progress] is *not* on route — there is no snap to draw yet, so
-     * the fix is all there is. `navStateFrom`'s off-route flag defaults the
-     * other way round, a null reading as on route, because it is answering
-     * "shall I put Off route on the banner", and doing that before the first
-     * fix would be a lie. Two questions, two defaults; they are not each
-     * other's complement.
+     * [offRouteMeters] is [NavEngine.Along.offRouteMeters] — the *windowed*
+     * snap's distance, not [NavEngine.Progress.offRouteMeters]. The per-fix
+     * figure measures to the globally nearest point on the route, which on an
+     * out-and-back is the other leg; deciding on that parks the marker on a
+     * road the rider left half an hour ago.
      *
-     * `car/NavScreen.kt`'s private `offRoute` is the same bound, phrased for a
-     * Progress it always has. Pointing it here is a car-side change and belongs
-     * with the head unit adopting the snapped point.
+     * **Two thresholds, because one flips.** A single 60 m test with a fix
+     * sitting on it moves the marker up to 60 m and back once a second, and it
+     * does that for at least [REROUTE_COOLDOWN_MS] before a fresh route can
+     * end it. So: take the snap only when comfortably on the line, and keep it
+     * until properly off. The upper bound is [OFF_ROUTE_METERS], because past
+     * that [decide] is asking for a new route and this one is not worth
+     * drawing. The lower is [ARRIVE_METERS] — borrowed as a magnitude, not as
+     * the same quantity (it measures distance *along* the route), so that this
+     * file gains no third number to keep in step. The 20 m band it leaves is
+     * wider than the error a snap has to tolerate and narrower than the
+     * reroute bound, so entering never races the decision to leave.
+     *
+     * [wasSnapped] is the caller's own last answer. Pure, so the state stays
+     * where it can be seen rather than inside this object.
      */
-    fun onRoute(progress: NavEngine.Progress?): Boolean =
-        progress != null && progress.offRouteMeters <= OFF_ROUTE_METERS
+    fun snapToRoute(offRouteMeters: Double, wasSnapped: Boolean): Boolean =
+        if (wasSnapped) offRouteMeters <= OFF_ROUTE_METERS else offRouteMeters <= ARRIVE_METERS
 
     sealed interface Decision {
         /** Keep following the line that is already drawn. */

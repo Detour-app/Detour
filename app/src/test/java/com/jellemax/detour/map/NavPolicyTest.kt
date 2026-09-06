@@ -146,17 +146,35 @@ class NavPolicyTest {
         )
     }
 
-    /** The bound the marker and the camera read: on route they take the route's
-     *  own geometry, off it they fall back to the raw fix. It has to agree with
-     *  [NavPolicy.decide], which reroutes strictly past the threshold — so the
-     *  threshold itself is still on route, on both. */
+    /** The band the marker and the camera read. Entering needs the rider
+     *  properly on the line; leaving needs them properly off it, and the upper
+     *  bound is [NavPolicy.decide]'s, so the snap is dropped no later than the
+     *  reroute that replaces the line it was taken from. */
     @Test
-    fun onRouteIsTheRerouteThresholdReadFromTheOtherSide() {
-        assertTrue(NavPolicy.onRoute(progress(500.0, offRouteMeters = 59.0)))
-        assertTrue(NavPolicy.onRoute(progress(500.0, offRouteMeters = NavPolicy.OFF_ROUTE_METERS)))
-        assertFalse(NavPolicy.onRoute(progress(500.0, offRouteMeters = 60.1)))
-        // Nothing has snapped yet, so there is no snapped point to draw and the
-        // fix is all there is.
-        assertFalse(NavPolicy.onRoute(null))
+    fun theSnapBandTakesTheRouteLateAndGivesItUpLate() {
+        // Not yet snapped: the enter bound governs, and the gap between the two
+        // thresholds is where a single-threshold test would have flipped.
+        assertTrue(NavPolicy.snapToRoute(NavPolicy.ARRIVE_METERS, wasSnapped = false))
+        assertFalse(NavPolicy.snapToRoute(NavPolicy.ARRIVE_METERS + 0.1, wasSnapped = false))
+        assertFalse(NavPolicy.snapToRoute(50.0, wasSnapped = false))
+        // Already snapped: the same 50 m keeps it, and only the reroute bound
+        // gives it up.
+        assertTrue(NavPolicy.snapToRoute(50.0, wasSnapped = true))
+        assertTrue(NavPolicy.snapToRoute(NavPolicy.OFF_ROUTE_METERS, wasSnapped = true))
+        assertFalse(NavPolicy.snapToRoute(NavPolicy.OFF_ROUTE_METERS + 0.1, wasSnapped = true))
+    }
+
+    /** The band exists so a fix parked on one threshold cannot flip the answer
+     *  fix after fix. Sitting anywhere inside it, the answer is whatever it
+     *  already was — which is the whole point, and what a single bound could
+     *  not give. */
+    @Test
+    fun aFixSittingInTheBandDoesNotFlipTheMarker() {
+        val inBand = (NavPolicy.ARRIVE_METERS + NavPolicy.OFF_ROUTE_METERS) / 2.0
+        assertTrue(NavPolicy.ARRIVE_METERS < NavPolicy.OFF_ROUTE_METERS)
+        repeat(5) {
+            assertFalse(NavPolicy.snapToRoute(inBand, wasSnapped = false))
+            assertTrue(NavPolicy.snapToRoute(inBand, wasSnapped = true))
+        }
     }
 }
