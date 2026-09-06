@@ -14,7 +14,7 @@ import okio.IOException
  * assertions live in `commonTest` rather than in a Compose harness this repo
  * does not have.
  */
-data class ServersSyncStatus(
+data class ServersSyncState(
     val server: String,
     val sync: String,
     val backup: String,
@@ -49,17 +49,17 @@ private fun hostOf(address: String): String {
  * [nowMs] is a parameter for the same reason it is one on [relativeAge]: a
  * function that reads the clock cannot be asserted on.
  */
-fun serversSyncStatusFrom(
+fun serversSyncStateFrom(
     custom: ServerConfig?,
     builtInAvailable: Boolean,
     authUsername: String,
     lastSyncMs: Long,
     nowMs: Long,
-): ServersSyncStatus {
+): ServersSyncState {
     val address = listOfNotNull(
         custom?.url, custom?.apiUrl, custom?.routingUrl, custom?.geocoderUrl,
     ).firstOrNull { it.isNotBlank() }
-    return ServersSyncStatus(
+    return ServersSyncState(
         server = when {
             address != null -> hostOf(address)
             builtInAvailable -> "Built-in server"

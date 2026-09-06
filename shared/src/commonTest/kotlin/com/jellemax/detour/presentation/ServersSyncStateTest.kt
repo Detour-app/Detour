@@ -18,7 +18,7 @@ class ServersSyncStateTest {
         builtInAvailable: Boolean = false,
         authUsername: String = "",
         lastSyncMs: Long = 0L,
-    ) = serversSyncStatusFrom(custom, builtInAvailable, authUsername, lastSyncMs, now)
+    ) = serversSyncStateFrom(custom, builtInAvailable, authUsername, lastSyncMs, now)
 
     @Test
     fun `no custom address falls back to the built-in server or to nothing`() {

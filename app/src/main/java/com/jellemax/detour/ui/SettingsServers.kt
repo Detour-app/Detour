@@ -37,9 +37,9 @@ import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
-import com.jellemax.detour.presentation.ServersSyncStatus
+import com.jellemax.detour.presentation.ServersSyncState
 import com.jellemax.detour.presentation.failureText
-import com.jellemax.detour.presentation.serversSyncStatusFrom
+import com.jellemax.detour.presentation.serversSyncStateFrom
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -70,7 +70,7 @@ internal fun ServersSyncSpoke(scrollState: ScrollState) {
     // have moved. Not a StateFlow: `last_sync_ms` is a plain preference with no
     // observable behind it, and giving it one is a storage change.
     val rows = remember(custom, signedInAs, status) {
-        serversSyncStatusFrom(
+        serversSyncStateFrom(
             custom, builtInAvailable, signedInAs,
             Settings.lastSyncMs(), System.currentTimeMillis(),
         )
@@ -100,6 +100,7 @@ internal fun ServersSyncSpoke(scrollState: ScrollState) {
             canSync = SyncClient.configured() && signedInAs.isNotBlank(),
             status = status,
             onStatus = { status = it },
+            onServerChange = { custom = RoutingServer.loadCustom() },
         )
         ServerSection(
             custom = custom,
@@ -119,7 +120,7 @@ internal fun ServersSyncSpoke(scrollState: ScrollState) {
  */
 @Composable
 private fun ServersStatusCard(
-    status: ServersSyncStatus,
+    state: ServersSyncState,
     onServer: () -> Unit,
     onSync: () -> Unit,
     onBackup: () -> Unit,
@@ -130,17 +131,17 @@ private fun ServersStatusCard(
         ListCard {
             HubRow(
                 Icons.Outlined.Dns, "Server", onServer,
-                subtitle = status.server, paintCard = false,
+                subtitle = state.server, paintCard = false,
             )
             CardDivider()
             HubRow(
                 Icons.Outlined.CloudSync, "Backup sync", onSync,
-                subtitle = status.sync, paintCard = false,
+                subtitle = state.sync, paintCard = false,
             )
             CardDivider()
             HubRow(
                 Icons.Outlined.Description, "Server config file", onBackup,
-                subtitle = status.backup, paintCard = false,
+                subtitle = state.backup, paintCard = false,
             )
         }
     }
@@ -156,11 +157,12 @@ private fun ServersActionsCard(
     canSync: Boolean,
     status: String?,
     onStatus: (String?) -> Unit,
+    onServerChange: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     SettingsSection("Actions", modifier) {
         SyncNowButton(canSync, onStatus)
-        ConfigFileButtons(onStatus)
+        ConfigFileButtons(onStatus, onServerChange)
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     }
 }
@@ -203,7 +205,11 @@ private fun SyncNowButton(
 /** Export and import, with the file pickers and the import confirmation that
  *  only these two buttons use. */
 @Composable
-private fun ConfigFileButtons(onStatus: (String?) -> Unit, modifier: Modifier = Modifier) {
+private fun ConfigFileButtons(
+    onStatus: (String?) -> Unit,
+    onServerChange: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(ConfigFile.MIME_TYPE)
@@ -234,6 +240,11 @@ private fun ConfigFileButtons(onStatus: (String?) -> Unit, modifier: Modifier = 
         onStatus(
             try {
                 ConfigFile.import(context, uri)
+                // An import writes RoutingServer behind the Server card's back,
+                // so the card is told to re-read. Without this the status row,
+                // the address fields and the Remove button all keep showing the
+                // server that was there before the file was applied.
+                onServerChange()
                 "Config imported — restart the app to use the new servers"
             } catch (e: Exception) {
                 failureText("Import", e)
@@ -284,7 +295,11 @@ private fun ServerSection(
     // address still cannot land in the wrong slot — which is what the old
     // save call's named arguments were guarding against, now guaranteed by
     // construction instead of by a comment.
-    var draft by remember { mutableStateOf(custom ?: ServerConfig()) }
+    // Keyed on [custom]: save, remove and a config-file import all move the
+    // saved server, and an unkeyed remember would leave the fields showing what
+    // was there before. Typing does not change [custom], so a half-typed address
+    // is never thrown away.
+    var draft by remember(custom) { mutableStateOf(custom ?: ServerConfig()) }
     var saved by remember { mutableStateOf(false) }
     // Opens already expanded when anything inside it is set, so a split
     // deployment — or a server still on the deprecated realm field — does not
@@ -327,7 +342,6 @@ private fun ServerSection(
                     builtInAvailable = builtInAvailable,
                     onRemove = {
                         RoutingServer.clearCustom()
-                        draft = ServerConfig()
                         onCustomChange(null)
                         saved = true
                     },
