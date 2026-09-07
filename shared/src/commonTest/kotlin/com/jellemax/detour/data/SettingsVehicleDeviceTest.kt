@@ -100,4 +100,53 @@ class SettingsVehicleDeviceTest {
         assertEquals(Settings.FUEL_CALIBRATION_MAX, decodedPct(500))
         assertEquals(100, decodedPct(100))
     }
+
+    @Test
+    fun aCustomLabelRoundTripsThroughEncodeAndDecode() {
+        val device = Settings.VehicleDevice(
+            "AA:BB:CC:DD:EE:FF", "Cardo PACKTALK", TravelMode.MOTO,
+            label = "Triumph Street Triple",
+        )
+        val decoded = Settings.decodeVehicleDevice(device.address, Settings.encodeVehicleDevice(device))
+        assertEquals(device, decoded)
+    }
+
+    @Test
+    fun anEntrySavedBeforeLabelsExistedDecodesWithNullLabel() {
+        val old: JsonObject = buildJsonObject {
+            put("mode", TravelMode.MOTO.name)
+            put("name", "My Bike")
+        }
+        assertNull(Settings.decodeVehicleDevice("11:22:33", old).label)
+    }
+
+    @Test
+    fun aBlankLabelDecodesAsNull() {
+        val j = buildJsonObject {
+            put("mode", TravelMode.CAR.name); put("name", "Car"); put("label", "   ")
+        }
+        assertNull(Settings.decodeVehicleDevice("AA:BB", j).label)
+    }
+
+    @Test
+    fun aNullLabelIsNotWrittenToJson() {
+        val json = Settings.encodeVehicleDevice(Settings.VehicleDevice("AA:BB", "Car", TravelMode.CAR))
+        assertNull(json["label"])
+    }
+
+    @Test
+    fun anOverLongStoredLabelDecodesCappedToTheMaximum() {
+        val j = buildJsonObject {
+            put("mode", TravelMode.CAR.name); put("name", "Car"); put("label", "x".repeat(200))
+        }
+        assertEquals(Settings.VEHICLE_LABEL_MAX, Settings.decodeVehicleDevice("AA:BB", j).label?.length)
+    }
+
+    @Test
+    fun displayNamePrefersTheLabelAndFallsBackToTheDeviceName() {
+        val named = Settings.VehicleDevice("AA:BB", "SYNC 3", TravelMode.CAR, label = "The Passat")
+        val bare = Settings.VehicleDevice("AA:BB", "SYNC 3", TravelMode.CAR)
+        assertEquals("The Passat", named.displayName)
+        assertEquals("SYNC 3", bare.displayName)
+    }
 }
