@@ -196,6 +196,16 @@ android {
         compose = true
         buildConfig = true
     }
+
+    testOptions {
+        // The mockable android.jar throws from every method by default, so any
+        // JVM test that reaches a plain `Log.w` dies on the logging rather than
+        // on the behaviour it is checking — which is what UpdateDownloader's
+        // refuse-and-retry paths all do. Returning defaults makes logging inert
+        // instead of fatal. Nothing here asserts on Android framework calls; a
+        // test that needs one still has to stub it itself.
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {

@@ -142,11 +142,12 @@ fun HubScreen(
                     val update = UpdateState.current() ?: return@UpdateBanner
                     UpdateState.set(UpdateStatus.Downloading(update, -1f))
                     scope.launch(Dispatchers.IO) {
-                        val file = UpdateDownloader.download(context, update) { f ->
+                        val outcome = UpdateDownloader.download(context, update) { f ->
                             UpdateState.set(UpdateStatus.Downloading(update, f))
                         }
                         UpdateState.set(
-                            if (file != null) UpdateStatus.Downloaded(update, file.path)
+                            if (outcome is UpdateDownloader.Outcome.Done)
+                                UpdateStatus.Downloaded(update, outcome.file.path)
                             else UpdateStatus.Failed(update)
                         )
                     }

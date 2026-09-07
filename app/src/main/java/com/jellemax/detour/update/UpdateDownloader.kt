@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.jellemax.detour.data.UpdateClient
 import java.io.File
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -18,6 +19,16 @@ import java.security.MessageDigest
 object UpdateDownloader {
 
     private const val DIR = "updates"
+
+    /** One page-aligned chunk; the same buffer size the file is re-hashed with
+     *  on a resume, so neither loop is the slow one. */
+    private const val BUFFER = 64 * 1024
+
+    private const val TIMEOUT_MS = 30_000
+
+    /** `HttpURLConnection` names every other code this file cares about but
+     *  not 206, which is the one a resume turns on. */
+    private const val HTTP_PARTIAL = 206
 
     /** GitHub redirects release assets to a signed, short-lived URL on a
      *  different host — verified 2026-09-01, `release-assets.githubusercontent.com`.
@@ -49,67 +60,186 @@ object UpdateDownloader {
     }
 
     /**
-     * Downloads [update] and returns the file, or null on any failure.
+     * Why one attempt stopped.
      *
-     * [onProgress] receives 0f..1f, or -1f when the server sends no length.
-     * Blocking: call from `Dispatchers.IO`.
+     * [Interrupted] is the only retryable one, and it says so about the disk as
+     * much as about the transfer: the [bytes] it names are either good and
+     * resumable, or zero because the attempt cleared a partial it could not
+     * vouch for. Either way the next attempt makes progress rather than
+     * repeating this one. [Refused] is the server's or the manifest's
+     * considered no — a status code, a bad name, a digest that did not match —
+     * and retrying it only spends the rider's battery.
+     */
+    sealed interface Outcome {
+        data class Done(val file: File) : Outcome
+        data class Interrupted(val bytes: Long) : Outcome
+        data object Refused : Outcome
+    }
+
+    /**
+     * One download attempt for [update], resuming from a partial when one is on
+     * disk and provably the same artefact.
      *
-     * Streams to a `.part` name and renames to [update]'s final asset name
-     * only after [verify] passes. `prune` deletes by name and can run
-     * concurrently from a background check; without this, a check running
-     * mid-stream can unlink the file the downloader still has open (silent on
-     * Linux) while the digest it's accumulating is unaffected — verify()
-     * passes, and the caller publishes `Downloaded` for a path that's already
-     * gone (#166). A `.part` name is never a `prune` keep-name, so prune can
-     * still delete it mid-stream, but then the rename below fails cleanly
-     * instead of a ghost success reaching the rider.
+     * [onProgress] receives 0f..1f, or -1f when the total length is unknown.
+     * Blocking: call from `Dispatchers.IO`. Retries and backoff belong to the
+     * caller — the download service — because they are policy, and one call
+     * here is one attempt.
      */
     fun download(
         context: Context,
         update: UpdateClient.PendingUpdate,
         onProgress: (Float) -> Unit,
-    ): File? {
-        val url = runCatching { URL(update.downloadUrl) }.getOrNull() ?: return null
-        if (!allowed(url)) {
-            Log.w("DetourUpdate", "refusing download from ${url.host}")
-            return null
+    ): Outcome = attempt(dir(context), update, onProgress = onProgress)
+
+    /**
+     * The attempt itself, against a plain directory so it can be tested.
+     *
+     * **Resume is fail-closed.** The partial is appended to only when the
+     * sidecar written beside it agrees with [update] on all four of version,
+     * digest, size and ETag *and* the server answered the `Range` request with
+     * a 206 starting exactly where the partial ends. Anything else — a 200, a
+     * different start, a missing or stale sidecar — discards the partial and
+     * starts over, because bytes that cannot be shown to belong to this
+     * artefact must not be spliced into one that is about to be installed.
+     *
+     * **The digest still covers the whole file.** [MessageDigest] state cannot
+     * be persisted, so a resume re-hashes what is already on disk before
+     * appending. That is the property [verify] depends on, and the one a
+     * careless resume breaks first: hashing only the appended tail would let a
+     * corrupt prefix through the SHA-256 check that is the last thing standing
+     * between a manifest and an install (CWE-494).
+     *
+     * **Against `prune` racing this.** `prune` deletes by name and a background
+     * check can run mid-stream; unlinking a file this still has open succeeds
+     * silently on Linux, so the stream and the digest would finish happily on
+     * bytes nobody can open (#166). Two things stop that now:
+     * `UpdateChecker.performCheck` returns early without pruning while
+     * `UpdateState.status` is `Downloading`, and `prune` keeps `<keep>.part`
+     * and `<keep>.part.meta` alongside `<keep>` so a partial for the current
+     * asset is never the thing swept up. If both are somehow bypassed the
+     * rename below fails rather than a ghost success reaching the rider.
+     *
+     * [allowHost] is the redirect gate and defaults to the production
+     * allowlist. It is a parameter only so the tests can serve from 127.0.0.1;
+     * no production call site passes it.
+     */
+    internal fun attempt(
+        dir: File,
+        update: UpdateClient.PendingUpdate,
+        allowHost: (URL) -> Boolean = ::allowed,
+        onProgress: (Float) -> Unit,
+    ): Outcome {
+        val paths = UpdatePartFiles.resolve(dir, update.asset) ?: run {
+            Log.w("DetourUpdate", "refusing asset name from manifest")
+            return Outcome.Refused
         }
-        val part = File(dir(context), "${update.asset}.part")
-        val target = File(dir(context), update.asset)
-        val digest = MessageDigest.getInstance("SHA-256")
+        val url = runCatching { URL(update.downloadUrl) }.getOrNull() ?: return Outcome.Refused
+        if (!allowHost(url)) {
+            Log.w("DetourUpdate", "refusing download from ${url.host}")
+            return Outcome.Refused
+        }
+
+        val have = if (paths.part.exists()) paths.part.length() else 0L
         var connection: HttpURLConnection? = null
         return try {
             connection = (url.openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
-                connectTimeout = 30_000
-                readTimeout = 30_000
+                connectTimeout = TIMEOUT_MS
+                readTimeout = TIMEOUT_MS
+                if (have > 0) setRequestProperty("Range", "bytes=$have-")
             }
             // responseCode first, deliberately. getURL() does not report the
             // redirect target until the response headers have arrived —
             // Android's libcore says so outright — so checking it before any
-            // I/O just re-tests the URL allowed() already passed above, and
+            // I/O just re-tests the URL allowHost already passed above, and
             // would wave through a redirect to anywhere. Still a gate rather
             // than a postmortem: this runs before a single body byte is read.
+            // Re-run on every attempt, because every attempt is its own request
+            // and its own redirect chain — GitHub's signed asset URLs are
+            // short-lived, so a resume is genuinely re-negotiated, not replayed.
             //
             // libcore also refuses any protocol-switching redirect in either
             // direction, so an https -> http downgrade never reaches here.
             val code = connection.responseCode
-            if (!allowed(connection.url)) {
+            if (!allowHost(connection.url)) {
                 Log.w("DetourUpdate", "refusing redirect to ${connection.url.host}")
-                return null
+                return Outcome.Refused
             }
             // Without this a 404 streams its HTML body into the file and the
             // rider is offered an "APK" that is an error page. A manifest-less
-            // release has no size or hash to catch that later.
+            // release has no size or hash to catch that later. Refused rather
+            // than Interrupted: a status code is the server's considered
+            // answer, and retrying it just spends the rider's battery.
             if (code !in 200..299) {
                 Log.w("DetourUpdate", "download refused: HTTP $code")
-                return null
+                return Outcome.Refused
             }
-            val total = connection.contentLengthLong
-            var read = 0L
+
+            val etag = connection.getHeaderField("ETag").orEmpty()
+            // Which byte of the artefact this body starts at. A 200 is the
+            // whole thing and starts at zero however the request was phrased; a
+            // 206 starts wherever its Content-Range says, which is -1 when it
+            // says nothing this code can read.
+            val bodyStart = if (code == HTTP_PARTIAL) {
+                contentRangeStart(connection.getHeaderField("Content-Range"))
+            } else {
+                0L
+            }
+            val resuming = have > 0 &&
+                bodyStart == have &&
+                PartMeta.decode(paths.meta.takeIf { it.exists() }?.readText().orEmpty())
+                    ?.matches(update, etag) == true
+
+            if (!resuming) {
+                // Any disagreement — a 200 to a Range request, a different
+                // start, a missing or stale sidecar — means the bytes on disk
+                // cannot be shown to belong to this artefact. Fail closed:
+                // start over rather than append to them.
+                paths.part.delete()
+                paths.meta.delete()
+                if (bodyStart != 0L) {
+                    // …but starting over needs a body that starts at the
+                    // beginning, and this one does not. The offset it is
+                    // measured from referred to the partial just discarded, so
+                    // there is nowhere to put it; written from zero it would
+                    // leave a file made of the wrong half, under a fresh
+                    // sidecar vouching for it. Write nothing. The partial is
+                    // gone now, so the next attempt sends no Range and is
+                    // answered with the whole artefact.
+                    Log.w("DetourUpdate", "discarding a partial the server would not match")
+                    return Outcome.Interrupted(0L)
+                }
+            }
+            val from = if (resuming) have else 0L
+            paths.meta.writeText(PartMeta.of(update, etag).encode())
+
+            val digest = MessageDigest.getInstance("SHA-256")
+            if (from > 0) {
+                paths.part.inputStream().use { existing ->
+                    val buf = ByteArray(BUFFER)
+                    while (true) {
+                        val n = existing.read(buf)
+                        if (n <= 0) break
+                        digest.update(buf, 0, n)
+                    }
+                }
+            }
+
+            // The manifest's size is the whole artefact. Content-Length is only
+            // the remainder on a 206, so the offset goes back on — and `from`
+            // is zero on a 200 by construction, since only [resuming] makes it
+            // non-zero and that requires a 206. -1 means "no idea", which
+            // onProgress passes on as indeterminate.
+            val declared = connection.contentLengthLong
+            val total = when {
+                update.size > 0 -> update.size
+                declared > 0 -> declared + from
+                else -> -1L
+            }
+            var read = from
             connection.inputStream.use { input ->
-                part.outputStream().use { output ->
-                    val buf = ByteArray(64 * 1024)
+                FileOutputStream(paths.part, from > 0).use { output ->
+                    val buf = ByteArray(BUFFER)
                     while (true) {
                         val n = input.read(buf)
                         if (n <= 0) break
@@ -120,28 +250,66 @@ object UpdateDownloader {
                     }
                 }
             }
-            if (!verify(part, digest, update, read)) {
-                part.delete()
-                return null
+
+            if (update.size > 0 && read < update.size) {
+                // The stream ended early — a dropped connection, not a corrupt
+                // file. Keep the partial and its sidecar so the next attempt
+                // picks up here. Only the manifest's size is trusted for this:
+                // Content-Length describes the *encoded* body, and
+                // HttpURLConnection transparently gunzips a response it asked
+                // to be gzipped, so a shortfall measured against it would be an
+                // artefact of the encoding rather than of the transfer. A
+                // manifest-less release therefore cannot detect truncation
+                // here — it never could, and it has no digest either.
+                Log.w("DetourUpdate", "download interrupted at $read of ${update.size}")
+                return Outcome.Interrupted(read)
             }
-            if (!part.renameTo(target)) {
+            if (!verify(paths.part, digest, update, read)) {
+                paths.part.delete()
+                paths.meta.delete()
+                return Outcome.Refused
+            }
+            if (!paths.part.renameTo(paths.target)) {
                 // part is gone (pruned mid-stream) or target already exists
                 // from a concurrent download of the same asset. Either way,
                 // there is nothing installable at a name the rider was
                 // promised — fail rather than publish a path that doesn't
                 // resolve to the verified bytes.
                 Log.w("DetourUpdate", "rename to final name failed")
-                part.delete()
-                return null
+                paths.part.delete()
+                paths.meta.delete()
+                return Outcome.Refused
             }
-            target
+            paths.meta.delete()
+            Outcome.Done(paths.target)
         } catch (e: Exception) {
+            // Every exception is reported as retryable, including ones that
+            // will never come good. That is deliberate: the partial is only
+            // ever appended to after the sidecar proves it matches, so a wrong
+            // guess here cannot corrupt anything — it can only cost a bounded
+            // number of backed-off retries the caller was going to allow
+            // anyway. Sorting IOException from the rest would trade that for a
+            // taxonomy that gets a genuinely transient failure wrong sooner or
+            // later, and a rider stuck on "Failed" with a good half-file on
+            // disk is the worse outcome.
+            //
+            // The partial stays: its sidecar says what it is, and the next
+            // attempt either resumes it or discards it on the evidence.
             Log.w("DetourUpdate", "download failed", e)
-            part.delete()
-            null
+            Outcome.Interrupted(if (paths.part.exists()) paths.part.length() else 0L)
         } finally {
             connection?.disconnect()
         }
+    }
+
+    /** The first byte offset in a `Content-Range: bytes <start>-<end>/<total>`
+     *  header, or -1 for anything else — an absent header, an
+     *  unsatisfied-range form with no start offset, or a range unit this code
+     *  never asked for. -1 never equals a partial's length, so every one of
+     *  those declines the resume. */
+    internal fun contentRangeStart(header: String?): Long {
+        val spec = header?.removePrefix("bytes ")?.substringBefore('-') ?: return -1L
+        return spec.trim().toLongOrNull() ?: -1L
     }
 
     /** Size and hash both, when the manifest supplied them.
