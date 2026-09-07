@@ -54,6 +54,51 @@ import com.jellemax.detour.tracking.TripStats
  *  map for the same destination. */
 private val DESTINATION_ORANGE = Color(0xFFFF9800)
 
+/** The prototype's result callout: a spin's outcome, or a picked destination,
+ *  in one highlighted row. Was inline in [SpinSheet]; moved out so the drive
+ *  sheet (`RideSheet.kt`) shows the place a rider just searched for in the
+ *  same row. [onRespin] draws the trailing "Re-spin" action; null leaves it
+ *  out. */
+@Composable
+internal fun ResultCallout(
+    title: String,
+    subtitle: String?,
+    onRespin: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.large)
+            .border(1.dp, DESTINATION_ORANGE.copy(alpha = 0.4f), MaterialTheme.shapes.large)
+            .padding(horizontal = 13.dp, vertical = 11.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.LocationOn, contentDescription = null, tint = DESTINATION_ORANGE)
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            subtitle?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        onRespin?.let {
+            Text(
+                "Re-spin",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.clickable(onClick = it),
+            )
+        }
+    }
+}
+
 /** The spin sheet: everything the home sheet's Spin chip expands into. Same
  *  glass card the home sheet uses, just taller — a drag-handle bar stands in
  *  for an actual drag gesture, tap it (or the chevron) to fold back to the
@@ -267,36 +312,11 @@ internal fun SpinSheet(
             // gate, Re-spin only renders when onSpin still rolls.
             val resultDistance = route?.distanceMeters?.let { formatDistanceKm(it) }
             if (!spinning && (destinationName != null || resultDistance != null)) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.large)
-                        .border(1.dp, DESTINATION_ORANGE.copy(alpha = 0.4f), MaterialTheme.shapes.large)
-                        .padding(horizontal = 13.dp, vertical = 11.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Rounded.LocationOn, contentDescription = null,
-                        tint = DESTINATION_ORANGE)
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            destinationName ?: "Loop found",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        resultDistance?.let {
-                            Text(it, style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                    Text(
-                        "Re-spin",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clickable(onClick = onSpin),
-                    )
-                }
+                ResultCallout(
+                    title = destinationName ?: "Loop found",
+                    subtitle = resultDistance,
+                    onRespin = onSpin,
+                )
             }
 
             Button(

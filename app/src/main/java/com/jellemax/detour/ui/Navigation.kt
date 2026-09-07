@@ -7,17 +7,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ForkLeft
 import androidx.compose.material.icons.rounded.ForkRight
 import androidx.compose.material.icons.rounded.RoundaboutLeft
@@ -31,12 +27,10 @@ import androidx.compose.material.icons.rounded.TurnSlightLeft
 import androidx.compose.material.icons.rounded.TurnSlightRight
 import androidx.compose.material.icons.rounded.UTurnLeft
 import androidx.compose.material.icons.rounded.UTurnRight
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -46,8 +40,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -142,72 +134,10 @@ private fun ThenChip(pill: NavThenPill) {
     }
 }
 
-/** Bottom bar during navigation: route progress, arrival time, what is left of
- *  the route, and the way out. */
-@Composable
-fun NavigationBottomBar(
-    state: NavState,
-    onExit: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.glassBorder(MaterialTheme.shapes.extraLarge),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = glassCardColors(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Column {
-            RouteProgressTrack(state.progressFraction, Modifier.fillMaxWidth())
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        state.arrivalText,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (state.offRoute) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        state.remainingText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                OutlinedButton(
-                    onClick = onExit,
-                    // The visible label is "End"; keep the fuller phrase for a
-                    // screen reader, which has no map next to it for context.
-                    modifier = Modifier.semantics { contentDescription = "End navigation" },
-                    shape = CircleShape,
-                    border = BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.error.copy(alpha = 0.5f),
-                    ),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.14f),
-                        contentColor = MaterialTheme.colorScheme.error,
-                    ),
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                ) {
-                    Icon(Icons.Rounded.Close, contentDescription = null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("End", style = MaterialTheme.typography.labelLarge)
-                }
-            }
-        }
-    }
-}
-
 /** Thin route-progress bar: primary fill up to [fraction], with a dot riding
- *  its leading edge. */
+ *  its leading edge. The top edge of the nav sheet (`RideSheet.kt`). */
 @Composable
-private fun RouteProgressTrack(fraction: Float, modifier: Modifier = Modifier) {
+internal fun RouteProgressTrack(fraction: Float, modifier: Modifier = Modifier) {
     val trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
     val fillColor = MaterialTheme.colorScheme.primary
     Canvas(modifier.height(4.dp)) {

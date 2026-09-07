@@ -53,8 +53,8 @@ data class NavState(
  * outside it in `MapScreen.kt` — to [NavState]. Ported from (named, not cited
  * by line, so this stays true across edits):
  *  - `app/.../ui/Navigation.kt`'s `NavigationBanner` (headline/maneuver text),
- *    `ThenChip` (the pill's text) and `NavigationBottomBar` (remaining/ETA
- *    text and the progress fraction);
+ *    `ThenChip` (the pill's text) and `RideSheet.kt`'s `NavSheet`
+ *    (remaining/ETA text and the progress fraction);
  *  - `MapScreen.kt`'s inline speed-limit source switch
  *    (`if (navigating) navProgress?.speedLimitKmh else retained.ambientSpeedLimitKmh`);
  *  - `MapScreen.kt`'s inline off-route comparison

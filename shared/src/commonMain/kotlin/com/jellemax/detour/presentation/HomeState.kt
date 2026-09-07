@@ -4,47 +4,36 @@ import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.SavedPlace
 
 /** What currently occupies the map screen's single bottom-card slot. */
-enum class HomeBottomCard { NAV, CANDIDATES, COLLAPSED, EXPANDED, DRIVING }
+enum class HomeBottomCard { NAV, CANDIDATES, DRIVE, COLLAPSED, EXPANDED }
 
 /**
  * Picks the one card that occupies the map's bottom slot — first match wins.
  *
- * `MapScreen.kt` used to ask these three questions twice, ~1200 lines apart:
- * once for the card itself and once as `dockShown`, the flag the mode-swipe
- * hint waited on. Drift between the two armed the hint against a bottom card
- * that wasn't on screen, so it fired on that card's very next composition — as
+ * `MapScreen.kt` used to ask these questions twice, ~1200 lines apart: once
+ * for the card itself and once as `dockShown`, the flag the mode-swipe hint
+ * waited on. Drift between the two armed the hint against a bottom card that
+ * wasn't on screen, so it fired on that card's very next composition — as
  * part of the screen arriving, which is the one thing the hint's delay existed
  * to prevent. The hint and the dock it taught are both gone; this stayed, as
  * the one place the slot's occupant is decided.
  *
- * ## Precedence: what the rider asked for, before what is merely true
- *
- * Turn-by-turn, then a spin round waiting on an answer, then a sheet
- * something opened, and only then [driving] — a trip recording is a fact
- * about the phone, not a request. Two consequences worth naming:
- *
- *  - a trip recorded *while navigating* still shows the nav bar, because the
- *    turn you are about to take outranks the numbers you are accumulating;
- *  - a destination dropped mid-trip still reaches the spin sheet's Go button.
- *    `MapScreen` opens that sheet on every new destination, so ranking
- *    [DRIVING] above it would have swallowed the one control a fresh
- *    destination exists for.
- *
- * So [DRIVING] displaces exactly one occupant, [COLLAPSED] — the idle home
- * sheet, whose search bar and Routes/Social cards are what nobody wants in
- * the thumb zone at 80 km/h. That is the whole of its job.
+ * [tripActive] is a trip being recorded with no route to follow — it takes the
+ * slot as the drive sheet. It ranks below [hasCandidates] so a convoy vote
+ * round still surfaces on a moving phone, and above [collapsed] because the
+ * paths that set a destination flip that flag off (#221) and a moving rider
+ * must not have the drive sheet swapped for the spin sheet by it.
  */
 fun homeBottomCard(
     navigating: Boolean,
     hasCandidates: Boolean,
+    tripActive: Boolean,
     collapsed: Boolean,
-    driving: Boolean,
 ): HomeBottomCard = when {
     navigating -> HomeBottomCard.NAV
     hasCandidates -> HomeBottomCard.CANDIDATES
-    !collapsed -> HomeBottomCard.EXPANDED
-    driving -> HomeBottomCard.DRIVING
-    else -> HomeBottomCard.COLLAPSED
+    tripActive -> HomeBottomCard.DRIVE
+    collapsed -> HomeBottomCard.COLLAPSED
+    else -> HomeBottomCard.EXPANDED
 }
 
 /**

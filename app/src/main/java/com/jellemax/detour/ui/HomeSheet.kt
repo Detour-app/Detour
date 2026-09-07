@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
@@ -24,7 +23,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Diversity3
@@ -53,7 +51,6 @@ import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.presentation.homeShortcutPlaces
 import com.jellemax.detour.presentation.isHome
 import com.jellemax.detour.presentation.isWork
-import com.jellemax.detour.tracking.TripStats
 
 /**
  * How tall the sheet stands at `fontScale` 1, excluding the gesture inset it
@@ -213,74 +210,13 @@ internal fun ColumnScope.HomeSheet(
     }
 }
 
-/**
- * The map's bottom sheet while a trip is recording: the live numbers instead
- * of a search bar you are in no position to type into.
- *
- * Compact it is the strip [ActiveTripCard] folds down to — elapsed time and
- * distance — under the same handle the idle sheet wears. Expanded it adds the
- * trip's summary figures and **End trip**, which used to float ~300 dp up the
- * map as a button of its own, above a card the rider could not fold.
- * [expanded] is the caller's single flag for both halves, so the drag gesture
- * #205 adds has one thing to flip.
- *
- * Height is capped at [HOME_SHEET_HEIGHT] and the card scrolls inside that
- * cap. The basemap attribution is kept clear of the sheet by one margin set
- * once per Activity ([rememberRetainedMap]), computed from that constant and
- * from nothing this composable can tell it — so the expanded card, which is
- * taller than the idle sheet once the hard-event counts appear, must be the
- * thing that gives. End trip stays outside the scroll: capping a sheet is
- * fine, putting the trip's one control below its fold is not.
- */
+/** Decoration, not a control: the sheet has one height, so there is nothing to
+ *  drag. It says "this is a sheet, and the map continues above it" — hence the
+ *  cleared semantics, so a screen reader is not offered a handle that moves
+ *  nothing. The ride sheets (`RideSheet.kt`) draw the same bar when open, where
+ *  the card around it is the control. */
 @Composable
-internal fun DrivingSheet(
-    stats: TripStats,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    onEndTrip: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().heightIn(max = HOME_SHEET_HEIGHT),
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = SHEET_ALPHA),
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-        ),
-    ) {
-        Column(
-            // Same as the idle sheet: this one runs to the bottom edge too, so
-            // it consumes the gesture inset itself. No IME union — nothing in
-            // here takes text.
-            Modifier
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 14.dp),
-        ) {
-            DragHandle()
-            Box(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                ActiveTripCard(stats, expanded = expanded, onToggle = onToggle)
-            }
-            if (expanded) {
-                Spacer(Modifier.height(12.dp))
-                EndTripButton(
-                    onClick = onEndTrip,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-    }
-}
-
-/** Decoration, not a control: neither sheet is dragged yet, so there is
- *  nothing here to grab. It says "this is a sheet, and the map continues above
- *  it" — hence the cleared semantics, so a screen reader is not offered a
- *  handle that moves nothing. On [DrivingSheet], where there genuinely are two
- *  heights, the card below carries the tap and the "Show more"/"Show less"
- *  label until #205 makes this draggable. */
-@Composable
-private fun DragHandle() {
+internal fun DragHandle() {
     Box(
         Modifier
             .fillMaxWidth()

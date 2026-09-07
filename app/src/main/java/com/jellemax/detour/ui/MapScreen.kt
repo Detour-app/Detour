@@ -35,7 +35,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -81,7 +80,6 @@ import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.Curviness
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RoundTripPlanner
-import com.jellemax.detour.ColdStartTiming
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
@@ -134,7 +132,6 @@ import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
-import org.maplibre.android.maps.Style
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.random.Random
@@ -310,6 +307,20 @@ fun MapScreen(
     // Collapsed is the resting state; the spin sheet comes up when the home
     // sheet's Spin chip opens it, or when a destination is set (below).
     var settingsCollapsed by rememberSaveable { mutableStateOf(true) }
+    // A trip ending lands on the home sheet. The ride sheets outrank the spin
+    // sheet in homeBottomCard, so `settingsCollapsed` can go false underneath
+    // them — every pick flips it, navigated-to or not — and End trip after an
+    // arrival would otherwise surface a spin sheet offering Go to the place
+    // the rider is standing at. Edge-triggered on a running trip ending, not
+    // on "no trip": a return from the Hub with no trip must not close a spin
+    // sheet the rider left open, and a route seeded from RoutesScreen must
+    // keep the sheet the effect below opens for it.
+    var tripWasRunning by remember { mutableStateOf(stats != null) }
+    LaunchedEffect(stats != null) {
+        val running = stats != null
+        if (tripWasRunning && !running) settingsCollapsed = true
+        tripWasRunning = running
+    }
     // Having somewhere to go and no way to start going there was the dead end:
     // the Go button and the destination readout are the spin sheet's (SpinCards
     // NavButton and the result callout), so a destination picked while the
@@ -326,34 +337,10 @@ fun MapScreen(
     // set, before the first composition here. That is the case its KDoc has
     // always promised and no call-site line can reach.
     LaunchedEffect(destination) { if (destination != null) settingsCollapsed = false }
-    // And the mirror of it: a trip starting hands the bottom surface back to
-    // the driving sheet. The spin sheet outranks the driving occupant on
-    // purpose (see homeBottomCard) so a destination dropped mid-trip still
-    // reaches Go — but left open across a trip *start* that same rule would
-    // hide the trip's numbers and End trip with them, and End trip has no
-    // floating button to fall back on any more.
-    //
-    // One effect rather than a line beside each `TripTrackingService.start`,
-    // for the reason the destination effect above gives: a trip also starts
-    // where no lambda here can see it — auto-detection, Android Auto, the
-    // notification. Keyed on the derived boolean, not on `stats`, so this
-    // fires on the edge rather than on every accumulated metre.
-    //
-    // Not while there is somewhere to go, though. This runs *after* the
-    // effect above, so on a trip start — and on a restore, where both run —
-    // it would win, close the spin sheet and take the Go button (SpinCards'
-    // NavButton, which no other occupant carries) with it. Auto-detect is on
-    // by default, so that is the ordinary case, not a corner: pick a
-    // destination, start riding, lose the way to start navigating to it. The
-    // sheet's own collapse control is still one tap from the driving sheet
-    // when the rider is done with it. `destination` is read live rather than
-    // keyed on, so setting one mid-trip does not re-run this and re-collapse
-    // the sheet it just opened. `route` counts as somewhere to go as well: a
-    // loop spin sets the route and leaves `destination` null, and its Go is
-    // the same NavButton.
-    LaunchedEffect(stats != null) {
-        if (stats != null && destination == null && route == null) settingsCollapsed = true
-    }
+    // Whether the drive or nav sheet is open. Plain remember, not saveable:
+    // the effect on bottomCard below closes it on every slot change, first
+    // composition included, so a rotation would lose it either way.
+    var rideSheetExpanded by remember { mutableStateOf(false) }
     // The prefetched way set, the fetch throttle, the miss counter and the
     // snapped value: SpeedLimitTracker's, in shared/…/drive/, where the policy
     // lives with its tests. retained.ambientSpeedLimitKmh stays its own state because the
@@ -668,21 +655,25 @@ fun MapScreen(
 
     // One slot, five occupants, decided once here rather than re-derived where
     // each of them is drawn. The home sheet is the resting one; the other four
-    // displace it — see the mapper for why a recording trip is the last of them
-    // to get a say.
+    // displace it.
     val bottomCard = homeBottomCard(
         navigating = navigating,
         hasCandidates = visibleCandidates.isNotEmpty(),
+        tripActive = stats != null,
         collapsed = settingsCollapsed,
-        driving = stats != null,
     )
 
-    // The search island lives in the home sheet, so anything that displaces the
-    // sheet takes the island's BackHandler with it - and back would then leave
-    // the app rather than dismissing a search that is still on screen. Closing
-    // it here covers all three displacements at once, navigation included.
+    // The search island lives in the home sheet and, when it is open, in the
+    // drive sheet, so anything that displaces them takes the island's
+    // BackHandler with it - and back would then leave the app rather than
+    // dismissing a search that is still on screen. Closing it here covers
+    // every displacement at once, navigation included, and the drive sheet is
+    // no exception: the same trigger closes the sheet below, which takes its
+    // island off screen, and a flag left true would pop the keyboard the next
+    // time the sheet opened. Every slot change lands on a closed sheet.
     LaunchedEffect(bottomCard) {
         if (bottomCard != HomeBottomCard.COLLAPSED) searchOpen = false
+        rideSheetExpanded = false
     }
 
     /** Commits a convoy spin's leading (or explicitly chosen) candidate,
@@ -1956,6 +1947,9 @@ fun MapScreen(
             MapBottomSlot(
                 stats = stats,
                 onEndTrip = { TripTrackingService.stop(context) },
+                rideToggle = SheetToggle(rideSheetExpanded) {
+                    rideSheetExpanded = !rideSheetExpanded
+                },
                 savedPlaces = savedPlaces,
                 destination = destination,
                 destinationName = destinationName,
