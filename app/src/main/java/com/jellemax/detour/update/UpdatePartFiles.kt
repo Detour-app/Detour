@@ -13,7 +13,17 @@ import java.io.File
  */
 internal object UpdatePartFiles {
 
-    /** One path segment of the characters a release asset actually uses. */
+    /**
+     * One path segment of the characters a release asset actually uses.
+     *
+     * The 128 cap has no filesystem basis — it is not a verified limit of any
+     * target filesystem — it is there so a hostile manifest cannot hand this
+     * code a pathological filename. The convention this repo actually
+     * produces, `detour-<version>.apk` (see
+     * `UpdateCheck.conventionalPhoneAsset` in
+     * `shared/src/commonMain/kotlin/com/jellemax/detour/data/UpdateCheck.kt`),
+     * is a fraction of that.
+     */
     private val SAFE = Regex("^[A-Za-z0-9._-]{1,128}$")
 
     /** The three paths for one asset, all inside the updates directory. */
@@ -26,12 +36,18 @@ internal object UpdatePartFiles {
      * The paths for [name] under [dir], or null when [name] is not a safe
      * segment or does not resolve inside [dir] — the second check is belt and
      * braces over the first, and costs one canonicalisation per download.
+     *
+     * `canonicalFile` can throw (e.g. a filesystem I/O error); that is treated
+     * the same as "resolved outside [dir]" — a failure to canonicalise means
+     * containment cannot be proven, so refuse rather than let the exception
+     * escape past this function's null contract.
      */
     fun resolve(dir: File, name: String): Paths? {
         if (!isSafeAssetName(name)) return null
         val target = File(dir, name)
-        val root = dir.canonicalFile
-        if (target.canonicalFile.parentFile != root) return null
+        val root = runCatching { dir.canonicalFile }.getOrNull() ?: return null
+        val resolvedParent = runCatching { target.canonicalFile.parentFile }.getOrNull()
+        if (resolvedParent != root) return null
         return Paths(
             target = target,
             part = File(dir, "$name.part"),

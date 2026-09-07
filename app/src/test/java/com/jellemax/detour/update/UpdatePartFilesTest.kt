@@ -1,5 +1,7 @@
 package com.jellemax.detour.update
 
+import java.io.File
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -42,5 +44,20 @@ class UpdatePartFilesTest {
     @Test fun resolveRefusesAnUnsafeName() {
         val dir = tmp.newFolder("updates")
         assertNull(UpdatePartFiles.resolve(dir, "../escape.apk"))
+    }
+
+    /**
+     * The regex cannot see this one: a symlink whose *name* is a perfectly
+     * safe segment, but which points outside the updates directory. This is
+     * the only way to reach the canonical-path containment check — every
+     * other test here short-circuits at [UpdatePartFiles.isSafeAssetName].
+     */
+    @Test fun resolveRefusesASafeNameThatSymlinksOutsideTheDirectory() {
+        val dir = tmp.newFolder("updates")
+        val sibling = tmp.newFolder("sibling")
+        val secret = File(sibling, "secret.apk").apply { writeText("not an update") }
+        Files.createSymbolicLink(File(dir, "detour-2.14.0.apk").toPath(), secret.toPath())
+
+        assertNull(UpdatePartFiles.resolve(dir, "detour-2.14.0.apk"))
     }
 }
