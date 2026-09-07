@@ -255,4 +255,9 @@ dependencies {
     // with no extra plugin - app/ had no unit tests before PlaceNotifications'
     // catch-up planning logic, which is pure Kotlin and worth covering.
     testImplementation("junit:junit:4.13.2")
+    // The update downloader's resume logic is HTTP behaviour - 206 vs 200,
+    // Content-Range, ETag - and a fake that returns canned bytes would assert
+    // the fake rather than the protocol. Same OkHttp version as the
+    // implementation dependency above, so one upgrade moves both.
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
