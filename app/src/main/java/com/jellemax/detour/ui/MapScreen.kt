@@ -751,6 +751,13 @@ fun MapScreen(
     fun stopNavigation() {
         s.navigating = false
         s.navProgress = null
+        // Drop the route line: arrival or the Exit button ends the navigation,
+        // and the geometry it drew has nothing left to follow. The render effect
+        // keyed on `s.route` clears the layers; the destination pin stays (it is
+        // never nulled here — see the `destination` effect above), so the user
+        // can re-frame it. Same as the car surface, which drops its route on end
+        // (car/NavScreen.kt).
+        s.route = null
         // Arrival, or the Exit button. Either way stop mid-sentence rather than
         // finishing a prompt for a turn that no longer matters.
         navVoice.stop()
@@ -759,9 +766,8 @@ fun MapScreen(
         // loop runs: with the map parked, or the app away, that frame may be a
         // while, and until it lands the marker would sit on the abandoned line.
         retained.snappedAt = null
-        // The line stays on the map after arrival (and after a stop); without
-        // this it would keep the driven part greyed out with nothing following
-        // it any more.
+        // Reset the driven cut so the next route starts from a clean slate rather
+        // than inheriting the last one's greyed fraction.
         mapOverlays?.setDrivenFraction(null)
         BleNavServer.clear(context)
     }
