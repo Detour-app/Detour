@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
@@ -162,19 +161,18 @@ internal fun BoxScope.MapBottomSlot(
             },
             label = "bottomCard",
         ) { card ->
-            // The home sheet runs to the bottom edge of the screen and consumes
-            // the gesture inset inside its own surface, so it must not be given
-            // it here as well — and it is drawn below this rather than in the
-            // when-chain, so its branch here is an empty Box that must not be
-            // padded into a gap of its own. The other five float above that
-            // edge and still take it as padding — the mode bar that used to
-            // carry it for them is what left (#70), not the need for it.
+            // The home sheet runs edge-to-edge and consumes the gesture inset
+            // inside its own surface, so it must not be given it here as well —
+            // and it is drawn below this rather than in the when-chain, so its
+            // branch here is an empty Box that must not be padded into a gap of
+            // its own. The other five now share that flush convention (#263):
+            // no outer horizontal/bottom margin, so their L/R border sits on
+            // the screen edge like the home sheet's rather than jumping inward
+            // when a sheet opens. They still take the gesture inset as padding —
+            // they don't consume it internally the way the home sheet does.
             Box(
                 if (card == HomeBottomCard.COLLAPSED) Modifier
-                else Modifier
-                    .navigationBarsPadding()
-                    .padding(horizontal = 12.dp)
-                    .padding(bottom = 12.dp),
+                else Modifier.navigationBarsPadding(),
             ) {
                 when (card) {
                     HomeBottomCard.NAV -> NavSheet(
