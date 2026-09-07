@@ -735,7 +735,12 @@ internal fun encodeSuppressions(rows: List<SuppressedPlaceEvent>): String =
 
 /** The inverse of [encodeSuppressions]. A row that does not parse is skipped
  *  rather than throwing: this is diagnostics, and a stored value written by an
- *  older build must never be able to break the screen that shows it. */
+ *  older build must never be able to break the screen that shows it.
+ *
+ *  Like [encodePlaceFenceIds], this inherits rather than proves the
+ *  assumption that `circleId` (a raw `String`) never contains `,` or `|` —
+ *  true of every server UUID this codebase produces today, but not enforced
+ *  by the type. */
 internal fun decodeSuppressions(raw: String): List<SuppressedPlaceEvent> =
     raw.split(",").filter { it.isNotBlank() }.mapNotNull { row ->
         val f = row.split("|")
