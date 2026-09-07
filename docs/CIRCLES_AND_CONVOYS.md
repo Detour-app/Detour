@@ -277,9 +277,27 @@ poll tick. Only places currently nearby are ever handed to Play services, not
 the rider's complete set — the poll tick stays as the correction path for
 whatever the OS geofence misses (a dropped fence, a place added while
 offline, a rider already inside the gate radius at cold start). This is a
-deliberate, reasoned reversal of the original on-device-only design — see
-`docs/superpowers/specs/2026-09-06-circle-place-geofencing-design.md`'s
-Decision section for why.
+deliberate, reasoned reversal of the original on-device-only design.
+
+**Two detectors, one announcement (issue #273).** Both paths post through
+`CircleEvents.record`, and it — not either caller — decides whether a
+transition is the *first* announcement of a real change. Arrive and depart
+alternate per place against a durable confirmed-inside set, so a fence and a
+tick detecting the same crossing produce one event rather than two, and a cold
+start whose in-memory dwell state is gone no longer re-announces an arrival
+that is hours old. The two paths used to hold disjoint state and neither could
+see what the other had posted; both halves of the rule now live in one place.
+
+Because that memory is durable it outlives the process, so it can also drift:
+force-stopped for hours, a rider can leave a place with no departure ever
+announced. Every tick therefore reconciles the memory against the rider's
+actual position before detecting anything new, announces any departure that was
+missed while nothing was watching, and drops claims for places that no longer
+exist. Without that pass a stale claim would swallow the rider's next real
+arrival and the circle would show them parked somewhere permanently — a worse
+failure than the duplicate the gate removes. Suppressed announcements are kept,
+bounded, in Settings → Diagnostics, because a gate that drops events silently
+would make a genuinely missed transition invisible.
 
 Pausing is enforced **server-side as well as on the device**. Trusting the client
 would mean a stale build keeps broadcasting after the user believes they stopped.
