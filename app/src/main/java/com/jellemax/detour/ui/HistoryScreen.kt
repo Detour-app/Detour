@@ -1,5 +1,6 @@
 package com.jellemax.detour.ui
 
+import android.util.Log
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -185,14 +187,31 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
     // Loaded off the main thread: reading + JSON-parsing the store inside a
     // remember{} ran during composition and stalled the first frame (~125 ms on a
     // large history), which is what made opening and scrolling feel stuck. Null
-    // means "still loading"; the reloads after an edit go through IO too.
+    // means the first load hasn't landed — still running, or failed, which the
+    // message below tells apart; the reloads after an edit go through IO too.
     var entries by remember { mutableStateOf<List<HistoryEntry>?>(null) }
-    var deleteError by remember { mutableStateOf("") }
+    // One message for both failures: a failed load has no list to sit above and
+    // a failed delete has a list but no other place to say so, and the two can't
+    // be pending at once. Clearing it as a load starts stops a stale message
+    // from outliving the state it described.
+    var error by remember { mutableStateOf("") }
     fun reload() = scope.launch {
-        entries = withContext(Dispatchers.IO) {
-            val trips = TripStore.load()
-            val thumbnails = matchThumbnails(trips)
-            trips.map { HistoryEntry(it, thumbnails[it.startTimeMs]) }
+        error = ""
+        // Both reads parse files on the device, and either can throw on a
+        // truncated or unreadable one. Uncaught, that left entries null forever
+        // — which rendered as the "no trips yet" blank, on a full history.
+        // loadStrict, not load: load() reads a corrupt file as an empty list,
+        // and this is the one screen that can tell the rider the difference.
+        val result = withContext(Dispatchers.IO) {
+            runCatching {
+                val trips = TripStore.loadStrict()
+                val thumbnails = matchThumbnails(trips)
+                trips.map { HistoryEntry(it, thumbnails[it.startTimeMs]) }
+            }
+        }
+        result.onSuccess { entries = it }.onFailure {
+            Log.w("DetourHistory", "trip history load failed", it)
+            error = "Could not read your trip history from this device."
         }
     }
     LaunchedEffect(Unit) { reload() }
@@ -203,99 +222,128 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
         topBar = { SubScreenTopBar("Trip history", onBack, scrollBehavior) },
     ) { padding ->
         val loaded = entries
-        if (loaded != null && loaded.isEmpty()) {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(
-                    Icons.Outlined.History, contentDescription = null,
-                    Modifier.size(48.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text("No trips yet", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Track a drive or spin a destination — trips land here.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else if (loaded != null) {
+        val slot = Modifier.fillMaxSize().padding(padding)
+        if (loaded == null && error.isNotEmpty()) {
+            HistoryLoadFailed(error, onRetry = { reload() }, modifier = slot)
+        } else if (loaded == null) {
+            Box(slot, contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        } else if (loaded.isEmpty()) {
+            NoTripsYet(slot)
+        } else {
             // Trips are stored newest-first (TripStore.save prepends), so a
             // plain groupBy keeps that order and each month lands as one
             // contiguous run — no explicit sort needed.
             val byMonth = loaded.groupBy { monthKey(it.trip.startTimeMs) }
             Column(Modifier.fillMaxSize().padding(padding)) {
-            // Above the list, not an item in it: a delete fails on the row the
-            // rider is looking at, which is rarely the first one, and a message
-            // inserted at the top of a scrolled list lands off screen.
-            if (deleteError.isNotEmpty()) {
-                Text(
-                    deleteError,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            }
-            LazyColumn(
-                Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                for ((_, monthEntries) in byMonth) {
-                    val totalKm = monthEntries.sumOf { it.trip.distanceMeters } / 1000.0
-                    item {
-                        Text(
-                            "${monthFormat.format(monthEntries.first().trip.startTimeMs)} · " +
-                                "${monthEntries.size} trips · ${"%,.0f".format(totalKm)} km",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(top = 8.dp, bottom = 2.dp, start = 4.dp),
-                        )
-                    }
-                    items(monthEntries, key = { it.trip.startTimeMs }) { entry ->
-                        TripCard(
-                            // Deleting a trip slides the rest up instead of snapping.
-                            modifier = Modifier.animateItem(),
-                            entry = entry,
-                            onOpen = { onOpenTrip(entry.trip) },
-                            onChangeMode = { newMode ->
-                                scope.launch {
-                                    withContext(Dispatchers.IO) {
-                                        TripStore.updateMode(entry.trip.startTimeMs, newMode)
-                                    }
-                                    reload()
-                                    // Push the correction so it survives a reinstall / other devices.
-                                    SyncClient.syncQuietly()
-                                }
-                            },
-                            onDelete = {
-                                scope.launch {
-                                    // TripStore.delete rewrites trips.json and
-                                    // the tombstone file; either write can fail.
-                                    // Reloading anyway would redraw the row with
-                                    // no hint that the delete never happened.
-                                    val deleted = withContext(Dispatchers.IO) {
-                                        runCatching { TripStore.delete(entry.trip.startTimeMs) }
-                                    }
-                                    if (deleted.isFailure) {
-                                        deleteError = "Could not delete that trip — " +
-                                            "it is still in your history. Try again."
-                                    } else {
-                                        deleteError = ""
-                                        reload()
-                                    }
-                                }
-                            },
-                        )
-                    }
+                // Above the list, not an item in it: a delete fails on the row the
+                // rider is looking at, which is rarely the first one, and a message
+                // inserted at the top of a scrolled list lands off screen.
+                if (error.isNotEmpty()) {
+                    Text(
+                        error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
                 }
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    for ((_, monthEntries) in byMonth) {
+                        val totalKm = monthEntries.sumOf { it.trip.distanceMeters } / 1000.0
+                        item {
+                            Text(
+                                "${monthFormat.format(monthEntries.first().trip.startTimeMs)} · " +
+                                    "${monthEntries.size} trips · ${"%,.0f".format(totalKm)} km",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 8.dp, bottom = 2.dp, start = 4.dp),
+                            )
+                        }
+                        items(monthEntries, key = { it.trip.startTimeMs }) { entry ->
+                            TripCard(
+                                // Deleting a trip slides the rest up instead of snapping.
+                                modifier = Modifier.animateItem(),
+                                entry = entry,
+                                onOpen = { onOpenTrip(entry.trip) },
+                                onChangeMode = { newMode ->
+                                    scope.launch {
+                                        withContext(Dispatchers.IO) {
+                                            TripStore.updateMode(entry.trip.startTimeMs, newMode)
+                                        }
+                                        reload()
+                                        // Push the correction so it survives a reinstall / other devices.
+                                        SyncClient.syncQuietly()
+                                    }
+                                },
+                                onDelete = {
+                                    scope.launch {
+                                        // TripStore.delete rewrites trips.json and
+                                        // the tombstone file; either write can fail.
+                                        // Reloading anyway would redraw the row with
+                                        // no hint that the delete never happened.
+                                        val deleted = withContext(Dispatchers.IO) {
+                                            runCatching { TripStore.delete(entry.trip.startTimeMs) }
+                                        }
+                                        if (deleted.isFailure) {
+                                            error = "Could not delete that trip — " +
+                                                "it is still in your history. Try again."
+                                        } else {
+                                            reload() // clears the message on its way in
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                    }
             }
             }
         }
+    }
+}
+
+/** A history that loaded and holds nothing — the state a new install is in,
+ *  which is why it must not double as "still loading" or "the read failed".
+ *  Same shape as the saved-places screen's own empty state. */
+@Composable
+private fun NoTripsYet(modifier: Modifier = Modifier) {
+    Column(
+        modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            Icons.Outlined.History, contentDescription = null,
+            Modifier.size(48.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text("No trips yet", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Track a drive or spin a destination — trips land here.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** The read failed: plain words for what went wrong and a way to run the load
+ *  again, in the slot [NoTripsYet] would have filled. The exception itself goes
+ *  to logcat — a rider can act on "try again", not on a stack trace. */
+@Composable
+private fun HistoryLoadFailed(message: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextButton(onClick = onRetry) { Text("Try again") }
     }
 }
 

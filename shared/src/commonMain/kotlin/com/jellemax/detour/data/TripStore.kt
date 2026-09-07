@@ -216,7 +216,7 @@ object TripStore {
         }
         val text = f.readText()
         val trips = try {
-            jsonArrayOf(text).objects().map { decodeTrip(it) }
+            decodeAll(text)
         } catch (e: Exception) {
             emptyList()
         }
@@ -225,6 +225,25 @@ object TripStore {
         }
         return trips
     }
+
+    /**
+     * [load] for the one screen that can say so. A file that exists but does
+     * not parse throws here instead of reading as an empty history: on the
+     * trip-history screen that read as "No trips yet" over a full store, which
+     * is the silence #191 is about. Every other reader — sync, badges,
+     * coverage — wants the best-effort list [load] gives.
+     */
+    fun loadStrict(): List<Trip> {
+        val f = accountFile(FILE_NAME)
+        if (!f.exists()) return emptyList()
+        return decodeAll(f.readText())
+    }
+
+    /** Every trip in [text], a trips file's contents. Throws on anything that
+     *  is not a JSON array of trips; [load] swallows that, [loadStrict] does
+     *  not. */
+    internal fun decodeAll(text: String): List<Trip> =
+        jsonArrayOf(text).objects().map { decodeTrip(it) }
 
     internal fun decodeTrip(o: JsonObject): Trip = Trip(
         startTimeMs = o.optLong("startTimeMs"),

@@ -2,6 +2,7 @@ package com.jellemax.detour.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /** Characterises [TripStore]'s encode/decode round trip for [DrivingStats] —
@@ -44,6 +45,15 @@ class TripStoreTest {
         """.trimIndent()
         val decoded = TripStore.decodeTrip(jsonObjectOf(oldTripJson))
         assertEquals(DrivingStats(), decoded.drivingStats)
+    }
+
+    @Test
+    fun aFileThatIsNotATripArrayThrowsRatherThanReadingAsEmpty() {
+        // What loadStrict passes on and load swallows: the history screen
+        // shows "could not read" for the first, and "no trips yet" only for
+        // a genuinely empty array.
+        assertFailsWith<Exception> { TripStore.decodeAll("{ truncated") }
+        assertEquals(emptyList(), TripStore.decodeAll("[]"))
     }
 
     @Test
