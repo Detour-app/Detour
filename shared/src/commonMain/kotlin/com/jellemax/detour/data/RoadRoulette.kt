@@ -30,10 +30,36 @@ data class OverpassWay(val nodes: List<Long>, val points: List<LatLon>)
  */
 object RoadRoulette {
 
-    private val ENDPOINTS = listOf(
+    /** internal, not private, so the mirror-fallthrough test can count them:
+     *  the budget below is a slice per mirror and there is no other way to
+     *  assert that the slices add up to it. */
+    internal val ENDPOINTS = listOf(
         "https://overpass-api.de/api/interpreter",
         "https://overpass.kumi.systems/api/interpreter",
     )
+
+    /** What one whole [rawQuery] may cost, every mirror included. */
+    internal const val QUERY_BUDGET_MS = 12_000L
+
+    /**
+     * One mirror's share of [QUERY_BUDGET_MS].
+     *
+     * The budget used to be handed to each mirror in turn, so a primary that
+     * accepted the connection and then stalled ate the whole window before the
+     * second mirror was even tried — long enough that the camera and
+     * speed-limit prefetches had given up and backed off, and the rider saw an
+     * empty map rather than an error. A slice each means a dead primary costs a
+     * fraction of the window instead of all of it.
+     */
+    internal val MIRROR_TIMEOUT_MS = QUERY_BUDGET_MS / ENDPOINTS.size
+
+    /**
+     * The `[timeout:]` hint every Overpass query in this module carries, in
+     * seconds. Matched to [MIRROR_TIMEOUT_MS], because a server still grinding
+     * on a query the client has already abandoned only burns the rate-limit
+     * slot the retry needs.
+     */
+    internal val SERVER_TIMEOUT_S = MIRROR_TIMEOUT_MS / 1000
 
     suspend fun randomRoadPoint(
         center: LatLon,
@@ -168,13 +194,17 @@ object RoadRoulette {
         highwayRegex: String,
         endpointOffset: Int = 0,
     ): List<OverpassWay> {
+        // The whole budget per mirror, not a slice: a spin's fourth attempt
+        // asks for every road within 9.6 km with geometry, which a healthy
+        // mirror answers in seconds rather than the one the slice allows, and
+        // a slice that expires on a mirror mid-answer reads as "no roads here".
         val query = """
-            [out:json][timeout:10];
+            [out:json][timeout:${QUERY_BUDGET_MS / 1000}];
             way(around:${radiusMeters.toInt()},${center.lat},${center.lon})["highway"~"$highwayRegex"];
             out geom;
         """.trimIndent()
 
-        return parseWays(rawQuery(query, endpointOffset))
+        return parseWays(rawQuery(query, endpointOffset, timeoutMs = QUERY_BUDGET_MS))
     }
 
     /** Road classes a car/moto can legally be on; excludes the footways,
@@ -206,7 +236,7 @@ object RoadRoulette {
         headingDeg: Double? = null,
         radiusMeters: Double = MAX_SNAP_METERS,
     ): Double? {
-        val query = "[out:json][timeout:8];" +
+        val query = "[out:json][timeout:$SERVER_TIMEOUT_S];" +
             "way(around:${radiusMeters.toInt()},${point.lat},${point.lon})" +
             "[\"maxspeed\"][\"highway\"~\"^($DRIVABLE_HIGHWAYS)$\"];" +
             "out tags geom;"
@@ -267,7 +297,7 @@ object RoadRoulette {
         center: LatLon,
         radiusMeters: Double = SPEED_PREFETCH_RADIUS_M,
     ): List<SpeedLimitWay>? {
-        val query = "[out:json][timeout:15];" +
+        val query = "[out:json][timeout:$SERVER_TIMEOUT_S];" +
             "way(around:${radiusMeters.toInt()},${center.lat},${center.lon})" +
             "[\"maxspeed\"][\"highway\"~\"^($DRIVABLE_HIGHWAYS)$\"];" +
             "out tags geom;"
@@ -387,13 +417,33 @@ object RoadRoulette {
         }
     }
 
-    /** Runs an Overpass query, rotating across mirrors on failure. */
-    suspend fun rawQuery(query: String, endpointOffset: Int = 0): String {
+    /**
+     * Runs an Overpass query, rotating across mirrors until one actually
+     * answers ([isOverpassAnswer]). Each mirror gets [MIRROR_TIMEOUT_MS] and no
+     * more, so a primary that is down but not *refusing* costs its slice rather
+     * than the whole budget.
+     *
+     * Sequential, not raced: two requests per query would double what this app
+     * asks of a volunteer-run API for the sake of the seconds a slice already
+     * saves, and Overpass's usage policy is the reason [post] identifies us at
+     * all. Ktor would make the race short to write; it is the bill that rules
+     * it out, not the code.
+     */
+    suspend fun rawQuery(
+        query: String,
+        endpointOffset: Int = 0,
+        timeoutMs: Long = MIRROR_TIMEOUT_MS,
+    ): String {
         var lastError: IOException? = null
-        for (i in ENDPOINTS.indices) {
-            val endpoint = ENDPOINTS[(i + endpointOffset) % ENDPOINTS.size]
+        for (endpoint in mirrorOrder(endpointOffset)) {
             try {
-                return post(endpoint, query)
+                val body = post(endpoint, query, timeoutMs)
+                if (isOverpassAnswer(body)) return body
+                // A refusal the mirror dressed as a 200, so it never reached
+                // the catch below: the next mirror is still worth asking.
+                // Passing it on instead left every caller to read it as "no
+                // data here" with a healthy mirror sitting untried.
+                lastError = IOException("Overpass returned no answer")
             } catch (e: IOException) {
                 lastError = e
             }
@@ -401,7 +451,48 @@ object RoadRoulette {
         throw lastError ?: IOException("All Overpass endpoints failed")
     }
 
-    private suspend fun post(endpoint: String, query: String): String = try {
+    /** The mirrors to try, in order, starting [offset] into the list — so the
+     *  parallel sector fetches of a round trip don't all open on the same one. */
+    internal fun mirrorOrder(offset: Int): List<String> =
+        ENDPOINTS.indices.map { ENDPOINTS[(it + offset).mod(ENDPOINTS.size)] }
+
+    /**
+     * Whether [body] is an answer, rather than one of the two ways a mirror
+     * says no with a 200 on it — see [rawQuery], which tries the next mirror
+     * when this is false.
+     *
+     * The first is the HTML "runtime error" page a busy server sends, which
+     * the caller cannot parse. The second is the dangerous one, and is the way
+     * a server-side timeout comes back to a query carrying `[out:json]` —
+     * which every query here does: a perfectly well-formed envelope with an
+     * empty `elements` and a top-level `remark`
+     * ("runtime error: Query timed out ..."). That one parses, so it reaches
+     * the caller as "this area has nothing in it": the prefetch resets its
+     * backoff, marks the area held and never asks again, which is exactly the
+     * silence this whole file is about. Overpass also uses `remark` for
+     * warnings served alongside partial data, and partial is not an answer for
+     * a prefetch either, so any remark at all sends us to the next mirror.
+     *
+     * Parsed rather than scanned for `"remark"`: `remark` is an OSM tag too,
+     * and `out tags` prints the ones mappers wrote, so a substring test would
+     * throw away good answers. It costs a second parse of a body the caller
+     * parses again — small against the network call that produced it, and
+     * against the alternative of handing every caller a JsonObject it would
+     * have to re-shape.
+     */
+    internal fun isOverpassAnswer(body: String): Boolean {
+        if (!body.trimStart().startsWith('{')) return false
+        val root = try {
+            jsonObjectOf(body)
+        } catch (e: SerializationException) {
+            return false
+        } catch (e: IllegalArgumentException) {
+            return false
+        }
+        return root.optString("remark").isBlank()
+    }
+
+    private suspend fun post(endpoint: String, query: String, timeoutMs: Long): String = try {
         Http.request(
             method = "POST",
             url = endpoint,
@@ -411,7 +502,7 @@ object RoadRoulette {
                 // Overpass usage policy asks for an identifying user agent.
                 "User-Agent" to "Detour/${BuildDefaults.versionName}",
             ),
-            readTimeoutMs = 12_000,
+            readTimeoutMs = timeoutMs,
         )
     } catch (e: HttpStatusException) {
         throw IOException("Overpass API error: HTTP ${e.code}")

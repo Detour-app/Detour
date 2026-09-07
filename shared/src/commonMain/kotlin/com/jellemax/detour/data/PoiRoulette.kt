@@ -35,12 +35,12 @@ object PoiRoulette {
     ): Poi {
         val around = "(around:${radiusMeters.toInt()},${center.lat},${center.lon})"
         val query = """
-            [out:json][timeout:15];
+            [out:json][timeout:${RoadRoulette.QUERY_BUDGET_MS / 1000}];
             (${kind.selectors.joinToString("") { "$it$around;" }});
             out center 300;
         """.trimIndent()
 
-        val elements = jsonObjectOf(RoadRoulette.rawQuery(query)).optArray("elements")
+        val elements = jsonObjectOf(RoadRoulette.rawQuery(query, timeoutMs = RoadRoulette.QUERY_BUDGET_MS)).optArray("elements")
             ?: JsonArrayEmpty
         val allPois = ArrayList<Poi>(elements.size)
         for (el in elements.objects()) {
