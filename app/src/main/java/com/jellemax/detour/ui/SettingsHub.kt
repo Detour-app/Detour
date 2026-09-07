@@ -27,22 +27,9 @@ import com.jellemax.detour.nav.Destination
 import com.jellemax.detour.presentation.settingsHubStateFrom
 import com.jellemax.detour.update.ManualCheck
 import com.jellemax.detour.update.UpdateChecker
+import com.jellemax.detour.update.UpdateState
+import com.jellemax.detour.update.updateRowStateFrom
 import kotlinx.coroutines.launch
-
-/**
- * The Settings root — one row per spoke, navigated to rather than expanded in
- * place. `SettingsScreen.kt` holds the spokes' own controls; the two were split
- * because that file is far over the 1000-line hard limit, and the root is a
- * clean seam: a list of navigation rows with none of the spokes' state.
- */
-private fun updateCheckSubtitle(state: ManualCheck): String = when (state) {
-    ManualCheck.Idle -> "Check for a new release"
-    ManualCheck.Running -> "Checking…"
-    ManualCheck.UpToDate -> "No update found"
-    is ManualCheck.Found -> "Detour ${state.version} available"
-    ManualCheck.Failed -> "Couldn't reach GitHub"
-    is ManualCheck.RateLimited -> "Checked a few times just now — try again shortly"
-}
 
 /**
  * The Settings root: one row per spoke, plus the update check, which is not a
@@ -150,7 +137,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
                 HubRow(
                     icon = Icons.Outlined.SystemUpdate,
                     title = "Check for updates",
-                    subtitle = updateCheckSubtitle(manualCheck),
+                    subtitle = updateRowStateFrom(manualCheck, UpdateState.status.value).subtitle,
                     onClick = {
                         // Guarded on Running only. A tap with no tokens left is
                         // allowed through so the budget can refuse it out loud —
