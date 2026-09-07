@@ -126,12 +126,11 @@ class ChoiceRowMetricsTest {
         // including 0 and 1, which the early returns handle.
         val rows = listOf(120f, 200f, 296f, 304f, 360f)
         val labels = listOf(20f, 46.4f, 65.7f, 82f, 100f)
-        val cases = (0..9).flatMap { count ->
-            rows.flatMap { row -> labels.map { label -> Triple(count, row, label) } }
-        }
-        for ((count, row, label) in cases) {
+        val rowLabels = rows.flatMap { row -> labels.map { row to it } }
+        val cases = (0..9).flatMap { count -> rowLabels.map { Triple(count, it.first, it.second) } }
+        cases.forEach { (count, row, label) ->
             val m = choiceRowMetrics(row, label, count)
-            if (m.scrolls) continue
+            if (m.scrolls) return@forEach
             assertTrue(
                 "row=$row label=$label count=$count",
                 m.itemWidthDp - 2 * m.paddingDp + eps >= label * m.fontScale,
