@@ -10,9 +10,12 @@ import kotlin.concurrent.Volatile
  * `TripTrackingService.circleSyncLoop` (Android) and `CircleSync.loop` (iOS)
  * used to duplicate independently, structurally identical down to their
  * constants: for every circle where this device's own membership has
- * sharing on, post the latest fix ([CircleFixes.postFix]) and run it through
- * that circle's [GeofenceEvaluator], posting any arrive/depart transition
- * ([CircleEvents.record]).
+ * sharing on, post the latest fix ([CircleFixes.postFix]), reconcile that
+ * circle's confirmed-inside memory against where the rider actually is
+ * ([reconcilePlaceMemory]), announcing any departure the reconciliation finds
+ * was missed, and then run the fix through that circle's [GeofenceEvaluator],
+ * posting any arrive/depart transition it detects too — both funnelled
+ * through the same one gate ([CircleEvents.record]).
  *
  * Deliberately not a loop itself. Each platform keeps its own `while`/
  * `delay` and its own fix source (a `StateFlow` on Android, `LocationBroadcast`
@@ -68,7 +71,13 @@ import kotlin.concurrent.Volatile
  * still keep whatever dwell state a circle already had, which is why this
  * checks the epoch rather than clearing unconditionally on every tick — but
  * a sign-out, 401, or server switch must not leave a departed rider's dwell
- * state for the next signed-in rider to inherit.
+ * state for the next signed-in rider to inherit. [tick] also clears the
+ * durable half of that same rider-scoped state on the same signal —
+ * `Settings.clearPlaceEventMemory`, right after [discardEvaluatorsIfSessionChanged]
+ * reports the epoch moved — for the same reason: with the gate in
+ * [CircleEvents.record] now authoritative over the confirmed-inside set, an
+ * inherited claim would swallow the next signed-in rider's first real
+ * arrival at whatever place the previous rider was standing in.
  *
  * [currentIntervalMs] is *not* cleared on a session change, on purpose: it
  * is a cadence, not rider data — nothing in it identifies who was signed in
@@ -162,7 +171,17 @@ object CirclePresence {
         fixAgeMs: Long,
         nowMs: Long,
     ): Long {
-        discardEvaluatorsIfSessionChanged()
+        if (discardEvaluatorsIfSessionChanged()) {
+            // The same rule, for the durable half: a departed rider's
+            // confirmed-inside claims must not be inherited by the next
+            // signed-in rider, or the gate in `CircleEvents.record` will
+            // swallow that rider's first real arrival at a place the
+            // previous one was standing in (#273). Cleared here rather than
+            // inside `discardEvaluatorsIfSessionChanged` itself — see that
+            // function's own doc for why the `Settings` write has to live on
+            // this side of the split.
+            Settings.clearPlaceEventMemory()
+        }
         if (!SyncClient.configured() || !Account.signedIn) return currentIntervalMs
 
         val myId = Account.riderId.value
@@ -195,6 +214,32 @@ object CirclePresence {
                 if (!isFixTrusted(fixAgeMs)) continue
                 val places = CirclePlaces.places(circle.id)
                 placesByCircle += circle.id to places
+                // Before detecting anything new: does the durable memory still
+                // match where the rider actually is? A process death between
+                // two ticks can leave a claim standing for a place they have
+                // since left, and the gate in `CircleEvents.record` would then
+                // swallow their next real arrival (#273). Announced, not just
+                // cleared, so the circle stops showing them parked there — the
+                // timestamp is `nowMs` because when they left was never
+                // observed.
+                val drift = reconcilePlaceMemory(
+                    Settings.confirmedInsidePlaceIds(), circle.id, places, lat, lon, nowMs,
+                )
+                for (t in drift.missedDepartures) {
+                    CircleEvents.record(circle.id, t.placeId, t.kind, t.tsMs)
+                }
+                if (drift.staleKeys.isNotEmpty()) {
+                    // Only reachable on a successful `places` fetch, which is
+                    // the same "an outage proves nothing" rule the gate
+                    // candidates below follow: a failed fetch must not be read
+                    // as "the place is gone". Routed through
+                    // CircleEvents.forgetConfirmedInside rather than touching
+                    // Settings here directly, so this prune is serialised
+                    // with CircleEvents.record's own read-decide-POST-update
+                    // by the same gate — see that function's doc for the lost
+                    // update a bare read-modify-write here would reopen.
+                    CircleEvents.forgetConfirmedInside(drift.staleKeys)
+                }
                 val evaluator = evaluators[circle.id] ?: GeofenceEvaluator.withDefaults()
                 evaluators = evaluators + (circle.id to evaluator)
                 for (t in evaluateGeofences(evaluator, lat, lon, nowMs, places)) {
@@ -283,17 +328,24 @@ object CirclePresence {
         previousEpoch != null && previousEpoch != currentEpoch
 
     /** The impure half of [sessionChanged]: reads the real `Auth.sessionEpoch`,
-     *  clears [evaluators] if it moved, and stamps [lastSeenEpoch] either
-     *  way. `internal` rather than private so a test can call it with
-     *  [lastSeenEpoch] set by hand — the same shortcut
-     *  [com.jellemax.detour.drive.ConvoyRelay.clearMembershipForSessionChange]
+     *  clears [evaluators] if it moved, stamps [lastSeenEpoch] either way, and
+     *  returns whether it moved — [tick] uses that to also clear the durable
+     *  place-event memory (`Settings.clearPlaceEventMemory`), which belongs
+     *  next to this decision but not *in* this function: this one is called
+     *  directly by a test with [lastSeenEpoch] set by hand — the same
+     *  shortcut [com.jellemax.detour.drive.ConvoyRelay.clearMembershipForSessionChange]
      *  exists for, since actually moving `Auth.sessionEpoch` means writing
-     *  `Settings`. What that still leaves untested is [tick]'s own call to
-     *  this, one line up from a network fetch there is no seam for. */
-    internal fun discardEvaluatorsIfSessionChanged() {
+     *  `Settings` — and this module's tests stay isolated from `Settings`
+     *  itself (no `Prefs` backend to init, see this file's test's own header).
+     *  A `Settings` write here would take that test down with it. What the
+     *  split still leaves untested is [tick]'s own use of the return value,
+     *  one line up from a network fetch there is no seam for. */
+    internal fun discardEvaluatorsIfSessionChanged(): Boolean {
         val current = Auth.sessionEpoch.value
-        if (sessionChanged(lastSeenEpoch, current)) evaluators = emptyMap()
+        val changed = sessionChanged(lastSeenEpoch, current)
+        if (changed) evaluators = emptyMap()
         lastSeenEpoch = current
+        return changed
     }
 
     /**
@@ -359,4 +411,65 @@ object CirclePresence {
     @Volatile
     var lastGateCandidates: List<GateCandidate> = emptyList()
         internal set
+}
+
+/** What one circle's confirmed-inside memory got wrong, per
+ *  [reconcilePlaceMemory]. */
+internal data class PlaceMemoryDrift(
+    val missedDepartures: List<GeofenceTransition>,
+    val staleKeys: Set<String>,
+)
+
+/**
+ * Checks this circle's confirmed-inside claims against where the rider
+ * actually is.
+ *
+ * The memory [CircleEvents.record] keeps is durable, which is what lets it
+ * survive the process death that #273's cold-start symptom comes from — and
+ * also what lets it drift: force-stopped for hours, the rider leaves, and no
+ * depart is ever announced. The gate would then swallow their next real
+ * arrival and the circle would show them at that place forever, which is a
+ * worse failure than the duplicate the gate removes. So every tick asks the
+ * geometry.
+ *
+ * Geometry, not the evaluator: after that force-stop the evaluator's
+ * `inside` flag is false and has nothing to say. The threshold is the exit
+ * ring — `radiusM * EXIT_HYSTERESIS_FACTOR` — so this agrees with what a
+ * depart means everywhere else rather than inventing a second radius.
+ *
+ * A missed departure is synthesized with [nowMs] as its timestamp, not the
+ * true moment the rider left — that moment was never observed, this tick is
+ * simply the first one to notice, so [nowMs] is the earliest honest answer
+ * there is.
+ *
+ * A claim whose place is gone cannot be checked at all, so it is reported
+ * separately: [staleKeys] are dropped without announcing anything, because
+ * nobody can see a place that no longer exists.
+ */
+internal fun reconcilePlaceMemory(
+    confirmed: Set<String>,
+    circleId: String,
+    places: List<CirclePlace>,
+    lat: Double,
+    lon: Double,
+    nowMs: Long,
+): PlaceMemoryDrift {
+    val here = LatLon(lat, lon)
+    val prefix = "$circleId:"
+    val missed = mutableListOf<GeofenceTransition>()
+    val stale = mutableSetOf<String>()
+    for (key in confirmed) {
+        if (!key.startsWith(prefix)) continue
+        val placeId = key.removePrefix(prefix).toLongOrNull() ?: continue
+        val place = places.firstOrNull { it.place.id == placeId }
+        if (place == null) {
+            stale += key
+            continue
+        }
+        val exitRing = place.radiusM * GeofenceEvaluator.EXIT_HYSTERESIS_FACTOR
+        if (RoadRoulette.distanceMeters(here, place.place.location) > exitRing) {
+            missed += GeofenceTransition(placeId, GeofenceKind.DEPART, nowMs)
+        }
+    }
+    return PlaceMemoryDrift(missed, stale)
 }

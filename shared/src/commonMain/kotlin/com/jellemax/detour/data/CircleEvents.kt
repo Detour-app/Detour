@@ -1,5 +1,7 @@
 package com.jellemax.detour.data
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -43,16 +45,104 @@ object CircleEvents {
     // @Throws(Exception::class) on [record] and [events] below, both called
     // directly from iosApp/Detour: see the doc on [SyncClient.sync] for why
     // `Exception` and not just `IOException`.
+    /**
+     * Announces one transition — if it is the first announcement of it.
+     *
+     * The gate is here rather than at either caller because this is the one
+     * funnel both pass through: the OS fence (`PlaceGeofenceReceiver`) and the
+     * poll tick (`CirclePresence.tick`) are both armed for the same place with
+     * the same dwell and hysteresis, and their detection state is disjoint, so
+     * neither can suppress the other. That is #273, and one gate at the funnel
+     * is what fixes it — including the cold-start case, where the evaluator's
+     * in-memory `inside` flag is gone but [Settings.confirmedInsidePlaceIds]
+     * is not.
+     *
+     * Returns true when it posted. The memory advances **only after the POST
+     * lands**: an arrive that failed to record must not arm a depart nobody
+     * ever saw the arrive for.
+     *
+     * That covers a failed POST, not a process death between the POST landing
+     * and [Settings.setConfirmedInsidePlaceIds] finishing: the two writes
+     * aren't atomic, so a kill in that gap leaves the server holding the
+     * arrival while this memory still doesn't. The next real depart is then
+     * wrongly suppressed as having no arrive behind it — self-healing on the
+     * next real arrive, which is the same shape of gap [decidePlaceEvent]
+     * already tolerates.
+     *
+     * A second trigger reaches that identical gap with no process death at
+     * all: `GeofenceEvaluator.evaluate` flips its in-memory `PlaceState.inside`
+     * to `true` the moment dwell elapses, *before* `CirclePresence.tick` ever
+     * calls this function — so an ordinary failed POST here (offline, a 5xx,
+     * a timeout) leaves this memory without the key while the evaluator
+     * already believes it arrived. The evaluator can then never re-enter its
+     * arrive branch for that place; it only reaches depart next, which lands
+     * here with nothing to depart from and is suppressed the same way.
+     * [reconcilePlaceMemory] cannot rescue it either — it only walks keys
+     * already in the confirmed set, and this one never joined it. That single
+     * visit self-heals only after a full leave-and-return cycle.
+     *
+     * Serialised by [gate], so a fence delivery and a tick cannot both pass
+     * the check before either writes. They are separate coroutines in one
+     * process — the receiver declares no `android:process` — so the race is
+     * narrow and real. It holds across the POST, which serialises event posts;
+     * at arrival frequency that costs nothing.
+     */
     @Throws(Exception::class)
-    suspend fun record(groupId: String, placeId: Long, kind: GeofenceKind, tsMs: Long) {
-        Api.request(
-            "POST", "/circles/$groupId/events",
-            buildJsonObject {
-                put("placeId", placeId)
-                put("kind", if (kind == GeofenceKind.ARRIVE) "arrive" else "depart")
-                put("timestampMs", tsMs)
-            },
-        )
+    suspend fun record(groupId: String, placeId: Long, kind: GeofenceKind, tsMs: Long): Boolean =
+        gate.withLock {
+            val confirmed = Settings.confirmedInsidePlaceIds()
+            when (val decision = decidePlaceEvent(confirmed, groupId, placeId, kind)) {
+                is PlaceEventDecision.Suppress -> {
+                    Settings.recordSuppressedPlaceEvent(
+                        SuppressedPlaceEvent(groupId, placeId, kind, tsMs, decision.reason),
+                    )
+                    false
+                }
+                PlaceEventDecision.Post -> {
+                    Api.request(
+                        "POST", "/circles/$groupId/events",
+                        buildJsonObject {
+                            put("placeId", placeId)
+                            put("kind", if (kind == GeofenceKind.ARRIVE) "arrive" else "depart")
+                            put("timestampMs", tsMs)
+                        },
+                    )
+                    val key = placeEventKey(groupId, placeId)
+                    Settings.setConfirmedInsidePlaceIds(
+                        if (kind == GeofenceKind.ARRIVE) confirmed + key else confirmed - key,
+                    )
+                    true
+                }
+            }
+        }
+
+    /** Serialises [record]; see its doc for the race this closes. */
+    private val gate = Mutex()
+
+    /**
+     * Drops [keys] from [Settings.confirmedInsidePlaceIds], under the same
+     * [gate] that guards [record].
+     *
+     * This exists for `CirclePresence.tick`'s reconciliation, which prunes
+     * keys whose place has vanished from the circle (a stale claim nobody
+     * can check against geometry any more). That prune is a
+     * read-modify-write over the same set [record] reads and writes, and a
+     * fence delivery or a poll tick both call [record] from their own
+     * coroutine — the receiver declares no `android:process`, so they are
+     * genuinely concurrent. A prune done as a bare read-modify-write outside
+     * [gate] could land between another call's read and its write: it would
+     * then overwrite that call's update with a copy of the set from before
+     * it ran, silently un-confirming an arrival the server already has on
+     * file. The next real departure for that place would wrongly suppress
+     * as [SuppressionReason.NO_ARRIVE_TO_DEPART_FROM] — the exact lost
+     * update #273's gate was built to close, reopened through a second
+     * writer. Routing the prune through [gate] instead closes it the same
+     * way [record] already does.
+     */
+    suspend fun forgetConfirmedInside(keys: Set<String>) {
+        gate.withLock {
+            Settings.setConfirmedInsidePlaceIds(Settings.confirmedInsidePlaceIds() - keys)
+        }
     }
 
     /** Events newer than [sinceMs] — pass the last-seen event's [PlaceEvent.tsMs]
@@ -148,6 +238,50 @@ enum class GeofenceKind { ARRIVE, DEPART }
 
 /** One transition [GeofenceEvaluator] just decided. */
 data class GeofenceTransition(val placeId: Long, val kind: GeofenceKind, val tsMs: Long)
+
+/** Why an announcement was dropped, for the durable record in [Settings.suppressedPlaceEvents]. */
+enum class SuppressionReason { DUPLICATE, NO_ARRIVE_TO_DEPART_FROM }
+
+/** What [decidePlaceEvent] concluded. */
+internal sealed interface PlaceEventDecision {
+    data object Post : PlaceEventDecision
+    data class Suppress(val reason: SuppressionReason) : PlaceEventDecision
+}
+
+/** The key [Settings.confirmedInsidePlaceIds] stores, `"$circleId:$placeId"`.
+ *  Comma-free by construction — circle ids are server UUIDs — which is what
+ *  lets it share [encodePlaceFenceIds]. */
+internal fun placeEventKey(circleId: String, placeId: Long): String = "$circleId:$placeId"
+
+/**
+ * Whether this transition is the *first* announcement of a real change, given
+ * what was already announced for that place.
+ *
+ * Arrive and depart must alternate: a second arrive with no depart between it
+ * and the first is a duplicate whichever detector produced it and however far
+ * apart, and a depart with no arrive to depart from never happened as far as
+ * this circle is concerned. That is the whole of #273 — two detectors and a
+ * cold start were three ways of announcing the same arrival twice, and none of
+ * them could see what the other had done.
+ *
+ * Pure, and over the set rather than over [Settings], because `shared` tests
+ * have no `Prefs` backend to init.
+ */
+internal fun decidePlaceEvent(
+    confirmed: Set<String>,
+    circleId: String,
+    placeId: Long,
+    kind: GeofenceKind,
+): PlaceEventDecision {
+    val inside = placeEventKey(circleId, placeId) in confirmed
+    return when {
+        kind == GeofenceKind.ARRIVE && inside ->
+            PlaceEventDecision.Suppress(SuppressionReason.DUPLICATE)
+        kind == GeofenceKind.DEPART && !inside ->
+            PlaceEventDecision.Suppress(SuppressionReason.NO_ARRIVE_TO_DEPART_FROM)
+        else -> PlaceEventDecision.Post
+    }
+}
 
 /**
  * Evaluates arrive/depart transitions from a stream of fixes, entirely

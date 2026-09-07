@@ -620,6 +620,30 @@ object Settings {
         prefs.put("confirmed_inside_place_ids", encodePlaceFenceIds(ids))
     }
 
+    /** The last [MAX_SUPPRESSIONS_KEPT] announcements the #273 gate dropped,
+     *  newest first. Read by Settings → Diagnostics; written by
+     *  [CircleEvents.record]. */
+    fun suppressedPlaceEvents(): List<SuppressedPlaceEvent> =
+        decodeSuppressions(prefs.string("suppressed_place_events", ""))
+
+    fun recordSuppressedPlaceEvent(row: SuppressedPlaceEvent) {
+        prefs.put(
+            "suppressed_place_events",
+            encodeSuppressions(appendSuppression(suppressedPlaceEvents(), row)),
+        )
+    }
+
+    /** Both halves of the #273 memory, cleared together: a sign-out, 401 or
+     *  server switch must not leave one rider's confirmed-inside claims for
+     *  the next signed-in rider to inherit — the same rule
+     *  `CirclePresence.evaluators` already follows, and the reason its own
+     *  doc gives for following it. The suppression ring goes too: it names
+     *  circles and places the next rider may not even be a member of. */
+    fun clearPlaceEventMemory() {
+        prefs.put("confirmed_inside_place_ids", "")
+        prefs.put("suppressed_place_events", "")
+    }
+
     /** The push registration token last handed to the server (an FCM token on
      *  Android), so sign-out can `DELETE /api/devices` for it and a re-register
      *  can skip when nothing changed. Empty when never registered. */
@@ -681,3 +705,49 @@ internal fun encodePlaceFenceIds(ids: Set<String>): String = ids.joinToString(",
 /** The inverse of [encodePlaceFenceIds]. `""` (prefs.string's default for an
  *  unset key) decodes to an empty set, not a set containing `""`. */
 internal fun decodePlaceFenceIds(raw: String): Set<String> = raw.split(",").filter { it.isNotBlank() }.toSet()
+
+/** How many suppressions [appendSuppression] keeps. Bounded for the same
+ *  reason the event feed is newest-N: prefs must not grow without limit. */
+internal const val MAX_SUPPRESSIONS_KEPT = 20
+
+/** One announcement the #273 gate dropped, kept so a genuinely swallowed
+ *  transition is visible in Settings → Diagnostics rather than only in a
+ *  logcat buffer that is already gone. */
+data class SuppressedPlaceEvent(
+    val circleId: String,
+    val placeId: Long,
+    val kind: GeofenceKind,
+    val tsMs: Long,
+    val reason: SuppressionReason,
+)
+
+/** Newest first, oldest dropped past [MAX_SUPPRESSIONS_KEPT]. */
+internal fun appendSuppression(
+    existing: List<SuppressedPlaceEvent>,
+    row: SuppressedPlaceEvent,
+): List<SuppressedPlaceEvent> = (listOf(row) + existing).take(MAX_SUPPRESSIONS_KEPT)
+
+/** `circleId|placeId|kind|tsMs|reason` per row, rows joined by commas — the
+ *  same reasoning as [encodePlaceFenceIds]: circle ids are server UUIDs, so
+ *  neither separator can appear inside a field, and this needs no JSON. */
+internal fun encodeSuppressions(rows: List<SuppressedPlaceEvent>): String =
+    rows.joinToString(",") { "${it.circleId}|${it.placeId}|${it.kind.name}|${it.tsMs}|${it.reason.name}" }
+
+/** The inverse of [encodeSuppressions]. A row that does not parse is skipped
+ *  rather than throwing: this is diagnostics, and a stored value written by an
+ *  older build must never be able to break the screen that shows it.
+ *
+ *  Like [encodePlaceFenceIds], this inherits rather than proves the
+ *  assumption that `circleId` (a raw `String`) never contains `,` or `|` —
+ *  true of every server UUID this codebase produces today, but not enforced
+ *  by the type. */
+internal fun decodeSuppressions(raw: String): List<SuppressedPlaceEvent> =
+    raw.split(",").filter { it.isNotBlank() }.mapNotNull { row ->
+        val f = row.split("|")
+        if (f.size != 5) return@mapNotNull null
+        val placeId = f[1].toLongOrNull() ?: return@mapNotNull null
+        val kind = GeofenceKind.entries.firstOrNull { it.name == f[2] } ?: return@mapNotNull null
+        val tsMs = f[3].toLongOrNull() ?: return@mapNotNull null
+        val reason = SuppressionReason.entries.firstOrNull { it.name == f[4] } ?: return@mapNotNull null
+        SuppressedPlaceEvent(f[0], placeId, kind, tsMs, reason)
+    }
