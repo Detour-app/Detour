@@ -499,6 +499,10 @@ class FogView(context: Context) : View(context) {
     /** Takes the mask out of the scrim at [placed]. */
     private fun punchCorridor(canvas: Canvas, placed: FogTransform) {
         val bitmap = mask ?: return
+        // Nothing stroked into it: a blit that removes nothing still filters
+        // half a megapixel a frame, and a new rider in a new city has fog on
+        // and no history in view for a whole ride.
+        if (maskTraces == 0) return
         maskValues[Matrix.MSCALE_X] = placed.a.toFloat()
         maskValues[Matrix.MSKEW_X] = placed.b.toFloat()
         maskValues[Matrix.MTRANS_X] = placed.tx.toFloat()
