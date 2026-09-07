@@ -958,10 +958,10 @@ fun MapScreen(
     }
 
     /**
-     * Switch travel mode from the spin sheet, the one surface where every
-     * consequence of the choice is visible at once: the profile the route is
-     * built with, whether the spin produces a loop or a destination, and the
-     * range the slider covers.
+     * Switch travel mode — from the spin sheet, where every consequence is
+     * visible at once (the routing profile, loop vs. destination, the slider
+     * range), or from the navigation dock, where it re-picks the profile for
+     * a destination already chosen.
      *
      * The radius is reset to the new mode's own default rather than carried
      * over or clamped. The two ranges barely overlap (Car 5-100 km, Moto
@@ -981,8 +981,11 @@ fun MapScreen(
         Settings.setTripMode(m)
         radiusKm = next.radiusKm
         minRadiusKm = next.minRadiusKm
-        s.destination = next.destination
-        s.destinationName = next.destinationName
+        // A concrete destination survives; its route does not — a moto profile
+        // and a car profile reach the same place by different roads, so the
+        // dock drops the fetched route here and startNavigation() re-fetches
+        // on the new profile. A loop spin's route (destination == null) is
+        // cleared by the same line.
         s.route = next.route
         s.candidates = next.candidates
         if (next.clearSpinOffer) ConvoyLiveClient.clearSpinOffer()

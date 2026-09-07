@@ -2,29 +2,30 @@ package com.jellemax.detour.map
 
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
-import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.TravelMode
 
 /**
  * What survives a change of travel mode, and what does not.
  *
- * Switching from Moto to Car invalidates a spin four ways at once — the radius
- * bounds are per-mode, and the destination, the route and the candidate spread
- * were all drawn for roads the other mode may not take. `MapScreen.selectMode`
- * used to state that by clearing six `var`s in a row, which is a rule written
- * as six assignments: correct only for as long as nobody adds a seventh piece
- * of spin state and forgets this list.
+ * Switching mode invalidates the parts of a *spin* that were drawn for one
+ * mode's roads — the radius bounds are per-mode, and a loop route and a
+ * candidate spread were both planned on a profile the other mode may not
+ * take. It does **not** clear a concrete `destination`: a place is a place
+ * whichever vehicle you take to it, and the navigation dock (#254) is where
+ * a rider switches Moto/Car for a destination they have already picked. The
+ * dock's own `route` is nulled by the caller so the next Start re-fetches on
+ * the new profile; that is not this rule's concern.
  *
- * Stating it as one value makes the rule reviewable and lets a test hold it,
- * which the six assignments could not. Pure: no Settings write, no convoy call
- * — the caller still does both, because both are side effects on other
+ * `MapScreen.selectMode` used to state this as a row of assignments, a rule
+ * written as assignments: correct only for as long as nobody adds another
+ * piece of spin state and forgets the list. Stating it as one value makes the
+ * rule reviewable and lets a test hold it. Pure: no Settings write, no convoy
+ * call — the caller still does both, because both are side effects on other
  * systems and neither belongs in a rule about what a spin result means.
  */
 data class ModeSwitch(
     val radiusKm: Float,
     val minRadiusKm: Float,
-    val destination: LatLon?,
-    val destinationName: String?,
     val route: RouteResult?,
     val candidates: List<RouteCandidate>,
     /** Whether the caller must also clear a convoy vote round. A spin's
@@ -47,8 +48,6 @@ fun modeSwitch(from: TravelMode, to: TravelMode, hasSpinOffer: Boolean): ModeSwi
     return ModeSwitch(
         radiusKm = to.defaultKm,
         minRadiusKm = 0f,
-        destination = null,
-        destinationName = null,
         route = null,
         candidates = emptyList(),
         clearSpinOffer = hasSpinOffer,
