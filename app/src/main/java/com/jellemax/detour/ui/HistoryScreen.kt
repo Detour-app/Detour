@@ -228,22 +228,23 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
             // plain groupBy keeps that order and each month lands as one
             // contiguous run — no explicit sort needed.
             val byMonth = loaded.groupBy { monthKey(it.trip.startTimeMs) }
+            Column(Modifier.fillMaxSize().padding(padding)) {
+            // Above the list, not an item in it: a delete fails on the row the
+            // rider is looking at, which is rarely the first one, and a message
+            // inserted at the top of a scrolled list lands off screen.
+            if (deleteError.isNotEmpty()) {
+                Text(
+                    deleteError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
             LazyColumn(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding),
+                Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (deleteError.isNotEmpty()) {
-                    item {
-                        Text(
-                            deleteError,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
                 for ((_, monthEntries) in byMonth) {
                     val totalKm = monthEntries.sumOf { it.trip.distanceMeters } / 1000.0
                     item {
@@ -292,6 +293,7 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
                         )
                     }
                 }
+            }
             }
         }
     }

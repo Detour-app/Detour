@@ -391,7 +391,7 @@ private fun TripCardPreview(rendered: Result<ImageBitmap>?) {
     } else if (rendered?.isFailure == true) {
         Text(
             "The map for this card could not be drawn — check your connection, " +
-                "then pick a layout again.",
+                "then pick a different layout or theme.",
             color = MaterialTheme.colorScheme.error,
         )
     } else {
