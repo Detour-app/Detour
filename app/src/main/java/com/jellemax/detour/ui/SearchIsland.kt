@@ -148,10 +148,6 @@ fun SearchIsland(
         if (!open) {
             query = ""
             error = null
-            // Closed mid-lookup, the flag would otherwise stay true until the
-            // query-keyed effect below restarted — one frame of spinner in the
-            // closed pill, where the avatar belongs.
-            searching = false
             return@LaunchedEffect
         }
         recents = withContext(Dispatchers.IO) { RecentSearchStore.load() }
@@ -314,13 +310,17 @@ fun SearchIsland(
                 // as the field above — and 48 rather than the avatar's own size
                 // because this slot is the only door to the Hub, so it has to
                 // stay hittable gloved and in motion.
+                // Gated on `open`, not on the two flags alone: both are only
+                // reset by the effect above, one frame after a close, and that
+                // frame put a spinner or a Clear button in the closed pill
+                // where the avatar belongs.
                 Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                     when {
-                        searching -> CircularProgressIndicator(
+                        open && searching -> CircularProgressIndicator(
                             Modifier.size(20.dp),
                             strokeWidth = 2.dp,
                         )
-                        query.isNotEmpty() -> Box(
+                        open && query.isNotEmpty() -> Box(
                             Modifier
                                 .fillMaxSize()
                                 .clip(CircleShape)
