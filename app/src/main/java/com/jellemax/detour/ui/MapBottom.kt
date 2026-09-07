@@ -100,7 +100,6 @@ internal fun BoxScope.MapBottomSlot(
     onCollapse: () -> Unit,
     onNavigateInApp: () -> Unit,
     onNavigate: () -> Unit,
-    onTrack: () -> Unit,
     onClearDestination: () -> Unit,
 ) {
     Column(
@@ -237,13 +236,11 @@ internal fun BoxScope.MapBottomSlot(
                         destinationName = destinationName,
                         destination = destination,
                         origin = myLocation,
-                        stats = stats,
                         inAppAvailable = inAppAvailable,
                         onSpin = onSpin,
                         onCollapse = onCollapse,
                         onNavigateInApp = onNavigateInApp,
                         onNavigate = onNavigate,
-                        onTrack = onTrack,
                     )
                 }
             }

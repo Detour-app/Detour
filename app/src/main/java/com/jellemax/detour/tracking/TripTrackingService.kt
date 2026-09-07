@@ -137,8 +137,10 @@ class TripTrackingService : Service() {
     companion object {
         const val EXTRA_DEST_LAT = "dest_lat"
         const val EXTRA_DEST_LON = "dest_lon"
+        private const val EXTRA_END_NOW = "end_now"
         private const val ACTION_START_TRIP = "com.jellemax.detour.START_TRIP"
         private const val ACTION_END_TRIP = "com.jellemax.detour.END_TRIP"
+        private const val ACTION_NAV_ENDED = "com.jellemax.detour.NAV_ENDED"
         /** Not private: [DriveTransitions] builds the same PendingIntent action
          *  to (un)register with GMS - tuning/identifiers stay declared once, on
          *  this companion, and are referenced from there rather than copied. */
@@ -199,6 +201,11 @@ class TripTrackingService : Service() {
         internal const val SPEED_PROBE_WINDOW_MS = 60_000L
         private const val EXIT_GRACE_MS = 2 * 60_000L   // after IN_VEHICLE exit
         private const val STATIONARY_END_MS = 5 * 60_000L
+        /** How recently the rider must have been moving for exiting navigation
+         *  to leave the drive running (handed to auto-detection) rather than
+         *  end it. Comfortably longer than a rolling stop at a light, short
+         *  enough that pulling up and tapping Exit ends the trip at once. */
+        private const val NAV_EXIT_MOVING_MS = 30_000L
         /** The four worth-saving thresholds are not private: [TripSession.end]
          *  applies them. Same rule as [AR_REGISTER_RETRY_MS] and
          *  [PROBE_WINDOW_MS] above — tuning stays declared once, here, and is
@@ -391,7 +398,9 @@ class TripTrackingService : Service() {
             )
         }
 
-        /** Manually start a trip (Go/Track button). */
+        /** Start a trip for a navigation session (in-app, or a handoff to
+         *  Google Maps / Waze). Navigating is driving, so a drive is recorded
+         *  either way; [navigationEnded] ends it when the session does. */
         fun start(context: Context, destLat: Double?, destLon: Double?) {
             val intent = Intent(context, TripTrackingService::class.java).apply {
                 action = ACTION_START_TRIP
@@ -408,6 +417,22 @@ class TripTrackingService : Service() {
             ContextCompat.startForegroundService(
                 context,
                 Intent(context, TripTrackingService::class.java).setAction(ACTION_END_TRIP),
+            )
+        }
+
+        /** Navigation ended — Exit, arrival, or the car screen leaving the
+         *  front of the stack. A trip navigation started should not outlive
+         *  it (#271, #272): pass [endNow] on a definite arrival to end it at
+         *  once; otherwise the service ends it only if the rider has stopped,
+         *  and hands a drive that is still moving to auto-detection. A no-op
+         *  on a trip navigation did not start (an auto-detected drive). */
+        fun navigationEnded(context: Context, endNow: Boolean = false) {
+            if (!canStart(context)) return
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, TripTrackingService::class.java)
+                    .setAction(ACTION_NAV_ENDED)
+                    .putExtra(EXTRA_END_NOW, endNow),
             )
         }
     }
@@ -433,6 +458,11 @@ class TripTrackingService : Service() {
     private var awayFromOrigin = false
 
     private var autoStarted = false
+    /** This trip was started by a navigation session, so ending navigation
+     *  should end it ([handleNavEnded]). Kept apart from [autoStarted]: a
+     *  nav trip must not auto-stop *during* navigation (a fuel stop mid-drive
+     *  is not the end of it), only once navigation is over. */
+    private var navStarted = false
     private var pendingStopAtMs: Long? = null
     private var lastMovingMs = 0L
     private var circleSyncStarted = false
@@ -780,9 +810,11 @@ class TripTrackingService : Service() {
                     destLon = intent.takeIf { it.hasExtra(EXTRA_DEST_LON) }
                         ?.getDoubleExtra(EXTRA_DEST_LON, 0.0)
                     beginTrip(auto = false)
+                    navStarted = true
                 }
             }
             ACTION_END_TRIP -> endTrip()
+            ACTION_NAV_ENDED -> handleNavEnded(intent.getBooleanExtra(EXTRA_END_NOW, false))
             ACTION_TRANSITION -> handleTransition(intent)
             ACTION_REFRESH -> vehicleLinks.reconcileObd2Connections()
             ACTION_GEOFENCE_WAKE -> {
@@ -808,6 +840,8 @@ class TripTrackingService : Service() {
         initialDistanceMeters: Double = 0.0,
     ) {
         autoStarted = auto
+        // Set true by the ACTION_START_TRIP caller, which is the only nav path.
+        navStarted = false
         origin = null
         awayFromOrigin = false
         driveTransitions.reset()
@@ -848,12 +882,36 @@ class TripTrackingService : Service() {
         destLat = null
         destLon = null
         autoStarted = false
+        navStarted = false
         pendingStopAtMs = null
         ensureLocationUpdates()
         updateNotification()
         if (saveJob != null) session.lastSaveJob = saveJob
         requestDormancyEvaluation()  // trip's over — nothing may need us foreground now
         return saveJob
+    }
+
+    /** Navigation is over, so the trip it started should be too — the
+     *  three-way decision lives in [navEndDecision] with its tests (#271,
+     *  #272). Handing off means auto-detection now owns the stop: the drive
+     *  becomes eligible for the same vehicle-exit grace, stationary fallback
+     *  and return-to-origin end an auto-started drive gets. */
+    private fun handleNavEnded(endNow: Boolean) {
+        val action = navEndDecision(
+            tripActive = _stats.value != null,
+            navStarted = navStarted,
+            endNow = endNow,
+            msSinceMoving = System.currentTimeMillis() - lastMovingMs,
+            movingWindowMs = NAV_EXIT_MOVING_MS,
+        )
+        when (action) {
+            NavEndAction.IGNORE -> Unit
+            NavEndAction.HAND_TO_AUTODETECT -> {
+                navStarted = false
+                autoStarted = true
+            }
+            NavEndAction.END_NOW -> endTrip()  // clears navStarted itself
+        }
     }
 
     /** (Re)request location updates matching the current mode - see
