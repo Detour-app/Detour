@@ -1,0 +1,140 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>ComposableNaming:TripCardRenderer.kt$heroStat</ID>
+    <ID>ComposableNaming:TripCardRenderer.kt$secondaryStat</ID>
+    <ID>ComposableParamOrder:CandidatesCard.kt$CandidatesCard</ID>
+    <ID>ComposableParamOrder:HubScreen.kt$HubRow</ID>
+    <ID>ComposableParamOrder:MapChrome.kt$GlassRailButton</ID>
+    <ID>ComposableParamOrder:Navigation.kt$SpeedLimitSign</ID>
+    <ID>ComposableParamOrder:TripCardRenderer.kt$CardFooter</ID>
+    <ID>ComposableParamOrder:TripCardRenderer.kt$MapSnapshotContent</ID>
+    <ID>CyclomaticComplexMethod:CarMapRenderer.kt$CarMapRenderer$private fun startCameraLoop()</ID>
+    <ID>CyclomaticComplexMethod:CirclesScreen.kt$@Composable private fun CircleDetailSection( circle: Group, riderId: RiderId, state: CirclesState, onLeave: () -&gt; Unit, onToggleSharing: (Boolean) -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:CoverageMapScreen.kt$@Composable fun CoverageMapScreen(onBack: () -&gt; Unit)</ID>
+    <ID>CyclomaticComplexMethod:FriendsScreen.kt$@Composable private fun ConvoysSection()</ID>
+    <ID>CyclomaticComplexMethod:MapCamera.kt$@Composable internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap)</ID>
+    <ID>CyclomaticComplexMethod:MapCamera.kt$@Composable internal fun MapPositionMarker(s: MapScreenState, retained: RetainedMap)</ID>
+    <ID>CyclomaticComplexMethod:MapScreen.kt$@Composable fun MapScreen( onOpenHub: () -&gt; Unit, onOpenRoutes: () -&gt; Unit, onOpenSocial: () -&gt; Unit, retained: RetainedMap, )</ID>
+    <ID>CyclomaticComplexMethod:NavScreen.kt$private fun maneuverType(sign: Int, exitNumber: Int): Int</ID>
+    <ID>CyclomaticComplexMethod:Obd2Connection.kt$Obd2Connection$private suspend fun pollLoop( input: InputStream, output: OutputStream, fuelType: FuelType, calibrationPct: Int, )</ID>
+    <ID>CyclomaticComplexMethod:Obd2PairingScreen.kt$@Composable fun Obd2PairingScreen()</ID>
+    <ID>CyclomaticComplexMethod:PlaceGeofenceReceiver.kt$PlaceGeofenceReceiver$override fun onReceive(context: Context, intent: Intent)</ID>
+    <ID>CyclomaticComplexMethod:RouteEditorScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun RouteEditorScreen(editing: SavedRoute?, onBack: () -&gt; Unit, onSaved: () -&gt; Unit)</ID>
+    <ID>CyclomaticComplexMethod:RoutesScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun RoutesScreen( onBack: () -&gt; Unit, onCreateNew: () -&gt; Unit, onEdit: (SavedRoute) -&gt; Unit, onNavigate: () -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:SearchIsland.kt$@Composable fun SearchIsland( open: Boolean, onOpenChange: (Boolean) -&gt; Unit, username: String, onAvatarClick: () -&gt; Unit, onPick: (GeocodeResult) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>CyclomaticComplexMethod:SettingsScreen.kt$@Composable private fun ParkedDormancyNotice(autoDetect: Boolean, context: Context)</ID>
+    <ID>CyclomaticComplexMethod:SettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable private fun VehicleSection()</ID>
+    <ID>CyclomaticComplexMethod:SpinCards.kt$@Composable internal fun SpinSheet( mode: TravelMode, onSelectMode: (TravelMode) -&gt; Unit, radiusKm: Float, onRadiusChange: (Float) -&gt; Unit, minRadiusKm: Float, onMinRadiusChange: (Float) -&gt; Unit, poiKind: PoiKind, onPoiKindChange: (PoiKind) -&gt; Unit, directionDeg: Float?, onDirectionChange: (Float?) -&gt; Unit, spinning: Boolean, error: String?, route: RouteResult?, destinationName: String?, destination: LatLon?, origin: LatLon?, stats: TripStats?, inAppAvailable: Boolean, onSpin: () -&gt; Unit, onCollapse: () -&gt; Unit, onNavigateInApp: () -&gt; Unit, onNavigate: () -&gt; Unit, onTrack: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>CyclomaticComplexMethod:TripDetailScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun TripDetailScreen(trip: Trip, onBack: () -&gt; Unit)</ID>
+    <ID>CyclomaticComplexMethod:TripTrackingService.kt$TripTrackingService$override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int</ID>
+    <ID>CyclomaticComplexMethod:UpdateDownloader.kt$UpdateDownloader$fun download( context: Context, update: UpdateClient.PendingUpdate, onProgress: (Float) -&gt; Unit, ): File?</ID>
+    <ID>EmptyFunctionBlock:MediaListenerService.kt$MediaListenerService${}</ID>
+    <ID>EmptyFunctionBlock:RideMotionSensors.kt$RideMotionSensors.&lt;no name provided&gt;${}</ID>
+    <ID>EmptyFunctionBlock:SettingsScreen.kt$&lt;no name provided&gt;${}</ID>
+    <ID>EmptyFunctionBlock:TripTrackingService.kt$TripTrackingService.&lt;no name provided&gt;${}</ID>
+    <ID>ImplicitDefaultLocale:MapLibreMap.kt$MapOverlays$String.format("#%06X", 0xFFFFFF and c.colorArgb)</ID>
+    <ID>LambdaParameterInRestartableEffect:CirclesScreen.kt$onBack</ID>
+    <ID>LargeClass:TripTrackingService.kt$TripTrackingService : Service</ID>
+    <ID>LongMethod:CandidatesCard.kt$@Composable internal fun CandidatesCard( candidates: List&lt;RouteCandidate&gt;, // Same size/order as [candidates] - the mapper's read-out of exactly the // fields this card renders (name, distance, duration), spinStateFrom'd by // the caller so this card never formats a number itself. [candidates] // itself stays around for what the mapper doesn't carry: the RouteCandidate // identity onPick needs, and the coordinates the map pins are drawn from. rows: List&lt;SpinCandidateRow&gt;, onPick: (Int, RouteCandidate) -&gt; Unit, onReroll: () -&gt; Unit, onCancel: () -&gt; Unit, // Null = a solo spin, not shared with anyone. Non-null (even empty) = // a convoy vote is in progress; the map holds rider id -&gt; chosen index. convoyVotes: Map&lt;RiderId, Int&gt;? = null, // The convoy's own membership, to resolve a voter's id to the handle // drawn under a candidate — this card has no store access of its own and // should not gain one just to look up a name. members: List&lt;GroupMember&gt;, // Non-null only pre-share, in a convoy, with a spin actually on screen. onShare: (() -&gt; Unit)? = null, onGoWithLead: (() -&gt; Unit)? = null, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:CirclesScreen.kt$@Composable private fun CircleDetailSection( circle: Group, riderId: RiderId, state: CirclesState, onLeave: () -&gt; Unit, onToggleSharing: (Boolean) -&gt; Unit, )</ID>
+    <ID>LongMethod:CoverageMapScreen.kt$@Composable fun CoverageMapScreen(onBack: () -&gt; Unit)</ID>
+    <ID>LongMethod:HistoryScreen.kt$@Composable private fun TripCard( entry: HistoryEntry, onOpen: () -&gt; Unit, onChangeMode: (TravelMode) -&gt; Unit, onDelete: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:HubScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun HubScreen( onBack: () -&gt; Unit, onOpenProfile: () -&gt; Unit, onOpenSocial: () -&gt; Unit, onOpenSettings: () -&gt; Unit, onOpenHistory: () -&gt; Unit, onOpenRoutes: () -&gt; Unit, onOpenSavedPlaces: () -&gt; Unit, onOpenBadges: () -&gt; Unit, )</ID>
+    <ID>LongMethod:MainActivity.kt$@Composable private fun AppRoot()</ID>
+    <ID>LongMethod:MapBottom.kt$@Composable internal fun BoxScope.MapBottomSlot( stats: TripStats?, onEndTrip: () -&gt; Unit, rideToggle: SheetToggle, savedPlaces: List&lt;SavedPlace&gt;, destination: LatLon?, destinationName: String?, route: RouteResult?, myLocation: LatLon?, serverConfig: ServerConfig, username: String, onOpenHub: () -&gt; Unit, searchOpen: Boolean, onSearchOpenChange: (Boolean) -&gt; Unit, onPickDestination: (GeocodeResult) -&gt; Unit, onPickPlace: (SavedPlace) -&gt; Unit, onSavePin: () -&gt; Unit, onOpenRoutes: () -&gt; Unit, onOpenSocial: () -&gt; Unit, bottomCard: HomeBottomCard, navState: NavState, onExitNavigation: () -&gt; Unit, displayCandidates: List&lt;RouteCandidate&gt;, convoyVotes: Map&lt;RiderId, Int&gt;?, activeConvoyMembers: List&lt;GroupMember&gt;, onPickCandidate: (Int, RouteCandidate) -&gt; Unit, onReroll: () -&gt; Unit, onCancelCandidates: () -&gt; Unit, onShare: (() -&gt; Unit)?, onGoWithLead: (() -&gt; Unit)?, mode: TravelMode, onSelectMode: (TravelMode) -&gt; Unit, radiusKm: Float, onRadiusChange: (Float) -&gt; Unit, minRadiusKm: Float, onMinRadiusChange: (Float) -&gt; Unit, poiKind: PoiKind, onPoiKindChange: (PoiKind) -&gt; Unit, directionDeg: Float?, onDirectionChange: (Float?) -&gt; Unit, spinning: Boolean, error: String?, onSpin: () -&gt; Unit, onExpand: () -&gt; Unit, onCollapse: () -&gt; Unit, onNavigateInApp: () -&gt; Unit, onNavigate: () -&gt; Unit, onTrack: () -&gt; Unit, )</ID>
+    <ID>LongMethod:MapScreen.kt$@Composable fun MapScreen( onOpenHub: () -&gt; Unit, onOpenRoutes: () -&gt; Unit, onOpenSocial: () -&gt; Unit, retained: RetainedMap, )</ID>
+    <ID>LongMethod:Obd2PairingScreen.kt$@Composable fun Obd2PairingScreen()</ID>
+    <ID>LongMethod:RouteEditorScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun RouteEditorScreen(editing: SavedRoute?, onBack: () -&gt; Unit, onSaved: () -&gt; Unit)</ID>
+    <ID>LongMethod:RoutesScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun RoutesScreen( onBack: () -&gt; Unit, onCreateNew: () -&gt; Unit, onEdit: (SavedRoute) -&gt; Unit, onNavigate: () -&gt; Unit, )</ID>
+    <ID>LongMethod:SearchIsland.kt$@Composable fun SearchIsland( open: Boolean, onOpenChange: (Boolean) -&gt; Unit, username: String, onAvatarClick: () -&gt; Unit, onPick: (GeocodeResult) -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:SettingsHub.kt$@Composable fun SettingsScreen(onBack: () -&gt; Unit, onOpenSpoke: (Destination.SettingsSpoke) -&gt; Unit)</ID>
+    <ID>LongMethod:SettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable private fun VehicleSection()</ID>
+    <ID>LongMethod:SpinCards.kt$@Composable internal fun SpinSheet( mode: TravelMode, onSelectMode: (TravelMode) -&gt; Unit, radiusKm: Float, onRadiusChange: (Float) -&gt; Unit, minRadiusKm: Float, onMinRadiusChange: (Float) -&gt; Unit, poiKind: PoiKind, onPoiKindChange: (PoiKind) -&gt; Unit, directionDeg: Float?, onDirectionChange: (Float?) -&gt; Unit, spinning: Boolean, error: String?, route: RouteResult?, destinationName: String?, destination: LatLon?, origin: LatLon?, stats: TripStats?, inAppAvailable: Boolean, onSpin: () -&gt; Unit, onCollapse: () -&gt; Unit, onNavigateInApp: () -&gt; Unit, onNavigate: () -&gt; Unit, onTrack: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:TripDetailScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun TripDetailScreen(trip: Trip, onBack: () -&gt; Unit)</ID>
+    <ID>LongParameterList:CandidatesCard.kt$( candidates: List&lt;RouteCandidate&gt;, // Same size/order as [candidates] - the mapper's read-out of exactly the // fields this card renders (name, distance, duration), spinStateFrom'd by // the caller so this card never formats a number itself. [candidates] // itself stays around for what the mapper doesn't carry: the RouteCandidate // identity onPick needs, and the coordinates the map pins are drawn from. rows: List&lt;SpinCandidateRow&gt;, onPick: (Int, RouteCandidate) -&gt; Unit, onReroll: () -&gt; Unit, onCancel: () -&gt; Unit, // Null = a solo spin, not shared with anyone. Non-null (even empty) = // a convoy vote is in progress; the map holds rider id -&gt; chosen index. convoyVotes: Map&lt;RiderId, Int&gt;? = null, // The convoy's own membership, to resolve a voter's id to the handle // drawn under a candidate — this card has no store access of its own and // should not gain one just to look up a name. members: List&lt;GroupMember&gt;, // Non-null only pre-share, in a convoy, with a spin actually on screen. onShare: (() -&gt; Unit)? = null, onGoWithLead: (() -&gt; Unit)? = null, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:FriendsScreen.kt$( convoy: Group, busy: Boolean, live: Boolean, /** False while the relay has no server: the button stays visible, so the * feature is discoverable, but it cannot be pressed into failing. */ liveEnabled: Boolean, liveStatus: String?, liveStatusIsError: Boolean, onAccept: () -&gt; Unit, onDecline: () -&gt; Unit, onLeave: () -&gt; Unit, onInvite: () -&gt; Unit, onToggleLive: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:HomeSheet.kt$( username: String, onOpenHub: () -&gt; Unit, searchOpen: Boolean, onSearchOpenChange: (Boolean) -&gt; Unit, onPickDestination: (GeocodeResult) -&gt; Unit, savedPlaces: List&lt;SavedPlace&gt;, shortcutSeed: Int, onPickPlace: (SavedPlace) -&gt; Unit, canSavePin: Boolean, onSavePin: () -&gt; Unit, mode: TravelMode, onSpinSettings: () -&gt; Unit, onOpenRoutes: () -&gt; Unit, onOpenSocial: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:HubScreen.kt$( icon: ImageVector, title: String, onClick: () -&gt; Unit, subtitle: String? = null, trailingText: String? = null, trailingCount: Int? = null, modifier: Modifier = Modifier, paintCard: Boolean = true, )</ID>
+    <ID>LongParameterList:HubScreen.kt$( onBack: () -&gt; Unit, onOpenProfile: () -&gt; Unit, onOpenSocial: () -&gt; Unit, onOpenSettings: () -&gt; Unit, onOpenHistory: () -&gt; Unit, onOpenRoutes: () -&gt; Unit, onOpenSavedPlaces: () -&gt; Unit, onOpenBadges: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:MapBottom.kt$( stats: TripStats?, onEndTrip: () -&gt; Unit, rideToggle: SheetToggle, savedPlaces: List&lt;SavedPlace&gt;, destination: LatLon?, destinationName: String?, route: RouteResult?, myLocation: LatLon?, serverConfig: ServerConfig, username: String, onOpenHub: () -&gt; Unit, searchOpen: Boolean, onSearchOpenChange: (Boolean) -&gt; Unit, onPickDestination: (GeocodeResult) -&gt; Unit, onPickPlace: (SavedPlace) -&gt; Unit, onSavePin: () -&gt; Unit, onOpenRoutes: () -&gt; Unit, onOpenSocial: () -&gt; Unit, bottomCard: HomeBottomCard, navState: NavState, onExitNavigation: () -&gt; Unit, displayCandidates: List&lt;RouteCandidate&gt;, convoyVotes: Map&lt;RiderId, Int&gt;?, activeConvoyMembers: List&lt;GroupMember&gt;, onPickCandidate: (Int, RouteCandidate) -&gt; Unit, onReroll: () -&gt; Unit, onCancelCandidates: () -&gt; Unit, onShare: (() -&gt; Unit)?, onGoWithLead: (() -&gt; Unit)?, mode: TravelMode, onSelectMode: (TravelMode) -&gt; Unit, radiusKm: Float, onRadiusChange: (Float) -&gt; Unit, minRadiusKm: Float, onMinRadiusChange: (Float) -&gt; Unit, poiKind: PoiKind, onPoiKindChange: (PoiKind) -&gt; Unit, directionDeg: Float?, onDirectionChange: (Float?) -&gt; Unit, spinning: Boolean, error: String?, onSpin: () -&gt; Unit, onExpand: () -&gt; Unit, onCollapse: () -&gt; Unit, onNavigateInApp: () -&gt; Unit, onNavigate: () -&gt; Unit, onTrack: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:MapChrome.kt$( followMe: Boolean, fogEnabled: Boolean, convoyName: String?, // Hoisted to MapScreen so a tap on the map can close the panel — the job // the Popup's dismissOnClickOutside used to do. layersOpen: Boolean, onLayersOpenChange: (Boolean) -&gt; Unit, onToggleFollow: () -&gt; Unit, onToggleFog: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:MapLibreMap.kt$MapOverlays$( myLocation: LatLon?, destination: LatLon?, routePolyline: List&lt;LatLon&gt;?, reachMeters: Double?, directionDeg: Int?, candidates: List&lt;CandidatePin&gt;, positionMarker: PositionMarker, positionBearingDeg: Double? = null, )</ID>
+    <ID>LongParameterList:MapMotion.kt$MapMotion$( camLat: Double, camLon: Double, camZoom: Double, camBearing: Float, tgtLat: Double, tgtLon: Double, tgtZoom: Double, tgtBearing: Float, targetMoved: Boolean, neverPushed: Boolean, )</ID>
+    <ID>LongParameterList:NavAppLaunch.kt$( context: Context, app: Settings.NavApp, destination: LatLon?, route: List&lt;LatLon&gt;?, origin: LatLon?, mode: TravelMode, onNavigateInApp: () -&gt; Unit, onNavigate: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:NavAppLaunch.kt$( context: Context, preferred: Settings.NavApp, inAppAvailable: Boolean, destination: LatLon?, route: List&lt;LatLon&gt;?, origin: LatLon?, mode: TravelMode, onNavigateInApp: () -&gt; Unit, onNavigate: () -&gt; Unit, openMenu: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:NavAppLaunch.kt$( destination: LatLon?, route: List&lt;LatLon&gt;?, origin: LatLon?, mode: TravelMode, inAppAvailable: Boolean, onNavigateInApp: () -&gt; Unit, onNavigate: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:NavAppLaunch.kt$( destination: LatLon?, route: List&lt;LatLon&gt;?, origin: LatLon?, mode: TravelMode, inAppAvailable: Boolean, onNavigateInApp: () -&gt; Unit, onNavigate: () -&gt; Unit, onDismiss: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:NavScreen.kt$NavScreen$( carContext: CarContext, /** The session's map — shared with [SpinScreen]'s free-drive view, so the * car surface keeps drawing across the push and the pop. */ private val renderer: CarMapRenderer, private val origin: LatLon, private val destination: LatLon, initialRoute: RouteResult, private val serverConfig: ServerConfig, private val destinationName: String? = null, )</ID>
+    <ID>LongParameterList:RoutesScreen.kt$( card: RouteCard, menuOpen: Boolean, onNavigate: () -&gt; Unit, onOpenMenu: () -&gt; Unit, onDismissMenu: () -&gt; Unit, onRename: () -&gt; Unit, onEdit: () -&gt; Unit, onShareFile: () -&gt; Unit, onExport: () -&gt; Unit, onShareToFriend: () -&gt; Unit, onDelete: () -&gt; Unit, )</ID>
+    <ID>LongParameterList:SpinCards.kt$( mode: TravelMode, onSelectMode: (TravelMode) -&gt; Unit, radiusKm: Float, onRadiusChange: (Float) -&gt; Unit, minRadiusKm: Float, onMinRadiusChange: (Float) -&gt; Unit, poiKind: PoiKind, onPoiKindChange: (PoiKind) -&gt; Unit, directionDeg: Float?, onDirectionChange: (Float?) -&gt; Unit, spinning: Boolean, error: String?, route: RouteResult?, destinationName: String?, destination: LatLon?, origin: LatLon?, stats: TripStats?, inAppAvailable: Boolean, onSpin: () -&gt; Unit, onCollapse: () -&gt; Unit, onNavigateInApp: () -&gt; Unit, onNavigate: () -&gt; Unit, onTrack: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
+    <ID>LongParameterList:TripCardRenderer.kt$( cardData: CardData, mapSnapshot: TripCardMapSnapshot?, routeColor: Color, backgroundTop: Color, textColor: Color, mutedColor: Color, dark: Boolean, trimmed: Boolean, )</ID>
+    <ID>LongParameterList:TripCardRenderer.kt$( cardData: CardData, snapshot: TripCardMapSnapshot, routeColor: Color, backgroundTop: Color, dark: Boolean, fullBleed: Boolean = false, modifier: Modifier = Modifier, )</ID>
+    <ID>LoopWithTooManyJumpStatements:CarMapRenderer.kt$CarMapRenderer$while</ID>
+    <ID>LoopWithTooManyJumpStatements:PlaceGeofenceReceiver.kt$PlaceGeofenceReceiver$for</ID>
+    <ID>MatchingDeclarationName:TripOpen.kt$PendingTripOpen</ID>
+    <ID>MaxLineLength:BleNavServer.kt$*</ID>
+    <ID>MaxLineLength:CircleNotifyService.kt$CircleNotifyService$PlaceNotifications.ensureChannel(this)</ID>
+    <ID>MaxLineLength:CircleNotifyService.kt$CircleNotifyService$PlaceNotifications.notify(this, relay.groupId, relay.event, displayNameFor(relay.groupId, relay.event.riderId))</ID>
+    <ID>MaxLineLength:CirclesScreen.kt$Text("Notify me about arrivals", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)</ID>
+    <ID>MaxLineLength:DormancyTest.kt$DormancyTest$dormancyDecision(autoDetect = false, tripActive = false, convoyActive = false, uiVisible = false, stationary = stationary)</ID>
+    <ID>MaxLineLength:DormancyTest.kt$DormancyTest$dormancyDecision(autoDetect = false, tripActive = false, convoyActive = false, uiVisible = true, stationary = true)</ID>
+    <ID>MaxLineLength:DormancyTest.kt$DormancyTest$dormancyDecision(autoDetect = true, tripActive = false, convoyActive = false, uiVisible = false, stationary = false)</ID>
+    <ID>MaxLineLength:DormancyTest.kt$DormancyTest$dormancyDecision(autoDetect = true, tripActive = false, convoyActive = false, uiVisible = false, stationary = true)</ID>
+    <ID>MaxLineLength:DormancyTest.kt$DormancyTest$dormancyDecision(autoDetect = true, tripActive = false, convoyActive = true, uiVisible = false, stationary = true)</ID>
+    <ID>MaxLineLength:DormancyTest.kt$DormancyTest$dormancyDecision(autoDetect, tripActive = true, convoyActive = false, uiVisible = false, stationary = true)</ID>
+    <ID>MaxLineLength:FriendsScreen.kt$)</ID>
+    <ID>MaxLineLength:FriendsScreen.kt$Icon(Icons.Outlined.Close, contentDescription = "Decline ${convoy.name}", Modifier.size(16.dp))</ID>
+    <ID>MaxLineLength:PlaceGeofenceGate.kt$listOf(placeFenceId(it.circleId, it.placeId, PlaceFenceKind.ENTER), placeFenceId(it.circleId, it.placeId, PlaceFenceKind.EXIT))</ID>
+    <ID>MaxLineLength:PlaceGeofenceReceiver.kt$PlaceGeofenceReceiver$if (expectedKind != kind) continue</ID>
+    <ID>MaxLineLength:PlaceGeofenceReceiver.kt$PlaceGeofenceReceiver$val expectedKind = if (fenceKind == PlaceFenceKind.ENTER) GeofenceKind.ARRIVE else GeofenceKind.DEPART</ID>
+    <ID>MaxLineLength:TripCardRenderer.kt$CardFooter(routeColor, textColor, mapSnapshot?.let { plainAttribution(it.raw) }, Modifier.padding(bottom = 36.dp))</ID>
+    <ID>MaxLineLength:TripCardRenderer.kt$CardLayout.MINIMAL -&gt; MinimalCardContent(cardData, mapSnapshot, routeColor, backgroundTop, textColor, mutedColor)</ID>
+    <ID>MaxLineLength:TripCardRenderer.kt$CardLayout.POSTER -&gt; PosterCardContent(cardData, mapSnapshot, routeColor, backgroundTop, textColor, mutedColor, dark, trimmed)</ID>
+    <ID>MaxLineLength:TripCardRenderer.kt$CardLayout.STANDARD -&gt; StandardCardContent(cardData, mapSnapshot, routeColor, backgroundTop, textColor, mutedColor, dark, trimmed)</ID>
+    <ID>MaxLineLength:TripCardRenderer.kt$Text("DETOUR", fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp, color = textColor.copy(alpha = 0.45f))</ID>
+    <ID>MaxLineLength:TripCardRenderer.kt$private</ID>
+    <ID>MaxLineLength:TripCardRenderer.kt$val cardData = points?.let { pts -&gt; remember(pts, fullRoute) { TripCardGeometry.build(trip, pts, full = fullRoute) } }</ID>
+    <ID>MaxLineLength:TripDetailScreen.kt$rideElapsedMs = (frac.toDouble() * rideDurationMs).coerceIn(0.0, rideDurationMs.toDouble())</ID>
+    <ID>ModifierMissing:AppBar.kt$SubScreenTopBar</ID>
+    <ID>ModifierMissing:BadgesScreen.kt$BadgesScreen</ID>
+    <ID>ModifierMissing:CirclesScreen.kt$CircleDetailScreen</ID>
+    <ID>ModifierMissing:CirclesScreen.kt$CirclesScreen</ID>
+    <ID>ModifierMissing:CoverageMapScreen.kt$CoverageMapScreen</ID>
+    <ID>ModifierMissing:FriendsScreen.kt$FriendsScreen</ID>
+    <ID>ModifierMissing:HistoryScreen.kt$HistoryScreen</ID>
+    <ID>ModifierMissing:HubScreen.kt$HubScreen</ID>
+    <ID>ModifierMissing:MapScreen.kt$MapScreen</ID>
+    <ID>ModifierMissing:Obd2PairingScreen.kt$Obd2PairingScreen</ID>
+    <ID>ModifierMissing:ProfileScreen.kt$ProfileScreen</ID>
+    <ID>ModifierMissing:RouteEditorScreen.kt$RouteEditorScreen</ID>
+    <ID>ModifierMissing:RoutesScreen.kt$RoutesScreen</ID>
+    <ID>ModifierMissing:SavedPlacesScreen.kt$SavedPlacesScreen</ID>
+    <ID>ModifierMissing:SettingsDiagnostics.kt$DiagnosticsSection</ID>
+    <ID>ModifierMissing:SettingsHub.kt$SettingsScreen</ID>
+    <ID>ModifierMissing:SocialScreen.kt$SocialScreen</ID>
+    <ID>ModifierMissing:TripDetailScreen.kt$TripDetailScreen</ID>
+    <ID>MultipleEmitters:CirclesScreen.kt$CircleDetailSection</ID>
+    <ID>MultipleEmitters:CirclesScreen.kt$CircleListSection</ID>
+    <ID>MultipleEmitters:FriendsScreen.kt$ConvoysSection</ID>
+    <ID>MultipleEmitters:FriendsScreen.kt$FriendsSection</ID>
+    <ID>MultipleEmitters:FriendsScreen.kt$SignInSection</ID>
+    <ID>MultipleEmitters:NavAppLaunch.kt$NavMenuItems</ID>
+    <ID>MultipleEmitters:SettingsScreen.kt$FogSection</ID>
+    <ID>MutableStateAutoboxing:TripDetailScreen.kt$mutableStateOf(0.0)</ID>
+    <ID>NestedBlockDepth:BleNavServer.kt$BleNavServer$fun start(context: Context)</ID>
+    <ID>NestedBlockDepth:DriveTransitions.kt$DriveTransitions$fun onTransitionIntent(intent: Intent)</ID>
+    <ID>NestedBlockDepth:Obd2Connection.kt$Obd2Connection$private suspend fun pollLoop( input: InputStream, output: OutputStream, fuelType: FuelType, calibrationPct: Int, )</ID>
+    <ID>NestedBlockDepth:UpdateDownloader.kt$UpdateDownloader$fun download( context: Context, update: UpdateClient.PendingUpdate, onProgress: (Float) -&gt; Unit, ): File?</ID>
+    <ID>NestedBlockDepth:UpdateInstaller.kt$UpdateInstaller$fun install(context: Context, apk: File): Boolean</ID>
+    <ID>ParameterNaming:MainActivity.kt$onSaved</ID>
+    <ID>ParameterNaming:RouteEditorScreen.kt$onSaved</ID>
+    <ID>ParameterNaming:SettingsHub.kt$onOpenSpoke</ID>
+    <ID>ThrowsCount:Obd2Connection.kt$Obd2Connection$internal fun handshake(input: InputStream, output: OutputStream)</ID>
+    <ID>UnusedParameter:SettingsScreen.kt$context: Context</ID>
+    <ID>UnusedParameter:UpdateDownloader.kt$UpdateDownloader$file: File</ID>
+    <ID>UnusedPrivateProperty:ConvoyLiveClient.kt$ConvoyLiveClient$/** Forwards [TripTrackingService.lastFix] to [relay] for the life of the * process, not just while a convoy/circle is joined - [ConvoyRelay.sendLocation] * is a cheap no-op while nothing is connected (it throttles, then hands * off to a socket that is simply null), so there is no cost to leaving * this running versus starting/stopping it around every [join]/ * [setNotifyCircles] cycle, and doing it once here avoids needing to. * Location is handed in rather than read from a platform API by * [ConvoyRelay] itself - see its `sendLocation` doc - so this is the * one Android-side collector that closes that gap. */ private val locationForwarder: Job = scope.launch { TripTrackingService.lastFix.collect { fix -&gt; if (fix == null) return@collect // timeMs, not elapsedRealtimeMs - Fix's own doc: elapsedRealtimeMs // is this device's uptime basis, meaningless to a peer reading it // off the wire as FriendPosition.tsMs. relay.sendLocation(fix.lat, fix.lon, fix.bearingDeg?.toDouble(), fix.speedMps * 3.6, fix.timeMs) } }</ID>
+    <ID>VariableNaming:Obd2ConnectionTest.kt$Obd2ConnectionTest$private val PROBING = Obd2Connection.PidProbe.Probing()</ID>
+  </CurrentIssues>
+</SmellBaseline>

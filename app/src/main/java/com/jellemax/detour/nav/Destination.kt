@@ -42,7 +42,14 @@ import kotlinx.serialization.Serializable
 @Serializable
 sealed interface Destination : NavKey {
 
-    /** The map. The root of the stack: back from here leaves the app. */
+    /**
+     * The map. The root of the stack: back from the root entry leaves the app.
+     *
+     * Not necessarily the *only* Map entry. Riding a saved route pushes a
+     * second one on top of Routes so back returns to the list rather than
+     * dropping the rider out of it; [push] refuses a push onto the same
+     * destination, so two Map entries can never be adjacent.
+     */
     @Serializable
     data object Map : Destination
 
@@ -61,6 +68,16 @@ sealed interface Destination : NavKey {
 
     @Serializable
     data object CoverageMap : Destination
+
+    /** The social hub: Friends and Circles. Reached from You and from the map's
+     *  home sheet — which is why its own avatar cannot be a second back arrow. */
+    @Serializable
+    data object Social : Destination
+
+    /** The rider's account: name, avatar, sign out. Reached from the You card
+     *  and from Social's avatar. */
+    @Serializable
+    data object Profile : Destination
 
     @Serializable
     data object Friends : Destination

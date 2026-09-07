@@ -10,13 +10,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.Button
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -107,6 +103,10 @@ fun Obd2PairingScreen() {
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> hasPerm = granted }
+
+    // Which vehicle's adapter is waiting on a confirmed "Forget", by the
+    // vehicle's own device address.
+    var forgetting by remember { mutableStateOf<String?>(null) }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
@@ -230,36 +230,48 @@ fun Obd2PairingScreen() {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text("Adapter: $pairedName", style = MaterialTheme.typography.bodyMedium)
-                        Button(onClick = {
-                            Settings.setObd2Address(vehicle.address, null)
-                            // Otherwise a connection to a now-unpaired device lingers
-                            // until the next ACL event or service restart.
-                            Obd2Connection.disconnect()
-                        }) {
+                        // Outlined, not filled: unpairing was the loudest button on
+                        // this screen while every constructive action beside it was
+                        // outlined.
+                        OutlinedButton(onClick = { forgetting = vehicle.address }) {
                             Text("Forget")
                         }
                     }
+                    if (forgetting == vehicle.address) {
+                        ConfirmDialog(
+                            title = "Forget $pairedName?",
+                            text = "${vehicle.name} goes back to GPS speed until the adapter " +
+                                "is paired again from this screen.",
+                            confirmLabel = "Forget",
+                            onConfirm = {
+                                Settings.setObd2Address(vehicle.address, null)
+                                // Otherwise a connection to a now-unpaired device lingers
+                                // until the next ACL event or service restart.
+                                Obd2Connection.disconnect()
+                            },
+                            onDismiss = { forgetting = null },
+                        )
+                    }
                     // Fuel type + calibration only matter for the MAF estimate,
                     // and only once an adapter is paired.
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        FuelType.entries.forEachIndexed { index, ft ->
-                            SegmentedButton(
-                                selected = vehicle.fuelType == ft,
-                                onClick = {
-                                    Settings.setFuelType(vehicle.address, ft)
-                                    vehicle.obd2Address?.let { addr ->
-                                        Obd2Connection.disconnect()
-                                        Obd2Connection.connect(
-                                            context.applicationContext, addr,
-                                            fuelType = ft, calibrationPct = vehicle.fuelCalibrationPct,
-                                        )
-                                    }
-                                },
-                                shape = SegmentedButtonDefaults.itemShape(index, FuelType.entries.size),
-                                label = { Text(ft.name.lowercase().replaceFirstChar { it.uppercase() }) },
-                            )
-                        }
-                    }
+                    val fuelTypes = FuelType.entries
+                    ChoiceRow(
+                        options = fuelTypes.map { ft ->
+                            ft.name.lowercase().replaceFirstChar { c -> c.uppercase() }
+                        },
+                        selectedIndex = fuelTypes.indexOf(vehicle.fuelType),
+                        onSelect = { index ->
+                            val ft = fuelTypes[index]
+                            Settings.setFuelType(vehicle.address, ft)
+                            vehicle.obd2Address?.let { addr ->
+                                Obd2Connection.disconnect()
+                                Obd2Connection.connect(
+                                    context.applicationContext, addr,
+                                    fuelType = ft, calibrationPct = vehicle.fuelCalibrationPct,
+                                )
+                            }
+                        },
+                    )
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,

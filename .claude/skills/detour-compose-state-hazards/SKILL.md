@@ -31,19 +31,23 @@ If these disagree with what the body says, the body is stale. Re-derive before t
 .claude/skills/detour-compose-state-hazards/scripts/check-preconditions.sh
 ```
 
-Five assertions, `PASS`/`FAIL` per line, non-zero exit if any failed: 9 `rememberUpdatedState`
-lines (1 import + 8 uses), 6 `lastFix` subscriptions (5 raw collectors + 1
-`collectAsStateWithLifecycle`) and 7 `withFrameNanos` lines in `MapScreen.kt` (1 import + 2
-each for the speed, camera and position-marker loops' `lastNs` seed-and-read), plus the two
-inverted ones.
+Five assertions, `PASS`/`FAIL` per line, non-zero exit if any failed, counted over
+`MapScreen.kt` and the six files the state-ownership split (#228) delegated its effects to
+(`MapCamera`, `MapHazardAlerts`, `MapHazardPrefetch`, `MapNavigation`, `MapPermissions`,
+`MapCircleMembers`): 18 `rememberUpdatedState` lines (5 imports + 13 uses), 9 `lastFix`
+subscriptions (5 raw collectors + 4 `collectAsStateWithLifecycle`) and 8 `withFrameNanos`
+lines (all in `MapCamera.kt`: the import, two each for the speed, camera and position-marker
+loops' `lastNs` seed-and-read, plus the marker loop's first seed), plus the two inverted ones.
+The `MapScreen.kt:NNN` citations in the sections below predate that split and the redesign;
+the reasoning holds, the line numbers do not.
 
 The marker loop gained its `dt` in maxke24/Detour#38: it eases the marker's *heading* as well
 as interpolating its position, so it now needs the frame delta the other two always did. This
 paragraph said the opposite until that change, which is the drift the note above is about.
 
-The last two matter as much as the first three: this app uses **no** `derivedStateOf` and
-**no** `snapshotFlow` anywhere, and `MainActivity` handles **no** configuration changes
-itself. Both are load-bearing below.
+The last two matter as much as the first three: this app uses `derivedStateOf` in exactly one
+place (`MapScreen.kt`'s `navState`, since #189) and `snapshotFlow` nowhere, and `MainActivity`
+handles **no** configuration changes itself. Both are load-bearing below.
 
 ---
 
@@ -118,7 +122,7 @@ multiplier mid-play doesn't need to restart (and re-key) this effect".
 ### 2b. Listeners registered once and never removed
 
 `MapScreen.kt:656, 657, 660, 668` add four MapLibre listeners. There is no `removeOn…` call
-anywhere under `ui/` except `FogView.map`'s setter (`MapLibreMap.kt:493-497`), which removes
+anywhere under `ui/` except `FogView.map`'s setter (`FogView.kt:44-52`), which removes
 from the old map before adding to the new — that is the correct in-repo pattern to copy.
 
 MapScreen gets away with it for one reason only: `mapLibreMap` has exactly one write site
@@ -333,8 +337,8 @@ The two in-repo reads sit on opposite sides of that line:
 **Check.** Push a per-frame read into the smallest composable that needs it, or hand it down
 as `() -> Double` so the read happens inside the callee. Do not introduce a new per-frame
 value into a large lambda body. And do not reach for `derivedStateOf` or `snapshotFlow` as the
-fix without saying so explicitly: this app currently contains zero of either, so either is a
-new pattern for this codebase (`CONTRIBUTING.md:187-189` asks you to match the surrounding
+fix without saying so explicitly: this app contains one `derivedStateOf` (the map's `navState`,
+#189) and no `snapshotFlow`, so either is close to a new pattern for this codebase (`CONTRIBUTING.md:187-189` asks you to match the surrounding
 file).
 
 ---

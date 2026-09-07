@@ -61,6 +61,8 @@ import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.presentation.formatCoordinatePair
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
@@ -100,11 +102,15 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
     var timeMs by remember { mutableStateOf(editing?.timeMs) }
     var routing by remember { mutableStateOf(false) }
     var routingError by remember { mutableStateOf<String?>(null) }
+    var saveError by remember { mutableStateOf("") }
 
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
-    var searched by remember { mutableStateOf(false) }
+    // Why the result list is empty, in the rider's words — "No results" when
+    // the geocoder had nothing, something else when it was never asked. Same
+    // one-slot shape SearchIsland uses. Null while there is nothing to say.
+    var searchStatus by remember { mutableStateOf<String?>(null) }
     val keyboardController = LocalSoftwareKeyboardController.current
 
     // Debounced live search, same shape as SavedPlacesScreen's add-place dialog.
@@ -115,18 +121,27 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
         if (searchQuery.length < 3) {
             searchResults = emptyList()
             searching = false
-            searched = false
+            searchStatus = null
             return@LaunchedEffect
         }
         delay(400)
         searching = true
-        searchResults = try {
-            withContext(Dispatchers.IO) { Geocoder.search(searchQuery, stops.lastOrNull()?.at) }
+        try {
+            val hits = withContext(Dispatchers.IO) { Geocoder.search(searchQuery, stops.lastOrNull()?.at) }
+            searchResults = hits
+            searchStatus = if (hits.isEmpty()) "No results" else null
+        } catch (e: CancellationException) {
+            // The next keystroke cancelled us. Rethrowing rather than falling
+            // into the catch below is what keeps a superseded search from
+            // reporting itself as an empty one.
+            throw e
         } catch (e: Exception) {
-            emptyList()
+            // A geocoder that could not be reached is not an address that does
+            // not exist, and the rider was being told the second thing.
+            searchResults = emptyList()
+            searchStatus = "Search failed — check your connection"
         }
         searching = false
-        searched = true
     }
 
     val serverConfig = remember { RoutingServer.load() }
@@ -261,19 +276,29 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
     fun save() {
         val cleanedName = name.trim()
         val now = System.currentTimeMillis()
-        RouteStore.save(
-            SavedRoute(
-                id = editing?.id ?: now,
-                name = cleanedName,
-                createdMs = editing?.createdMs ?: now,
-                mode = mode,
-                stops = stops,
-                polyline = polyline,
-                distanceMeters = distanceMeters,
-                timeMs = timeMs,
-                sharedBy = editing?.sharedBy ?: "",
-            ),
-        )
+        // RouteStore.save writes routes.json straight through, so a full disk
+        // or an unreadable account directory throws right here — on the main
+        // thread, from a click handler. Leaving it uncaught took the app down;
+        // popping back to the list would have been the quieter lie.
+        val saved = runCatching {
+            RouteStore.save(
+                SavedRoute(
+                    id = editing?.id ?: now,
+                    name = cleanedName,
+                    createdMs = editing?.createdMs ?: now,
+                    mode = mode,
+                    stops = stops,
+                    polyline = polyline,
+                    distanceMeters = distanceMeters,
+                    timeMs = timeMs,
+                    sharedBy = editing?.sharedBy ?: "",
+                ),
+            )
+        }
+        if (saved.isFailure) {
+            saveError = "Could not save this route to this device. Try again."
+            return
+        }
         onSaved()
     }
 
@@ -306,9 +331,9 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                 )
                 if (searching) {
                     CircularProgressIndicator(Modifier.padding(top = 8.dp).size(20.dp), strokeWidth = 2.dp)
-                } else if (searched && searchResults.isEmpty()) {
+                } else if (searchStatus != null) {
                     Text(
-                        "No results",
+                        searchStatus.orEmpty(),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),
@@ -324,7 +349,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                                     stops = stops + RouteStop(result.location, result.name)
                                     searchQuery = ""
                                     searchResults = emptyList()
-                                    searched = false
+                                    searchStatus = null
                                     keyboardController?.hide()
                                 }
                                 .padding(vertical = 10.dp),
@@ -351,7 +376,12 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                             modifier = Modifier.padding(end = 4.dp),
                         )
                         Text(
-                            stop.name.ifBlank { "%.5f, %.5f".format(stop.at.lat, stop.at.lon) },
+                            // Coordinates keep '.' whatever the rider's
+                            // separator setting says: the pair is already
+                            // comma-separated, so a comma decimal would read
+                            // "50,85137, 5,69097". Shared with the Saved places
+                            // subtitle so the two cannot drift.
+                            stop.name.ifBlank { formatCoordinatePair(stop.at.lat, stop.at.lon) },
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f),
                         )
@@ -427,6 +457,15 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                         enabled = stops.size >= 2 && name.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Save route") }
+                }
+                if (saveError.isNotEmpty()) {
+                    item {
+                        Text(
+                            saveError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             }
         }

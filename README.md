@@ -548,6 +548,20 @@ apksigner verify --print-certs detour-<version>.apk
 The app can sync to your own server (trips, fog of war, friends, circles) and
 route against your own GraphHopper instance.
 
+**This is three separate services, and the repo below only sets up one.** The
+API (with Keycloak) gets you sign-in and sync. In-app navigation and
+self-hosted search are two more services you run yourself:
+
+| Service | Gives you | Without it |
+| --- | --- | --- |
+| API + Keycloak (this repo) | sign-in, sync, friends, circles, convoys | nothing works without this one |
+| [GraphHopper](https://github.com/graphhopper/graphhopper) (routing) | in-app turn-by-turn, and routed distance/ETA for spin candidates | "Navigate in app" is unavailable — not degraded, just absent |
+| [Photon](https://github.com/komoot/photon) (geocoder) | self-hosted address/place search | search keeps *looking* like it works, silently falling back to the public `photon.komoot.io` |
+
+See [`backend/INSTALL.md`](backend/INSTALL.md#routing-and-search) for what each
+one needs to actually answer requests (an OSM extract and graph build for
+GraphHopper, an imported index for Photon) and how the app finds them.
+
 The server is a .NET service in [`backend/`](backend/README.md) backed by
 Postgres, with **identity in Keycloak** rather than in the service itself: you
 sign in on the realm's own page in a browser, and the service only ever sees the

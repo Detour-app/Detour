@@ -18,6 +18,12 @@ object Settings {
     /** AUTO = light by day, dark by night (sun position at last location). */
     enum class Theme { SYSTEM, LIGHT, DARK, AUTO }
 
+    /** Which character separates a decimal in every readout the app renders.
+     *  SYSTEM follows the device locale ('.' in en-US, ',' in nl-BE); the other
+     *  two pin it, for a rider whose phone locale disagrees with how they read
+     *  a speed. Coordinates are exempt — see `placesStateFrom`. */
+    enum class DecimalSeparator { SYSTEM, POINT, COMMA }
+
     /** ASK = today's behavior, the Go dropdown opens every tap. Anything else
      *  and a tap goes straight to that app; long-press still reopens the menu. */
     enum class NavApp { ASK, IN_APP, GOOGLE_MAPS, WAZE, OTHER }
@@ -39,8 +45,6 @@ object Settings {
     const val DEFAULT_ZOOM_DEFAULT = 16f
     const val DEFAULT_ZOOM_MIN = 12f
     const val DEFAULT_ZOOM_MAX = 19f
-    /** The hint variant a fresh install gets. See `Settings.swipeHintVariant`. */
-    const val SWIPE_HINT_VARIANT_DEFAULT = "nudge"
 
     const val FUEL_CALIBRATION_MIN = 50
     const val FUEL_CALIBRATION_MAX = 150
@@ -62,6 +66,23 @@ object Settings {
 
     private val _theme = MutableStateFlow(Theme.AUTO)
     val theme: StateFlow<Theme> = _theme
+
+    private val _decimalSeparator = MutableStateFlow(DecimalSeparator.SYSTEM)
+    val decimalSeparator: StateFlow<DecimalSeparator> = _decimalSeparator
+
+    /** [decimalSeparator] resolved to the character to render with. The render
+     *  path calls this once and hands the result to the formatters; they never
+     *  reach for it themselves, which is what keeps every mapper pure.
+     *
+     *  [value] defaults to the stored preference — real callers pass nothing. It
+     *  is a parameter so a test can check the mapping without a [Prefs] backend,
+     *  which is the same reason [decodeVehicleDevice] is reachable on its own. */
+    fun decimalSeparatorChar(value: DecimalSeparator = _decimalSeparator.value): Char =
+        when (value) {
+            DecimalSeparator.POINT -> '.'
+            DecimalSeparator.COMMA -> ','
+            DecimalSeparator.SYSTEM -> systemDecimalSeparator()
+        }
 
     private val _autoDetectDrives = MutableStateFlow(true)
     val autoDetectDrives: StateFlow<Boolean> = _autoDetectDrives
@@ -100,29 +121,6 @@ object Settings {
      *  including an auto-detected one, which has no other way to know. */
     private val _tripMode = MutableStateFlow(TravelMode.CAR)
     val tripMode: StateFlow<TravelMode> = _tripMode
-
-    /** How many times the spin dock's mode swipe has been used successfully.
-     *  Drives the discoverability hint, which retires after
-     *  `ModeSwipePolicy.HINT_AFTER_USES` successful swipes (in the app module).
-     *
-     *  Persisted rather than remembered because `AppRoot` swaps screens with a
-     *  bare `AnimatedContent` and no `rememberSaveableStateHolder`: leaving the
-     *  map for the Hub disposes MapScreen's whole composition, so even
-     *  `rememberSaveable` would reset and a user who had already learned the
-     *  gesture would be taught it again on every visit.
-     *
-     *  Long rather than Int because [Prefs] has no Int overload. */
-    private val _modeSwipesUsed = MutableStateFlow(0L)
-    val modeSwipesUsed: StateFlow<Long> = _modeSwipesUsed
-
-    /** Which mode-swipe hint animation plays: "nudge" or "arrows". Deliberately
-     *  a raw String and not an enum like [Theme] or [MapIcon] beside it: this is
-     *  a temporary A/B knob, deleted along with the losing variant, and the enum
-     *  it maps to lives in the app module where it can be parsed tolerantly.
-     *  Parsed by `ModeSwipePolicy.HintVariant.of` (in the app module), which
-     *  falls back to the default rather than throwing on an unknown name. */
-    private val _swipeHintVariant = MutableStateFlow(SWIPE_HINT_VARIANT_DEFAULT)
-    val swipeHintVariant: StateFlow<String> = _swipeHintVariant
 
     /** A Bluetooth device the user assigned to a vehicle. [name] is kept so the
      *  Settings list can show it even when the device isn't currently reachable.
@@ -297,13 +295,16 @@ object Settings {
         _theme.value = runCatching {
             Theme.valueOf(prefs.string("theme", Theme.AUTO.name))
         }.getOrDefault(Theme.AUTO)
+        _decimalSeparator.value = runCatching {
+            DecimalSeparator.valueOf(
+                prefs.string("decimal_separator", DecimalSeparator.SYSTEM.name),
+            )
+        }.getOrDefault(DecimalSeparator.SYSTEM)
         _autoDetectDrives.value = prefs.bool("auto_detect_drives", true)
         _avoidHighways.value = prefs.bool("avoid_highways", false)
         _avoidSmallRoads.value = prefs.bool("avoid_small_roads", false)
         _externalDisplayEnabled.value = prefs.bool("external_display_enabled", false)
         _tripMode.value = TravelMode.of(prefs.string("trip_mode").takeIf { it.isNotEmpty() })
-        _modeSwipesUsed.value = prefs.long("mode_swipes_used", 0L)
-        _swipeHintVariant.value = prefs.string("swipe_hint_variant", SWIPE_HINT_VARIANT_DEFAULT)
         _shareFog.value = prefs.bool("share_fog", false)
         _perfTracing.value = prefs.bool(PERF_TRACING_KEY, false)
         _fogEnabled.value = prefs.bool("fog_enabled", true)
@@ -463,6 +464,11 @@ object Settings {
         prefs.put("theme", value.name)
     }
 
+    fun setDecimalSeparator(value: DecimalSeparator) {
+        _decimalSeparator.value = value
+        prefs.put("decimal_separator", value.name)
+    }
+
     fun setAutoDetectDrives(value: Boolean) {
         _autoDetectDrives.value = value
         prefs.put("auto_detect_drives", value)
@@ -486,26 +492,6 @@ object Settings {
     fun setTripMode(value: TravelMode) {
         _tripMode.value = value
         prefs.put("trip_mode", value.name)
-    }
-
-    fun setModeSwipesUsed(value: Long) {
-        _modeSwipesUsed.value = value
-        prefs.put("mode_swipes_used", value)
-    }
-
-    /** Increments from this object's own value rather than from a copy the
-     *  caller happens to be holding. The UI reads this counter through a
-     *  Compose snapshot, and a read-modify-write across that boundary is
-     *  correct only while the propagation has settled - which is a scheduling
-     *  detail, not a contract. The hint's whole retirement rule hangs off this
-     *  number. */
-    fun incrementModeSwipesUsed() {
-        setModeSwipesUsed(_modeSwipesUsed.value + 1)
-    }
-
-    fun setSwipeHintVariant(value: String) {
-        _swipeHintVariant.value = value
-        prefs.put("swipe_hint_variant", value)
     }
 
     fun setShareFog(value: Boolean) {
@@ -576,6 +562,36 @@ object Settings {
         prefs.put("place_event_last_seen_$circleId", tsMs)
     }
 
+    /** Which OS place-geofence ids (`PlaceGeofenceGate`'s
+     *  `"$circleId:$placeId:enter"`/`":exit"` encoding) Android currently
+     *  believes are registered with `GeofencingClient` — issue #91. */
+    fun registeredPlaceFenceIds(): Set<String> = decodePlaceFenceIds(prefs.string("place_fence_ids", ""))
+
+    fun setRegisteredPlaceFenceIds(ids: Set<String>) {
+        prefs.put("place_fence_ids", encodePlaceFenceIds(ids))
+    }
+
+    /** Which places (`"$circleId:$placeId"`) the rider is currently *confirmed*
+     *  inside of, i.e. an OS `DWELL` already posted an arrive for — issue #91.
+     *
+     *  This is what makes the two-fence encoding equivalent to
+     *  [GeofenceEvaluator]'s hysteresis rather than merely similar to it:
+     *  there, a depart is reachable only from `inside == true`, which only a
+     *  dwell-confirmed arrive ever sets. The OS exit fence has no such memory
+     *  — it fires for anyone who clips the outer ring at 60km/h — so the
+     *  receiver checks this set before posting a depart.
+     *
+     *  Persisted, because the two transitions arrive in different processes
+     *  minutes or days apart, and deliberately *not* cleared by
+     *  `PlaceGeofenceGate.forgetAllRegistered`: a reboot or a Play services
+     *  update changes which fences exist, not whether the rider is standing
+     *  in the driveway. */
+    fun confirmedInsidePlaceIds(): Set<String> = decodePlaceFenceIds(prefs.string("confirmed_inside_place_ids", ""))
+
+    fun setConfirmedInsidePlaceIds(ids: Set<String>) {
+        prefs.put("confirmed_inside_place_ids", encodePlaceFenceIds(ids))
+    }
+
     /** The push registration token last handed to the server (an FCM token on
      *  Android), so sign-out can `DELETE /api/devices` for it and a re-register
      *  can skip when nothing changed. Empty when never registered. */
@@ -625,3 +641,15 @@ object Settings {
         prefs.put("notify_arrivals_$circleId", on)
     }
 }
+
+/** Comma-joined rather than JSON: every id [placeFenceId] produces is already
+ *  colon-delimited and circle ids are server UUIDs, so a comma can't appear
+ *  in one. Extracted from [Settings.setRegisteredPlaceFenceIds] so it's
+ *  testable without a real [Prefs] backend — see [SettingsPlaceFenceIdsTest].
+ *  A plain string-set codec, so [Settings.setConfirmedInsidePlaceIds] shares
+ *  it rather than spelling the same join out a second time. */
+internal fun encodePlaceFenceIds(ids: Set<String>): String = ids.joinToString(",")
+
+/** The inverse of [encodePlaceFenceIds]. `""` (prefs.string's default for an
+ *  unset key) decodes to an empty set, not a set containing `""`. */
+internal fun decodePlaceFenceIds(raw: String): Set<String> = raw.split(",").filter { it.isNotBlank() }.toSet()

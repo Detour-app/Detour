@@ -14,8 +14,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Casino
-import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.rounded.Casino
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -35,6 +35,7 @@ import com.jellemax.detour.data.GroupMember
 import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.handleFor
+import com.jellemax.detour.presentation.SpinCandidateRow
 
 /** Spin results awaiting a pick: distance/ETA per candidate, tap one to commit
  *  to it - or, once [convoyVotes] is non-null, tap one to vote on it instead
@@ -42,6 +43,12 @@ import com.jellemax.detour.data.handleFor
 @Composable
 internal fun CandidatesCard(
     candidates: List<RouteCandidate>,
+    // Same size/order as [candidates] - the mapper's read-out of exactly the
+    // fields this card renders (name, distance, duration), spinStateFrom'd by
+    // the caller so this card never formats a number itself. [candidates]
+    // itself stays around for what the mapper doesn't carry: the RouteCandidate
+    // identity onPick needs, and the coordinates the map pins are drawn from.
+    rows: List<SpinCandidateRow>,
     onPick: (Int, RouteCandidate) -> Unit,
     onReroll: () -> Unit,
     onCancel: () -> Unit,
@@ -76,6 +83,7 @@ internal fun CandidatesCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             candidates.forEachIndexed { index, c ->
+                val row = rows[index]
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -105,14 +113,12 @@ internal fun CandidatesCard(
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
-                            c.name ?: "Option ${index + 1}",
+                            row.name,
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Bold,
                         )
-                        val distanceMeters = c.route?.distanceMeters ?: c.straightLineMeters
-                        val prefix = if (c.route?.distanceMeters == null) "~ straight-line " else "via road "
                         Text(
-                            prefix + formatDistanceKm(distanceMeters),
+                            row.distanceText,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -128,13 +134,13 @@ internal fun CandidatesCard(
                             )
                         }
                     }
-                    c.route?.timeMs?.let { timeMs ->
+                    row.durationText?.let { duration ->
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.surfaceContainer,
                         ) {
                             Text(
-                                "%.0f min".format(timeMs / 60_000.0),
+                                duration,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                 style = MaterialTheme.typography.labelMedium,
                             )
@@ -144,7 +150,7 @@ internal fun CandidatesCard(
             }
             if (onShare != null) {
                 FilledTonalButton(onClick = onShare, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Outlined.Groups, contentDescription = null, Modifier.size(18.dp))
+                    Icon(Icons.Rounded.Groups, contentDescription = null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Share with convoy")
                 }
@@ -165,7 +171,7 @@ internal fun CandidatesCard(
                 // sheet everyone else is voting on - hide it once shared.
                 if (convoyVotes == null) {
                     Button(onClick = onReroll, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Outlined.Casino, contentDescription = null, Modifier.size(18.dp))
+                        Icon(Icons.Rounded.Casino, contentDescription = null, Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("Reroll")
                     }

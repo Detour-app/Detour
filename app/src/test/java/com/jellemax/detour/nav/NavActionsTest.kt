@@ -130,15 +130,72 @@ class NavActionsTest {
         assertEquals(listOf(Destination.Map, Destination.Hub, Destination.Badges), s)
     }
 
+    // ---- Social: a second parent for the account screens -------------------
+
+    @Test
+    fun `the account opened from social steps back to social, not to hub`() {
+        // Social's avatar used to be a second back arrow. It pushes Profile now,
+        // and Profile was reachable only from Hub before, so this is the edge
+        // the graph gained. Back has to reach the screen the rider left.
+        val s = stack(Destination.Map, Destination.Social)
+        s.push(Destination.Profile)
+        s.pop()
+        assertEquals(listOf(Destination.Map, Destination.Social), s)
+    }
+
+    @Test
+    fun `a guest opening the account from social gets a second hub entry`() {
+        // Signed out the avatar goes to Hub, which owns the sign-in card, and
+        // Hub may already be underneath. push() only guards the top, so this is
+        // a real second entry and not a swallowed double tap — back returns to
+        // Social rather than to the Hub the rider came through.
+        val s = stack(Destination.Map, Destination.Hub, Destination.Social)
+        s.push(Destination.Hub)
+        assertEquals(
+            listOf(Destination.Map, Destination.Hub, Destination.Social, Destination.Hub),
+            s,
+        )
+        s.pop()
+        assertEquals(listOf(Destination.Map, Destination.Hub, Destination.Social), s)
+    }
+
     // ---- the edge the depth inference could not express --------------------
 
     @Test
     fun `riding a saved route returns to the map, not to hub`() {
-        // RoutesScreen.onNavigate. Depth 2 -> 0 animated as a pop and looked
+        // returnToMap's own edge. It was RoutesScreen.onNavigate until riding a
+        // route stopped clearing the stack (see below); ProfileScreen's
+        // onSignedOut still takes it. Depth 2 -> 0 animated as a pop and looked
         // right, but a single pop from Routes lands on Hub.
         val s = stack(Destination.Map, Destination.Hub, Destination.Routes)
         s.returnToMap()
         assertEquals(listOf(Destination.Map), s)
+    }
+
+    @Test
+    fun `riding a saved route leaves routes underneath so back reaches it`() {
+        // RoutesScreen.onNavigate. It used to returnToMap(), which wiped the
+        // list a rider had just been picking from: tapping Ride to look at a
+        // route was a one-way trip.
+        val s = stack(Destination.Map, Destination.Hub, Destination.Routes)
+        s.push(Destination.Map)
+        assertEquals(
+            listOf(Destination.Map, Destination.Hub, Destination.Routes, Destination.Map),
+            s,
+        )
+        s.pop()
+        assertEquals(listOf(Destination.Map, Destination.Hub, Destination.Routes), s)
+    }
+
+    @Test
+    fun `riding twice does not stack two maps on top of each other`() {
+        // The single retained MapView cannot be given two parents, so two Map
+        // entries must never be adjacent. push()'s same-destination guard is
+        // what stops a second Ride from a map that is already on top.
+        val s = stack(Destination.Map, Destination.Routes)
+        s.push(Destination.Map)
+        s.push(Destination.Map)
+        assertEquals(listOf(Destination.Map, Destination.Routes, Destination.Map), s)
     }
 
     @Test

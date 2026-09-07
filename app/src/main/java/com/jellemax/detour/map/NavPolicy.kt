@@ -26,6 +26,35 @@ internal object NavPolicy {
      *  rather than immediately. */
     const val REROUTE_COOLDOWN_MS = 15_000L
 
+    /**
+     * Whether to draw the rider on the route's geometry rather than at the raw
+     * fix: the marker on the snapped point, the camera on that point and on the
+     * segment's bearing (`ui/MapScreen.kt`'s marker loop).
+     *
+     * [offRouteMeters] is [NavEngine.Along.offRouteMeters] — the *windowed*
+     * snap's distance, not [NavEngine.Progress.offRouteMeters]. The per-fix
+     * figure measures to the globally nearest point on the route, which on an
+     * out-and-back is the other leg; deciding on that parks the marker on a
+     * road the rider left half an hour ago.
+     *
+     * **Two thresholds, because one flips.** A single 60 m test with a fix
+     * sitting on it moves the marker up to 60 m and back once a second, and it
+     * does that for at least [REROUTE_COOLDOWN_MS] before a fresh route can
+     * end it. So: take the snap only when comfortably on the line, and keep it
+     * until properly off. The upper bound is [OFF_ROUTE_METERS], because past
+     * that [decide] is asking for a new route and this one is not worth
+     * drawing. The lower is [ARRIVE_METERS] — borrowed as a magnitude, not as
+     * the same quantity (it measures distance *along* the route), so that this
+     * file gains no third number to keep in step. The 20 m band it leaves is
+     * wider than the error a snap has to tolerate and narrower than the
+     * reroute bound, so entering never races the decision to leave.
+     *
+     * [wasSnapped] is the caller's own last answer. Pure, so the state stays
+     * where it can be seen rather than inside this object.
+     */
+    fun snapToRoute(offRouteMeters: Double, wasSnapped: Boolean): Boolean =
+        if (wasSnapped) offRouteMeters <= OFF_ROUTE_METERS else offRouteMeters <= ARRIVE_METERS
+
     sealed interface Decision {
         /** Keep following the line that is already drawn. */
         data object Continue : Decision

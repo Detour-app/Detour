@@ -18,11 +18,48 @@ a Raspberry Pi and walked away. This one needs:
 | Keycloak's own Postgres | Keycloak will not keep a realm in memory across restarts | no |
 | A reverse proxy with TLS | the realm issues tokens against one fixed issuer URL | in practice, no |
 | Redis | second-level cache only; a miss is a slower request | **yes** |
+| GraphHopper (routing) | serves in-app turn-by-turn; **not started by this stack** | without it, the navigate-in-app button is unavailable |
+| Photon (geocoding) | serves address/place search; **not started by this stack** | without it, search silently uses the public `photon.komoot.io` instead |
 
-That is five processes where there was one, and the README's promise that "your
-trips and traces live on hardware you own" now costs meaningfully more of that
-hardware. That trade has already been made — the Python server was removed rather
-than kept alongside — so this is what self-hosting Detour costs now.
+That is five processes where there was one, plus two more this repo does not run
+for you at all — see [Routing and search](#routing-and-search) below. The
+README's promise that "your trips and traces live on hardware you own" now costs
+meaningfully more of that hardware. That trade has already been made — the
+Python server was removed rather than kept alongside — so this is what
+self-hosting Detour costs now.
+
+## Routing and search
+
+`docker/prod/` brings up the API, Postgres and Keycloak — nothing routes or
+searches. Those are two separate open-source services this repo does not
+package, does not build an image for, and does not start:
+
+| Service | Gives you | Without it |
+| --- | --- | --- |
+| [GraphHopper](https://github.com/graphhopper/graphhopper) | in-app turn-by-turn navigation, and routed (not straight-line) distance/ETA for spin candidates | the "Navigate in app" option in the hand-off menu is unavailable; the app still works otherwise |
+| [Photon](https://github.com/komoot/photon) | self-hosted address/place search | search keeps working, silently, against the public `photon.komoot.io` — see [What leaves your device](../README.md#what-leaves-your-device) |
+
+Run both yourself, following their own install docs:
+
+- **GraphHopper** needs an OSM extract for the area you want to route in and a
+  graph build before it answers anything — there is no default extract shipped
+  here. It must expose the **`moto`** and **`car`** profiles by name; the app's
+  routing requests ask for them by that string
+  (`shared/src/commonMain/kotlin/com/jellemax/detour/data/RoutingClient.kt`), so
+  a `config.yml` with different profile names leaves every request 400ing.
+- **Photon** needs an imported search index or one of the prebuilt regional
+  dumps from the project — an empty Elasticsearch/Lucene index answers every
+  query with zero results, not an error, which looks like "search is just
+  broken" rather than "index is empty."
+
+Point the app at them under Settings → Servers & sync → *Routing server* /
+*Search server*, or bake `routing.url` / `geocoder.url` into `local.properties`
+(see [CONTRIBUTING.md](../CONTRIBUTING.md)). One `url` covers the API, routing
+and search together only when a single host fronts all three; each has its own
+override field for the common case of a split deployment (`RoutingServer.kt`'s
+`ServerConfig` KDoc has the full reasoning). The sign-in realm (`idp.issuer`) is
+separate again and deliberately never falls back to `url` — see
+[`RoutingServer.issuer`](../shared/src/commonMain/kotlin/com/jellemax/detour/data/RoutingServer.kt).
 
 ## The container
 

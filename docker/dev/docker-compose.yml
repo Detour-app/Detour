@@ -15,5 +15,6 @@ include:
   - path: services/keycloak.yml
   - path: services/traefik.yml
   - path: services/lgtm.yml
+  - path: services/graphhopper.yml
 
 name: ${PROJECT_NAME:-detour-dev}

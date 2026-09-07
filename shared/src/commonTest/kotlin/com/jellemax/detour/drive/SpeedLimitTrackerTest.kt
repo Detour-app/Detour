@@ -388,6 +388,37 @@ class SpeedLimitTrackerTest {
         assertEquals(t0, after.lastFetchMs)
     }
 
+    // ---- the "over the limit" rule ----------------------------------------
+
+    /**
+     * The additive +5 km/h threshold, on both sides. Before #196 the trip
+     * recorder compared against `limit * 1.10` instead, which at a 120 sign
+     * meant it called 132 the boundary while the dial next to it called 125 —
+     * one card, one instant, two answers to "am I speeding".
+     */
+    @Test
+    fun overTheLimitOnlyPastTheToleranceItself() {
+        assertFalse(SpeedLimitTracker.isOverLimit(speedKmh = 120.0, limitKmh = 120.0))
+        // Strictly greater, so the tolerance itself is still not over.
+        assertFalse(SpeedLimitTracker.isOverLimit(speedKmh = 125.0, limitKmh = 120.0))
+        assertTrue(SpeedLimitTracker.isOverLimit(speedKmh = 125.1, limitKmh = 120.0))
+        // The reading from the issue: 100 under a 120 sign is not speeding by
+        // any reading of this rule, whatever a percentage margin would say.
+        assertFalse(SpeedLimitTracker.isOverLimit(speedKmh = 100.0, limitKmh = 120.0))
+    }
+
+    @Test
+    fun neverOverTheLimitWithoutAPostedLimit() {
+        assertFalse(SpeedLimitTracker.isOverLimit(speedKmh = 180.0, limitKmh = null))
+    }
+
+    @Test
+    fun theToleranceIsTheCallersToOverride() {
+        // The HUD mapper passes this through, so a caller may be stricter than
+        // the app is; nothing in the app currently is.
+        assertTrue(SpeedLimitTracker.isOverLimit(speedKmh = 121.0, limitKmh = 120.0, toleranceKmh = 0.0))
+    }
+
     // ---- crossing the navigation boundary ---------------------------------
 
     /**

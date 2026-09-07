@@ -236,7 +236,7 @@ object MunicipalityStore {
     }
 
     private suspend fun fetch(p: LatLon): Municipality? {
-        val query = "[out:json][timeout:25];" +
+        val query = "[out:json][timeout:${RoadRoulette.SERVER_TIMEOUT_S}];" +
             "is_in(${p.lat},${p.lon})->.a;" +
             "relation(pivot.a)[\"boundary\"=\"administrative\"][\"admin_level\"=\"8\"];" +
             "out geom;"

@@ -6,33 +6,23 @@ import android.graphics.RectF
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.util.Log
-import java.io.IOException
 import android.os.Build
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -43,8 +33,8 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -54,7 +44,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -77,7 +66,6 @@ import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CircleFixes
 import com.jellemax.detour.data.ConvoysStore
-import com.jellemax.detour.data.ExploredArea
 import com.jellemax.detour.data.FriendFog
 import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.LatLon
@@ -87,19 +75,13 @@ import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.PoiKind
 import com.jellemax.detour.data.RoadRoulette
-import com.jellemax.detour.data.Curviness
 import com.jellemax.detour.data.RouteCandidate
-import com.jellemax.detour.data.RoundTripPlanner
-import com.jellemax.detour.ColdStartTiming
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
-import com.jellemax.detour.data.pickCandidate
 import com.jellemax.detour.data.SavedPlaces
-import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
-import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.drive.CameraPrefetch
@@ -107,13 +89,31 @@ import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.drive.SpinRoundOutcome
+import com.jellemax.detour.presentation.HomeBottomCard
+import com.jellemax.detour.presentation.displayCandidates
+import com.jellemax.detour.presentation.homeBottomCard
+import com.jellemax.detour.presentation.navStateFrom
+import com.jellemax.detour.presentation.obd2FedThisTrip
+import com.jellemax.detour.presentation.pushToTalkShown
+import com.jellemax.detour.presentation.reachMeters
+import com.jellemax.detour.presentation.speedHudStateFrom
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
 import com.jellemax.detour.map.CameraAuthority
 import com.jellemax.detour.map.FollowCamera
 import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.map.ModeSwipePolicy
+import com.jellemax.detour.map.NavStart
+import com.jellemax.detour.map.SpinOutcome
+import com.jellemax.detour.map.SpinParams
+import com.jellemax.detour.map.modeSwitch
+import com.jellemax.detour.map.fetchNavRoute
+import com.jellemax.detour.map.navStart
+import com.jellemax.detour.map.runSpin
 import com.jellemax.detour.map.NavPolicy
+import com.jellemax.detour.map.needsBackgroundDisclosure
+import com.jellemax.detour.map.requiredStartupPermissions
+import com.jellemax.detour.map.shouldRequestMic
 import com.jellemax.detour.map.bearingDelta
 import com.jellemax.detour.map.smoothBearing
 import com.jellemax.detour.obd2.Obd2Connection
@@ -123,54 +123,38 @@ import com.jellemax.detour.ble.BleNavServer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
-import org.maplibre.android.maps.Style
 import kotlin.math.abs
 import kotlin.math.exp
-import kotlin.random.Random
-
-/** What currently occupies the bottom-card slot on the map. */
-private enum class BottomCard { NAV, CANDIDATES, COLLAPSED, EXPANDED }
 
 @Composable
 fun MapScreen(
     onOpenHub: () -> Unit,
+    onOpenRoutes: () -> Unit,
+    onOpenSocial: () -> Unit,
     retained: RetainedMap,
 ) {
     val context = LocalContext.current
-    // Extra bottom padding for a fitted route/candidate spread, roughly the
-    // expanded spin card's height, so the card doesn't cover most of it. A
-    // fixed fraction of the screen rather than measuring the actual card —
-    // the card's real height varies with content, and this only needs to be
-    // in the right ballpark.
-    val fitBottomPaddingPx = (context.resources.displayMetrics.heightPixels * 0.4).toInt()
-    // Bottom margin so OSM/OpenFreeMap attribution stays above the collapsed
-    // spin bar instead of half-covered by it — a fixed estimate of the bar's
-    // height (icon + row padding) rather than measuring it, same spirit as
-    // fitBottomPaddingPx above.
-    val attributionBottomMarginPx = with(LocalDensity.current) { 84.dp.roundToPx() }
+    // Extra bottom padding for a fitted route/candidate spread, so whatever is
+    // in the bottom slot doesn't cover most of it. See the constant for what
+    // it is measured against and why it stopped being a fraction of the screen.
+    val fitBottomPaddingPx = with(LocalDensity.current) {
+        MAP_FIT_BOTTOM_PADDING_DP.dp.roundToPx()
+    }
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
-    LaunchedEffect(Unit) { SavedPlaces.ensureLoaded() }
     val savedPlaces by SavedPlaces.places.collectAsStateWithLifecycle()
     // Non-null while a name is being entered for the current dropped/destination pin.
-    var savePinTarget by remember { mutableStateOf<LatLon?>(null) }
 
     // Play policy requires our own disclosure of what background location is
     // for, shown and accepted before the system prompt may be raised.
-    var showBgLocationDisclosure by remember { mutableStateOf(false) }
 
     // Persisted, because the tracking service reads it too: an auto-detected
     // trip has no other way to know whether it is a ride or a drive.
@@ -179,54 +163,21 @@ fun MapScreen(
     var minRadiusKm by rememberSaveable { mutableFloatStateOf(0f) }
     // Seeded from SpinResultHolder so a spin result survives activity
     // recreation instead of resetting to defaults; see its declaration above.
-    val savedSpin = remember { SpinResultHolder.state.value }
-    var candidates by remember { mutableStateOf(savedSpin.candidates) }
-    var myLocation by remember { mutableStateOf<LatLon?>(null) }
-    var destination by remember { mutableStateOf(savedSpin.destination) }
-    var route by remember { mutableStateOf(savedSpin.route) }
-    var spinning by remember { mutableStateOf(false) }
-    var spinJob by remember { mutableStateOf<Job?>(null) }
-    var error by remember { mutableStateOf<String?>(null) }
+    // One owner for the screen's own state. `remember`, so its lifetime is
+    // exactly what the twenty loose vars had; the five rememberSaveable ones
+    // below are deliberately NOT in here (see MapScreenState's KDoc).
+    val s = remember { MapScreenState(SpinResultHolder.state.value) }
     // `error` has a dozen writers and, until now, one reader — inside SpinSheet,
     // which is collapsed by default. A denied location permission therefore
     // reported itself to nobody. The snackbar shows it whatever the bottom card
     // is doing; the sheet keeps its own copy for when it is open.
     val snackbarHostState = remember { SnackbarHostState() }
-    LaunchedEffect(error) {
-        error?.let { snackbarHostState.showSnackbar(it) }
-    }
-    // A sign-in that fails on the way back from the browser had exactly one
-    // reader — FriendsScreen, the screen with the button on it — and `screen` in
-    // AppRoot is a plain `remember`. So whenever Android restarted the app behind
-    // the browser, the redirect landed on a fresh process that composes the map,
-    // and the reason went nowhere at all. That is the case most likely to fail,
-    // which made it the case least likely to be explained.
-    //
-    // Its own effect rather than a write into `error` above: that var has a dozen
-    // writers already, and a sign-in failure is not a spin failure. Repeats are
-    // not a concern here — every Sign in tap clears this first, so a second
-    // identical failure still re-keys from null.
-    val signInError by PendingSignIn.error.collectAsStateWithLifecycle()
-    LaunchedEffect(signInError) {
-        signInError?.let { snackbarHostState.showSnackbar(it) }
-    }
-    // And the same for a sign-in that worked, which said even less: the avatar in
-    // the top corner turned from a question mark into a letter, and that was the
-    // whole announcement. Cleared once shown so returning to the map later does
-    // not re-announce it — the failure above needs no such call, because every
-    // Sign in tap clears it on the way out.
-    val signedInAs by PendingSignIn.signedInAs.collectAsStateWithLifecycle()
-    LaunchedEffect(signedInAs) {
-        val handle = signedInAs ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(
-            if (handle.isBlank()) "Signed in" else "Signed in as $handle"
-        )
-        PendingSignIn.clearSignedIn()
+    LaunchedEffect(s.error) {
+        s.error?.let { snackbarHostState.showSnackbar(it) }
     }
     val serverConfig = remember { RoutingServer.load() }
     var poiKind by rememberSaveable { mutableStateOf(PoiKind.ROAD) }
     var directionDeg by rememberSaveable { mutableStateOf<Float?>(null) }
-    var destinationName by remember { mutableStateOf(savedSpin.destinationName) }
     val fogEnabled by Settings.fogEnabled.collectAsStateWithLifecycle()
     // The handle to draw (MapTopChrome's avatar) and the id to compare
     // (the spin-round self-check, the circle self-filter below) are two
@@ -235,10 +186,10 @@ fun MapScreen(
     // than one string doing both jobs.
     val accountUsername by Account.username.collectAsStateWithLifecycle()
     val accountRiderId by Account.riderId.collectAsStateWithLifecycle()
-    var searchOpen by remember { mutableStateOf(false) }
     // The map layers panel. Lives here rather than in MapTopChrome so the map's
     // own click listeners can close it — see where they clear it below.
-    var layersOpen by remember { mutableStateOf(false) }
+    // The destination search island, hoisted for the same reason: a tap on the
+    // map is its outside-tap dismissal.
     // Stored traces reload on every store write; the live trace and fix come
     // straight from the tracking service, so fog and position update in real
     // time instead of only when a trip is saved.
@@ -280,10 +231,9 @@ fun MapScreen(
     val activeConvoyMembers = convoysState.convoys.firstOrNull { it.id == activeConvoyId }?.members.orEmpty()
     // ConvoyLiveClient only knows the id it's connected to; resolve it to a
     // name for display by asking the same list FriendsScreen uses.
-    var convoyName by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(activeConvoyId) {
         val id = activeConvoyId
-        convoyName = if (id == null) null else withContext(Dispatchers.IO) {
+        s.convoyName = if (id == null) null else withContext(Dispatchers.IO) {
             try {
                 Groups.list("convoy").find { it.id == id }?.name
             } catch (e: Exception) {
@@ -292,21 +242,16 @@ fun MapScreen(
         }
     }
 
-    var navigating by remember { mutableStateOf(savedSpin.navigating) }
-    val modeSwipesUsed by Settings.modeSwipesUsed.collectAsStateWithLifecycle()
-    val swipeHintVariantName by Settings.swipeHintVariant.collectAsStateWithLifecycle()
-    var navProgress by remember { mutableStateOf<NavEngine.Progress?>(null) }
-    var rerouting by remember { mutableStateOf(false) }
 
     // Keep the holder in sync with whatever changed these — a new spin, a
     // pick, a cancel, or navigation ending and clearing the result. Declared
     // here rather than beside `destination` because it now also reads
     // `navigating`, and Kotlin resolves local declarations in order.
-    LaunchedEffect(destination, destinationName, route, candidates, navigating) {
-        SpinResultHolder.state.value =
-            SpinResult(destination, destinationName, route, candidates, navigating)
+    LaunchedEffect(s.destination, s.destinationName, s.route, s.candidates, s.navigating) {
+        SpinResultHolder.publish(
+            SpinResult(s.destination, s.destinationName, s.route, s.candidates, s.navigating)
+        )
     }
-    var lastRerouteMs by remember { mutableLongStateOf(0L) }
     // Following is the resting state of the map. `camSuspended` is what a pan,
     // a pinch or a spin result sets so you can look around; it does not switch
     // following off, it parks it until you are moving again. All three - the
@@ -314,10 +259,39 @@ fun MapScreen(
     // transition is a CameraAuthority.reduce dispatch, and the rules (including
     // the spin park that deliberately does not stamp) live there with their
     // tests rather than being spread across ten call sites.
-    var camAuthority by remember { mutableStateOf(CameraAuthority.State()) }
-    // Dock (collapsed) is the resting state; the sheet only comes up when
-    // tapped open, and folds back down on its own after a spin lands.
+    // Collapsed is the resting state; the spin sheet comes up when the home
+    // sheet's Spin chip opens it, or when a destination is set (below).
     var settingsCollapsed by rememberSaveable { mutableStateOf(true) }
+    // A trip ending lands on the home sheet. The ride sheets outrank the spin
+    // sheet in homeBottomCard, so `settingsCollapsed` can go false underneath
+    // them — every pick flips it, navigated-to or not — and End trip after an
+    // arrival would otherwise surface a spin sheet offering Go to the place
+    // the rider is standing at. Edge-triggered on a running trip ending, not
+    // on "no trip": a return from the Hub with no trip must not close a spin
+    // sheet the rider left open, and a route seeded from RoutesScreen must
+    // keep the sheet the effect below opens for it.
+    var tripWasRunning by remember { mutableStateOf(stats != null) }
+    LaunchedEffect(stats != null) {
+        val running = stats != null
+        if (tripWasRunning && !running) settingsCollapsed = true
+        tripWasRunning = running
+    }
+    // Having somewhere to go and no way to start going there was the dead end:
+    // the Go button and the destination readout are the spin sheet's (SpinCards
+    // NavButton and the result callout), so a destination picked while the
+    // sheet was down left a marker on the map and nothing to act on.
+    //
+    // Each of the five pick sites (search result, saved place, long-pressed
+    // pin, spin candidate, convoy candidate) flips the flag itself: an effect
+    // keyed on `destination` alone does not restart when the same LatLon is
+    // picked again — collapse the sheet, tap the same chip, and nothing would
+    // reopen it, since stopNavigation() never nulls `destination` and a
+    // re-pick of the last place writes an equal value. This effect covers the
+    // sixth writer, which is not a callback at all: seedRouteNavigation writes
+    // the holder from RoutesScreen, so a ridden saved route arrives already
+    // set, before the first composition here. That is the case its KDoc has
+    // always promised and no call-site line can reach.
+    LaunchedEffect(s.destination) { if (s.destination != null) settingsCollapsed = false }
     // The prefetched way set, the fetch throttle, the miss counter and the
     // snapped value: SpeedLimitTracker's, in shared/…/drive/, where the policy
     // lives with its tests. retained.ambientSpeedLimitKmh stays its own state because the
@@ -329,13 +303,10 @@ fun MapScreen(
     // guard would wave a second one through on the very next fix after a
     // navigation toggle. The fetch itself runs on `scope`, which outlives the
     // restart, so the two have to agree about what is running.
-    var speedLimitFetchJob by remember { mutableStateOf<Job?>(null) }
     // Non-null only while driving through a trajectcontrole: the running average
     // speed since entering it, and the posted limit it's judged against.
     // Seeded from the retained machine, so a return mid-section shows the
     // reading it was showing rather than nothing.
-    var sectionAvgKmh by remember { mutableStateOf(retained.sectionState.reading.averageKmh) }
-    var sectionLimitKmh by remember { mutableStateOf(retained.sectionState.reading.limitKmh) }
 
     // Where the camera is heading. GPS delivers a fix about once a second; the
     // frame loop further down eases the map toward these targets every frame,
@@ -348,33 +319,16 @@ fun MapScreen(
     // rider returns to the map. See RetainedMap's camera section.
     // Same expression as before, now owned by the state: navigation drives the
     // camera whether or not you are following, and a park still stops it.
-    val cameraActive = camAuthority.cameraActive(navigating)
 
     LaunchedEffect(liveFix) {
         liveFix?.takeIf { it.accuracyMeters <= 100f }?.let {
-            myLocation = LatLon(it.lat, it.lon)
+            s.myLocation = LatLon(it.lat, it.lon)
         }
     }
 
     // Keep the min-distance floor from exceeding the radius as the slider moves.
     LaunchedEffect(radiusKm) {
         if (minRadiusKm > radiusKm) minRadiusKm = radiusKm
-    }
-
-    // Pull from the sync server on launch: restores everything after a
-    // reinstall and picks up trips recorded while the app was closed. Gated
-    // by SyncClient.syncIfDue() so relaunching soon after a sync (the common
-    // case) doesn't re-pay the full-history round trip every time.
-    LaunchedEffect(Unit) {
-        if (SyncClient.configured() && Account.signedIn) {
-            withContext(Dispatchers.IO) {
-                try {
-                    SyncClient.syncIfDue()
-                } catch (e: Exception) {
-                    // offline, server down, or signed out; next launch catches up
-                }
-            }
-        }
     }
 
     // Re-fetch when sharing is switched on, and drop what we hold the moment it
@@ -441,8 +395,8 @@ fun MapScreen(
         var downY = 0f
         mapView.setOnTouchListener { _, event ->
             fun park() {
-                camAuthority = CameraAuthority.reduce(
-                    camAuthority,
+                s.camAuthority = CameraAuthority.reduce(
+                    s.camAuthority,
                     CameraAuthority.Action.Gesture(System.currentTimeMillis()),
                 )
             }
@@ -459,8 +413,8 @@ fun MapScreen(
                 // a long-press pin drop or a marker tap, not a pan. That guard
                 // is GestureEnd's - it leaves an unparked camera alone.
                 MotionEvent.ACTION_UP -> {
-                    camAuthority = CameraAuthority.reduce(
-                        camAuthority,
+                    s.camAuthority = CameraAuthority.reduce(
+                        s.camAuthority,
                         CameraAuthority.Action.GestureEnd(System.currentTimeMillis()),
                     )
                 }
@@ -470,14 +424,26 @@ fun MapScreen(
         onDispose { mapView.setOnTouchListener(null) }
     }
 
+    // Nothing rotates the map out from under a heading-up camera while navigating.
+    // The map has no compass (RetainedMap turns it off), and a two-finger brush
+    // parks the camera before it turns anything, so a stray rotation used to sit
+    // there — skewed, unlabelled and with no way back — until the rider drove off
+    // fast enough for FollowCamera to resume. Pinch and pan are untouched; only the
+    // rotation goes, which is what the head unit has always done
+    // (car/CarMapRenderer.kt). Off route it stays off too: the camera is still
+    // heading-up, and a reroute is not the moment to hand rotation back.
+    LaunchedEffect(mapLibreMap, s.navigating) {
+        mapLibreMap?.uiSettings?.isRotateGesturesEnabled = !s.navigating
+    }
+
     // Driving off takes the camera back; the rule is FollowCamera's. The keys are
     // derived booleans on purpose - keying on the collections themselves would
     // restart this collector on every convoy vote.
-    LaunchedEffect(camAuthority.camSuspended, spinning, candidates.isEmpty(), spinOffer == null) {
+    LaunchedEffect(s.camAuthority.camSuspended, s.spinning, s.candidates.isEmpty(), spinOffer == null) {
         if (!FollowCamera.shouldWatch(
-                camSuspended = camAuthority.camSuspended,
-                spinning = spinning,
-                hasCandidates = candidates.isNotEmpty(),
+                camSuspended = s.camAuthority.camSuspended,
+                spinning = s.spinning,
+                hasCandidates = s.candidates.isNotEmpty(),
                 hasSpinOffer = spinOffer != null,
             )
         ) {
@@ -488,11 +454,11 @@ fun MapScreen(
             if (FollowCamera.shouldResume(
                     speedMps = fix.speedMps,
                     nowMs = System.currentTimeMillis(),
-                    lastGestureMs = camAuthority.lastGestureMs,
+                    lastGestureMs = s.camAuthority.lastGestureMs,
                 )
             ) {
-                camAuthority = CameraAuthority.reduce(
-                    camAuthority,
+                s.camAuthority = CameraAuthority.reduce(
+                    s.camAuthority,
                     CameraAuthority.Action.DriveOffResumed,
                 )
             }
@@ -509,150 +475,89 @@ fun MapScreen(
                 val loc = client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
                     ?: client.lastLocation.await()
                 if (loc != null) {
-                    myLocation = LatLon(loc.latitude, loc.longitude)
-                    mapLibreMap?.moveCamera(CameraUpdateFactory.newLatLngZoom(
-                        LatLng(loc.latitude, loc.longitude), Settings.defaultZoom.value.toDouble()))
+                    s.myLocation = LatLon(loc.latitude, loc.longitude)
+                    // Only take the camera if it is still ours to take. This
+                    // await can run for seconds, and a parked camera means the
+                    // rider has since chosen something to look at - a search
+                    // pick, a saved place, a spin result. Centring on them here
+                    // would yank the map back off it long after the tap.
+                    if (!s.camAuthority.camSuspended) {
+                        mapLibreMap?.moveCamera(CameraUpdateFactory.newLatLngZoom(
+                            LatLng(loc.latitude, loc.longitude), Settings.defaultZoom.value.toDouble()))
+                    }
                 } else {
-                    error = "Could not get location; is GPS on?"
+                    s.error = "Could not get location; is GPS on?"
                 }
             } catch (e: SecurityException) {
-                error = "Location permission missing"
+                s.error = "Location permission missing"
             }
-        }
-    }
-
-    // Background location must be requested separately from fine location,
-    // after it is granted (system requirement on Android 11+).
-    val bgLocationLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
-
-    // Mic permission is asked for once a convoy is actually joined, not
-    // upfront with location — nothing needs it until push-to-talk does.
-    val micPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
-    LaunchedEffect(convoyConnected, activeConvoyId) {
-        // activeConvoyId != null, not just convoyConnected: the same socket
-        // now also stays connected for a circle's arrival notifications with
-        // no convoy joined at all (see ConvoyLiveClient.setNotifyCircles),
-        // which needs no microphone.
-        // Features.pushToTalk: off means no talk button ever renders, so
-        // asking for the mic here would buy nothing this build (#154).
-        if (Features.pushToTalk && convoyConnected && activeConvoyId != null &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
     fun onLocationGranted() {
         fetchLocation()
         TripTrackingService.startMonitoring(context)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-            ContextCompat.checkSelfPermission(
-                context, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-            != PackageManager.PERMISSION_GRANTED
+        if (needsBackgroundDisclosure(
+                sdkInt = Build.VERSION.SDK_INT,
+                backgroundGranted = ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+                ) == PackageManager.PERMISSION_GRANTED,
+            )
         ) {
-            showBgLocationDisclosure = true
+            s.showBgLocationDisclosure = true
         }
     }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { grants ->
-        if (grants[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
-            onLocationGranted()
-        } else {
-            error = "Location permission is required"
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        val needed = buildList {
-            add(Manifest.permission.ACCESS_FINE_LOCATION)
-            add(Manifest.permission.ACCESS_COARSE_LOCATION)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                add(Manifest.permission.ACTIVITY_RECOGNITION)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-        val missing = needed.any {
-            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-        }
-        if (!missing) {
-            onLocationGranted()
-        } else {
-            permissionLauncher.launch(needed.toTypedArray())
-        }
-    }
-
+    // Three launchers and two effects, in MapPermissions.kt; every decision
+    // they make is in map/PermissionPolicy.kt, with tests.
+    val bgLocationLauncher = rememberMapPermissions(
+        s = s,
+        convoyConnected = convoyConnected,
+        activeConvoyId = activeConvoyId,
+        onLocationReady = { onLocationGranted() },
+    )
     /** Commit to one spin candidate and frame the trip to it. */
     fun choose(c: RouteCandidate) {
-        destination = c.destination
-        destinationName = c.name
-        route = c.route
-        candidates = emptyList()
-        val loc = myLocation ?: return
+        s.destination = c.destination
+        s.destinationName = c.name
+        settingsCollapsed = false
+        s.route = c.route
+        s.candidates = emptyList()
+        val loc = s.myLocation ?: return
         // Parks and buys the same grace period a pan gets, so a pick made at
         // speed isn't re-centered before you've seen the route you just chose.
-        camAuthority = CameraAuthority.reduce(
-            camAuthority,
+        s.camAuthority = CameraAuthority.reduce(
+            s.camAuthority,
             CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
         )
         mapLibreMap?.let { cameraForPoints(it, listOf(loc, c.destination), FIT_PADDING_PX, fitBottomPaddingPx) }
     }
 
-    // What's actually shown on the map/card: my own spin's candidates,
-    // unless a convoy spin is on the table, in which case everyone - the
-    // sharer included, see ConvoyLiveClient.sendSpinOffer - shows the same
-    // three from the offer instead. Keeps map pins and votes pointed at
-    // the same coordinates on every device even when they came from a
-    // spin nobody on this phone actually rolled.
-    val displayCandidates = spinOffer?.asRouteCandidates() ?: candidates
+    // What's actually shown on the map/card - see the shared rule for why a
+    // convoy offer outranks this phone's own spin (ConvoyLiveClient.sendSpinOffer).
+    val visibleCandidates = displayCandidates(spinOffer?.asRouteCandidates(), s.candidates)
 
-    /** Non-null while something in flight makes a mode change wrong to allow.
-     *  Navigation and an open candidate round need no entry here: both replace
-     *  the dock with a different card in the same slot. */
-    val switchBlockedReason = ModeSwipePolicy.blockedReason(
-        spinning = spinning,
-        tracking = stats != null,
+    // One slot, five occupants, decided once here rather than re-derived where
+    // each of them is drawn. The home sheet is the resting one; the other four
+    // displace it.
+    val bottomCard = homeBottomCard(
+        navigating = s.navigating,
+        hasCandidates = visibleCandidates.isNotEmpty(),
+        tripActive = stats != null,
+        collapsed = settingsCollapsed,
     )
 
-    // The same three tests as the bottomCard when-chain below, in the same
-    // order. The countdown has to know whether the dock is actually on screen:
-    // it is absent while navigating, while a candidate round is open and while
-    // the sheet is expanded, and a hint armed during any of those would fire on
-    // the dock's very next composition - as part of the screen arriving, which
-    // is the one thing HINT_DELAY_MS exists to prevent.
-    val dockShown = !navigating && displayCandidates.isEmpty() && settingsCollapsed
-
-    // Scheduled here rather than inside SpinDock because SpinDock is disposed
-    // every time the sheet expands or a candidate round opens - a guard in there
-    // would replay the hint on every collapse.
-    //
-    // Once per Activity, not once per map visit. This used to be the latter,
-    // because AppRoot had no rememberSaveableStateHolder and leaving for the
-    // Hub therefore discarded even the saveable state - so the hint re-armed on
-    // every return to the map. #82 gave each destination its own saved-state
-    // slot, so this now survives a trip to the Hub and a rotation alike, and
-    // "already shown" means shown. Deliberate: re-teaching a gesture the rider
-    // has already been shown is what the flag exists to prevent.
-    var hintShown by rememberSaveable { mutableStateOf(false) }
-    var hintRequest by remember { mutableStateOf(false) }
-    val hintDue = dockShown && ModeSwipePolicy.hintDue(
-        alreadyShown = hintShown,
-        swipesUsed = modeSwipesUsed,
-        blocked = switchBlockedReason != null,
-    )
-    LaunchedEffect(hintDue) {
-        if (!hintDue) return@LaunchedEffect
-        delay(ModeSwipePolicy.HINT_DELAY_MS)
-        hintShown = true
-        hintRequest = true
+    // The search island lives in the home sheet and, when it is open, in the
+    // drive sheet, so anything that displaces them takes the island's
+    // BackHandler with it - and back would then leave the app rather than
+    // dismissing a search that is still on screen. Closing it here covers
+    // every displacement at once, navigation included, and the drive sheet is
+    // no exception: the same trigger closes the sheet below, which takes its
+    // island off screen, and a flag left true would pop the keyboard the next
+    // time the sheet opened. Every slot change lands on a closed sheet.
+    LaunchedEffect(bottomCard) {
+        if (bottomCard != HomeBottomCard.COLLAPSED) s.searchOpen = false
+        s.rideSheetExpanded = false
     }
 
     /** Commits a convoy spin's leading (or explicitly chosen) candidate,
@@ -661,14 +566,15 @@ fun MapScreen(
     fun commitSpinCandidate(index: Int) {
         val offer = spinOffer ?: return
         val c = offer.candidates.getOrNull(index) ?: return
-        destination = LatLon(c.lat, c.lon)
-        destinationName = c.name
-        route = null // startNavigation() fetches a real route once tapped, same as a dropped pin
-        candidates = emptyList()
+        s.destination = LatLon(c.lat, c.lon)
+        s.destinationName = c.name
+        settingsCollapsed = false
+        s.route = null // startNavigation() fetches a real route once tapped, same as a dropped pin
+        s.candidates = emptyList()
         ConvoyLiveClient.clearSpinOffer()
-        val loc = myLocation ?: return
-        camAuthority = CameraAuthority.reduce(
-            camAuthority,
+        val loc = s.myLocation ?: return
+        s.camAuthority = CameraAuthority.reduce(
+            s.camAuthority,
             CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
         )
         mapLibreMap?.let { cameraForPoints(it, listOf(loc, LatLon(c.lat, c.lon)), FIT_PADDING_PX, fitBottomPaddingPx) }
@@ -691,25 +597,21 @@ fun MapScreen(
 
     // Push overlay state to the map whenever anything drawable changes. The
     // layers are created once per style; here we only swap their GeoJSON data.
-    LaunchedEffect(mapOverlays, myLocation, destination, route, radiusKm, mode,
-        directionDeg, navigating, displayCandidates) {
+    LaunchedEffect(mapOverlays, s.myLocation, s.destination, s.route, radiusKm, mode,
+        directionDeg, s.navigating, visibleCandidates) {
         val overlays = mapOverlays ?: return@LaunchedEffect
-        // For round trips the slider is trip length; reach ≈ length / 4. Hidden
-        // while navigating. Null myLocation hides it too.
-        val reachMeters = myLocation?.let {
-            when {
-                navigating -> null
-                mode.roundTrip -> radiusKm * 250.0
-                else -> radiusKm * 1000.0
-            }
-        }
         overlays.render(
-            myLocation = myLocation,
-            destination = destination,
-            routePolyline = route?.polyline,
-            reachMeters = reachMeters,
+            myLocation = s.myLocation,
+            destination = s.destination,
+            routePolyline = s.route?.polyline,
+            reachMeters = reachMeters(
+                hasLocation = s.myLocation != null,
+                navigating = s.navigating,
+                roundTrip = mode.roundTrip,
+                radiusKm = radiusKm.toDouble(),
+            ),
             directionDeg = directionDeg?.toInt(),
-            candidates = displayCandidates.mapIndexed { i, c ->
+            candidates = visibleCandidates.mapIndexed { i, c ->
                 CandidatePin(c.destination, CANDIDATE_COLORS[i % CANDIDATE_COLORS.size])
             },
             // The marker loop below owns SRC_POSITION and writes it every frame, so this
@@ -756,18 +658,18 @@ fun MapScreen(
     // writer — the one-shot last-known-location fetch at :474 that centres the map
     // at startup — and the fog needs a centre in the window before the first fix
     // arrives. Once fixes are flowing the loop owns it.
-    LaunchedEffect(liveTrace, myLocation) {
+    LaunchedEffect(liveTrace, s.myLocation) {
         fogView.liveTrace = liveTrace
-        if (liveFix == null) fogView.currentLocation = myLocation
+        if (liveFix == null) fogView.currentLocation = s.myLocation
         fogView.invalidate()
     }
 
     // Long-press drops a destination pin; a tap on a candidate dot commits to it
     // (or, mid convoy-vote, casts a vote instead - see spinOfferRef below).
     // Registered once the map is ready; the listeners read live state via refs.
-    val candidatesRef = rememberUpdatedState(displayCandidates)
+    val candidatesRef = rememberUpdatedState(visibleCandidates)
     val spinOfferRef = rememberUpdatedState(spinOffer)
-    val navigatingRef = rememberUpdatedState(navigating)
+    val navigatingRef = rememberUpdatedState(s.navigating)
     // A DisposableEffect, not a LaunchedEffect, and that is load-bearing now the
     // map outlives this composition. Before RetainedMap, `mapLibreMap` went
     // null -> map exactly once per Activity, so registering without removing was
@@ -775,7 +677,7 @@ fun MapScreen(
     // against an already-non-null map and re-runs this — so each of the four
     // has to come back off, or a rider who visits the Hub three times gets
     // sixteen listeners and the fog invalidates four times per camera move.
-    // The remove-what-you-added shape is FogView.map's setter, in MapLibreMap.kt.
+    // The remove-what-you-added shape is FogView.map's setter, in FogView.kt.
     DisposableEffect(mapLibreMap) {
         val map = mapLibreMap ?: return@DisposableEffect onDispose { }
         // The fog is screen-space, projected through the map — redraw it on every
@@ -783,18 +685,22 @@ fun MapScreen(
         // while the follow loop is running.
         val onCameraMove = MapLibreMap.OnCameraMoveListener { fogView.invalidate() }
         val onCameraIdle = MapLibreMap.OnCameraIdleListener { fogView.invalidate() }
-        // Touching the map dismisses the layers panel, which is what the Popup's
-        // dismissOnClickOutside used to do before the panel moved inline.
+        // Touching the map dismisses the layers panel and the search island,
+        // which is what the Popup's dismissOnClickOutside used to do before the
+        // panel moved inline — and the island's outside-tap dismissal.
         val onLongClick = MapLibreMap.OnMapLongClickListener { ll ->
-            layersOpen = false
+            s.layersOpen = false
+            s.searchOpen = false
             if (navigatingRef.value) return@OnMapLongClickListener false
-            destination = LatLon(ll.latitude, ll.longitude)
-            destinationName = "Dropped pin"
-            route = null
+            s.destination = LatLon(ll.latitude, ll.longitude)
+            s.destinationName = "Dropped pin"
+            settingsCollapsed = false
+            s.route = null
             true
         }
         val onClick = MapLibreMap.OnMapClickListener { ll ->
-            layersOpen = false
+            s.layersOpen = false
+            s.searchOpen = false
             val p = map.projection.toScreenLocation(ll)
             val tap = RectF(p.x - 22f, p.y - 22f, p.x + 22f, p.y + 22f)
             val idx = map.queryRenderedFeatures(tap, LAYER_CANDIDATES)
@@ -864,12 +770,16 @@ fun MapScreen(
     }
 
     fun stopNavigation() {
-        navigating = false
-        navProgress = null
+        s.navigating = false
+        s.navProgress = null
         // Arrival, or the Exit button. Either way stop mid-sentence rather than
         // finishing a prompt for a turn that no longer matters.
         navVoice.stop()
         retained.camTargetBearing = null
+        // The marker goes back to the fix now rather than on the next frame the
+        // loop runs: with the map parked, or the app away, that frame may be a
+        // while, and until it lands the marker would sit on the abandoned line.
+        retained.snappedAt = null
         // The line stays on the map after arrival (and after a stop); without
         // this it would keep the driven part greyed out with nothing following
         // it any more.
@@ -878,170 +788,43 @@ fun MapScreen(
     }
 
     fun startNavigation() {
-        val loc = myLocation ?: run {
-            error = "Waiting for your location…"
+        val loc = s.myLocation ?: run {
+            s.error = "Waiting for your location…"
             return
         }
-        camAuthority = CameraAuthority.reduce(camAuthority, CameraAuthority.Action.NavigationStarted)
+        s.camAuthority = CameraAuthority.reduce(s.camAuthority, CameraAuthority.Action.NavigationStarted)
         if (stats == null) {
-            TripTrackingService.start(context, destination?.lat, destination?.lon)
+            TripTrackingService.start(context, s.destination?.lat, s.destination?.lon)
         }
-        error = null
+        s.error = null
         // A fresh session hears its first turn immediately, whatever the
         // distance — the same rule the car has, and the reason it exists is
         // that silence after pressing Start is indistinguishable from a broken
         // voice.
         announcer.routeChanged()
-        val dest = destination
-        if (dest == null) {
-            // Round trip: the spin already fetched the loop with instructions.
-            if (route?.instructions?.isNotEmpty() == true) {
-                navigating = true
-            } else {
-                error = "No turn data for this loop — spin again with the routing server reachable"
-            }
-            return
-        }
-        rerouting = true
-        scope.launch {
-            try {
-                route = withContext(Dispatchers.IO) {
-                    RoutingClient.route(serverConfig, loc, dest, mode.ghProfile,
-                        Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
-                }
-                navigating = true
-            } catch (e: Exception) {
-                error = "Navigation failed: ${e.message}"
-            } finally {
-                rerouting = false
-            }
-        }
-    }
-
-    // Ambient speed-limit sign while just driving (not navigating). The whole
-    // policy — the prefetch throttle, the local snap and the three-miss clear —
-    // is SpeedLimitTracker's (shared/…/drive/), where it lives with its tests and
-    // is shared with the head unit. The I/O below is ours: commonMain has no
-    // Dispatchers, so the machine says a fetch is wanted and we perform it.
-    LaunchedEffect(navigating) {
-        // Crossing into or out of navigation invalidates whatever sign we hold;
-        // reset() says why, and keeps the prefetched area. Clear it and let the
-        // next snap re-establish it, the way the car has since it shipped
-        // (car/SpinScreen.kt's onStart).
-        //
-        // Guarded, because this effect also restarts whenever the composition
-        // is recreated — which is every return to the map — and the effect
-        // cannot tell that apart from a real crossing. Unguarded, the sign went
-        // blank on every trip to the Hub and stayed blank until the next
-        // prefetch and snap re-established it.
-        if (retained.limitResetForNavigating != navigating) {
-            retained.limitResetForNavigating = navigating
-            retained.limitState = SpeedLimitTracker.reset(retained.limitState)
-            retained.ambientSpeedLimitKmh = null
-        }
-        if (navigating) return@LaunchedEffect
-        TripTrackingService.lastFix.collect { fix ->
-            fix ?: return@collect
-            // Not just the machine's own floor: returning here is what also keeps
-            // a parked phone from prefetching.
-            if (fix.speedMps < SpeedLimitTracker.MIN_MPS) return@collect
-            val pos = LatLon(fix.lat, fix.lon)
-            val now = System.currentTimeMillis()
-            if (SpeedLimitTracker.needsWays(retained.limitState, pos, now) &&
-                speedLimitFetchJob?.isActive != true
-            ) {
-                // The refresh runs in its own coroutine. lastFix is a StateFlow
-                // and this collector is sequential, so awaiting a mirror *here*
-                // suspended the collector — and every fix that landed meanwhile
-                // was conflated away, so the snap below, the miss counter and
-                // the sign all stopped tracking the road for as long as Overpass
-                // took. A mirror having a slow ten seconds is normal; a posted
-                // limit that stops following the road for ten seconds is not.
-                // The isActive guard is what now stops two fetches overlapping,
-                // which is the job the inline await used to do by accident.
-                // Same fix as car/SpinScreen.kt's updateSpeedLimit.
-                retained.limitState = SpeedLimitTracker.fetchStarted(retained.limitState, now)
-                speedLimitFetchJob = scope.launch {
-                    // runCatching because this no longer runs inside the
-                    // collector: an exception escaping here would cancel
-                    // `scope`, i.e. every coroutine this screen owns, where
-                    // inline it only killed this one collector. speedLimitWays
-                    // now catches the SerializationException a busy Overpass's
-                    // HTML error page produces as well as the IOException — the
-                    // hazard SpeedCameras.near documents — so the runCatching is
-                    // belt and braces rather than the only guard it used to be.
-                    //
-                    // getOrNull, not getOrDefault(emptyList()): speedLimitWays
-                    // returns null for both of those and an empty list only for
-                    // an area with no tagged road. The tracker backs off on the
-                    // first and not on the second, and collapsing them here
-                    // would give that distinction away.
-                    val ways = runCatching {
-                        withContext(Dispatchers.IO) { RoadRoulette.speedLimitWays(pos) }
-                    }.getOrNull()
-                    retained.limitState = SpeedLimitTracker.withWays(retained.limitState, ways, pos)
-                }
-            }
-            retained.limitState = SpeedLimitTracker.onFix(
-                state = retained.limitState,
-                at = pos,
-                headingDeg = fix.bearingDeg?.toDouble(),
-                speedMps = fix.speedMps,
-            )
-            retained.ambientSpeedLimitKmh = retained.limitState.limitKmh
-        }
-    }
-
-    // Speed cameras + trajectcontrole sections from Overpass (OSM). Prefetched
-    // for a wide circle, refreshed only as you near the edge of what you hold,
-    // so there's no request per fix. A null result is a network blip: keep the
-    // markers we have and let CameraPrefetch's backoff decide when to try again,
-    // instead of flickering them off.
-    LaunchedEffect(Unit) {
-        // The cadence — the margin, the throttle and the backoff after a run of
-        // refusals — is CameraPrefetch's (shared/…/drive/), so the head unit
-        // keeps the same one. What stays here is the I/O and the two holders it
-        // fills.
-        //
-        // This used to hold `prefetch` in a coroutine-local, on the grounds
-        // that "this effect is keyed on Unit and never restarts, so a local has
-        // nothing to lose". That was wrong about the restart: Unit keeps it
-        // from restarting on a *recomposition*, but leaving the map disposes
-        // the composition outright, so every return re-ran it with a fresh
-        // State — re-fetching an area already held, and losing the backoff that
-        // exists to stop hammering a refusing mirror.
-        var prefetch = retained.cameraPrefetch
-        var fetchJob: Job? = null
-        TripTrackingService.lastFix.collect { fix ->
-            fix ?: return@collect
-            val pos = LatLon(fix.lat, fix.lon)
-            val now = System.currentTimeMillis()
-            if (CameraPrefetch.needsFetch(prefetch, pos, now) &&
-                fetchJob?.isActive != true
-            ) {
-                // Own coroutine, isActive guard, runCatching: same reasoning as
-                // the ambient limit above, and as car/NavScreen.kt:348-379,
-                // which is where this was diagnosed. This collector feeds the
-                // section machine, so suspending it also stalled the running
-                // average's own fix stream.
-                prefetch = CameraPrefetch.fetchStarted(prefetch, now)
-                retained.cameraPrefetch = prefetch
-                fetchJob = scope.launch {
-                    val result = runCatching {
-                        withContext(Dispatchers.IO) { SpeedCameras.near(pos) }
-                    }.getOrNull()
-                    prefetch = CameraPrefetch.fetched(prefetch, result, pos)
-                    retained.cameraPrefetch = prefetch
-                    // Only the markers are ours to fold in; a null result keeps
-                    // the ones we hold rather than flickering them off.
-                    if (result != null) {
-                        retained.speedCameras = result.cameras
-                        retained.speedSections = result.sections
+        // Which of the three cases this is lives in map/NavStart, with tests.
+        when (val start = navStart(s.destination, s.route)) {
+            NavStart.UseExistingRoute -> s.navigating = true
+            NavStart.NoTurnData ->
+                s.error = "No turn data for this loop — spin again with the routing server reachable"
+            is NavStart.FetchTo -> {
+                s.rerouting = true
+                scope.launch {
+                    try {
+                        s.route = fetchNavRoute(serverConfig, loc, start.destination, mode)
+                        s.navigating = true
+                    } catch (e: Exception) {
+                        s.error = "Navigation failed: ${e.message}"
+                    } finally {
+                        s.rerouting = false
                     }
                 }
             }
         }
     }
+
+    // The two Overpass prefetches, in MapHazardPrefetch.kt.
+    MapHazardPrefetch(s = s, retained = retained, scope = scope, snackbarHostState = snackbarHostState)
 
     // Push camera markers to the map. Separate from the main overlay render
     // because cameras change on the prefetch cadence, not per drawable-state flip.
@@ -1063,129 +846,17 @@ fun MapScreen(
         )
     }
 
-    // Circle member markers: every circle you're in, always — not just
-    // whichever one CirclesScreen last had open. A circle is the always-on
-    // relationship (docs/CIRCLES_AND_CONVOYS.md section 2); making the map go
-    // blank until you walk into another screen and pick one defeats the point
-    // of it, and the selection lived in memory, so every app restart lost it.
-    // Polled rather than socketed: a circle fix only changes once a minute or
-    // so server-side, so polling faster would just repeat the same row.
-    var circleFixes by remember { mutableStateOf<List<NamedMemberFix>>(emptyList()) }
-    LaunchedEffect(accountRiderId) {
-        if (accountRiderId.value.isBlank()) {
-            circleFixes = emptyList()  // signed out: nothing to ask the server for
-            return@LaunchedEffect
-        }
-        while (true) {
-            circleFixes = try {
-                withContext(Dispatchers.IO) { CircleFixes.othersFixes(accountRiderId) }
-            } catch (e: Exception) {
-                circleFixes // offline or server down; keep the last known positions
-            }
-            delay(CIRCLE_FIX_POLL_MS)
-        }
-    }
-    LaunchedEffect(mapOverlays, circleFixes) {
-        mapOverlays?.setCircleMembers(circleFixes)
-    }
+    // Circle member markers: the poll and the two draws, in MapCircleMembers.kt.
+    MapCircleMemberMarkers(
+        s = s,
+        accountRiderId = accountRiderId,
+        mapOverlays = mapOverlays,
+        fogView = fogView,
+        convoyPeers = convoyPeers,
+    )
 
-    // The fog scrim is a sibling View over the GL surface, so it covers the
-    // member and peer symbol layers too. Clear it around them, or the markers
-    // the map just drew stay invisible on any ground you haven't driven —
-    // which is most of where a circle member actually is.
-    LaunchedEffect(circleFixes, convoyPeers) {
-        fogView.peers = circleFixes.map { LatLon(it.fix.lat, it.fix.lon) } +
-            convoyPeers.values.map { LatLon(it.lat, it.lon) }
-        fogView.invalidate()
-    }
-
-    // Chime when a camera lies ahead, close, and we're over the posted limit —
-    // the one case worth interrupting for. The rule, the one-chime-per-camera
-    // latch and the wording are CameraWarner's (shared/…/drive/), where they live
-    // with their tests; what to do about a warning is ours.
-    val speedCamerasRef = rememberUpdatedState(retained.speedCameras)
-    val ambientLimitRef = rememberUpdatedState(retained.ambientSpeedLimitKmh)
-    val navProgressRef = rememberUpdatedState(navProgress)
-    val toneGen = remember {
-        runCatching { ToneGenerator(AudioManager.STREAM_NOTIFICATION, 90) }.getOrNull()
-    }
-    DisposableEffect(Unit) { onDispose { toneGen?.release() } }
-    LaunchedEffect(Unit) {
-        // Resumed for the same reason as the section machine: this is the
-        // one-warning-per-camera latch, and restarting it re-arms a camera the
-        // rider has already been warned about and already passed.
-        var warnerState = retained.warnerState
-        TripTrackingService.lastFix.collect { fix ->
-            fix ?: return@collect
-            // The ambient sign is the free-drive source. While navigating, the
-            // route's own posted limit is the authority and the ambient tracker
-            // is stopped — and now cleared, see the producer above — so a route
-            // segment with no maxspeed judges you against nothing instead of
-            // against the sign from wherever you set off.
-            val step = CameraWarner.onFix(
-                state = warnerState,
-                cameras = speedCamerasRef.value,
-                at = LatLon(fix.lat, fix.lon),
-                headingDeg = fix.bearingDeg?.toDouble(),
-                speedKmh = fix.speedMps * 3.6,
-                limitKmh = navProgressRef.value?.speedLimitKmh ?: ambientLimitRef.value,
-            )
-            warnerState = step.state
-            retained.warnerState = warnerState
-            when (val outcome = step.outcome) {
-                is CameraWarner.Outcome.Warn -> {
-                    toneGen?.startTone(ToneGenerator.TONE_PROP_BEEP2, 400)
-                    // The only trace that the chime fired. NavVoice logs the
-                    // spoken half, but that half is gated on the guidance
-                    // setting, so with speech off a replay had nothing at all to
-                    // grep for and a zero hit count meant "muted" and "never
-                    // warned" indistinguishably. Debug level: it is one line per
-                    // camera, latched to one per camera by CameraWarner itself.
-                    Log.d("DetourCameraWarn", "chime: ${outcome.text}")
-                    // A TONE_PROP_BEEP2 on the notification stream is inaudible on
-                    // a bar mount with earplugs in and wind noise — which is this
-                    // app's primary configuration. The head unit has spoken this
-                    // since it shipped and its comment says why
-                    // (car/NavScreen.kt's checkCameras). Register entry 15.
-                    //
-                    // No toast: the car's stands in for a visual the head unit has
-                    // no room for, and the phone's map already draws the camera
-                    // marker. The snackbarHostState this screen already owns is the
-                    // error channel; routing a routine hazard through it would
-                    // teach the rider to ignore errors.
-                    announceAloud(outcome.text)
-                }
-                CameraWarner.Outcome.Silent -> {}
-            }
-        }
-    }
-
-    // Average speed through a trajectcontrole: SectionAverageTracker's call now
-    // (shared/…/drive/), where the gate rules, the eight thresholds and the
-    // reasoning behind each live with their tests.
-    val speedSectionsRef = rememberUpdatedState(retained.speedSections)
-    LaunchedEffect(Unit) {
-        // Resumed, not restarted: this effect is keyed on Unit and so restarts
-        // on every return to the map, which used to throw away an in-progress
-        // section along with its entry time and accumulated distance.
-        var st = retained.sectionState
-        TripTrackingService.lastFix.collect { fix ->
-            fix ?: return@collect
-            st = SectionAverageTracker.onFix(
-                state = st,
-                sections = speedSectionsRef.value,
-                at = LatLon(fix.lat, fix.lon),
-                headingDeg = fix.bearingDeg?.toDouble(),
-                speedMps = fix.speedMps,
-                nowMs = System.currentTimeMillis(),
-            )
-            retained.sectionState = st
-            // Two states, one assignment source: they can no longer disagree
-            // across a recomposition. Collapsing them into one is stage 4's.
-            sectionAvgKmh = st.reading.averageKmh
-            sectionLimitKmh = st.reading.limitKmh
-        }
-    }
+    // The camera chime and the trajectcontrole section, in MapHazardAlerts.kt.
+    MapHazardAlerts(s = s, retained = retained, announceAloud = { announceAloud(it) })
 
     // Each fix only moves the targets; nothing touches the map here. This is
     // what lets the camera loop below run uninterrupted — the old code drove
@@ -1194,431 +865,148 @@ fun MapScreen(
     LaunchedEffect(liveFix, defaultZoom) {
         val fix = liveFix ?: return@LaunchedEffect
         retained.camTarget = LatLon(fix.lat, fix.lon)
-        if (fix.bearingDeg != null && fix.speedMps > 2.0) retained.camTargetBearing = fix.bearingDeg
+        // Only while there is no road to take the heading from: once the marker
+        // loop below is drawing on the route, that loop owns this target and
+        // writes the bearing of the segment it snapped to, which is the
+        // direction of travel without the fix's noise on a straight or its lag
+        // through a junction. `retained.snappedAt` is that loop's own answer
+        // rather than a second reading of the same question here — two effects
+        // deciding it apart is how the camera ends up with no writer at all.
+        // Off route, or not navigating, the fix is all there is — and below
+        // 2 m/s a reported bearing is noise, so the last one is held.
+        if (retained.snappedAt == null && fix.bearingDeg != null && fix.speedMps > 2.0) {
+            retained.camTargetBearing = fix.bearingDeg
+        }
         retained.camTargetZoom = NavEngine.cameraZoom(
             defaultZoom.toDouble(),
             fix.speedMps,
-            navProgress?.distanceToTurnMeters ?: Double.MAX_VALUE,
+            s.navProgress?.distanceToTurnMeters ?: Double.MAX_VALUE,
         )
     }
 
-    // The speedometer, eased per frame toward the display speed. Keyed on
-    // nothing: it runs for as long as the map is composed, so the number is
-    // always gliding rather than stepping once per fix. displaySpeedMps, not
-    // liveFix.speedMps — a paired OBD2 adapter refreshes it between GPS fixes.
-    val displaySpeedMps by TripTrackingService.displaySpeedMps.collectAsStateWithLifecycle()
-    val speedTarget = rememberUpdatedState(displaySpeedMps * 3.6)
-    LaunchedEffect(Unit) {
-        var lastNs = withFrameNanos { it }
-        while (true) {
-            val ns = withFrameNanos { it }
-            // Cap only guards a post-resume gap (the frame clock pauses while
-            // backgrounded); 0.25s ~= one tau, enough that heavy frame jank
-            // during fast motion no longer starves the ease. exp() form is
-            // stable at any dt, so this is a smoothness knob, not a safety one.
-            val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.25)
-            lastNs = ns
-            val target = speedTarget.value
-            val gap = target - retained.displaySpeedKmh
-            retained.displaySpeedKmh =
-                if (abs(gap) < SPEED_EPS_KMH) target
-                else retained.displaySpeedKmh + gap * (1.0 - exp(-dt / SPEED_TAU))
-        }
-    }
+    // The speedometer ease, and the camera + position-dot loops, in MapCamera.kt.
+    MapSpeedEase(retained = retained)
 
-    // The camera itself: one loop, one frame at a time, easing toward whatever
-    // the last fix asked for. Compose only produces frames while the activity is
-    // resumed, so this costs nothing with the screen off.
-    // `haveFix` is a key so that turning follow on before the first fix arrives
-    // still starts the loop once it does, instead of leaving it returned-out.
-    val haveFix = retained.camTarget != null || myLocation != null
-    LaunchedEffect(cameraActive, haveFix, mapLibreMap) {
-        val map = mapLibreMap ?: return@LaunchedEffect
-        if (!cameraActive) {
-            // Level back to north-up when we stop following.
-            map.cameraPosition.target?.let {
-                setCamera(map, it.latitude, it.longitude, map.cameraPosition.zoom, 0f)
-            }
-            return@LaunchedEffect
-        }
-        val start = retained.camTarget ?: myLocation ?: return@LaunchedEffect
-        var lat = start.lat
-        var lon = start.lon
-        var bearing = retained.camTargetBearing ?: 0f
-        var zoom = map.cameraPosition.zoom.takeIf { it > 1.0 }
-            ?: retained.camTargetZoom ?: defaultZoom.toDouble()
-        // Whether the camera has ever actually been pushed to the map. MapMotion.shouldPush
-        // needs only this as a "first frame" sentinel — it compares the eased lat/lon/zoom/
-        // bearing above against the target itself, not against a record of what was last
-        // applied — which is what stops the per-frame GL redraw + fog invalidate from
-        // running once the ease has settled and the target has stopped moving.
-        var neverPushed = true
-        var lastTargetLat = Double.NaN
-        var lastTargetLon = Double.NaN
-        var lastNs = withFrameNanos { it }
-        while (true) {
-            val ns = withFrameNanos { it }
-            // Clamp dt so a dropped frame or a stalled render doesn't teleport us.
-            val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.1)
-            lastNs = ns
+    MapCameraLoops(s = s, retained = retained)
+    MapPositionMarker(s = s, retained = retained)
 
-            // Where the vehicle is now, plus CAM_POS_TAU of lead. The lead is what
-            // cancels the ease's own steady-state error: a first-order lag driven at
-            // constant velocity settles v*tau behind its input, so aiming tau ahead
-            // leaves the camera on the true position instead of behind it.
-            // Re-read every frame: the fix effect rewrites it, and a null means
-            // no fix has set one yet, so the rider's current default applies.
-            val targetZoom = retained.camTargetZoom ?: defaultZoom.toDouble()
-            val f = liveFix
-            val camTargetNow = if (f != null) MapMotion.predict(
-                at = LatLon(f.lat, f.lon),
-                bearingDeg = f.bearingDeg,
-                speedMps = f.speedMps,
-                fixElapsedMs = f.elapsedRealtimeMs,
-                nowElapsedMs = SystemClock.elapsedRealtime(),
-                leadSeconds = CAM_POS_TAU,
-            ) else retained.camTarget
-            camTargetNow?.let { target ->
-                if (MapMotion.shouldSnap(LatLon(lat, lon), target)) {
-                    // Too far to be continuous motion — a resume from background, a
-                    // tunnel exit, a first fix after an outage. Easing across it would
-                    // sweep the camera, and MapLibre's tile requests, over everything
-                    // in between. Bearing and zoom re-anchor here too, so the whole
-                    // camera teleports as one instead of still rotating and zooming in
-                    // over their own time constants after a background-resume snap.
-                    lat = target.lat
-                    lon = target.lon
-                    bearing = retained.camTargetBearing ?: bearing
-                    zoom = targetZoom
-                } else {
-                    val a = 1.0 - exp(-dt / CAM_POS_TAU)
-                    lat += (target.lat - lat) * a
-                    lon += (target.lon - lon) * a
-                }
-            }
-            retained.camTargetBearing?.let { target ->
-                bearing = smoothBearing(
-                    bearing, target, (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat())
-            }
-            zoom += (targetZoom - zoom) * (1.0 - exp(-dt / CAM_ZOOM_TAU))
+    // Progress, arrival, reroute and the external display, in MapNavigation.kt.
+    MapNavigationSession(
+        s = s,
+        scope = scope,
+        announcer = announcer,
+        announceAloud = { announceAloud(it) },
+        onArrive = { stopNavigation() },
+    )
 
-            // Heading-up while moving: MapLibre bearing points the camera along
-            // travel, so the road you're on runs up the screen. The camera-move
-            // listener redraws the fog; the position dot is world-fixed and rides
-            // Push while the ease has not converged, or while the target itself is
-            // moving. The old test compared this frame's step against the last pushed
-            // value, which cannot tell a slow camera from a settled one: at 20 km/h a
-            // frame moves 0.09 m against a 0.14 m threshold, so the camera was pushed
-            // every third frame and stepped visibly. A parked map still does no work,
-            // because then the target is still and the camera has converged on it.
-            val targetMoved = camTargetNow != null &&
-                (camTargetNow.lat != lastTargetLat || camTargetNow.lon != lastTargetLon)
-            if (camTargetNow != null) {
-                lastTargetLat = camTargetNow.lat
-                lastTargetLon = camTargetNow.lon
-            }
-            val moved = MapMotion.shouldPush(
-                camLat = lat, camLon = lon, camZoom = zoom, camBearing = bearing,
-                tgtLat = camTargetNow?.lat ?: lat, tgtLon = camTargetNow?.lon ?: lon,
-                tgtZoom = targetZoom, tgtBearing = retained.camTargetBearing ?: bearing,
-                targetMoved = targetMoved,
-                neverPushed = neverPushed,
+    // The banner, its "then" chip, the bottom bar and the HUD's limit source all
+    // read one mapper call, so none of them formats a number of its own.
+    // derivedStateOf bounds how often that work happens, not which scopes
+    // recompose: the mapper runs — and the clock is read — once per progress
+    // tick rather than once per frame. This screen's body still recomposes per
+    // tick, as it already does for liveFix and retained.displaySpeedKmh.
+    val navState by remember(retained) {
+        derivedStateOf {
+            navStateFrom(
+                progress = s.navProgress,
+                navigating = s.navigating,
+                rerouting = s.rerouting,
+                ambientSpeedLimitKmh = retained.ambientSpeedLimitKmh,
+                nowMs = System.currentTimeMillis(),
+                // Named here rather than left to the mapper's own default:
+                // :shared cannot see NavPolicy, so that default is a second
+                // copy of the threshold and would drift without a word.
+                offRouteThresholdMeters = NavPolicy.OFF_ROUTE_METERS,
+                sep = Settings.decimalSeparatorChar(),
             )
-            if (moved) {
-                setCamera(map, lat, lon, zoom, bearing)
-                neverPushed = false
-            }
-        }
-    }
-
-    // The dot, interpolated per frame. It used to be re-placed only when a fix arrived,
-    // about once a second, at the raw fix position — so it stepped forward and the camera
-    // slid after it. Worst when the camera is parked (after a pan, with follow off, or
-    // with a spin result up), because then nothing is gliding underneath to mask it, which
-    // is why this loop is deliberately independent of cameraActive.
-    //
-    // The heading is eased here too, on its own accumulator rather than the camera loop's
-    // eased bearing — sharing would guarantee the two never diverge, but the camera loop
-    // returns early when !cameraActive, and a parked camera is exactly the case this loop
-    // exists to serve, so a shared bearing would freeze right when the marker still needs
-    // to turn. Measured on tools/mocklocation/routes/turn-circle.txt (45 km/h, 11.9 deg/s),
-    // sampling the icon's on-screen angle at 2.16 fps: its peak excursion from the resting
-    // angle fell from 43.1 to 12.8 deg, p90 from 8.7 to 2.8, and the standard deviation of
-    // the frame-to-frame change from 7.7 to 2.3. Excursion is the quantity that separates
-    // the two — the share of near-zero frame deltas does not, because a heading that tracks
-    // the map well is just as flat between samples as one that is held.
-    //
-    // setPosition writes one point into SRC_POSITION. render() rewrites eight sources
-    // including the route line, and doing *that* per frame is what makes a head unit
-    // crawl — see MapOverlays.setPosition's own note.
-    LaunchedEffect(mapOverlays, haveFix) {
-        val overlays = mapOverlays ?: return@LaunchedEffect
-        var lastLat = Double.NaN
-        var lastLon = Double.NaN
-        var pushedBearing: Float? = null
-        var markerBearing: Float? = null
-        var lastNs = withFrameNanos { it }
-        while (true) {
-            val ns = withFrameNanos { it }
-            // Same clamp as the camera loop: a dropped frame or a stalled render must not
-            // let one frame close the whole gap.
-            val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.1)
-            lastNs = ns
-            val f = liveFix ?: continue
-            val here = MapMotion.predict(
-                at = LatLon(f.lat, f.lon),
-                bearingDeg = f.bearingDeg,
-                speedMps = f.speedMps,
-                fixElapsedMs = f.elapsedRealtimeMs,
-                nowElapsedMs = SystemClock.elapsedRealtime(),
-                leadSeconds = 0.0,
-            )
-            retained.camTargetBearing?.let { target ->
-                markerBearing = smoothBearing(
-                    markerBearing, target, (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat())
-            }
-            // Named apart from the camera loop's own `bearing`, which is that loop's mutable
-            // accumulator rather than a snapshot — the two effects sit a screen apart in this
-            // file and reusing the name invites conflating them.
-            val easedBearing = markerBearing
-            val moved = here.lat != lastLat || here.lon != lastLon
-            // The gate covers the bearing as well as the position, or a vehicle stopped
-            // mid-rotation would ease its nose and never push it. CAM_BEARING_EPS_DEG keeps
-            // the standstill optimisation the position half already had: once the marker
-            // has settled, this loop goes quiet again.
-            val turned = easedBearing != null && (pushedBearing == null ||
-                bearingDelta(pushedBearing, easedBearing) > CAM_BEARING_EPS_DEG)
-            if (moved || turned) {
-                overlays.setPosition(here, easedBearing?.toDouble())
-                // Whatever the reason for the push, the bearing just drawn is this one, so
-                // that is what the next frame must compare against. Advancing it only on a
-                // `turned` push would leave the reference describing something no longer on
-                // screen, and cost a redundant push cycle the moment the vehicle stops.
-                pushedBearing = easedBearing
-            }
-            if (moved) {
-                // The fog reveals around the same interpolated position, or its hole
-                // trails the dot by the prediction lead — about 14 m at 100 km/h,
-                // snapping forward once a second. The invalidate is for the parked
-                // camera: while following, the camera-move listener below already
-                // redraws every frame, but parked nothing else would, and that is
-                // exactly when a lagging fog is most visible.
-                fogView.currentLocation = here
-                fogView.invalidate()
-                lastLat = here.lat
-                lastLon = here.lon
-            }
-        }
-    }
-
-    // Current speed for the external display when there's no route up —
-    // BleNavServer.send() below covers the navigating case on the same
-    // characteristic, so this only fires the other half of the time.
-    LaunchedEffect(navigating, liveFix) {
-        if (navigating) return@LaunchedEffect
-        val fix = liveFix ?: return@LaunchedEffect
-        BleNavServer.sendStats(context, currentSpeedKmh = fix.speedMps * 3.6)
-    }
-
-    // Follow the route while navigating: progress, arrival, reroute.
-    LaunchedEffect(navigating, liveFix, route) {
-        if (!navigating) return@LaunchedEffect
-        val fix = liveFix ?: return@LaunchedEffect
-        val r = route ?: return@LaunchedEffect
-        val pos = LatLon(fix.lat, fix.lon)
-        val progress = NavEngine.progress(r, pos) ?: return@LaunchedEffect
-        navProgress = progress
-        // Fade out the road already behind you. Cheap when it changes nothing —
-        // the overlay drops an update that wouldn't move the line (see
-        // MapOverlays.setDrivenFraction).
-        mapOverlays?.setDrivenFraction(progress.drivenFraction)
-        BleNavServer.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
-
-        // Same policy the head unit and iOS read, so the three surfaces cannot
-        // word one maneuver three ways.
-        announcer.onProgress(progress.nextInstruction, progress.distanceToTurnMeters)
-            ?.let { announceAloud(it) }
-
-        // Arrival and reroute are NavPolicy's call, shared with car/NavScreen.kt.
-        val dest = destination
-        val now = System.currentTimeMillis()
-        when (NavPolicy.decide(
-            progress = progress,
-            hasDestination = dest != null,
-            rerouting = rerouting,
-            lastRerouteMs = lastRerouteMs,
-            nowMs = now,
-        )) {
-            // Point-to-point only; loops end back at the start on their own.
-            NavPolicy.Decision.Arrived -> {
-                stopNavigation()
-                return@LaunchedEffect
-            }
-            // Off route → fresh route to the destination. Launched on the screen
-            // scope so the next GPS fix doesn't cancel the request; loops keep
-            // their drawn line (rerouting a loop would change the whole trip).
-            NavPolicy.Decision.Reroute -> {
-                val target = dest ?: return@LaunchedEffect // Reroute implies a destination
-                rerouting = true
-                lastRerouteMs = now
-                announceAloud(announcer.rerouting())
-                scope.launch {
-                    try {
-                        route = withContext(Dispatchers.IO) {
-                            RoutingClient.route(serverConfig, pos, target, mode.ghProfile,
-                                Settings.avoidHighways.value, Settings.avoidSmallRoads.value)
-                        }
-                        // Instruction indices belong to the old polyline; start
-                        // the new line's prompts from scratch.
-                        announcer.routeChanged()
-                    } catch (e: Exception) {
-                        // stay on the old line; retried after the cooldown
-                    } finally {
-                        rerouting = false
-                    }
-                }
-            }
-            NavPolicy.Decision.Continue -> {}
         }
     }
 
     fun spin() {
-        val loc = myLocation ?: run {
-            error = "Waiting for your location…"
+        val loc = s.myLocation ?: run {
+            s.error = "Waiting for your location…"
             fetchLocation()
             return
         }
-        spinJob = scope.launch {
-            spinning = true
-            error = null
+        s.spinJob = scope.launch {
+            s.spinning = true
+            s.error = null
             // The result gets framed on the map; a following camera would drag
             // it straight back to you before you could look at it. SpinStarted
             // parks without stamping the quiet window - see CameraAuthority.reduce:
             // that asymmetry is today's behaviour, kept deliberately.
-            camAuthority = CameraAuthority.reduce(camAuthority, CameraAuthority.Action.SpinStarted)
-            var serverError: String? = null
+            s.camAuthority = CameraAuthority.reduce(s.camAuthority, CameraAuthority.Action.SpinStarted)
             try {
-                // Bias destinations toward territory the fog hasn't uncovered.
-                val explored = withContext(Dispatchers.IO) { ExploredArea.load() }
-                if (mode.roundTrip) {
-                    // Prefer the self-hosted routing server (real road-following
-                    // loops, curviest of a few rolls); fall back to Overpass
-                    // sampling.
-                    val tripMeters = radiusKm * 1000.0
-                    var result: RouteResult? = null
-                    if (serverConfig.usable) {
-                        result = try {
-                            val rolls = coroutineScope {
-                                (1..CURVY_CANDIDATES).map {
-                                    async(Dispatchers.IO) {
-                                        runCatching {
-                                            val loop = RoutingClient.roundTrip(
-                                                serverConfig, loc, tripMeters, Random.nextLong(),
-                                                headingDeg = directionDeg?.toDouble(),
-                                                avoidSmallRoads = Settings.avoidSmallRoads.value)
-                                            // Scored here so it stays off the main
-                                            // thread with the request that produced it.
-                                            loop to Curviness.routeScore(
-                                                loop.polyline, loop.instructions)
-                                        }
-                                    }
-                                }.awaitAll()
-                            }
-                            val loops = rolls.mapNotNull { it.getOrNull() }
-                            if (loops.isEmpty()) {
-                                // Every roll failed the same way; report the first.
-                                val e = rolls.firstNotNullOfOrNull { it.exceptionOrNull() }
-                                if (e is CancellationException) throw e
-                                serverError = e?.message ?: e?.javaClass?.simpleName ?: "no route"
-                                null // fall back to Overpass below, but say why
-                            } else {
-                                loops.maxBy { it.second }.first
-                            }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            serverError = e.message ?: e.javaClass.simpleName
-                            null
+                // Producing the result lives in map/SpinRun, with its tests.
+                // What stays here is what a *screen* does with one: the buzz,
+                // the framing, and which var it lands in.
+                val outcome = runSpin(
+                    serverConfig, loc,
+                    SpinParams(mode, radiusKm, minRadiusKm, poiKind, directionDeg),
+                )
+                when (outcome) {
+                    is SpinOutcome.Loop -> {
+                        s.route = outcome.route
+                        s.destination = null
+                        s.destinationName = null
+                        outcome.warning?.let { s.error = it }
+                        // A spin result landing is the app's payoff moment; a
+                        // small buzz marks it without needing eyes on the screen.
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        mapLibreMap?.let {
+                            cameraForPoints(
+                                it, outcome.route.polyline + loc,
+                                FIT_PADDING_PX, fitBottomPaddingPx,
+                            )
                         }
                     }
-                    if (result == null) {
-                        val wps = RoundTripPlanner.plan(
-                            loc, tripMeters / 4.0, mode.highwayRegex,
-                            bearingDeg = directionDeg?.toDouble())
-                        result = RouteResult(
-                            polyline = listOf(loc) + wps + loc,
-                            waypoints = wps,
-                            distanceMeters = null,
-                        )
-                        if (serverError != null) {
-                            error = "Server route failed ($serverError) — approximate loop instead"
+                    is SpinOutcome.Candidates -> {
+                        s.candidates = outcome.candidates
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        mapLibreMap?.let {
+                            cameraForPoints(
+                                it, outcome.candidates.map { c -> c.destination } + loc,
+                                FIT_PADDING_PX, fitBottomPaddingPx,
+                            )
                         }
                     }
-                    route = result
-                    destination = null
-                    destinationName = null
-                    // A spin result landing is the app's payoff moment; a small
-                    // buzz marks it without needing eyes on the screen.
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    mapLibreMap?.let { cameraForPoints(it, result.polyline + loc, FIT_PADDING_PX, fitBottomPaddingPx) }
-                } else {
-                    val bearing = directionDeg?.toDouble()
-                    val minMeters = minRadiusKm.toDouble() * 1000.0
-                    val picks = withTimeout(30_000) {
-                        coroutineScope {
-                            (1..3).map {
-                                async(Dispatchers.IO) {
-                                    runCatching {
-                                        pickCandidate(
-                                            serverConfig, loc, radiusKm.toDouble() * 1000.0,
-                                            minMeters, mode, poiKind, bearing, explored)
-                                    }
-                                }
-                            }.awaitAll()
-                        }
-                    }
-                    val results = picks.mapNotNull { it.getOrNull() }
-                    if (results.isEmpty()) {
-                        throw picks.firstNotNullOfOrNull { it.exceptionOrNull() }
-                            ?: IOException("Failed to find a destination")
-                    }
-                    candidates = results
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    mapLibreMap?.let {
-                        cameraForPoints(it, results.map { c -> c.destination } + loc, FIT_PADDING_PX, fitBottomPaddingPx)
-                    }
+                    is SpinOutcome.Failed -> s.error = outcome.message
                 }
-            } catch (e: TimeoutCancellationException) {
-                // Don't let a fallback timeout hide why the own server failed.
-                error = serverError
-                    ?.let { "Server route failed ($it); fallback timed out too" }
-                    ?: if (mode.roundTrip && !serverConfig.usable) {
-                        "No routing server configured — public servers timed out"
-                    } else {
-                        "Road servers are slow right now — try again"
-                    }
-            } catch (e: CancellationException) {
-                throw e // user cancelled or screen left; finally still resets state
-            } catch (e: Exception) {
-                error = e.message ?: "Failed to find a road"
             } finally {
-                spinning = false
+                s.spinning = false
             }
         }
     }
 
+    /**
+     * Switch travel mode from the spin sheet, the one surface where every
+     * consequence of the choice is visible at once: the profile the route is
+     * built with, whether the spin produces a loop or a destination, and the
+     * range the slider covers.
+     *
+     * The radius is reset to the new mode's own default rather than carried
+     * over or clamped. The two ranges barely overlap (Car 5-100 km, Moto
+     * 30-400 km), so a carried-over value is either outside the new range
+     * entirely - a 25 km car radius is below Moto's 30 km floor, and the
+     * slider would render its thumb off the track - or a number that meant
+     * something different in the mode it was chosen in: for Moto the slider
+     * is total loop length, not a radius. A default is in range by
+     * construction and means what it says. `minRadiusKm` goes with it,
+     * because its own range is `0f..radiusKm`.
+     */
     fun selectMode(m: TravelMode) {
-        if (m == mode) return
+        // The rule about what a mode change invalidates lives in map/ModeSwitch,
+        // with its tests; null is the "already in that mode" no-op.
+        val next = modeSwitch(from = mode, to = m, hasSpinOffer = spinOffer != null)
+            ?: return
         Settings.setTripMode(m)
-        radiusKm = m.defaultKm
-        minRadiusKm = 0f
-        destination = null
-        destinationName = null
-        route = null
-        candidates = emptyList()
-        // A convoy spin's candidates are mode-specific too - a switch away
-        // must not leave a stale vote round on everyone's screen.
-        if (spinOffer != null) ConvoyLiveClient.clearSpinOffer()
+        radiusKm = next.radiusKm
+        minRadiusKm = next.minRadiusKm
+        s.destination = next.destination
+        s.destinationName = next.destinationName
+        s.route = next.route
+        s.candidates = next.candidates
+        if (next.clearSpinOffer) ConvoyLiveClient.clearSpinOffer()
     }
 
     Scaffold(
@@ -1638,29 +1026,70 @@ fun MapScreen(
             )
 
             // The banner drops in from the top edge when navigation starts; the
-            // toolbar fades back once it ends.
-            AnimatedVisibility(
-                visible = navigating,
-                enter = slideInVertically { -it } + fadeIn(),
-                exit = slideOutVertically { -it } + fadeOut(),
-                modifier = Modifier
+            // toolbar fades back once it ends. The speed island rides in the
+            // same column, under the banner rather than beside it, so the two
+            // can never overlap and the island slides down as the banner
+            // arrives instead of being drawn through by it.
+            Column(
+                Modifier
                     .align(Alignment.TopCenter)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(12.dp),
             ) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                AnimatedVisibility(
+                    visible = s.navigating,
+                    enter = slideInVertically { -it } + fadeIn(),
+                    exit = slideOutVertically { -it } + fadeOut(),
                 ) {
-                    NavigationBanner(progress = navProgress, rerouting = rerouting,
-                        modifier = Modifier.fillMaxWidth())
-                    ThenPill(navProgress)
+                    NavigationBanner(navState, Modifier.fillMaxWidth())
+                }
+                // Speed, the posted limit and the trajectcontrole average, in
+                // one island at the top-left — isHome.html's left:14/top:44,
+                // widened so the average keeps its slot.
+                //
+                // Idle, it sits level with the top chrome's right-hand rail,
+                // which needs no offset at all: both are at the chrome's own
+                // 12 dp padding and nothing else, and everything that chrome
+                // draws — the convoy pill included — is End-aligned, so nothing
+                // of it shares this corner. The 50 dp this used to add was the
+                // search pill's height plus the gap under it, and the pill has
+                // moved into the home sheet. Navigating, the banner above has
+                // already pushed the island clear and it only needs the gap.
+                //
+                // Drawn unconditionally. The standstill fade — "stopping at a
+                // light fades the dial out" — is deliberately gone: a parked map
+                // now keeps its instruments, as the head unit always has. See
+                // the divergence register's entry 18.
+                Column(
+                    Modifier.padding(top = if (s.navigating) 10.dp else 0.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    SpeedHud(
+                        state = speedHudStateFrom(
+                            speedKmh = retained.displaySpeedKmh,
+                            limitKmh = navState.speedLimitKmh,
+                            averageKmh = retained.sectionState.reading.averageKmh,
+                            averageLimitKmh = retained.sectionState.reading.limitKmh,
+                            // Threshold left at its default: it is
+                            // SpeedLimitTracker.OVER_LIMIT_TOLERANCE_KMH, the
+                            // one the car dial and the trip recorder compare
+                            // against too, so naming it here would only be a
+                            // second place for it to drift.
+                        ),
+                    )
+                    // Diagnostics: an adapter that fed this trip and has since
+                    // dropped. Obd2Connection never resets lastDataAtMs, hence
+                    // the shared after-the-start test rather than a per-trip
+                    // accumulator.
+                    Obd2SignalLostLabel(
+                        lost = obd2FedThisTrip(stats?.startTimeMs, obd2LastDataAtMs) &&
+                            obd2State != Obd2ConnectionState.CONNECTED,
+                    )
                 }
             }
             AnimatedVisibility(
-                visible = !navigating,
+                visible = !s.navigating,
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier
@@ -1668,21 +1097,18 @@ fun MapScreen(
                     .fillMaxWidth(),
             ) {
                 MapTopChrome(
-                    followMe = camAuthority.following,
+                    followMe = s.camAuthority.following,
                     fogEnabled = fogEnabled,
-                    username = accountUsername,
-                    convoyName = if (convoyConnected) convoyName else null,
-                    layersOpen = layersOpen,
-                    onLayersOpenChange = { layersOpen = it },
+                    convoyName = if (convoyConnected) s.convoyName else null,
+                    layersOpen = s.layersOpen,
+                    onLayersOpenChange = { s.layersOpen = it },
                     onToggleFollow = {
-                        camAuthority = CameraAuthority.reduce(
-                            camAuthority,
+                        s.camAuthority = CameraAuthority.reduce(
+                            s.camAuthority,
                             CameraAuthority.Action.FollowToggled,
                         )
                     },
-                    onSearch = { searchOpen = true },
                     onToggleFog = { Settings.setFogEnabled(!fogEnabled) },
-                    onOpenHub = onOpenHub,
                     modifier = Modifier
                         .statusBarsPadding()
                         .padding(12.dp),
@@ -1698,7 +1124,11 @@ fun MapScreen(
             // carries positions and votes but drops voice frames, so a button
             // shown here would transmit into nothing and read as a bug.
             AnimatedVisibility(
-                visible = Features.pushToTalk && convoyConnected && activeConvoyId != null,
+                visible = pushToTalkShown(
+                    featureEnabled = Features.pushToTalk,
+                    convoyConnected = convoyConnected,
+                    hasActiveConvoy = activeConvoyId != null,
+                ),
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp),
@@ -1706,279 +1136,122 @@ fun MapScreen(
                 PushToTalkButton(talking = convoyTalking.isNotEmpty())
             }
 
-            Column(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    // Unconditional since the mode bar left: nothing else in this
-                    // Scaffold consumes the gesture inset any more. Correct for all
-                    // three occupants of this Column - the nav bar always wanted it,
-                    // and the candidates card and the dock were relying on the mode
-                    // bar this change removed (#70).
-                    .navigationBarsPadding()
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                // Ending a trip used to mean expanding the spin card and hunting
-                // for a button. It now sits here whatever else is on screen, on
-                // the opposite side from the speed you are looking at anyway.
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    // Always in the row (zero-sized when hidden) so SpaceBetween
-                    // keeps the speed HUD pinned to the end either way.
-                    AnimatedVisibility(
-                        visible = stats != null,
-                        enter = scaleIn() + fadeIn(),
-                        exit = scaleOut() + fadeOut(),
-                    ) {
-                        EndTripButton(onClick = { TripTrackingService.stop(context) })
-                    }
-                    // Stays up while the eased number winds back down, so
-                    // stopping at a light fades the dial out instead of
-                    // snatching it away mid-count.
-                    liveFix?.takeIf { it.speedMps >= 1.4 || retained.displaySpeedKmh >= 2.0 }?.let {
-                        Column(
-                            horizontalAlignment = Alignment.End,
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            SpeedHud(
-                                speedKmh = retained.displaySpeedKmh,
-                                limitKmh = if (navigating) navProgress?.speedLimitKmh
-                                    else retained.ambientSpeedLimitKmh,
-                                averageKmh = sectionAvgKmh,
-                                averageLimitKmh = sectionLimitKmh,
-                            )
-                            // Diagnostics: an adapter that fed this trip and has
-                            // since dropped. Derived from timestamps, not a
-                            // per-trip accumulator — clears itself on reconnect.
-                            // lastDataAtMs is never reset by Obd2Connection, so
-                            // this must be data seen *after* the trip started —
-                            // a previous trip's adapter that has since been
-                            // unplugged is not this trip's signal to lose.
-                            val obd2FedThisTrip = stats?.let { s ->
-                                obd2LastDataAtMs?.let { it > s.startTimeMs }
-                            } == true
-                            Obd2SignalLostLabel(
-                                lost = obd2FedThisTrip &&
-                                    obd2State != Obd2ConnectionState.CONNECTED,
-                            )
-                        }
-                    }
-                }
-
-                // The exiting card still composes for a few frames after `stats`
-                // goes null; keep the last value so it animates out with content.
-                val shownStats = remember { mutableStateOf(stats) }
-                if (stats != null) shownStats.value = stats
-                AnimatedVisibility(
-                    visible = stats != null,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut(),
-                ) {
-                    shownStats.value?.let { ActiveTripCard(it) }
-                }
-
-                // Shortcut chips: one-tap a saved place to set it as destination,
-                // or save the pin you just dropped. Hidden while navigating.
-                AnimatedVisibility(
-                    visible = !navigating && (savedPlaces.isNotEmpty() || destination != null),
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut(),
-                ) {
-                    ShortcutChips(
-                        places = savedPlaces,
-                        canSavePin = destination != null,
-                        onPick = { p ->
-                            destination = p.location
-                            destinationName = p.name
-                            route = null
-                            camAuthority = CameraAuthority.reduce(
-                                camAuthority,
-                                CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
-                            )
-                            mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
-                                LatLng(p.location.lat, p.location.lon), 14.0), 600)
-                        },
-                        onSavePin = { destination?.let { savePinTarget = it } },
+            MapBottomSlot(
+                stats = stats,
+                onEndTrip = { TripTrackingService.stop(context) },
+                rideToggle = SheetToggle(s.rideSheetExpanded) {
+                    s.rideSheetExpanded = !s.rideSheetExpanded
+                },
+                savedPlaces = savedPlaces,
+                destination = s.destination,
+                destinationName = s.destinationName,
+                route = s.route,
+                myLocation = s.myLocation,
+                serverConfig = serverConfig,
+                username = accountUsername,
+                onOpenHub = onOpenHub,
+                searchOpen = s.searchOpen,
+                onSearchOpenChange = { s.searchOpen = it },
+                onPickDestination = { r ->
+                    s.destination = r.location
+                    s.destinationName = r.name
+                    settingsCollapsed = false
+                    s.route = null
+                    s.camAuthority = CameraAuthority.reduce(
+                        s.camAuthority,
+                        CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
                     )
-                }
-
-                // One slot, four occupants; animate the handover instead of
-                // hard-swapping so the bottom of the screen stops popping.
-                val bottomCard = when {
-                    navigating -> BottomCard.NAV
-                    displayCandidates.isNotEmpty() -> BottomCard.CANDIDATES
-                    settingsCollapsed -> BottomCard.COLLAPSED
-                    else -> BottomCard.EXPANDED
-                }
-                // Same trick as shownStats: the exiting candidates pane must
-                // not render an empty card after a cancel clears the list.
-                val shownCandidates = remember { mutableStateOf(displayCandidates) }
-                if (displayCandidates.isNotEmpty()) shownCandidates.value = displayCandidates
-                AnimatedContent(
-                    targetState = bottomCard,
-                    transitionSpec = {
-                        (fadeIn(tween(200)) + slideInVertically(tween(200)) { it / 10 })
-                            .togetherWith(fadeOut(tween(120)))
-                    },
-                    label = "bottomCard",
-                ) { card ->
-                    when (card) {
-                        BottomCard.NAV -> NavigationBottomBar(
-                            progress = navProgress,
-                            offRoute = (navProgress?.offRouteMeters ?: 0.0) >
-                                NavPolicy.OFF_ROUTE_METERS,
-                            onExit = { stopNavigation() },
-                        )
-                        BottomCard.CANDIDATES -> CandidatesCard(
-                            candidates = shownCandidates.value,
-                            onPick = { index, c ->
-                                if (spinOffer != null) ConvoyLiveClient.sendSpinVote(index) else choose(c)
-                            },
-                            onReroll = { candidates = emptyList(); spin() },
-                            onCancel = {
-                                candidates = emptyList()
-                                if (spinOffer != null) ConvoyLiveClient.clearSpinOffer()
-                            },
-                            // Non-null only once a spin has actually been shared - that's
-                            // also what tells the card to show votes instead of Reroll.
-                            convoyVotes = spinOffer?.let { spinVotes },
-                            members = activeConvoyMembers,
-                            onShare = if (activeConvoyId != null && spinOffer == null && candidates.isNotEmpty()) {
-                                { ConvoyLiveClient.sendSpinOffer(candidates.asSpinCandidates()) }
-                            } else null,
-                            // The sharer's button only: closing the round is
-                            // one device's call, same reason the auto-commit
-                            // above is.
-                            onGoWithLead = spinOffer?.takeIf { it.fromMe }?.let { offer ->
-                                {
-                                    ConvoyLiveClient.sendSpinOffer(listOf(
-                                        offer.candidates[
-                                            ConvoyLiveClient.currentLeadIndex(offer.candidates.size)]))
-                                }
-                            },
-                        )
-                        BottomCard.COLLAPSED -> SpinDock(
-                            mode = mode,
-                            radiusKm = radiusKm,
-                            directionDeg = directionDeg,
-                            spinning = spinning,
-                            destination = destination,
-                            route = route,
-                            origin = myLocation,
-                            inAppAvailable = serverConfig.usable &&
-                                (destination != null ||
-                                    route?.instructions?.isNotEmpty() == true),
-                            onSpin = { if (spinning) spinJob?.cancel() else spin() },
-                            onExpand = { settingsCollapsed = false },
-                            onNavigateInApp = { startNavigation() },
-                            onNavigate = {
-                                if (stats == null) {
-                                    TripTrackingService.start(context, destination?.lat, destination?.lon)
-                                }
-                            },
-                            onSwitchMode = { m ->
-                                selectMode(m)
-                                Settings.incrementModeSwipesUsed()
-                            },
-                            switchBlockedReason = switchBlockedReason,
-                            // Not via `error`: LaunchedEffect(error) re-keys on
-                            // value, so a second identical refusal in a row would
-                            // raise no snackbar at all. It also renders as a red
-                            // error line inside SpinSheet, which a refusal is not.
-                            onSwitchBlocked = { reason ->
-                                scope.launch {
-                                    // Replace rather than queue: several refused
-                                    // swipes in a row are one situation, not a
-                                    // backlog of messages to sit through.
-                                    snackbarHostState.currentSnackbarData?.dismiss()
-                                    snackbarHostState.showSnackbar(reason)
-                                }
-                            },
-                            hintRequest = hintRequest,
-                            hintVariant = ModeSwipePolicy.HintVariant.of(swipeHintVariantName),
-                            onHintPlayed = { hintRequest = false },
-                        )
-                        BottomCard.EXPANDED -> SpinSheet(
-                            mode = mode,
-                            radiusKm = radiusKm,
-                            onRadiusChange = { radiusKm = it },
-                            minRadiusKm = minRadiusKm,
-                            onMinRadiusChange = { minRadiusKm = it },
-                            poiKind = poiKind,
-                            onPoiKindChange = { poiKind = it },
-                            directionDeg = directionDeg,
-                            onDirectionChange = { directionDeg = it },
-                            spinning = spinning,
-                            error = error,
-                            route = route,
-                            destinationName = destinationName,
-                            destination = destination,
-                            origin = myLocation,
-                            stats = stats,
-                            inAppAvailable = serverConfig.usable &&
-                                (destination != null ||
-                                    route?.instructions?.isNotEmpty() == true),
-                            onSpin = { if (spinning) spinJob?.cancel() else spin() },
-                            onCollapse = { settingsCollapsed = true },
-                            onNavigateInApp = { startNavigation() },
-                            onNavigate = {
-                                if (stats == null) {
-                                    TripTrackingService.start(context, destination?.lat, destination?.lon)
-                                }
-                            },
-                            onTrack = {
-                                TripTrackingService.start(context, destination?.lat, destination?.lon)
-                            },
-                        )
+                    mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
+                        LatLng(r.location.lat, r.location.lon), 14.0), 800)
+                },
+                onOpenRoutes = onOpenRoutes,
+                onOpenSocial = onOpenSocial,
+                onPickPlace = { p ->
+                    s.destination = p.location
+                    s.destinationName = p.name
+                    settingsCollapsed = false
+                    s.route = null
+                    s.camAuthority = CameraAuthority.reduce(
+                        s.camAuthority,
+                        CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
+                    )
+                    mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
+                        LatLng(p.location.lat, p.location.lon), 14.0), 600)
+                },
+                onSavePin = { s.destination?.let { s.savePinTarget = it } },
+                bottomCard = bottomCard,
+                navState = navState,
+                onExitNavigation = { stopNavigation() },
+                displayCandidates = visibleCandidates,
+                // Non-null only once a spin has actually been shared.
+                convoyVotes = spinOffer?.let { spinVotes },
+                activeConvoyMembers = activeConvoyMembers,
+                onPickCandidate = { index, c ->
+                    if (spinOffer != null) ConvoyLiveClient.sendSpinVote(index) else choose(c)
+                },
+                onReroll = { s.candidates = emptyList(); spin() },
+                onCancelCandidates = {
+                    s.candidates = emptyList()
+                    if (spinOffer != null) ConvoyLiveClient.clearSpinOffer()
+                },
+                onShare = if (activeConvoyId != null && spinOffer == null && s.candidates.isNotEmpty()) {
+                    { ConvoyLiveClient.sendSpinOffer(s.candidates.asSpinCandidates()) }
+                } else null,
+                onGoWithLead = spinOffer?.takeIf { it.fromMe }?.let { offer ->
+                    {
+                        ConvoyLiveClient.sendSpinOffer(listOf(
+                            offer.candidates[
+                                ConvoyLiveClient.currentLeadIndex(offer.candidates.size)]))
                     }
-                }
-            }
+                },
+                mode = mode,
+                // A refusal goes to the snackbar, not to `error`: that field
+                // renders as a red line inside the sheet, which a "not right
+                // now" is not, and its LaunchedEffect re-keys on value, so a
+                // second identical refusal in a row would raise nothing at
+                // all. Replace rather than queue - two refused taps are one
+                // situation, not a backlog to sit through.
+                onSelectMode = { m ->
+                    // Navigation and an open candidate round need no entry
+                    // here: both replace the spin sheet with a different card
+                    // in the same slot, so the control is not on screen.
+                    val blocked = ModeSwipePolicy.blockedReason(
+                        spinning = s.spinning,
+                        tracking = stats != null,
+                    )
+                    if (blocked == null) selectMode(m) else scope.launch {
+                        snackbarHostState.currentSnackbarData?.dismiss()
+                        snackbarHostState.showSnackbar(blocked)
+                    }
+                },
+                radiusKm = radiusKm,
+                onRadiusChange = { radiusKm = it },
+                minRadiusKm = minRadiusKm,
+                onMinRadiusChange = { minRadiusKm = it },
+                poiKind = poiKind,
+                onPoiKindChange = { poiKind = it },
+                directionDeg = directionDeg,
+                onDirectionChange = { directionDeg = it },
+                spinning = s.spinning,
+                error = s.error,
+                onSpin = { if (s.spinning) s.spinJob?.cancel() else spin() },
+                onExpand = { settingsCollapsed = false },
+                onCollapse = { settingsCollapsed = true },
+                onNavigateInApp = { startNavigation() },
+                onNavigate = {
+                    if (stats == null) {
+                        TripTrackingService.start(context, s.destination?.lat, s.destination?.lon)
+                    }
+                },
+                onTrack = {
+                    TripTrackingService.start(context, s.destination?.lat, s.destination?.lon)
+                },
+            )
         }
     }
 
-    if (showBgLocationDisclosure) {
-        BackgroundLocationDisclosure(
-            onAllow = {
-                showBgLocationDisclosure = false
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    bgLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-                }
-            },
-            onDismiss = { showBgLocationDisclosure = false },
-        )
-    }
+    // The two dialogs and the state they read live together in MapDialogs.kt;
+    // this screen just says when they are up.
+    MapScreenDialogs(s = s, bgLocationLauncher = bgLocationLauncher)
 
-    savePinTarget?.let { target ->
-        SavePinDialog(
-            suggestedName = destinationName?.takeIf { it != "Dropped pin" } ?: "",
-            onSave = { name ->
-                SavedPlaces.add(name, target)
-                savePinTarget = null
-            },
-            onDismiss = { savePinTarget = null },
-        )
-    }
-
-    if (searchOpen) {
-        SearchDialog(
-            near = myLocation,
-            onPick = { r ->
-                searchOpen = false
-                destination = r.location
-                destinationName = r.name
-                route = null
-                camAuthority = CameraAuthority.reduce(
-                    camAuthority,
-                    CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
-                )
-                mapLibreMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(
-                    LatLng(r.location.lat, r.location.lon), 14.0), 800)
-            },
-            onDismiss = { searchOpen = false },
-        )
-    }
 }

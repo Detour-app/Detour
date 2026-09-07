@@ -107,6 +107,11 @@ stage 3 would make the structure axis wait on Xcode.
   decides whether to show it. If this stage makes the tracker emit "no section" in order to hide
   a chip, it has made entry 18's decision by accident. Whether the car's HUD fades like the
   phone's is a separate one-line product answer where *"leave both"* is defensible.
+
+  > **Entry 18 has since been resolved** — RULING D5-2 in
+  > `docs/refactor/mapscreen/15-divergence-register.md` § 18: the phone draws the HUD
+  > unconditionally, as the car does, so *"leave both"* is no longer the open answer. The
+  > constraint on this stage is unchanged — the tracker must still not decide visibility.
 - **The car HUD's other four readouts.** Entry 11 records the real concern — the head unit is
   already at speed, posted limit, ETA card and action strip, and a fifth readout at arm's length
   may be too much. Decision 2 settled *that the car gets the average*; it did not redesign the

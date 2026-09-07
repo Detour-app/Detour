@@ -29,9 +29,6 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -116,16 +113,22 @@ private val MAP_FILTER_DARK = ColorFilter.colorMatrix(
     ColorMatrix().apply { setToSaturation(0.5f) },
 )
 
+/**
+ * The map panel behind a trip card. `null` while the snapshotter is still
+ * working, a failure once it has given up — a plain nullable collapsed those
+ * two into one blank preview, which is how a dead Share button ended up with
+ * nothing on screen to explain it.
+ */
 @Composable
 fun rememberTripCardMapSnapshot(
     cardData: CardData,
     dark: Boolean,
     widthPx: Int,
     heightPx: Int,
-): State<TripCardMapSnapshot?> {
+): State<Result<TripCardMapSnapshot>?> {
     val context = LocalContext.current
     val state = remember(cardData, dark, widthPx, heightPx) {
-        mutableStateOf<TripCardMapSnapshot?>(null)
+        mutableStateOf<Result<TripCardMapSnapshot>?>(null)
     }
 
     DisposableEffect(cardData, dark, widthPx, heightPx) {
@@ -151,9 +154,11 @@ fun rememberTripCardMapSnapshot(
         val snapshotter = MapSnapshotter(context, options)
         snapshotter.start(
             { snapshot ->
-                state.value = TripCardMapSnapshot(snapshot.bitmap.asImageBitmap(), snapshot)
+                state.value = Result.success(
+                    TripCardMapSnapshot(snapshot.bitmap.asImageBitmap(), snapshot),
+                )
             },
-            { state.value = null },
+            { message -> state.value = Result.failure(IOException(message.orEmpty())) },
         )
         onDispose { snapshotter.cancel() }
     }
@@ -163,8 +168,9 @@ fun rememberTripCardMapSnapshot(
 
 /**
  * Renders [cardData] offscreen and returns the captured bitmap once ready.
- * `null` on the first frame (nothing captured yet) — callers gate the actual
- * share on this becoming non-null.
+ * `null` on the first frame (nothing captured yet), a failure once the map
+ * behind the card could not be drawn — callers gate the actual share on a
+ * success and have something to say for the other two.
  */
 @Composable
 fun rememberTripCardBitmap(
@@ -173,20 +179,23 @@ fun rememberTripCardBitmap(
     dark: Boolean,
     trimmed: Boolean,
     layout: CardLayout,
-): State<ImageBitmap?> {
+): State<Result<ImageBitmap>?> {
     val (mapWidthPx, mapHeightPx) = when (layout) {
         CardLayout.STANDARD -> (CARD_WIDTH_PX - 96) to 700
         CardLayout.MINIMAL -> CARD_WIDTH_PX to CARD_HEIGHT_PX
         CardLayout.POSTER -> (CARD_WIDTH_PX - 80) to 900
     }
-    val mapSnapshot = rememberTripCardMapSnapshot(
+    val mapResult = rememberTripCardMapSnapshot(
         cardData = cardData,
         dark = dark,
         widthPx = mapWidthPx,
         heightPx = mapHeightPx,
     ).value
+    val mapSnapshot = mapResult?.getOrNull()
     val needsMap = cardData.trimmedLatLon.isNotEmpty()
-    val bitmapState = remember(cardData, routeColorHex, dark, trimmed, layout) { mutableStateOf<ImageBitmap?>(null) }
+    val bitmapState = remember(cardData, routeColorHex, dark, trimmed, layout) {
+        mutableStateOf<Result<ImageBitmap>?>(null)
+    }
     val graphicsLayer = rememberGraphicsLayer()
     val density = Density(density = 1f) // 1px == 1px: the card is exported at a fixed pixel size.
 
@@ -231,15 +240,25 @@ fun rememberTripCardBitmap(
         }
     }
 
-    LaunchedEffect(cardData, routeColorHex, dark, trimmed, layout, mapSnapshot) {
+    LaunchedEffect(cardData, routeColorHex, dark, trimmed, layout, mapResult) {
         bitmapState.value = null
-        if (needsMap && mapSnapshot == null) return@LaunchedEffect
+        if (needsMap) {
+            // The map is most of the card, so a snapshot that failed fails the
+            // card too — rendering the leftover frame would export a blank
+            // panel and call it a trip card.
+            val failure = mapResult?.exceptionOrNull()
+            if (failure != null) {
+                bitmapState.value = Result.failure(failure)
+                return@LaunchedEffect
+            }
+            if (mapSnapshot == null) return@LaunchedEffect
+        }
 
         // The draw phase above needs at least one composition/layout/draw
         // pass to have run before the layer holds anything; a single
         // withFrameNanos wait is enough since the Box is already in the tree.
         androidx.compose.runtime.withFrameNanos { }
-        bitmapState.value = graphicsLayer.toImageBitmap()
+        bitmapState.value = Result.success(graphicsLayer.toImageBitmap())
     }
 
     return bitmapState
@@ -274,7 +293,10 @@ fun TripCardShareDialog(trip: Trip, points: List<LatLon>?, onDismiss: () -> Unit
     val routeColorHex = RouteColors.hex(routeColor, dark)
 
     val cardData = points?.let { pts -> remember(pts, fullRoute) { TripCardGeometry.build(trip, pts, full = fullRoute) } }
-    val bitmap = cardData?.let { rememberTripCardBitmap(it, routeColorHex, dark = dark, trimmed = !fullRoute, layout = layout).value }
+    val rendered = cardData?.let {
+        rememberTripCardBitmap(it, routeColorHex, dark = dark, trimmed = !fullRoute, layout = layout).value
+    }
+    val bitmap = rendered?.getOrNull()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -287,38 +309,19 @@ fun TripCardShareDialog(trip: Trip, points: List<LatLon>?, onDismiss: () -> Unit
                     points == null -> Text("Loading route…")
                     error != null -> Text(error!!, color = MaterialTheme.colorScheme.error)
                     else -> {
-                        if (bitmap != null) {
-                            Image(
-                                bitmap = bitmap,
-                                contentDescription = "Trip card preview",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(CARD_WIDTH_PX.toFloat() / CARD_HEIGHT_PX)
-                                    .clip(RoundedCornerShape(12.dp)),
-                            )
-                            Spacer(Modifier.height(16.dp))
-                        }
-                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                            CardLayout.entries.forEachIndexed { index, l ->
-                                SegmentedButton(
-                                    selected = layout == l,
-                                    onClick = { layout = l },
-                                    shape = SegmentedButtonDefaults.itemShape(index, CardLayout.entries.size),
-                                    label = { Text(l.label) },
-                                )
-                            }
-                        }
+                        TripCardPreview(rendered)
+                        Spacer(Modifier.height(16.dp))
+                        ChoiceRow(
+                            options = CardLayout.entries.map { it.label },
+                            selectedIndex = CardLayout.entries.indexOf(layout),
+                            onSelect = { layout = CardLayout.entries[it] },
+                        )
                         Spacer(Modifier.height(8.dp))
-                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                            listOf("Light" to false, "Dark" to true).forEachIndexed { index, (label, isDark) ->
-                                SegmentedButton(
-                                    selected = dark == isDark,
-                                    onClick = { darkOverride = isDark },
-                                    shape = SegmentedButtonDefaults.itemShape(index, 2),
-                                    label = { Text(label) },
-                                )
-                            }
-                        }
+                        ChoiceRow(
+                            options = listOf("Light", "Dark"),
+                            selectedIndex = if (dark) 1 else 0,
+                            onSelect = { darkOverride = it == 1 },
+                        )
                         Spacer(Modifier.height(8.dp))
                         if (!fullRoute) Text("Route trimmed near start/end for privacy.")
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -353,6 +356,34 @@ fun TripCardShareDialog(trip: Trip, points: List<LatLon>?, onDismiss: () -> Unit
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/**
+ * The preview slot: the rendered card, or why it is not there. A failed map
+ * snapshot used to leave this blank next to a Share button that stayed
+ * greyed out, with nothing on screen saying which of the two had happened.
+ */
+@Composable
+private fun TripCardPreview(rendered: Result<ImageBitmap>?) {
+    val bitmap = rendered?.getOrNull()
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = "Trip card preview",
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(CARD_WIDTH_PX.toFloat() / CARD_HEIGHT_PX)
+                .clip(RoundedCornerShape(12.dp)),
+        )
+    } else if (rendered?.isFailure == true) {
+        Text(
+            "The map for this card could not be drawn — check your connection, " +
+                "then pick a different layout or theme.",
+            color = MaterialTheme.colorScheme.error,
+        )
+    } else {
+        Text("Rendering preview…")
+    }
 }
 
 /** Matches iOS's `#0B1220` dark / white light pair (`TripCardRenderer.swift`),

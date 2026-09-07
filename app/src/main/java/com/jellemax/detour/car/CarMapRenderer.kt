@@ -27,6 +27,7 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
 import com.jellemax.detour.map.MapMotion
@@ -283,8 +284,15 @@ class CarMapRenderer(
     }
 
     /** How much of the route is behind us (0..1), so the map can fade it out.
-     *  A per-fix call, and a cheap one: the overlay skips an update that
-     *  wouldn't visibly move the line. */
+     *  A per-fix call, and a cheap one: the overlay recuts the line only every
+     *  12 m of travel.
+     *
+     *  No tail argument, so the head unit gets the cut on its own and its seam
+     *  sits up to 12 m behind the marker — the phone passes the eased position
+     *  too and glides. Deliberate: the tail is a GeoJSON push per displayed
+     *  frame, and a head unit's frame budget is the scarce thing here (see
+     *  [setPosition]'s note). Still strictly better than before, which pushed a
+     *  route-sized overlay per fix. */
     fun setDrivenFraction(fraction: Double?) {
         drivenFraction = fraction
         withOverlays { it.setDrivenFraction(fraction) }
@@ -826,7 +834,7 @@ private class HudOverlay(context: android.content.Context) : View(context) {
             cx -= radius
             val cy = bottom - radius
             val limit = limitKmh
-            val speeding = limit != null && speed > limit + 5
+            val speeding = SpeedLimitTracker.isOverLimit(speed, limit)
             drawShadow(canvas, cx, cy, radius)
             canvas.drawCircle(cx, cy, radius, if (speeding) speedOverBgPaint else speedBgPaint)
             // The unit label sits under the number, as on the phone HUD, so the
@@ -874,10 +882,13 @@ private class HudOverlay(context: android.content.Context) : View(context) {
             val over = sectionLimit != null && average > sectionLimit
             drawShadow(canvas, cx, cy, avgRadius)
             canvas.drawCircle(cx, cy, avgRadius, if (over) speedOverBgPaint else avgBgPaint)
-            // Ø, the same glyph the phone chip uses, so the two surfaces label
-            // this number identically. Both strings are fitted rather than
-            // sized outright: "Ø 120" and "avg km/h" are both wider than the
-            // speed disc's "120"/"km/h" in a disc that is 10% smaller.
+            // Ø, and the phone's island no longer uses it: there the average
+            // is the bare number under a rule, labelled "avg", which only
+            // works because it has a column to itself. In a disc alongside two
+            // others the glyph is what says "this one is the average" without
+            // a second line. Both strings are fitted rather than sized
+            // outright: "Ø 120" and "avg km/h" are both wider than the speed
+            // disc's "120"/"km/h" in a disc that is 10% smaller.
             val text = "Ø %.0f".format(average)
             fitText(speedTextPaint, text, avgDiameter * 0.34f, avgDiameter * 0.76f)
             fitText(unitTextPaint, "avg km/h", avgDiameter * 0.15f, avgDiameter * 0.80f)

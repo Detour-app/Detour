@@ -25,10 +25,16 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 cd "$ROOT"
 
-M=app/src/main/java/com/jellemax/detour/ui/MapScreen.kt
+# MapScreen.kt and the six files the state-ownership split (#228) delegated its
+# effects to. Counted together: the split moved lines, it did not remove any of
+# the machinery these three assertions exist to watch.
+UI=app/src/main/java/com/jellemax/detour/ui
+M="$UI/MapScreen.kt $UI/MapCamera.kt $UI/MapHazardAlerts.kt $UI/MapHazardPrefetch.kt \
+   $UI/MapNavigation.kt $UI/MapPermissions.kt $UI/MapCircleMembers.kt"
 
 fails=0
-count() { grep -c "$1" "$2" 2>/dev/null || true; }
+# shellcheck disable=SC2086 — $2 is a list on purpose
+count() { cat $2 2>/dev/null | grep -c "$1" || true; }
 check() { # check <description> <expected> <actual>
     if [ "$2" = "$3" ]; then
         printf 'PASS  %s\n' "$1"
@@ -38,14 +44,14 @@ check() { # check <description> <expected> <actual>
     fi
 }
 
-check 'MapScreen has 9 rememberUpdatedState lines (1 import + 8 uses) — §2' \
-    9 "$(count 'rememberUpdatedState' "$M")"
-check 'MapScreen has 6 lastFix subscriptions (5 raw collectors + 1 collectAsState…) — §4' \
-    6 "$(count 'lastFix.collect' "$M")"
-check 'MapScreen has 7 withFrameNanos lines (import + speed/camera/marker lastNs pairs) — §6' \
-    7 "$(count 'withFrameNanos' "$M")"
-check 'the app still uses NO derivedStateOf and NO snapshotFlow anywhere — §6' \
-    '' "$(grep -rl 'derivedStateOf\|snapshotFlow' app/src/main/java/ 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
+check 'the map files have 18 rememberUpdatedState lines (5 imports + 13 uses) — §2' \
+    18 "$(count 'rememberUpdatedState' "$M")"
+check 'the map files have 9 lastFix subscriptions (5 raw collectors + 4 collectAsState…) — §4' \
+    9 "$(count 'lastFix.collect' "$M")"
+check 'the map files have 8 withFrameNanos lines (MapCamera: import + speed/camera/marker pairs + one seed) — §6' \
+    8 "$(count 'withFrameNanos' "$M")"
+check 'derivedStateOf is used in exactly one place (MapScreen navState, #189) and snapshotFlow nowhere — §6' \
+    'app/src/main/java/com/jellemax/detour/ui/MapScreen.kt' "$(grep -rl 'derivedStateOf\|snapshotFlow' app/src/main/java/ 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 check 'MainActivity still handles NO configChanges, so a rotate recreates it — §5' \
     0 "$(count 'configChanges' app/src/main/AndroidManifest.xml)"
 

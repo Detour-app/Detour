@@ -5,38 +5,24 @@ import android.content.pm.PackageManager
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.outlined.Stop
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -50,67 +36,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.audio.PushToTalk
-import com.jellemax.detour.data.SavedPlace
-import com.jellemax.detour.tracking.TripStats
+import com.jellemax.detour.presentation.SpeedHudState
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-/** One-tap saved-place chips over the map, plus a "Save pin" chip when a
- *  destination pin is on screen. Scrolls horizontally when they overflow. */
-@Composable
-internal fun ShortcutChips(
-    places: List<SavedPlace>,
-    canSavePin: Boolean,
-    onPick: (SavedPlace) -> Unit,
-    onSavePin: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        if (canSavePin) {
-            AssistChip(
-                onClick = onSavePin,
-                label = { Text("Save pin") },
-                leadingIcon = { Icon(Icons.Default.Add, contentDescription = null,
-                    Modifier.size(18.dp)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = glassContainerColor()),
-            )
-        }
-        places.forEach { p ->
-            AssistChip(
-                onClick = { onPick(p) },
-                label = { Text(p.name, maxLines = 1) },
-                leadingIcon = { Icon(Icons.Default.Place, contentDescription = null,
-                    Modifier.size(18.dp)) },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = glassContainerColor()),
-            )
-        }
-    }
-}
-
-/** Always on screen while a trip is running, in the corner your thumb rests in. */
-@Composable
-internal fun EndTripButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Button(
-        onClick = onClick,
-        modifier = modifier.height(48.dp),
-        shape = CircleShape,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.error,
-            contentColor = MaterialTheme.colorScheme.onError,
-        ),
-    ) {
-        Icon(Icons.Outlined.Stop, contentDescription = null, Modifier.size(20.dp))
-        Spacer(Modifier.width(8.dp))
-        Text("End trip", maxLines = 1, fontWeight = FontWeight.Bold)
-    }
-}
 
 /** Hold to talk; only shown while a convoy's live relay is connected (see
  *  ConvoyLiveService). Solid red while you're pressing it; a primary-colored
@@ -169,94 +97,109 @@ internal fun PushToTalkButton(talking: Boolean, modifier: Modifier = Modifier) {
     }
 }
 
-/** Current speed next to the posted limit for the road we're on. Used both while
- *  cruising and while navigating; the whole dial turns red once we're more than
- *  5 km/h over. Sized to be read at a glance, not to dominate the map — the trip
- *  card no longer repeats the number underneath it. */
-@Composable
-internal fun SpeedHud(
-    speedKmh: Double,
-    limitKmh: Double?,
-    averageKmh: Double? = null,
-    averageLimitKmh: Double? = null,
-    modifier: Modifier = Modifier,
-) {
-    val speeding = limitKmh != null && speedKmh > limitKmh + 5
-    Row(
-        modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // Inside a trajectcontrole: the running average is what the section
-        // measures, so it sits front and centre and turns red once it's over.
-        averageKmh?.let { avg ->
-            SectionAverageChip(avg, averageLimitKmh)
-        }
-        Crossfade(targetState = limitKmh, animationSpec = tween(300), label = "speedLimit") {
-            SpeedLimitSign(it, size = 48.dp)
-        }
-        Card(
-            modifier = Modifier.glassBorder(CircleShape),
-            shape = CircleShape,
-            colors = if (speeding) CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-            ) else glassCardColors(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-        ) {
-            Column(
-                Modifier.size(80.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    "%.0f".format(speedKmh),
-                    fontSize = 32.sp,
-                    lineHeight = 34.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (speeding) MaterialTheme.colorScheme.onErrorContainer
-                        else MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    "km/h",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (speeding) MaterialTheme.colorScheme.onErrorContainer
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
+/** The island's width, and so the posted-limit sign's diameter: the sign runs
+ *  edge to edge at the bottom of it, as the prototype draws it. Wider than the
+ *  prototype's 56 px because of the sign, not because of the text — every
+ *  string in here fits well inside 56 dp. `SpeedLimitSign` is drawn wholly in
+ *  proportion to its diameter, its number at 0.38 of it, so the island's width
+ *  is what sets how big the posted limit reads: 26 sp (the dial's own size,
+ *  the floor for the number that governs it) needs 26 / 0.38 = 68.4 dp, and
+ *  the next 8 dp step up is this. */
+private val ISLAND_WIDTH = 72.dp
 
-/** Running average speed through a trajectcontrole, next to the live speed.
- *  Red once the average is over the section's posted limit — that's the number
- *  the camera pair is actually about to fine you on. */
+/** Speed, the posted limit for the road we're on and — inside a
+ *  trajectcontrole — the running average, stacked in one island at the top-left
+ *  of the map. The whole island turns red once we're over the limit by
+ *  `SpeedLimitTracker.isOverLimit` — the same rule the head unit's dial and the
+ *  trip recorder's over-limit time apply, so nothing on screen can contradict
+ *  this island.
+ *
+ *  Renders [state] and computes nothing: the numbers and their wording come
+ *  from `:shared`. Drawn whether or not the vehicle is moving — a map parked at
+ *  a light keeps its instruments, the way the head unit always has. */
 @Composable
-private fun SectionAverageChip(averageKmh: Double, limitKmh: Double?, modifier: Modifier = Modifier) {
-    val over = limitKmh != null && averageKmh > limitKmh
+internal fun SpeedHud(state: SpeedHudState, modifier: Modifier = Modifier) {
+    val onIsland = if (state.speeding) MaterialTheme.colorScheme.onErrorContainer
+        else MaterialTheme.colorScheme.onSurface
+    val onIslandMuted = if (state.speeding) MaterialTheme.colorScheme.onErrorContainer
+        else MaterialTheme.colorScheme.onSurfaceVariant
     Card(
-        modifier = modifier,
+        modifier = modifier.width(ISLAND_WIDTH).glassBorder(CircleShape),
         shape = CircleShape,
-        colors = CardDefaults.cardColors(
-            containerColor = if (over) MaterialTheme.colorScheme.errorContainer
-                else MaterialTheme.colorScheme.tertiaryContainer,
-        ),
+        colors = if (state.speeding) CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+        ) else glassCardColors(),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
     ) {
         Column(
-            Modifier.size(72.dp),
-            verticalArrangement = Arrangement.Center,
+            Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            val onColor = if (over) MaterialTheme.colorScheme.onErrorContainer
-                else MaterialTheme.colorScheme.onTertiaryContainer
             Text(
-                "Ø %.0f".format(averageKmh),
+                state.speedText,
                 fontSize = 26.sp,
                 lineHeight = 28.sp,
                 fontWeight = FontWeight.Bold,
-                color = onColor,
+                color = onIsland,
+                modifier = Modifier.padding(top = 10.dp),
             )
-            Text("avg km/h", style = MaterialTheme.typography.labelSmall, color = onColor)
+            Text(
+                "km/h",
+                style = MaterialTheme.typography.labelSmall,
+                color = onIslandMuted,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            // Inside a trajectcontrole: the running average is the number the
+            // camera pair actually measures — the one that writes the fine —
+            // so it gets a rule above it and reads as its own instrument
+            // rather than a second line of the dial.
+            //
+            // Its over-limit state is signalled independently of the dial's:
+            // "over right now *and* over on average" is the ordinary case in a
+            // section, and is exactly when the average is the number that
+            // matters. Error red on the red island would be unreadable, so the
+            // rule carries the signal instead of the digits — it thickens and
+            // takes the accent, `error` on the glass island and
+            // `onErrorContainer` on the red one, and the label drops its
+            // muting with it.
+            state.averageText?.let { average ->
+                val overAccent = when {
+                    !state.averageOverLimit -> null
+                    state.speeding -> MaterialTheme.colorScheme.onErrorContainer
+                    else -> MaterialTheme.colorScheme.error
+                }
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    thickness = if (overAccent == null) 1.dp else 2.dp,
+                    color = overAccent ?: (if (state.speeding) onIslandMuted
+                        else MaterialTheme.colorScheme.outlineVariant).copy(alpha = 0.4f),
+                )
+                Text(
+                    average,
+                    fontSize = 17.sp,
+                    lineHeight = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = overAccent ?: onIsland,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                // "avg", not "avg km/h": the island prints its unit once,
+                // under the dial, and both numbers in it are km/h.
+                Text(
+                    "avg",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (overAccent == null) onIslandMuted else onIsland,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+            }
+            // Edge to edge at the foot of the island, and absent entirely when
+            // there is no posted limit — SpeedLimitSign draws nothing on null.
+            Crossfade(
+                targetState = state.limitSignText,
+                animationSpec = tween(300),
+                label = "speedLimit",
+            ) {
+                SpeedLimitSign(it, size = ISLAND_WIDTH)
+            }
         }
     }
 }
@@ -274,84 +217,3 @@ internal fun Obd2SignalLostLabel(lost: Boolean) {
     )
 }
 
-/** Live trip numbers, minus the ones already on screen: current speed is the
- *  HUD, and a car has no lean angle worth printing. */
-@Composable
-internal fun ActiveTripCard(stats: TripStats) {
-    // Tick every second so duration counts up even without GPS updates.
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(stats.startTimeMs) {
-        while (true) {
-            now = System.currentTimeMillis()
-            delay(1000)
-        }
-    }
-    Card(
-        modifier = Modifier.glassBorder(MaterialTheme.shapes.extraLarge),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.92f),
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            StatItem("Time", formatDuration(now - stats.startTimeMs))
-            StatItem("Distance", formatDistanceKm(stats.distanceMeters))
-            StatItem("Top", formatSpeedKmh(stats.topSpeedMps))
-            if (stats.mode.tracksLean) {
-                StatItem("Lean", formatLeanAngle(stats.currentLeanAngleDeg))
-                StatItem("Max lean", formatLeanAngle(stats.maxLeanAngleDeg))
-            }
-            if (stats.mode.tracksGForce) {
-                StatItem("Max G", formatGForce(stats.maxGForce))
-            }
-        }
-        val hardEvents = stats.hardBrakeCount + stats.hardAccelCount + stats.hardCornerCount
-        if (hardEvents > 0 || stats.stopCount > 0 || stats.currentlyOverLimit) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                if (stats.hardBrakeCount > 0) StatItem("Hard brakes", "${stats.hardBrakeCount}")
-                if (stats.hardAccelCount > 0) StatItem("Hard accel", "${stats.hardAccelCount}")
-                if (stats.hardCornerCount > 0) StatItem("Hard corners", "${stats.hardCornerCount}")
-                if (stats.stopCount > 0) StatItem("Stops", "${stats.stopCount}")
-                if (stats.currentlyOverLimit) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            "Speed", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            "Over limit", style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
-            }
-            Text(
-                "Not a score to chase — these numbers are informational only.",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun StatItem(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-    }
-}

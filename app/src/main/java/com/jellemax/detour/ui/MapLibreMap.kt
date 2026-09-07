@@ -1,18 +1,6 @@
 package com.jellemax.detour.ui
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Path
-import android.graphics.PointF
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffXfermode
-import android.graphics.RenderEffect
-import android.graphics.Shader
-import android.os.Build
-import android.view.View
 import androidx.annotation.DrawableRes
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
@@ -20,7 +8,6 @@ import com.jellemax.detour.R
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NamedMemberFix
 import com.jellemax.detour.data.NavEngine
-import com.jellemax.detour.data.Perf
 import com.jellemax.detour.data.RouteColors
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
@@ -46,7 +33,6 @@ import org.maplibre.geojson.Point
 import org.maplibre.geojson.Polygon
 import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.max
 import kotlin.math.sin
 
 /** OpenFreeMap hosted vector styles, keyless and free. Neutral greys — "positron"
@@ -62,6 +48,7 @@ private const val SRC_REACH = "mr-reach"
 private const val SRC_WEDGE = "mr-wedge"
 private const val SRC_ROUTE = "mr-route"
 private const val SRC_ROUTE_DRIVEN = "mr-route-driven"
+private const val SRC_ROUTE_TAIL = "mr-route-tail"
 private const val SRC_CANDIDATES = "mr-candidates"
 private const val SRC_DEST = "mr-dest"
 private const val SRC_POSITION = "mr-position"
@@ -75,6 +62,7 @@ private const val IMG_FRIEND = "mr-img-friend"
 private const val IMG_CIRCLE_MEMBER = "mr-img-circle-member"
 private const val LAYER_ROUTE = "mr-route-line"
 private const val LAYER_ROUTE_DRIVEN = "mr-route-driven-line"
+private const val LAYER_ROUTE_TAIL = "mr-route-tail-line"
 const val LAYER_CANDIDATES = "mr-candidates-dot"
 // Every symbol layer that carries a text label must name this font stack.
 // MapLibre's spec default is ["Open Sans Regular", "Arial Unicode MS Regular"]
@@ -95,11 +83,11 @@ private const val POSITION_ICON_SCALE = 2
 // Below city zoom the speed-camera icons pile up into an unreadable blob, and
 // at loop-planning zoom they're just noise — hide them until zoomed past this.
 private const val SPEED_CAMERA_MIN_ZOOM = 11f
-// Redrawing the driven part of the route costs a GeoJSON push the size of that
-// part, so it advances in steps rather than on every fix: a phone at a red
-// light pushes nothing at all, and at speed this lands at roughly the GPS's own
-// once a second. Twelve metres is under a car length at map scale — the line
-// still creeps forward smoothly.
+// Recutting the route into its driven and undriven halves costs two GeoJSON
+// pushes the size of the route, so the cut advances in steps rather than on
+// every frame: a phone at a red light pushes nothing at all, and at speed this
+// lands at roughly the GPS's own once a second. What glides between two cuts is
+// the tail (see [MapOverlays.setDrivenFraction]), which is two points.
 private const val DRIVEN_STEP_METERS = 12.0
 // Below this there is nothing worth drawing: a stub of driven line at the very
 // start of a route reads as a rendering glitch, not as progress.
@@ -147,8 +135,9 @@ class MapOverlays(
         ContextCompat.getDrawable(context, R.drawable.ic_map_circle_member)?.let {
             style.addImage(IMG_CIRCLE_MEMBER, it.toBitmap())
         }
-        listOf(SRC_REACH, SRC_WEDGE, SRC_ROUTE, SRC_ROUTE_DRIVEN, SRC_CANDIDATES, SRC_DEST,
-            SRC_POSITION, SRC_CAMERAS, SRC_FRIENDS, SRC_CIRCLE_MEMBERS)
+        listOf(SRC_REACH, SRC_WEDGE, SRC_ROUTE, SRC_ROUTE_DRIVEN, SRC_ROUTE_TAIL,
+            SRC_CANDIDATES, SRC_DEST, SRC_POSITION, SRC_CAMERAS, SRC_FRIENDS,
+            SRC_CIRCLE_MEMBERS)
             .forEach { style.addSource(GeoJsonSource(it)) }
 
         // Whatever the user picked in Settings > Route line; the default,
@@ -159,9 +148,9 @@ class MapOverlays(
         // does for the marker.
         val routeColor = Settings.routeColor.value
 
-        // Bottom-to-top: fills, then the route (dark casing under the colored
-        // line, and the driven part over it), then markers, with the tappable
-        // candidates on top.
+        // Bottom-to-top: fills, then the route (dark casing under both halves
+        // of the coloured line, then the halves, then the tail that carries the
+        // seam), then markers, with the tappable candidates on top.
         style.addLayer(FillLayer("mr-reach-fill", SRC_REACH).withProperties(
             PropertyFactory.fillColor("#2196F3"), PropertyFactory.fillOpacity(0.09f)))
         style.addLayer(LineLayer("mr-reach-line", SRC_REACH).withProperties(
@@ -169,25 +158,49 @@ class MapOverlays(
             PropertyFactory.lineOpacity(0.7f)))
         style.addLayer(FillLayer("mr-wedge-fill", SRC_WEDGE).withProperties(
             PropertyFactory.fillColor("#FF9800"), PropertyFactory.fillOpacity(0.11f)))
-        style.addLayer(LineLayer("mr-route-casing", SRC_ROUTE).withProperties(
-            PropertyFactory.lineColor("#0B1220"), PropertyFactory.lineWidth(11f),
-            PropertyFactory.lineOpacity(0.85f), PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
-        style.addLayer(LineLayer(LAYER_ROUTE, SRC_ROUTE).withProperties(
-            PropertyFactory.lineColor(RouteColors.hex(routeColor, darkTheme)),
-            PropertyFactory.lineWidth(7f),
-            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
-        // The part already driven, laid over the live line in the dimmed
-        // colour so the road ahead is the bright one. On top rather than
-        // underneath, and opaque rather than translucent: the line it has to
-        // hide is the one immediately below it (see [RouteColors.drivenHex]).
-        // Empty until [setDrivenFraction] says otherwise, so a route that is
-        // merely drawn — a spin result, a saved trip — is bright end to end.
+        // A casing per half, because the two halves are two geometries: while
+        // navigating SRC_ROUTE holds only the road ahead, and the road behind
+        // would otherwise lose the dark outline that keeps the line legible
+        // over a busy basemap.
+        listOf(SRC_ROUTE to "mr-route-casing", SRC_ROUTE_DRIVEN to "mr-route-driven-casing")
+            .forEach { (source, id) ->
+                style.addLayer(LineLayer(id, source).withProperties(
+                    PropertyFactory.lineColor("#0B1220"), PropertyFactory.lineWidth(11f),
+                    PropertyFactory.lineOpacity(0.85f),
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
+            }
+        // The road behind, in the dimmed colour. A geometry of its own rather
+        // than a copy of the route's first N metres laid over all of it, so a
+        // route that rides the same tarmac twice is dimmed only where the rider
+        // has actually been.
         style.addLayer(LineLayer(LAYER_ROUTE_DRIVEN, SRC_ROUTE_DRIVEN).withProperties(
             PropertyFactory.lineColor(RouteColors.drivenHex(routeColor, darkTheme)),
             PropertyFactory.lineWidth(7f),
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
+        // The road ahead, over the dimmed half and butt-capped where they meet.
+        // The two are disjoint, so this only ever covers the other where the
+        // route rides its own tarmac twice — and there bright is the honest
+        // answer, because that stretch is still to come. Butt because the
+        // dimmed half's round cap hangs 3.5 px past the cut, and this is what
+        // covers it: the half-disc over the live line is #208's third symptom.
+        // Holds the whole route until [setDrivenFraction] cuts it, so a route
+        // that is merely drawn — a spin result, a saved trip — is bright end to
+        // end; the casings below keep the route's outer tips rounded.
+        style.addLayer(LineLayer(LAYER_ROUTE, SRC_ROUTE).withProperties(
+            PropertyFactory.lineColor(RouteColors.hex(routeColor, darkTheme)),
+            PropertyFactory.lineWidth(7f),
+            PropertyFactory.lineCap(Property.LINE_CAP_BUTT),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
+        // The seam itself: the few metres between the last cut and where the
+        // rider is right now, dimmed over the road ahead. Butt for the same
+        // reason, at the end that matters — a round cap here would put a
+        // half-disc of dim past the marker on every frame.
+        style.addLayer(LineLayer(LAYER_ROUTE_TAIL, SRC_ROUTE_TAIL).withProperties(
+            PropertyFactory.lineColor(RouteColors.drivenHex(routeColor, darkTheme)),
+            PropertyFactory.lineWidth(7f),
+            PropertyFactory.lineCap(Property.LINE_CAP_BUTT),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
         // Rotated to the last known heading, aligned to the map rather than the
         // viewport: heading-up already turns the camera, so a vehicle icon
@@ -254,53 +267,76 @@ class MapOverlays(
             ?.setProperties(PropertyFactory.iconRotate(270f))
     }
 
+    // A theme flip loads a new Style asynchronously (RetainedMap.rememberRetainedMap
+    // calls MapLibreMap.setStyle on darkTheme change). MapLibre tears this instance's
+    // Style down the moment the new one starts loading - every further
+    // style.getSource/getLayer/addImage call throws IllegalStateException from then
+    // on, well before the callback that hands MapScreen a fresh MapOverlays over the
+    // new Style. Every public mutator below is called from MapScreen's effects and
+    // can be reached during that window, so they all route through this one check
+    // rather than each catching the throw. A skipped update here is harmless: the
+    // replacement MapOverlays redraws current state as soon as it exists.
+    private val styleUsable: Boolean
+        get() = style.isFullyLoaded
+
     private fun setData(sourceId: String, fc: FeatureCollection) {
-        // The gap [setRouteColor] and [setPositionIcon] already cover: a theme
-        // flip leaves this Style behind mid-load, and getSource then *throws*
-        // rather than returning null, so the safe cast below never gets a say.
-        // A check rather than their runCatching because [render] calls this
-        // once per source — eight caught exceptions a frame is not the same
-        // price as one boolean.
-        if (!style.isFullyLoaded) return
+        // render() drives this once per source per GPS fix, which is why the
+        // whole class routes through one boolean rather than catching per call.
+        if (!styleUsable) return
         (style.getSource(sourceId) as? GeoJsonSource)?.setGeoJson(fc)
     }
 
     private fun empty() = FeatureCollection.fromFeatures(emptyList())
 
-    /** Recolour both route layers. Cheap enough to call on every change of the
-     *  setting — two paint properties, no source or layer rebuild — for the
-     *  same reason [setPositionIcon] is. */
+    /** [points] as a one-feature LineString collection, or nothing when there
+     *  are too few of them to be a line. */
+    private fun lineFeature(points: List<LatLon>): FeatureCollection =
+        if (points.size >= 2) FeatureCollection.fromFeature(Feature.fromGeometry(
+            LineString.fromLngLats(points.map { Point.fromLngLat(it.lon, it.lat) })))
+        else empty()
+
+    /** Recolour all three route layers. Cheap enough to call on every change of
+     *  the setting — three paint properties, no source or layer rebuild — for
+     *  the same reason [setPositionIcon] is. */
     fun setRouteColor(color: Settings.RouteColor) {
-        // Guarded like [setPositionIcon]: a theme flip can leave this Style
-        // behind mid-load, and a style call thrown from a flow collector ends
-        // the process rather than skipping a frame.
-        runCatching {
-            (style.getLayer(LAYER_ROUTE) as? LineLayer)?.setProperties(
-                PropertyFactory.lineColor(RouteColors.hex(color, darkTheme)))
-            (style.getLayer(LAYER_ROUTE_DRIVEN) as? LineLayer)?.setProperties(
-                PropertyFactory.lineColor(RouteColors.drivenHex(color, darkTheme)))
-        }
+        if (!styleUsable) return
+        (style.getLayer(LAYER_ROUTE) as? LineLayer)?.setProperties(
+            PropertyFactory.lineColor(RouteColors.hex(color, darkTheme)))
+        val driven = PropertyFactory.lineColor(RouteColors.drivenHex(color, darkTheme))
+        (style.getLayer(LAYER_ROUTE_DRIVEN) as? LineLayer)?.setProperties(driven)
+        (style.getLayer(LAYER_ROUTE_TAIL) as? LineLayer)?.setProperties(driven)
     }
 
-    // The route as last pushed, its length, and how far along it the driven
-    // overlay currently reaches (NaN = nothing drawn). Kept so progress can be
-    // given as a fraction — the caller measures the same polyline with
-    // NavEngine's arithmetic, and ratios agree where absolute metres need not.
+    // The route as last pushed, its length, how far along it the last cut was
+    // made (NaN = uncut, the whole route is drawn ahead), where that cut landed,
+    // and where the tail currently ends.
     private var routeLine: List<LatLon>? = null
     private var routeMeters = 0.0
     private var drawnDrivenMeters = Double.NaN
+    private var cutAt: LatLon? = null
+    private var drawnTailAt: LatLon? = null
 
     /**
      * How much of the drawn route is already behind you (0..1, or null when not
-     * navigating): that much of it is redrawn in the dimmed colour, so the road
-     * ahead is the one that stands out.
+     * navigating), and optionally where exactly you are on it ([tailAt], the
+     * position snapped onto the route).
      *
-     * Throttled to [DRIVEN_STEP_METERS] of travel. Rewriting the driven part
-     * costs a GeoJSON push proportional to its length, and this is called once
-     * per GPS fix from both the phone map and the car screen — where a
-     * route-sized push per fix is exactly what [setPosition] exists to avoid.
+     * The route is drawn as two **disjoint** geometries cut at [fraction] —
+     * behind in the dimmed colour, ahead in the bright one — rather than as a
+     * dimmed copy of the first N metres laid over the whole of it. Nothing
+     * overlaps, so a round trip, an out-and-back or a self-crossing is dimmed
+     * only where the rider has actually been, and there is no cap hanging past
+     * the seam.
+     *
+     * Recutting costs two GeoJSON pushes the size of the route, so it happens
+     * on [DRIVEN_STEP_METERS] of travel. What moves in between is [tailAt]: a
+     * two-point segment from the last cut to the rider, in the dimmed colour,
+     * over the stretch of the ahead line they have just covered. That is small
+     * enough to push on every displayed frame, which is what keeps the seam
+     * under a marker that glides. Callers with only a per-fix cadence — the car
+     * screen — leave it null and get the cut on its own.
      */
-    fun setDrivenFraction(fraction: Double?) {
+    fun setDrivenFraction(fraction: Double?, tailAt: LatLon? = null) {
         val line = routeLine
         // No fraction, no route, or not far enough along it to draw: whatever
         // was there comes off. Once, not on every fix that clears nothing.
@@ -308,17 +344,51 @@ class MapOverlays(
         if (line == null || meters < DRIVEN_MIN_METERS) {
             if (!drawnDrivenMeters.isNaN()) {
                 drawnDrivenMeters = Double.NaN
-                setData(SRC_ROUTE_DRIVEN, empty())
+                pushRouteHalves()
             }
             return
         }
-        if (!drawnDrivenMeters.isNaN() && abs(meters - drawnDrivenMeters) < DRIVEN_STEP_METERS) return
-        drawnDrivenMeters = meters
-        val driven = NavEngine.prefix(line, meters / routeMeters)
-        setData(SRC_ROUTE_DRIVEN, if (driven.size >= 2)
-            FeatureCollection.fromFeature(Feature.fromGeometry(
-                LineString.fromLngLats(driven.map { Point.fromLngLat(it.lon, it.lat) })))
-        else empty())
+        if (drawnDrivenMeters.isNaN() ||
+            abs(meters - drawnDrivenMeters) >= DRIVEN_STEP_METERS) {
+            drawnDrivenMeters = meters
+            pushRouteHalves()
+        }
+        pushTail(tailAt)
+    }
+
+    /** Cut [routeLine] at [drawnDrivenMeters] and push both halves, or push it
+     *  whole when nothing has been driven along it yet. */
+    private fun pushRouteHalves() {
+        val line = routeLine
+        // The tail belongs to the cut it grew from; a new cut starts it over.
+        drawnTailAt = null
+        setData(SRC_ROUTE_TAIL, empty())
+        if (line == null || drawnDrivenMeters.isNaN() || routeMeters <= 0.0) {
+            cutAt = null
+            setData(SRC_ROUTE, lineFeature(line.orEmpty()))
+            setData(SRC_ROUTE_DRIVEN, empty())
+            return
+        }
+        val cut = NavEngine.cut(line, drawnDrivenMeters / routeMeters)
+        cutAt = cut.behind.lastOrNull()
+        setData(SRC_ROUTE_DRIVEN, lineFeature(cut.behind))
+        setData(SRC_ROUTE, lineFeature(cut.ahead))
+    }
+
+    /** Dim the stretch of the ahead line between the last cut and [at]. Skipped
+     *  when it would redraw what is already there, which is what makes this
+     *  affordable to call once per frame.
+     *
+     *  Two points, so it takes the chord where the route bends: under
+     *  [DRIVEN_STEP_METERS] that is a couple of metres of daylight at a sharp
+     *  corner, and it is gone at the next cut. Walking the vertices between the
+     *  two would close it, at the cost of carrying the cut's segment index. */
+    private fun pushTail(at: LatLon?) {
+        if (at == drawnTailAt) return
+        drawnTailAt = at
+        val from = cutAt
+        setData(SRC_ROUTE_TAIL,
+            if (at != null && from != null) lineFeature(listOf(from, at)) else empty())
     }
 
     /** Replace the speed-camera markers. Fed by the prefetch loop, not [render],
@@ -366,14 +436,10 @@ class MapOverlays(
      *  already points at, with no layer or source rebuild. */
     fun setPositionIcon(icon: Settings.MapIcon) {
         val drawable = ContextCompat.getDrawable(context, mapIconDrawable(icon)) ?: return
-        // Guarded for the same reason the car renderer wraps its overlay calls:
-        // a style call thrown from a flow collector doesn't skip a frame, it
-        // ends the process — and a theme flip leaves this Style behind mid-load.
-        runCatching {
-            style.addImage(IMG_POSITION, drawable.toBitmap(
-                drawable.intrinsicWidth * POSITION_ICON_SCALE,
-                drawable.intrinsicHeight * POSITION_ICON_SCALE))
-        }
+        if (!styleUsable) return
+        style.addImage(IMG_POSITION, drawable.toBitmap(
+            drawable.intrinsicWidth * POSITION_ICON_SCALE,
+            drawable.intrinsicHeight * POSITION_ICON_SCALE))
     }
 
     // A GPS bearing goes null the moment you stop, and a car icon that snaps
@@ -414,21 +480,19 @@ class MapOverlays(
             FeatureCollection.fromFeature(Feature.fromGeometry(wedge(myLocation, reachMeters, directionDeg)))
         else FeatureCollection.fromFeatures(emptyList()))
 
-        setData(SRC_ROUTE, if (routePolyline != null && routePolyline.size >= 2)
-            FeatureCollection.fromFeature(Feature.fromGeometry(
-                LineString.fromLngLats(routePolyline.map { Point.fromLngLat(it.lon, it.lat) })))
-        else FeatureCollection.fromFeatures(emptyList()))
-
         // A different line means progress along the old one is meaningless —
         // that is a reroute, or a new destination. Compared by identity on
         // purpose: this runs on every fix on the phone map, and re-measuring an
-        // unchanged route (or worse, clearing the driven part under it) once a
-        // second is the bug this guard exists to prevent.
+        // unchanged route (or worse, re-pushing both halves and clearing the
+        // driven one under it) once a second is the bug this guard exists to
+        // prevent. The push lives inside the guard for the same reason: an
+        // unconditional one would put the whole route back into SRC_ROUTE on
+        // every fix, undoing the cut [setDrivenFraction] just made.
         if (routePolyline !== routeLine) {
             routeLine = routePolyline
             routeMeters = routePolyline?.let { NavEngine.lengthMeters(it) } ?: 0.0
             drawnDrivenMeters = Double.NaN
-            setData(SRC_ROUTE_DRIVEN, empty())
+            pushRouteHalves()
         }
 
         setData(SRC_CANDIDATES, FeatureCollection.fromFeatures(
@@ -538,309 +602,4 @@ fun cameraForPoints(map: MapLibreMap, points: List<LatLon>, paddingPx: Int, bott
 fun setCamera(map: MapLibreMap, lat: Double, lon: Double, zoom: Double, bearingDeg: Float) {
     map.cameraPosition = CameraPosition.Builder()
         .target(LatLng(lat, lon)).zoom(zoom).bearing(bearingDeg.toDouble()).tilt(0.0).build()
-}
-
-/**
- * Fog-of-war overlay: a dark scrim over the whole map with a clear corridor
- * punched along every driven trace and around the current position. Sits as a
- * child View over the GL surface and reprojects through [map] each time the
- * camera moves, so it stays glued to the map in heading-up mode.
- */
-class FogView(context: Context) : View(context) {
-    var map: MapLibreMap? = null
-        set(value) {
-            field?.removeOnCameraIdleListener(idleListener)
-            field = value
-            value?.addOnCameraIdleListener(idleListener)
-        }
-    // Raw GPS tracks carry a point every few metres; the fog corridor is tens of
-    // metres wide, so projecting every one through the per-point JNI call is the
-    // bulk of the pan cost. Store a decimated copy — points within ~25 m of the
-    // last kept one are dropped — which cuts the projection work several-fold with
-    // no visible change to the corridor.
-    var traces: List<List<LatLon>> = emptyList()
-        set(value) {
-            // Re-decimates the whole stored set on every store write, so it grows
-            // with the rider's history. #84.
-            val t = Perf.start()
-            field = value.map { decimate(it) }
-            Perf.end(t, "FogView.traces") {
-                listOf("segments" to value.size, "points" to value.sumOf { it.size })
-            }
-        }
-    // The in-progress trace, kept out of [traces] because it grows with every
-    // GPS fix — folding it in re-decimated the whole stored set once a second.
-    // This one small list is decimated alone instead.
-    var liveTrace: List<LatLon> = emptyList()
-        set(value) { field = decimate(value) }
-    var currentLocation: LatLon? = null
-    // Everyone else the map is drawing: circle members and convoy peers. The
-    // scrim sits over the GL surface, so a marker on ground you have never
-    // driven is simply invisible under it — and a circle exists precisely to
-    // show someone standing somewhere you haven't been. Cleared like the
-    // corridor is, so the person is visible without lifting the fog anywhere
-    // they aren't.
-    var peers: List<LatLon> = emptyList()
-    var corridorMeters: Float = 200f
-    // Dark fog reads as night on a light basemap and vice versa, so the scrim/
-    // frost tint switch with the app theme; see FOG_DARK/FOG_LIGHT below.
-    var darkTheme: Boolean = true
-    var active: Boolean = false
-        set(value) {
-            // Rising edge: the last snapshot (if any) predates the toggle, so ask
-            // for a fresh one instead of waiting for the next camera gesture.
-            val request = value && !field
-            field = value
-            if (request) requestSnapshot()
-        }
-
-    init {
-        setWillNotDraw(false)
-        // Feathered corridor edges. A BlurMaskFilter on the clear paints did
-        // this in software and cost a full CPU blur per trace per frame — with
-        // a screen of traces that alone blew the frame budget (measured 150 ms+
-        // frames, 100% jank). A RenderEffect blurs the view's composited output
-        // once, on the RenderThread's GPU pass, for ~nothing; the corridors are
-        // punched hard-edged and soften in that pass. Below API 31 there is no
-        // RenderEffect: edges stay hard, softened only by the 1/3-res upscale.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            setRenderEffect(RenderEffect.createBlurEffect(
-                FEATHER_RADIUS_PX, FEATHER_RADIUS_PX, Shader.TileMode.CLAMP))
-        }
-    }
-
-    // Scrim + frost tint both key off the same per-theme RGB (FOG_DARK/FOG_LIGHT)
-    // so they can't drift apart when one gets retuned without the other.
-    private val fogTheme: FogTheme
-        get() = if (darkTheme) FOG_DARK else FOG_LIGHT
-    // Undiscovered ground reads as "not yet seen" better when it's out of focus,
-    // not just darker. A sibling View can't backdrop-blur the GL map surface, so
-    // the frost is faked from a map snapshot taken when the camera settles:
-    // downscale hard, upscale back (a cheap two-pass box blur), then dim. While
-    // the camera is moving the snapshot no longer lines up, so onDraw falls back
-    // to the plain scrim and the frost returns on the next idle.
-    private var blurred: Bitmap? = null
-    private var blurredCam: CameraPosition? = null
-    // Fading the frost in over the scrim hides the scrim→frost pop when the
-    // camera settles. Fade-out gets no such treatment on purpose: the moment
-    // the camera moves the snapshot no longer lines up, so lingering over it
-    // would smear a stale image across the wrong roads — snap back instead.
-    private var frostFadeStartMs = 0L
-    private val frostPaint = Paint()
-    private val idleListener = MapLibreMap.OnCameraIdleListener { requestSnapshot() }
-
-    private var lastSnapshotMs = 0L
-
-    private fun requestSnapshot() {
-        val m = map ?: return
-        if (!active || width <= 0 || height <= 0) return
-        val bw = max(1, (width + FOG_DOWNSCALE - 1) / FOG_DOWNSCALE)
-        val bh = max(1, (height + FOG_DOWNSCALE - 1) / FOG_DOWNSCALE)
-        // The follow loop eases the camera every frame, so onCameraIdle fires in
-        // bursts; unthrottled that meant a full-screen GL readback plus an ~18 MB
-        // bitmap allocation per burst (the measured second-long main-thread
-        // stalls). Rate-limit, and skip entirely when the standing frost already
-        // matches the camera.
-        val now = android.os.SystemClock.uptimeMillis()
-        if (now - lastSnapshotMs < SNAPSHOT_MIN_INTERVAL_MS) return
-        if (blurUsable(m.cameraPosition, bw, bh)) return
-        lastSnapshotMs = now
-        val cam = m.cameraPosition
-        m.snapshot { shot ->
-            if (!active) return@snapshot
-            // The scale chain walks millions of source pixels; off the UI thread
-            // so the settle never hitches. One worker at a time by construction:
-            // requests are throttled well above a scale pass's duration.
-            Thread {
-                // Three createScaledBitmap passes (down to ~1/6, up to ~1/2, up
-                // to full buffer res, all bilinear) — a single down/up pass was
-                // too weak to read as frost once the tint went light.
-                val tiny = Bitmap.createScaledBitmap(shot, max(1, bw / 6), max(1, bh / 6), true)
-                val mid = Bitmap.createScaledBitmap(tiny, max(1, bw / 2), max(1, bh / 2), true)
-                tiny.recycle()
-                val result = Bitmap.createScaledBitmap(mid, bw, bh, true)
-                mid.recycle()
-                post {
-                    blurred = result
-                    blurredCam = cam
-                    invalidate()
-                }
-            }.start()
-        }
-    }
-
-    /** The snapshot only lines up while the camera sits exactly where it was taken. */
-    private fun blurUsable(cam: CameraPosition, bw: Int, bh: Int): Boolean {
-        val b = blurred ?: return false
-        val c = blurredCam ?: return false
-        val t = cam.target ?: return false
-        val ct = c.target ?: return false
-        return b.width == bw && b.height == bh &&
-            abs(t.latitude - ct.latitude) < 1e-7 && abs(t.longitude - ct.longitude) < 1e-7 &&
-            abs(cam.zoom - c.zoom) < 1e-4 && abs(cam.bearing - c.bearing) < 1e-3 &&
-            abs(cam.tilt - c.tilt) < 1e-3
-    }
-    private val clearPaint = Paint().apply {
-        style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND
-        strokeJoin = Paint.Join.ROUND
-        isAntiAlias = true
-        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
-    }
-    private val clearFillPaint = Paint().apply {
-        isAntiAlias = true
-        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
-    }
-    // A soft scrim doesn't need pixel-exact edges, so the buffer is rendered at a
-    // fraction of screen resolution and blown back up on draw. Everything here is
-    // a software (CPU, main-thread) canvas — erasing and path-filling a full 1440×
-    // 3120 ARGB bitmap every camera move cost ~65 ms/frame; at 1/DOWNSCALE it's a
-    // ~9× smaller bitmap, which is what takes the fog off the jank budget.
-    private var buffer: Bitmap? = null
-    private var bufferCanvas: Canvas? = null
-    private val upscalePaint = Paint().apply { isFilterBitmap = true }
-    private val dst = android.graphics.RectF()
-
-    override fun onDraw(canvas: Canvas) {
-        if (!active) return
-        val m = map ?: return
-        val w = width
-        val h = height
-        if (w <= 0 || h <= 0) return
-
-        // Started after the bails, so the series measures paints and not
-        // no-ops. Every optimisation in this class — the 25 m decimation, the
-        // bounding-box cull, the 1/3-resolution buffer, the snapshot throttle —
-        // was tuned against a number measured once and then discarded, and a
-        // regression in any of them is invisible today. Per frame while the map
-        // pans, so this label aggregates; see PerfLog.isHot.
-        val perfMark = Perf.start()
-        var projected = 0
-        var drawnTraces = 0
-
-        val bw = max(1, (w + FOG_DOWNSCALE - 1) / FOG_DOWNSCALE)
-        val bh = max(1, (h + FOG_DOWNSCALE - 1) / FOG_DOWNSCALE)
-        val buf = buffer?.takeIf { it.width == bw && it.height == bh }
-            ?: Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888).also {
-                buffer = it
-                bufferCanvas = Canvas(it)
-            }
-        val bufCanvas = bufferCanvas ?: return
-        val frost = blurred?.takeIf { blurUsable(m.cameraPosition, bw, bh) }
-        val theme = fogTheme
-        buf.eraseColor(Color.argb(theme.scrimAlpha, theme.r, theme.g, theme.b))
-        if (frost != null) {
-            // Frosted base cross-faded over the scrim; the tint restores the
-            // dimming the corridor contrast relies on, scaled with the fade so
-            // mid-fade frames don't double-darken.
-            val now = android.os.SystemClock.uptimeMillis()
-            if (frostFadeStartMs == 0L) frostFadeStartMs = now
-            val a = ((now - frostFadeStartMs) * 255 / FROST_FADE_MS).toInt().coerceAtMost(255)
-            frostPaint.alpha = a
-            bufCanvas.drawBitmap(frost, 0f, 0f, frostPaint)
-            bufCanvas.drawColor(Color.argb(theme.frostTintAlpha * a / 255, theme.r, theme.g, theme.b))
-            if (a < 255) postInvalidateOnAnimation()
-        } else {
-            frostFadeStartMs = 0L
-        }
-
-        // Buffer space: full-res screen coords scaled down by FOG_DOWNSCALE.
-        val s = 1f / FOG_DOWNSCALE
-        val proj = m.projection
-        val lat = currentLocation?.lat ?: m.cameraPosition.target?.latitude ?: 0.0
-        val metersPerPx = proj.getMetersPerPixelAtLatitude(lat).toFloat()
-        val corridorPx = max(18f, corridorMeters / metersPerPx)
-        clearPaint.strokeWidth = corridorPx * s
-
-        // toScreenLocation is a per-point JNI call, so projecting every trace
-        // every frame is what made panning lag. Cull whole traces whose bounding
-        // box doesn't touch the padded viewport first — most are off-screen when
-        // zoomed in, and the bbox test is cheap arithmetic with no projection.
-        val vb = proj.visibleRegion.latLngBounds
-        val padDeg = (corridorMeters * 2.0) / 111_000.0
-        val north = vb.latitudeNorth + padDeg
-        val south = vb.latitudeSouth - padDeg
-        val east = vb.longitudeEast + padDeg
-        val west = vb.longitudeWest - padDeg
-
-        val pt = PointF()
-        for (trace in traces + listOf(liveTrace)) {
-            if (trace.isEmpty()) continue
-            var tN = -90.0; var tS = 90.0; var tE = -180.0; var tW = 180.0
-            for (p in trace) {
-                if (p.lat > tN) tN = p.lat
-                if (p.lat < tS) tS = p.lat
-                if (p.lon > tE) tE = p.lon
-                if (p.lon < tW) tW = p.lon
-            }
-            if (tS > north || tN < south || tW > east || tE < west) continue
-            drawnTraces++
-            projected += trace.size
-            val path = Path()
-            var first = true
-            for (p in trace) {
-                val sp = proj.toScreenLocation(LatLng(p.lat, p.lon))
-                if (first) { path.moveTo(sp.x * s, sp.y * s); first = false }
-                else path.lineTo(sp.x * s, sp.y * s)
-            }
-            bufCanvas.drawPath(path, clearPaint)
-        }
-        for (loc in listOfNotNull(currentLocation) + peers) {
-            val sp = proj.toScreenLocation(LatLng(loc.lat, loc.lon))
-            pt.set(sp.x * s, sp.y * s)
-            bufCanvas.drawCircle(pt.x, pt.y,
-                max(corridorPx, corridorMeters * 1.75f / metersPerPx) * s, clearFillPaint)
-        }
-        dst.set(0f, 0f, w.toFloat(), h.toFloat())
-        canvas.drawBitmap(buf, null, dst, upscalePaint)
-        // Points projected, not points held: the cull is most of what keeps this
-        // affordable, so the covariate has to be the work actually done.
-        Perf.end(perfMark, "FogView.onDraw") {
-            listOf("points" to projected, "traces" to drawnTraces)
-        }
-    }
-
-    companion object {
-        // 1/3 resolution: the scrim edge stays soft, the CPU fill drops ~9×.
-        private const val FOG_DOWNSCALE = 3
-        private const val FROST_FADE_MS = 250L
-        // Screen-space feather for the corridor edges via RenderEffect (GPU).
-        private const val FEATHER_RADIUS_PX = 6f
-        // Idle fires in bursts while the follow loop eases the camera; one
-        // snapshot a second is plenty for a static frost.
-        private const val SNAPSHOT_MIN_INTERVAL_MS = 1_000L
-        // ~25 m in degrees of latitude; used as the decimation floor for traces.
-        private const val DECIMATE_DEG = 2.25e-4
-
-        // One RGB per theme feeds both the scrim and the frost tint, so the two
-        // can't be retuned out of sync with each other.
-        private class FogTheme(val r: Int, val g: Int, val b: Int, val scrimAlpha: Int, val frostTintAlpha: Int)
-        private val FOG_DARK = FogTheme(r = 8, g = 10, b = 26, scrimAlpha = 150,
-            // Lighter than the scrim: once frosted, the blur itself carries part
-            // of the "hidden" signal, so the dim can ease off.
-            frostTintAlpha = 110)
-        // Scrim needs more weight here than feels natural: a pale wash over the
-        // already-pale positron basemap barely registers (white roads stay
-        // white), so unexplored ground leaked through during pans and the frost
-        // seemed to appear from nothing at settle. Darker + more opaque puts the
-        // moving-camera state in the same perceived band as the frost.
-        private val FOG_LIGHT = FogTheme(r = 222, g = 228, b = 236, scrimAlpha = 205, frostTintAlpha = 120)
-
-        /** Drop points within [DECIMATE_DEG] of the last kept one; endpoints stay. */
-        private fun decimate(trace: List<LatLon>): List<LatLon> {
-            if (trace.size <= 2) return trace
-            val out = ArrayList<LatLon>(trace.size)
-            var last = trace[0]
-            out.add(last)
-            for (i in 1 until trace.size - 1) {
-                val p = trace[i]
-                if (abs(p.lat - last.lat) > DECIMATE_DEG || abs(p.lon - last.lon) > DECIMATE_DEG) {
-                    out.add(p)
-                    last = p
-                }
-            }
-            out.add(trace[trace.size - 1])
-            return out
-        }
-    }
 }

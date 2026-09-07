@@ -47,6 +47,36 @@ internal const val CAM_SNAP_METERS = 250.0
 // don't sit against the screen edge.
 internal const val FIT_PADDING_PX = 140
 
+// Extra padding under a fitted route/candidate spread, so whatever occupies the
+// map's bottom slot at the moment of the fit doesn't cover most of it. Added up
+// from what those occupants draw rather than eyeballed:
+//
+//   390 dp  the candidates card — 32 Column padding + 5x10 spacedBy + 24 title
+//           + 16 subtitle + 3x56 rows + 40 ButtonDefaults.MinHeight = 330 dp,
+//           plus MapBottomSlot's 12 dp gutter and a 48 dp three-button nav bar
+//           (366 dp on gesture nav)
+//   280 dp  the home sheet — HOME_SHEET_HEIGHT plus that same inset. The
+//           closed drive and nav sheets (RideSheet.kt) are shorter than this;
+//           the open drive sheet — stats rows, Where to?, the Go row, End trip
+//           — is taller and **not covered**, like the spin sheet below. It
+//           closes on every slot change, so a fit taken against it is rare
+//  ~600 dp  the spin sheet — what the home sheet's Spin chip expands into, and
+//           the occupant `MapScreen.choose()` fits against whenever it is open.
+//           **Not covered: 390 is ~210 dp short of it.** Left that way on
+//           purpose rather than raised — padding every fit for the tallest
+//           occupant would squeeze the map on the two common ones — and written
+//           down here so it stays a known gap instead of a surprise.
+//
+// 390 clears the taller of the first two on the worse nav-bar class. The
+// convoy-vote variant of the candidates card is ~430 dp before insets and is
+// deliberately not covered either: padding every fit for the rarest occupant
+// would squeeze the map on all the others. A dp figure and not the screen
+// fraction this used to be: the cards are sized by their content, so a fraction
+// only tracked a card's height by coincidence on the phone it was eyeballed on,
+// and over-padded every large screen by hundreds of pixels. Same shape as
+// TripDetailScreen's own FIT_BOTTOM_PADDING_DP.
+internal const val MAP_FIT_BOTTOM_PADDING_DP = 390
+
 // How many round trips to roll before picking one. GraphHopper's round_trip is
 // seed-driven and its curvature weighting only biases the search, so seeds
 // differ a lot in how much of the loop is actually bends — rolling a few and

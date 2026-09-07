@@ -6,6 +6,8 @@ import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /** The last spin outcome, kept outside `remember` so it survives activity
  *  recreation (rotation, split-screen resize, a backgrounded process losing
@@ -33,14 +35,47 @@ internal data class SpinResult(
 )
 
 internal object SpinResultHolder {
-    val state = MutableStateFlow(SpinResult())
+    private val _state = MutableStateFlow(SpinResult())
+
+    /** Read-only on purpose. The flow was public and written directly from two
+     *  files with no shared discipline, so a third writer could have published
+     *  a half-updated result — a destination without the route it belongs to,
+     *  say — and nothing would have flagged it. Both writes now go through the
+     *  two functions below, which is also the only place the invariant "route
+     *  and navigating travel together" can be stated. */
+    val state: StateFlow<SpinResult> = _state.asStateFlow()
+
+    /** The map publishing what a spin, a pick, a cancel or the end of
+     *  navigation just produced. */
+    fun publish(result: SpinResult) {
+        _state.value = result
+    }
+
+    /** Seeds a destination with no route and no candidates. Separate from
+     *  [publish] because a caller that has only a destination must not have to
+     *  invent the other four fields, and the two that tried spelled the empty
+     *  cases differently. */
+    fun seedDestination(destination: LatLon, name: String, route: RouteResult) {
+        _state.value = SpinResult(
+            destination = destination,
+            destinationName = name,
+            route = route,
+            candidates = emptyList(),
+        )
+    }
 }
 
 /**
  * Hands a saved route's final stop to the map as though it were a fresh spin
  * result, so the next time [MapScreen] composes it shows the same "Go"
- * affordances (SpinDock's nav button/menu) a spin result gets — the existing
- * in-app nav path, reused rather than duplicated.
+ * affordances (the spin sheet's nav button/menu) a spin result gets — the
+ * existing in-app nav path, reused rather than duplicated.
+ *
+ * Those affordances live in the spin sheet, which rests collapsed, so this
+ * promise was empty until MapScreen started opening the sheet for a non-null
+ * `destination` — the `LaunchedEffect(destination)` beside `settingsCollapsed`
+ * is what keeps it. Seeding the holder alone shows a line on a map and nothing
+ * to press.
  *
  * Only the destination carries over; [startNavigation] always re-fetches a
  * live two-point route from wherever the user actually is when they tap Go,
@@ -52,15 +87,14 @@ internal object SpinResultHolder {
 internal fun seedRouteNavigation(route: SavedRoute) {
     Settings.setTripMode(route.mode)
     val last = route.stops.last()
-    SpinResultHolder.state.value = SpinResult(
+    SpinResultHolder.seedDestination(
         destination = last.at,
-        destinationName = last.name.ifBlank { route.name },
+        name = last.name.ifBlank { route.name },
         route = RouteResult(
             polyline = route.polyline,
             waypoints = emptyList(),
             distanceMeters = route.distanceMeters,
             timeMs = route.timeMs,
         ),
-        candidates = emptyList(),
     )
 }

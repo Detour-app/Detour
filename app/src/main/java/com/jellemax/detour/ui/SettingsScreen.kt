@@ -34,21 +34,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Brightness6
-import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.DirectionsCar
-import androidx.compose.material.icons.outlined.Navigation
-import androidx.compose.material.icons.outlined.Speed
-import androidx.compose.material.icons.outlined.SystemUpdate
-import androidx.compose.material.icons.outlined.Tv
-import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -56,9 +48,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -69,7 +58,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -85,33 +73,25 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.jellemax.detour.BuildConfig
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.syncQuietly
 import com.jellemax.detour.data.TravelMode
-import com.jellemax.detour.data.ConfigFile
 import com.jellemax.detour.data.RouteColors
-import com.jellemax.detour.data.RoutingServer
-import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.nav.Destination
+import com.jellemax.detour.presentation.formatFixed
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.tracking.DormancyBlocker
 import com.jellemax.detour.tracking.dormancyBlocker
 import com.jellemax.detour.tracking.TripTrackingService
-import com.jellemax.detour.update.ManualCheck
-import com.jellemax.detour.update.UpdateChecker
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlin.math.atan2
 
 /**
@@ -122,7 +102,9 @@ import kotlin.math.atan2
  * both the title and a hand-maintained `depth` — the depth is gone with the
  * inference it fed.
  */
-private fun spokeTitle(spoke: Destination.SettingsSpoke): String = when (spoke) {
+// internal, not private: SettingsHub.kt is a second file in this package
+// holding the Settings root, and it calls this to title each row.
+internal fun spokeTitle(spoke: Destination.SettingsSpoke): String = when (spoke) {
     Destination.SettingsAppearanceMap -> "Appearance & map"
     Destination.SettingsTrackingVehicles -> "Tracking & vehicles"
     Destination.SettingsNavigation -> "Navigation"
@@ -130,15 +112,6 @@ private fun spokeTitle(spoke: Destination.SettingsSpoke): String = when (spoke) 
     Destination.SettingsDisplaysMedia -> "Displays & media"
     Destination.SettingsServersSync -> "Servers & sync"
     Destination.SettingsObd2 -> "OBD2 adapter"
-}
-
-private fun updateCheckSubtitle(state: ManualCheck): String = when (state) {
-    ManualCheck.Idle -> "Check for a new release"
-    ManualCheck.Running -> "Checking…"
-    ManualCheck.UpToDate -> "No update found"
-    is ManualCheck.Found -> "Detour ${state.version} available"
-    ManualCheck.Failed -> "Couldn't reach GitHub"
-    is ManualCheck.RateLimited -> "Checked a few times just now — try again shortly"
 }
 
 /**
@@ -156,12 +129,19 @@ private fun updateCheckSubtitle(state: ManualCheck): String = when (state) {
  * per-spoke — #66 put `rememberScrollState()` inside the animated lambda — so
  * only the bar's own state changes hands.
  */
+// internal, not private: SettingsHub.kt is a second file in this package
+// holding the Settings root, and it shares this scaffold rather than
+// duplicating it.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SettingsScaffold(
+internal fun SettingsScaffold(
     title: String,
     onBack: () -> Unit,
     spacing: Dp,
+    // Hoisted, not just remembered here, so a spoke can scroll itself: the
+    // Servers & sync status rows jump to the section they summarise, and that
+    // needs the same ScrollState the column is scrolling.
+    scrollState: ScrollState = rememberScrollState(),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -173,106 +153,10 @@ private fun SettingsScaffold(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(spacing),
             content = content,
-        )
-    }
-}
-
-/**
- * The Settings root: one row per spoke, plus the update check, which is not a
- * spoke — it acts in place rather than navigating anywhere.
- *
- * [onOpenSpoke] replaced `page = SettingsPage.X`. The screen no longer holds any
- * navigation state and no longer has a `BackHandler` — there is nothing left for
- * one to intercept, because a spoke is an entry on the app's stack and back pops
- * it like any other.
- */
-@Composable
-fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) -> Unit) {
-    val theme by Settings.theme.collectAsStateWithLifecycle()
-    val autoDetect by Settings.autoDetectDrives.collectAsStateWithLifecycle()
-    val avoidHighways by Settings.avoidHighways.collectAsStateWithLifecycle()
-    val fogRadius by Settings.fogRadiusMeters.collectAsStateWithLifecycle()
-    val externalDisplayEnabled by Settings.externalDisplayEnabled.collectAsStateWithLifecycle()
-    val authUsername by Settings.authUsername.collectAsStateWithLifecycle()
-    val manualCheck by UpdateChecker.lastManualCheck.collectAsStateWithLifecycle()
-    val updateScope = rememberCoroutineScope()
-    val context = LocalContext.current
-
-    SettingsScaffold("Settings", onBack, spacing = 10.dp) {
-        HubRow(
-            icon = Icons.Outlined.Brightness6,
-            title = spokeTitle(Destination.SettingsAppearanceMap),
-            subtitle = theme.name.lowercase().replaceFirstChar { it.uppercase() } + " theme",
-            onClick = { onOpenSpoke(Destination.SettingsAppearanceMap) },
-        )
-        HubRow(
-            icon = Icons.Outlined.DirectionsCar,
-            title = spokeTitle(Destination.SettingsTrackingVehicles),
-            subtitle = "Auto-detect drives: " + (if (autoDetect) "on" else "off"),
-            onClick = { onOpenSpoke(Destination.SettingsTrackingVehicles) },
-        )
-        HubRow(
-            icon = Icons.Outlined.Navigation,
-            title = spokeTitle(Destination.SettingsNavigation),
-            subtitle = "Avoid highways: " + (if (avoidHighways) "on" else "off"),
-            onClick = { onOpenSpoke(Destination.SettingsNavigation) },
-        )
-        HubRow(
-            icon = Icons.Outlined.VisibilityOff,
-            title = spokeTitle(Destination.SettingsFog),
-            subtitle = "${fogRadius.toInt()} m reveal radius",
-            onClick = { onOpenSpoke(Destination.SettingsFog) },
-        )
-        HubRow(
-            icon = Icons.Outlined.Tv,
-            title = spokeTitle(Destination.SettingsDisplaysMedia),
-            subtitle = "External display: " + (if (externalDisplayEnabled) "on" else "off"),
-            onClick = { onOpenSpoke(Destination.SettingsDisplaysMedia) },
-        )
-        HubRow(
-            icon = Icons.Outlined.Cloud,
-            title = spokeTitle(Destination.SettingsServersSync),
-            subtitle = if (authUsername.isBlank()) "Not signed in"
-                else "Signed in as $authUsername",
-            onClick = { onOpenSpoke(Destination.SettingsServersSync) },
-        )
-        HubRow(
-            icon = Icons.Outlined.Speed,
-            title = spokeTitle(Destination.SettingsObd2),
-            subtitle = "Connect a vehicle's OBD2 adapter for accurate speed",
-            onClick = { onOpenSpoke(Destination.SettingsObd2) },
-        )
-        // Only where there is a repository to check. A build made without
-        // UPDATE_REPO in the environment has no update mechanism at all, and a
-        // row that silently does nothing when tapped is worse than no row.
-        if (UpdateChecker.isConfigured) {
-            HubRow(
-                icon = Icons.Outlined.SystemUpdate,
-                title = "Check for updates",
-                subtitle = updateCheckSubtitle(manualCheck),
-                onClick = {
-                    // Guarded on Running only. A tap with no tokens left is
-                    // allowed through so the budget can refuse it out loud —
-                    // the subtitle is the whole feedback loop, and a dead row
-                    // would be the silence this issue is about.
-                    if (manualCheck !is ManualCheck.Running) {
-                        updateScope.launch { UpdateChecker.manualCheck(context) }
-                    }
-                },
-            )
-        }
-        Text(
-            "Detour ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 12.dp),
-            textAlign = TextAlign.Center,
         )
     }
 }
@@ -288,12 +172,14 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
 fun SettingsSpokeScreen(spoke: Destination.SettingsSpoke, onBack: () -> Unit) {
     val context = LocalContext.current
     val theme by Settings.theme.collectAsStateWithLifecycle()
+    val decimalSeparator by Settings.decimalSeparator.collectAsStateWithLifecycle()
     val autoDetect by Settings.autoDetectDrives.collectAsStateWithLifecycle()
+    val scrollState = rememberScrollState()
 
-    SettingsScaffold(spokeTitle(spoke), onBack, spacing = 16.dp) {
+    SettingsScaffold(spokeTitle(spoke), onBack, spacing = 16.dp, scrollState = scrollState) {
         when (spoke) {
             Destination.SettingsAppearanceMap -> {
-                AppearanceSection(theme)
+                AppearanceSection(theme, decimalSeparator)
                 MapIconSection()
                 RouteColorSection(theme)
                 MapSection()
@@ -310,9 +196,7 @@ fun SettingsSpokeScreen(spoke: Destination.SettingsSpoke, onBack: () -> Unit) {
                 NowPlayingSection()
             }
             Destination.SettingsServersSync -> {
-                ServerSection()
-                SyncSection()
-                ConfigFileSection()
+                ServersSyncSpoke(scrollState)
                 DiagnosticsSection()
             }
             Destination.SettingsObd2 -> Obd2PairingScreen()
@@ -321,22 +205,14 @@ fun SettingsSpokeScreen(spoke: Destination.SettingsSpoke, onBack: () -> Unit) {
 }
 
 @Composable
-private fun AppearanceSection(theme: Settings.Theme) {
+private fun AppearanceSection(theme: Settings.Theme, separator: Settings.DecimalSeparator) {
     SettingsSection("Appearance") {
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            Settings.Theme.entries.forEachIndexed { index, t ->
-                SegmentedButton(
-                    selected = theme == t,
-                    onClick = { Settings.setTheme(t) },
-                    shape = SegmentedButtonDefaults.itemShape(
-                        index = index, count = Settings.Theme.entries.size,
-                    ),
-                    label = {
-                        Text(t.name.lowercase().replaceFirstChar { it.uppercase() })
-                    },
-                )
-            }
-        }
+        val themes = Settings.Theme.entries
+        ChoiceRow(
+            options = themes.map { t -> t.name.lowercase().replaceFirstChar { c -> c.uppercase() } },
+            selectedIndex = themes.indexOf(theme),
+            onSelect = { Settings.setTheme(themes[it]) },
+        )
         if (theme == Settings.Theme.AUTO) {
             Text(
                 "Light by day, dark by night — follows sunrise and " +
@@ -345,6 +221,29 @@ private fun AppearanceSection(theme: Settings.Theme) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+
+        Text("Decimal separator", style = MaterialTheme.typography.bodyLarge)
+        val separators = Settings.DecimalSeparator.entries
+        ChoiceRow(
+            options = separators.map { d ->
+                when (d) {
+                    Settings.DecimalSeparator.SYSTEM -> "System"
+                    Settings.DecimalSeparator.POINT -> "1.2"
+                    Settings.DecimalSeparator.COMMA -> "1,2"
+                }
+            },
+            selectedIndex = separators.indexOf(separator),
+            onSelect = { Settings.setDecimalSeparator(separators[it]) },
+        )
+        Text(
+            "How readouts with a decimal — distances, g, fuel economy, " +
+                "mount offset, map zoom — are written. Speeds round to whole " +
+                "km/h, so they never show one either way. Map coordinates " +
+                "always use a point, so a latitude/longitude pair stays " +
+                "readable.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -757,7 +656,7 @@ private fun MapSection() {
         ) {
             Text("Default zoom", style = MaterialTheme.typography.bodyLarge)
             Text(
-                "%.1f".format(defaultZoom),
+                formatFixed(defaultZoom.toDouble(), 1, Settings.decimalSeparatorChar()),
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Bold,
             )
@@ -833,134 +732,13 @@ private fun FogSection(context: Context) {
     }
 
     if (confirmReset) {
-        AlertDialog(
-            onDismissRequest = { confirmReset = false },
-            title = { Text("Reset explored area?") },
-            text = { Text("All fog-of-war progress will be permanently deleted. Saved trips are kept.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    TraceStore.clear()
-                    confirmReset = false
-                }) { Text("Reset", color = MaterialTheme.colorScheme.error) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmReset = false }) { Text("Cancel") }
-            },
+        ConfirmDialog(
+            title = "Reset explored area?",
+            text = "All fog-of-war progress will be permanently deleted. Saved trips are kept.",
+            confirmLabel = "Reset",
+            onConfirm = { TraceStore.clear() },
+            onDismiss = { confirmReset = false },
         )
-    }
-}
-
-/** Backup sync with the owner's server (see backend/README.md). */
-@Composable
-private fun SyncSection() {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var status by remember { mutableStateOf<String?>(null) }
-    var syncing by remember { mutableStateOf(false) }
-
-    val signedInAs by Settings.authUsername.collectAsStateWithLifecycle()
-
-    SettingsSection("Backup sync") {
-        Text(
-            "Trips, explored area and badges are merged with your server after " +
-                "every trip and on app start, so a reinstall restores everything. " +
-                "Uses the Server URL under Server settings.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            if (signedInAs.isBlank()) "Not signed in — open Friends to create an account."
-            else "Signed in as $signedInAs",
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.Bold,
-        )
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(
-                enabled = !syncing && SyncClient.configured() && signedInAs.isNotBlank(),
-                onClick = {
-                    syncing = true
-                    status = "Syncing…"
-                    scope.launch {
-                        status = withContext(Dispatchers.IO) {
-                            try {
-                                val r = SyncClient.sync()
-                                "Synced: ${r.trips} trips, ${r.traces} trace segments, " +
-                                    "${r.badges} badges"
-                            } catch (e: Exception) {
-                                "Sync failed: ${e.message}"
-                            }
-                        }
-                        syncing = false
-                    }
-                },
-            ) { Text("Sync now") }
-        }
-        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-    }
-}
-
-/**
- * Server settings to and from a file the user keeps outside the app.
- * Preferences die with an uninstall and the baked-in defaults only exist in
- * APKs built from a local.properties; this is what makes a reinstall a two-tap
- * restore instead of retyping a URL.
- */
-@Composable
-private fun ConfigFileSection() {
-    val context = LocalContext.current
-    var status by remember { mutableStateOf<String?>(null) }
-
-    val exportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument(ConfigFile.MIME_TYPE)
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        status = try {
-            ConfigFile.export(context, uri)
-            "Config exported"
-        } catch (e: Exception) {
-            "Export failed: ${e.message}"
-        }
-    }
-    val importLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        status = try {
-            ConfigFile.import(context, uri)
-            "Config imported — restart the app to use the new servers"
-        } catch (e: Exception) {
-            "Import failed: ${e.message}"
-        }
-    }
-
-    SettingsSection("Server config file") {
-        Text(
-            "Save the server URL and your sign-in to a file. After a " +
-                "reinstall, import it instead of typing everything again.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            "The file contains your sign-in token. Keep it somewhere private — " +
-                "anyone holding it is signed in as you.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.error,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = {
-                status = null
-                exportLauncher.launch(ConfigFile.SUGGESTED_NAME)
-            }) { Text("Export config") }
-            TextButton(onClick = {
-                status = null
-                // Some file pickers hide application/json; */* keeps the file reachable.
-                importLauncher.launch(arrayOf(ConfigFile.MIME_TYPE, "*/*"))
-            }) { Text("Import config") }
-        }
-        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     }
 }
 
@@ -1131,6 +909,8 @@ private fun VehicleSection() {
 
     // Which mode's "add device" picker is open, if any.
     var addTarget by remember { mutableStateOf<TravelMode?>(null) }
+    // Which device's removal is waiting to be confirmed, by address.
+    var removing by remember { mutableStateOf<String?>(null) }
 
     SettingsSection("Vehicles") {
         Text(
@@ -1184,15 +964,25 @@ private fun VehicleSection() {
                         Text(display, style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f))
                         IconButton(
-                            onClick = {
-                                Settings.removeVehicleDevice(d.address)
-                                TripTrackingService.refresh(context)
-                            },
+                            onClick = { removing = d.address },
                             modifier = Modifier.size(28.dp),
                         ) {
                             Icon(Icons.Outlined.Close, contentDescription = "Remove ${d.name}",
                                 Modifier.size(18.dp))
                         }
+                    }
+                    if (removing == d.address) {
+                        ConfirmDialog(
+                            title = "Remove $display?",
+                            text = "Trips stop logging as ${mode.label} when this device " +
+                                "connects. You can add it back from the paired list.",
+                            confirmLabel = "Remove",
+                            onConfirm = {
+                                Settings.removeVehicleDevice(d.address)
+                                TripTrackingService.refresh(context)
+                            },
+                            onDismiss = { removing = null },
+                        )
                     }
                 }
             }
@@ -1278,7 +1068,7 @@ private fun LeanCalibrationSection() {
             status = if (samples.isNotEmpty()) {
                 val avg = samples.average()
                 Settings.setLeanOffsetDeg(avg.toFloat())
-                "Calibrated: offset %.1f°".format(avg)
+                "Calibrated: offset ${formatFixed(avg, 1, Settings.decimalSeparatorChar())}°"
             } else {
                 "No readings — try again"
             }
@@ -1296,7 +1086,7 @@ private fun LeanCalibrationSection() {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            "Current offset: %.1f°".format(offsetDeg),
+            "Current offset: ${formatFixed(offsetDeg.toDouble(), 1, Settings.decimalSeparatorChar())}°",
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Bold,
         )
@@ -1318,173 +1108,25 @@ private fun LeanCalibrationSection() {
 
 /** internal, not private: SettingsDiagnostics.kt is a second file in this
  *  package holding a section, because this one is already past the 1000-line
- *  limit. Duplicating the card there would let the two drift. */
+ *  limit. Duplicating the card there would let the two drift.
+ *
+ *  The header sits above the card, not inside it, so a settings group reads the
+ *  same as the You screen's RIDES group — one design, one definition. The title
+ *  is uppercased here rather than at all 16 call sites. */
 @Composable
-internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
-    Card {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            content()
-        }
-    }
-}
-
-/**
- * Settings for a custom GraphHopper server. Built-in defaults are never
- * displayed: empty fields mean the built-in server is used.
- */
-@Composable
-private fun ServerSection() {
-    val context = LocalContext.current
-    val custom = remember { RoutingServer.loadCustom() }
-    val builtInAvailable = remember { RoutingServer.bakedDefaults().usable }
-    var url by remember { mutableStateOf(custom?.url ?: "") }
-    var apiUrl by remember { mutableStateOf(custom?.apiUrl ?: "") }
-    var routingUrl by remember { mutableStateOf(custom?.routingUrl ?: "") }
-    var geocoderUrl by remember { mutableStateOf(custom?.geocoderUrl ?: "") }
-    var idpIssuer by remember { mutableStateOf(custom?.idpIssuer ?: "") }
-    // Only the general address is shown by default: a rider on a one-hostname
-    // deployment never needs the rest, and four more URL boxes read as four more
-    // things that must be filled in. Opens already expanded when any of them is
-    // set, so a split deployment does not look unconfigured on the way back in.
-    var showPerService by remember {
-        mutableStateOf(
-            listOf(apiUrl, routingUrl, geocoderUrl).any { it.isNotBlank() },
-        )
-    }
-    val geocoderPublicFallback by Settings.geocoderPublicFallback.collectAsStateWithLifecycle()
-    var saved by remember { mutableStateOf(false) }
-
-    SettingsSection("Server") {
-        Text(
-            when {
-                custom != null -> "Custom server: ${custom.url}"
-                builtInAvailable -> "Using built-in server"
-                else -> "Public servers only"
-            },
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            "Optional: one self-hosted address for routing, search, sync " +
-                "and the convoy live relay (see the one-hostname layout in " +
-                "one-hostname layout). Leave empty to use the built-in " +
-                "routing/search servers, with sync and live off.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        CredentialTextField(
-            value = url, onValueChange = { url = it; saved = false },
-            label = "Server URL",
-            keyboardType = KeyboardType.Uri,
-            placeholder = "https://…",
-            modifier = Modifier.fillMaxWidth(),
-        )
-        CredentialTextField(
-            value = idpIssuer, onValueChange = { idpIssuer = it; saved = false },
-            label = "Sign-in realm URL (deprecated)",
-            keyboardType = KeyboardType.Uri,
-            placeholder = "https://idp.example.com/realms/detour",
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Text(
-            "Deprecated — newer servers tell the app which realm to use, so " +
-                "leave this empty unless your server has not been updated. " +
-                "Anything typed here still wins over what the server says. " +
-                "Changing it signs this device out: tokens from one realm mean " +
-                "nothing to another.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        TextButton(onClick = { showPerService = !showPerService }) {
-            Text(if (showPerService) "Hide per-service addresses" else "Different address per service")
-        }
-        if (showPerService) {
-            Text(
-                "For a deployment split across hostnames. Anything left empty " +
-                    "uses the server address above. Routing and search cannot " +
-                    "share one host with sync, because the API answers /api/trips " +
-                    "and the search server answers /api/ — so one address cannot " +
-                    "serve both.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            CredentialTextField(
-                value = apiUrl, onValueChange = { apiUrl = it; saved = false },
-                label = "Sync & social API (optional)",
-                keyboardType = KeyboardType.Uri,
-                placeholder = "https://api.example.com",
-                modifier = Modifier.fillMaxWidth(),
-            )
-            CredentialTextField(
-                value = routingUrl, onValueChange = { routingUrl = it; saved = false },
-                label = "Routing server (optional)",
-                keyboardType = KeyboardType.Uri,
-                placeholder = "https://route.example.com",
-                modifier = Modifier.fillMaxWidth(),
-            )
-            CredentialTextField(
-                value = geocoderUrl, onValueChange = { geocoderUrl = it; saved = false },
-                label = "Search server (optional)",
-                keyboardType = KeyboardType.Uri,
-                placeholder = "https://search.example.com",
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("Fall back to public search", style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    "If your search server is unreachable, retry via the public " +
-                        "Photon instance (komoot.io) — sends the query and your " +
-                        "approximate location off your own hardware.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(
-                checked = geocoderPublicFallback,
-                onCheckedChange = { Settings.setGeocoderPublicFallback(it) },
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = {
-                // Named arguments, not positional: ServerConfig's address fields
-                // are all String and sit next to each other, so a positional call
-                // that drifts out of order still compiles and quietly saves the
-                // client id as an API address.
-                val addresses = listOf(url, apiUrl, routingUrl, geocoderUrl, idpIssuer)
-                if (addresses.all { it.isBlank() }) {
-                    RoutingServer.clearCustom()
-                } else {
-                    RoutingServer.save(
-                        ServerConfig(
-                            url = url,
-                            apiUrl = apiUrl,
-                            routingUrl = routingUrl,
-                            geocoderUrl = geocoderUrl,
-                            idpIssuer = idpIssuer,
-                            enabled = true,
-                        ),
-                    )
-                }
-                saved = true
-            }) { Text(if (saved) "Saved ✓" else "Save server") }
-            if (custom != null) {
-                TextButton(onClick = {
-                    RoutingServer.clearCustom()
-                    url = ""; apiUrl = ""; routingUrl = ""; geocoderUrl = ""
-                    idpIssuer = ""
-                    saved = true
-                }) { Text("Remove custom server") }
+internal fun SettingsSection(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel(title.uppercase())
+        ListCard {
+            Column(
+                Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                content()
             }
         }
     }
