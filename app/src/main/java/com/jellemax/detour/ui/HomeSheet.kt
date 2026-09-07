@@ -19,15 +19,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Casino
 import androidx.compose.material.icons.outlined.Diversity3
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.Route
 import androidx.compose.material.icons.outlined.Work
 import androidx.compose.material3.AssistChip
@@ -37,16 +36,21 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.SavedPlace
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.presentation.homeShortcutPlaces
+import com.jellemax.detour.presentation.isHome
+import com.jellemax.detour.presentation.isWork
 
 /**
  * How tall the sheet stands at `fontScale` 1, excluding the gesture inset it
@@ -110,7 +114,8 @@ private const val SHEET_ALPHA = 0.96f
  *   rather than hidden when there is nothing to save.
  * @param mode the travel mode a spin would roll under. A readout, not a
  *   control — the switch itself lives in `SpinSheet`, one tap away through the
- *   same chip; see [ShortcutChipRow].
+ *   same chip, which is where the Spin chip's glyph comes from; see
+ *   [ShortcutChipRow].
  */
 @Composable
 internal fun ColumnScope.HomeSheet(
@@ -120,6 +125,7 @@ internal fun ColumnScope.HomeSheet(
     onSearchOpenChange: (Boolean) -> Unit,
     onPickDestination: (GeocodeResult) -> Unit,
     savedPlaces: List<SavedPlace>,
+    shortcutSeed: Int,
     onPickPlace: (SavedPlace) -> Unit,
     canSavePin: Boolean,
     onSavePin: () -> Unit,
@@ -160,12 +166,22 @@ internal fun ColumnScope.HomeSheet(
                 // bar, give way to the bar rather than the other way round.
                 modifier = Modifier.weight(1f, fill = false),
             )
+            // The seed is the slot's ([MapBottomSlot]), not this sheet's: the
+            // sheet leaves the composition whenever the spin sheet or a
+            // candidate round takes the slot, so a seed rolled here re-rolled
+            // the third chip on every Spin round trip. Above the branch below
+            // for the same reason at a smaller scale — opening the search bar
+            // takes the row off screen, not the sheet. Leaving the map and
+            // coming back is what re-rolls it.
+            val shortcuts = remember(savedPlaces, shortcutSeed) {
+                homeShortcutPlaces(savedPlaces, shortcutSeed)
+            }
             // Nothing below the bar survives a search: the results need the
             // room, and neither a shortcut nor a card is worth reaching for
             // with a half-typed query on screen.
             if (!searchOpen) {
                 ShortcutChipRow(
-                    places = savedPlaces,
+                    places = shortcuts,
                     canSavePin = canSavePin,
                     onPick = onPickPlace,
                     onSavePin = onSavePin,
@@ -219,16 +235,22 @@ private fun DragHandle() {
 
 /**
  * One-tap a saved place, open the spin settings, or save the pin you just
- * dropped. Scrolls horizontally when the places overflow, as the chips over the
- * map used to.
+ * dropped.
  *
- * The Spin chip also names [mode]. The dock that used to show it went with the
- * mode switch into `SpinSheet`, leaving the idle map with nothing that said
- * whether it was about to roll a car route or a moto one — and mode decides the
- * radius default, round-trip planning, the routing profile and whether lean and
- * g-force get recorded. Spelt out rather than left to [TravelMode.icon]: a bare
- * vehicle glyph reads as a filter as easily as a state, and this is the chip
- * that opens the control that changes it, so the word costs nothing.
+ * [places] is what [homeShortcutPlaces] selected — Home, Work and one other,
+ * at most — not the whole store the map's chips used to render.
+ *
+ * The Spin chip still shows [mode], as its leading glyph rather than the
+ * `Spin · Car` it used to spell out. The dock that used to show the mode went
+ * with the mode switch into `SpinSheet`, and the idle map must say whether it
+ * is about to roll a car route or a moto one — mode decides the radius default,
+ * round-trip planning, the routing profile and whether lean and g-force get
+ * recorded. The word was preferred to [TravelMode.icon] while it "cost
+ * nothing"; with five chips to fit in 328 dp it costs 34 of them, which is the
+ * premise that changed. The glyph keeps the mode on the idle sheet, the
+ * segmented control it opens spells it out and announces it
+ * (`SpinCards.kt`), and the dice it replaces was saying what the word `Spin`
+ * beside it already says.
  */
 @Composable
 private fun ShortcutChipRow(
@@ -240,31 +262,36 @@ private fun ShortcutChipRow(
     onSpinSettings: () -> Unit,
 ) {
     Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(top = 12.dp)
-            .horizontalScroll(rememberScrollState()),
+        Modifier.fillMaxWidth().padding(top = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        places.forEach { p ->
-            AssistChip(
-                onClick = { onPick(p) },
-                label = { Text(p.name, maxLines = 1) },
-                leadingIcon = {
-                    Icon(p.glyph, contentDescription = null, Modifier.size(18.dp))
-                },
-                colors = AssistChipDefaults.assistChipColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                ),
-            )
+        // The places give way rather than push: they scroll inside whatever
+        // the two chips after them leave, so Spin and Save pin are on screen
+        // however long a saved name is. Capping the row at three places was
+        // not enough on its own — an M3 chip spends 50 dp on chrome before a
+        // character of label, so five of them only fit once Home and Work drop
+        // their labels, the third place drops its glyph, Spin drops the mode
+        // word and Save pin drops to its `+`. [PLACE_CHIP_MAX_WIDTH] carries
+        // that arithmetic. The scroll stays as the overflow insurance for a
+        // long name and for the largest font scales, where the two fixed chips
+        // take the row and the places are the right thing to lose first.
+        if (places.isNotEmpty()) {
+            Row(
+                Modifier
+                    .weight(1f, fill = false)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                places.forEach { p -> PlaceChip(p, onPick) }
+            }
         }
         // The dice moved into the spin sheet with the dock, so this is now the
         // only way to reach it — and, with it, the only way to roll a spin.
         AssistChip(
             onClick = onSpinSettings,
-            label = { Text("Spin · ${mode.label}", fontWeight = FontWeight.SemiBold) },
+            label = { Text("Spin", fontWeight = FontWeight.SemiBold, maxLines = 1) },
             leadingIcon = {
-                Icon(Icons.Outlined.Casino, contentDescription = null, Modifier.size(18.dp))
+                Icon(mode.icon, contentDescription = mode.label, Modifier.size(18.dp))
             },
             colors = AssistChipDefaults.assistChipColors(
                 containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
@@ -276,12 +303,18 @@ private fun ShortcutChipRow(
                 MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
             ),
         )
+        // The `+` alone. The words cost 54 dp the row does not have, and a
+        // plus beside the place chips is the prototype's own affordance for
+        // adding one; the name it lost is the icon's description, so a screen
+        // reader still reads "Save pin". In the label slot rather than as a
+        // leading icon, so it takes `labelColor` like the Home and Work glyphs
+        // — a leading icon would default to `primary` (AssistChipTokens
+        // .IconColor) and make this the second accent chip in the row.
         AssistChip(
             onClick = onSavePin,
             enabled = canSavePin,
-            label = { Text("Save pin") },
-            leadingIcon = {
-                Icon(Icons.Outlined.Add, contentDescription = null, Modifier.size(18.dp))
+            label = {
+                Icon(Icons.Outlined.Add, contentDescription = "Save pin", Modifier.size(18.dp))
             },
             colors = AssistChipDefaults.assistChipColors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -290,16 +323,75 @@ private fun ShortcutChipRow(
     }
 }
 
-/** Which glyph a saved place gets. Matched on the name, because [SavedPlace]
- *  carries no icon or type and a field added purely to pick a glyph would be a
- *  schema change for a decoration. Anything unrecognised keeps the pin the
- *  chips over the map always drew. */
-private val SavedPlace.glyph: ImageVector
-    get() = when {
-        name.equals("home", ignoreCase = true) -> Icons.Outlined.Home
-        name.equals("work", ignoreCase = true) -> Icons.Outlined.Work
-        else -> Icons.Outlined.Place
+/**
+ * How wide a named place chip may grow before its name ellipsizes.
+ *
+ * The row has to hold five chips inside the 328 dp a 360 dp screen leaves at
+ * `fontScale` 1 (360 − 2 × 16 dp of sheet padding), and an `AssistChip` spends
+ * **50 dp** on chrome before a character of label. That is two paddings, not
+ * one: the chip pads itself 8 dp each side (`AssistChipPadding`, material3
+ * 1.4.0 `Chip.kt:2958,2955`, applied at `:2059`) *and* the label slot pads
+ * itself another 8 dp each side (`:2076`), with the measured width being the
+ * plain sum of leading icon, padded label and trailing icon (`:2281`). So an
+ * 18 dp glyph costs 16 + 18 + 16 whether it sits in the leading slot or is the
+ * whole label, and a text-only chip still costs 16 + 16.
+ *
+ * ```
+ *  50  Home             glyph, no label
+ *  50  Work             glyph, no label
+ *  60  the third place  32 + up to 28 dp of name — this constant
+ *  80  Spin             50 + "Spin"
+ *  50  Save pin         the `+` alone
+ *  32  four 8 dp gaps
+ * ---
+ * 322, inside 328 at the longest name this allows.
+ * ```
+ *
+ * The 42/34 dp this KDoc claimed before counted the chip's padding once and
+ * missed the label slot's own, which is why the row it described as 316 dp
+ * really drew about 372 and clipped the third chip's tail. The row before that
+ * — three named place chips with glyphs, `Spin · Car` and `Save pin` — was
+ * about 490 dp, so Spin and Save pin started off the right edge entirely.
+ *
+ * 28 dp of name is four or five characters, which is the honest ceiling for
+ * five chips on a 360 dp screen; anything longer ellipsizes and the region
+ * scrolls.
+ */
+private val PLACE_CHIP_MAX_WIDTH = 60.dp
+
+/** A saved place's chip. Home and Work are the glyph alone: the house and the
+ *  briefcase say exactly what those two words say, and the row cannot afford
+ *  to say it twice — their name goes to the screen reader as the icon's
+ *  description instead. Matched by [isHome]/[isWork], the same predicates that
+ *  put them at the head of the row.
+ *
+ *  Every other place is its name alone, capped and ellipsized: the name is the
+ *  only thing that identifies it, and the pin glyph that used to lead it said
+ *  nothing while costing 18 dp of that name (see [PLACE_CHIP_MAX_WIDTH]).
+ *  Dropping it also settles the tint — every glyph in the row now renders at
+ *  `labelColor`, leaving `primary` to the one chip that means it. */
+@Composable
+private fun PlaceChip(place: SavedPlace, onPick: (SavedPlace) -> Unit) {
+    val glyph = when {
+        place.isHome -> Icons.Outlined.Home
+        place.isWork -> Icons.Outlined.Work
+        else -> null
     }
+    AssistChip(
+        onClick = { onPick(place) },
+        modifier = Modifier.widthIn(max = PLACE_CHIP_MAX_WIDTH),
+        label = {
+            if (glyph != null) {
+                Icon(glyph, contentDescription = place.name, Modifier.size(18.dp))
+            } else {
+                Text(place.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        },
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ),
+    )
+}
 
 /** One of the two cards along the bottom of the sheet. Convoys is deliberately
  *  absent: there is no convoy destination to open, and the prototype's badge

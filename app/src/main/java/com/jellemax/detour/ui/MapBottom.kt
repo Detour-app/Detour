@@ -41,6 +41,7 @@ import com.jellemax.detour.presentation.NavState
 import com.jellemax.detour.presentation.inAppNavAvailable
 import com.jellemax.detour.presentation.spinStateFrom
 import com.jellemax.detour.tracking.TripStats
+import kotlin.random.Random
 
 /**
  * Everything that sits along the bottom edge of the map: the end-trip button,
@@ -147,6 +148,13 @@ internal fun BoxScope.MapBottomSlot(
             shownStats.value?.let { ActiveTripCard(it) }
         }
 
+        // The seed behind the home sheet's "one other place" chip. Held here,
+        // not in the sheet, because the sheet leaves the composition whenever
+        // another occupant takes the slot — so a seed rolled there re-rolled
+        // the chip on every Spin round trip. Keyed on the places so a new one
+        // gets its chance; only leaving the map re-rolls it otherwise.
+        val shortcutSeed = remember(savedPlaces) { Random.nextInt() }
+
         // bottomCard is decided once, up in MapScreen; animate the handover
         // here instead of hard-swapping so the bottom of the screen stops
         // popping.
@@ -249,6 +257,7 @@ internal fun BoxScope.MapBottomSlot(
                 onSearchOpenChange = onSearchOpenChange,
                 onPickDestination = onPickDestination,
                 savedPlaces = savedPlaces,
+                shortcutSeed = shortcutSeed,
                 onPickPlace = onPickPlace,
                 canSavePin = destination != null,
                 onSavePin = onSavePin,
