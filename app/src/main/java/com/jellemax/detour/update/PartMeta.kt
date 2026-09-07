@@ -10,6 +10,14 @@ import com.jellemax.detour.data.UpdateClient
  * cannot contain a newline (a version, a hex digest, a decimal, an HTTP header
  * value), and the app-side JSON helpers live in `:shared` behind types this
  * package does not otherwise need.
+ *
+ * That assumption is not what actually protects [decode], though: `encode`
+ * joins exactly 4 fields with `\n`, so a stray newline inside any field can
+ * only ever raise the split count above 4, never keep it at 4 with different
+ * boundaries. If a field ever does contain a newline, [decode] does not
+ * mis-parse it into a different, wrong record — it sees more than 4 parts and
+ * returns null. The guarantee holds even if the assumption above turns out to
+ * be false.
  */
 internal data class PartMeta(
     val version: String,
@@ -21,15 +29,16 @@ internal data class PartMeta(
 
     /**
      * Whether a partial written under this record may be continued for
-     * [update] against a server now reporting [etag]. Every field must agree:
-     * a release re-cut under the same version, or an asset re-uploaded under
-     * the same name, both change the bytes without changing the filename.
+     * [update] against a server now reporting [observedEtag]. Every field
+     * must agree: a release re-cut under the same version, or an asset
+     * re-uploaded under the same name, both change the bytes without
+     * changing the filename.
      */
-    fun matches(update: UpdateClient.PendingUpdate, etag: String): Boolean =
+    fun matches(update: UpdateClient.PendingUpdate, observedEtag: String): Boolean =
         version == update.version &&
             sha256 == update.sha256 &&
             size == update.size &&
-            this.etag == etag
+            etag == observedEtag
 
     companion object {
         fun of(update: UpdateClient.PendingUpdate, etag: String): PartMeta =
