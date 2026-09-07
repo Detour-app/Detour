@@ -44,7 +44,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -293,10 +292,6 @@ fun MapScreen(
     // set, before the first composition here. That is the case its KDoc has
     // always promised and no call-site line can reach.
     LaunchedEffect(s.destination) { if (s.destination != null) settingsCollapsed = false }
-    // Whether the drive or nav sheet is open. Plain remember, not saveable:
-    // the effect on bottomCard below closes it on every slot change, first
-    // composition included, so a rotation would lose it either way.
-    var rideSheetExpanded by remember { mutableStateOf(false) }
     // The prefetched way set, the fetch throttle, the miss counter and the
     // snapped value: SpeedLimitTracker's, in shared/…/drive/, where the policy
     // lives with its tests. retained.ambientSpeedLimitKmh stays its own state because the
@@ -324,7 +319,6 @@ fun MapScreen(
     // rider returns to the map. See RetainedMap's camera section.
     // Same expression as before, now owned by the state: navigation drives the
     // camera whether or not you are following, and a park still stops it.
-    val cameraActive = s.camAuthority.cameraActive(s.navigating)
 
     LaunchedEffect(liveFix) {
         liveFix?.takeIf { it.accuracyMeters <= 100f }?.let {
