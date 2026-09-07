@@ -168,4 +168,54 @@ class PlaceMemoryReconcileTest {
             "only the claim for the vanished place (place 2) should be reported as stale",
         )
     }
+
+    /**
+     * [reconcilePlaceMemory] can only synthesize a missed DEPART past the
+     * exit ring (`radiusM * EXIT_HYSTERESIS_FACTOR`), while [GeofenceEvaluator]
+     * can only raise a fresh ARRIVE within the entry `radiusM` itself. With
+     * the factor at 1.3 those ranges cannot overlap, so the two can never
+     * both fire for the same place on the same fix — today, only by
+     * inspection across two files. This pins it so a later change to either
+     * formula (a per-place hysteresis override, say) fails a test instead of
+     * silently reopening the contradiction.
+     */
+    @Test
+    fun reconciliationsDepartAndTheEvaluatorsArriveNeverBothFireForTheSamePlace() {
+        val radiusM = 100.0
+        val p = place(7L, 50.85, 4.35, radiusM)
+        val metersPerDegreeLat = 111_320.0
+
+        // Sweep 0m to 200m in 10m steps: inside the entry radius (<=100m),
+        // the dead zone the hysteresis factor creates (100m-130m), and past
+        // the exit ring (>130m).
+        var distanceM = 0.0
+        while (distanceM <= 200.0) {
+            val lat = 50.85 + distanceM / metersPerDegreeLat
+
+            val evaluator = GeofenceEvaluator.withDefaults()
+            // Establish the dwell candidate, then let it elapse at the same
+            // fix, so the only thing left deciding an arrive is the distance
+            // check itself.
+            evaluator.evaluate(lat, 4.35, now, listOf(p))
+            val arrived = evaluator.evaluate(
+                lat, 4.35, now + GeofenceEvaluator.MIN_DWELL_MS + 1, listOf(p),
+            ).any { it.placeId == 7L && it.kind == GeofenceKind.ARRIVE }
+
+            val drift = reconcilePlaceMemory(
+                confirmed = setOf("$c:7"),
+                circleId = c,
+                places = listOf(p),
+                lat = lat, lon = 4.35,
+                nowMs = now,
+            )
+            val departed = drift.missedDepartures.any { it.placeId == 7L }
+
+            assertTrue(
+                !(arrived && departed),
+                "at ${distanceM}m the evaluator raised an arrive and reconciliation raised a missed " +
+                    "depart for the same place on the same fix — the two detectors contradicted each other",
+            )
+            distanceM += 10.0
+        }
+    }
 }

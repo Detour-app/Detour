@@ -28,6 +28,7 @@ class PlaceEventGateTest {
         assertEquals(
             PlaceEventDecision.Suppress(SuppressionReason.DUPLICATE),
             decidePlaceEvent(setOf("$c:7"), c, 7L, GeofenceKind.ARRIVE),
+            "#273: the OS fence and the poll tick both detecting one arrival must not announce it twice",
         )
     }
 
@@ -46,6 +47,7 @@ class PlaceEventGateTest {
         assertEquals(
             PlaceEventDecision.Suppress(SuppressionReason.NO_ARRIVE_TO_DEPART_FROM),
             decidePlaceEvent(emptySet(), c, 7L, GeofenceKind.DEPART),
+            "#273: a drive-past clipping the outer ring with no dwell must not announce a depart nobody arrived for",
         )
     }
 
