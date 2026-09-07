@@ -199,11 +199,18 @@ class TripTrackingService : Service() {
         internal const val SPEED_PROBE_WINDOW_MS = 60_000L
         private const val EXIT_GRACE_MS = 2 * 60_000L   // after IN_VEHICLE exit
         private const val STATIONARY_END_MS = 5 * 60_000L
-        /** The four worth-saving thresholds are not private: [TripSession.end]
+        /** The worth-saving thresholds are not private: [TripSession.end]
          *  applies them. Same rule as [AR_REGISTER_RETRY_MS] and
          *  [PROBE_WINDOW_MS] above — tuning stays declared once, here, and is
          *  referenced from the collaborator rather than copied into it. */
-        internal const val MIN_AUTO_TRIP_METERS = 500.0
+        /** A trip shorter than this in ground covered was a mis-start, a nudge
+         *  in the driveway, or a stop-and-go that never became a drive — not
+         *  something worth a history row. Applies to every trip, auto or
+         *  manually ended. */
+        internal const val MIN_TRIP_METERS = 500.0
+        /** ...and one shorter than this in wall-clock time, likewise. Both
+         *  floors must clear before a trip is saved. */
+        internal const val MIN_TRIP_DURATION_MS = 60_000L   // 60 s
         // A trip whose average pace stays under this, with no mapped vehicle
         // connected, was never a drive — a walk, a jog, pushing a bike. Judged
         // on average (not top) speed so one GPS spike can't rescue it, and
