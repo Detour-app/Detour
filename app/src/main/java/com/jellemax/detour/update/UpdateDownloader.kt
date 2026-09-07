@@ -380,7 +380,7 @@ object UpdateDownloader {
         update: UpdateClient.PendingUpdate,
         read: Long,
     ): Outcome {
-        if (!verify(paths.part, digest, update, read)) {
+        if (!verify(digest, update, read)) {
             paths.part.delete()
             paths.meta.delete()
             return Outcome.Refused
@@ -421,7 +421,6 @@ object UpdateDownloader {
      *  looking like a manifest-less release and skip verification. The install
      *  sheet still shows the signer either way. */
     private fun verify(
-        file: File,
         digest: MessageDigest,
         update: UpdateClient.PendingUpdate,
         read: Long,
