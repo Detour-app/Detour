@@ -78,6 +78,7 @@ import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.presentation.RouteCard
 import com.jellemax.detour.presentation.RoutesPresenter
 import com.jellemax.detour.presentation.gmapsTravelMode
+import com.jellemax.detour.presentation.routeOpensExternally
 import com.jellemax.detour.presentation.routesStateFrom
 import com.jellemax.detour.presentation.thumbnailPoints
 import kotlinx.coroutines.Dispatchers
@@ -210,12 +211,14 @@ fun RoutesScreen(
     fun navigate(route: SavedRoute) {
         // Two stops (the common A-to-B case) keep the whole route through the
         // in-app path; more than that and the middle stops only survive a
-        // hand-off to an external maps app — see navigateStopsExternally.
-        if (route.stops.size <= 2) {
+        // hand-off to an external maps app — see navigateStopsExternally. The
+        // predicate is shared with the card's action label so the pill cannot
+        // say "Ride" for a tap that leaves the app.
+        if (routeOpensExternally(route.stops.size)) {
+            status = navigateStopsExternally(context, route.stops, route.mode)
+        } else {
             seedRouteNavigation(route)
             onNavigate()
-        } else {
-            status = navigateStopsExternally(context, route.stops, route.mode)
         }
     }
 
@@ -426,7 +429,7 @@ private fun RouteCardItem(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            RidePillButton(onClick = onNavigate)
+            RouteActionPill(label = card.actionLabel, onClick = onNavigate)
             Box {
                 IconButton(onClick = onOpenMenu) {
                     Icon(
@@ -447,10 +450,12 @@ private fun RouteCardItem(
     }
 }
 
-/** The filled "Ride" pill: 36dp tall, fully-rounded (18dp radius), primary
- *  background, per the prototype. */
+/** The filled action pill: 36dp tall, fully-rounded (18dp radius), primary
+ *  background, per the prototype. [label] is "Ride" or "Open in Maps" —
+ *  [com.jellemax.detour.presentation.routeOpensExternally] decides which, and
+ *  the same predicate decides what the tap does. */
 @Composable
-private fun RidePillButton(onClick: () -> Unit) {
+private fun RouteActionPill(label: String, onClick: () -> Unit) {
     Row(
         Modifier
             .height(36.dp)
@@ -466,10 +471,11 @@ private fun RidePillButton(onClick: () -> Unit) {
             Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimary,
         )
         Text(
-            "Ride",
+            label,
             color = MaterialTheme.colorScheme.onPrimary,
             fontSize = 12.5.sp,
             fontWeight = FontWeight.Bold,
+            maxLines = 1,
         )
     }
 }

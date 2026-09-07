@@ -13,7 +13,25 @@ data class RouteCard(
     val name: String,
     val subtitle: String,
     val polyline: List<LatLon>,
+    /** What the card's action pill says — see [routeOpensExternally]. */
+    val actionLabel: String,
 )
+
+/**
+ * Whether riding this route hands off to an external maps app instead of
+ * staying in Detour.
+ *
+ * `seedRouteNavigation` carries only a route's *final* stop to the map, so
+ * anything past a plain A-to-B would silently drop the stops in between;
+ * `RoutesScreen.navigateStopsExternally` hands those to Google Maps' directions
+ * URL, which can carry real via points, instead.
+ *
+ * The rule is here, rather than inline at that branch, because the card's
+ * action label has to agree with it. Both readings said "Ride" — same label,
+ * same weight, a different app, decided by a stop count that appeared only in
+ * the subtitle — so a rider tapping it had no way to know they were leaving.
+ */
+fun routeOpensExternally(stopCount: Int): Boolean = stopCount > 2
 
 /**
  * Marks whether the Routes screen's initial disk read has completed.
@@ -118,5 +136,6 @@ fun routesStateFrom(routes: List<SavedRoute>): List<RouteCard> = routes.map { r 
         name = r.name,
         subtitle = routeSubtitle(r.distanceMeters, r.stops.size, r.timeMs, r.sharedBy),
         polyline = r.polyline,
+        actionLabel = if (routeOpensExternally(r.stops.size)) "Open in Maps" else "Ride",
     )
 }
