@@ -51,20 +51,13 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun MapTopChrome(
     followMe: Boolean,
-    fogEnabled: Boolean,
     convoyName: String?,
-    // Hoisted to MapScreen so a tap on the map can close the panel — the job
-    // the Popup's dismissOnClickOutside used to do.
-    layersOpen: Boolean,
-    onLayersOpenChange: (Boolean) -> Unit,
+    layers: MapLayers,
     onToggleFollow: () -> Unit,
     // Non-null exactly while the camera is idle enough for a bearing to stay
     // put — `CameraAuthority.State.northUpAvailable`. One nullable callback
-    // rather than a flag beside a lambda: it matches `onShare` in MapScreen,
-    // and it keeps one parameter off a signature that is already wide (§8.4 is
-    // about extractions, not additions, but the direction of travel counts).
+    // rather than a flag beside a lambda, matching `onShare` in MapScreen.
     onFaceNorth: (() -> Unit)?,
-    onToggleFog: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -105,8 +98,8 @@ internal fun MapTopChrome(
             GlassRailButton(
                 icon = Icons.Outlined.Layers,
                 contentDescription = "Map layers",
-                tinted = layersOpen,
-                onClick = { onLayersOpenChange(!layersOpen) },
+                tinted = layers.open,
+                onClick = { layers.onOpenChange(!layers.open) },
             )
             // Inline rather than a Popup on purpose. A Popup is its own
             // window, so the button sitting outside it counted as an
@@ -114,7 +107,7 @@ internal fun MapTopChrome(
             // closed and reopened on the same tap, and the button could
             // never close it. One window, one handler, and the toggle is
             // correct by construction.
-            AnimatedVisibility(visible = layersOpen, enter = fadeIn(), exit = fadeOut()) {
+            AnimatedVisibility(visible = layers.open, enter = fadeIn(), exit = fadeOut()) {
                 Card(
                     modifier = Modifier.glassBorder(MaterialTheme.shapes.large),
                     shape = MaterialTheme.shapes.large,
@@ -127,12 +120,15 @@ internal fun MapTopChrome(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            if (fogEnabled) Icons.Outlined.Visibility
+                            if (layers.fogEnabled) Icons.Outlined.Visibility
                                 else Icons.Outlined.VisibilityOff,
                             contentDescription = null,
                         )
                         Text("Fog of war", modifier = Modifier.weight(1f))
-                        Switch(checked = fogEnabled, onCheckedChange = { onToggleFog() })
+                        Switch(
+                            checked = layers.fogEnabled,
+                            onCheckedChange = { layers.onToggleFog() },
+                        )
                     }
                 }
             }

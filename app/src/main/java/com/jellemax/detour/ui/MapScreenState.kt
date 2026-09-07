@@ -41,6 +41,23 @@ import kotlinx.coroutines.Job
  * a spin survives activity recreation. Three lifetimes, three owners; the
  * mistake to avoid is assuming "the session" is one thing.
  */
+/** What [MapTopChrome] needs to draw the layers panel: whether it is open,
+ *  what it shows, and the two callbacks that change either. Four values that
+ *  only ever change together, grouped so the rail stays under the parameter
+ *  limit — the same reason [WhereTo] exists
+ *  (`docs/guidelines/state-holders.md` §14.2).
+ *
+ *  Here rather than in `MapChrome.kt` because [MapScreenState.layersOpen] is
+ *  the state being grouped: the panel's open flag is hoisted to the screen so a
+ *  tap on the map can close it, which is the job the Popup's
+ *  `dismissOnClickOutside` used to do. */
+internal data class MapLayers(
+    val open: Boolean,
+    val onOpenChange: (Boolean) -> Unit,
+    val fogEnabled: Boolean,
+    val onToggleFog: () -> Unit,
+)
+
 internal class MapScreenState(seed: SpinResult) {
 
     // --- the spin result ------------------------------------------------

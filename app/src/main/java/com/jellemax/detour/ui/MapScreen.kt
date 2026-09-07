@@ -1086,10 +1086,13 @@ fun MapScreen(
             ) {
                 MapTopChrome(
                     followMe = s.camAuthority.following,
-                    fogEnabled = fogEnabled,
                     convoyName = if (convoyConnected) s.convoyName else null,
-                    layersOpen = s.layersOpen,
-                    onLayersOpenChange = { s.layersOpen = it },
+                    layers = MapLayers(
+                        open = s.layersOpen,
+                        onOpenChange = { s.layersOpen = it },
+                        fogEnabled = fogEnabled,
+                        onToggleFog = { Settings.setFogEnabled(!fogEnabled) },
+                    ),
                     onToggleFollow = {
                         s.camAuthority = CameraAuthority.reduce(
                             s.camAuthority,
@@ -1104,7 +1107,6 @@ fun MapScreen(
                     onFaceNorth = if (s.camAuthority.northUpAvailable(s.navigating)) {
                         { mapLibreMap?.let { levelToNorthUp(it) } }
                     } else null,
-                    onToggleFog = { Settings.setFogEnabled(!fogEnabled) },
                     modifier = Modifier
                         .statusBarsPadding()
                         .padding(12.dp),
