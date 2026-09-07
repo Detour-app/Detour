@@ -47,9 +47,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -213,20 +210,12 @@ fun SettingsSpokeScreen(spoke: Destination.SettingsSpoke, onBack: () -> Unit) {
 @Composable
 private fun AppearanceSection(theme: Settings.Theme, separator: Settings.DecimalSeparator) {
     SettingsSection("Appearance") {
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            Settings.Theme.entries.forEachIndexed { index, t ->
-                SegmentedButton(
-                    selected = theme == t,
-                    onClick = { Settings.setTheme(t) },
-                    shape = SegmentedButtonDefaults.itemShape(
-                        index = index, count = Settings.Theme.entries.size,
-                    ),
-                    label = {
-                        Text(t.name.lowercase().replaceFirstChar { it.uppercase() })
-                    },
-                )
-            }
-        }
+        val themes = Settings.Theme.entries
+        ChoiceRow(
+            options = themes.map { t -> t.name.lowercase().replaceFirstChar { c -> c.uppercase() } },
+            selectedIndex = themes.indexOf(theme),
+            onSelect = { Settings.setTheme(themes[it]) },
+        )
         if (theme == Settings.Theme.AUTO) {
             Text(
                 "Light by day, dark by night — follows sunrise and " +
@@ -237,26 +226,18 @@ private fun AppearanceSection(theme: Settings.Theme, separator: Settings.Decimal
         }
 
         Text("Decimal separator", style = MaterialTheme.typography.bodyLarge)
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            Settings.DecimalSeparator.entries.forEachIndexed { index, d ->
-                SegmentedButton(
-                    selected = separator == d,
-                    onClick = { Settings.setDecimalSeparator(d) },
-                    shape = SegmentedButtonDefaults.itemShape(
-                        index = index, count = Settings.DecimalSeparator.entries.size,
-                    ),
-                    label = {
-                        Text(
-                            when (d) {
-                                Settings.DecimalSeparator.SYSTEM -> "System"
-                                Settings.DecimalSeparator.POINT -> "1.2"
-                                Settings.DecimalSeparator.COMMA -> "1,2"
-                            },
-                        )
-                    },
-                )
-            }
-        }
+        val separators = Settings.DecimalSeparator.entries
+        ChoiceRow(
+            options = separators.map { d ->
+                when (d) {
+                    Settings.DecimalSeparator.SYSTEM -> "System"
+                    Settings.DecimalSeparator.POINT -> "1.2"
+                    Settings.DecimalSeparator.COMMA -> "1,2"
+                }
+            },
+            selectedIndex = separators.indexOf(separator),
+            onSelect = { Settings.setDecimalSeparator(separators[it]) },
+        )
         Text(
             "How readouts with a decimal — distances, g, fuel economy, " +
                 "mount offset, map zoom — are written. Speeds round to whole " +

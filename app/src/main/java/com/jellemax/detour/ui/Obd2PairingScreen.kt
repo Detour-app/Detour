@@ -13,9 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -257,25 +254,24 @@ fun Obd2PairingScreen() {
                     }
                     // Fuel type + calibration only matter for the MAF estimate,
                     // and only once an adapter is paired.
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        FuelType.entries.forEachIndexed { index, ft ->
-                            SegmentedButton(
-                                selected = vehicle.fuelType == ft,
-                                onClick = {
-                                    Settings.setFuelType(vehicle.address, ft)
-                                    vehicle.obd2Address?.let { addr ->
-                                        Obd2Connection.disconnect()
-                                        Obd2Connection.connect(
-                                            context.applicationContext, addr,
-                                            fuelType = ft, calibrationPct = vehicle.fuelCalibrationPct,
-                                        )
-                                    }
-                                },
-                                shape = SegmentedButtonDefaults.itemShape(index, FuelType.entries.size),
-                                label = { Text(ft.name.lowercase().replaceFirstChar { it.uppercase() }) },
-                            )
-                        }
-                    }
+                    val fuelTypes = FuelType.entries
+                    ChoiceRow(
+                        options = fuelTypes.map { ft ->
+                            ft.name.lowercase().replaceFirstChar { c -> c.uppercase() }
+                        },
+                        selectedIndex = fuelTypes.indexOf(vehicle.fuelType),
+                        onSelect = { index ->
+                            val ft = fuelTypes[index]
+                            Settings.setFuelType(vehicle.address, ft)
+                            vehicle.obd2Address?.let { addr ->
+                                Obd2Connection.disconnect()
+                                Obd2Connection.connect(
+                                    context.applicationContext, addr,
+                                    fuelType = ft, calibrationPct = vehicle.fuelCalibrationPct,
+                                )
+                            }
+                        },
+                    )
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,

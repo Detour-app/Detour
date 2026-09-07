@@ -29,9 +29,6 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -314,27 +311,17 @@ fun TripCardShareDialog(trip: Trip, points: List<LatLon>?, onDismiss: () -> Unit
                     else -> {
                         TripCardPreview(rendered)
                         Spacer(Modifier.height(16.dp))
-                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                            CardLayout.entries.forEachIndexed { index, l ->
-                                SegmentedButton(
-                                    selected = layout == l,
-                                    onClick = { layout = l },
-                                    shape = SegmentedButtonDefaults.itemShape(index, CardLayout.entries.size),
-                                    label = { Text(l.label) },
-                                )
-                            }
-                        }
+                        ChoiceRow(
+                            options = CardLayout.entries.map { it.label },
+                            selectedIndex = CardLayout.entries.indexOf(layout),
+                            onSelect = { layout = CardLayout.entries[it] },
+                        )
                         Spacer(Modifier.height(8.dp))
-                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                            listOf("Light" to false, "Dark" to true).forEachIndexed { index, (label, isDark) ->
-                                SegmentedButton(
-                                    selected = dark == isDark,
-                                    onClick = { darkOverride = isDark },
-                                    shape = SegmentedButtonDefaults.itemShape(index, 2),
-                                    label = { Text(label) },
-                                )
-                            }
-                        }
+                        ChoiceRow(
+                            options = listOf("Light", "Dark"),
+                            selectedIndex = if (dark) 1 else 0,
+                            onSelect = { darkOverride = it == 1 },
+                        )
                         Spacer(Modifier.height(8.dp))
                         if (!fullRoute) Text("Route trimmed near start/end for privacy.")
                         Row(verticalAlignment = Alignment.CenterVertically) {
