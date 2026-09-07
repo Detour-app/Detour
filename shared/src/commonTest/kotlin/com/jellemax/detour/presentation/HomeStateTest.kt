@@ -79,4 +79,32 @@ class HomeStateTest {
             }
         }
     }
+
+    @Test fun aRecordingTripOutranksTheSpinSheetWhicheverWayTheFlagPoints() {
+        // The drive sheet carries its own Where to? and Go row, so the spin
+        // sheet is not needed under it; #202's driving occupant ranked the
+        // other way round, and this pins which rule the slot follows now.
+        for (collapsed in listOf(false, true)) {
+            assertEquals(
+                HomeBottomCard.DRIVE,
+                homeBottomCard(
+                    navigating = false, hasCandidates = false, tripActive = true, collapsed = collapsed,
+                ),
+                "collapsed=$collapsed",
+            )
+        }
+    }
+
+    @Test fun aCandidateRoundOutranksARecordingTripWhicheverWayTheFlagPoints() {
+        for (collapsed in listOf(false, true)) {
+            assertEquals(
+                HomeBottomCard.CANDIDATES,
+                homeBottomCard(
+                    navigating = false, hasCandidates = true, tripActive = true, collapsed = collapsed,
+                ),
+                "collapsed=$collapsed",
+            )
+        }
+    }
+
 }

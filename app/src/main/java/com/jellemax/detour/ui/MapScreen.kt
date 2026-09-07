@@ -307,6 +307,20 @@ fun MapScreen(
     // Collapsed is the resting state; the spin sheet comes up when the home
     // sheet's Spin chip opens it, or when a destination is set (below).
     var settingsCollapsed by rememberSaveable { mutableStateOf(true) }
+    // A trip ending lands on the home sheet. The ride sheets outrank the spin
+    // sheet in homeBottomCard, so `settingsCollapsed` can go false underneath
+    // them — every pick flips it, navigated-to or not — and End trip after an
+    // arrival would otherwise surface a spin sheet offering Go to the place
+    // the rider is standing at. Edge-triggered on a running trip ending, not
+    // on "no trip": a return from the Hub with no trip must not close a spin
+    // sheet the rider left open, and a route seeded from RoutesScreen must
+    // keep the sheet the effect below opens for it.
+    var tripWasRunning by remember { mutableStateOf(stats != null) }
+    LaunchedEffect(stats != null) {
+        val running = stats != null
+        if (tripWasRunning && !running) settingsCollapsed = true
+        tripWasRunning = running
+    }
     // Having somewhere to go and no way to start going there was the dead end:
     // the Go button and the destination readout are the spin sheet's (SpinCards
     // NavButton and the result callout), so a destination picked while the
@@ -649,16 +663,16 @@ fun MapScreen(
         collapsed = settingsCollapsed,
     )
 
-    // The search island lives in the home sheet and the drive sheet, so
-    // anything that displaces both takes the island's BackHandler with it - and
-    // back would then leave the app rather than dismissing a search that is
-    // still on screen. Closing it here covers every displacement at once,
-    // navigation included. The ride sheets' open state resets on the same
-    // trigger: every slot change lands on a closed sheet.
+    // The search island lives in the home sheet and, when it is open, in the
+    // drive sheet, so anything that displaces them takes the island's
+    // BackHandler with it - and back would then leave the app rather than
+    // dismissing a search that is still on screen. Closing it here covers
+    // every displacement at once, navigation included, and the drive sheet is
+    // no exception: the same trigger closes the sheet below, which takes its
+    // island off screen, and a flag left true would pop the keyboard the next
+    // time the sheet opened. Every slot change lands on a closed sheet.
     LaunchedEffect(bottomCard) {
-        if (bottomCard != HomeBottomCard.COLLAPSED && bottomCard != HomeBottomCard.DRIVE) {
-            searchOpen = false
-        }
+        if (bottomCard != HomeBottomCard.COLLAPSED) searchOpen = false
         rideSheetExpanded = false
     }
 

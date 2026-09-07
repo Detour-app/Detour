@@ -134,9 +134,12 @@ internal fun DriveSheet(
                 )
                 // Nothing below the bar survives a search, as in the home sheet.
                 if (!whereTo.open) {
-                    if (go.destination != null) {
+                    // A route with no destination is a loop spin, and its Go is
+                    // this one: without it, a loop spun before the trip started
+                    // had no way to be navigated until End trip.
+                    if (go.destination != null || go.route != null) {
                         ResultCallout(
-                            title = go.destinationName ?: "Destination",
+                            title = go.destinationName ?: "Loop found",
                             subtitle = go.route?.distanceMeters?.let { formatDistanceKm(it) },
                             onRespin = null,
                         )
