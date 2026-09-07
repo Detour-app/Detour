@@ -124,7 +124,6 @@ internal fun ColumnScope.HomeSheet(
     onSearchOpenChange: (Boolean) -> Unit,
     onPickDestination: (GeocodeResult) -> Unit,
     savedPlaces: List<SavedPlace>,
-    shortcutSeed: Int,
     onPickPlace: (SavedPlace) -> Unit,
     canSavePin: Boolean,
     onSavePin: () -> Unit,
@@ -165,16 +164,9 @@ internal fun ColumnScope.HomeSheet(
                 // bar, give way to the bar rather than the other way round.
                 modifier = Modifier.weight(1f, fill = false),
             )
-            // The seed is the slot's ([MapBottomSlot]), not this sheet's: the
-            // sheet leaves the composition whenever the spin sheet or a
-            // candidate round takes the slot, so a seed rolled here re-rolled
-            // the third chip on every Spin round trip. Above the branch below
-            // for the same reason at a smaller scale — opening the search bar
-            // takes the row off screen, not the sheet. Leaving the map and
-            // coming back is what re-rolls it.
-            val shortcuts = remember(savedPlaces, shortcutSeed) {
-                homeShortcutPlaces(savedPlaces, shortcutSeed)
-            }
+            // Home, Work and the rider's favourites, in a stable order — no
+            // seed and no re-roll, so the row is the same every visit.
+            val shortcuts = remember(savedPlaces) { homeShortcutPlaces(savedPlaces) }
             // Nothing below the bar survives a search: the results need the
             // room, and neither a shortcut nor a card is worth reaching for
             // with a half-typed query on screen.
@@ -237,8 +229,9 @@ internal fun DragHandle() {
  * One-tap a saved place, open the spin settings, or save the pin you just
  * dropped.
  *
- * [places] is what [homeShortcutPlaces] selected — Home, Work and one other,
- * at most — not the whole store the map's chips used to render.
+ * [places] is what [homeShortcutPlaces] selected — Home, Work and the rider's
+ * favourites, in that order — not the whole store the map's chips used to
+ * render. The row scrolls, so any number of favourites is safe here.
  *
  * The Spin chip still shows [mode], as its leading glyph rather than the
  * `Spin · Car` it used to spell out. The dock that used to show the mode went
@@ -267,14 +260,13 @@ private fun ShortcutChipRow(
     ) {
         // The places give way rather than push: they scroll inside whatever
         // the two chips after them leave, so Spin and Save pin are on screen
-        // however long a saved name is. Capping the row at three places was
-        // not enough on its own — an M3 chip spends 50 dp on chrome before a
-        // character of label, so five of them only fit once Home and Work drop
-        // their labels, the third place drops its glyph, Spin drops the mode
-        // word and Save pin drops to its `+`. [PLACE_CHIP_MAX_WIDTH] carries
-        // that arithmetic. The scroll stays as the overflow insurance for a
-        // long name and for the largest font scales, where the two fixed chips
-        // take the row and the places are the right thing to lose first.
+        // however many favourites the rider has and however long a saved name
+        // is. An M3 chip spends 50 dp on chrome before a character of label, so
+        // Home and Work show their glyph alone and each favourite is capped and
+        // ellipsized ([PLACE_CHIP_MAX_WIDTH]); the scroll carries the rest. The
+        // favourites the rider marked, in the store's order, are the row —
+        // whichever fall past the edge are the right thing to reach by
+        // scrolling, and the two fixed chips never move.
         if (places.isNotEmpty()) {
             Row(
                 Modifier
