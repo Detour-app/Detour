@@ -38,9 +38,10 @@ private const val PAD_TIGHT_DP = 8f
  *  to before scrolling is the only remaining option. */
 private const val SHRINK_FLOOR = 12f / 14f
 
-/** A row this narrow has no readable answer left, so stop shrinking rather
- *  than compute a font size nobody can read (or, at zero width, a negative
- *  one). Only reachable by a two- or three-item row, which may not scroll. */
+/** A row this narrow has no readable answer left, so stop shrinking: below
+ *  this even a two- or three-item row scrolls, because the alternative is a
+ *  label drawn wider than its segment and cut by the clip. Reachable — a
+ *  320dp screen at font scale 2 puts the trip card's "Standard" here. */
 private const val MIN_SCALE = 0.5f
 
 /** Up to this many segments the row never scrolls: Mode (2, in the spin
@@ -105,8 +106,10 @@ internal fun choiceRowMetrics(
     // Roboto's advances scale linearly with the font size, so the fraction of
     // the label that fits is the fraction of the size that does.
     val scale = (slot - 2 * PAD_TIGHT_DP) / widestLabelDp
-    if (scale >= SHRINK_FLOOR || count <= MAX_NON_SCROLLING) {
-        return ChoiceRowMetrics(slot, PAD_TIGHT_DP, scale.coerceIn(MIN_SCALE, 1f), false)
+    // A short row keeps shrinking past the floor rather than scroll, but not
+    // past MIN_SCALE: clamping there drew the label wider than its segment.
+    if (scale >= SHRINK_FLOOR || (count <= MAX_NON_SCROLLING && scale >= MIN_SCALE)) {
+        return ChoiceRowMetrics(slot, PAD_TIGHT_DP, scale.coerceAtMost(1f), false)
     }
     return contentSized.copy(scrolls = true)
 }

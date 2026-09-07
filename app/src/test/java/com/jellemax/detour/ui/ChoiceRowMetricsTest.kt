@@ -100,10 +100,43 @@ class ChoiceRowMetricsTest {
     }
 
     @Test
-    fun `a three-item row never scrolls, however badly the label fits`() {
-        val m = choiceRowMetrics(rowWidthDp = 120f, widestLabelDp = 88f, count = 3)
+    fun `a three-item row shrinks below the floor before it scrolls`() {
+        // 200 / 3 less the gaps is a 61dp slot, 45dp of text area against a
+        // 70dp label: 0.64 of the size, under labelMedium's 0.857 floor. A
+        // four-item row would scroll here; three stay put and shrink.
+        val m = choiceRowMetrics(rowWidthDp = 200f, widestLabelDp = 70f, count = 3)
         assertFalse(m.scrolls)
-        assertTrue(m.fontScale >= 0.5f)
+        assertEquals((61.33f - 16f) / 70f, m.fontScale, eps)
+    }
+
+    @Test
+    fun `a three-item row scrolls once even the smallest label would not fit`() {
+        // A 120dp row: 33dp slots, 17dp of text against an 88dp label. This
+        // used to clamp the scale at 0.5 and hand the clip a 44dp label in a
+        // 17dp area — the bug the component exists to prevent, on the trip
+        // card's layout picker at 320dp and font scale 2.
+        val m = choiceRowMetrics(rowWidthDp = 120f, widestLabelDp = 88f, count = 3)
+        assertTrue(m.scrolls)
+    }
+
+    @Test
+    fun `no non-scrolling row draws a label wider than its text area`() {
+        // The invariant every branch has to hold, swept over the shipped row
+        // widths, the measured labels and every count from none to nine —
+        // including 0 and 1, which the early returns handle.
+        val rows = listOf(120f, 200f, 296f, 304f, 360f)
+        val labels = listOf(20f, 46.4f, 65.7f, 82f, 100f)
+        val cases = (0..9).flatMap { count ->
+            rows.flatMap { row -> labels.map { label -> Triple(count, row, label) } }
+        }
+        for ((count, row, label) in cases) {
+            val m = choiceRowMetrics(row, label, count)
+            if (m.scrolls) continue
+            assertTrue(
+                "row=$row label=$label count=$count",
+                m.itemWidthDp - 2 * m.paddingDp + eps >= label * m.fontScale,
+            )
+        }
     }
 
     @Test
