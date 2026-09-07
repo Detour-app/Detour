@@ -62,6 +62,7 @@ private const val SRC_REACH = "mr-reach"
 private const val SRC_WEDGE = "mr-wedge"
 private const val SRC_ROUTE = "mr-route"
 private const val SRC_ROUTE_DRIVEN = "mr-route-driven"
+private const val SRC_ROUTE_TAIL = "mr-route-tail"
 private const val SRC_CANDIDATES = "mr-candidates"
 private const val SRC_DEST = "mr-dest"
 private const val SRC_POSITION = "mr-position"
@@ -75,6 +76,7 @@ private const val IMG_FRIEND = "mr-img-friend"
 private const val IMG_CIRCLE_MEMBER = "mr-img-circle-member"
 private const val LAYER_ROUTE = "mr-route-line"
 private const val LAYER_ROUTE_DRIVEN = "mr-route-driven-line"
+private const val LAYER_ROUTE_TAIL = "mr-route-tail-line"
 const val LAYER_CANDIDATES = "mr-candidates-dot"
 // Every symbol layer that carries a text label must name this font stack.
 // MapLibre's spec default is ["Open Sans Regular", "Arial Unicode MS Regular"]
@@ -95,11 +97,11 @@ private const val POSITION_ICON_SCALE = 2
 // Below city zoom the speed-camera icons pile up into an unreadable blob, and
 // at loop-planning zoom they're just noise — hide them until zoomed past this.
 private const val SPEED_CAMERA_MIN_ZOOM = 11f
-// Redrawing the driven part of the route costs a GeoJSON push the size of that
-// part, so it advances in steps rather than on every fix: a phone at a red
-// light pushes nothing at all, and at speed this lands at roughly the GPS's own
-// once a second. Twelve metres is under a car length at map scale — the line
-// still creeps forward smoothly.
+// Recutting the route into its driven and undriven halves costs two GeoJSON
+// pushes the size of the route, so the cut advances in steps rather than on
+// every frame: a phone at a red light pushes nothing at all, and at speed this
+// lands at roughly the GPS's own once a second. What glides between two cuts is
+// the tail (see [MapOverlays.setDrivenFraction]), which is two points.
 private const val DRIVEN_STEP_METERS = 12.0
 // Below this there is nothing worth drawing: a stub of driven line at the very
 // start of a route reads as a rendering glitch, not as progress.
@@ -147,8 +149,9 @@ class MapOverlays(
         ContextCompat.getDrawable(context, R.drawable.ic_map_circle_member)?.let {
             style.addImage(IMG_CIRCLE_MEMBER, it.toBitmap())
         }
-        listOf(SRC_REACH, SRC_WEDGE, SRC_ROUTE, SRC_ROUTE_DRIVEN, SRC_CANDIDATES, SRC_DEST,
-            SRC_POSITION, SRC_CAMERAS, SRC_FRIENDS, SRC_CIRCLE_MEMBERS)
+        listOf(SRC_REACH, SRC_WEDGE, SRC_ROUTE, SRC_ROUTE_DRIVEN, SRC_ROUTE_TAIL,
+            SRC_CANDIDATES, SRC_DEST, SRC_POSITION, SRC_CAMERAS, SRC_FRIENDS,
+            SRC_CIRCLE_MEMBERS)
             .forEach { style.addSource(GeoJsonSource(it)) }
 
         // Whatever the user picked in Settings > Route line; the default,
@@ -159,9 +162,9 @@ class MapOverlays(
         // does for the marker.
         val routeColor = Settings.routeColor.value
 
-        // Bottom-to-top: fills, then the route (dark casing under the colored
-        // line, and the driven part over it), then markers, with the tappable
-        // candidates on top.
+        // Bottom-to-top: fills, then the route (dark casing under both halves
+        // of the coloured line, then the halves, then the tail that carries the
+        // seam), then markers, with the tappable candidates on top.
         style.addLayer(FillLayer("mr-reach-fill", SRC_REACH).withProperties(
             PropertyFactory.fillColor("#2196F3"), PropertyFactory.fillOpacity(0.09f)))
         style.addLayer(LineLayer("mr-reach-line", SRC_REACH).withProperties(
@@ -169,25 +172,49 @@ class MapOverlays(
             PropertyFactory.lineOpacity(0.7f)))
         style.addLayer(FillLayer("mr-wedge-fill", SRC_WEDGE).withProperties(
             PropertyFactory.fillColor("#FF9800"), PropertyFactory.fillOpacity(0.11f)))
-        style.addLayer(LineLayer("mr-route-casing", SRC_ROUTE).withProperties(
-            PropertyFactory.lineColor("#0B1220"), PropertyFactory.lineWidth(11f),
-            PropertyFactory.lineOpacity(0.85f), PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
-        style.addLayer(LineLayer(LAYER_ROUTE, SRC_ROUTE).withProperties(
-            PropertyFactory.lineColor(RouteColors.hex(routeColor, darkTheme)),
-            PropertyFactory.lineWidth(7f),
-            PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
-            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
-        // The part already driven, laid over the live line in the dimmed
-        // colour so the road ahead is the bright one. On top rather than
-        // underneath, and opaque rather than translucent: the line it has to
-        // hide is the one immediately below it (see [RouteColors.drivenHex]).
-        // Empty until [setDrivenFraction] says otherwise, so a route that is
-        // merely drawn — a spin result, a saved trip — is bright end to end.
+        // A casing per half, because the two halves are two geometries: while
+        // navigating SRC_ROUTE holds only the road ahead, and the road behind
+        // would otherwise lose the dark outline that keeps the line legible
+        // over a busy basemap.
+        listOf(SRC_ROUTE to "mr-route-casing", SRC_ROUTE_DRIVEN to "mr-route-driven-casing")
+            .forEach { (source, id) ->
+                style.addLayer(LineLayer(id, source).withProperties(
+                    PropertyFactory.lineColor("#0B1220"), PropertyFactory.lineWidth(11f),
+                    PropertyFactory.lineOpacity(0.85f),
+                    PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
+            }
+        // The road behind, in the dimmed colour. A geometry of its own rather
+        // than a copy of the route's first N metres laid over all of it, so a
+        // route that rides the same tarmac twice is dimmed only where the rider
+        // has actually been.
         style.addLayer(LineLayer(LAYER_ROUTE_DRIVEN, SRC_ROUTE_DRIVEN).withProperties(
             PropertyFactory.lineColor(RouteColors.drivenHex(routeColor, darkTheme)),
             PropertyFactory.lineWidth(7f),
             PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
+        // The road ahead, over the dimmed half and butt-capped where they meet.
+        // The two are disjoint, so this only ever covers the other where the
+        // route rides its own tarmac twice — and there bright is the honest
+        // answer, because that stretch is still to come. Butt because the
+        // dimmed half's round cap hangs 3.5 px past the cut, and this is what
+        // covers it: the half-disc over the live line is #208's third symptom.
+        // Holds the whole route until [setDrivenFraction] cuts it, so a route
+        // that is merely drawn — a spin result, a saved trip — is bright end to
+        // end; the casings below keep the route's outer tips rounded.
+        style.addLayer(LineLayer(LAYER_ROUTE, SRC_ROUTE).withProperties(
+            PropertyFactory.lineColor(RouteColors.hex(routeColor, darkTheme)),
+            PropertyFactory.lineWidth(7f),
+            PropertyFactory.lineCap(Property.LINE_CAP_BUTT),
+            PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
+        // The seam itself: the few metres between the last cut and where the
+        // rider is right now, dimmed over the road ahead. Butt for the same
+        // reason, at the end that matters — a round cap here would put a
+        // half-disc of dim past the marker on every frame.
+        style.addLayer(LineLayer(LAYER_ROUTE_TAIL, SRC_ROUTE_TAIL).withProperties(
+            PropertyFactory.lineColor(RouteColors.drivenHex(routeColor, darkTheme)),
+            PropertyFactory.lineWidth(7f),
+            PropertyFactory.lineCap(Property.LINE_CAP_BUTT),
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
         // Rotated to the last known heading, aligned to the map rather than the
         // viewport: heading-up already turns the camera, so a vehicle icon
@@ -275,36 +302,55 @@ class MapOverlays(
 
     private fun empty() = FeatureCollection.fromFeatures(emptyList())
 
-    /** Recolour both route layers. Cheap enough to call on every change of the
-     *  setting — two paint properties, no source or layer rebuild — for the
-     *  same reason [setPositionIcon] is. */
+    /** [points] as a one-feature LineString collection, or nothing when there
+     *  are too few of them to be a line. */
+    private fun lineFeature(points: List<LatLon>): FeatureCollection =
+        if (points.size >= 2) FeatureCollection.fromFeature(Feature.fromGeometry(
+            LineString.fromLngLats(points.map { Point.fromLngLat(it.lon, it.lat) })))
+        else empty()
+
+    /** Recolour all three route layers. Cheap enough to call on every change of
+     *  the setting — three paint properties, no source or layer rebuild — for
+     *  the same reason [setPositionIcon] is. */
     fun setRouteColor(color: Settings.RouteColor) {
         if (!styleUsable) return
         (style.getLayer(LAYER_ROUTE) as? LineLayer)?.setProperties(
             PropertyFactory.lineColor(RouteColors.hex(color, darkTheme)))
-        (style.getLayer(LAYER_ROUTE_DRIVEN) as? LineLayer)?.setProperties(
-            PropertyFactory.lineColor(RouteColors.drivenHex(color, darkTheme)))
+        val driven = PropertyFactory.lineColor(RouteColors.drivenHex(color, darkTheme))
+        (style.getLayer(LAYER_ROUTE_DRIVEN) as? LineLayer)?.setProperties(driven)
+        (style.getLayer(LAYER_ROUTE_TAIL) as? LineLayer)?.setProperties(driven)
     }
 
-    // The route as last pushed, its length, and how far along it the driven
-    // overlay currently reaches (NaN = nothing drawn). Kept so progress can be
-    // given as a fraction — the caller measures the same polyline with
-    // NavEngine's arithmetic, and ratios agree where absolute metres need not.
+    // The route as last pushed, its length, how far along it the last cut was
+    // made (NaN = uncut, the whole route is drawn ahead), where that cut landed,
+    // and where the tail currently ends.
     private var routeLine: List<LatLon>? = null
     private var routeMeters = 0.0
     private var drawnDrivenMeters = Double.NaN
+    private var cutAt: LatLon? = null
+    private var drawnTailAt: LatLon? = null
 
     /**
      * How much of the drawn route is already behind you (0..1, or null when not
-     * navigating): that much of it is redrawn in the dimmed colour, so the road
-     * ahead is the one that stands out.
+     * navigating), and optionally where exactly you are on it ([tailAt], the
+     * position snapped onto the route).
      *
-     * Throttled to [DRIVEN_STEP_METERS] of travel. Rewriting the driven part
-     * costs a GeoJSON push proportional to its length, and this is called once
-     * per GPS fix from both the phone map and the car screen — where a
-     * route-sized push per fix is exactly what [setPosition] exists to avoid.
+     * The route is drawn as two **disjoint** geometries cut at [fraction] —
+     * behind in the dimmed colour, ahead in the bright one — rather than as a
+     * dimmed copy of the first N metres laid over the whole of it. Nothing
+     * overlaps, so a round trip, an out-and-back or a self-crossing is dimmed
+     * only where the rider has actually been, and there is no cap hanging past
+     * the seam.
+     *
+     * Recutting costs two GeoJSON pushes the size of the route, so it happens
+     * on [DRIVEN_STEP_METERS] of travel. What moves in between is [tailAt]: a
+     * two-point segment from the last cut to the rider, in the dimmed colour,
+     * over the stretch of the ahead line they have just covered. That is small
+     * enough to push on every displayed frame, which is what keeps the seam
+     * under a marker that glides. Callers with only a per-fix cadence — the car
+     * screen — leave it null and get the cut on its own.
      */
-    fun setDrivenFraction(fraction: Double?) {
+    fun setDrivenFraction(fraction: Double?, tailAt: LatLon? = null) {
         val line = routeLine
         // No fraction, no route, or not far enough along it to draw: whatever
         // was there comes off. Once, not on every fix that clears nothing.
@@ -312,17 +358,51 @@ class MapOverlays(
         if (line == null || meters < DRIVEN_MIN_METERS) {
             if (!drawnDrivenMeters.isNaN()) {
                 drawnDrivenMeters = Double.NaN
-                setData(SRC_ROUTE_DRIVEN, empty())
+                pushRouteHalves()
             }
             return
         }
-        if (!drawnDrivenMeters.isNaN() && abs(meters - drawnDrivenMeters) < DRIVEN_STEP_METERS) return
-        drawnDrivenMeters = meters
-        val driven = NavEngine.prefix(line, meters / routeMeters)
-        setData(SRC_ROUTE_DRIVEN, if (driven.size >= 2)
-            FeatureCollection.fromFeature(Feature.fromGeometry(
-                LineString.fromLngLats(driven.map { Point.fromLngLat(it.lon, it.lat) })))
-        else empty())
+        if (drawnDrivenMeters.isNaN() ||
+            abs(meters - drawnDrivenMeters) >= DRIVEN_STEP_METERS) {
+            drawnDrivenMeters = meters
+            pushRouteHalves()
+        }
+        pushTail(tailAt)
+    }
+
+    /** Cut [routeLine] at [drawnDrivenMeters] and push both halves, or push it
+     *  whole when nothing has been driven along it yet. */
+    private fun pushRouteHalves() {
+        val line = routeLine
+        // The tail belongs to the cut it grew from; a new cut starts it over.
+        drawnTailAt = null
+        setData(SRC_ROUTE_TAIL, empty())
+        if (line == null || drawnDrivenMeters.isNaN() || routeMeters <= 0.0) {
+            cutAt = null
+            setData(SRC_ROUTE, lineFeature(line.orEmpty()))
+            setData(SRC_ROUTE_DRIVEN, empty())
+            return
+        }
+        val cut = NavEngine.cut(line, drawnDrivenMeters / routeMeters)
+        cutAt = cut.behind.lastOrNull()
+        setData(SRC_ROUTE_DRIVEN, lineFeature(cut.behind))
+        setData(SRC_ROUTE, lineFeature(cut.ahead))
+    }
+
+    /** Dim the stretch of the ahead line between the last cut and [at]. Skipped
+     *  when it would redraw what is already there, which is what makes this
+     *  affordable to call once per frame.
+     *
+     *  Two points, so it takes the chord where the route bends: under
+     *  [DRIVEN_STEP_METERS] that is a couple of metres of daylight at a sharp
+     *  corner, and it is gone at the next cut. Walking the vertices between the
+     *  two would close it, at the cost of carrying the cut's segment index. */
+    private fun pushTail(at: LatLon?) {
+        if (at == drawnTailAt) return
+        drawnTailAt = at
+        val from = cutAt
+        setData(SRC_ROUTE_TAIL,
+            if (at != null && from != null) lineFeature(listOf(from, at)) else empty())
     }
 
     /** Replace the speed-camera markers. Fed by the prefetch loop, not [render],
@@ -414,21 +494,19 @@ class MapOverlays(
             FeatureCollection.fromFeature(Feature.fromGeometry(wedge(myLocation, reachMeters, directionDeg)))
         else FeatureCollection.fromFeatures(emptyList()))
 
-        setData(SRC_ROUTE, if (routePolyline != null && routePolyline.size >= 2)
-            FeatureCollection.fromFeature(Feature.fromGeometry(
-                LineString.fromLngLats(routePolyline.map { Point.fromLngLat(it.lon, it.lat) })))
-        else FeatureCollection.fromFeatures(emptyList()))
-
         // A different line means progress along the old one is meaningless —
         // that is a reroute, or a new destination. Compared by identity on
         // purpose: this runs on every fix on the phone map, and re-measuring an
-        // unchanged route (or worse, clearing the driven part under it) once a
-        // second is the bug this guard exists to prevent.
+        // unchanged route (or worse, re-pushing both halves and clearing the
+        // driven one under it) once a second is the bug this guard exists to
+        // prevent. The push lives inside the guard for the same reason: an
+        // unconditional one would put the whole route back into SRC_ROUTE on
+        // every fix, undoing the cut [setDrivenFraction] just made.
         if (routePolyline !== routeLine) {
             routeLine = routePolyline
             routeMeters = routePolyline?.let { NavEngine.lengthMeters(it) } ?: 0.0
             drawnDrivenMeters = Double.NaN
-            setData(SRC_ROUTE_DRIVEN, empty())
+            pushRouteHalves()
         }
 
         setData(SRC_CANDIDATES, FeatureCollection.fromFeatures(

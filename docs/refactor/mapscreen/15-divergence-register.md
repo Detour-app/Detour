@@ -1975,6 +1975,71 @@ entry in the register where iOS is the better copy.
 
 ---
 
+## 23. The driven/undriven seam: the phone glides it every frame, the car steps it every 12 m
+
+**Deliberate, and new with `#208`/`#209`** — recorded on entry 11's precedent, because the two
+surfaces call the same overlay method with a different number of arguments and nothing enforces
+that the difference stays intentional.
+
+**What.** Both surfaces draw the route as two disjoint geometries cut at the driven fraction —
+dimmed behind, bright ahead — and both recut only every `DRIVEN_STEP_METERS = 12.0`
+(`app/…/ui/MapLibreMap.kt:100-105`), because a recut is two GeoJSON pushes the size of the route.
+Between recuts the phone dims the stretch the rider has just covered with a two-point tail
+segment pushed on every displayed frame; the car pushes no tail, so its seam sits up to 12 m
+behind the marker.
+
+**Copies.** The overlay takes the tail as an optional second argument —
+`app/…/ui/MapLibreMap.kt:353`:
+
+```kotlin
+fun setDrivenFraction(fraction: Double?, tailAt: LatLon? = null) {
+```
+
+Phone — `app/…/ui/MapScreen.kt:1464-1477`, from the position-marker `withFrameNanos` loop, off
+the eased position the marker itself is drawn at:
+
+```kotlin
+val a = NavEngine.advance(r.polyline, here, along)
+along = a
+overlays.setDrivenFraction(a.fraction, a.at)
+```
+
+Car — `app/…/car/NavScreen.kt:266`, once per GPS fix, off the fix rather than an eased point, and
+with no second argument:
+
+```kotlin
+renderer.setDrivenFraction(p.drivenFraction)
+```
+
+which reaches the overlay unchanged through `CarMapRenderer.setDrivenFraction`
+(`app/…/car/CarMapRenderer.kt:286-299`), whose KDoc carries the reason.
+
+**Verdict: survive — the car's, as it is.** Not a drift to converge. The tail is a GeoJSON push
+per displayed frame, and the head unit renders onto a `VirtualDisplay` the car is reading every
+frame; `MapOverlays.setPosition`'s own note (`app/…/ui/MapLibreMap.kt:463-466`) already records
+that per-frame source writes are what make a head unit crawl, and `CarMapRenderer`'s camera loop
+exists for the same reason. A 12 m seam on a screen nobody stares at is the right trade, and the
+car is strictly better than it was — it used to push a route-sized overlay every fix.
+
+**What would make this drift rather than a decision.** The default argument. A future caller that
+forgets `tailAt` gets the car's behaviour silently and on a surface where it is wrong, and the
+compiler says nothing — which is entry 11's lesson (*a claim of parity that nothing enforces
+still reads as verified*) pointed the other way: an intended divergence that nothing marks reads
+as an oversight. The fence assertion below is what marks it.
+
+**Fence.** Measured against `7074c57`:
+
+```sh
+# Entry 23 — the phone passes a tail, the car does not. Both halves, because
+# either one going away is the divergence changing.
+check 'the phone passes the eased point as the tail' 1 \
+    "$(grep -c 'setDrivenFraction(a.fraction, a.at)' "$M")"
+check 'the car still passes the fraction alone' 1 \
+    "$(grep -c 'renderer.setDrivenFraction(p.drivenFraction)' $CAR/NavScreen.kt)"
+```
+
+---
+
 ## §A — Summary, ranked by how user-visible the decision is
 
 **22 divergences.** By kind:

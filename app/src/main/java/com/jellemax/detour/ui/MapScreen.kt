@@ -1403,6 +1403,11 @@ fun MapScreen(
         var lastLon = Double.NaN
         var pushedBearing: Float? = null
         var markerBearing: Float? = null
+        // Where the marker last snapped onto the route, and the line it snapped to.
+        // Losing these costs one full-route search on the next frame, not a wrong
+        // seam — [NavEngine.advance] re-seeds itself from a null.
+        var along: NavEngine.Along? = null
+        var alongLine: List<LatLon>? = null
         var lastNs = withFrameNanos { it }
         while (true) {
             val ns = withFrameNanos { it }
@@ -1454,6 +1459,39 @@ fun MapScreen(
                 lastLat = here.lat
                 lastLon = here.lon
             }
+            // The seam between the road behind and the road ahead, off the same
+            // eased point rather than off the fix — the whole reason it used to
+            // advance in steps under a marker that glided.
+            //
+            // Outside the `moved` gate on purpose. The seam is the only thing here
+            // that can be stale without the position changing: come back from the
+            // background, or take a fix that jumps, and the snap below has a gap to
+            // walk that a stopped vehicle would otherwise feed it one frame at a
+            // time. Nothing is pushed for it — [MapOverlays.setDrivenFraction]
+            // drops a fraction inside its step and a tail that has not moved — so a
+            // standstill still costs one windowed search a frame and no GeoJSON.
+            //
+            // `navigating` and `route` are read live rather than keyed: this loop
+            // must not restart when either changes (see the accumulators above),
+            // and a snapshot read inside the body sees them anyway.
+            if (navigating) route?.let { r ->
+                // A different line invalidates the snap taken along the old one.
+                if (alongLine !== r.polyline) {
+                    alongLine = r.polyline
+                    along = null
+                }
+                // Windowed from the previous frame's snap, so this costs a handful
+                // of segments rather than the whole route, and cannot hop to the
+                // other leg where the route rides its own tarmac twice. The first
+                // frame of a drive pays one full search.
+                val a = NavEngine.advance(r.polyline, here, along)
+                // Beyond the window — a resume, a jumped fix — drop it, so the
+                // next frame searches the whole line once instead of walking
+                // the seam forward a window a frame, each of those frames
+                // pushing two route-sized GeoJSON sources.
+                along = if (a.beyondWindow) null else a
+                overlays.setDrivenFraction(a.fraction, a.at)
+            }
         }
     }
 
@@ -1474,10 +1512,10 @@ fun MapScreen(
         val pos = LatLon(fix.lat, fix.lon)
         val progress = NavEngine.progress(r, pos) ?: return@LaunchedEffect
         navProgress = progress
-        // Fade out the road already behind you. Cheap when it changes nothing —
-        // the overlay drops an update that wouldn't move the line (see
-        // MapOverlays.setDrivenFraction).
-        mapOverlays?.setDrivenFraction(progress.drivenFraction)
+        // No setDrivenFraction here: the marker's frame loop above fades the road
+        // behind you off its own eased position. A per-fix write would fight that,
+        // dragging the seam back to the raw fix once a second under a marker that
+        // has already moved on.
         BleNavServer.send(context, progress, currentSpeedKmh = fix.speedMps * 3.6)
 
         // Same policy the head unit and iOS read, so the three surfaces cannot

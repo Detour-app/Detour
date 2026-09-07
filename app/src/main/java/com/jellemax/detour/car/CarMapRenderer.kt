@@ -284,8 +284,15 @@ class CarMapRenderer(
     }
 
     /** How much of the route is behind us (0..1), so the map can fade it out.
-     *  A per-fix call, and a cheap one: the overlay skips an update that
-     *  wouldn't visibly move the line. */
+     *  A per-fix call, and a cheap one: the overlay recuts the line only every
+     *  12 m of travel.
+     *
+     *  No tail argument, so the head unit gets the cut on its own and its seam
+     *  sits up to 12 m behind the marker — the phone passes the eased position
+     *  too and glides. Deliberate: the tail is a GeoJSON push per displayed
+     *  frame, and a head unit's frame budget is the scarce thing here (see
+     *  [setPosition]'s note). Still strictly better than before, which pushed a
+     *  route-sized overlay per fix. */
     fun setDrivenFraction(fraction: Double?) {
         drivenFraction = fraction
         withOverlays { it.setDrivenFraction(fraction) }

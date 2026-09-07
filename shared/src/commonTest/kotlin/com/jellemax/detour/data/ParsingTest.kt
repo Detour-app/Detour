@@ -2,6 +2,7 @@ package com.jellemax.detour.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -421,6 +422,144 @@ class NavEngineTest {
             assertEquals(
                 straightLineMeters, NavEngine.lengthMeters(whole), absoluteTolerance = 0.5)
         }
+    }
+
+    @Test
+    fun cutSplitsTheLineInTwoDisjointHalvesThatMeet() {
+        val cut = NavEngine.cut(straightLine, 0.3)
+        // The whole point: the halves share the cut point and nothing else, so
+        // neither can be drawn over a stretch that belongs to the other.
+        assertEquals(cut.behind.last(), cut.ahead.first())
+        assertEquals(straightLine.first(), cut.behind.first())
+        assertEquals(straightLine.last(), cut.ahead.last())
+        assertEquals(
+            straightLineMeters,
+            NavEngine.lengthMeters(cut.behind) + NavEngine.lengthMeters(cut.ahead),
+            absoluteTolerance = 0.5,
+        )
+        assertEquals(
+            straightLineMeters * 0.3, NavEngine.lengthMeters(cut.behind), absoluteTolerance = 0.5)
+        // No vertex of the line is in both halves.
+        assertTrue(cut.behind.dropLast(1).none { it in cut.ahead })
+    }
+
+    @Test
+    fun cutGivesTheWholeLineToWhicheverSideOwnsIt() {
+        // Nothing driven: it is all still ahead, and there is no behind to draw.
+        assertTrue(NavEngine.cut(straightLine, 0.0).behind.isEmpty())
+        assertEquals(straightLine, NavEngine.cut(straightLine, 0.0).ahead)
+        // Finished: all behind, and the ahead half is not a one-point stub.
+        assertEquals(straightLine.size, NavEngine.cut(straightLine, 1.0).behind.size)
+        assertTrue(NavEngine.cut(straightLine, 1.0).ahead.isEmpty())
+        // Not a line at all.
+        assertTrue(NavEngine.cut(listOf(LatLon(50.0, 3.0)), 0.5).behind.isEmpty())
+        assertTrue(NavEngine.cut(emptyList(), 0.5).ahead.isEmpty())
+    }
+
+    @Test
+    fun advanceSnapsThePositionOntoTheLine() {
+        // Beside the line at its midpoint: the snapped point is the tail's far
+        // end, so it has to land *on* the line, not beside it.
+        val a = NavEngine.advance(straightLine, LatLon(50.02, 3.001), null)
+        assertEquals(3.0, a.at.lon, absoluteTolerance = 1e-9)
+        assertEquals(50.02, a.at.lat, absoluteTolerance = 1e-6)
+        assertEquals(0.5, a.fraction, absoluteTolerance = 1e-3)
+        assertEquals(straightLineMeters, a.lineMeters, absoluteTolerance = 0.5)
+        // Mid-segment, so the snap interpolates rather than picking a vertex.
+        val mid = NavEngine.advance(straightLine, LatLon(50.005, 3.0), null)
+        assertEquals(50.005, mid.at.lat, absoluteTolerance = 1e-6)
+        assertEquals(0, mid.index)
+    }
+
+    @Test
+    fun advanceOnlyEverMovesForwardAlongTheLine() {
+        // A line that doubles back on itself: the second half rides the first
+        // half's tarmac in reverse, which is what makes a global nearest-point
+        // search pick the wrong leg. Continuing from a snap on the outbound leg
+        // must stay on it.
+        val outAndBack = (0..4).map { LatLon(50.0 + it * 0.01, 3.0) } +
+            (3 downTo 0).map { LatLon(50.0 + it * 0.01, 3.0) }
+        val outbound = NavEngine.advance(outAndBack, LatLon(50.015, 3.0), null)
+        assertEquals(1, outbound.index)
+        // The same tarmac, further on — and just as near the return leg, which
+        // is what a global search gets wrong. Continued from the outbound snap
+        // it stays outbound.
+        val next = NavEngine.advance(outAndBack, LatLon(50.025, 3.0), outbound)
+        assertEquals(2, next.index)
+        assertTrue(next.meters > outbound.meters)
+        // And the window never walks backwards past the vertex it opened on.
+        val behind = NavEngine.advance(outAndBack, LatLon(50.0, 3.0), next)
+        assertTrue(behind.meters >= outbound.meters)
+    }
+
+    @Test
+    fun advanceClosesAGapItCannotSeeInOneStep() {
+        // A resumed app: the position jumps far beyond the window. Each call
+        // walks a window's worth, so a few frames close it rather than stalling
+        // the seam where the app went to sleep.
+        val long = (0..200).map { LatLon(50.0 + it * 0.001, 3.0) }
+        var a = NavEngine.advance(long, LatLon(50.0, 3.0), null)
+        val oneStep = NavEngine.advance(long, LatLon(50.19, 3.0), a)
+        // One window is not enough to see it…
+        assertTrue(oneStep.fraction < 0.2)
+        // …but a handful of frames is, rather than the seam stalling where the
+        // app went to sleep.
+        repeat(16) { a = NavEngine.advance(long, LatLon(50.19, 3.0), a) }
+        assertEquals(0.95, a.fraction, absoluteTolerance = 0.02)
+    }
+
+    @Test
+    fun advanceSaysWhenThePositionIsBeyondItsWindow() {
+        val long = (0..200).map { LatLon(50.0 + it * 0.001, 3.0) }
+        val start = NavEngine.advance(long, LatLon(50.0, 3.0), null)
+        // Far beyond: the snap clamps at the window's end and says so, and the
+        // fresh search the marker loop does next lands where the rider is.
+        val clamped = NavEngine.advance(long, LatLon(50.19, 3.0), start)
+        assertTrue(clamped.beyondWindow)
+        val fresh = NavEngine.advance(long, LatLon(50.19, 3.0), null)
+        assertFalse(fresh.beyondWindow)
+        assertEquals(0.95, fresh.fraction, absoluteTolerance = 0.02)
+        // Inside the window: a snap, not a clamp.
+        assertFalse(NavEngine.advance(long, LatLon(50.005, 3.0), start).beyondWindow)
+        // Past the end of the line with the window reaching it: the clamp is
+        // the destination, not a window running short.
+        val nearEnd = NavEngine.advance(long, LatLon(50.195, 3.0), null)
+        assertFalse(NavEngine.advance(long, LatLon(50.3, 3.0), nearEnd).beyondWindow)
+    }
+
+    @Test
+    fun advanceDoesNotDriftAcrossThousandsOfFrames() {
+        // A 24 km road running north-east from 51°N, ~600 m between vertices,
+        // walked at 30 m/s and 60 frames a second — the marker loop's real
+        // cadence over a plausible motorway leg, 39 000 frames of it.
+        //
+        // Diagonal on purpose, and this is the whole test: [segmentMeters]
+        // scales longitude by the cosine of its own midpoint latitude, so a
+        // part-segment and its whole are scaled by different numbers only when
+        // the segment changes both. Due north or due east, the residual below
+        // is identically zero and a fixture on either would pass whatever this
+        // code did.
+        val segments = 40
+        val line = (0..segments).map { LatLon(51.0 + it * 0.004, 4.0 + it * 0.006) }
+        // The line is straight in lat/lon, so a point on it is one parameter.
+        val perMeter = segments / NavEngine.lengthMeters(line)
+        fun at(metres: Double) = (metres * perMeter).let {
+            LatLon(51.0 + it * 0.004, 4.0 + it * 0.006)
+        }
+        val frames = 39_000
+        var walked = NavEngine.advance(line, line.first(), null)
+        for (frame in 1..frames) walked = NavEngine.advance(line, at(frame * 0.5), walked)
+
+        // Carrying the window's base from frame to frame has to land exactly
+        // where a fresh, un-carried search lands. It used to be *recovered*
+        // instead, by subtracting a part-segment back off the running total,
+        // and that residual is one-signed: sixty times a second over this line
+        // it walked the seam ~53 m off the rider — behind, heading north, and
+        // ahead heading south, where it dims road not yet ridden.
+        val fresh = NavEngine.advance(line, at(frames * 0.5), null)
+        assertEquals(fresh.meters, walked.meters, absoluteTolerance = 0.01)
+        // And it really did walk the line rather than sitting at the start.
+        assertTrue(walked.meters > 19_000.0)
     }
 
     @Test

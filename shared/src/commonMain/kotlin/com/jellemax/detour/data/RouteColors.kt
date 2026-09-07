@@ -36,9 +36,12 @@ object RouteColors {
      * basemap, so the road behind reads as spent while keeping enough of its
      * hue to still be recognisably *the route*.
      *
-     * Opaque rather than translucent on purpose. The driven line is drawn over
-     * the live one (see `MapOverlays` on Android), and a translucent colour
-     * would simply let the bright line show through instead of dimming it.
+     * Opaque rather than translucent on purpose. The two long halves of the
+     * route are drawn as disjoint geometries now, so this one no longer covers
+     * the bright line — but the short tail that carries the seam from the last
+     * step point up to the rider does, every frame, and a translucent colour
+     * there would simply let the bright line show through instead of dimming
+     * it (see `MapOverlays` on Android).
      */
     fun drivenHex(color: Settings.RouteColor, darkTheme: Boolean): String =
         mix(hex(color, darkTheme), if (darkTheme) DRIVEN_TOWARDS_DARK else DRIVEN_TOWARDS_LIGHT, DRIVEN_MIX)
