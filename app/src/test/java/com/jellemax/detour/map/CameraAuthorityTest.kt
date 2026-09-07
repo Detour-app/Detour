@@ -1,11 +1,14 @@
 package com.jellemax.detour.map
 
 import com.jellemax.detour.map.CameraAuthority.Action
+import com.jellemax.detour.map.CameraAuthority.ParkReason
 import com.jellemax.detour.map.CameraAuthority.State
 import com.jellemax.detour.map.CameraAuthority.reduce
+import com.jellemax.detour.map.CameraAuthority.shouldLevelNorthUp
 import com.jellemax.detour.ui.CAM_RESUME_QUIET_MS
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -75,13 +78,108 @@ class CameraAuthorityTest {
 
     /** Four call sites - a spin candidate, a convoy commit, a saved-place chip
      *  and a search result - frame a destination, and all four park exactly as a
-     *  pan does. One action, so they cannot drift apart. */
+     *  pan does. One action, so they cannot drift apart.
+     *
+     *  This used to assert whole-state equality. It now names the two fields it
+     *  was ever about, because [State.parkedBy] deliberately differs: both are
+     *  parks and neither is levelled to north (see [shouldLevelNorthUp]), but a
+     *  framing and a pan are not the same event and #261 will want to tell them
+     *  apart. The drift this test guards - a framing quietly getting a different
+     *  park or a different quiet window from a pan - is still caught. */
     @Test
     fun framingADestinationParksExactlyLikeAGesture() {
+        val panned = reduce(State(), Action.Gesture(atMs = t0))
+        val framed = reduce(State(), Action.DestinationFramed(atMs = t0))
+        assertEquals(panned.camSuspended, framed.camSuspended)
+        assertEquals(panned.lastGestureMs, framed.lastGestureMs)
+        assertEquals(panned.followMe, framed.followMe)
+    }
+
+    // --- Why the camera stopped, and what that licenses -------------------
+    // #260: a pinch or a pan used to snap the map back to north, because the
+    // camera loop saw only "not active" and could not tell a park from the
+    // rider switching follow off. These pin the distinction.
+
+    @Test
+    fun aGestureParkRecordsThatAGestureCausedIt() {
+        assertEquals(ParkReason.Gesture, reduce(State(), Action.Gesture(atMs = t0)).parkedBy)
+    }
+
+    @Test
+    fun aFramingAndASpinRecordTheirOwnParkReasons() {
         assertEquals(
-            reduce(State(), Action.Gesture(atMs = t0)),
-            reduce(State(), Action.DestinationFramed(atMs = t0)),
+            ParkReason.DestinationFramed,
+            reduce(State(), Action.DestinationFramed(atMs = t0)).parkedBy,
         )
+        assertEquals(ParkReason.Spin, reduce(State(), Action.SpinStarted).parkedBy)
+    }
+
+    @Test
+    fun aFollowingCameraIsNotParkedByAnything() {
+        assertNull(State().parkedBy)
+    }
+
+    /** Every route back to following clears the reason, or the next park would
+     *  be judged against a stale one. */
+    @Test
+    fun everyResumeClearsTheParkReason() {
+        val parked = reduce(State(), Action.Gesture(atMs = t0))
+        assertNull(reduce(parked, Action.DriveOffResumed).parkedBy)
+        assertNull(reduce(parked, Action.NavigationStarted).parkedBy)
+        assertNull(reduce(parked, Action.FollowToggled).parkedBy)
+    }
+
+    /** The follow button going off is not a park - it is the rider saying they
+     *  are done being followed, which is the one case that *does* level. */
+    @Test
+    fun turningFollowOffIsNotAPark() {
+        val off = reduce(State(), Action.FollowToggled)
+        assertNull(off.parkedBy)
+        assertFalse(off.cameraActive(navigating = false))
+    }
+
+    /** #260, at the unit level: the bug was that this returned true. */
+    @Test
+    fun aGestureParkedCameraIsNotLevelledToNorth() {
+        val parked = reduce(State(), Action.Gesture(atMs = t0))
+        assertFalse(shouldLevelNorthUp(parked, navigating = false))
+    }
+
+    @Test
+    fun aFramedOrSpinParkedCameraIsNotLevelledEither() {
+        assertFalse(
+            shouldLevelNorthUp(reduce(State(), Action.DestinationFramed(atMs = t0)), false),
+        )
+        assertFalse(shouldLevelNorthUp(reduce(State(), Action.SpinStarted), false))
+    }
+
+    @Test
+    fun switchingFollowOffLevelsBackToNorth() {
+        assertTrue(shouldLevelNorthUp(reduce(State(), Action.FollowToggled), navigating = false))
+    }
+
+    /** Nothing to level while the loop is still aiming the camera - it writes
+     *  the bearing every frame, so a level would be overwritten immediately. */
+    @Test
+    fun aCameraStillAimingItselfIsNotLevelled() {
+        assertFalse(shouldLevelNorthUp(State(), navigating = false))
+        assertFalse(shouldLevelNorthUp(State(), navigating = true))
+        val notFollowingButNavigating = reduce(State(), Action.FollowToggled)
+        assertFalse(shouldLevelNorthUp(notFollowingButNavigating, navigating = true))
+    }
+
+    /** The explicit control offered in place of the automatic levelling. It is
+     *  worth offering only when the bearing can actually stay where it is put:
+     *  a following camera rewrites it on the next frame. */
+    @Test
+    fun northUpIsOfferedOnlyWhenTheCameraIsNotAimingItself() {
+        assertFalse(State().northUpAvailable(navigating = false))
+        assertTrue(reduce(State(), Action.Gesture(atMs = t0)).northUpAvailable(navigating = false))
+        // A park stops the loop even while navigating, so the bearing can be
+        // held and the control still means something.
+        assertTrue(reduce(State(), Action.Gesture(atMs = t0)).northUpAvailable(navigating = true))
+        // Navigating and unparked: the route is aiming the camera.
+        assertFalse(reduce(State(), Action.FollowToggled).northUpAvailable(navigating = true))
     }
 
     @Test

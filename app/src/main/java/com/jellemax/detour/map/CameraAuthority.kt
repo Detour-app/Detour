@@ -27,6 +27,8 @@ internal object CameraAuthority {
         /** When the last gesture, or gesture-equivalent park, happened: the start
          *  of the quiet window [FollowCamera.shouldResume] measures. */
         val lastGestureMs: Long = 0L,
+        /** Why the camera stopped following, or null while it is following. */
+        val parkedBy: ParkReason? = null,
     ) {
         /** What the follow button reflects. */
         val following: Boolean get() = followMe && !camSuspended
@@ -34,7 +36,48 @@ internal object CameraAuthority {
         /** Whether the frame loop should be aiming the camera at all. Navigation
          *  drives it regardless of [followMe]; a park still stops it. */
         fun cameraActive(navigating: Boolean): Boolean = (followMe || navigating) && !camSuspended
+
+        /**
+         * Whether to offer the rider the explicit "face north" control.
+         *
+         * The inverse of [cameraActive], and that is the whole rule: while the
+         * frame loop is aiming the camera it rewrites the bearing every frame,
+         * so levelling would be undone before the finger left the glass. Once
+         * the camera is idle - parked, or not followed - a bearing stays where
+         * it is put, which is what makes the control worth showing.
+         */
+        fun northUpAvailable(navigating: Boolean): Boolean = !cameraActive(navigating)
     }
+
+    /**
+     * Why the camera stopped following.
+     *
+     * Recorded rather than inferred, because [State.camSuspended] alone cannot
+     * distinguish the cases and #260 was exactly that confusion: the camera
+     * loop saw only `!cameraActive` and levelled the map to north on a pinch,
+     * discarding a rotation the rider had set. Each park keeps its own reason so
+     * the decision can be made per-case, and so #261's rotation modes have the
+     * vocabulary to say which parks respect a rider's heading.
+     */
+    enum class ParkReason { Gesture, DestinationFramed, Spin }
+
+    /**
+     * Whether the map should be levelled back to north now that the frame loop
+     * has stopped aiming the camera.
+     *
+     * True for exactly one case: the rider switched following **off**. That is
+     * someone saying they are done being followed, and returning the map to a
+     * north-up reading of it is the courtesy this has always paid.
+     *
+     * False for every park. A pinch, a pan, a framed destination and a spin all
+     * stop the loop, and in none of them did the rider ask for the map to be
+     * re-oriented - a zoom is a request to change zoom. #260 is what levelling
+     * them cost: the rotation went, on every gesture, with no way to get it
+     * back. [State.northUpAvailable] is that way back, offered rather than
+     * imposed.
+     */
+    fun shouldLevelNorthUp(state: State, navigating: Boolean): Boolean =
+        !state.cameraActive(navigating) && state.parkedBy == null
 
     sealed interface Action {
         /** A drag past the touch slop, or a second finger down. */
@@ -78,15 +121,28 @@ internal object CameraAuthority {
      * and `lastGestureMs` never change in the same commit.
      */
     fun reduce(state: State, action: Action): State = when (action) {
-        is Action.Gesture -> state.copy(camSuspended = true, lastGestureMs = action.atMs)
+        is Action.Gesture -> state.copy(
+            camSuspended = true,
+            lastGestureMs = action.atMs,
+            parkedBy = ParkReason.Gesture,
+        )
         is Action.GestureEnd ->
             if (state.camSuspended) state.copy(lastGestureMs = action.atMs) else state
-        is Action.DestinationFramed -> state.copy(camSuspended = true, lastGestureMs = action.atMs)
-        Action.SpinStarted -> state.copy(camSuspended = true)
-        Action.DriveOffResumed -> state.copy(camSuspended = false)
-        Action.NavigationStarted -> state.copy(camSuspended = false)
+        is Action.DestinationFramed -> state.copy(
+            camSuspended = true,
+            lastGestureMs = action.atMs,
+            parkedBy = ParkReason.DestinationFramed,
+        )
+        Action.SpinStarted -> state.copy(camSuspended = true, parkedBy = ParkReason.Spin)
+        Action.DriveOffResumed -> state.copy(camSuspended = false, parkedBy = null)
+        Action.NavigationStarted -> state.copy(camSuspended = false, parkedBy = null)
+        // No `parkedBy` on the way off: turning following off is not a park, and
+        // that is the distinction [shouldLevelNorthUp] reads. It stays null
+        // because `following` already implies `!camSuspended`, and every park
+        // sets a reason while every resume clears one - so a following camera
+        // never carries a stale one.
         Action.FollowToggled ->
             if (state.following) state.copy(followMe = false)
-            else state.copy(followMe = true, camSuspended = false)
+            else state.copy(followMe = true, camSuspended = false, parkedBy = null)
     }
 }
