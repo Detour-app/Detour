@@ -124,27 +124,24 @@ fun pushToTalkShown(
 
 /**
  * The saved places the home sheet's shortcut row shows: Home, then Work, then
- * one of the rest picked by [seed] — at most three. The row used to render the
- * whole store, so a rider with a dozen places got a dozen chips and pushed the
- * Spin and Save-pin chips off the right edge; the full list already has its own
- * screen, and this row is for the two that are always worth a tap plus one
- * suggestion.
+ * the rider's favourites in the store's order. The two singletons come from the
+ * places marked [SavedPlaceKind.HOME] / [SavedPlaceKind.WORK] — so a home called
+ * "Huis" still ranks first and draws the house glyph — and every favourite
+ * follows, in the order the store already sorts them (lowercased name).
  *
- * Home and Work are now the places the rider marked [SavedPlaceKind.HOME] /
- * [SavedPlaceKind.WORK], not places matched on name — so a home called "Huis"
- * still ranks first and draws the house glyph. (#268 replaces the random third
- * chip with the rider's favourites; the [seed] parameter goes with it.)
+ * Nothing else appears: a plain [SavedPlaceKind.NONE] place is reachable from
+ * the saved-places screen, not from this row. There is no randomness and no
+ * seed — two visits to an unchanged store produce the identical row, which is
+ * what #268 replaced the #204 dice with. A rider with no home, work or
+ * favourites gets no place chips at all, rather than a fallback to an arbitrary
+ * place.
  *
- * [seed] is an argument rather than a clock or an ambient `Random` so the
- * caller decides when the third chip re-rolls — once per visit to the map,
- * never per frame — and a test can pin it. Any [seed] is valid: it is reduced
- * modulo the number of candidates, negatives included.
+ * The row is capped only by the sheet, not here: the chips scroll inside the
+ * space Spin and Save-pin leave (see `ShortcutChipRow`), so a rider with many
+ * favourites reaches the later ones by scrolling while those two stay on screen.
  */
-fun homeShortcutPlaces(places: List<SavedPlace>, seed: Int): List<SavedPlace> {
-    val others = places.filterNot { it.kind == SavedPlaceKind.HOME || it.kind == SavedPlaceKind.WORK }
-    return listOfNotNull(
+fun homeShortcutPlaces(places: List<SavedPlace>): List<SavedPlace> =
+    listOfNotNull(
         places.firstOrNull { it.kind == SavedPlaceKind.HOME },
         places.firstOrNull { it.kind == SavedPlaceKind.WORK },
-        if (others.isEmpty()) null else others[seed.mod(others.size)],
-    )
-}
+    ) + places.filter { it.kind == SavedPlaceKind.FAVOURITE }
