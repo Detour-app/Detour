@@ -256,7 +256,11 @@ fun RoutesScreen(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             SubScreenTopBar("Routes", onBack, scrollBehavior) {
-                IconButton(enabled = !refreshing, onClick = { refresh() }) {
+                IconButton(
+                    enabled = !refreshing,
+                    onClick = { refresh() },
+                    modifier = Modifier.padding(end = 8.dp),
+                ) {
                     if (refreshing) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     else Icon(Icons.Rounded.Refresh, contentDescription = "Pull shared routes")
                 }
@@ -297,7 +301,8 @@ fun RoutesScreen(
             Column(
                 Modifier
                     .fillMaxSize()
-                    .padding(padding),
+                    .padding(padding)
+                    .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -320,12 +325,13 @@ fun RoutesScreen(
                         it,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, top = 12.dp),
                     )
                 }
                 LazyColumn(
                     Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 96.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(routes.zip(cards), key = { (route, _) -> route.id }) { (route, card) ->
