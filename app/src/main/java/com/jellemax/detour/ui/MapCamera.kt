@@ -12,6 +12,7 @@ import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
+import com.jellemax.detour.map.CameraAuthority
 import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.bearingDelta
@@ -90,16 +91,23 @@ internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap) {
     LaunchedEffect(cameraActive, haveFix, mapLibreMap) {
         val map = mapLibreMap ?: return@LaunchedEffect
         if (!cameraActive) {
-            // Level back to north-up when we stop following - but only when
-            // there is a rotation to undo. Writing the camera unconditionally
-            // here cancels whatever flight is in progress, and parking is
-            // exactly what a destination framing does on its way in: the pick
-            // dispatches DestinationFramed, `cameraActive` flips false, this
-            // effect restarts, and it would pin the camera to wherever the
-            // animation had reached - the rider - a frame after the pick asked
-            // for the destination. A spin never showed it because SpinStarted
-            // has already parked before the framing, so nothing transitions.
-            levelToNorthUp(map)
+            // Level back to north-up when the rider switched following *off* -
+            // and only then. Every park keeps the bearing it had: a pinch or a
+            // pan is a request to change zoom or centre, never to re-orient the
+            // map, and levelling one threw away a rotation the rider had set
+            // with nothing in the UI to get it back (#260). The rail's compass
+            // button is that way back now, offered rather than imposed, and
+            // `CameraAuthority.State.northUpAvailable` decides when to show it.
+            //
+            // The old unconditional write also had to be guarded against
+            // pinning a destination framing mid-flight - the pick dispatches
+            // DestinationFramed, `cameraActive` flips false, this effect
+            // restarts, and the camera would stop wherever the animation had
+            // reached. `shouldLevelNorthUp` answers that by naming the park
+            // rather than by leaning on levelToNorthUp's bearing == 0 guard.
+            if (CameraAuthority.shouldLevelNorthUp(s.camAuthority, s.navigating)) {
+                levelToNorthUp(map)
+            }
             return@LaunchedEffect
         }
         val start = retained.camTarget ?: s.myLocation ?: return@LaunchedEffect
@@ -397,8 +405,15 @@ internal fun MapPositionMarker(s: MapScreenState, retained: RetainedMap) {
  * and parking is exactly what a destination framing does on its way in — so an
  * unguarded write here would pin the camera to wherever the animation had
  * reached, one frame after the pick asked for the destination.
+ *
+ * `internal` rather than private since #260, because the rail's compass button
+ * calls it too: the automatic levelling on a park is gone, so this is now
+ * something the rider asks for as well as something the follow loop does.
+ * Callers decide *whether* to level — [CameraAuthority.shouldLevelNorthUp] for
+ * the loop, [CameraAuthority.State.northUpAvailable] for the button — and this
+ * only does it.
  */
-private fun levelToNorthUp(map: MapLibreMap) {
+internal fun levelToNorthUp(map: MapLibreMap) {
     if (map.cameraPosition.bearing == 0.0) return
     val at = map.cameraPosition.target ?: return
     setCamera(map, at.latitude, at.longitude, map.cameraPosition.zoom, 0f)

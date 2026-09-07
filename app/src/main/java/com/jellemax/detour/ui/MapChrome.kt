@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.LocationSearching
@@ -34,8 +35,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-/** Map top chrome: a right-aligned rail of the two controls worth reaching for
- *  while driving (follow toggle, layers), headed by the convoy pill.
+/** Map top chrome: a right-aligned rail of the controls worth reaching for
+ *  while driving (follow toggle, layers, and a compass while the map is free to
+ *  hold a rotation), headed by the convoy pill.
  *  Everything else moved to the Hub or, with the redesign, to the home sheet —
  *  the "Where to?" bar and the avatar included.
  *
@@ -49,14 +51,13 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun MapTopChrome(
     followMe: Boolean,
-    fogEnabled: Boolean,
     convoyName: String?,
-    // Hoisted to MapScreen so a tap on the map can close the panel — the job
-    // the Popup's dismissOnClickOutside used to do.
-    layersOpen: Boolean,
-    onLayersOpenChange: (Boolean) -> Unit,
+    layers: MapLayers,
     onToggleFollow: () -> Unit,
-    onToggleFog: () -> Unit,
+    // Non-null exactly while the camera is idle enough for a bearing to stay
+    // put — `CameraAuthority.State.northUpAvailable`. One nullable callback
+    // rather than a flag beside a lambda, matching `onShare` in MapScreen.
+    onFaceNorth: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -78,11 +79,27 @@ internal fun MapTopChrome(
                 tinted = followMe,
                 onClick = onToggleFollow,
             )
+            // The map keeps whatever rotation it has once the camera parks
+            // (#260), so this is how a rider gets back to north — deliberately,
+            // instead of having it done for them by the next pinch. Hidden
+            // while the follow loop is aiming the camera, because it rewrites
+            // the bearing every frame and a level would not survive the tap.
+            AnimatedVisibility(
+                visible = onFaceNorth != null,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                GlassRailButton(
+                    icon = Icons.Outlined.Explore,
+                    contentDescription = "Face north",
+                    onClick = { onFaceNorth?.invoke() },
+                )
+            }
             GlassRailButton(
                 icon = Icons.Outlined.Layers,
                 contentDescription = "Map layers",
-                tinted = layersOpen,
-                onClick = { onLayersOpenChange(!layersOpen) },
+                tinted = layers.open,
+                onClick = { layers.onOpenChange(!layers.open) },
             )
             // Inline rather than a Popup on purpose. A Popup is its own
             // window, so the button sitting outside it counted as an
@@ -90,7 +107,7 @@ internal fun MapTopChrome(
             // closed and reopened on the same tap, and the button could
             // never close it. One window, one handler, and the toggle is
             // correct by construction.
-            AnimatedVisibility(visible = layersOpen, enter = fadeIn(), exit = fadeOut()) {
+            AnimatedVisibility(visible = layers.open, enter = fadeIn(), exit = fadeOut()) {
                 Card(
                     modifier = Modifier.glassBorder(MaterialTheme.shapes.large),
                     shape = MaterialTheme.shapes.large,
@@ -103,12 +120,15 @@ internal fun MapTopChrome(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            if (fogEnabled) Icons.Outlined.Visibility
+                            if (layers.fogEnabled) Icons.Outlined.Visibility
                                 else Icons.Outlined.VisibilityOff,
                             contentDescription = null,
                         )
                         Text("Fog of war", modifier = Modifier.weight(1f))
-                        Switch(checked = fogEnabled, onCheckedChange = { onToggleFog() })
+                        Switch(
+                            checked = layers.fogEnabled,
+                            onCheckedChange = { layers.onToggleFog() },
+                        )
                     }
                 }
             }
