@@ -40,6 +40,8 @@ public sealed class ApnsGateway : IPushGateway
 
     public DevicePlatform Platform => DevicePlatform.Ios;
 
+    public bool Enabled => _config is not null && _jwt is not null;
+
     public ApnsGateway(
         NotificationSettings settings, IHttpClientFactory httpClientFactory, ILogger<ApnsGateway> logger)
     {

@@ -19,7 +19,14 @@ public interface ILiveRelay
     /// Callers outside this namespace get this narrow surface rather than the frame types, so a
     /// service cannot accidentally invent a new wire message.
     /// </summary>
-    void PublishPlaceEvent(
+    /// <returns>
+    /// The recipients the frame actually reached. That is narrower than "currently connected":
+    /// a rider holding a socket for some other group is connected and still gets nothing here,
+    /// because <see cref="LiveRelay.PublishToGroup"/> only writes to a connection joined to
+    /// <paramref name="groupId"/>. Callers that fall back to another transport must subtract
+    /// this, not <see cref="ConnectedUserIds"/> — see <c>CircleService.RecordEventAsync</c>.
+    /// </returns>
+    IReadOnlyCollection<Guid> PublishPlaceEvent(
         IEnumerable<Guid> recipientUserIds,
         Guid groupId,
         Guid riderId,
@@ -116,17 +123,26 @@ public sealed class LiveRelay(ILogger<LiveRelay> logger) : ILiveRelay
     /// the second half of the privacy gate: accepted membership says a rider <em>may</em> receive
     /// a group's traffic, and this says they actually asked to.
     /// </summary>
-    public void PublishToGroup(IEnumerable<Guid> recipientUserIds, Guid groupId, object payload)
+    /// <summary>Writes <paramref name="payload"/> to each recipient joined to
+    ///  <paramref name="groupId"/>, and reports which those were.</summary>
+    public IReadOnlyCollection<Guid> PublishToGroup(
+        IEnumerable<Guid> recipientUserIds, Guid groupId, object payload)
     {
         var frame = new LiveMessage(payload);
+        var delivered = new List<Guid>();
         foreach (var userId in recipientUserIds)
         {
             if (_connections.TryGetValue(userId, out var connection) && connection.IsJoinedTo(groupId))
+            {
                 connection.Enqueue(frame);
+                delivered.Add(userId);
+            }
         }
+
+        return delivered;
     }
 
-    public void PublishPlaceEvent(
+    public IReadOnlyCollection<Guid> PublishPlaceEvent(
         IEnumerable<Guid> recipientUserIds,
         Guid groupId,
         Guid riderId,

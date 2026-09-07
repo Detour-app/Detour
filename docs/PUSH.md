@@ -12,10 +12,13 @@ one notify-enabled circle (issue #142). On iOS it is not filled at all: a circle
 arrival does not surface until the app is next opened.
 
 This document covers the transport that replaces both: a content-free push
-wake-ping, sent to each phone through its own platform cloud. The backend half
-ships first and dark — no client registers a token yet — so nothing in the app
-changes until the Android and iOS stages land, and `CircleNotifyService` is not
-removed until then.
+wake-ping, sent to each phone through its own platform cloud.
+
+The Android stage has landed, and `CircleNotifyService` no longer starts when
+the wake-ping can do its job — see §10. It is still the fallback, not dead code:
+a build with no `google-services.json`, or a deployment with no Firebase
+credentials, keeps the always-on socket and its notification. The iOS stage has
+not landed; a circle arrival there still waits for the app to be opened.
 
 ---
 
@@ -115,20 +118,28 @@ transaction that rolls back never announces an arrival that did not happen.
 ```
 RecordEventAsync
   └─ post-commit:
-       liveRelay.PublishPlaceEvent(recipients, …)          ← connected members, instant
-       offline = recipients − liveRelay.ConnectedUserIds
-       pushQueue.TryEnqueue(new PushJob(offline, circleId)) ← everyone else
+       delivered = liveRelay.PublishPlaceEvent(recipients, …) ← joined members, instant
+       offline = recipients − delivered
+       pushQueue.TryEnqueue(new PushJob(offline, circleId))    ← everyone else
 ```
 
-`recipients` is the accepted members of the circle minus the mover. Members
-currently holding a relay socket already got the live `place_event` frame, so
-only the rest are pushed. A socket the relay has not yet noticed is dead just
-means a redundant wake-ping, which the device dedupes on `lastSeenEventTsMs`.
+`recipients` is the accepted members of the circle minus the mover. Members the
+live frame actually reached are not pushed; everyone else is. A socket the relay
+has not yet noticed is dead just means a redundant wake-ping, which the device
+dedupes on `lastSeenEventTsMs`.
 
-`ILiveRelay.ConnectedUserIds` is process-local: with more than one API instance
-a member socketed to another instance looks offline here and gets a redundant
-wake-ping. Harmless — the device dedupes on `lastSeenEventTsMs` and the collapse
-key coalesces the duplicate.
+**Subtracting `delivered`, not `ILiveRelay.ConnectedUserIds`.** The two differ,
+and the difference is a rider holding a socket for some *other* group — a convoy
+— who is connected and still receives no frame for this circle, because the
+relay only writes to a connection joined to it. Subtracting the connected set
+left exactly those riders with neither transport. That was survivable only while
+`CircleNotifyService` kept a circle join open all day on every Android device;
+§10 retires that, which makes this case ordinary.
+
+`ConnectedUserIds` remains process-local, and so does `delivered`: with more than
+one API instance a member socketed to another instance is missing from both and
+gets a redundant wake-ping. Harmless — the device dedupes on `lastSeenEventTsMs`
+and the collapse key coalesces the duplicate.
 
 From the queue:
 
@@ -256,3 +267,40 @@ generic `"New circle activity"` body still appears.
   assumed. FCM is the only Android transport.
 - **The backend does not evaluate geofences.** Arrivals are decided on the device
   (§8 of CIRCLES_AND_CONVOYS.md); the backend only couriers the wake.
+
+
+## 10. Retiring the always-on socket on Android
+
+`CircleNotifyService` and the wake-ping deliver the same events, and running
+both means a permanent notification, an all-day socket, and a push path that
+barely fires. So `CircleNotifyService.refresh` starts nothing when two things
+both hold:
+
+1. **This build can receive a push.** `Push.available` — a `FirebaseApp` exists,
+   which happens only when a `google-services.json` was baked in.
+2. **This deployment can send one.** The server advertises `push-android` on
+   `/api/capabilities` (§15.5 of BACKEND_SPEC.md), which it does only when its
+   FCM gateway loaded a credential.
+
+Neither implies the other, and checking only the first is the trap: a CI-built
+APK pointed at a self-hosted backend with no Firebase key registers its token
+happily and then receives nothing. The client reads the second answer from
+`RoutingServer.knownServerFeatures()`, which is stored from the last probe —
+`null` there means "never asked", and that keeps the socket running rather than
+gambling on it.
+
+Both false is the self-hosted fallback described in §5, unchanged: the relay
+socket, its foreground notification, and the catch-up on reconnect.
+
+Two things make the retirement safe rather than merely quieter:
+
+- **The server pushes to whoever the live frame did not reach**, not to whoever
+  holds no socket at all (§4). Those differ for a rider socketed to a convoy but
+  not to the circle — who used to get neither transport, and who is now the
+  normal case rather than an edge one, since nothing holds a circle join open
+  any more.
+- **A foregrounded app still gets the wake-ping.** The message carries no
+  `notification` block, so `onMessageReceived` runs whatever the app's state
+  (§2), and `CircleCatchUp.sweep` posts from the feed.
+
+`CircleSyncWorker`'s 15-minute tick and the foreground sweep cover the rest.

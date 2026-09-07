@@ -320,22 +320,31 @@ public class CircleService(
 
         postCommit.Schedule(() =>
         {
+            var delivered = new HashSet<Guid>();
+
             if (familyRecipients.Length > 0)
-                liveRelay.PublishPlaceEvent(
+                delivered.UnionWith(liveRelay.PublishPlaceEvent(
                     familyRecipients, groupId, caller.Id, placeEvent.ClientPlaceId,
-                    openName, placeEvent.Kind.Wire(), placeEvent.TimestampMs);
+                    openName, placeEvent.Kind.Wire(), placeEvent.TimestampMs));
 
             if (maskedRecipients.Length > 0)
-                liveRelay.PublishPlaceEvent(
+                delivered.UnionWith(liveRelay.PublishPlaceEvent(
                     maskedRecipients, groupId, caller.Id, placeEvent.ClientPlaceId,
-                    maskedName, placeEvent.Kind.Wire(), placeEvent.TimestampMs);
+                    maskedName, placeEvent.Kind.Wire(), placeEvent.TimestampMs));
 
-            // Everyone entitled to the event who was not already sent the live frame —
-            // i.e. not holding a socket right now. A dead socket the relay has not yet
-            // noticed just means a redundant wake-ping, which the device dedupes on
-            // lastSeenEventTsMs. Content-free: the token is the whole message.
-            var connected = liveRelay.ConnectedUserIds;
-            var offline = recipients.Where(id => !connected.Contains(id)).ToArray();
+            // Everyone entitled to the event the live frame did not actually reach.
+            //
+            // Deliberately not "everyone not in ILiveRelay.ConnectedUserIds": a rider
+            // holding a socket for some *other* group — a convoy, say — is connected
+            // and still receives no place_event frame, because the relay only writes
+            // to a connection joined to this group. Subtracting the connected set
+            // instead of the delivered one left exactly those riders with neither
+            // transport, and their arrival waited for the next foreground sweep.
+            //
+            // A dead socket the relay has not yet noticed still just means a redundant
+            // wake-ping, which the device dedupes on lastSeenEventTsMs. Content-free:
+            // the token is the whole message.
+            var offline = recipients.Where(id => !delivered.Contains(id)).ToArray();
             if (offline.Length > 0)
                 pushQueue.TryEnqueue(new PushJob(offline, groupId.ToString()));
 

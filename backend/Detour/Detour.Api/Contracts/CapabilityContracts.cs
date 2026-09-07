@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using Detour.Api.Configuration;
+using Detour.Domain.Notifications;
 
 namespace Detour.Api.Contracts;
 
@@ -31,16 +32,41 @@ public record CapabilitiesResponse(
     public const int SchemaVersion = 1;
 
     /// <summary>
-    /// Hardcoded because nothing here is conditional yet — #113 tracks the
-    /// client-side gating framework that will make it so. Each string is a wire
-    /// contract clients match on, so renaming one is a breaking change even
+    /// What every deployment does regardless of configuration. Each string is a
+    /// wire contract clients match on, so renaming one is a breaking change even
     /// though <see cref="SchemaVersion"/> does not move for it.
     /// </summary>
-    public static readonly IReadOnlyList<string> KnownFeatures = ["idp-discovery"];
+    public static readonly IReadOnlyList<string> AlwaysOnFeatures = ["idp-discovery"];
 
-    public static CapabilitiesResponse From(IdpSettings idpSettings) => new(
+    /// <summary>Android wake-pings are configured and this server can send them.</summary>
+    public const string PushAndroidFeature = "push-android";
+
+    /// <summary>iOS wake-pings are configured and this server can send them.</summary>
+    public const string PushIosFeature = "push-ios";
+
+    /// <summary>
+    /// The advertised feature set for a deployment whose push gateways are
+    /// <paramref name="pushPlatforms"/>.
+    ///
+    /// Split from <see cref="From"/> so the mapping can be asserted without a
+    /// host: the controller's job is to read the gateways, and this one's is to
+    /// decide what that means on the wire.
+    /// </summary>
+    public static IReadOnlyList<string> FeaturesFor(IEnumerable<DevicePlatform> pushPlatforms)
+    {
+        var platforms = pushPlatforms.ToHashSet();
+        var features = new List<string>(AlwaysOnFeatures);
+        if (platforms.Contains(DevicePlatform.Android))
+            features.Add(PushAndroidFeature);
+        if (platforms.Contains(DevicePlatform.Ios))
+            features.Add(PushIosFeature);
+        return features;
+    }
+
+    public static CapabilitiesResponse From(
+        IdpSettings idpSettings, IEnumerable<DevicePlatform> pushPlatforms) => new(
         SchemaVersion,
-        KnownFeatures,
+        FeaturesFor(pushPlatforms),
         new IdpCapabilityResponse(idpSettings.Authority));
 }
 

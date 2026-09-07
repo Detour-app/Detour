@@ -545,10 +545,28 @@ answers is which realm mints them.
 ```json
 {
   "schema": 1,
-  "features": ["idp-discovery"],
+  "features": ["idp-discovery", "push-android"],
   "idp": { "issuer": "https://idp.example/realms/detour" }
 }
 ```
+
+`features` is where a deployment states what it was actually configured to do,
+which is not the same question as what this software supports:
+
+| Feature | Present when |
+|---|---|
+| `idp-discovery` | Always. |
+| `push-android` | An FCM gateway is configured — `Notifications:FirebaseCredentialsPath` is set and loaded. |
+| `push-ios` | An APNs gateway is configured — the four `Notifications:Apns*` keys are set and the `.p8` loaded. |
+
+The two push strings are per-platform rather than one `push`, because having
+Firebase credentials and no APNs key is an ordinary state and an iOS client must
+not read Android's answer as its own.
+
+They exist because a client cannot work this out for itself. An Android build
+with a `google-services.json` baked in registers a token successfully against a
+server that has no Firebase key and will never send to it — see
+`CircleNotifyService.pushCovers` for what that costs if the client guesses.
 
 `idp.issuer` is `Idp:Authority` verbatim — the same string §4.2 requires as
 `iss`, exactly and not as a prefix. Stating it unchanged is what makes it

@@ -21,6 +21,8 @@ import com.jellemax.detour.data.Features
 import com.jellemax.detour.data.Group
 import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.RiderId
+import com.jellemax.detour.data.RoutingServer
+import com.jellemax.detour.data.ServerFeature
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.handleFor
@@ -34,7 +36,17 @@ import kotlinx.coroutines.launch
 
 /**
  * Holds the relay socket open for circle arrival/departure notifications,
- * independent of trip tracking and of any convoy - see the phase 2 design
+ * independent of trip tracking and of any convoy.
+ *
+ * **The fallback, not the default.** The push wake-ping replaces this wherever
+ * it can reach the device - a build with FCM baked in, talking to a deployment
+ * that advertises `push-android` - and [refresh] starts nothing there. What is
+ * left for this service is the push-less case: a self-hosted build with no
+ * `google-services.json`, or a server with no Firebase credentials. See
+ * `docs/PUSH.md` §10 and [pushCovers].
+ *
+ * The rest of this doc is why the service is shaped as it is, and still holds
+ * wherever it does run - see the phase 2 design
  * note this was built against: a trip-tracking service that only runs
  * during a ride can't deliver an arrival at 3pm on a Tuesday, and
  * notifications must keep working for a user who denies location outright
@@ -66,9 +78,10 @@ class CircleNotifyService : Service() {
          *  (those ride the socket [collectLiveEvents] holds open). */
         private const val CIRCLE_LIST_REFRESH_MS = 5 * 60_000L
 
-        /** Starts (or nudges) the service if signed in and a server is
-         *  configured - the two local, synchronous checks that are worth
-         *  doing before ever going foreground. Whether any circle actually
+        /** Starts (or nudges) the service if signed in, a server is
+         *  configured, and the push wake-ping is not covering this device
+         *  already - the local, synchronous checks that are worth doing
+         *  before ever going foreground. Whether any circle actually
          *  wants notifications is a network question the service answers
          *  for itself in [refreshNotifyCircles], stopping right back down
          *  if the answer is no - same "start, then stand down" shape
@@ -81,8 +94,38 @@ class CircleNotifyService : Service() {
             // and a foreground notification for it would be a lie.
             if (!Features.liveRelay) return
             if (!Account.signedIn || !SyncClient.configured()) return
+            if (pushCovers(context)) {
+                // stopService, not a bare return: an install updating into this
+                // build has the service already running from the last one, and
+                // nothing else would stand it down before the next reboot.
+                // Idempotent when it is not running.
+                context.stopService(Intent(context, CircleNotifyService::class.java))
+                return
+            }
             ContextCompat.startForegroundService(context, Intent(context, CircleNotifyService::class.java))
         }
+
+        /**
+         * Whether the wake-ping reaches this device, making an always-on socket
+         * (and its permanent notification) redundant - `docs/PUSH.md` describes
+         * this service as the transport push replaces.
+         *
+         * Both halves have to hold, and neither implies the other.
+         * [Push.available] is a property of this *build* - whether a
+         * `google-services.json` was baked in - and says nothing about the
+         * deployment the rider points at. A server with no
+         * `Notifications:FirebaseCredentialsPath` accepts the token
+         * registration and then sends nothing, so a build-only check would
+         * retire the working transport in favour of one that silently drops
+         * every arrival.
+         *
+         * An unprobed server (null, not an empty list) reads as "no": today's
+         * behaviour is what a device falls back to while it does not know, and
+         * `MainActivity` re-runs this the moment the probe lands.
+         */
+        private fun pushCovers(context: Context): Boolean =
+            Push.available(context) &&
+                RoutingServer.knownServerFeatures()?.contains(ServerFeature.PUSH_ANDROID) == true
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

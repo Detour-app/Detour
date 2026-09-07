@@ -1,5 +1,6 @@
 using Detour.Api.Configuration;
 using Detour.Api.Contracts;
+using Detour.Api.Notifications;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -34,7 +35,9 @@ namespace Detour.Api.Controllers;
 [Route("api/[controller]")]
 [Produces("application/json")]
 [AllowAnonymous]
-public class CapabilitiesController(IOptions<IdpSettings> idpSettings) : ControllerBase
+public class CapabilitiesController(
+    IOptions<IdpSettings> idpSettings,
+    IEnumerable<IPushGateway> pushGateways) : ControllerBase
 {
     [HttpGet]
     [EndpointSummary("What this deployment supports.")]
@@ -43,5 +46,8 @@ public class CapabilitiesController(IOptions<IdpSettings> idpSettings) : Control
         + "hold a token. Clients ignore unknown feature names and fields; the schema "
         + "number changes only when an existing field does.")]
     [ProducesResponseType<CapabilitiesResponse>(StatusCodes.Status200OK)]
-    public ActionResult<CapabilitiesResponse> Get() => Ok(CapabilitiesResponse.From(idpSettings.Value));
+    public ActionResult<CapabilitiesResponse> Get() => Ok(
+        CapabilitiesResponse.From(
+            idpSettings.Value,
+            pushGateways.Where(g => g.Enabled).Select(g => g.Platform)));
 }
