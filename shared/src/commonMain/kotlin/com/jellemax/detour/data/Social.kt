@@ -96,8 +96,8 @@ object Friends {
     // @Throws(Exception::class) on [lists], [request], [respond] and [stats]
     // below, all called directly from iosApp/Detour: see the doc on
     // [SyncClient.sync] for why `Exception` and not just `IOException`.
-    // [remove] is not annotated — every call site goes through [FriendsStore.undoDecline]
-    // or a platform's own remove flow, both of which already catch broadly.
+    // [remove] is not annotated — every call site goes through [FriendsStore.undoDecline],
+    // [FriendsStore.remove] or a platform's own remove flow, all of which already catch broadly.
     @Throws(Exception::class)
     suspend fun lists(): FriendLists {
         val entries = Api.requestJson("GET", "/friends").optArray("riders")?.objects().orEmpty()

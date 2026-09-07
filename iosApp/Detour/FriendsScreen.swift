@@ -39,6 +39,12 @@ struct FriendsScreen: View {
 
     @State private var newConvoyName = ""
 
+    // The friend a swipe-to-remove is waiting on confirmation for. Unfriending
+    // also deletes every route the pair shared with each other server-side
+    // (BACKEND_SPEC §6), so it goes through a confirm step — same shape the
+    // History screen's vehicle picker uses.
+    @State private var friendToRemove: FriendStats?
+
     var body: some View {
         NavigationStack {
             SwiftUI.Group {
@@ -112,6 +118,20 @@ struct FriendsScreen: View {
             } footer: {
                 Text("Sharing is mutual: the server only hands you a friend's traces when you are sharing yours too.")
             }
+        }
+        .confirmationDialog(
+            "Remove \(friendToRemove?.rider.username ?? "")?",
+            isPresented: .constant(friendToRemove != nil),
+            presenting: friendToRemove
+        ) { friend in
+            Button("Remove", role: .destructive) {
+                Task { _ = try? await FriendsStore.shared.remove(riderId: friend.rider.idValue) }
+                friendToRemove = nil
+            }
+            Button("Cancel", role: .cancel) { friendToRemove = nil }
+        } message: { _ in
+            Text("You'll stop seeing each other's totals and badges, and any routes "
+                + "the two of you shared are deleted for both of you.")
         }
     }
 
@@ -221,6 +241,16 @@ struct FriendsScreen: View {
                         }
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    }
+                    // No swipe on the own row — you can't unfriend yourself.
+                    .swipeActions(edge: .trailing) {
+                        if !isMe {
+                            Button(role: .destructive) {
+                                friendToRemove = friend
+                            } label: {
+                                Label("Remove", systemImage: "person.badge.minus")
+                            }
+                        }
                     }
                 }
             }
