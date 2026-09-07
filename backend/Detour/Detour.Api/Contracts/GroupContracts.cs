@@ -53,12 +53,23 @@ public record MemberPositionResponse(
 
 public record CircleFixesResponse([Required] IReadOnlyList<MemberPositionResponse> Fixes);
 
-/// <summary>A named point with a radius, shared into a circle. Opaque apart from these fields.</summary>
+/// <summary>
+/// A named point with a radius, shared into a circle. Coordinates and kind are read fields now,
+/// not opaque payload: the server needs them to withhold a home's coordinates from a non-family
+/// member (#270). Anything else the client sends still rides along in <see cref="Extra"/>.
+/// </summary>
 public record CirclePlacePayload
 {
     [Required] public long Id { get; init; }
     public string? Name { get; init; }
     [Required] public double RadiusMeters { get; init; }
+
+    /// <summary>The client's SavedPlaceKind name. Absent on a client that predates the kind
+    /// field, which the server reads as a non-home place — its old sharing behaviour.</summary>
+    public string? Kind { get; init; }
+
+    public double? Lat { get; init; }
+    public double? Lon { get; init; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? Extra { get; init; }

@@ -30,10 +30,26 @@ public sealed class CirclePlace : Entity
 
     public string Payload { get; private set; }
 
+    /// <summary>The place's kind, promoted out of the opaque payload so the server can apply
+    /// the home-coordinate sharing rule. One of the client's <c>SavedPlaceKind</c> names —
+    /// HOME, WORK, FAVOURITE or NONE — normalised to NONE for anything unrecognised.</summary>
+    public string Kind { get; private set; }
+
+    /// <summary>Coordinates, promoted to columns alongside <see cref="Kind"/> so a home place's
+    /// coordinates can be withheld from a non-family member by simply not reading these — the
+    /// payload is no longer the source the response is built from for a home.</summary>
+    public double? Lat { get; private set; }
+
+    public double? Lon { get; private set; }
+
     public DateTimeOffset CreatedAt { get; private set; }
 
+    /// <summary>The kinds the sharing rule treats specially. A place a client sent before it
+    /// learned to send a kind reads as HOME=false, so it shares as it always did.</summary>
+    public const string HomeKind = "HOME";
+
     private CirclePlace(Guid groupId, Guid ownerId, long clientPlaceId, string name,
-        double radiusMeters, string payload)
+        double radiusMeters, string payload, string kind, double? lat, double? lon)
     {
         GroupId = groupId;
         OwnerId = ownerId;
@@ -41,6 +57,9 @@ public sealed class CirclePlace : Entity
         Name = name;
         RadiusMeters = radiusMeters;
         Payload = payload;
+        Kind = kind;
+        Lat = lat;
+        Lon = lon;
         CreatedAt = DateTimeOffset.UtcNow;
     }
 
@@ -50,16 +69,21 @@ public sealed class CirclePlace : Entity
         long clientPlaceId,
         string? name,
         double radiusMeters,
-        string payload)
+        string payload,
+        string? kind,
+        double? lat,
+        double? lon)
     {
         var validation = Validate(clientPlaceId, radiusMeters, payload);
         if (validation.IsFailure)
             return validation;
 
-        return new CirclePlace(groupId, ownerId, clientPlaceId, NormalizeName(name), radiusMeters, payload);
+        return new CirclePlace(
+            groupId, ownerId, clientPlaceId, NormalizeName(name), radiusMeters, payload,
+            NormalizeKind(kind), lat, lon);
     }
 
-    public Result Replace(string? name, double radiusMeters, string payload)
+    public Result Replace(string? name, double radiusMeters, string payload, string? kind, double? lat, double? lon)
     {
         var validation = Validate(ClientPlaceId, radiusMeters, payload);
         if (validation.IsFailure)
@@ -68,9 +92,14 @@ public sealed class CirclePlace : Entity
         Name = NormalizeName(name);
         RadiusMeters = radiusMeters;
         Payload = payload;
+        Kind = NormalizeKind(kind);
+        Lat = lat;
+        Lon = lon;
         CreatedAt = DateTimeOffset.UtcNow;
         return Result.Ok();
     }
+
+    public bool IsHome => Kind == HomeKind;
 
     private static Result Validate(long clientPlaceId, double radiusMeters, string? payload)
     {
@@ -93,6 +122,17 @@ public sealed class CirclePlace : Entity
             : Result.Ok();
     }
 
+    private static readonly string[] KnownKinds = ["HOME", "WORK", "FAVOURITE", "NONE"];
+
+    /// <summary>Only the client kinds the server knows are stored; anything else — a future
+    /// kind, or a client that sends none — normalises to NONE, so an unknown value can never
+    /// be mistaken for HOME and accidentally trigger (or dodge) the masking rule.</summary>
+    private static string NormalizeKind(string? kind)
+    {
+        var upper = (kind ?? string.Empty).Trim().ToUpperInvariant();
+        return KnownKinds.Contains(upper) ? upper : "NONE";
+    }
+
     private static string NormalizeName(string? name)
     {
         var trimmed = (name ?? string.Empty).Trim();
@@ -109,6 +149,7 @@ public sealed class CirclePlace : Entity
     {
         Name = string.Empty;
         Payload = string.Empty;
+        Kind = "NONE";
     }
 }
 

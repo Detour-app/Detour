@@ -265,6 +265,91 @@ public class GroupTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_home_is_withheld_from_a_circle_member_who_is_not_family()
+    {
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var circle = await HomeCircleWith(alex, blake);
+
+        (await ShareTyped(alex, circle, 7, "Huis", "HOME", lat: 50.8, lon: 5.7))
+            .EnsureSuccessStatusCode();
+
+        var seen = (await Places(blake, circle))[0];
+        // The response itself must not carry the coordinates — a modified client cannot show
+        // what it never received (ASVS V8.3.1).
+        HasCoordinates(seen).Should().BeFalse();
+        // ...and the custom name is masked to a generic label, not "Huis".
+        seen.GetProperty("name").GetString().Should().Be($"{alex.Username}'s home");
+    }
+
+    [Fact]
+    public async Task A_family_member_receives_the_home_and_its_coordinates()
+    {
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var circle = await HomeCircleWith(alex, blake);
+        await MarkFamily(alex, blake);
+
+        (await ShareTyped(alex, circle, 7, "Huis", "HOME", lat: 50.8, lon: 5.7))
+            .EnsureSuccessStatusCode();
+
+        var seen = (await Places(blake, circle))[0];
+        HasCoordinates(seen).Should().BeTrue();
+        seen.GetProperty("place").GetProperty("lat").GetDouble().Should().Be(50.8);
+        seen.GetProperty("name").GetString().Should().Be("Home");
+    }
+
+    [Fact]
+    public async Task A_non_home_place_keeps_its_coordinates_for_every_member()
+    {
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var circle = await HomeCircleWith(alex, blake);
+
+        (await ShareTyped(alex, circle, 7, "Gym", "FAVOURITE", lat: 50.8, lon: 5.7))
+            .EnsureSuccessStatusCode();
+
+        var seen = (await Places(blake, circle))[0];
+        HasCoordinates(seen).Should().BeTrue();
+        seen.GetProperty("name").GetString().Should().Be("Gym");
+    }
+
+    [Fact]
+    public async Task Un_marking_family_withholds_the_home_from_the_next_fetch()
+    {
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var circle = await HomeCircleWith(alex, blake);
+        await MarkFamily(alex, blake);
+        (await ShareTyped(alex, circle, 7, "Huis", "HOME", lat: 50.8, lon: 5.7)).EnsureSuccessStatusCode();
+
+        HasCoordinates((await Places(blake, circle))[0]).Should().BeTrue();
+
+        // Alex drops the family tier; the very next fetch withholds the coordinates.
+        (await alex.DeleteAsync($"/api/friends/{blake.UserId}/family")).EnsureSuccessStatusCode();
+
+        HasCoordinates((await Places(blake, circle))[0]).Should()
+            .BeFalse("un-marking family withholds coordinates from future responses");
+    }
+
+    [Fact]
+    public async Task A_home_arrival_is_masked_in_the_events_feed_for_a_non_family_member()
+    {
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        var circle = await HomeCircleWith(alex, blake);
+        (await ShareTyped(alex, circle, 7, "Huis", "HOME", lat: 50.8, lon: 5.7)).EnsureSuccessStatusCode();
+
+        (await alex.PostAsJsonAsync($"/api/circles/{Id(circle)}/events",
+            new { placeId = 7L, kind = "arrive", timestampMs = 1_760_000_000_000L })).EnsureSuccessStatusCode();
+
+        // Blake, not family, must never read the home's name in the feed either.
+        var feed = await Events(blake, circle, since: 0);
+        feed.GetArrayLength().Should().Be(1);
+        feed[0].GetProperty("placeName").GetString().Should().Be($"{alex.Username}'s home");
+    }
+
+    [Fact]
     public async Task A_place_radius_outside_the_range_is_refused()
     {
         var alex = await _factory.SignInAsync();
@@ -432,6 +517,36 @@ public class GroupTests(PostgresFixture postgres) : IAsyncLifetime
         SignedInClient client, JsonElement circle, long placeId, string name, double radiusMeters) =>
         client.PostAsJsonAsync($"/api/circles/{Id(circle)}/places",
             new { place = new { id = placeId, name, radiusMeters, latitude = 51.0, longitude = 3.7 } });
+
+    /// <summary>Shares a place the way the real client does — kind, lat and lon as first-class
+    /// fields the server reads, not an opaque payload (#270).</summary>
+    private static Task<HttpResponseMessage> ShareTyped(
+        SignedInClient client, JsonElement circle, long placeId, string name, string kind,
+        double lat = 51.0, double lon = 3.7, double radiusMeters = 150.0) =>
+        client.PostAsJsonAsync($"/api/circles/{Id(circle)}/places",
+            new { place = new { id = placeId, name, radiusMeters, kind, lat, lon } });
+
+    /// <summary>Both riders ask, so the mutual family tier is accepted between them.</summary>
+    private static async Task MarkFamily(SignedInClient a, SignedInClient b)
+    {
+        (await a.PostAsJsonAsync($"/api/friends/{b.UserId}/family", new { })).EnsureSuccessStatusCode();
+        (await b.PostAsJsonAsync($"/api/friends/{a.UserId}/family", new { })).EnsureSuccessStatusCode();
+    }
+
+    private static async Task<JsonElement> HomeCircleWith(SignedInClient owner, SignedInClient member)
+    {
+        await Befriend(owner, member);
+        var circle = await CreateCircle(owner, "Household");
+        (await Invite(owner, circle, member.Username)).EnsureSuccessStatusCode();
+        (await Respond(member, circle, accept: true)).EnsureSuccessStatusCode();
+        return circle;
+    }
+
+    private static bool HasCoordinates(JsonElement placeEntry)
+    {
+        var place = placeEntry.GetProperty("place");
+        return place.TryGetProperty("lat", out _) && place.TryGetProperty("lon", out _);
+    }
 
     private static async Task<JsonElement> Places(SignedInClient client, JsonElement circle)
     {

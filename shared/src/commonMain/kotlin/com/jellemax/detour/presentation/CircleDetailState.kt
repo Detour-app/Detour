@@ -99,10 +99,13 @@ fun circleDetailStateFrom(
     }
     val mySharing = members.find { it.id == riderId }?.sharing
     val placeRows = places.map { p ->
+        val base = "Shared by ${circle.members.handleFor(p.ownerId)} · ${p.radiusM.toInt()} m radius"
         SharedPlaceRow(
             serverId = p.serverId,
             name = p.place.name,
-            subtitle = "Shared by ${circle.members.handleFor(p.ownerId)} · ${p.radiusM.toInt()} m radius",
+            // A withheld home has no coordinates to offer — say so rather than
+            // imply a tappable location that isn't there (#270).
+            subtitle = if (p.coordinatesWithheld) "$base · location hidden" else base,
             removable = p.ownerId == riderId,
         )
     }

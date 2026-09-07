@@ -78,7 +78,7 @@ public class CirclePlaceTests
     public void A_radius_outside_the_range_is_refused(double radius)
     {
         var (result, _) = CirclePlace.Create(
-            Guid.CreateVersion7(), Guid.CreateVersion7(), 7, "School", radius, "{}");
+            Guid.CreateVersion7(), Guid.CreateVersion7(), 7, "School", radius, "{}", null, null, null);
 
         result.IsFailure.Should().BeTrue();
         result.HasError(ValidationKeys.CirclePlace.RadiusOutOfRange).Should().BeTrue();
@@ -90,7 +90,7 @@ public class CirclePlaceTests
         var payload = new string('x', DetourLimits.MaxPlacePayloadBytes + 1);
 
         var (result, _) = CirclePlace.Create(
-            Guid.CreateVersion7(), Guid.CreateVersion7(), 7, "School", 200, payload);
+            Guid.CreateVersion7(), Guid.CreateVersion7(), 7, "School", 200, payload, null, null, null);
 
         result.IsFailure.Should().BeTrue();
         result.HasError(ValidationKeys.CirclePlace.PayloadTooLarge).Should().BeTrue();

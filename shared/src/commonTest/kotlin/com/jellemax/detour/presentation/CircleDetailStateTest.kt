@@ -41,6 +41,7 @@ class CircleDetailStateTest {
         radiusM: Double = 150.0,
         placeId: Long = 1L,
         placeName: String = "Home",
+        coordinatesWithheld: Boolean = false,
     ) = CirclePlace(
         serverId = serverId,
         groupId = "c1",
@@ -48,6 +49,7 @@ class CircleDetailStateTest {
         radiusM = radiusM,
         createdMs = 0L,
         place = SavedPlace(id = placeId, name = placeName, location = LatLon(0.0, 0.0)),
+        coordinatesWithheld = coordinatesWithheld,
     )
 
     private fun event(
@@ -100,6 +102,17 @@ class CircleDetailStateTest {
         val row = state.places.single()
         assertEquals("Home", row.name)
         assertEquals("Shared by rider · 150 m radius", row.subtitle)
+    }
+
+    @Test fun aWithheldHomeSaysItsLocationIsHidden() {
+        val owner = RiderId("owner")
+        val state = circleDetailStateFrom(
+            circle(members = listOf(member("owner", "rider"), member("me", "mover"))),
+            riderId = me,
+            places = listOf(place(ownerId = owner, placeName = "rider's home", coordinatesWithheld = true)),
+            events = emptyList(), nowMs = 0L,
+        )
+        assertEquals("Shared by rider · 150 m radius · location hidden", state.places.single().subtitle)
     }
 
     @Test fun theSharedPlaceIsRemovableForItsOwner() {
