@@ -187,6 +187,7 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
     // large history), which is what made opening and scrolling feel stuck. Null
     // means "still loading"; the reloads after an edit go through IO too.
     var entries by remember { mutableStateOf<List<HistoryEntry>?>(null) }
+    var deleteError by remember { mutableStateOf("") }
     fun reload() = scope.launch {
         entries = withContext(Dispatchers.IO) {
             val trips = TripStore.load()
@@ -227,10 +228,20 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
             // plain groupBy keeps that order and each month lands as one
             // contiguous run — no explicit sort needed.
             val byMonth = loaded.groupBy { monthKey(it.trip.startTimeMs) }
+            Column(Modifier.fillMaxSize().padding(padding)) {
+            // Above the list, not an item in it: a delete fails on the row the
+            // rider is looking at, which is rarely the first one, and a message
+            // inserted at the top of a scrolled list lands off screen.
+            if (deleteError.isNotEmpty()) {
+                Text(
+                    deleteError,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
             LazyColumn(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding),
+                Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -263,15 +274,26 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
                             },
                             onDelete = {
                                 scope.launch {
-                                    withContext(Dispatchers.IO) {
-                                        TripStore.delete(entry.trip.startTimeMs)
+                                    // TripStore.delete rewrites trips.json and
+                                    // the tombstone file; either write can fail.
+                                    // Reloading anyway would redraw the row with
+                                    // no hint that the delete never happened.
+                                    val deleted = withContext(Dispatchers.IO) {
+                                        runCatching { TripStore.delete(entry.trip.startTimeMs) }
                                     }
-                                    reload()
+                                    if (deleted.isFailure) {
+                                        deleteError = "Could not delete that trip — " +
+                                            "it is still in your history. Try again."
+                                    } else {
+                                        deleteError = ""
+                                        reload()
+                                    }
                                 }
                             },
                         )
                     }
                 }
+            }
             }
         }
     }

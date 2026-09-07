@@ -51,6 +51,7 @@ import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.presentation.PlaceRow
 import com.jellemax.detour.presentation.PlacesPresenter
 import com.jellemax.detour.presentation.placesStateFrom
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -259,6 +260,9 @@ private fun AddPlaceDialog(
     var results by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }
     var picked by remember { mutableStateOf<GeocodeResult?>(null) }
     var searching by remember { mutableStateOf(false) }
+    // Why the list below is empty, in the rider's words. Null while there is
+    // nothing to say; same one-slot shape SearchIsland uses.
+    var searchStatus by remember { mutableStateOf<String?>(null) }
 
     // Debounced live search, same shape as the map's search dialog. Picking a
     // result sets `query = picked.name`, which re-keys this effect — only
@@ -266,14 +270,36 @@ private fun AddPlaceDialog(
     // that self-triggered restart doesn't null out the just-made selection.
     LaunchedEffect(query) {
         if (query != picked?.name) picked = null
-        if (query == picked?.name) return@LaunchedEffect
-        if (query.length < 3) { results = emptyList(); return@LaunchedEffect }
+        // Every early exit below has to drop the spinner: a restart cancels
+        // whatever call was in flight, and the catch further down rethrows
+        // that cancellation instead of falling through to `searching = false`.
+        // Picking a suggestion mid-search re-keys this effect through the line
+        // below, so that one leaks the spinner just as readily as a deleted
+        // character does.
+        if (query == picked?.name) {
+            searching = false
+            return@LaunchedEffect
+        }
+        if (query.length < 3) {
+            results = emptyList()
+            searching = false
+            searchStatus = null
+            return@LaunchedEffect
+        }
         delay(400)
         searching = true
-        results = try {
-            withContext(Dispatchers.IO) { Geocoder.search(query, null) }
+        try {
+            val hits = withContext(Dispatchers.IO) { Geocoder.search(query, null) }
+            results = hits
+            searchStatus = if (hits.isEmpty()) "No results" else null
+        } catch (e: CancellationException) {
+            // The next keystroke cancelled us; a superseded search must not
+            // report itself as an empty one.
+            throw e
         } catch (e: Exception) {
-            emptyList()
+            // Not "your address does not exist" — the geocoder was never asked.
+            results = emptyList()
+            searchStatus = "Search failed — check your connection"
         }
         searching = false
     }
@@ -302,6 +328,14 @@ private fun AddPlaceDialog(
                 if (chosen != null) {
                     Text("Selected: ${chosen.name}", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary)
+                } else if (searchStatus != null) {
+                    // Without this the spinner just stopped and the dialog sat
+                    // empty, whether the geocoder had nothing or was unreachable.
+                    Text(
+                        searchStatus.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 } else {
                     results.take(5).forEach { r ->
                         Text(

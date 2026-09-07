@@ -42,6 +42,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.convoy.ConvoyLiveService
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.presentation.avatarInitialOf
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -63,6 +64,7 @@ fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
     val scope = rememberCoroutineScope()
     var signingOut by remember { mutableStateOf(false) }
     var confirmSignOut by remember { mutableStateOf(false) }
+    var signOutError by remember { mutableStateOf("") }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -126,6 +128,10 @@ fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
                     fontWeight = FontWeight.SemiBold,
                 )
             }
+
+            if (signOutError.isNotEmpty()) {
+                Text(signOutError, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
         }
     }
 
@@ -141,7 +147,24 @@ fun ProfileScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
                 // order and reasoning as FriendsScreen's own sign-out.
                 ConvoyLiveService.stop(context)
                 signingOut = true
-                scope.launch { runCatching { Account.signOut() }; onSignedOut() }
+                signOutError = ""
+                scope.launch {
+                    // Only [Auth.clear] and the push-token write can surface a
+                    // failure here: the revoke call to the realm is swallowed
+                    // inside Auth.signOut by design, so a throw means the
+                    // *local* sign-out did not finish. Navigating on that would
+                    // leave the rider on the map still holding a live session.
+                    runCatching { Account.signOut() }
+                        .onSuccess { onSignedOut() }
+                        .onFailure {
+                            // runCatching swallows cancellation too; leaving
+                            // the screen is not a failed sign-out to report.
+                            if (it is CancellationException) throw it
+                            signingOut = false
+                            signOutError = "Sign-out did not finish — you may still be " +
+                                "signed in on this device. Try again."
+                        }
+                }
             },
             onDismiss = { confirmSignOut = false },
         )
