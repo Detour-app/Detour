@@ -107,6 +107,32 @@ object CircleEvents {
     /** Serialises [record]; see its doc for the race this closes. */
     private val gate = Mutex()
 
+    /**
+     * Drops [keys] from [Settings.confirmedInsidePlaceIds], under the same
+     * [gate] that guards [record].
+     *
+     * This exists for `CirclePresence.tick`'s reconciliation, which prunes
+     * keys whose place has vanished from the circle (a stale claim nobody
+     * can check against geometry any more). That prune is a
+     * read-modify-write over the same set [record] reads and writes, and a
+     * fence delivery or a poll tick both call [record] from their own
+     * coroutine — the receiver declares no `android:process`, so they are
+     * genuinely concurrent. A prune done as a bare read-modify-write outside
+     * [gate] could land between another call's read and its write: it would
+     * then overwrite that call's update with a copy of the set from before
+     * it ran, silently un-confirming an arrival the server already has on
+     * file. The next real departure for that place would wrongly suppress
+     * as [SuppressionReason.NO_ARRIVE_TO_DEPART_FROM] — the exact lost
+     * update #273's gate was built to close, reopened through a second
+     * writer. Routing the prune through [gate] instead closes it the same
+     * way [record] already does.
+     */
+    suspend fun forgetConfirmedInside(keys: Set<String>) {
+        gate.withLock {
+            Settings.setConfirmedInsidePlaceIds(Settings.confirmedInsidePlaceIds() - keys)
+        }
+    }
+
     /** Events newer than [sinceMs] — pass the last-seen event's [PlaceEvent.tsMs]
      *  to poll incrementally. */
     @Throws(Exception::class)

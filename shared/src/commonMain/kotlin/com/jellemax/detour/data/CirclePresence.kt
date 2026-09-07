@@ -213,10 +213,13 @@ object CirclePresence {
                     // Only reachable on a successful `places` fetch, which is
                     // the same "an outage proves nothing" rule the gate
                     // candidates below follow: a failed fetch must not be read
-                    // as "the place is gone".
-                    Settings.setConfirmedInsidePlaceIds(
-                        Settings.confirmedInsidePlaceIds() - drift.staleKeys,
-                    )
+                    // as "the place is gone". Routed through
+                    // CircleEvents.forgetConfirmedInside rather than touching
+                    // Settings here directly, so this prune is serialised
+                    // with CircleEvents.record's own read-decide-POST-update
+                    // by the same gate — see that function's doc for the lost
+                    // update a bare read-modify-write here would reopen.
+                    CircleEvents.forgetConfirmedInside(drift.staleKeys)
                 }
                 val evaluator = evaluators[circle.id] ?: GeofenceEvaluator.withDefaults()
                 evaluators = evaluators + (circle.id to evaluator)
