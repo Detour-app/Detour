@@ -23,6 +23,9 @@
          notifications - remoteMessaging, not location: it never reads or
          shares this device's own position, only listens. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
+    <!-- UpdateDownloadService streams a release APK to disk - dataSync, the
+         type for a bounded transfer that ends of its own accord. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Push-to-talk capture while a convoy is joined. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -110,6 +113,17 @@
         <service
             android:name=".notif.CircleNotifyService"
             android:foregroundServiceType="remoteMessaging"
+            android:exported="false" />
+
+        <!-- Carries an update download for as long as it takes. Separate from
+             everything above because it is the only one whose lifetime is a
+             single transfer: it starts when the rider taps Download in
+             Settings and stops itself the moment the APK lands, fails or is
+             cancelled. It used to run in HubScreen's composition, which is why
+             leaving the Hub for the map cancelled it mid-stream (#277). -->
+        <service
+            android:name=".update.UpdateDownloadService"
+            android:foregroundServiceType="dataSync"
             android:exported="false" />
 
         <!-- Receives the content-free circle wake-ping (docs/PUSH.md). Only ever
