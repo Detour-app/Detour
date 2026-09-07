@@ -26,10 +26,12 @@ class ModeSwitchTest {
     }
 
     @Test
-    fun aRealSwitchClearsEveryPieceOfTheSpinResult() {
+    fun aRealSwitchClearsTheSpinsModeSpecificParts() {
+        // The loop route and the candidate spread were planned on one mode's
+        // profile; the radius bounds are per-mode. A concrete destination is
+        // not here — it survives, because the navigation dock (#254) is where
+        // a rider switches Moto/Car for a place they have already picked.
         val s = modeSwitch(TravelMode.MOTO, TravelMode.CAR, hasSpinOffer = false)!!
-        assertNull(s.destination)
-        assertNull(s.destinationName)
         assertNull(s.route)
         assertTrue(s.candidates.isEmpty())
     }

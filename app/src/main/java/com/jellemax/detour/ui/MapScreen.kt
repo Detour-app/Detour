@@ -259,39 +259,20 @@ fun MapScreen(
     // transition is a CameraAuthority.reduce dispatch, and the rules (including
     // the spin park that deliberately does not stamp) live there with their
     // tests rather than being spread across ten call sites.
-    // Collapsed is the resting state; the spin sheet comes up when the home
-    // sheet's Spin chip opens it, or when a destination is set (below).
+    // Collapsed is the resting state; the spin sheet comes up only when the
+    // home sheet's Spin chip opens it. A concrete destination no longer
+    // touches this flag — it takes the slot as the navigation dock through
+    // `hasDestination` in homeBottomCard (#254), which outranks `collapsed`.
     var settingsCollapsed by rememberSaveable { mutableStateOf(true) }
-    // A trip ending lands on the home sheet. The ride sheets outrank the spin
-    // sheet in homeBottomCard, so `settingsCollapsed` can go false underneath
-    // them — every pick flips it, navigated-to or not — and End trip after an
-    // arrival would otherwise surface a spin sheet offering Go to the place
-    // the rider is standing at. Edge-triggered on a running trip ending, not
-    // on "no trip": a return from the Hub with no trip must not close a spin
-    // sheet the rider left open, and a route seeded from RoutesScreen must
-    // keep the sheet the effect below opens for it.
+    // A trip ending lands on the home sheet. Edge-triggered on a running trip
+    // ending, not on "no trip": a return from the Hub with no trip must not
+    // close a spin sheet the rider left open.
     var tripWasRunning by remember { mutableStateOf(stats != null) }
     LaunchedEffect(stats != null) {
         val running = stats != null
         if (tripWasRunning && !running) settingsCollapsed = true
         tripWasRunning = running
     }
-    // Having somewhere to go and no way to start going there was the dead end:
-    // the Go button and the destination readout are the spin sheet's (SpinCards
-    // NavButton and the result callout), so a destination picked while the
-    // sheet was down left a marker on the map and nothing to act on.
-    //
-    // Each of the five pick sites (search result, saved place, long-pressed
-    // pin, spin candidate, convoy candidate) flips the flag itself: an effect
-    // keyed on `destination` alone does not restart when the same LatLon is
-    // picked again — collapse the sheet, tap the same chip, and nothing would
-    // reopen it, since stopNavigation() never nulls `destination` and a
-    // re-pick of the last place writes an equal value. This effect covers the
-    // sixth writer, which is not a callback at all: seedRouteNavigation writes
-    // the holder from RoutesScreen, so a ridden saved route arrives already
-    // set, before the first composition here. That is the case its KDoc has
-    // always promised and no call-site line can reach.
-    LaunchedEffect(s.destination) { if (s.destination != null) settingsCollapsed = false }
     // The prefetched way set, the fetch throttle, the miss counter and the
     // snapped value: SpeedLimitTracker's, in shared/…/drive/, where the policy
     // lives with its tests. retained.ambientSpeedLimitKmh stays its own state because the
@@ -520,7 +501,6 @@ fun MapScreen(
     fun choose(c: RouteCandidate) {
         s.destination = c.destination
         s.destinationName = c.name
-        settingsCollapsed = false
         s.route = c.route
         s.candidates = emptyList()
         val loc = s.myLocation ?: return
@@ -544,6 +524,7 @@ fun MapScreen(
         navigating = s.navigating,
         hasCandidates = visibleCandidates.isNotEmpty(),
         tripActive = stats != null,
+        hasDestination = s.destination != null,
         collapsed = settingsCollapsed,
     )
 
@@ -568,7 +549,6 @@ fun MapScreen(
         val c = offer.candidates.getOrNull(index) ?: return
         s.destination = LatLon(c.lat, c.lon)
         s.destinationName = c.name
-        settingsCollapsed = false
         s.route = null // startNavigation() fetches a real route once tapped, same as a dropped pin
         s.candidates = emptyList()
         ConvoyLiveClient.clearSpinOffer()
@@ -694,7 +674,6 @@ fun MapScreen(
             if (navigatingRef.value) return@OnMapLongClickListener false
             s.destination = LatLon(ll.latitude, ll.longitude)
             s.destinationName = "Dropped pin"
-            settingsCollapsed = false
             s.route = null
             true
         }
@@ -979,10 +958,10 @@ fun MapScreen(
     }
 
     /**
-     * Switch travel mode from the spin sheet, the one surface where every
-     * consequence of the choice is visible at once: the profile the route is
-     * built with, whether the spin produces a loop or a destination, and the
-     * range the slider covers.
+     * Switch travel mode — from the spin sheet, where every consequence is
+     * visible at once (the routing profile, loop vs. destination, the slider
+     * range), or from the navigation dock, where it re-picks the profile for
+     * a destination already chosen.
      *
      * The radius is reset to the new mode's own default rather than carried
      * over or clamped. The two ranges barely overlap (Car 5-100 km, Moto
@@ -1002,8 +981,11 @@ fun MapScreen(
         Settings.setTripMode(m)
         radiusKm = next.radiusKm
         minRadiusKm = next.minRadiusKm
-        s.destination = next.destination
-        s.destinationName = next.destinationName
+        // A concrete destination survives; its route does not — a moto profile
+        // and a car profile reach the same place by different roads, so the
+        // dock drops the fetched route here and startNavigation() re-fetches
+        // on the new profile. A loop spin's route (destination == null) is
+        // cleared by the same line.
         s.route = next.route
         s.candidates = next.candidates
         if (next.clearSpinOffer) ConvoyLiveClient.clearSpinOffer()
@@ -1155,7 +1137,6 @@ fun MapScreen(
                 onPickDestination = { r ->
                     s.destination = r.location
                     s.destinationName = r.name
-                    settingsCollapsed = false
                     s.route = null
                     s.camAuthority = CameraAuthority.reduce(
                         s.camAuthority,
@@ -1169,7 +1150,6 @@ fun MapScreen(
                 onPickPlace = { p ->
                     s.destination = p.location
                     s.destinationName = p.name
-                    settingsCollapsed = false
                     s.route = null
                     s.camAuthority = CameraAuthority.reduce(
                         s.camAuthority,
@@ -1245,6 +1225,16 @@ fun MapScreen(
                 },
                 onTrack = {
                     TripTrackingService.start(context, s.destination?.lat, s.destination?.lon)
+                },
+                // The navigation dock's ✕: drop the destination and everything
+                // derived from it. `settingsCollapsed` is left untouched, so
+                // the slot falls back to whatever the Spin chip last set —
+                // COLLAPSED at rest, the spin sheet only if the rider had it
+                // open before picking.
+                onClearDestination = {
+                    s.destination = null
+                    s.destinationName = null
+                    s.route = null
                 },
             )
         }
