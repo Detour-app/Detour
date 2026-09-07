@@ -10,9 +10,11 @@ import com.google.android.gms.location.GeofencingEvent
 import com.jellemax.detour.data.CircleEvents
 import com.jellemax.detour.data.GeofenceKind
 import com.jellemax.detour.data.Settings
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Delivers [PlaceGeofenceGate]'s `DWELL`/`EXIT` transitions the moment GMS
@@ -64,8 +66,29 @@ class PlaceGeofenceReceiver : BroadcastReceiver() {
                     val expectedKind = if (fenceKind == PlaceFenceKind.ENTER) GeofenceKind.ARRIVE else GeofenceKind.DEPART
                     if (expectedKind != kind) continue // a fence firing its own, unexpected transition — ignore rather than misreport
                     try {
-                        val posted = CircleEvents.record(circleId, placeId, kind, tsMs)
-                        if (!posted) Log.i(TAG, "$kind for $circleId/$placeId suppressed by the gate")
+                        // Bounded so a slow POST is abandoned rather than left to run
+                        // past this receiver's execution budget — see RECORD_TIMEOUT_MS.
+                        // A cut-off call cancels CircleEvents.record's coroutine, which
+                        // unwinds out of its `gate.withLock` without reaching the
+                        // post-POST state update, so a timeout leaves state exactly as
+                        // untouched as any other failed record.
+                        val posted = withTimeoutOrNull(RECORD_TIMEOUT_MS) {
+                            CircleEvents.record(circleId, placeId, kind, tsMs)
+                        }
+                        when (posted) {
+                            true -> Unit
+                            false -> Log.i(TAG, "$kind for $circleId/$placeId suppressed by the gate")
+                            null -> Log.w(TAG, "record timed out for $circleId/$placeId after ${RECORD_TIMEOUT_MS}ms")
+                        }
+                    } catch (e: CancellationException) {
+                        // Not this call's own timeout (withTimeoutOrNull above already
+                        // absorbs that one and returns null) — some other cancellation
+                        // reaching this coroutine. Rethrow rather than let the broad
+                        // catch below swallow it: this scope has no parent today, but
+                        // treating cancellation like any other failure here is exactly
+                        // the "breaks structured concurrency" mistake this file must
+                        // not make if that ever changes.
+                        throw e
                     } catch (e: Exception) {
                         Log.w(TAG, "record failed for $circleId/$placeId", e)
                     }
@@ -78,5 +101,18 @@ class PlaceGeofenceReceiver : BroadcastReceiver() {
 
     companion object {
         private const val TAG = "PlaceGeofence"
+
+        /** Budget for one [CircleEvents.record] call made from here. `goAsync()`
+         *  gives a `BroadcastReceiver` roughly 10s of background execution before
+         *  the OS can kill the process; `Api.request`'s default read timeout is
+         *  30s and the 401-refresh path can run the request twice, so an
+         *  unbounded call could hold `record`'s mutex — and this receiver's
+         *  process — for close to a minute. 8s leaves ~2s of headroom inside
+         *  that ~10s budget for the surrounding loop, logging, and
+         *  `pending.finish()`. A call that hits this timeout is treated the
+         *  same as one that failed outright: logged, no state touched, and the
+         *  poll tick re-detects and re-posts the same transition later.
+         */
+        private const val RECORD_TIMEOUT_MS = 8_000L
     }
 }
