@@ -20,6 +20,10 @@ data class LeaderboardRow(
     val distanceLabel: String,
     val statsLine: String,
     val isMe: Boolean,
+    /** The caller's view of the mutual family tier with this rider: "none",
+     *  "outgoing" (the caller asked), "incoming" (they asked) or "family"
+     *  (agreed). Always "none" for [isMe]. */
+    val family: String = "none",
 )
 
 /**
@@ -80,7 +84,7 @@ fun friendsBoardStateFrom(
                 .thenBy { it.first.rider.username.lowercase() }
                 .thenBy { it.first.rider.id.value }
         )
-        .map { (stats, isMe) -> stats.toRow(isMe) }
+        .map { (stats, isMe) -> stats.toRow(isMe, if (isMe) "none" else lists.family[stats.rider.id.value] ?: "none") }
     return FriendsBoardState(
         rows = rows,
         incoming = lists.incoming.map { it.toRow() },
@@ -93,11 +97,12 @@ fun friendsBoardStateFrom(
 
 private fun RiderRef.toRow() = FriendRequestRow(id = id, username = username)
 
-private fun FriendStats.toRow(isMe: Boolean) = LeaderboardRow(
+private fun FriendStats.toRow(isMe: Boolean, family: String) = LeaderboardRow(
     riderId = rider.id,
     username = rider.username,
     avatarInitial = avatarInitialOf(rider.username),
     distanceLabel = "${groupThousands(formatFixed(stats.totalDistanceMeters / 1000.0, 0).toLong())} km",
     statsLine = "${stats.tripCount} rides · ${badgeIds.size} badges",
     isMe = isMe,
+    family = family,
 )

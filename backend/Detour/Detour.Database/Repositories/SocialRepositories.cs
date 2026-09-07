@@ -38,6 +38,17 @@ public class FriendshipRepository(ICustomDbContextFactory<DetourDbContext> facto
                 f => f.LowUserId == low && f.HighUserId == high && f.Status == FriendshipStatus.Accepted,
                 cancellationToken);
     }
+
+    public Task<bool> AreFamilyAsync(Guid a, Guid b, CancellationToken cancellationToken)
+    {
+        var (low, high) = Friendship.OrderPair(a, b);
+        return Set.AsNoTracking()
+            .TagWith(Tag(nameof(AreFamilyAsync)))
+            .AnyAsync(
+                f => f.LowUserId == low && f.HighUserId == high
+                     && f.FamilyStatus == FamilyStatus.Accepted,
+                cancellationToken);
+    }
 }
 
 public class SharedRouteRepository(ICustomDbContextFactory<DetourDbContext> factory)

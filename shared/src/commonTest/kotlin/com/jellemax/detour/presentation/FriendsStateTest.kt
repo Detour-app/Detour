@@ -32,7 +32,37 @@ class FriendsStateTest {
     private fun lists(
         incoming: List<RiderRef> = emptyList(),
         outgoing: List<RiderRef> = emptyList(),
-    ) = FriendLists(friends = emptyList(), incoming = incoming, outgoing = outgoing)
+        family: Map<String, String> = emptyMap(),
+    ) = FriendLists(friends = emptyList(), incoming = incoming, outgoing = outgoing, family = family)
+
+    @Test fun aRowCarriesTheCallersFamilyViewOfThatRider() {
+        val board = friendsBoardStateFrom(
+            leaderboard = listOf(friend("1", "ada"), friend("2", "bob")),
+            own = null,
+            lists = lists(family = mapOf("1" to "family", "2" to "outgoing")),
+        )
+        assertEquals("family", board.rows.single { it.username == "ada" }.family)
+        assertEquals("outgoing", board.rows.single { it.username == "bob" }.family)
+    }
+
+    @Test fun aRiderWithNoFamilyMarkingReadsAsNone() {
+        val board = friendsBoardStateFrom(
+            leaderboard = listOf(friend("1", "ada")),
+            own = null,
+            lists = lists(),
+        )
+        assertEquals("none", board.rows.single().family)
+    }
+
+    @Test fun theOwnRowIsNeverFamily() {
+        val board = friendsBoardStateFrom(
+            leaderboard = emptyList(),
+            own = friend("me", "self"),
+            // Even a stray marking against the own id must not render as family.
+            lists = lists(family = mapOf("me" to "family")),
+        )
+        assertEquals("none", board.rows.single { it.isMe }.family)
+    }
 
     @Test fun rowsSortByDistanceDescending() {
         val board = friendsBoardStateFrom(

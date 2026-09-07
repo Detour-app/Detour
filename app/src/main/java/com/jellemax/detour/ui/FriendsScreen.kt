@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Diversity3
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.rounded.Check as AcceptIcon
@@ -371,6 +372,9 @@ private fun FriendsSection(username: String) {
                     // Every non-me row is a friend — the leaderboard is the
                     // friend list plus own, nothing else.
                     onRemove = if (row.isMe) null else { { removing = row } },
+                    // Mutual: tapping marks or agrees; tapping again (or on an
+                    // outgoing request) drops it. See LeaderboardRow.family.
+                    onFamily = if (row.isMe) null else { { scope.launch { toggleFamily(row) } } },
                 )
             }
         }
@@ -454,6 +458,9 @@ private fun LeaderboardRowItem(
     busy: Boolean,
     /** Null for the signed-in rider's own row — you can't unfriend yourself. */
     onRemove: (() -> Unit)?,
+    /** Null for the own row too — you can't be your own family. Toggles the
+     *  mutual family tier by [LeaderboardRow.family]. */
+    onFamily: (() -> Unit)?,
 ) {
     val highlight = row.isMe || rank == 1
     Row(
@@ -515,6 +522,9 @@ private fun LeaderboardRowItem(
             fontWeight = FontWeight.Bold,
             color = if (highlight) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
         )
+        if (onFamily != null) {
+            FamilyButton(family = row.family, username = row.username, busy = busy, onClick = onFamily)
+        }
         if (onRemove != null) {
             IconButton(enabled = !busy, onClick = onRemove) {
                 Icon(
@@ -524,6 +534,37 @@ private fun LeaderboardRowItem(
                 )
             }
         }
+    }
+}
+
+/** The mutual-family toggle on a leaderboard row: one glyph whose label and tint tell the
+ *  rider where the request stands, and whose tap moves it — mark, agree, cancel or drop, all
+ *  decided by [toggleFamily] off the same [family] string. */
+@Composable
+private fun FamilyButton(family: String, username: String, busy: Boolean, onClick: () -> Unit) {
+    val label = when (family) {
+        "family" -> "Remove $username from family"
+        "outgoing" -> "Cancel family request to $username"
+        "incoming" -> "Accept $username's family request"
+        else -> "Mark $username as family"
+    }
+    val tint = when (family) {
+        "family" -> MaterialTheme.colorScheme.primary
+        "outgoing", "incoming" -> MaterialTheme.colorScheme.secondary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    IconButton(enabled = !busy, onClick = onClick) {
+        Icon(Icons.Outlined.Diversity3, contentDescription = label, tint = tint)
+    }
+}
+
+/** Mutual family is a toggle from the row's current [LeaderboardRow.family]: an agreed or
+ *  outgoing tier drops, anything else asks (which agrees when they already asked). */
+private suspend fun toggleFamily(row: LeaderboardRow) {
+    if (row.family == "family" || row.family == "outgoing") {
+        FriendsStore.unmarkFamily(row.riderId)
+    } else {
+        FriendsStore.markFamily(row.riderId)
     }
 }
 

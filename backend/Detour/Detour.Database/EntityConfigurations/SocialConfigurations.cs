@@ -22,6 +22,11 @@ public class FriendshipConfiguration : IEntityTypeConfiguration<Friendship>
             .HasConversion<SmartEnumNameConverter<FriendshipStatus>>()
             .HasMaxLength(20);
 
+        builder.Property(f => f.FamilyStatus)
+            .HasConversion<SmartEnumNameConverter<FamilyStatus>>()
+            .HasMaxLength(20);
+        builder.Property(f => f.FamilyRequestedByUserId);
+
         builder.Property(f => f.CreatedAt);
         builder.Property(f => f.AcceptedAt);
 
