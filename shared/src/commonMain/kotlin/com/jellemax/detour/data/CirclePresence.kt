@@ -71,7 +71,13 @@ import kotlin.concurrent.Volatile
  * still keep whatever dwell state a circle already had, which is why this
  * checks the epoch rather than clearing unconditionally on every tick — but
  * a sign-out, 401, or server switch must not leave a departed rider's dwell
- * state for the next signed-in rider to inherit.
+ * state for the next signed-in rider to inherit. [tick] also clears the
+ * durable half of that same rider-scoped state on the same signal —
+ * `Settings.clearPlaceEventMemory`, right after [discardEvaluatorsIfSessionChanged]
+ * reports the epoch moved — for the same reason: with the gate in
+ * [CircleEvents.record] now authoritative over the confirmed-inside set, an
+ * inherited claim would swallow the next signed-in rider's first real
+ * arrival at whatever place the previous rider was standing in.
  *
  * [currentIntervalMs] is *not* cleared on a session change, on purpose: it
  * is a cadence, not rider data — nothing in it identifies who was signed in
@@ -165,7 +171,17 @@ object CirclePresence {
         fixAgeMs: Long,
         nowMs: Long,
     ): Long {
-        discardEvaluatorsIfSessionChanged()
+        if (discardEvaluatorsIfSessionChanged()) {
+            // The same rule, for the durable half: a departed rider's
+            // confirmed-inside claims must not be inherited by the next
+            // signed-in rider, or the gate in `CircleEvents.record` will
+            // swallow that rider's first real arrival at a place the
+            // previous one was standing in (#273). Cleared here rather than
+            // inside `discardEvaluatorsIfSessionChanged` itself — see that
+            // function's own doc for why the `Settings` write has to live on
+            // this side of the split.
+            Settings.clearPlaceEventMemory()
+        }
         if (!SyncClient.configured() || !Account.signedIn) return currentIntervalMs
 
         val myId = Account.riderId.value
@@ -312,17 +328,24 @@ object CirclePresence {
         previousEpoch != null && previousEpoch != currentEpoch
 
     /** The impure half of [sessionChanged]: reads the real `Auth.sessionEpoch`,
-     *  clears [evaluators] if it moved, and stamps [lastSeenEpoch] either
-     *  way. `internal` rather than private so a test can call it with
-     *  [lastSeenEpoch] set by hand — the same shortcut
-     *  [com.jellemax.detour.drive.ConvoyRelay.clearMembershipForSessionChange]
+     *  clears [evaluators] if it moved, stamps [lastSeenEpoch] either way, and
+     *  returns whether it moved — [tick] uses that to also clear the durable
+     *  place-event memory (`Settings.clearPlaceEventMemory`), which belongs
+     *  next to this decision but not *in* this function: this one is called
+     *  directly by a test with [lastSeenEpoch] set by hand — the same
+     *  shortcut [com.jellemax.detour.drive.ConvoyRelay.clearMembershipForSessionChange]
      *  exists for, since actually moving `Auth.sessionEpoch` means writing
-     *  `Settings`. What that still leaves untested is [tick]'s own call to
-     *  this, one line up from a network fetch there is no seam for. */
-    internal fun discardEvaluatorsIfSessionChanged() {
+     *  `Settings` — and this module's tests stay isolated from `Settings`
+     *  itself (no `Prefs` backend to init, see this file's test's own header).
+     *  A `Settings` write here would take that test down with it. What the
+     *  split still leaves untested is [tick]'s own use of the return value,
+     *  one line up from a network fetch there is no seam for. */
+    internal fun discardEvaluatorsIfSessionChanged(): Boolean {
         val current = Auth.sessionEpoch.value
-        if (sessionChanged(lastSeenEpoch, current)) evaluators = emptyMap()
+        val changed = sessionChanged(lastSeenEpoch, current)
+        if (changed) evaluators = emptyMap()
         lastSeenEpoch = current
+        return changed
     }
 
     /**
