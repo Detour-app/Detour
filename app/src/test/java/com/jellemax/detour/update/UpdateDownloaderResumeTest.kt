@@ -23,16 +23,26 @@ class UpdateDownloaderResumeTest {
     private lateinit var server: MockWebServer
     private lateinit var dir: File
 
+    /** Every refuse-and-retry path here logs, and the mockable android.jar
+     *  throws from `android.util.Log`. Swapping the seam keeps that guard rail
+     *  on for the rest of the module rather than disabling it build-wide;
+     *  restoring it in [tearDown] means test order cannot leak the no-op. */
+    private val realLog = UpdateDownloader.log
+
     private val body = ByteArray(64 * 1024) { (it % 251).toByte() }
     private val bodyHex = MessageDigest.getInstance("SHA-256").digest(body)
         .joinToString("") { "%02x".format(it) }
 
     @Before fun setUp() {
+        UpdateDownloader.log = { _, _ -> }
         server = MockWebServer().also { it.start() }
         dir = tmp.newFolder("updates")
     }
 
-    @After fun tearDown() = server.shutdown()
+    @After fun tearDown() {
+        UpdateDownloader.log = realLog
+        server.shutdown()
+    }
 
     private fun update() = UpdateClient.PendingUpdate(
         version = "2.14.0",
@@ -227,5 +237,101 @@ class UpdateDownloaderResumeTest {
         val outcome = attempt()
         assertTrue(outcome is UpdateDownloader.Outcome.Refused)
         assertFalse(File(dir, "detour-2.14.0.apk").exists())
+    }
+
+    /**
+     * The allowlist is re-checked *after* the redirect chain, and this is the
+     * only test that can tell. Every other test here passes `allowHost = {
+     * true }`, so the seam is otherwise only ever used to switch the gate off.
+     *
+     * The second server answers correctly and with the right bytes — the same
+     * body, so the digest would wave it straight through. Nothing but the
+     * post-redirect check stands between the manifest's URL and an APK served
+     * by a host nobody vetted (CWE-494), which is the shape of the real attack:
+     * a redirect off github.com to somewhere else. Delete the re-check in
+     * `attempt` and this goes green as `Done`.
+     */
+    @Test fun aRedirectToADisallowedHostIsRefused() {
+        val elsewhere = MockWebServer().also { it.start() }
+        try {
+            elsewhere.enqueue(full())
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(302)
+                    .setHeader("Location", elsewhere.url("/detour-2.14.0.apk").toString())
+            )
+
+            // Both servers are on 127.0.0.1, so the port is what distinguishes
+            // them: the manifest's URL passes, the redirect target does not.
+            val outcome = UpdateDownloader.attempt(
+                dir,
+                update(),
+                allowHost = { it.port == server.port },
+                onProgress = {},
+            )
+
+            assertTrue(outcome is UpdateDownloader.Outcome.Refused)
+            assertFalse(File(dir, "detour-2.14.0.apk").exists())
+            assertFalse(File(dir, "detour-2.14.0.apk.part").exists())
+            assertFalse(File(dir, "detour-2.14.0.apk.part.meta").exists())
+        } finally {
+            elsewhere.shutdown()
+        }
+    }
+
+    @Test fun contentRangeStartReadsTheFirstOffset() {
+        assertEquals(500L, UpdateDownloader.contentRangeStart("bytes 500-999/1000"))
+    }
+
+    /**
+     * -1 is not a nicety, it is the sentinel the resume decision turns on: it
+     * can never equal a partial's length, and — unlike 0 — it is not a legal
+     * offset either, so a header this code cannot read is never mistaken for a
+     * body that starts at the beginning. Make either return 0 and the parser
+     * fails open; [anUnreadableContentRangeOnAManifestLessReleaseWritesNothing]
+     * is what that costs.
+     */
+    @Test fun anUnreadableContentRangeIsMinusOneRatherThanZero() {
+        assertEquals(-1L, UpdateDownloader.contentRangeStart(null))
+        assertEquals(-1L, UpdateDownloader.contentRangeStart(""))
+        assertEquals(-1L, UpdateDownloader.contentRangeStart("bytes */1000"))
+        assertEquals(-1L, UpdateDownloader.contentRangeStart("items 0-9/10"))
+        assertEquals(-1L, UpdateDownloader.contentRangeStart("bytes abc-999/1000"))
+    }
+
+    /** …and a body that really does start at zero stays distinguishable from
+     *  all of those. */
+    @Test fun aRangeStartingAtZeroIsZero() {
+        assertEquals(0L, UpdateDownloader.contentRangeStart("bytes 0-999/1000"))
+    }
+
+    /**
+     * What the -1 sentinel is worth end to end, on the release that has no
+     * other net: a manifest-less one, where `verify`'s size and digest gates
+     * are both vacuous.
+     *
+     * A 206 whose Content-Range cannot be parsed is a body of unknown
+     * provenance. Read as -1 it matches no partial and cannot start the file
+     * over either, so nothing is written. Read as 0 — the fail-open mutation —
+     * it would be written from offset zero, pass both vacuous gates, be renamed
+     * to the installable name and reach the package installer as a fragment.
+     */
+    @Test fun anUnreadableContentRangeOnAManifestLessReleaseWritesNothing() {
+        File(dir, "detour-2.14.0.apk.part").writeBytes(ByteArray(1000) { 7 })
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(206)
+                .setHeader("ETag", "\"v1\"")
+                .setHeader("Content-Range", "bytes ?-?/?")
+                .setBody(Buffer().write(body, body.size / 2, body.size - body.size / 2))
+        )
+
+        val outcome = attempt(update().copy(sha256 = "", size = 0L))
+
+        assertTrue(outcome is UpdateDownloader.Outcome.Interrupted)
+        assertEquals(0L, (outcome as UpdateDownloader.Outcome.Interrupted).bytes)
+        assertFalse(File(dir, "detour-2.14.0.apk").exists())
+        assertFalse(File(dir, "detour-2.14.0.apk.part").exists())
+        assertFalse(File(dir, "detour-2.14.0.apk.part.meta").exists())
     }
 }
