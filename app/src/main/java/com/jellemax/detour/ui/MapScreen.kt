@@ -315,12 +315,16 @@ fun MapScreen(
     // NavButton and the result callout), so a destination picked while the
     // sheet was down left a marker on the map and nothing to act on.
     //
-    // One effect rather than a line in each callback that sets `destination`:
-    // there are six of them (search result, saved place, long-pressed pin, spin
-    // candidate, convoy candidate) and the sixth is not a callback at all —
-    // seedRouteNavigation writes the holder from RoutesScreen, so a ridden
-    // saved route arrives already set, before the first composition here. That
-    // is the case its KDoc has always promised and no call-site line can reach.
+    // Each of the five pick sites (search result, saved place, long-pressed
+    // pin, spin candidate, convoy candidate) flips the flag itself: an effect
+    // keyed on `destination` alone does not restart when the same LatLon is
+    // picked again — collapse the sheet, tap the same chip, and nothing would
+    // reopen it, since stopNavigation() never nulls `destination` and a
+    // re-pick of the last place writes an equal value. This effect covers the
+    // sixth writer, which is not a callback at all: seedRouteNavigation writes
+    // the holder from RoutesScreen, so a ridden saved route arrives already
+    // set, before the first composition here. That is the case its KDoc has
+    // always promised and no call-site line can reach.
     LaunchedEffect(destination) { if (destination != null) settingsCollapsed = false }
     // The prefetched way set, the fetch throttle, the miss counter and the
     // snapped value: SpeedLimitTracker's, in shared/…/drive/, where the policy
@@ -605,6 +609,7 @@ fun MapScreen(
     fun choose(c: RouteCandidate) {
         destination = c.destination
         destinationName = c.name
+        settingsCollapsed = false
         route = c.route
         candidates = emptyList()
         val loc = myLocation ?: return
@@ -646,6 +651,7 @@ fun MapScreen(
         val c = offer.candidates.getOrNull(index) ?: return
         destination = LatLon(c.lat, c.lon)
         destinationName = c.name
+        settingsCollapsed = false
         route = null // startNavigation() fetches a real route once tapped, same as a dropped pin
         candidates = emptyList()
         ConvoyLiveClient.clearSpinOffer()
@@ -771,6 +777,7 @@ fun MapScreen(
             if (navigatingRef.value) return@OnMapLongClickListener false
             destination = LatLon(ll.latitude, ll.longitude)
             destinationName = "Dropped pin"
+            settingsCollapsed = false
             route = null
             true
         }
@@ -1786,6 +1793,7 @@ fun MapScreen(
                 onPickDestination = { r ->
                     destination = r.location
                     destinationName = r.name
+                    settingsCollapsed = false
                     route = null
                     camAuthority = CameraAuthority.reduce(
                         camAuthority,
@@ -1799,6 +1807,7 @@ fun MapScreen(
                 onPickPlace = { p ->
                     destination = p.location
                     destinationName = p.name
+                    settingsCollapsed = false
                     route = null
                     camAuthority = CameraAuthority.reduce(
                         camAuthority,
