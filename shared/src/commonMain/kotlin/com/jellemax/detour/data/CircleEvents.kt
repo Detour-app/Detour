@@ -149,6 +149,50 @@ enum class GeofenceKind { ARRIVE, DEPART }
 /** One transition [GeofenceEvaluator] just decided. */
 data class GeofenceTransition(val placeId: Long, val kind: GeofenceKind, val tsMs: Long)
 
+/** Why an announcement was dropped, for the durable record in [Settings.suppressedPlaceEvents]. */
+enum class SuppressionReason { DUPLICATE, NO_ARRIVE_TO_DEPART_FROM }
+
+/** What [decidePlaceEvent] concluded. */
+sealed interface PlaceEventDecision {
+    data object Post : PlaceEventDecision
+    data class Suppress(val reason: SuppressionReason) : PlaceEventDecision
+}
+
+/** The key [Settings.confirmedInsidePlaceIds] stores, `"$circleId:$placeId"`.
+ *  Comma-free by construction — circle ids are server UUIDs — which is what
+ *  lets it share [encodePlaceFenceIds]. */
+internal fun placeEventKey(circleId: String, placeId: Long): String = "$circleId:$placeId"
+
+/**
+ * Whether this transition is the *first* announcement of a real change, given
+ * what was already announced for that place.
+ *
+ * Arrive and depart must alternate: a second arrive with no depart between it
+ * and the first is a duplicate whichever detector produced it and however far
+ * apart, and a depart with no arrive to depart from never happened as far as
+ * this circle is concerned. That is the whole of #273 — two detectors and a
+ * cold start were three ways of announcing the same arrival twice, and none of
+ * them could see what the other had done.
+ *
+ * Pure, and over the set rather than over [Settings], because `shared` tests
+ * have no `Prefs` backend to init.
+ */
+internal fun decidePlaceEvent(
+    confirmed: Set<String>,
+    circleId: String,
+    placeId: Long,
+    kind: GeofenceKind,
+): PlaceEventDecision {
+    val inside = placeEventKey(circleId, placeId) in confirmed
+    return when {
+        kind == GeofenceKind.ARRIVE && inside ->
+            PlaceEventDecision.Suppress(SuppressionReason.DUPLICATE)
+        kind == GeofenceKind.DEPART && !inside ->
+            PlaceEventDecision.Suppress(SuppressionReason.NO_ARRIVE_TO_DEPART_FROM)
+        else -> PlaceEventDecision.Post
+    }
+}
+
 /**
  * Evaluates arrive/depart transitions from a stream of fixes, entirely
  * on-device (docs/CIRCLES_AND_CONVOYS.md section 8) — settling the design
