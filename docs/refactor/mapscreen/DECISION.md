@@ -4,12 +4,12 @@
 35 effects, six independent collectors on one `StateFlow`, and eight closures over mutable
 state that no test could reach. None of it was tested.
 
-It is now **1666 lines**, and the reduction is the least interesting part.
+It is now **1263 lines**, and the reduction is the least interesting part.
 
 | | Before | After |
 |---|---|---|
-| `MapScreen.kt` | 3204 lines | 1666 |
-| `ui/` files | 1 monolith | 31 |
+| `MapScreen.kt` | 3204 lines | 1263 |
+| `ui/` files | 1 monolith | 55 |
 | Decisions with tests | 0 | 7 units, 166 tests |
 | Road-hazard features reachable by iOS | none | all three |
 | `car/` duplication | arrival/reroute, camera-warn, speed-limit | none |
@@ -43,6 +43,15 @@ posted-limit sign and the camera chime available to iOS at all.
    the running trajectcontrole average, and iOS gets the feature outright — a `SectionAverageHolder`
    in `iosMain`, the tenth `FlowWatcher` subclass, and a chip on the map screen. All three surfaces
    now read the same tracker. Register entry 11 resolved.
+6. **State ownership** (#228, the stage 4 gate taken). `MapScreenState` gives the screen's
+   twenty remembered vars one owner, which is what let the rest move: the permission plumbing,
+   the circle-member markers, the hazard alerts, the two Overpass prefetches, the three
+   per-frame loops and the navigation session each went to a file of their own, and the
+   launch sync, sign-in feedback and saved-places warm-up went to `AppRoot`, the component
+   that is actually always composed. Four decisions that were unreachable from a test
+   (`ModeSwitch`, `NavStart`, `SpinRun`, `PermissionPolicy`) are pure functions with tests.
+   `MapScreen.kt` 2041 → 1263 lines. The register's `$M` fences that the split moved are
+   re-pointed in §D of the register.
 
 The full investigation — six architecture proposals, three independent evaluations, the staged
 specs and every implementation plan — is in git history at **`b7f4c6f`**, the last commit
