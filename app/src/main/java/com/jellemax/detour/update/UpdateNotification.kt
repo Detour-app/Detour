@@ -12,13 +12,16 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.MainActivity
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.notif.PendingUpdateOpen
 
 /**
  * One notification per available version, never repeated.
  *
  * The check runs in the foreground, so this always posts while the rider is
  * already in the app — it is a breadcrumb for after they leave, not an
- * announcement. The Hub banner is what tells them now.
+ * announcement. The Settings row is what tells them now: the whole check,
+ * download and install flow lives there since #277. (The Hub banner becomes a
+ * pointer at that row in a later change; it does not do the telling itself.)
  */
 object UpdateNotification {
 
@@ -53,7 +56,8 @@ object UpdateNotification {
             context,
             0,
             Intent(context, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                .putExtra(PendingUpdateOpen.EXTRA_OPEN_UPDATE_SETTINGS, true),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         manager.notify(

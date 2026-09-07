@@ -43,6 +43,7 @@ import com.jellemax.detour.nav.pop
 import com.jellemax.detour.nav.push
 import com.jellemax.detour.nav.returnToMap
 import com.jellemax.detour.nav.tripNotificationStack
+import com.jellemax.detour.nav.updateNotificationStack
 import com.jellemax.detour.data.Oidc
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.ble.BleNavServer
@@ -58,6 +59,7 @@ import com.jellemax.detour.notif.CircleNotifyService
 import com.jellemax.detour.notif.CircleSyncWorker
 import com.jellemax.detour.notif.PendingCircleOpen
 import com.jellemax.detour.notif.PendingTripOpen
+import com.jellemax.detour.notif.PendingUpdateOpen
 import com.jellemax.detour.notif.PlaceNotifications
 import com.jellemax.detour.notif.Push
 import com.jellemax.detour.update.UpdateChecker
@@ -92,6 +94,7 @@ class MainActivity : ComponentActivity() {
         takeSignInRedirect(intent)
         PlaceNotifications.takeOpenCircleId(intent)
         PendingTripOpen.take(intent)
+        PendingUpdateOpen.take(intent)
         enableEdgeToEdge()
         // A map app is glanced at while driving: keep the screen awake while visible.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -134,6 +137,7 @@ class MainActivity : ComponentActivity() {
         takeSignInRedirect(intent)
         PlaceNotifications.takeOpenCircleId(intent)
         PendingTripOpen.take(intent)
+        PendingUpdateOpen.take(intent)
     }
 
     /**
@@ -308,6 +312,15 @@ private fun AppRoot() {
         backStack.resetTo(tripNotificationStack(if (exists) start else null))
         // Clearing is what lets a second tap navigate again.
         PendingTripOpen.clear()
+    }
+
+    // A tapped update notification opens the Settings row that can install it.
+    val openUpdateSettings by PendingUpdateOpen.open.collectAsStateWithLifecycle()
+    LaunchedEffect(openUpdateSettings) {
+        if (!openUpdateSettings) return@LaunchedEffect
+        backStack.resetTo(updateNotificationStack())
+        // Clearing is what lets a second tap navigate again.
+        PendingUpdateOpen.clear()
     }
 
     // Sub-screens slide in over the map from the right and slide back out the
