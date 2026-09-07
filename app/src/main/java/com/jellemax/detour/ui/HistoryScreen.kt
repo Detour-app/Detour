@@ -200,9 +200,11 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
         // Both reads parse files on the device, and either can throw on a
         // truncated or unreadable one. Uncaught, that left entries null forever
         // — which rendered as the "no trips yet" blank, on a full history.
+        // loadStrict, not load: load() reads a corrupt file as an empty list,
+        // and this is the one screen that can tell the rider the difference.
         val result = withContext(Dispatchers.IO) {
             runCatching {
-                val trips = TripStore.load()
+                val trips = TripStore.loadStrict()
                 val thumbnails = matchThumbnails(trips)
                 trips.map { HistoryEntry(it, thumbnails[it.startTimeMs]) }
             }
