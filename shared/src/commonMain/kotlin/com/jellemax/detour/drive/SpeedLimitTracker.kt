@@ -59,6 +59,31 @@ object SpeedLimitTracker {
      *  three is the limit really having ended. */
     const val MISSES_TO_CLEAR = 3
 
+    /** How far over the posted limit a reading may sit before it counts as
+     *  speeding. Additive rather than a percentage: what it absorbs is GPS and
+     *  rounding noise, which is the same few km/h at 30 as at 120, where a
+     *  percentage would tolerate four times as much on the motorway. */
+    const val OVER_LIMIT_TOLERANCE_KMH = 5.0
+
+    /**
+     * The one "over the posted limit" rule. Three readouts ask it — the phone
+     * HUD's dial (through `speedHudStateFrom`), the Android Auto dial
+     * (`car/CarMapRenderer.kt`) and the trip recorder's `currentlyOverLimit`
+     * and `secondsOverLimit` (`tracking/TripTrackingService.kt`). They used to
+     * each carry their own copy, and the recorder's was a ×1.10 margin rather
+     * than this +5, so one card could show 100 km/h under a 120 sign and "Over
+     * limit" in the same instant (#196).
+     *
+     * Lives with the machine that produces the limit, not with a readout: the
+     * recorder folds this into a stored trip statistic, which is not display.
+     * A null [limitKmh] is "no sign to be over" and is never speeding.
+     */
+    fun isOverLimit(
+        speedKmh: Double,
+        limitKmh: Double?,
+        toleranceKmh: Double = OVER_LIMIT_TOLERANCE_KMH,
+    ): Boolean = limitKmh != null && speedKmh > limitKmh + toleranceKmh
+
     data class State(
         val ways: List<RoadRoulette.SpeedLimitWay> = emptyList(),
         val waysCenter: LatLon? = null,

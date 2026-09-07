@@ -1,5 +1,7 @@
 package com.jellemax.detour.presentation
 
+import com.jellemax.detour.drive.SpeedLimitTracker
+
 /**
  * The speed dial, the posted-limit sign and the trajectcontrole chip: the
  * readouts that change on every GPS fix. Pure — see [speedHudStateFrom].
@@ -60,24 +62,21 @@ data class ActiveTripCardState(
  * `TripTrackingService.kt` and cannot cross into `:shared`, and it carries an
  * `elapsedRealtime` basis that is Android-only by nature.
  *
- * [overLimitToleranceKmh] is the dial's red threshold. It stays a parameter so
- * this function has no tuning value of its own to drift — the authoritative
- * copy is `app/.../ui/MapCameraTuning.kt`'s `OVER_LIMIT_TOLERANCE_KMH`, which
- * both consumers of the threshold (the phone HUD and the Android Auto
- * renderer, which draws its own dial rather than calling this) read. Callers
- * pass it by name, the same arrangement [navStateFrom] has with
- * `NavPolicy.OFF_ROUTE_METERS`: the default here is never the value the app
- * runs on.
+ * [overLimitToleranceKmh] is the dial's red threshold, and the comparison
+ * itself is [SpeedLimitTracker.isOverLimit] — this function does not carry a
+ * second copy of either. The threshold stays a parameter so a caller can be
+ * stricter than the app is (the tests do), and defaults to the value every
+ * readout and the trip recorder actually run on.
  */
 fun speedHudStateFrom(
     speedKmh: Double,
     limitKmh: Double?,
     averageKmh: Double?,
     averageLimitKmh: Double?,
-    overLimitToleranceKmh: Double = 5.0,
+    overLimitToleranceKmh: Double = SpeedLimitTracker.OVER_LIMIT_TOLERANCE_KMH,
 ): SpeedHudState = SpeedHudState(
     speedText = formatFixed(speedKmh, 0),
-    speeding = limitKmh != null && speedKmh > limitKmh + overLimitToleranceKmh,
+    speeding = SpeedLimitTracker.isOverLimit(speedKmh, limitKmh, overLimitToleranceKmh),
     // Truncating, not rounding: a sign shows the posted number, and the
     // limits that reach it are whole km/h anyway.
     limitSignText = limitKmh?.let { it.toInt().toString() },

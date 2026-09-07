@@ -1,5 +1,6 @@
 package com.jellemax.detour.presentation
 
+import com.jellemax.detour.drive.SpeedLimitTracker
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -19,7 +20,7 @@ class SpeedHudStateTest {
         limitKmh: Double? = null,
         averageKmh: Double? = null,
         averageLimitKmh: Double? = null,
-        overLimitToleranceKmh: Double = 5.0,
+        overLimitToleranceKmh: Double = SpeedLimitTracker.OVER_LIMIT_TOLERANCE_KMH,
     ) = speedHudStateFrom(
         speedKmh = speedKmh,
         limitKmh = limitKmh,
@@ -55,9 +56,10 @@ class SpeedHudStateTest {
     }
 
     @Test fun toleranceIsTheCallersToPass() {
-        // The app owns the value (MapCameraTuning.OVER_LIMIT_TOLERANCE_KMH,
-        // which the Android Auto dial reads too); this only applies whatever
-        // arrives, so a caller passing 0 gets a stricter HUD.
+        // SpeedLimitTracker.OVER_LIMIT_TOLERANCE_KMH is the value the app
+        // runs on (the Android Auto dial and the trip recorder compare against
+        // the same one); this only applies whatever arrives, so a caller
+        // passing 0 gets a stricter HUD.
         assertTrue(state(speedKmh = 51.0, limitKmh = 50.0, overLimitToleranceKmh = 0.0).speeding)
     }
 

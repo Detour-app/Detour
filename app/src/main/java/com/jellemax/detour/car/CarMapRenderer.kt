@@ -27,6 +27,7 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
 import com.jellemax.detour.map.MapMotion
@@ -35,7 +36,6 @@ import com.jellemax.detour.map.smoothBearing
 import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.ui.MapOverlays
 import com.jellemax.detour.ui.NamedFriendPosition
-import com.jellemax.detour.ui.OVER_LIMIT_TOLERANCE_KMH
 import com.jellemax.detour.ui.PositionMarker
 import com.jellemax.detour.ui.openFreeMapStyleUrl
 import com.jellemax.detour.ui.setCamera
@@ -827,7 +827,7 @@ private class HudOverlay(context: android.content.Context) : View(context) {
             cx -= radius
             val cy = bottom - radius
             val limit = limitKmh
-            val speeding = limit != null && speed > limit + OVER_LIMIT_TOLERANCE_KMH
+            val speeding = SpeedLimitTracker.isOverLimit(speed, limit)
             drawShadow(canvas, cx, cy, radius)
             canvas.drawCircle(cx, cy, radius, if (speeding) speedOverBgPaint else speedBgPaint)
             // The unit label sits under the number, as on the phone HUD, so the
