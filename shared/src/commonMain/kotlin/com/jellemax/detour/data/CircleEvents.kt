@@ -61,6 +61,14 @@ object CircleEvents {
      * lands**: an arrive that failed to record must not arm a depart nobody
      * ever saw the arrive for.
      *
+     * That covers a failed POST, not a process death between the POST landing
+     * and [Settings.setConfirmedInsidePlaceIds] finishing: the two writes
+     * aren't atomic, so a kill in that gap leaves the server holding the
+     * arrival while this memory still doesn't. The next real depart is then
+     * wrongly suppressed as having no arrive behind it — self-healing on the
+     * next real arrive, which is the same shape of gap [decidePlaceEvent]
+     * already tolerates.
+     *
      * Serialised by [gate], so a fence delivery and a tick cannot both pass
      * the check before either writes. They are separate coroutines in one
      * process — the receiver declares no `android:process` — so the race is
