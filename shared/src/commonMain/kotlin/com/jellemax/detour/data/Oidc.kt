@@ -114,10 +114,14 @@ object Oidc {
         val typed = custom?.idpIssuer.orEmpty()
         if (typed.isNotBlank()) return RoutingServer.issuer(custom)
 
-        val fetched = Capabilities
+        val caps = Capabilities
             .fetch(RoutingServer.apiBase(custom), RoutingServer.userAgentHeaders())
-            ?.idpIssuer
-            .orEmpty()
+        // The same document answers both questions, so the feature list is
+        // recorded here rather than left to RoutingServer.probeCapabilities'
+        // own round trip — a sign-in is the one moment a client is guaranteed
+        // to have just asked.
+        RoutingServer.rememberServerFeatures(caps?.features)
+        val fetched = caps?.idpIssuer.orEmpty()
         val discovered = Capabilities.preferredDiscovered(
             fetched = fetched,
             stored = RoutingServer.discoveredIssuer(),

@@ -21,6 +21,10 @@ public class PushDispatcherTests
     private sealed class FakeGateway(DevicePlatform platform) : IPushGateway
     {
         public DevicePlatform Platform { get; } = platform;
+
+        // A fake is always configured; the capability endpoint's reading of
+        // this flag is covered in CapabilitiesTests instead.
+        public bool Enabled => true;
         public List<string> SeenTokens { get; } = [];
         public PushSendResult NextResult { get; set; } = PushSendResult.Empty;
 

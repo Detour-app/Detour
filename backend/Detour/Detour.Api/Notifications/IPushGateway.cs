@@ -30,6 +30,18 @@ public interface IPushGateway
     ///  routes a batch to the gateway whose <see cref="Platform"/> matches.</summary>
     DevicePlatform Platform { get; }
 
+    /// <summary>
+    /// Whether this deployment has the credentials to actually send. False is the
+    /// correct state for a platform whose keys have not been placed on the box, and
+    /// <see cref="SendWakeAsync"/> then no-ops rather than failing.
+    ///
+    /// Read by <c>CapabilitiesController</c> so a client can find out *before* it
+    /// decides how to receive circle events. A device whose build has FCM baked in
+    /// cannot tell on its own whether the server it is pointed at can reach the
+    /// cloud, and guessing wrong costs it every background arrival.
+    /// </summary>
+    bool Enabled { get; }
+
     /// <summary>Wake <paramref name="tokens"/> (all of <see cref="Platform"/>).
     ///  Returns per-token outcomes; <see cref="PushSendResult.TokensToPrune"/> are
     ///  the tokens the cloud reported permanently dead.</summary>

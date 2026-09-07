@@ -58,6 +58,28 @@ object RoutingServer {
      */
     private const val KEY_DISCOVERED_ISSUER = "idp_issuer_discovered"
 
+    /**
+     * The feature list the API server stated on its last successful probe.
+     *
+     * Stored, rather than asked for when needed, because the callers that need
+     * it are synchronous and run before anything has been on the network — see
+     * [knownServerFeatures].
+     */
+    private const val KEY_SERVER_FEATURES = "server_features"
+
+    /**
+     * Written in front of the stored list so an empty one is distinguishable
+     * from a key that was never written. Those two mean opposite things: a
+     * server that advertises nothing is an answer, and never having asked is
+     * not, and [knownServerFeatures] returns null for the second.
+     *
+     * A marker rather than a separate "have probed" boolean, because each
+     * `put` is its own async commit on Android and two of them can be torn
+     * apart by a process death — leaving "probed, no features", which reads as
+     * a definite no.
+     */
+    private const val FEATURES_MARKER = "v1:"
+
     fun bakedDefaults(): ServerConfig = ServerConfig(
         url = BuildDefaults.routingUrl,
         apiUrl = BuildDefaults.apiUrl,
@@ -236,7 +258,13 @@ object RoutingServer {
         // be able to leave a new API address paired with the old server's
         // realm. The reverse order is safe — old address with no discovered
         // issuer just resolves to typed-or-baked.
-        if (serverChanged(config, previous)) prefs(PREFS).remove(KEY_DISCOVERED_ISSUER)
+        if (serverChanged(config, previous)) {
+            prefs(PREFS).remove(KEY_DISCOVERED_ISSUER)
+            // Same reason: what the old deployment said it supports says nothing
+            // about the new one, and carrying it across would have a client
+            // configure itself against a server it is no longer talking to.
+            prefs(PREFS).remove(KEY_SERVER_FEATURES)
+        }
 
         prefs(PREFS).apply {
             put("saved", true)
@@ -315,6 +343,78 @@ object RoutingServer {
         if (clearDropsSession(loadCustom(), discoveredIssuer())) Auth.clear()
 
         prefs(PREFS).clear()
+    }
+
+    /**
+     * What the API server last said it supports, or null if it has never been
+     * asked (or never answered).
+     *
+     * The null is the point, and callers must not collapse it into an empty
+     * list: "this server cannot send push" and "nobody has asked yet" lead to
+     * opposite decisions on Android, where the second must leave the relay
+     * running rather than stand it down on an assumption.
+     *
+     * Synchronous, and deliberately so — [com.jellemax.detour.notif] reads this
+     * on a cold start, before any coroutine has reached the network.
+     */
+    fun knownServerFeatures(): List<String>? = decodeFeatures(prefs(PREFS).string(KEY_SERVER_FEATURES))
+
+    /**
+     * The stored form read back, or null when nothing was ever stored.
+     *
+     * Split from [knownServerFeatures] so the tri-state can be asserted:
+     * [knownServerFeatures] reads `prefs`, which reaches a Context no unit test
+     * has. Same reason [vettedIssuer] is split from [discoveredIssuer].
+     */
+    internal fun decodeFeatures(stored: String): List<String>? {
+        if (!stored.startsWith(FEATURES_MARKER)) return null
+        return stored.removePrefix(FEATURES_MARKER)
+            .split(',')
+            .filter { it.isNotBlank() }
+    }
+
+    /** The inverse of [decodeFeatures]. Extracted for the same reason. */
+    internal fun encodeFeatures(features: List<String>): String =
+        FEATURES_MARKER + features.joinToString(",")
+
+    /**
+     * Records what the API server just stated.
+     *
+     * A null [features] — the probe failed, or the body was not a capability
+     * document — leaves whatever is stored alone. That is not a cache policy:
+     * a rider who is simply offline must not lose an answer their server gave
+     * yesterday, because the thing that reads it treats "unknown" as a reason
+     * to fall back to the more expensive transport.
+     *
+     * A document that *parsed* always overwrites, including with an empty list.
+     * That is how a deployment which has had its push credentials removed stops
+     * being treated as push-capable.
+     */
+    internal fun rememberServerFeatures(features: List<String>?) {
+        if (features == null) return
+        prefs(PREFS).put(KEY_SERVER_FEATURES, encodeFeatures(features))
+    }
+
+    /**
+     * Asks the configured server what it supports and records the answer.
+     *
+     * Separate from the probe [Oidc.resolveIssuer] makes, which runs only at an
+     * interactive sign-in: a rider who signed in months ago would otherwise
+     * never learn what their deployment grew since. Cheap enough for every app
+     * start, and a failed one changes nothing.
+     *
+     * `@Throws(Exception::class)`: called from Swift, where an unannotated
+     * escaping exception terminates the process rather than arriving as an
+     * error — same reason [Oidc.resolveIssuer] carries it. [Capabilities.fetch]
+     * already swallows everything, so this is the annotation stating that
+     * rather than admitting a hazard.
+     */
+    @Throws(Exception::class)
+    suspend fun probeCapabilities() {
+        val custom = loadCustom()
+        rememberServerFeatures(
+            Capabilities.fetch(apiBase(custom), userAgentHeaders())?.features,
+        )
     }
 
     /**

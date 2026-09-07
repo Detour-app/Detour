@@ -31,7 +31,7 @@ public sealed class FcmGateway(
 
     public DevicePlatform Platform => DevicePlatform.Android;
 
-    private bool Enabled => projectId is not null && accessToken is not null;
+    public bool Enabled => projectId is not null && accessToken is not null;
 
     public async Task<PushSendResult> SendWakeAsync(
         IReadOnlyCollection<string> tokens, string collapseKey, CancellationToken cancellationToken)

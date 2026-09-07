@@ -16,6 +16,30 @@ internal data class ServerCapabilities(
 )
 
 /**
+ * Feature strings a deployment may advertise, as wire contracts rather than
+ * descriptions — the server's own `CapabilitiesResponse` spells them the same
+ * way, so renaming one on either side breaks the pair. Only the strings a
+ * client actually branches on are named; unknown ones are ignored, per
+ * `docs/BACKEND_SPEC.md` §15.5.
+ *
+ * Distinct from [Features], and the distinction is the whole point: those are
+ * decided when this app is built, these when the rider's own server was
+ * configured. A build can have Firebase baked in and still be talking to a
+ * deployment that has no credentials to send with.
+ *
+ * Plain vals rather than `const`, for the reason [Features] gives: a const in a
+ * Kotlin object exports to Swift as a class member, an ordinary val as a
+ * property on `ServerFeature.shared`.
+ */
+object ServerFeature {
+    /** This deployment has Firebase credentials and can send Android wake-pings. */
+    val PUSH_ANDROID = "push-android"
+
+    /** This deployment has APNs credentials and can send iOS wake-pings. */
+    val PUSH_IOS = "push-ios"
+}
+
+/**
  * Asking a deployment which realm to sign in against, instead of the rider
  * typing an address their server already knows.
  *
