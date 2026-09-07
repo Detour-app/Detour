@@ -50,9 +50,10 @@ import kotlin.random.Random
  *
  * Stateless by construction. Every `remember`, every effect and every write
  * that decides what belongs here stays with the map screen; this takes the
- * decided values in and reports events back out. The two `remember`s below are
- * the deliberate exception — they hold nothing anyone else could use, and
- * exist only so a card that is animating *out* still has something to draw.
+ * decided values in and reports events back out. The `remember`s below are the
+ * deliberate exception — they hold nothing anyone else could use: two exist
+ * only so a card that is animating *out* still has something to draw, and the
+ * third is whether the trip card is showing its summary figures.
  *
  * A `BoxScope` extension so the slot keeps owning its own alignment and insets
  * rather than having them handed down as a modifier the caller could get wrong.
@@ -139,13 +140,26 @@ internal fun BoxScope.MapBottomSlot(
         // goes null; keep the last value so it animates out with content.
         val shownStats = remember { mutableStateOf(stats) }
         if (stats != null) shownStats.value = stats
+        // Whether the card shows its summary figures is screen-local UI state
+        // (§4.2), held out here rather than inside the card so the sheet can
+        // take it over once it has a driving state of its own. Keyed on the
+        // trip, because this slot outlives it: unkeyed, a rider who expanded
+        // trip one gets trip two opened on all six stats. Keyed on the
+        // *retained* stats so the card does not fold while it animates out.
+        val tripCardExpanded = remember(shownStats.value?.startTimeMs) { mutableStateOf(false) }
         AnimatedVisibility(
             visible = stats != null,
             enter = expandVertically() + fadeIn(),
             exit = shrinkVertically() + fadeOut(),
             modifier = Modifier.padding(horizontal = 12.dp),
         ) {
-            shownStats.value?.let { ActiveTripCard(it) }
+            shownStats.value?.let {
+                ActiveTripCard(
+                    it,
+                    expanded = tripCardExpanded.value,
+                    onToggle = { tripCardExpanded.value = !tripCardExpanded.value },
+                )
+            }
         }
 
         // The seed behind the home sheet's "one other place" chip. Held here,
