@@ -130,8 +130,12 @@ internal fun PushToTalkButton(talking: Boolean, modifier: Modifier = Modifier) {
 
 /** The island's width, and so the posted-limit sign's diameter: the sign runs
  *  edge to edge at the bottom of it, as the prototype draws it. Wider than the
- *  prototype's 56 px because the trajectcontrole average keeps a slot in here
- *  and "avg km/h" has to fit under it. */
+ *  prototype's 56 px because of the sign, not because of the text — every
+ *  string in here fits well inside 56 dp. `SpeedLimitSign` is drawn wholly in
+ *  proportion to its diameter, its number at 0.38 of it, so the island's width
+ *  is what sets how big the posted limit reads: 26 sp (the dial's own size,
+ *  the floor for the number that governs it) needs 26 / 0.38 = 68.4 dp, and
+ *  the next 8 dp step up is this. */
 private val ISLAND_WIDTH = 72.dp
 
 /** Speed, the posted limit for the road we're on and — inside a
@@ -209,11 +213,12 @@ internal fun SpeedHud(state: SpeedHudState, modifier: Modifier = Modifier) {
                     color = overAccent ?: onIsland,
                     modifier = Modifier.padding(top = 4.dp),
                 )
+                // "avg", not "avg km/h": the island prints its unit once,
+                // under the dial, and both numbers in it are km/h.
                 Text(
-                    "avg km/h",
+                    "avg",
                     style = MaterialTheme.typography.labelSmall,
                     color = if (overAccent == null) onIslandMuted else onIsland,
-                    maxLines = 1,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
             }

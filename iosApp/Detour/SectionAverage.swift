@@ -24,9 +24,15 @@ struct SectionAverageChip: View {
 
     var body: some View {
         VStack(spacing: 2) {
-            // Ø and the 72pt disc match the phone's SectionAverageChip
-            // (app/.../ui/MapHud.kt), so the same reading looks the same on
-            // both phones in the same cradle.
+            // Ø and "avg km/h", which the phone's island no longer uses:
+            // there the average is the bare number under a rule, labelled
+            // "avg", because the island prints "km/h" once under the dial and
+            // the average has a column of its own to say the rest in. This
+            // chip is a free-standing 72pt disc with no dial above it, so it
+            // carries its own unit, and Ø is what marks it as an average
+            // inside a disc without spending a second line on the word. The
+            // divergence is deliberate and recorded in
+            // docs/refactor/mapscreen/15-divergence-register.md, entry 11.
             Text(String(format: "Ø %.0f", averageKmh))
                 .font(.title2.monospacedDigit().weight(.bold))
             Text("avg km/h")
