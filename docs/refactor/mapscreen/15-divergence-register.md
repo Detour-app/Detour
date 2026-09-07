@@ -2031,9 +2031,10 @@ as an oversight. The fence assertion below is what marks it.
 
 ```sh
 # Entry 23 — the phone passes a tail, the car does not. Both halves, because
-# either one going away is the divergence changing.
+# either one going away is the divergence changing. $CAM is MapCamera.kt, where
+# the state-ownership split (#228) put the marker loop; see the fence in §D.
 check 'the phone passes the eased point as the tail' 1 \
-    "$(grep -c 'setDrivenFraction(a.fraction, a.at)' "$M")"
+    "$(grep -c 'setDrivenFraction(a.fraction, a.at)' "$CAM")"
 check 'the car still passes the fraction alone' 1 \
     "$(grep -c 'renderer.setDrivenFraction(p.drivenFraction)' $CAR/NavScreen.kt)"
 ```
@@ -2095,7 +2096,7 @@ Both halves are fenced.
 # Entry 24 — the phone hands rotation back when a navigation ends; the car never
 # had it. Both halves, because either one going away is the divergence changing.
 check 'the phone toggles rotate gestures with navigating' 1 \
-    "$(grep -c 'isRotateGesturesEnabled = !navigating' "$M")"
+    "$(grep -c 'isRotateGesturesEnabled = !s.navigating' "$M")"
 check 'the phone still allows rotation while free-driving' 1 \
     "$(grep -c 'isRotateGesturesEnabled = true' $UI/RetainedMap.kt)"
 check 'the car still refuses rotation outright' 1 \
@@ -2421,6 +2422,14 @@ entry 8's two are measured against `7d57087` and `6551f37`; and the three conver
 at the end of the fence were first measured against `ae32722` and did not exist before it. When
 you add an assertion, say which commit produced its number.
 
+The state-ownership split (#228) moved five of the `$M` lines into `MapCamera.kt`,
+`MapHazardAlerts.kt` and `MapHazardPrefetch.kt`; those fences now name those files and were
+re-measured against that split. Two counts changed with it and are corrected rather than
+re-pointed: entry B1's is `1`, not `2`, because stage 3 took the three-miss clear into
+`SpeedLimitTracker`; and entry 15's `announceAloud("Speed camera ahead")` had been `0` since the
+same stage moved the wording into `CameraWarner`, so it is now two halves — the wording in
+the warner, and the map's hand-off of the warner's outcome to the announcer.
+
 The §B bug fixes moved six more. Measured against `aff8407`: entry 1's new reset assertion (`2`),
 entry 5d's gate (`1`), entry 10's two (`0` and `1`, the second new), and entry 6a's — inverted from
 `0` to `1` — plus 6b's sweep (`2`), which is new and was never measured at `a0f7f42` either. Four of
@@ -2431,18 +2440,28 @@ that is the register working as designed, and it is also why the fence is a scri
 M=app/src/main/java/com/jellemax/detour/ui/MapScreen.kt
 UI=app/src/main/java/com/jellemax/detour/ui
 CAR=app/src/main/java/com/jellemax/detour/car
+# The state-ownership split (#228) moved these lines out of MapScreen.kt; every
+# fence below that names one of these was re-measured against that split.
+CAM=$UI/MapCamera.kt
+HAZ=$UI/MapHazardAlerts.kt
+PRE=$UI/MapHazardPrefetch.kt
 
 # Entry 1 — the phone falls back to the ambient limit; the car does not.
 check 'phone camera chime still falls back to the ambient limit' 1 \
-    "$(grep -c 'navProgressRef.value?.speedLimitKmh ?: ambientLimitRef.value' "$M")"
+    "$(grep -c 'navProgressRef.value?.speedLimitKmh ?: ambientLimitRef.value' "$HAZ")"
+# The car half is measured against #196 (fix/196-one-speed-limit-threshold),
+# which handed the limit to the shared over-limit rule instead of a local.
 check 'car camera chime still has no fallback' 1 \
-    "$(grep -c 'val limit = progress?.speedLimitKmh$' $CAR/NavScreen.kt)"
+    "$(grep -c 'limitKmh = progress?.speedLimitKmh,' $CAR/NavScreen.kt)"
 
 # Entry 3 — the two dt clamps. NOTE the phone's is 2, not 1: the speed-dial ease
-# at MapScreen.kt:964 and the camera loop at :1006 both use it. A count of 1 means
-# one of the two loops changed, which is exactly what this should catch.
-check 'phone dt clamp is still 0.1, in both loops' 2 "$(grep -c 'coerceIn(0.0, 0.1)'  "$M")"
-check 'car dt clamp is still 0.25'                 1 "$(grep -c 'coerceIn(0.0, 0.25)' $CAR/CarMapRenderer.kt)"
+# and the camera loop, both in MapCamera.kt since the split, use it. A count of 1
+# means one of the two loops changed, which is exactly what this should catch.
+check 'phone dt clamp is still 0.1, in both loops' 2 "$(grep -c 'coerceIn(0.0, 0.1)'  "$CAM")"
+# The car half CONVERGED in #208/#209 (fix/208-209-driven-line-gradient): the head
+# unit's marker loop clamps to 0.1 like the phone's now, so entry 3's dt half is
+# resolved and this asserts the convergence rather than the divergence.
+check 'car dt clamp converged on 0.1'              1 "$(grep -c 'coerceIn(0.0, 0.1)' $CAR/CarMapRenderer.kt)"
 
 # Entry 4 — only the car handles GraphHopper sign -6.
 check 'the -6 roundabout-exit branch is still car-only' 1 \
@@ -2470,17 +2489,17 @@ check 'the shared relay still prunes quiet peers on a timer' 1 \
 check 'iOS only auto-ends trips it auto-started' 1 \
     "$(grep -c 'else if startedAutomatically,' iosApp/Detour/TripRecorder.swift)"
 
-# Entry 1's staleness half (§B1) — RESOLVED by bac833a. NOTE the count is 2, not
-# 1: the three-miss clear inside the collector and the reset above the navigating
-# gate both null the same field. A count of 1 means the reset went away — which
-# is the whole bug — and this is the assertion stage 3 must keep green when
-# CameraWarner takes the fallback over.
-check 'the ambient limit is still reset on the navigating transition' 2 \
-    "$(grep -c 'ambientSpeedLimitKmh = null' "$M")"
+# Entry 1's staleness half (§B1) — RESOLVED by bac833a. NOTE the count is 1,
+# down from 2: the three-miss clear moved into SpeedLimitTracker's own state
+# (shared/…/drive/, stage 3), so the reset above the navigating gate is the one
+# write left in the app — in MapHazardPrefetch.kt since the split. A count of 0
+# means the reset went away, which is the whole bug.
+check 'the ambient limit is still reset on the navigating transition' 1 \
+    "$(grep -c 'ambientSpeedLimitKmh = null' "$PRE")"
 
 # Entry 8 — RESOLVED by 7d57087. Inverted on purpose: 1 means the literal came back.
 check 'the 60 literal is gone' 0 \
-    "$(grep -c 'offRouteMeters ?: 0.0) > 60' "$M")"
+    "$(cat $UI/*.kt | grep -c 'offRouteMeters ?: 0.0) > 60')"
 
 # Entry 8, car half — RESOLVED by 6551f37. The head unit's persistent indicator.
 check 'the head unit has an off-route indicator' 1 \
@@ -2499,8 +2518,12 @@ check 'the announce ladder lives only in :shared' 1 \
 check 'no surface kept its own ladder' 0 \
     "$(grep -c 'VOICE_FAR_M\|voiceFarM' $CAR/NavScreen.kt iosApp/Detour/NavScreen.swift | grep -c ':[1-9]')"
 # Entry 15 — RESOLVED. Inverted on purpose: 0 means the phone went quiet again.
+# Two halves since stage 3 moved the wording into CameraWarner: the text has to
+# exist, and the map has to hand the warner's outcome to the announcer.
+check 'the camera warning still has its wording' 1 \
+    "$(grep -c 'WARNING_TEXT = "Speed camera ahead"' shared/src/commonMain/kotlin/com/jellemax/detour/drive/CameraWarner.kt)"
 check 'the phone speaks the camera warning' 1 \
-    "$(grep -c 'announceAloud("Speed camera ahead")' "$M")"
+    "$(grep -c 'announce(outcome.text)' "$HAZ")"
 ```
 
 Note the **inverted** assertions — after the §B fixes most of the fence is inverted, since a fix for

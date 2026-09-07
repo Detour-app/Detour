@@ -2,7 +2,6 @@
 <SmellBaseline>
   <ManuallySuppressedIssues></ManuallySuppressedIssues>
   <CurrentIssues>
-    <ID>ComplexCondition:MapScreen.kt$Features.pushToTalk &amp;&amp; convoyConnected &amp;&amp; activeConvoyId != null &amp;&amp; ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED</ID>
     <ID>ComposableNaming:TripCardRenderer.kt$heroStat</ID>
     <ID>ComposableNaming:TripCardRenderer.kt$secondaryStat</ID>
     <ID>ComposableParamOrder:CandidatesCard.kt$CandidatesCard</ID>
@@ -15,6 +14,8 @@
     <ID>CyclomaticComplexMethod:CirclesScreen.kt$@Composable private fun CircleDetailSection( circle: Group, riderId: RiderId, state: CirclesState, onLeave: () -&gt; Unit, onToggleSharing: (Boolean) -&gt; Unit, )</ID>
     <ID>CyclomaticComplexMethod:CoverageMapScreen.kt$@Composable fun CoverageMapScreen(onBack: () -&gt; Unit)</ID>
     <ID>CyclomaticComplexMethod:FriendsScreen.kt$@Composable private fun ConvoysSection()</ID>
+    <ID>CyclomaticComplexMethod:MapCamera.kt$@Composable internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap)</ID>
+    <ID>CyclomaticComplexMethod:MapCamera.kt$@Composable internal fun MapPositionMarker(s: MapScreenState, retained: RetainedMap)</ID>
     <ID>CyclomaticComplexMethod:MapScreen.kt$@Composable fun MapScreen( onOpenHub: () -&gt; Unit, onOpenRoutes: () -&gt; Unit, onOpenSocial: () -&gt; Unit, retained: RetainedMap, )</ID>
     <ID>CyclomaticComplexMethod:NavScreen.kt$private fun maneuverType(sign: Int, exitNumber: Int): Int</ID>
     <ID>CyclomaticComplexMethod:Obd2Connection.kt$Obd2Connection$private suspend fun pollLoop( input: InputStream, output: OutputStream, fuelType: FuelType, calibrationPct: Int, )</ID>
@@ -85,7 +86,6 @@
     <ID>MaxLineLength:DormancyTest.kt$DormancyTest$dormancyDecision(autoDetect, tripActive = true, convoyActive = false, uiVisible = false, stationary = true)</ID>
     <ID>MaxLineLength:FriendsScreen.kt$)</ID>
     <ID>MaxLineLength:FriendsScreen.kt$Icon(Icons.Outlined.Close, contentDescription = "Decline ${convoy.name}", Modifier.size(16.dp))</ID>
-    <ID>MaxLineLength:MapScreen.kt$cameraForPoints(it, results.map { c -&gt; c.destination } + loc, FIT_PADDING_PX, fitBottomPaddingPx)</ID>
     <ID>MaxLineLength:PlaceGeofenceGate.kt$listOf(placeFenceId(it.circleId, it.placeId, PlaceFenceKind.ENTER), placeFenceId(it.circleId, it.placeId, PlaceFenceKind.EXIT))</ID>
     <ID>MaxLineLength:PlaceGeofenceReceiver.kt$PlaceGeofenceReceiver$if (expectedKind != kind) continue</ID>
     <ID>MaxLineLength:PlaceGeofenceReceiver.kt$PlaceGeofenceReceiver$val expectedKind = if (fenceKind == PlaceFenceKind.ENTER) GeofenceKind.ARRIVE else GeofenceKind.DEPART</ID>
@@ -131,7 +131,6 @@
     <ID>ParameterNaming:MainActivity.kt$onSaved</ID>
     <ID>ParameterNaming:RouteEditorScreen.kt$onSaved</ID>
     <ID>ParameterNaming:SettingsHub.kt$onOpenSpoke</ID>
-    <ID>ThrowsCount:MapScreen.kt$fun spin()</ID>
     <ID>ThrowsCount:Obd2Connection.kt$Obd2Connection$internal fun handshake(input: InputStream, output: OutputStream)</ID>
     <ID>UnusedParameter:SettingsScreen.kt$context: Context</ID>
     <ID>UnusedParameter:UpdateDownloader.kt$UpdateDownloader$file: File</ID>
