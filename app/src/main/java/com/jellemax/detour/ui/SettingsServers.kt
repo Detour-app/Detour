@@ -267,8 +267,8 @@ private fun ConfigFileButtons(
     pendingImport?.let { uri ->
         ConfirmDialog(
             title = "Import this config?",
-            text = "It replaces the server addresses and the sign-in token on this " +
-                "device with the file's. What is there now is not recoverable.",
+            text = "It replaces the server addresses on this device with the " +
+                "file's. What is there now is not recoverable.",
             confirmLabel = "Import",
             onConfirm = { runImport(uri) },
             onDismiss = { pendingImport = null },
@@ -491,10 +491,10 @@ private fun ConfigFileSection(modifier: Modifier = Modifier) {
     SettingsSection("Server config file", modifier) {
         LearnMore(
             "Keep your server setup in a file, and import it after a reinstall.",
-            "Save the server URL and your sign-in to a file. After a " +
-                "reinstall, import it instead of typing everything again.",
-            warning = "The file contains your sign-in token. Keep it somewhere private — " +
-                "anyone holding it is signed in as you.",
+            "Save the server addresses to a file. After a reinstall, import it " +
+                "instead of typing them again.",
+            warning = "The file does not carry your sign-in. After importing it on " +
+                "another phone, sign in there again.",
         )
     }
 }
