@@ -587,6 +587,7 @@ fun MapScreen(
             reachMeters = reachMeters(
                 hasLocation = s.myLocation != null,
                 navigating = s.navigating,
+                hasDestination = s.destination != null,
                 roundTrip = mode.roundTrip,
                 radiusKm = radiusKm.toDouble(),
             ),
