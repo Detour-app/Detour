@@ -79,6 +79,27 @@ fun DiagnosticsSection() {
             }
         }) { Text("Export timings") }
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+
+        // Announcements the #273 gate dropped. Empty is the expected steady state:
+        // a row here is either a duplicate the gate correctly swallowed or the
+        // first evidence of a real transition going missing, and there is nowhere
+        // else that distinction can be seen after the logcat buffer rolls.
+        val suppressed = remember { Settings.suppressedPlaceEvents() }
+        Text(
+            "Suppressed circle events",
+            style = MaterialTheme.typography.titleSmall,
+        )
+        if (suppressed.isEmpty()) {
+            Text("None", style = MaterialTheme.typography.bodySmall)
+        } else {
+            for (row in suppressed) {
+                Text(
+                    "${row.kind.name.lowercase()} · place ${row.placeId} · " +
+                        "${row.reason.name.lowercase().replace('_', ' ')} · ${row.tsMs}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
     }
 }
 
