@@ -4,7 +4,7 @@ import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.SavedPlace
 
 /** What currently occupies the map screen's single bottom-card slot. */
-enum class HomeBottomCard { NAV, CANDIDATES, DRIVE, COLLAPSED, EXPANDED }
+enum class HomeBottomCard { NAV, CANDIDATES, DRIVE, DESTINATION, COLLAPSED, EXPANDED }
 
 /**
  * Picks the one card that occupies the map's bottom slot — first match wins.
@@ -19,19 +19,28 @@ enum class HomeBottomCard { NAV, CANDIDATES, DRIVE, COLLAPSED, EXPANDED }
  *
  * [tripActive] is a trip being recorded with no route to follow — it takes the
  * slot as the drive sheet. It ranks below [hasCandidates] so a convoy vote
- * round still surfaces on a moving phone, and above [collapsed] because the
- * paths that set a destination flip that flag off (#221) and a moving rider
- * must not have the drive sheet swapped for the spin sheet by it.
+ * round still surfaces on a moving phone.
+ *
+ * [hasDestination] is a concrete point to go to — a searched place, a saved
+ * chip, a dropped pin. It takes the slot as the navigation dock (#254): the
+ * destination, a Moto/Car toggle, and Start, with none of the spin sheet's
+ * discovery controls. It ranks below [tripActive] so a destination set
+ * mid-trip stays the drive sheet's own Where-to concern rather than swapping
+ * a moving rider's stats for the dock, and above [collapsed] because a known
+ * destination is exactly what should displace the idle home/spin sheet. A
+ * loop spin nulls the destination, so it falls through to the spin sheet.
  */
 fun homeBottomCard(
     navigating: Boolean,
     hasCandidates: Boolean,
     tripActive: Boolean,
+    hasDestination: Boolean,
     collapsed: Boolean,
 ): HomeBottomCard = when {
     navigating -> HomeBottomCard.NAV
     hasCandidates -> HomeBottomCard.CANDIDATES
     tripActive -> HomeBottomCard.DRIVE
+    hasDestination -> HomeBottomCard.DESTINATION
     collapsed -> HomeBottomCard.COLLAPSED
     else -> HomeBottomCard.EXPANDED
 }

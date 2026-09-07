@@ -40,9 +40,9 @@ import kotlin.random.Random
 
 /**
  * The single slot along the bottom edge of the map that the nav sheet, the
- * candidates pane, the drive sheet, the home sheet and the spin sheet take
- * turns occupying. While a trip records, the ride sheets carry its stats and
- * its End action; nothing floats above the slot any more.
+ * candidates pane, the drive sheet, the navigation dock, the home sheet and
+ * the spin sheet take turns occupying. While a trip records, the ride sheets
+ * carry its stats and its End action; nothing floats above the slot any more.
  *
  * Stateless by construction. Every `remember`, every effect and every write
  * that decides what belongs here stays with the map screen; this takes the
@@ -103,6 +103,7 @@ internal fun BoxScope.MapBottomSlot(
     onNavigateInApp: () -> Unit,
     onNavigate: () -> Unit,
     onTrack: () -> Unit,
+    onClearDestination: () -> Unit,
 ) {
     Column(
         Modifier
@@ -133,6 +134,18 @@ internal fun BoxScope.MapBottomSlot(
             hasDestination = destination != null,
             hasRouteInstructions = route?.instructions?.isNotEmpty() == true,
         )
+        // One GoTarget for the two sheets that offer a way to start going:
+        // the drive sheet mid-trip, and the navigation dock at rest.
+        val goTarget = GoTarget(
+            destination = destination,
+            destinationName = destinationName,
+            route = route,
+            origin = myLocation,
+            mode = mode,
+            inAppAvailable = inAppAvailable,
+            onNavigateInApp = onNavigateInApp,
+            onNavigate = onNavigate,
+        )
         // The exiting sheet still composes for a few frames after `stats`
         // goes null; keep the last value so it animates out with content.
         val shownStats = remember { mutableStateOf(stats) }
@@ -153,7 +166,7 @@ internal fun BoxScope.MapBottomSlot(
             // the gesture inset inside its own surface, so it must not be given
             // it here as well — and it is drawn below this rather than in the
             // when-chain, so its branch here is an empty Box that must not be
-            // padded into a gap of its own. The other four float above that
+            // padded into a gap of its own. The other five float above that
             // edge and still take it as padding — the mode bar that used to
             // carry it for them is what left (#70), not the need for it.
             Box(
@@ -183,19 +196,16 @@ internal fun BoxScope.MapBottomSlot(
                                 onOpenChange = onSearchOpenChange,
                                 onPick = onPickDestination,
                             ),
-                            go = GoTarget(
-                                destination = destination,
-                                destinationName = destinationName,
-                                route = route,
-                                origin = myLocation,
-                                mode = mode,
-                                inAppAvailable = inAppAvailable,
-                                onNavigateInApp = onNavigateInApp,
-                                onNavigate = onNavigate,
-                            ),
+                            go = goTarget,
                             onEndTrip = onEndTrip,
                         )
                     }
+                    HomeBottomCard.DESTINATION -> NavigationDock(
+                        go = goTarget,
+                        error = error,
+                        onSelectMode = onSelectMode,
+                        onClear = onClearDestination,
+                    )
                     HomeBottomCard.CANDIDATES -> CandidatesCard(
                         candidates = shownCandidates.value,
                         // mode/radiusKm feed spinStateFrom's radius readout too
