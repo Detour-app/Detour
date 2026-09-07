@@ -47,10 +47,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.SavedPlace
+import com.jellemax.detour.data.SavedPlaceKind
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.presentation.homeShortcutPlaces
-import com.jellemax.detour.presentation.isHome
-import com.jellemax.detour.presentation.isWork
 
 /**
  * How tall the sheet stands at `fontScale` 1, excluding the gesture inset it
@@ -363,8 +362,8 @@ private val PLACE_CHIP_MAX_WIDTH = 60.dp
 /** A saved place's chip. Home and Work are the glyph alone: the house and the
  *  briefcase say exactly what those two words say, and the row cannot afford
  *  to say it twice — their name goes to the screen reader as the icon's
- *  description instead. Matched by [isHome]/[isWork], the same predicates that
- *  put them at the head of the row.
+ *  description instead. Selected by the rider's [SavedPlaceKind], the same mark
+ *  that puts them at the head of the row.
  *
  *  Every other place is its name alone, capped and ellipsized: the name is the
  *  only thing that identifies it, and the pin glyph that used to lead it said
@@ -373,9 +372,9 @@ private val PLACE_CHIP_MAX_WIDTH = 60.dp
  *  `labelColor`, leaving `primary` to the one chip that means it. */
 @Composable
 private fun PlaceChip(place: SavedPlace, onPick: (SavedPlace) -> Unit) {
-    val glyph = when {
-        place.isHome -> Icons.Outlined.Home
-        place.isWork -> Icons.Outlined.Work
+    val glyph = when (place.kind) {
+        SavedPlaceKind.HOME -> Icons.Outlined.Home
+        SavedPlaceKind.WORK -> Icons.Outlined.Work
         else -> null
     }
     AssistChip(

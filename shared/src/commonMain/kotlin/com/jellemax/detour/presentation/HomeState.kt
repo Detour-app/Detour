@@ -2,6 +2,7 @@ package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.SavedPlace
+import com.jellemax.detour.data.SavedPlaceKind
 
 /** What currently occupies the map screen's single bottom-card slot. */
 enum class HomeBottomCard { NAV, CANDIDATES, DRIVE, DESTINATION, COLLAPSED, EXPANDED }
@@ -121,14 +122,6 @@ fun pushToTalkShown(
     hasActiveConvoy: Boolean,
 ): Boolean = featureEnabled && convoyConnected && hasActiveConvoy
 
-/** Home and Work are recognised by name, because [SavedPlace] carries no type
- *  and a field added to rank two chips would be a schema change for a shortcut
- *  row. The home sheet draws its house and briefcase glyphs off these same two
- *  predicates, so the place that ranks first is always the one that looks the
- *  part. */
-val SavedPlace.isHome: Boolean get() = name.equals("home", ignoreCase = true)
-val SavedPlace.isWork: Boolean get() = name.equals("work", ignoreCase = true)
-
 /**
  * The saved places the home sheet's shortcut row shows: Home, then Work, then
  * one of the rest picked by [seed] — at most three. The row used to render the
@@ -137,19 +130,21 @@ val SavedPlace.isWork: Boolean get() = name.equals("work", ignoreCase = true)
  * screen, and this row is for the two that are always worth a tap plus one
  * suggestion.
  *
+ * Home and Work are now the places the rider marked [SavedPlaceKind.HOME] /
+ * [SavedPlaceKind.WORK], not places matched on name — so a home called "Huis"
+ * still ranks first and draws the house glyph. (#268 replaces the random third
+ * chip with the rider's favourites; the [seed] parameter goes with it.)
+ *
  * [seed] is an argument rather than a clock or an ambient `Random` so the
  * caller decides when the third chip re-rolls — once per visit to the map,
  * never per frame — and a test can pin it. Any [seed] is valid: it is reduced
  * modulo the number of candidates, negatives included.
- *
- * A second place also called Home is not a candidate for the third chip
- * either: it would read as the same shortcut twice.
  */
 fun homeShortcutPlaces(places: List<SavedPlace>, seed: Int): List<SavedPlace> {
-    val others = places.filterNot { it.isHome || it.isWork }
+    val others = places.filterNot { it.kind == SavedPlaceKind.HOME || it.kind == SavedPlaceKind.WORK }
     return listOfNotNull(
-        places.firstOrNull { it.isHome },
-        places.firstOrNull { it.isWork },
+        places.firstOrNull { it.kind == SavedPlaceKind.HOME },
+        places.firstOrNull { it.kind == SavedPlaceKind.WORK },
         if (others.isEmpty()) null else others[seed.mod(others.size)],
     )
 }
