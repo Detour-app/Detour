@@ -88,4 +88,9 @@ public readonly record struct PlaceEventView(
     string PlaceName,
     Guid UserId,
     string Kind,
-    long TimestampMs);
+    long TimestampMs,
+    /// <summary>The kind and owner of the place the event resolved to, so the events feed can
+    /// apply the same home-coordinate withholding rule the place list does (#270). Empty kind
+    /// when the event resolved to no current place.</summary>
+    string PlaceKind,
+    Guid PlaceOwnerId);

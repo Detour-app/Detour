@@ -119,6 +119,11 @@ public class CirclePlaceConfiguration : IEntityTypeConfiguration<CirclePlace>
         builder.Property(p => p.Payload).HasColumnType(ColumnTypes.Jsonb);
         builder.Property(p => p.RadiusMeters);
         builder.Property(p => p.ClientPlaceId);
+        // Kind, lat and lon promoted out of the opaque payload so the server can withhold a
+        // home's coordinates from a non-family member (issue #270).
+        builder.Property(p => p.Kind).HasMaxLength(20);
+        builder.Property(p => p.Lat);
+        builder.Property(p => p.Lon);
         builder.Property(p => p.CreatedAt);
 
         builder.HasOne<Group>()

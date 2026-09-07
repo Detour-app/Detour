@@ -4,6 +4,7 @@ using Detour.Api.Live;
 using Detour.Api.Notifications;
 using Detour.Domain;
 using Detour.Domain.Circles;
+using Detour.Domain.Friendships;
 using Detour.Domain.Groups;
 using Detour.Domain.Users;
 using JV.ResultUtilities;
@@ -39,6 +40,8 @@ public class CircleService(
     IMemberFixRepository memberFixes,
     ICirclePlaceRepository circlePlaces,
     IPlaceEventRepository placeEvents,
+    IFriendshipRepository friendships,
+    IUserRepository users,
     ILiveRelay liveRelay,
     IPushQueue pushQueue,
     IPostCommitActionScheduler postCommit) : ICircleService
@@ -119,14 +122,16 @@ public class CircleService(
 
         if (existing is not null)
         {
-            var replaced = existing.Replace(place.Name, place.RadiusMeters, document);
+            var replaced = existing.Replace(
+                place.Name, place.RadiusMeters, document, place.Kind, place.Lat, place.Lon);
             if (replaced.IsFailure)
                 return replaced;
         }
         else
         {
             var (created, circlePlace) = CirclePlace.Create(
-                groupId, callerId, place.Id, place.Name, place.RadiusMeters, document);
+                groupId, callerId, place.Id, place.Name, place.RadiusMeters, document,
+                place.Kind, place.Lat, place.Lon);
             if (created.IsFailure)
                 return created;
 
@@ -159,17 +164,69 @@ public class CircleService(
         if (rows.Count == 0)
             return new CirclePlacesResponse([]);
 
-        return new CirclePlacesResponse(
-        [
-            .. rows.Select(p => new CirclePlaceResponse(
-                p.Id,
-                p.OwnerId,
-                p.Name,
-                p.RadiusMeters,
-                p.CreatedAt.ToUnixTimeMilliseconds(),
-                JsonSerializer.Deserialize<JsonElement>(p.Payload)))
-        ]);
+        // Owner usernames only for the home rows that will be masked — the caller is not the
+        // owner and not family — so the label can read "{username}'s home".
+        var maskedOwners = rows.Where(p => p.IsHome && p.OwnerId != callerId)
+            .Select(p => p.OwnerId).Distinct().ToArray();
+        var ownerNames = maskedOwners.Length == 0
+            ? new Dictionary<Guid, string>()
+            : (await users.GetManyAsync(maskedOwners, cancellationToken))
+                .ToDictionary(u => u.Id, u => u.Username);
+
+        var responses = new List<CirclePlaceResponse>(rows.Count);
+        foreach (var p in rows)
+        {
+            // Only a home is ever masked, and only for a member who is neither the owner nor
+            // family. The family lookup is skipped for every other row, so the common path is
+            // one query per circle, not one per place.
+            var coordsAllowed = !p.IsHome
+                || p.OwnerId == callerId
+                || await friendships.AreFamilyAsync(callerId, p.OwnerId, cancellationToken);
+            responses.Add(CirclePlaceView(p, coordsAllowed, ownerNames.GetValueOrDefault(p.OwnerId, "")));
+        }
+
+        return new CirclePlacesResponse(responses);
     }
+
+    /// <summary>
+    /// The one place a shared place becomes a response, and the one place the home rule is
+    /// applied — so a new endpoint returning a place cannot leak a home's coordinates by
+    /// forgetting to mask. Default is to mask: a home discloses its coordinates only when
+    /// [coordsAllowed] is explicitly true (the owner, or a family member).
+    ///
+    /// A non-home place is returned exactly as it was stored — byte-for-byte the payload the
+    /// owner shared — because the rule touches homes only. A home is rebuilt from the promoted
+    /// columns rather than the payload, so a withheld coordinate is one the response never
+    /// held, not one a client is trusted to hide.
+    /// </summary>
+    private static CirclePlaceResponse CirclePlaceView(CirclePlace p, bool coordsAllowed, string ownerUsername)
+    {
+        if (!p.IsHome)
+        {
+            return new CirclePlaceResponse(
+                p.Id, p.OwnerId, p.Name, p.RadiusMeters,
+                p.CreatedAt.ToUnixTimeMilliseconds(),
+                JsonSerializer.Deserialize<JsonElement>(p.Payload));
+        }
+
+        var name = HomeDisplayName(coordsAllowed, ownerUsername);
+        var place = coordsAllowed && p is { Lat: not null, Lon: not null }
+            ? JsonSerializer.SerializeToElement(
+                new { id = p.ClientPlaceId, name, radiusMeters = p.RadiusMeters, lat = p.Lat, lon = p.Lon },
+                PayloadOptions)
+            : JsonSerializer.SerializeToElement(
+                new { id = p.ClientPlaceId, name, radiusMeters = p.RadiusMeters },
+                PayloadOptions);
+
+        return new CirclePlaceResponse(
+            p.Id, p.OwnerId, name, p.RadiusMeters, p.CreatedAt.ToUnixTimeMilliseconds(), place);
+    }
+
+    /// <summary>The name a home place shows: "Home" to the owner and family, "{username}'s home"
+    /// to any other circle member. The single wording the place list, the events feed and the
+    /// arrival fan-out all share, so the masked and open forms never drift apart.</summary>
+    private static string HomeDisplayName(bool open, string ownerUsername) =>
+        open ? "Home" : $"{ownerUsername}'s home";
 
     public async Task<Result> DeletePlaceAsync(Guid callerId, Guid placeId, CancellationToken cancellationToken)
     {
@@ -218,7 +275,20 @@ public class CircleService(
         foreach (var stale in overflow)
             placeEvents.Delete(stale);
 
-        var placeName = await circlePlaces.ResolveNameAsync(groupId, body.PlaceId, cancellationToken);
+        // An arrival at the caller's own home is the same disclosure as sharing it: the name
+        // "Home" would tell a non-family member which shared place is a home and, over repeats,
+        // where it is. So a home arrival is masked to non-family exactly as the place list is —
+        // this is the arrival-event half of the rule, not a second one.
+        var ownPlace = await circlePlaces.GetForOwnerPlaceAsync(
+            groupId, caller.Id, body.PlaceId, cancellationToken);
+        var isHome = ownPlace?.IsHome == true;
+
+        // The name the owner and any family recipient may see; the masked name is what everyone
+        // else in the circle gets for a home. A non-home resolves its name the way it always did.
+        var openName = isHome
+            ? HomeDisplayName(open: true, caller.Username)
+            : await circlePlaces.ResolveNameAsync(groupId, body.PlaceId, cancellationToken) ?? string.Empty;
+        var maskedName = isHome ? HomeDisplayName(open: false, caller.Username) : openName;
 
         // Fanned out only once the row is durable, so a peer that reacts to the frame by
         // re-reading the feed can never find nothing there. Scheduling it post-commit also means
@@ -228,16 +298,37 @@ public class CircleService(
             .Select(member => member.UserId)
             .ToArray();
 
+        // For a home, split recipients so family get "Home" and everyone else the masked label;
+        // for any other place there is nothing to split and all recipients get the open name.
+        var familyRecipients = recipients;
+        var maskedRecipients = Array.Empty<Guid>();
+        if (isHome && recipients.Length > 0)
+        {
+            var family = new List<Guid>();
+            var masked = new List<Guid>();
+            foreach (var recipient in recipients)
+            {
+                if (await friendships.AreFamilyAsync(caller.Id, recipient, cancellationToken))
+                    family.Add(recipient);
+                else
+                    masked.Add(recipient);
+            }
+
+            familyRecipients = [.. family];
+            maskedRecipients = [.. masked];
+        }
+
         postCommit.Schedule(() =>
         {
-            liveRelay.PublishPlaceEvent(
-                recipients,
-                groupId,
-                caller.Id,
-                placeEvent.ClientPlaceId,
-                placeName ?? string.Empty,
-                placeEvent.Kind.Wire(),
-                placeEvent.TimestampMs);
+            if (familyRecipients.Length > 0)
+                liveRelay.PublishPlaceEvent(
+                    familyRecipients, groupId, caller.Id, placeEvent.ClientPlaceId,
+                    openName, placeEvent.Kind.Wire(), placeEvent.TimestampMs);
+
+            if (maskedRecipients.Length > 0)
+                liveRelay.PublishPlaceEvent(
+                    maskedRecipients, groupId, caller.Id, placeEvent.ClientPlaceId,
+                    maskedName, placeEvent.Kind.Wire(), placeEvent.TimestampMs);
 
             // Everyone entitled to the event who was not already sent the live frame —
             // i.e. not holding a socket right now. A dead socket the relay has not yet
@@ -251,10 +342,11 @@ public class CircleService(
             return Task.CompletedTask;
         });
 
+        // The caller is the owner, so their own arrival always reads openName.
         return new PlaceEventResponse(
             placeEvent.Id,
             placeEvent.ClientPlaceId,
-            placeName ?? string.Empty,
+            openName,
             caller.Id,
             placeEvent.Kind.Wire(),
             placeEvent.TimestampMs);
@@ -274,10 +366,31 @@ public class CircleService(
         // oversight — a rider's own timeline is part of what a circle shows.
         var rows = await placeEvents.GetSinceAsync(groupId, sinceMs, cancellationToken);
 
-        return new PlaceEventsResponse(
-        [
-            .. rows.Select(e => new PlaceEventResponse(
-                e.Id, e.ClientPlaceId, e.PlaceName, e.UserId, e.Kind.Wire(), e.TimestampMs))
-        ]);
+        // The events feed resolves each event's place name, so a home arrival would name the
+        // home to every member unless it is masked here too — the same rule the place list
+        // applies, by the same wording (#270).
+        var maskedOwners = rows
+            .Where(e => e.PlaceKind == CirclePlace.HomeKind && e.PlaceOwnerId != callerId)
+            .Select(e => e.PlaceOwnerId).Distinct().ToArray();
+        var ownerNames = maskedOwners.Length == 0
+            ? new Dictionary<Guid, string>()
+            : (await users.GetManyAsync(maskedOwners, cancellationToken))
+                .ToDictionary(u => u.Id, u => u.Username);
+
+        var events = new List<PlaceEventResponse>(rows.Count);
+        foreach (var e in rows)
+        {
+            var name = e.PlaceName;
+            if (e.PlaceKind == CirclePlace.HomeKind)
+            {
+                var open = e.PlaceOwnerId == callerId
+                    || await friendships.AreFamilyAsync(callerId, e.PlaceOwnerId, cancellationToken);
+                name = HomeDisplayName(open, ownerNames.GetValueOrDefault(e.PlaceOwnerId, ""));
+            }
+
+            events.Add(new PlaceEventResponse(e.Id, e.ClientPlaceId, name, e.UserId, e.Kind.Wire(), e.TimestampMs));
+        }
+
+        return new PlaceEventsResponse(events);
     }
 }

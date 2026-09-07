@@ -17,6 +17,11 @@ data class CirclePlace(
     val radiusM: Double,
     val createdMs: Long,
     val place: SavedPlace,
+    /** True when the server withheld this place's coordinates — a home shared into the circle
+     *  by someone who has not marked the viewer family (#270). [place] still carries a name
+     *  ("{owner}'s home") but its [SavedPlace.location] is meaningless, so a screen must show
+     *  the fact of the place without offering to navigate to it. */
+    val coordinatesWithheld: Boolean = false,
 )
 
 /**
@@ -44,8 +49,10 @@ object CirclePlaces {
                     put("id", place.id)
                     put("name", place.name)
                     put("radiusMeters", radiusM)
-                    // Opaque to the server, which is the point: it fans the place
-                    // out without ever holding a coordinate it can read.
+                    // Kind and coordinates are first-class to the server now: it withholds a
+                    // home's coordinates from a circle member who is not family of the owner
+                    // (#270), which a name it could not read never let it do.
+                    put("kind", place.kind.name)
                     put("lat", place.location.lat)
                     put("lon", place.location.lon)
                 })
@@ -60,6 +67,10 @@ object CirclePlaces {
         val o = Api.requestJson("GET", "/circles/$groupId/places")
         return o.optArray("places")?.objects().orEmpty().mapNotNull { entry ->
             val p = entry.optObject("place") ?: return@mapNotNull null
+            // A withheld home carries no lat/lon. optDouble would read an absent key as 0.0 —
+            // a valid-looking null-island coordinate — so the presence of both keys is what
+            // decides whether there is a place to navigate to at all.
+            val withheld = !(p.has("lat") && p.has("lon"))
             CirclePlace(
                 serverId = entry.optString("id"),
                 groupId = groupId,
@@ -73,6 +84,7 @@ object CirclePlaces {
                     name = entry.optString("name").ifBlank { p.optString("name") },
                     location = LatLon(p.optDouble("lat"), p.optDouble("lon")),
                 ),
+                coordinatesWithheld = withheld,
             )
         }
     }

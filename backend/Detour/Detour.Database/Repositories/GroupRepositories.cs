@@ -133,20 +133,24 @@ public class PlaceEventRepository(ICustomDbContextFactory<DetourDbContext> facto
         (from placeEvent in Set.AsNoTracking()
          where placeEvent.GroupId == groupId && placeEvent.TimestampMs > sinceMs
          orderby placeEvent.TimestampMs
+         // A correlated subquery, not a join: two members can independently assign the same
+         // client place id, and a plain join on (group, place id) would multiply one event into
+         // several rows. Name, kind and owner all come from the one most-recent match, so the
+         // events feed masks a home the same way the place list does (#270).
+         let place = Context.CirclePlaces
+             .Where(p => p.GroupId == placeEvent.GroupId && p.ClientPlaceId == placeEvent.ClientPlaceId)
+             .OrderByDescending(p => p.CreatedAt)
+             .Select(p => new { p.Name, p.Kind, p.OwnerId })
+             .FirstOrDefault()
          select new PlaceEventView(
              placeEvent.Id,
              placeEvent.ClientPlaceId,
-             // A correlated subquery, not a join: two members can independently assign the same
-             // client place id, and a plain join on (group, place id) would multiply one event
-             // into several rows.
-             Context.CirclePlaces
-                 .Where(p => p.GroupId == placeEvent.GroupId && p.ClientPlaceId == placeEvent.ClientPlaceId)
-                 .OrderByDescending(p => p.CreatedAt)
-                 .Select(p => p.Name)
-                 .FirstOrDefault() ?? string.Empty,
+             place != null ? place.Name : string.Empty,
              placeEvent.UserId,
              placeEvent.Kind.Name,
-             placeEvent.TimestampMs))
+             placeEvent.TimestampMs,
+             place != null ? place.Kind : string.Empty,
+             place != null ? place.OwnerId : Guid.Empty))
         .TagWith(Tag(nameof(GetSinceAsync)))
         .ToListAsync(cancellationToken);
 
