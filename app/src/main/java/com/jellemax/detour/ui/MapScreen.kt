@@ -1447,6 +1447,12 @@ fun MapScreen(
     // crawl — see MapOverlays.setPosition's own note.
     LaunchedEffect(mapOverlays, haveFix) {
         val overlays = mapOverlays ?: return@LaunchedEffect
+        // Cleared on every start of this loop, not only when navigation ends:
+        // the value outlives a trip to the Hub in `retained`, and the camera
+        // loop — which resumes on the same composition — read the point the
+        // rider left minutes ago and teleported to it before this loop's first
+        // frame could replace it.
+        retained.snappedAt = null
         var lastLat = Double.NaN
         var lastLon = Double.NaN
         var pushedBearing: Float? = null
@@ -1519,6 +1525,15 @@ fun MapScreen(
                 // once a second for the length of a reroute cooldown.
                 val snapped = NavPolicy.snapToRoute(a.offRouteMeters, retained.snappedAt != null)
                 retained.snappedAt = if (snapped) a.at else null
+                // The window can be left behind for good: cut a chord on a loop
+                // and the nearest segment *inside* it stays the one before the
+                // chord, so the marker never snaps again. When the windowed snap
+                // says off the line and the per-fix global progress says on it,
+                // the window is stale — drop it, and the next frame searches
+                // the whole line once.
+                if (!snapped && (navProgress?.offRouteMeters ?: Double.MAX_VALUE) <= NavPolicy.ARRIVE_METERS) {
+                    along = null
+                }
                 // Heading-up along the road rather than along the GPS. Compose does
                 // not invalidate on an equal write and a segment bearing only
                 // changes at a vertex, so this is quiet in between (hazards §6);
