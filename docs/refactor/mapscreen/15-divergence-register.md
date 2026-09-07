@@ -2040,6 +2040,70 @@ check 'the car still passes the fraction alone' 1 \
 
 ---
 
+## 24. Rotate gestures: the phone allows them until a navigation starts, the car never
+
+**Deliberate, and new with `#207`** — recorded on entry 23's precedent, because `MapScreen.kt`
+now carries a comment claiming the phone matches the head unit, and a claim of parity that
+nothing enforces is exactly what entry 11 is about.
+
+**What.** Both surfaces run a heading-up camera with the compass indicator turned off, so a
+rotated map has nothing on screen saying it is rotated and no control that levels it. The car
+answers by never allowing rotation. The phone allows it while free-driving — a rotated map is
+the rider's own choice there, and panning around one is half of what the map is for — and takes
+it away for the length of a navigation only.
+
+**Copies.** Car, once per renderer, beside the compass it is the counterpart of —
+`app/…/car/CarMapRenderer.kt:384-385`:
+
+```kotlin
+map.uiSettings.isCompassEnabled = false
+map.uiSettings.isRotateGesturesEnabled = false
+```
+
+Phone, in `rememberRetainedMap`'s single `getMapAsync` — `app/…/ui/RetainedMap.kt:215-216`:
+
+```kotlin
+map.uiSettings.isCompassEnabled = false
+map.uiSettings.isRotateGesturesEnabled = true
+```
+
+and then per navigation, from `MapScreen` — `app/…/ui/MapScreen.kt:511-513`:
+
+```kotlin
+LaunchedEffect(mapLibreMap, navigating) {
+    mapLibreMap?.uiSettings?.isRotateGesturesEnabled = !navigating
+}
+```
+
+The `true` in `RetainedMap` is not redundant: it is the resting state the effect above returns
+the map to when a navigation ends, and the map outlives any one `MapScreen` composition.
+
+**Verdict: survive — both, as they are.** Not a drift to converge. The head unit has no
+free-drive map worth rotating and a driver should not be spinning one at all; the phone's map is
+a browsing surface for most of its life. What made the phone's old behaviour wrong was not that
+rotation existed but that it survived *into* a heading-up navigation with no compass and no
+reset, which is `#195` F6 and what `#207` fixed.
+
+**What would make this drift rather than a decision.** The phone's effect is two lines and reads
+as a stray line of setup; deleting it restores the pre-`#207` bug silently, and hard-coding
+`false` in `RetainedMap` instead would take rotation away from free-drive, which nobody decided.
+Both halves are fenced.
+
+**Fence.** Measured against this entry's own commit:
+
+```sh
+# Entry 24 — the phone hands rotation back when a navigation ends; the car never
+# had it. Both halves, because either one going away is the divergence changing.
+check 'the phone toggles rotate gestures with navigating' 1 \
+    "$(grep -c 'isRotateGesturesEnabled = !navigating' "$M")"
+check 'the phone still allows rotation while free-driving' 1 \
+    "$(grep -c 'isRotateGesturesEnabled = true' $UI/RetainedMap.kt)"
+check 'the car still refuses rotation outright' 1 \
+    "$(grep -c 'isRotateGesturesEnabled = false' $CAR/CarMapRenderer.kt)"
+```
+
+---
+
 ## §A — Summary, ranked by how user-visible the decision is
 
 **22 divergences.** By kind:
@@ -2365,6 +2429,7 @@ that is the register working as designed, and it is also why the fence is a scri
 
 ```sh
 M=app/src/main/java/com/jellemax/detour/ui/MapScreen.kt
+UI=app/src/main/java/com/jellemax/detour/ui
 CAR=app/src/main/java/com/jellemax/detour/car
 
 # Entry 1 — the phone falls back to the ambient limit; the car does not.

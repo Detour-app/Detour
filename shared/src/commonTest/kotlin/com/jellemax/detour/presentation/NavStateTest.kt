@@ -1,5 +1,6 @@
 package com.jellemax.detour.presentation
 
+import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.NavInstruction
 import kotlinx.datetime.TimeZone
@@ -32,6 +33,8 @@ class NavStateTest {
         distanceToNextNextMeters: Double? = null,
     ) = NavEngine.Progress(
         offRouteMeters = offRouteMeters,
+        snappedAt = LatLon(50.0, 3.0),
+        segmentBearingDeg = null,
         nextInstruction = nextInstruction,
         distanceToTurnMeters = distanceToTurnMeters,
         remainingMeters = remainingMeters,

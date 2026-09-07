@@ -1,7 +1,10 @@
 package com.jellemax.detour.map
 
+import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavEngine
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -17,6 +20,8 @@ class NavPolicyTest {
      *  are whatever a Progress needs in order to exist. */
     private fun progress(remainingMeters: Double, offRouteMeters: Double) = NavEngine.Progress(
         offRouteMeters = offRouteMeters,
+        snappedAt = LatLon(50.0, 3.0),
+        segmentBearingDeg = null,
         nextInstruction = null,
         distanceToTurnMeters = remainingMeters,
         remainingMeters = remainingMeters,
@@ -139,5 +144,37 @@ class NavPolicyTest {
             NavPolicy.Decision.Reroute,
             decide(2_000.0, 300.0, lastRerouteMs = 0L, nowMs = 1_700_000_000_000L),
         )
+    }
+
+    /** The band the marker and the camera read. Entering needs the rider
+     *  properly on the line; leaving needs them properly off it, and the upper
+     *  bound is [NavPolicy.decide]'s, so the snap is dropped no later than the
+     *  reroute that replaces the line it was taken from. */
+    @Test
+    fun theSnapBandTakesTheRouteLateAndGivesItUpLate() {
+        // Not yet snapped: the enter bound governs, and the gap between the two
+        // thresholds is where a single-threshold test would have flipped.
+        assertTrue(NavPolicy.snapToRoute(NavPolicy.ARRIVE_METERS, wasSnapped = false))
+        assertFalse(NavPolicy.snapToRoute(NavPolicy.ARRIVE_METERS + 0.1, wasSnapped = false))
+        assertFalse(NavPolicy.snapToRoute(50.0, wasSnapped = false))
+        // Already snapped: the same 50 m keeps it, and only the reroute bound
+        // gives it up.
+        assertTrue(NavPolicy.snapToRoute(50.0, wasSnapped = true))
+        assertTrue(NavPolicy.snapToRoute(NavPolicy.OFF_ROUTE_METERS, wasSnapped = true))
+        assertFalse(NavPolicy.snapToRoute(NavPolicy.OFF_ROUTE_METERS + 0.1, wasSnapped = true))
+    }
+
+    /** The band exists so a fix parked on one threshold cannot flip the answer
+     *  fix after fix. Sitting anywhere inside it, the answer is whatever it
+     *  already was — which is the whole point, and what a single bound could
+     *  not give. */
+    @Test
+    fun aFixSittingInTheBandDoesNotFlipTheMarker() {
+        val inBand = (NavPolicy.ARRIVE_METERS + NavPolicy.OFF_ROUTE_METERS) / 2.0
+        assertTrue(NavPolicy.ARRIVE_METERS < NavPolicy.OFF_ROUTE_METERS)
+        repeat(5) {
+            assertFalse(NavPolicy.snapToRoute(inBand, wasSnapped = false))
+            assertTrue(NavPolicy.snapToRoute(inBand, wasSnapped = true))
+        }
     }
 }
