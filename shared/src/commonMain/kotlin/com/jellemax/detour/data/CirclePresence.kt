@@ -10,9 +10,12 @@ import kotlin.concurrent.Volatile
  * `TripTrackingService.circleSyncLoop` (Android) and `CircleSync.loop` (iOS)
  * used to duplicate independently, structurally identical down to their
  * constants: for every circle where this device's own membership has
- * sharing on, post the latest fix ([CircleFixes.postFix]) and run it through
- * that circle's [GeofenceEvaluator], posting any arrive/depart transition
- * ([CircleEvents.record]).
+ * sharing on, post the latest fix ([CircleFixes.postFix]), reconcile that
+ * circle's confirmed-inside memory against where the rider actually is
+ * ([reconcilePlaceMemory]), announcing any departure the reconciliation finds
+ * was missed, and then run the fix through that circle's [GeofenceEvaluator],
+ * posting any arrive/depart transition it detects too — both funnelled
+ * through the same one gate ([CircleEvents.record]).
  *
  * Deliberately not a loop itself. Each platform keeps its own `while`/
  * `delay` and its own fix source (a `StateFlow` on Android, `LocationBroadcast`
@@ -410,6 +413,11 @@ internal data class PlaceMemoryDrift(
  * `inside` flag is false and has nothing to say. The threshold is the exit
  * ring — `radiusM * EXIT_HYSTERESIS_FACTOR` — so this agrees with what a
  * depart means everywhere else rather than inventing a second radius.
+ *
+ * A missed departure is synthesized with [nowMs] as its timestamp, not the
+ * true moment the rider left — that moment was never observed, this tick is
+ * simply the first one to notice, so [nowMs] is the earliest honest answer
+ * there is.
  *
  * A claim whose place is gone cannot be checked at all, so it is reported
  * separately: [staleKeys] are dropped without announcing anything, because

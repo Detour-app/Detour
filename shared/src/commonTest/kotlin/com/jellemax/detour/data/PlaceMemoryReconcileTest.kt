@@ -37,8 +37,12 @@ class PlaceMemoryReconcileTest {
             lat = 50.90, lon = 4.35, // ~5.5 km north, far outside 100 m * 1.3
             nowMs = now,
         )
-        assertEquals(listOf(GeofenceTransition(7L, GeofenceKind.DEPART, now)), drift.missedDepartures)
-        assertTrue(drift.staleKeys.isEmpty())
+        assertEquals(
+            listOf(GeofenceTransition(7L, GeofenceKind.DEPART, now)),
+            drift.missedDepartures,
+            "a claim the rider has drifted away from must synthesize a missed departure",
+        )
+        assertTrue(drift.staleKeys.isEmpty(), "a place that still exists must not be reported as stale")
     }
 
     @Test
@@ -50,8 +54,8 @@ class PlaceMemoryReconcileTest {
             lat = 50.85, lon = 4.35,
             nowMs = now,
         )
-        assertTrue(drift.missedDepartures.isEmpty())
-        assertTrue(drift.staleKeys.isEmpty())
+        assertTrue(drift.missedDepartures.isEmpty(), "a still-inside claim must not synthesize a departure")
+        assertTrue(drift.staleKeys.isEmpty(), "a still-inside claim must not be dropped as stale")
     }
 
     /** Inside the exit ring but outside the entry radius: still "inside" as far
@@ -66,7 +70,10 @@ class PlaceMemoryReconcileTest {
             lat = 50.85 + 120.0 / 111_320.0, lon = 4.35,
             nowMs = now,
         )
-        assertTrue(drift.missedDepartures.isEmpty())
+        assertTrue(
+            drift.missedDepartures.isEmpty(),
+            "a claim inside the exit ring but outside the entry radius must not synthesize a departure",
+        )
     }
 
     @Test
@@ -78,8 +85,8 @@ class PlaceMemoryReconcileTest {
             lat = 50.85, lon = 4.35,
             nowMs = now,
         )
-        assertTrue(drift.missedDepartures.isEmpty())
-        assertEquals(setOf("$c:7"), drift.staleKeys)
+        assertTrue(drift.missedDepartures.isEmpty(), "a claim for a vanished place must not synthesize a departure")
+        assertEquals(setOf("$c:7"), drift.staleKeys, "a claim for a vanished place must be reported as stale")
     }
 
     @Test
@@ -91,8 +98,8 @@ class PlaceMemoryReconcileTest {
             lat = 50.85, lon = 4.35,
             nowMs = now,
         )
-        assertTrue(drift.missedDepartures.isEmpty())
-        assertTrue(drift.staleKeys.isEmpty())
+        assertTrue(drift.missedDepartures.isEmpty(), "a claim keyed to a different circle must not be reconciled here")
+        assertTrue(drift.staleKeys.isEmpty(), "a claim keyed to a different circle must not be reported as stale here")
     }
 
     @Test
@@ -104,7 +111,61 @@ class PlaceMemoryReconcileTest {
             lat = 50.85, lon = 4.35,
             nowMs = now,
         )
-        assertTrue(drift.missedDepartures.isEmpty())
-        assertTrue(drift.staleKeys.isEmpty())
+        assertTrue(drift.missedDepartures.isEmpty(), "a place with no existing claim must not synthesize a departure")
+        assertTrue(drift.staleKeys.isEmpty(), "a place with no existing claim must not be reported as stale")
+    }
+
+    @Test
+    fun aConfirmedKeyWhoseSuffixIsNotALongIsSkippedEntirely() {
+        // toLongOrNull() ?: continue - a key this malformed cannot name a
+        // real place, so the loop must neither try to synthesize a
+        // departure for it nor report it as stale; it simply isn't looked at.
+        val drift = reconcilePlaceMemory(
+            confirmed = setOf("$c:not-a-long"),
+            circleId = c,
+            places = listOf(place(7L, 50.85, 4.35)),
+            lat = 50.85, lon = 4.35,
+            nowMs = now,
+        )
+        assertTrue(
+            drift.missedDepartures.isEmpty(),
+            "a key with an unparseable place-id suffix must not synthesize a departure",
+        )
+        assertTrue(
+            drift.staleKeys.isEmpty(),
+            "a key with an unparseable place-id suffix must not be reported as stale either",
+        )
+    }
+
+    @Test
+    fun oneCallCanYieldAllThreeOutcomesAtOnce() {
+        // The shape the loop actually has to handle: one circle, three
+        // claims, three different fates in a single reconcilePlaceMemory
+        // call - a drifted claim (place 1, still exists but the rider is far
+        // away), a claim for a place gone from the circle (place 2, absent
+        // from `places` below), and a claim the rider is still inside
+        // (place 3, at the rider's own position). Nothing today pins that
+        // the loop keeps these three straight when they arrive together
+        // rather than one at a time.
+        val drift = reconcilePlaceMemory(
+            confirmed = setOf("$c:1", "$c:2", "$c:3"),
+            circleId = c,
+            places = listOf(
+                place(1L, 50.85, 4.35),
+                place(3L, 50.90, 4.35),
+            ),
+            lat = 50.90, lon = 4.35, // far from place 1, exactly at place 3
+            nowMs = now,
+        )
+        assertEquals(
+            listOf(GeofenceTransition(1L, GeofenceKind.DEPART, now)),
+            drift.missedDepartures,
+            "only the drifted claim (place 1) should synthesize a departure, and place 3 must not leak in",
+        )
+        assertEquals(
+            setOf("$c:2"),
+            drift.staleKeys,
+            "only the claim for the vanished place (place 2) should be reported as stale",
+        )
     }
 }
