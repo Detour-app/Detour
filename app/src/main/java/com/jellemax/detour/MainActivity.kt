@@ -49,6 +49,7 @@ import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.Auth
 import com.jellemax.detour.data.RouteStore
+import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.data.Settings
@@ -106,6 +107,15 @@ class MainActivity : ComponentActivity() {
         // Register this install's push token if FCM is configured and signed in —
         // a cheap no-op otherwise (see Push.refresh). Sibling of the line above.
         ColdStartTiming.timed("Push.refresh") { Push.refresh(this) }
+        // Ask the server what it can do, then decide again which transport
+        // carries circle events. Off the cold-start path deliberately: it is a
+        // network round trip, and the line above has already made the decision
+        // from the last answer. This one only corrects it — a deployment that
+        // has since been given (or stripped of) Firebase credentials.
+        lifecycleScope.launch {
+            runCatching { RoutingServer.probeCapabilities() }
+            CircleNotifyService.refresh(this@MainActivity)
+        }
         // MapLibre must be initialised before any MapView is created. No API key:
         // OpenFreeMap tiles are keyless, so no token provider is needed.
         ColdStartTiming.timed("MapLibre.getInstance") { MapLibre.getInstance(this) }

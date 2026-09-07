@@ -106,7 +106,9 @@
         <!-- Keeps the relay socket connected for circle arrival/departure
              notifications, independent of trip tracking and of any convoy -
              see CircleNotifyService's doc for why it isn't just folded into
-             TripTrackingService. -->
+             TripTrackingService. Declared unconditionally and started only
+             where the push wake-ping cannot reach the device (docs/PUSH.md
+             §10), which is decided at run time and cannot be a manifest edit. -->
         <service
             android:name=".notif.CircleNotifyService"
             android:foregroundServiceType="remoteMessaging"
