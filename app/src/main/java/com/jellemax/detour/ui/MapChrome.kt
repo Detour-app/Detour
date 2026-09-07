@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.LocationSearching
@@ -34,8 +35,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-/** Map top chrome: a right-aligned rail of the two controls worth reaching for
- *  while driving (follow toggle, layers), headed by the convoy pill.
+/** Map top chrome: a right-aligned rail of the controls worth reaching for
+ *  while driving (follow toggle, layers, and a compass while the map is free to
+ *  hold a rotation), headed by the convoy pill.
  *  Everything else moved to the Hub or, with the redesign, to the home sheet —
  *  the "Where to?" bar and the avatar included.
  *
@@ -56,6 +58,12 @@ internal fun MapTopChrome(
     layersOpen: Boolean,
     onLayersOpenChange: (Boolean) -> Unit,
     onToggleFollow: () -> Unit,
+    // Non-null exactly while the camera is idle enough for a bearing to stay
+    // put — `CameraAuthority.State.northUpAvailable`. One nullable callback
+    // rather than a flag beside a lambda: it matches `onShare` in MapScreen,
+    // and it keeps one parameter off a signature that is already wide (§8.4 is
+    // about extractions, not additions, but the direction of travel counts).
+    onFaceNorth: (() -> Unit)?,
     onToggleFog: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -78,6 +86,22 @@ internal fun MapTopChrome(
                 tinted = followMe,
                 onClick = onToggleFollow,
             )
+            // The map keeps whatever rotation it has once the camera parks
+            // (#260), so this is how a rider gets back to north — deliberately,
+            // instead of having it done for them by the next pinch. Hidden
+            // while the follow loop is aiming the camera, because it rewrites
+            // the bearing every frame and a level would not survive the tap.
+            AnimatedVisibility(
+                visible = onFaceNorth != null,
+                enter = fadeIn(),
+                exit = fadeOut(),
+            ) {
+                GlassRailButton(
+                    icon = Icons.Outlined.Explore,
+                    contentDescription = "Face north",
+                    onClick = { onFaceNorth?.invoke() },
+                )
+            }
             GlassRailButton(
                 icon = Icons.Outlined.Layers,
                 contentDescription = "Map layers",

@@ -1096,6 +1096,14 @@ fun MapScreen(
                             CameraAuthority.Action.FollowToggled,
                         )
                     },
+                    // Offered only while the camera is idle, which is exactly
+                    // when the map can hold a bearing — the loop overwrites it
+                    // every frame otherwise. `mapLibreMap` is read here rather
+                    // than captured: this lambda is rebuilt on recomposition,
+                    // so there is no stale-capture hazard to defeat.
+                    onFaceNorth = if (s.camAuthority.northUpAvailable(s.navigating)) {
+                        { mapLibreMap?.let { levelToNorthUp(it) } }
+                    } else null,
                     onToggleFog = { Settings.setFogEnabled(!fogEnabled) },
                     modifier = Modifier
                         .statusBarsPadding()
