@@ -360,3 +360,59 @@ object CirclePresence {
     var lastGateCandidates: List<GateCandidate> = emptyList()
         internal set
 }
+
+/** What one circle's confirmed-inside memory got wrong, per
+ *  [reconcilePlaceMemory]. */
+internal data class PlaceMemoryDrift(
+    val missedDepartures: List<GeofenceTransition>,
+    val staleKeys: Set<String>,
+)
+
+/**
+ * Checks this circle's confirmed-inside claims against where the rider
+ * actually is.
+ *
+ * The memory [CircleEvents.record] keeps is durable, which is what lets it
+ * survive the process death that #273's cold-start symptom comes from — and
+ * also what lets it drift: force-stopped for hours, the rider leaves, and no
+ * depart is ever announced. The gate would then swallow their next real
+ * arrival and the circle would show them at that place forever, which is a
+ * worse failure than the duplicate the gate removes. So every tick asks the
+ * geometry.
+ *
+ * Geometry, not the evaluator: after that force-stop the evaluator's
+ * `inside` flag is false and has nothing to say. The threshold is the exit
+ * ring — `radiusM * EXIT_HYSTERESIS_FACTOR` — so this agrees with what a
+ * depart means everywhere else rather than inventing a second radius.
+ *
+ * A claim whose place is gone cannot be checked at all, so it is reported
+ * separately: [staleKeys] are dropped without announcing anything, because
+ * nobody can see a place that no longer exists.
+ */
+internal fun reconcilePlaceMemory(
+    confirmed: Set<String>,
+    circleId: String,
+    places: List<CirclePlace>,
+    lat: Double,
+    lon: Double,
+    nowMs: Long,
+): PlaceMemoryDrift {
+    val here = LatLon(lat, lon)
+    val prefix = "$circleId:"
+    val missed = mutableListOf<GeofenceTransition>()
+    val stale = mutableSetOf<String>()
+    for (key in confirmed) {
+        if (!key.startsWith(prefix)) continue
+        val placeId = key.removePrefix(prefix).toLongOrNull() ?: continue
+        val place = places.firstOrNull { it.place.id == placeId }
+        if (place == null) {
+            stale += key
+            continue
+        }
+        val exitRing = place.radiusM * GeofenceEvaluator.EXIT_HYSTERESIS_FACTOR
+        if (RoadRoulette.distanceMeters(here, place.place.location) > exitRing) {
+            missed += GeofenceTransition(placeId, GeofenceKind.DEPART, nowMs)
+        }
+    }
+    return PlaceMemoryDrift(missed, stale)
+}
