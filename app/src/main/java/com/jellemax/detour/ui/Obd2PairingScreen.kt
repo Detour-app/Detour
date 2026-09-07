@@ -189,9 +189,9 @@ fun Obd2PairingScreen() {
         // wires an OBD2 connection loop onto a device that's also driving trip
         // auto-detection for its real vehicle.
         val taken = mapping.keys + mapping.values.mapNotNull { it.obd2Address }
-        mapping.values.sortedBy { it.name }.forEach { vehicle ->
+        mapping.values.sortedBy { it.displayName }.forEach { vehicle ->
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(vehicle.name, style = MaterialTheme.typography.bodyLarge)
+                Text(vehicle.displayName, style = MaterialTheme.typography.bodyLarge)
                 val pairedName = vehicle.obd2Address?.let { addr ->
                     bonded.firstOrNull { it.address == addr }
                         ?.let { runCatching { it.name }.getOrNull() } ?: addr
@@ -240,7 +240,7 @@ fun Obd2PairingScreen() {
                     if (forgetting == vehicle.address) {
                         ConfirmDialog(
                             title = "Forget $pairedName?",
-                            text = "${vehicle.name} goes back to GPS speed until the adapter " +
+                            text = "${vehicle.displayName} goes back to GPS speed until the adapter " +
                                 "is paired again from this screen.",
                             confirmLabel = "Forget",
                             onConfirm = {

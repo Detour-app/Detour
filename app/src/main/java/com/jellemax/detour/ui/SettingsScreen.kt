@@ -40,6 +40,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -911,6 +912,10 @@ private fun VehicleSection() {
     var addTarget by remember { mutableStateOf<TravelMode?>(null) }
     // Which device's removal is waiting to be confirmed, by address.
     var removing by remember { mutableStateOf<String?>(null) }
+    // Which vehicle's rename dialog is open, by address.
+    var renaming by remember { mutableStateOf<String?>(null) }
+    // A device picked from the "add" list, waiting for the rider to name it, by address.
+    var naming by remember { mutableStateOf<String?>(null) }
 
     SettingsSection("Vehicles") {
         Text(
@@ -932,7 +937,7 @@ private fun VehicleSection() {
             return@SettingsSection
         }
         TravelMode.entries.forEach { mode ->
-            val devices = mapping.values.filter { it.mode == mode }.sortedBy { it.name }
+            val devices = mapping.values.filter { it.mode == mode }.sortedBy { it.displayName }
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -951,23 +956,40 @@ private fun VehicleSection() {
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 devices.forEach { d ->
-                    // Entries migrated from the old format stored the address as
-                    // the name; resolve the real name from the paired list.
-                    val display = if (d.name != d.address) d.name
+                    // The Bluetooth device's own name: for a pre-label entry
+                    // migrated from the old format the address was stored as the
+                    // name, so resolve the real one from the paired list. Shown
+                    // as the sub-line whenever the rider has set a custom name.
+                    val deviceName = if (d.name != d.address) d.name
                         else bonded.firstOrNull { it.address == d.address }
                             ?.let { runCatching { it.name }.getOrNull() } ?: d.address
+                    val display = d.label?.takeIf { it.isNotBlank() } ?: deviceName
                     Row(
-                        Modifier.fillMaxWidth(),
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { renaming = d.address },
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(display, style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f))
+                        Column(Modifier.weight(1f)) {
+                            Text(display, style = MaterialTheme.typography.bodyMedium)
+                            if (d.label != null) {
+                                Text(deviceName, style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        IconButton(
+                            onClick = { renaming = d.address },
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Icon(Icons.Outlined.Edit, contentDescription = "Rename $display",
+                                Modifier.size(18.dp))
+                        }
                         IconButton(
                             onClick = { removing = d.address },
                             modifier = Modifier.size(28.dp),
                         ) {
-                            Icon(Icons.Outlined.Close, contentDescription = "Remove ${d.name}",
+                            Icon(Icons.Outlined.Close, contentDescription = "Remove $display",
                                 Modifier.size(18.dp))
                         }
                     }
@@ -984,46 +1006,119 @@ private fun VehicleSection() {
                             onDismiss = { removing = null },
                         )
                     }
+                    if (renaming == d.address) {
+                        VehicleNameDialog(
+                            title = "Rename vehicle",
+                            initial = display,
+                            confirmLabel = "Save",
+                            onConfirm = {
+                                // Equal to the device name = no custom name; store
+                                // blank so the entry falls back and the sub-line hides.
+                                Settings.setVehicleLabel(
+                                    d.address,
+                                    it.takeIf { s -> s.trim() != deviceName } ?: "",
+                                )
+                                renaming = null
+                            },
+                            onDismiss = { renaming = null },
+                        )
+                    }
                 }
             }
         }
     }
 
     addTarget?.let { mode ->
-        val unassigned = bonded.filter { !mapping.containsKey(it.address) }
-        AlertDialog(
-            onDismissRequest = { addTarget = null },
-            title = { Text("Add a ${mode.label} device") },
-            text = {
-                if (unassigned.isEmpty()) {
-                    Text("No unassigned paired devices. Pair the device in Android's " +
-                        "Bluetooth settings first, or remove it from another vehicle.")
-                } else {
-                    Column {
-                        unassigned.forEach { device ->
-                            val address = device.address
-                            val name = runCatching { device.name }.getOrNull() ?: address
-                            Text(
-                                name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        Settings.addVehicleDevice(address, name, mode)
-                                        TripTrackingService.refresh(context)
-                                        addTarget = null
-                                    }
-                                    .padding(vertical = 12.dp),
-                            )
+        val pending = naming
+        if (pending != null) {
+            val deviceName = bonded.firstOrNull { it.address == pending }
+                ?.let { runCatching { it.name }.getOrNull() } ?: pending
+            VehicleNameDialog(
+                title = "Name this ${mode.label}",
+                initial = deviceName,
+                confirmLabel = "Add",
+                onConfirm = {
+                    Settings.addVehicleDevice(
+                        pending, deviceName, mode,
+                        label = it.takeIf { s -> s.trim() != deviceName },
+                    )
+                    TripTrackingService.refresh(context)
+                    naming = null
+                    addTarget = null
+                },
+                onDismiss = { naming = null },
+            )
+        } else {
+            val unassigned = bonded.filter { !mapping.containsKey(it.address) }
+            AlertDialog(
+                onDismissRequest = { addTarget = null },
+                title = { Text("Add a ${mode.label} device") },
+                text = {
+                    if (unassigned.isEmpty()) {
+                        Text("No unassigned paired devices. Pair the device in Android's " +
+                            "Bluetooth settings first, or remove it from another vehicle.")
+                    } else {
+                        Column {
+                            unassigned.forEach { device ->
+                                val address = device.address
+                                val name = runCatching { device.name }.getOrNull() ?: address
+                                Text(
+                                    name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { naming = address }
+                                        .padding(vertical = 12.dp),
+                                )
+                            }
                         }
                     }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { addTarget = null }) { Text("Close") }
-            },
-        )
+                },
+                confirmButton = {
+                    TextButton(onClick = { addTarget = null }) { Text("Close") }
+                },
+            )
+        }
     }
+}
+
+/** A single-field dialog for naming or renaming a vehicle. Blank is allowed
+ *  and clears the name back to the Bluetooth device's own; the field is capped
+ *  at [Settings.VEHICLE_LABEL_MAX]. */
+@Composable
+private fun VehicleNameDialog(
+    title: String,
+    initial: String,
+    confirmLabel: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { if (it.length <= Settings.VEHICLE_LABEL_MAX) name = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Shown in your history and to your convoy. Leave blank to use the " +
+                        "device name.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(name) }) { Text(confirmLabel) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /**

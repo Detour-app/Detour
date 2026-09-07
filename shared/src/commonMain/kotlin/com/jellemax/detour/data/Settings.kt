@@ -49,6 +49,9 @@ object Settings {
     const val FUEL_CALIBRATION_MIN = 50
     const val FUEL_CALIBRATION_MAX = 150
 
+    /** Longest a rider-set [VehicleDevice.label] may be. */
+    const val VEHICLE_LABEL_MAX = 40
+
     /** The bag every setting here lives in, and the one key inside it that has
      *  to be readable before [init] has run: the #84 timing sink is installed
      *  from `Application.onCreate`, which is the only place that runs ahead of
@@ -139,7 +142,15 @@ object Settings {
          *  [FUEL_CALIBRATION_MIN]..[FUEL_CALIBRATION_MAX]. Tuned against the
          *  car's own trip computer / a pump fill-up. */
         val fuelCalibrationPct: Int = 100,
-    )
+        /** Rider-set name, overrides [name] (the Bluetooth device's own name)
+         *  wherever the vehicle is shown. Null or blank means "use [name]".
+         *  Capped at [VEHICLE_LABEL_MAX]; see [cleanLabel]. */
+        val label: String? = null,
+    ) {
+        /** What to show for this vehicle: the rider's [label] if they set one,
+         *  otherwise the Bluetooth device's own [name]. */
+        val displayName: String get() = label?.takeIf { it.isNotBlank() } ?: name
+    }
 
     /** Bluetooth devices mapped to a vehicle, keyed by address. When a mapped
      *  device connects, the tracking service logs the trip under its [mode], so a
@@ -361,6 +372,7 @@ object Settings {
             fuelType = runCatching { FuelType.valueOf(v.optString("fuelType")) }.getOrDefault(FuelType.PETROL),
             fuelCalibrationPct = v.optInt("fuelCalibrationPct", 100)
                 .coerceIn(FUEL_CALIBRATION_MIN, FUEL_CALIBRATION_MAX),
+            label = cleanLabel(v.optString("label")),
         )
         else -> VehicleDevice(address, address, TravelMode.of(v.toString().trim('"')), null)
     }
@@ -371,12 +383,28 @@ object Settings {
         d.obd2Address?.let { put("obd2Address", it) }
         if (d.fuelType != FuelType.PETROL) put("fuelType", d.fuelType.name)
         if (d.fuelCalibrationPct != 100) put("fuelCalibrationPct", d.fuelCalibrationPct)
+        d.label?.let { put("label", it) }
     }
 
-    /** Assign [address] ([name]) to [mode]. */
-    fun addVehicleDevice(address: String, name: String, mode: TravelMode) {
+    /** Trim, cap at [VEHICLE_LABEL_MAX], and collapse an empty result to `null`
+     *  so a blank rider entry falls back to the device name rather than
+     *  rendering an empty row. */
+    internal fun cleanLabel(s: String?): String? =
+        s?.trim()?.take(VEHICLE_LABEL_MAX)?.ifBlank { null }
+
+    /** Assign [address] ([name]) to [mode], optionally with a rider-set [label]. */
+    fun addVehicleDevice(address: String, name: String, mode: TravelMode, label: String? = null) {
         val next = _vehicleDevices.value.toMutableMap()
-        next[address] = VehicleDevice(address, name, mode)
+        next[address] = VehicleDevice(address, name, mode, label = cleanLabel(label))
+        writeVehicleDevices(next)
+    }
+
+    /** Set or clear [address]'s rider-set name. A blank [label] clears it,
+     *  falling the vehicle back to its Bluetooth device name. */
+    fun setVehicleLabel(address: String, label: String) {
+        val current = _vehicleDevices.value[address] ?: return
+        val next = _vehicleDevices.value.toMutableMap()
+        next[address] = current.copy(label = cleanLabel(label))
         writeVehicleDevices(next)
     }
 
