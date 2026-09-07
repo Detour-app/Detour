@@ -28,6 +28,21 @@ object UpdateNotification {
     private const val CHANNEL_ID = "updates"
     private const val NOTIFICATION_ID = 4201
 
+    /**
+     * Distinct from every other `PendingIntent` this app builds against
+     * `MainActivity`.
+     *
+     * PendingIntent identity ignores extras — two intents naming the same
+     * component under the same request code *are* the same PendingIntent, and
+     * FLAG_UPDATE_CURRENT below rewrites the extras of whichever one already
+     * exists. ConvoyLiveService builds one at request code 0
+     * (`ConvoyLiveService.kt:228-231`), so sharing that code would hand this
+     * notification's EXTRA_OPEN_UPDATE_SETTINGS to the convoy notification and
+     * send a tap on it to Settings. Harmless until #277 put an extra on this
+     * one; a request code of its own is what keeps them apart.
+     */
+    private const val OPEN_REQUEST_CODE = 4201
+
     fun notifyOnce(context: Context, version: String) {
         if (Settings.notifiedUpdateVersion() == version) return
         // POST_NOTIFICATIONS only exists from API 33 (TIRAMISU); below that
@@ -54,7 +69,7 @@ object UpdateNotification {
         }
         val open = PendingIntent.getActivity(
             context,
-            0,
+            OPEN_REQUEST_CODE,
             Intent(context, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 .putExtra(PendingUpdateOpen.EXTRA_OPEN_UPDATE_SETTINGS, true),
