@@ -36,7 +36,7 @@ import com.jellemax.detour.map.shouldRequestMic
 internal fun rememberMapPermissions(
     s: MapScreenState,
     convoyConnected: Boolean,
-    hasActiveConvoy: Boolean,
+    activeConvoyId: String?,
     onLocationReady: () -> Unit,
 ): ManagedActivityResultLauncher<String, Boolean> {
     val context = LocalContext.current
@@ -56,11 +56,20 @@ internal fun rememberMapPermissions(
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
-    LaunchedEffect(convoyConnected, hasActiveConvoy) {
+    // Keyed on the convoy's id, not on whether there is one: a rider who
+    // switches straight from convoy A to convoy B on the same socket has to be
+    // asked again if they refused the first time, and a boolean key does not
+    // change on that switch. activeConvoyId != null rather than just
+    // convoyConnected because the same socket also stays connected for a
+    // circle's arrival notifications with no convoy joined at all (see
+    // ConvoyLiveClient.setNotifyCircles), which needs no microphone.
+    // Features.pushToTalk: off means no talk button ever renders, so asking
+    // for the mic here would buy nothing this build (#154).
+    LaunchedEffect(convoyConnected, activeConvoyId) {
         if (shouldRequestMic(
                 pushToTalkEnabled = Features.pushToTalk,
                 convoyConnected = convoyConnected,
-                hasActiveConvoy = hasActiveConvoy,
+                hasActiveConvoy = activeConvoyId != null,
                 micGranted = ContextCompat.checkSelfPermission(
                     context, Manifest.permission.RECORD_AUDIO,
                 ) == PackageManager.PERMISSION_GRANTED,

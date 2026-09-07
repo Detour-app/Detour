@@ -519,7 +519,7 @@ fun MapScreen(
     val bgLocationLauncher = rememberMapPermissions(
         s = s,
         convoyConnected = convoyConnected,
-        hasActiveConvoy = activeConvoyId != null,
+        activeConvoyId = activeConvoyId,
         onLocationReady = { onLocationGranted() },
     )
     /** Commit to one spin candidate and frame the trip to it. */
