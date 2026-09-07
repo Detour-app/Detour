@@ -172,6 +172,33 @@ public class LiveRelayTests
     }
 
     [Fact]
+    public void A_place_event_reports_only_the_recipients_it_actually_reached()
+    {
+        var harness = new Harness();
+        var circleId = Guid.CreateVersion7();
+
+        var member = harness.Connect(Guid.CreateVersion7());
+        member.Connection.Join(circleId);
+
+        // Connected, but for something else entirely — a convoy. Nothing about
+        // holding a socket entitles this rider to another group's frames.
+        var elsewhere = harness.Connect(Guid.CreateVersion7());
+        elsewhere.Connection.Join(Guid.CreateVersion7());
+
+        var offline = Guid.CreateVersion7();
+
+        var delivered = harness.Relay.PublishPlaceEvent(
+            [member.Connection.UserId, elsewhere.Connection.UserId, offline],
+            circleId, Guid.CreateVersion7(), 7L, "Home", "Arrive", 1_700_000_000_000L);
+
+        // The distinction the push fan-out depends on: the rider on a convoy socket
+        // is in ConnectedUserIds and got nothing, so a caller subtracting the
+        // connected set instead of this one leaves them with no transport at all.
+        delivered.Should().BeEquivalentTo([member.Connection.UserId]);
+        harness.Relay.ConnectedUserIds.Should().Contain(elsewhere.Connection.UserId);
+    }
+
+    [Fact]
     public void A_second_connection_replaces_the_first()
     {
         var harness = new Harness();

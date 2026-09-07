@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net.WebSockets;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Detour.Api.Notifications;
@@ -101,6 +102,46 @@ public class PushDeliveryTests(PostgresFixture postgres) : IAsyncLifetime
         wake.Tokens.Should().NotContain("alex-fcm-token");
     }
 
+    [Fact]
+    public async Task A_member_whose_socket_is_not_in_this_circle_is_still_woken()
+    {
+        var alex = await NewRider();
+        var blake = await NewRider();
+        await Befriend(alex, blake);
+
+        var circle = await CreateCircle(alex, "Household");
+        (await alex.Client.PostAsJsonAsync($"/api/groups/{Id(circle)}/invitations", new { username = blake.Username }))
+            .EnsureSuccessStatusCode();
+        (await blake.Client.PostAsJsonAsync($"/api/groups/{Id(circle)}/invitations/respond", new { accept = true }))
+            .EnsureSuccessStatusCode();
+
+        (await blake.Client.PutAsJsonAsync("/api/devices", new { token = "blake-fcm-token", platform = "android" }))
+            .EnsureSuccessStatusCode();
+
+        // Blake holds a live socket, joined to nothing — which is every socket for
+        // the moment between the upgrade and its first join, and any socket a rider
+        // opened for a convoy instead. He is in ILiveRelay.ConnectedUserIds and the
+        // circle's frame does not reach him, so subtracting the connected set from
+        // the recipients left him with neither transport.
+        using var socket = await ConnectAsync(blake);
+
+        (await alex.Client.PostAsJsonAsync($"/api/circles/{Id(circle)}/events",
+            new { placeId = 7L, kind = "Arrive", timestampMs = 1_700_000_000_000L }))
+            .EnsureSuccessStatusCode();
+
+        var wake = await _fcm.WaitForFirst();
+        wake.Tokens.Should().ContainSingle().Which.Should().Be("blake-fcm-token");
+    }
+
+    private async Task<WebSocket> ConnectAsync(Rider rider)
+    {
+        var client = _web.Server.CreateWebSocketClient();
+        var token = rider.Client.DefaultRequestHeaders.Authorization!.Parameter;
+        client.ConfigureRequest = request => request.Headers["Authorization"] = $"Bearer {token}";
+
+        return await client.ConnectAsync(new Uri("http://localhost/api/live"), CancellationToken.None);
+    }
+
     private async Task<Rider> NewRider()
     {
         var username = $"rider{Guid.NewGuid():N}"[..16];
@@ -140,6 +181,10 @@ public class PushDeliveryTests(PostgresFixture postgres) : IAsyncLifetime
         private readonly ConcurrentQueue<Wake> _wakes = new();
 
         public DevicePlatform Platform { get; } = platform;
+
+        // A fake is always configured; the capability endpoint's reading of
+        // this flag is covered in CapabilitiesTests instead.
+        public bool Enabled => true;
 
         public Task<PushSendResult> SendWakeAsync(
             IReadOnlyCollection<string> tokens, string collapseKey, CancellationToken ct)
