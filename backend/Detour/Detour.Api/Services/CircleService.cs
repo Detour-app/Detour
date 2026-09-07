@@ -169,7 +169,7 @@ public class CircleService(
         var maskedOwners = rows.Where(p => p.IsHome && p.OwnerId != callerId)
             .Select(p => p.OwnerId).Distinct().ToArray();
         var ownerNames = maskedOwners.Length == 0
-            ? new Dictionary<Guid, string>()
+            ? []
             : (await users.GetManyAsync(maskedOwners, cancellationToken))
                 .ToDictionary(u => u.Id, u => u.Username);
 
@@ -373,7 +373,7 @@ public class CircleService(
             .Where(e => e.PlaceKind == CirclePlace.HomeKind && e.PlaceOwnerId != callerId)
             .Select(e => e.PlaceOwnerId).Distinct().ToArray();
         var ownerNames = maskedOwners.Length == 0
-            ? new Dictionary<Guid, string>()
+            ? []
             : (await users.GetManyAsync(maskedOwners, cancellationToken))
                 .ToDictionary(u => u.Id, u => u.Username);
 
