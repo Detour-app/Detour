@@ -41,14 +41,30 @@ import com.jellemax.detour.presentation.avatarInitialOf
  * the redesign has one place to grow the rider's social surface without
  * crowding You. Convoys is out of scope for this effort and has no row here.
  *
- * The trailing avatar button mirrors the prototype's `goYou` action — it is
- * the same [onBack] as the top bar's arrow, not a second destination.
+ * The trailing avatar is the account affordance, [onOpenAccount]: it opens the
+ * rider's own account rather than repeating the back arrow. Social has two
+ * parents — You and the map's home sheet — so a back-arrow twin here landed on
+ * the map for half the riders who tapped it, under a label naming You.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SocialScreen(onBack: () -> Unit, onOpenFriends: () -> Unit, onOpenCircles: () -> Unit) {
+fun SocialScreen(
+    onBack: () -> Unit,
+    onOpenAccount: () -> Unit,
+    onOpenFriends: () -> Unit,
+    onOpenCircles: () -> Unit,
+) {
     val username by Account.username.collectAsStateWithLifecycle()
     val riderId by Account.riderId.collectAsStateWithLifecycle()
+
+    // The same predicate You decides guest-vs-signed-in on, re-read whenever the
+    // collected username above recomposes this — which is how HubScreen already
+    // reaches it (its YouPresenter.refresh() is keyed on Account.username and
+    // reads Account.signedIn). A blank handle is *not* the question: a signed-in
+    // rider can have one, because Auth.carriedUsername refuses to carry a stored
+    // name forward when the access token's subject does not match the stored
+    // account scope.
+    val signedIn = Account.signedIn
 
     // Same staleness reload CirclesScreen does on entry (Hub -> Social -> Hub ->
     // Social is not a new visit); reloadIfStale skips the round trip inside its
@@ -71,10 +87,17 @@ fun SocialScreen(onBack: () -> Unit, onOpenFriends: () -> Unit, onOpenCircles: (
         topBar = {
             SubScreenTopBar("Social", onBack, scrollBehavior) {
                 IconButton(
-                    onClick = onBack,
+                    onClick = onOpenAccount,
                     modifier = Modifier
                         .padding(end = 16.dp)
-                        .semantics { contentDescription = "Back to You" },
+                        // Names the screen the tap actually opens. A guest gets
+                        // You, which is where the sign-in card lives; this reads
+                        // the same predicate [onOpenAccount] routes on, so the
+                        // label and the destination cannot disagree.
+                        .semantics {
+                            contentDescription =
+                                if (signedIn) "Profile & account" else "Sign in"
+                        },
                 ) {
                     Box(
                         Modifier
