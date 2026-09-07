@@ -170,7 +170,7 @@ internal class TripSession(
     ): kotlinx.coroutines.Job? {
         // An auto trip with no mapped vehicle that never left walking pace
         // wasn't a drive; don't save it under whatever mode the tab happened
-        // to have selected. Judged the same way MIN_AUTO_TRIP_METERS judges
+        // to have selected. Judged the same way MIN_TRIP_METERS judges
         // "never went anywhere" — a second false-positive filter, not a
         // classification.
         val looksLikeAWalk = stats.durationMs > TripTrackingService.SLOW_NO_VEHICLE_MIN_JUDGE_MS &&
@@ -178,11 +178,9 @@ internal class TripSession(
             (stats.distanceMeters / (stats.durationMs / 1000.0)) <
                 TripTrackingService.SLOW_NO_VEHICLE_AVG_MAX_MPS &&
             stats.topSpeedMps < TripTrackingService.SLOW_NO_VEHICLE_TOP_MAX_MPS
-        val worthSaving =
-            if (wasAuto) stats.distanceMeters >= TripTrackingService.MIN_AUTO_TRIP_METERS &&
-                !looksLikeAWalk
-            else stats.durationMs > 0
-        if (!worthSaving) return null
+        if (!worthSaving(stats.distanceMeters, stats.durationMs, wasAuto, looksLikeAWalk)) {
+            return null
+        }
         val durationSec = stats.durationMs / 1000.0
         val trip = Trip(
             startTimeMs = stats.startTimeMs,
@@ -253,5 +251,29 @@ internal class TripSession(
             SyncClient.syncQuietly()
         }
         return save
+    }
+
+    internal companion object {
+        /**
+         * Whether a finished trip clears the bar to be saved. Both floors —
+         * [TripTrackingService.MIN_TRIP_METERS] and
+         * [TripTrackingService.MIN_TRIP_DURATION_MS] — must clear, so an
+         * accidental mis-start (a few seconds, no ground covered) never reaches
+         * history or rider totals whether it was auto-detected or the rider
+         * tapped End. Auto trips additionally drop anything that only
+         * [looksLikeAWalk]; that filter is a no-op on manual trips, which the
+         * rider is asserting was a drive.
+         *
+         * Pure so the gate is unit-testable without a running service.
+         */
+        internal fun worthSaving(
+            distanceMeters: Double,
+            durationMs: Long,
+            wasAuto: Boolean,
+            looksLikeAWalk: Boolean,
+        ): Boolean =
+            distanceMeters >= TripTrackingService.MIN_TRIP_METERS &&
+                durationMs >= TripTrackingService.MIN_TRIP_DURATION_MS &&
+                !(wasAuto && looksLikeAWalk)
     }
 }
