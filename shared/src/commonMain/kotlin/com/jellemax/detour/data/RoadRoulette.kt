@@ -39,7 +39,7 @@ object RoadRoulette {
     )
 
     /** What one whole [rawQuery] may cost, every mirror included. */
-    private const val QUERY_BUDGET_MS = 12_000L
+    internal const val QUERY_BUDGET_MS = 12_000L
 
     /**
      * One mirror's share of [QUERY_BUDGET_MS].
@@ -194,13 +194,17 @@ object RoadRoulette {
         highwayRegex: String,
         endpointOffset: Int = 0,
     ): List<OverpassWay> {
+        // The whole budget per mirror, not a slice: a spin's fourth attempt
+        // asks for every road within 9.6 km with geometry, which a healthy
+        // mirror answers in seconds rather than the one the slice allows, and
+        // a slice that expires on a mirror mid-answer reads as "no roads here".
         val query = """
-            [out:json][timeout:$SERVER_TIMEOUT_S];
+            [out:json][timeout:${QUERY_BUDGET_MS / 1000}];
             way(around:${radiusMeters.toInt()},${center.lat},${center.lon})["highway"~"$highwayRegex"];
             out geom;
         """.trimIndent()
 
-        return parseWays(rawQuery(query, endpointOffset))
+        return parseWays(rawQuery(query, endpointOffset, timeoutMs = QUERY_BUDGET_MS))
     }
 
     /** Road classes a car/moto can legally be on; excludes the footways,
@@ -425,11 +429,15 @@ object RoadRoulette {
      * all. Ktor would make the race short to write; it is the bill that rules
      * it out, not the code.
      */
-    suspend fun rawQuery(query: String, endpointOffset: Int = 0): String {
+    suspend fun rawQuery(
+        query: String,
+        endpointOffset: Int = 0,
+        timeoutMs: Long = MIRROR_TIMEOUT_MS,
+    ): String {
         var lastError: IOException? = null
         for (endpoint in mirrorOrder(endpointOffset)) {
             try {
-                val body = post(endpoint, query)
+                val body = post(endpoint, query, timeoutMs)
                 if (isOverpassAnswer(body)) return body
                 // A refusal the mirror dressed as a 200, so it never reached
                 // the catch below: the next mirror is still worth asking.
@@ -484,7 +492,7 @@ object RoadRoulette {
         return root.optString("remark").isBlank()
     }
 
-    private suspend fun post(endpoint: String, query: String): String = try {
+    private suspend fun post(endpoint: String, query: String, timeoutMs: Long): String = try {
         Http.request(
             method = "POST",
             url = endpoint,
@@ -494,7 +502,7 @@ object RoadRoulette {
                 // Overpass usage policy asks for an identifying user agent.
                 "User-Agent" to "Detour/${BuildDefaults.versionName}",
             ),
-            readTimeoutMs = MIRROR_TIMEOUT_MS,
+            readTimeoutMs = timeoutMs,
         )
     } catch (e: HttpStatusException) {
         throw IOException("Overpass API error: HTTP ${e.code}")

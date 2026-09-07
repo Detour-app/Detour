@@ -1026,7 +1026,11 @@ fun MapScreen(
                     if (result != null) {
                         retained.speedCameras = result.cameras
                         retained.speedSections = result.sections
-                    } else if (prefetch.failures == 1 && retained.speedCameras.isEmpty()) {
+                    } else if (
+                        prefetch.failures == 1 &&
+                        retained.speedCameras.isEmpty() &&
+                        retained.speedSections.isEmpty()
+                    ) {
                         // "Couldn't load" and "none around here" draw the same
                         // empty map, and that is the one thing the rider cannot
                         // work out for themselves. Said once per run of
