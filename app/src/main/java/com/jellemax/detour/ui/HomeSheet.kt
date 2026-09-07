@@ -51,7 +51,6 @@ import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.presentation.homeShortcutPlaces
 import com.jellemax.detour.presentation.isHome
 import com.jellemax.detour.presentation.isWork
-import kotlin.random.Random
 
 /**
  * How tall the sheet stands at `fontScale` 1, excluding the gesture inset it
@@ -126,6 +125,7 @@ internal fun ColumnScope.HomeSheet(
     onSearchOpenChange: (Boolean) -> Unit,
     onPickDestination: (GeocodeResult) -> Unit,
     savedPlaces: List<SavedPlace>,
+    shortcutSeed: Int,
     onPickPlace: (SavedPlace) -> Unit,
     canSavePin: Boolean,
     onSavePin: () -> Unit,
@@ -166,12 +166,15 @@ internal fun ColumnScope.HomeSheet(
                 // bar, give way to the bar rather than the other way round.
                 modifier = Modifier.weight(1f, fill = false),
             )
-            // Rolled once per composition of the sheet, and above the branch
-            // below so that opening and closing the search bar — which takes
-            // the row off screen — does not re-roll the third chip mid-visit.
-            // Leaving the map and coming back is what re-rolls it.
-            val shortcuts = remember(savedPlaces) {
-                homeShortcutPlaces(savedPlaces, Random.nextInt())
+            // The seed is the slot's ([MapBottomSlot]), not this sheet's: the
+            // sheet leaves the composition whenever the spin sheet or a
+            // candidate round takes the slot, so a seed rolled here re-rolled
+            // the third chip on every Spin round trip. Above the branch below
+            // for the same reason at a smaller scale — opening the search bar
+            // takes the row off screen, not the sheet. Leaving the map and
+            // coming back is what re-rolls it.
+            val shortcuts = remember(savedPlaces, shortcutSeed) {
+                homeShortcutPlaces(savedPlaces, shortcutSeed)
             }
             // Nothing below the bar survives a search: the results need the
             // room, and neither a shortcut nor a card is worth reaching for
