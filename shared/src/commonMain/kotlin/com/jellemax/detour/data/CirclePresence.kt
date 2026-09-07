@@ -195,6 +195,29 @@ object CirclePresence {
                 if (!isFixTrusted(fixAgeMs)) continue
                 val places = CirclePlaces.places(circle.id)
                 placesByCircle += circle.id to places
+                // Before detecting anything new: does the durable memory still
+                // match where the rider actually is? A process death between
+                // two ticks can leave a claim standing for a place they have
+                // since left, and the gate in `CircleEvents.record` would then
+                // swallow their next real arrival (#273). Announced, not just
+                // cleared, so the circle stops showing them parked there — the
+                // timestamp is `nowMs` because when they left was never
+                // observed.
+                val drift = reconcilePlaceMemory(
+                    Settings.confirmedInsidePlaceIds(), circle.id, places, lat, lon, nowMs,
+                )
+                for (t in drift.missedDepartures) {
+                    CircleEvents.record(circle.id, t.placeId, t.kind, t.tsMs)
+                }
+                if (drift.staleKeys.isNotEmpty()) {
+                    // Only reachable on a successful `places` fetch, which is
+                    // the same "an outage proves nothing" rule the gate
+                    // candidates below follow: a failed fetch must not be read
+                    // as "the place is gone".
+                    Settings.setConfirmedInsidePlaceIds(
+                        Settings.confirmedInsidePlaceIds() - drift.staleKeys,
+                    )
+                }
                 val evaluator = evaluators[circle.id] ?: GeofenceEvaluator.withDefaults()
                 evaluators = evaluators + (circle.id to evaluator)
                 for (t in evaluateGeofences(evaluator, lat, lon, nowMs, places)) {
