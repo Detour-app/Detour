@@ -882,7 +882,12 @@ fun MapScreen(
         scope = scope,
         announcer = announcer,
         announceAloud = { announceAloud(it) },
-        onArrive = { stopNavigation() },
+        // Arrival is a definite end of the drive — end the trip navigation
+        // started at once, rather than leaving it to a movement check.
+        onArrive = {
+            stopNavigation()
+            TripTrackingService.navigationEnded(context, endNow = true)
+        },
     )
 
     // The banner, its "then" chip, the bottom bar and the HUD's limit source all
@@ -1178,7 +1183,13 @@ fun MapScreen(
                 onSavePin = { s.destination?.let { s.savePinTarget = it } },
                 bottomCard = bottomCard,
                 navState = navState,
-                onExitNavigation = { stopNavigation() },
+                onExitNavigation = {
+                    stopNavigation()
+                    // Exit is ambiguous — pulled up, or driving on past the
+                    // guidance — so the service decides by whether the rider
+                    // is still moving.
+                    TripTrackingService.navigationEnded(context)
+                },
                 displayCandidates = visibleCandidates,
                 // Non-null only once a spin has actually been shared.
                 convoyVotes = spinOffer?.let { spinVotes },
@@ -1239,9 +1250,6 @@ fun MapScreen(
                     if (stats == null) {
                         TripTrackingService.start(context, s.destination?.lat, s.destination?.lon)
                     }
-                },
-                onTrack = {
-                    TripTrackingService.start(context, s.destination?.lat, s.destination?.lon)
                 },
                 // The navigation dock's ✕: drop the destination and everything
                 // derived from it. `settingsCollapsed` is left untouched, so

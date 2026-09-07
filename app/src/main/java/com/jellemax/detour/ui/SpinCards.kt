@@ -19,7 +19,6 @@ import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Casino
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.LocationOn
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -27,7 +26,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -46,7 +44,6 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.presentation.DIRECTION_NAMES
 import com.jellemax.detour.presentation.spinStateFrom
-import com.jellemax.detour.tracking.TripStats
 
 /** Same hue `MapLibreMap.kt` paints for the live "reach" circle on the map -
  *  not a `GraphiteTheme` token (that circle is native map paint, not Compose),
@@ -121,13 +118,11 @@ internal fun SpinSheet(
     destinationName: String?,
     destination: LatLon?,
     origin: LatLon?,
-    stats: TripStats?,
     inAppAvailable: Boolean,
     onSpin: () -> Unit,
     onCollapse: () -> Unit,
     onNavigateInApp: () -> Unit,
     onNavigate: () -> Unit,
-    onTrack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -338,25 +333,21 @@ internal fun SpinSheet(
                 )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NavButton(
-                    destination = destination,
-                    route = route?.waypoints,
-                    origin = origin,
-                    mode = mode,
-                    inAppAvailable = inAppAvailable,
-                    onNavigateInApp = onNavigateInApp,
-                    onNavigate = onNavigate,
-                    modifier = Modifier.weight(1f),
-                )
-                if (stats == null) {
-                    OutlinedButton(onClick = onTrack, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Rounded.PlayArrow, contentDescription = null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Track ${mode.label.lowercase()}", maxLines = 1)
-                    }
-                }
-            }
+            // Navigating is driving: the one action a destination offers. A
+            // drive is recorded whichever nav app takes it, and the trip is
+            // inferred from navigation rather than a separate Track button —
+            // auto-detect (on by default) already covers recording with no
+            // destination. (#272)
+            NavButton(
+                destination = destination,
+                route = route?.waypoints,
+                origin = origin,
+                mode = mode,
+                inAppAvailable = inAppAvailable,
+                onNavigateInApp = onNavigateInApp,
+                onNavigate = onNavigate,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

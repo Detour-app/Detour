@@ -193,6 +193,10 @@ class NavScreen(
                 }
                 runCatching { navigationManager.clearNavigationManagerCallback() }
                 voice.stop()
+                // Navigation is leaving the front of the stack — end the trip
+                // it started so it does not outlive its guidance (#271). The
+                // service keeps it running if the rider is still driving on.
+                TripTrackingService.navigationEnded(carContext)
                 // The map outlives this screen — hand it back to free drive
                 // without the finished route still drawn on it.
                 renderer.setRoute(null, null)
