@@ -31,15 +31,20 @@ object UpdateDownloader {
     fun dir(context: Context): File = File(context.filesDir, DIR).apply { mkdirs() }
 
     /**
-     * Deletes every file in `updates/` except [keep].
+     * Deletes every file in `updates/` except [keep], its in-progress `.part`
+     * and that partial's `.meta` sidecar.
      *
-     * Called on each check, so a superseded 46 MB APK cannot sit there
-     * forever — and, since nothing is persisted across launches in this
-     * version, so yesterday's abandoned download is not mistaken for today's.
+     * Called on each check, so a superseded 46 MB APK cannot sit there forever
+     * — but the partial the rider is resuming is not superseded, and deleting
+     * it here would mean every background check silently restarted a download
+     * from zero.
      */
-    fun prune(context: Context, keep: String?) {
-        dir(context).listFiles()?.forEach {
-            if (it.name != keep) it.delete()
+    fun prune(context: Context, keep: String?) = prune(dir(context), keep)
+
+    internal fun prune(dir: File, keep: String?) {
+        val kept = if (keep == null) emptySet() else setOf(keep, "$keep.part", "$keep.part.meta")
+        dir.listFiles()?.forEach {
+            if (it.name !in kept) it.delete()
         }
     }
 
