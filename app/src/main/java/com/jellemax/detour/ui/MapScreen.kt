@@ -802,7 +802,7 @@ fun MapScreen(
     // against an already-non-null map and re-runs this — so each of the four
     // has to come back off, or a rider who visits the Hub three times gets
     // sixteen listeners and the fog invalidates four times per camera move.
-    // The remove-what-you-added shape is FogView.map's setter, in MapLibreMap.kt.
+    // The remove-what-you-added shape is FogView.map's setter, in FogView.kt.
     DisposableEffect(mapLibreMap) {
         val map = mapLibreMap ?: return@DisposableEffect onDispose { }
         // The fog is screen-space, projected through the map — redraw it on every

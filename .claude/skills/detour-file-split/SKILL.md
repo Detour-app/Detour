@@ -45,7 +45,7 @@ Verified sizes under `app/src/main/java/` (the precondition script reprints thes
 | `tracking/TripTrackingService.kt` | 1334 | one service class, not a composable tail; a split here is a class-member move, harder |
 | `ui/SettingsScreen.kt` | 1199 | one entry composable + ~15 `private fun …Section()` composables — the same shape MapScreen had |
 | `ui/FriendsScreen.kt` | 939 | entry composable + `SignInSection`, `FriendsSection`, `ConvoysSection`, four dialogs, two rows |
-| `ui/MapLibreMap.kt` | 764 | the map wrapper plus `FogView` |
+| `ui/MapLibreMap.kt` | 605 | the map wrapper; `FogView` was split out of it in #213 |
 | `ui/CirclesScreen.kt` | 716 | entry composable + `CircleListSection`, `CircleDetailSection`, four dialogs |
 
 `SettingsScreen`, `FriendsScreen` and `CirclesScreen` are the three best candidates, because

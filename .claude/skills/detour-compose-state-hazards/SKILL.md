@@ -118,7 +118,7 @@ multiplier mid-play doesn't need to restart (and re-key) this effect".
 ### 2b. Listeners registered once and never removed
 
 `MapScreen.kt:656, 657, 660, 668` add four MapLibre listeners. There is no `removeOn…` call
-anywhere under `ui/` except `FogView.map`'s setter (`MapLibreMap.kt:493-497`), which removes
+anywhere under `ui/` except `FogView.map`'s setter (`FogView.kt:44-52`), which removes
 from the old map before adding to the new — that is the correct in-repo pattern to copy.
 
 MapScreen gets away with it for one reason only: `mapLibreMap` has exactly one write site
