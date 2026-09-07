@@ -29,7 +29,6 @@
     <ID>CyclomaticComplexMethod:SpinCards.kt$@Composable internal fun SpinSheet( mode: TravelMode, onSelectMode: (TravelMode) -&gt; Unit, radiusKm: Float, onRadiusChange: (Float) -&gt; Unit, minRadiusKm: Float, onMinRadiusChange: (Float) -&gt; Unit, poiKind: PoiKind, onPoiKindChange: (PoiKind) -&gt; Unit, directionDeg: Float?, onDirectionChange: (Float?) -&gt; Unit, spinning: Boolean, error: String?, route: RouteResult?, destinationName: String?, destination: LatLon?, origin: LatLon?, stats: TripStats?, inAppAvailable: Boolean, onSpin: () -&gt; Unit, onCollapse: () -&gt; Unit, onNavigateInApp: () -&gt; Unit, onNavigate: () -&gt; Unit, onTrack: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>CyclomaticComplexMethod:TripDetailScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun TripDetailScreen(trip: Trip, onBack: () -&gt; Unit)</ID>
     <ID>CyclomaticComplexMethod:TripTrackingService.kt$TripTrackingService$override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int</ID>
-    <ID>CyclomaticComplexMethod:UpdateDownloader.kt$UpdateDownloader$fun download( context: Context, update: UpdateClient.PendingUpdate, onProgress: (Float) -&gt; Unit, ): File?</ID>
     <ID>EmptyFunctionBlock:MediaListenerService.kt$MediaListenerService${}</ID>
     <ID>EmptyFunctionBlock:RideMotionSensors.kt$RideMotionSensors.&lt;no name provided&gt;${}</ID>
     <ID>EmptyFunctionBlock:SettingsScreen.kt$&lt;no name provided&gt;${}</ID>
@@ -125,14 +124,12 @@
     <ID>NestedBlockDepth:BleNavServer.kt$BleNavServer$fun start(context: Context)</ID>
     <ID>NestedBlockDepth:DriveTransitions.kt$DriveTransitions$fun onTransitionIntent(intent: Intent)</ID>
     <ID>NestedBlockDepth:Obd2Connection.kt$Obd2Connection$private suspend fun pollLoop( input: InputStream, output: OutputStream, fuelType: FuelType, calibrationPct: Int, )</ID>
-    <ID>NestedBlockDepth:UpdateDownloader.kt$UpdateDownloader$fun download( context: Context, update: UpdateClient.PendingUpdate, onProgress: (Float) -&gt; Unit, ): File?</ID>
     <ID>NestedBlockDepth:UpdateInstaller.kt$UpdateInstaller$fun install(context: Context, apk: File): Boolean</ID>
     <ID>ParameterNaming:MainActivity.kt$onSaved</ID>
     <ID>ParameterNaming:RouteEditorScreen.kt$onSaved</ID>
     <ID>ParameterNaming:SettingsHub.kt$onOpenSpoke</ID>
     <ID>ThrowsCount:Obd2Connection.kt$Obd2Connection$internal fun handshake(input: InputStream, output: OutputStream)</ID>
     <ID>UnusedParameter:SettingsScreen.kt$context: Context</ID>
-    <ID>UnusedParameter:UpdateDownloader.kt$UpdateDownloader$file: File</ID>
     <ID>UnusedPrivateProperty:ConvoyLiveClient.kt$ConvoyLiveClient$/** Forwards [TripTrackingService.lastFix] to [relay] for the life of the * process, not just while a convoy/circle is joined - [ConvoyRelay.sendLocation] * is a cheap no-op while nothing is connected (it throttles, then hands * off to a socket that is simply null), so there is no cost to leaving * this running versus starting/stopping it around every [join]/ * [setNotifyCircles] cycle, and doing it once here avoids needing to. * Location is handed in rather than read from a platform API by * [ConvoyRelay] itself - see its `sendLocation` doc - so this is the * one Android-side collector that closes that gap. */ private val locationForwarder: Job = scope.launch { TripTrackingService.lastFix.collect { fix -&gt; if (fix == null) return@collect // timeMs, not elapsedRealtimeMs - Fix's own doc: elapsedRealtimeMs // is this device's uptime basis, meaningless to a peer reading it // off the wire as FriendPosition.tsMs. relay.sendLocation(fix.lat, fix.lon, fix.bearingDeg?.toDouble(), fix.speedMps * 3.6, fix.timeMs) } }</ID>
     <ID>VariableNaming:Obd2ConnectionTest.kt$Obd2ConnectionTest$private val PROBING = Obd2Connection.PidProbe.Probing()</ID>
   </CurrentIssues>

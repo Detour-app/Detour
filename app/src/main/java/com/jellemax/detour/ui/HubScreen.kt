@@ -61,10 +61,7 @@ import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.presentation.YouPresenter
 import com.jellemax.detour.presentation.YouState
-import com.jellemax.detour.update.UpdateDownloader
-import com.jellemax.detour.update.UpdateInstaller
 import com.jellemax.detour.update.UpdateState
-import com.jellemax.detour.update.UpdateStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -91,8 +88,6 @@ fun HubScreen(
     onOpenSavedPlaces: () -> Unit,
     onOpenBadges: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val updateStatus by UpdateState.status.collectAsStateWithLifecycle()
 
     val presenter = remember { YouPresenter() }
@@ -136,30 +131,7 @@ fun HubScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            UpdateBanner(
-                status = updateStatus,
-                onDownload = {
-                    val update = UpdateState.current() ?: return@UpdateBanner
-                    UpdateState.set(UpdateStatus.Downloading(update, -1f))
-                    scope.launch(Dispatchers.IO) {
-                        val file = UpdateDownloader.download(context, update) { f ->
-                            UpdateState.set(UpdateStatus.Downloading(update, f))
-                        }
-                        UpdateState.set(
-                            if (file != null) UpdateStatus.Downloaded(update, file.path)
-                            else UpdateStatus.Failed(update)
-                        )
-                    }
-                },
-                onInstall = {
-                    val s = updateStatus as? UpdateStatus.Downloaded ?: return@UpdateBanner
-                    if (!UpdateInstaller.canInstall(context)) {
-                        UpdateInstaller.requestPermission(context)
-                    } else {
-                        UpdateInstaller.install(context, java.io.File(s.path))
-                    }
-                },
-            )
+            UpdateBanner(status = updateStatus, onOpenSettings = onOpenSettings)
 
             if (state.signedIn) {
                 YouProfileCard(state, onOpenProfile)

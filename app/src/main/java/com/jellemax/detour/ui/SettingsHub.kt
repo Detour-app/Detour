@@ -25,24 +25,12 @@ import com.jellemax.detour.BuildConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.nav.Destination
 import com.jellemax.detour.presentation.settingsHubStateFrom
-import com.jellemax.detour.update.ManualCheck
+import com.jellemax.detour.update.UpdateAction
 import com.jellemax.detour.update.UpdateChecker
+import com.jellemax.detour.update.UpdateDownloadService
+import com.jellemax.detour.update.UpdateState
+import com.jellemax.detour.update.updateRowStateFrom
 import kotlinx.coroutines.launch
-
-/**
- * The Settings root — one row per spoke, navigated to rather than expanded in
- * place. `SettingsScreen.kt` holds the spokes' own controls; the two were split
- * because that file is far over the 1000-line hard limit, and the root is a
- * clean seam: a list of navigation rows with none of the spokes' state.
- */
-private fun updateCheckSubtitle(state: ManualCheck): String = when (state) {
-    ManualCheck.Idle -> "Check for a new release"
-    ManualCheck.Running -> "Checking…"
-    ManualCheck.UpToDate -> "No update found"
-    is ManualCheck.Found -> "Detour ${state.version} available"
-    ManualCheck.Failed -> "Couldn't reach GitHub"
-    is ManualCheck.RateLimited -> "Checked a few times just now — try again shortly"
-}
 
 /**
  * The Settings root: one row per spoke, plus the update check, which is not a
@@ -62,6 +50,10 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
     val externalDisplayEnabled by Settings.externalDisplayEnabled.collectAsStateWithLifecycle()
     val authUsername by Settings.authUsername.collectAsStateWithLifecycle()
     val manualCheck by UpdateChecker.lastManualCheck.collectAsStateWithLifecycle()
+    // Collected, not read once: the transfer belongs to UpdateDownloadService
+    // and keeps reporting while the rider is elsewhere, so the row has to
+    // pick up where it got to rather than where it was when Settings opened.
+    val updateStatus by UpdateState.status.collectAsStateWithLifecycle()
     val updateScope = rememberCoroutineScope()
     val context = LocalContext.current
     val hub = settingsHubStateFrom(
@@ -146,22 +138,46 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
         // UPDATE_REPO in the environment has no update mechanism at all, and a
         // row that silently does nothing when tapped is worse than no row.
         if (UpdateChecker.isConfigured) {
+            val row = updateRowStateFrom(manualCheck, updateStatus)
             ListCard {
                 HubRow(
                     icon = Icons.Outlined.SystemUpdate,
-                    title = "Check for updates",
-                    subtitle = updateCheckSubtitle(manualCheck),
+                    title = row.title,
+                    subtitle = row.subtitle,
                     onClick = {
-                        // Guarded on Running only. A tap with no tokens left is
-                        // allowed through so the budget can refuse it out loud —
-                        // the subtitle is the whole feedback loop, and a dead row
-                        // would be the silence this issue is about.
-                        if (manualCheck !is ManualCheck.Running) {
+                        // The row's own tap only ever checks. Once there is an
+                        // artefact the button below carries the verb, because a
+                        // stray tap on a row must not start a 46 MB download.
+                        //
+                        // CHECK is itself absent while a check is running;
+                        // updateRowStateFrom guards on Running only, so a tap
+                        // with no rate-limit tokens left still goes through and
+                        // the budget refuses it out loud in the subtitle.
+                        if (row.action == UpdateAction.CHECK) {
                             updateScope.launch { UpdateChecker.manualCheck(context) }
                         }
                     },
                     paintCard = false,
                 )
+                // Every phase past the check puts its verb on its own button:
+                // the row's tap is a check, and only the button downloads,
+                // cancels or installs.
+                val action = row.action
+                if (action != null && action != UpdateAction.CHECK) {
+                    UpdateProgressButton(
+                        label = row.actionLabel.orEmpty(),
+                        onClick = {
+                            when (action) {
+                                UpdateAction.DOWNLOAD -> UpdateDownloadService.start(context)
+                                UpdateAction.CANCEL -> UpdateDownloadService.cancel(context)
+                                UpdateAction.INSTALL -> UpdateDownloadService.install(context)
+                                UpdateAction.CHECK -> Unit
+                            }
+                        },
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                        fraction = row.fraction,
+                    )
+                }
             }
         }
         Text(

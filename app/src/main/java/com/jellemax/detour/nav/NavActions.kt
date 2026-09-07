@@ -115,3 +115,18 @@ fun circleNotificationStack(circleId: String?): List<Destination> = buildList {
     add(Destination.Circles)
     if (circleId != null) add(Destination.CircleDetail(circleId))
 }
+
+/**
+ * The stack a tapped update notification lands on.
+ *
+ * Same reasoning as [tripNotificationStack]: back must walk out through the
+ * screens the rider would have come through, not straight out of the app. The
+ * Settings root is the destination because that is where the whole update flow
+ * lives since #277 — the notification used to open MainActivity with no route
+ * at all and rely on the Hub banner being on screen.
+ */
+fun updateNotificationStack(): List<Destination> = buildList {
+    add(Destination.Map)
+    add(Destination.Hub)
+    add(Destination.Settings)
+}
