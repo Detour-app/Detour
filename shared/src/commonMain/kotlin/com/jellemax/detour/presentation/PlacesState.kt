@@ -1,12 +1,14 @@
 package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.SavedPlace
+import com.jellemax.detour.data.SavedPlaceKind
 
 /** One saved place as the list renders it. */
 data class PlaceRow(
     val id: Long,
     val name: String,
     val subtitle: String,
+    val kind: SavedPlaceKind,
 )
 
 /**
@@ -34,5 +36,6 @@ fun placesStateFrom(places: List<SavedPlace>): List<PlaceRow> = places.map { p -
         // setting says — see [formatCoordinatePair], which is why this mapper
         // takes no separator to pass on.
         subtitle = formatCoordinatePair(p.location.lat, p.location.lon),
+        kind = p.kind,
     )
 }

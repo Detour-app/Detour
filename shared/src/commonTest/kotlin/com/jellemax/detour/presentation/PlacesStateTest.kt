@@ -2,6 +2,7 @@ package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.SavedPlace
+import com.jellemax.detour.data.SavedPlaceKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -74,6 +75,11 @@ class PlacesStateTest {
         // second source of truth that could disagree with the map's chips.
         val rows = placesStateFrom(listOf(work, home))
         assertEquals(listOf("Work", "Home"), rows.map { it.name })
+    }
+
+    @Test fun aRowCarriesItsKindSoTheScreenCanShowAndChangeIt() {
+        val fav = place(4L, "Gym", 50.0, 5.0).copy(kind = SavedPlaceKind.FAVOURITE)
+        assertEquals(SavedPlaceKind.FAVOURITE, placesStateFrom(listOf(fav)).single().kind)
     }
 
     @Test fun anEmptyStoreMapsToNoRows() {

@@ -2,6 +2,7 @@ package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.SavedPlace
+import com.jellemax.detour.data.SavedPlaceKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -14,11 +15,13 @@ import kotlin.test.assertTrue
  */
 class HomeShortcutPlacesTest {
 
-    private fun place(id: Long, name: String) =
-        SavedPlace(id = id, name = name, location = LatLon(50.85 + id, 5.69))
+    private fun place(id: Long, name: String, kind: SavedPlaceKind = SavedPlaceKind.NONE) =
+        SavedPlace(id = id, name = name, location = LatLon(50.85 + id, 5.69), kind = kind)
 
-    private val home = place(1L, "Home")
-    private val work = place(2L, "Work")
+    // Home and Work rank by the rider's kind, not by name — so a home called
+    // "Huis" still leads the row.
+    private val home = place(1L, "Huis", SavedPlaceKind.HOME)
+    private val work = place(2L, "Kantoor", SavedPlaceKind.WORK)
     private val gym = place(3L, "Gym")
     private val mum = place(4L, "Mum")
     private val pass = place(5L, "Stelvio")
@@ -33,7 +36,7 @@ class HomeShortcutPlacesTest {
 
     @Test fun homeAndWorkComeFirstWhateverOrderTheStoreHoldsThem() {
         val chips = homeShortcutPlaces(listOf(gym, work, mum, home), seed = 0)
-        assertEquals(listOf("Home", "Work"), chips.take(2).map { it.name })
+        assertEquals(listOf(home, work), chips.take(2))
     }
 
     @Test fun theThirdChipIsOneOfTheRestAndIsTheSameForTheSameSeed() {
@@ -66,10 +69,11 @@ class HomeShortcutPlacesTest {
         assertTrue(chips[0] in listOf(gym, mum, pass))
     }
 
-    @Test fun aSecondPlaceNamedHomeIsNeverTheThirdChip() {
-        // Two shortcuts of the same name are indistinguishable in the row, so
-        // the duplicate must not come back as the "other" place.
-        val otherHome = place(6L, "home")
+    @Test fun aSecondHomeKindIsNeverTheThirdChip() {
+        // The store keeps at most one HOME, but the selection must not offer a
+        // stray HOME-kind place as the "other" chip either — it would read as
+        // the same shortcut twice.
+        val otherHome = place(6L, "Cabin", SavedPlaceKind.HOME)
         assertEquals(listOf(home, work), homeShortcutPlaces(listOf(home, otherHome, work), seed = 3))
     }
 }

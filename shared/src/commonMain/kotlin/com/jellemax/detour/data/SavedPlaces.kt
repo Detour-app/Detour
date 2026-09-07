@@ -3,17 +3,61 @@ package com.jellemax.detour.data
 import kotlin.concurrent.Volatile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.put
+
+/**
+ * What a saved place is *to the rider* — not a label matched on its name.
+ *
+ * [HOME] and [WORK] are singletons per rider (the store demotes a previous
+ * holder when a new one is marked); [FAVOURITE] is a set of any size; [NONE]
+ * is a plain place. The kind, not the name, drives the home-sheet shortcuts
+ * and — from the parent issue — the per-recipient sharing rule, which a
+ * client-side name comparison could never tell the server.
+ */
+enum class SavedPlaceKind { HOME, WORK, FAVOURITE, NONE }
 
 /** A named shortcut destination — Home, Work, a friend's place. */
 data class SavedPlace(
     val id: Long,
     val name: String,
     val location: LatLon,
+    val kind: SavedPlaceKind = SavedPlaceKind.NONE,
 )
+
+/**
+ * The kind a place written before the kind field existed should take, derived
+ * from its name once at migration time. After the migrated list is persisted
+ * every row carries an explicit `kind`, so this is never consulted again — a
+ * place renamed away from "Home" keeps the kind it was promoted to.
+ */
+internal fun legacyKindFromName(name: String): SavedPlaceKind = when {
+    name.equals("home", ignoreCase = true) -> SavedPlaceKind.HOME
+    name.equals("work", ignoreCase = true) -> SavedPlaceKind.WORK
+    else -> SavedPlaceKind.NONE
+}
+
+/**
+ * Enforce the single-[SavedPlaceKind.HOME]/single-[SavedPlaceKind.WORK]
+ * invariant: the first holder of each singleton kind (by the list's existing
+ * order) keeps it, any later one is demoted to [SavedPlaceKind.NONE]. Applied
+ * after migration, where two places both named "Home" would otherwise both be
+ * promoted; [SavedPlaces.setKind] keeps the invariant on every later mutation.
+ */
+internal fun enforceSingletonKinds(places: List<SavedPlace>): List<SavedPlace> {
+    var homeSeen = false
+    var workSeen = false
+    return places.map { p ->
+        when (p.kind) {
+            SavedPlaceKind.HOME -> if (homeSeen) p.copy(kind = SavedPlaceKind.NONE)
+                else { homeSeen = true; p }
+            SavedPlaceKind.WORK -> if (workSeen) p.copy(kind = SavedPlaceKind.NONE)
+                else { workSeen = true; p }
+            else -> p
+        }
+    }
+}
 
 /**
  * Unlimited named shortcut locations, persisted as JSON in app-private storage.
@@ -47,7 +91,13 @@ object SavedPlaces {
     fun ensureLoaded() {
         if (loaded) return
         loaded = true
-        _places.value = read()
+        val (places, migrated) = read()
+        _places.value = places
+        // Persist promotions once, so a place named "Home" that the rider later
+        // renames keeps the kind it was promoted to instead of losing it the
+        // next time the name no longer matches. write() re-sets _places.value,
+        // which is harmless — it is the value we just set.
+        if (migrated) write(places)
     }
 
     /** Drops this rider's places so the next [ensureLoaded] reads the new
@@ -83,6 +133,14 @@ object SavedPlaces {
         write(_places.value.filterNot { it.id == id })
     }
 
+    /** Set a place's [SavedPlaceKind], holding the singleton invariant: marking
+     *  a place [SavedPlaceKind.HOME] or [SavedPlaceKind.WORK] demotes whichever
+     *  place currently holds that kind. See [withKind] for the pure rule. */
+    fun setKind(id: Long, kind: SavedPlaceKind) {
+        ensureLoaded() // see add(): setKind can be the first call to touch the store.
+        write(withKind(_places.value, id, kind))
+    }
+
     /** Raw stored JSON array, uploaded to the sync server. Reads the file so it
      *  works even before any screen has triggered [ensureLoaded]. */
     fun rawJson(): String {
@@ -94,43 +152,90 @@ object SavedPlaces {
      *  holds), so a reinstall restores every shortcut on the first sync. */
     fun replaceFromServer(json: String) {
         val places = try {
-            parse(jsonArrayOf(json))
+            decodeSavedPlaces(json).first
         } catch (e: Exception) {
             return // malformed payload: keep what we have
         }
         loaded = true
+        // write() persists an explicit kind for every row, so a server payload
+        // written before the kind field existed is migrated the same way a local
+        // file is — a reinstall that syncs down old rows gets the promotion once.
         write(places)
     }
 
     private fun write(places: List<SavedPlace>) {
         _places.value = places
-        val array = buildJsonArray {
-            for (p in places) addJsonObject {
-                put("id", p.id)
-                put("name", p.name)
-                put("lat", p.location.lat)
-                put("lon", p.location.lon)
-            }
-        }
-        accountFile(FILE_NAME).writeText(array.string())
+        accountFile(FILE_NAME).writeText(encodeSavedPlaces(places))
     }
 
-    private fun read(): List<SavedPlace> {
+    private fun read(): Pair<List<SavedPlace>, Boolean> {
         val f = accountFile(FILE_NAME)
-        if (!f.exists()) return emptyList()
+        if (!f.exists()) return emptyList<SavedPlace>() to false
         return try {
-            parse(jsonArrayOf(f.readText()))
+            decodeSavedPlaces(f.readText())
         } catch (e: Exception) {
-            emptyList()
+            emptyList<SavedPlace>() to false
         }
     }
+}
 
-    private fun parse(array: JsonArray): List<SavedPlace> =
-        array.objects().map { o ->
-            SavedPlace(
-                id = o.optLong("id"),
-                name = o.optString("name"),
-                location = LatLon(o.optDouble("lat"), o.optDouble("lon")),
-            )
-        }.sortedBy { it.name.lowercase() }
+/** Apply the single-[SavedPlaceKind.HOME]/single-[SavedPlaceKind.WORK] invariant
+ *  when a place's kind changes: the target takes [kind]; any other holder of a
+ *  singleton kind being assigned is demoted to [SavedPlaceKind.NONE]. Pure, so
+ *  the store's file I/O is not in the way of testing the rule. Result is sorted
+ *  by lowercased name to match every other mutation on the store. */
+internal fun withKind(places: List<SavedPlace>, id: Long, kind: SavedPlaceKind): List<SavedPlace> {
+    val singleton = kind == SavedPlaceKind.HOME || kind == SavedPlaceKind.WORK
+    return places.map { p ->
+        when {
+            p.id == id -> p.copy(kind = kind)
+            singleton && p.kind == kind -> p.copy(kind = SavedPlaceKind.NONE)
+            else -> p
+        }
+    }.sortedBy { it.name.lowercase() }
+}
+
+/** The stored JSON array for [places], with an explicit `kind` on every row. */
+internal fun encodeSavedPlaces(places: List<SavedPlace>): String =
+    buildJsonArray {
+        for (p in places) addJsonObject {
+            put("id", p.id)
+            put("name", p.name)
+            put("lat", p.location.lat)
+            put("lon", p.location.lon)
+            put("kind", p.kind.name)
+        }
+    }.string()
+
+/**
+ * Parse a stored/synced places array. Returns the places (sorted, singleton
+ * invariant enforced) and whether any row lacked an explicit `kind` — a
+ * pre-kind payload whose promotions [SavedPlaces.ensureLoaded] persists once.
+ *
+ * A row with no `kind` is promoted from its name by [legacyKindFromName], the
+ * one-time migration off name matching. A row with an *unknown* kind value —
+ * an older client reading a newer one's field — reads as [SavedPlaceKind.NONE]
+ * rather than the name match: once the field is present it is authoritative,
+ * and an unknown key never drops the place. Throws only on malformed JSON.
+ */
+internal fun decodeSavedPlaces(json: String): Pair<List<SavedPlace>, Boolean> {
+    val objects = jsonArrayOf(json).objects()
+    val migrated = objects.any { !it.has("kind") }
+    val places = objects.map { o ->
+        val name = o.optString("name")
+        val kind = if (o.has("kind")) {
+            SavedPlaceKind.entries.firstOrNull { it.name == o.optString("kind") }
+                ?: SavedPlaceKind.NONE
+        } else {
+            legacyKindFromName(name)
+        }
+        SavedPlace(
+            id = o.optLong("id"),
+            name = name,
+            location = LatLon(o.optDouble("lat"), o.optDouble("lon")),
+            kind = kind,
+        )
+    }.sortedBy { it.name.lowercase() }
+    // Two places both named "Home" would both promote; keep the invariant.
+    return enforceSingletonKinds(places) to migrated
 }

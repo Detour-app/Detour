@@ -15,8 +15,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Place
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Work
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -47,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.SavedPlaceKind
 import com.jellemax.detour.data.SavedPlaces
 import com.jellemax.detour.presentation.PlaceRow
 import com.jellemax.detour.presentation.PlacesPresenter
@@ -121,8 +125,8 @@ fun SavedPlacesScreen(onBack: () -> Unit) {
                         PlaceListRow(
                             row = row,
                             menuOpen = menuOpenFor == row.id,
-                            onOpenMenu = { menuOpenFor = row.id },
-                            onDismissMenu = { menuOpenFor = null },
+                            onMenuOpenChange = { open -> menuOpenFor = if (open) row.id else null },
+                            onSetKind = { menuOpenFor = null; SavedPlaces.setKind(row.id, it) },
                             onRename = { menuOpenFor = null; editing = row },
                             onDelete = { menuOpenFor = null; deleting = row },
                         )
@@ -189,17 +193,17 @@ private fun NoPlacesYet(modifier: Modifier = Modifier) {
  * rename/delete — reused inside [ListCard] with a divider between rows, the
  * same shell [SocialScreen] uses for its two rows.
  *
- * The prototype's per-place category icon, street-address subtitle and pin
- * toggle are not built here: [com.jellemax.detour.data.SavedPlace] carries no
- * category or pinned flag, and only a coordinate is stored, not a
- * reverse-geocoded address.
+ * The leading glyph and the overflow menu reflect the place's
+ * [com.jellemax.detour.data.SavedPlaceKind]: Home, Work and Favourite each get
+ * their own icon, and the menu marks or clears the kind — Home and Work are
+ * singletons, so marking one moves it off whichever place held it before.
  */
 @Composable
 private fun PlaceListRow(
     row: PlaceRow,
     menuOpen: Boolean,
-    onOpenMenu: () -> Unit,
-    onDismissMenu: () -> Unit,
+    onMenuOpenChange: (Boolean) -> Unit,
+    onSetKind: (SavedPlaceKind) -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -218,7 +222,7 @@ private fun PlaceListRow(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                Icons.Rounded.Place, contentDescription = null,
+                kindIcon(row.kind), contentDescription = null,
                 Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -235,18 +239,45 @@ private fun PlaceListRow(
             )
         }
         Box {
-            IconButton(onClick = onOpenMenu) {
+            IconButton(onClick = { onMenuOpenChange(true) }) {
                 Icon(
                     Icons.Rounded.MoreVert, contentDescription = "More for ${row.name}",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = onDismissMenu) {
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { onMenuOpenChange(false) }) {
+                if (row.kind != SavedPlaceKind.HOME) {
+                    DropdownMenuItem(text = { Text("Set as Home") },
+                        onClick = { onSetKind(SavedPlaceKind.HOME) })
+                }
+                if (row.kind != SavedPlaceKind.WORK) {
+                    DropdownMenuItem(text = { Text("Set as Work") },
+                        onClick = { onSetKind(SavedPlaceKind.WORK) })
+                }
+                if (row.kind == SavedPlaceKind.FAVOURITE) {
+                    DropdownMenuItem(text = { Text("Remove from favourites") },
+                        onClick = { onSetKind(SavedPlaceKind.NONE) })
+                } else {
+                    DropdownMenuItem(text = { Text("Add to favourites") },
+                        onClick = { onSetKind(SavedPlaceKind.FAVOURITE) })
+                }
+                if (row.kind == SavedPlaceKind.HOME || row.kind == SavedPlaceKind.WORK) {
+                    DropdownMenuItem(text = { Text("Clear label") },
+                        onClick = { onSetKind(SavedPlaceKind.NONE) })
+                }
                 DropdownMenuItem(text = { Text("Rename") }, onClick = onRename)
                 DropdownMenuItem(text = { Text("Delete") }, onClick = onDelete)
             }
         }
     }
+}
+
+/** The leading glyph for a place, by its kind. A plain place keeps the pin. */
+private fun kindIcon(kind: SavedPlaceKind) = when (kind) {
+    SavedPlaceKind.HOME -> Icons.Rounded.Home
+    SavedPlaceKind.WORK -> Icons.Rounded.Work
+    SavedPlaceKind.FAVOURITE -> Icons.Rounded.Star
+    SavedPlaceKind.NONE -> Icons.Rounded.Place
 }
 
 /** Search an address, name it, save it. */
