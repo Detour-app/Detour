@@ -348,9 +348,11 @@ fun MapScreen(
     // sheet's own collapse control is still one tap from the driving sheet
     // when the rider is done with it. `destination` is read live rather than
     // keyed on, so setting one mid-trip does not re-run this and re-collapse
-    // the sheet it just opened.
+    // the sheet it just opened. `route` counts as somewhere to go as well: a
+    // loop spin sets the route and leaves `destination` null, and its Go is
+    // the same NavButton.
     LaunchedEffect(stats != null) {
-        if (stats != null && destination == null) settingsCollapsed = true
+        if (stats != null && destination == null && route == null) settingsCollapsed = true
     }
     // The prefetched way set, the fetch throttle, the miss counter and the
     // snapped value: SpeedLimitTracker's, in shared/…/drive/, where the policy
