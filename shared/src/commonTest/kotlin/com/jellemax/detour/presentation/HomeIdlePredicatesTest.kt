@@ -62,24 +62,27 @@ class HomeIdlePredicatesTest {
         )
     }
 
-    @Test fun theReachCircleIsHiddenWithoutAFixOrWhileNavigating() {
-        assertNull(reachMeters(hasLocation = false, navigating = false, roundTrip = false, radiusKm = 10.0))
-        assertNull(reachMeters(hasLocation = true, navigating = true, roundTrip = false, radiusKm = 10.0))
+    @Test fun theReachCircleIsHiddenWithoutAFixWhileNavigatingOrWithADestination() {
+        assertNull(reachMeters(hasLocation = false, navigating = false, hasDestination = false, roundTrip = false, radiusKm = 10.0))
+        assertNull(reachMeters(hasLocation = true, navigating = true, hasDestination = false, roundTrip = false, radiusKm = 10.0))
         // Navigating hides it whichever mode is selected.
-        assertNull(reachMeters(hasLocation = true, navigating = true, roundTrip = true, radiusKm = 10.0))
+        assertNull(reachMeters(hasLocation = true, navigating = true, hasDestination = false, roundTrip = true, radiusKm = 10.0))
+        // A concrete destination hides it: the circle is a random-spin visual,
+        // clutter once there is somewhere specific to go.
+        assertNull(reachMeters(hasLocation = true, navigating = false, hasDestination = true, roundTrip = false, radiusKm = 10.0))
     }
 
     @Test fun aRoundTripsReachIsAQuarterOfTheSliderLength() {
         assertEquals(
             2_500.0,
-            reachMeters(hasLocation = true, navigating = false, roundTrip = true, radiusKm = 10.0),
+            reachMeters(hasLocation = true, navigating = false, hasDestination = false, roundTrip = true, radiusKm = 10.0),
         )
     }
 
     @Test fun aOneWayReachIsTheSliderInMetres() {
         assertEquals(
             10_000.0,
-            reachMeters(hasLocation = true, navigating = false, roundTrip = false, radiusKm = 10.0),
+            reachMeters(hasLocation = true, navigating = false, hasDestination = false, roundTrip = false, radiusKm = 10.0),
         )
     }
 

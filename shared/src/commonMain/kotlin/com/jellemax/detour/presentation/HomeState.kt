@@ -77,15 +77,20 @@ fun inAppNavAvailable(
  *
  * For a round trip the slider means trip *length*, so the reach is about a
  * quarter of it. Hidden while navigating — the route is the answer by then —
- * and hidden with no fix to centre it on.
+ * hidden with no fix to centre it on, and hidden once a concrete destination
+ * is set: the circle shows where a random spin *could* land, so it is clutter
+ * the moment you have somewhere specific to go (a searched place, a saved chip,
+ * a dropped pin, a picked candidate). A loop spin leaves the destination null,
+ * so its reach still draws.
  */
 fun reachMeters(
     hasLocation: Boolean,
     navigating: Boolean,
+    hasDestination: Boolean,
     roundTrip: Boolean,
     radiusKm: Double,
 ): Double? = when {
-    !hasLocation || navigating -> null
+    !hasLocation || navigating || hasDestination -> null
     roundTrip -> radiusKm * 250.0
     else -> radiusKm * 1000.0
 }
