@@ -78,6 +78,11 @@ data class FriendLists(
      *  who was declined gets nothing back for that pair, so a repeat request can't be told
      *  apart from a stranger who never asked. See BACKEND_SPEC.md §6. */
     val declined: List<RiderRef> = emptyList(),
+    /** The caller's view of the mutual family tier per rider, keyed by the raw rider id:
+     *  "none", "outgoing" (the caller asked), "incoming" (they asked) or "family" (agreed).
+     *  Absent id reads as "none". Keyed by the plain id string, not [RiderId], so iOS can look
+     *  it up — a value-class key erases to `Any` across the bridge. */
+    val family: Map<String, String> = emptyMap(),
 )
 
 /** The caller's own account, as `GET /api/me` returns it. */
@@ -105,12 +110,29 @@ object Friends {
         // Partitioning here rather than server-side keeps the contract from encoding
         // the relation by array position, which is what let a rider appear in two.
         val byRelation = entries.groupBy({ it.optString("relation") }) { riderRefFromJson(it.optObject("rider")!!) }
+        val family = entries.mapNotNull { e ->
+            val rider = e.optObject("rider") ?: return@mapNotNull null
+            val status = e.optString("family").ifEmpty { "none" }
+            if (status == "none") null else rider.optString("id") to status
+        }.toMap()
         return FriendLists(
             friends = byRelation["friend"].orEmpty(),
             incoming = byRelation["incoming"].orEmpty(),
             outgoing = byRelation["outgoing"].orEmpty(),
             declined = byRelation["declined"].orEmpty(),
+            family = family,
         )
+    }
+
+    /** Ask a friend to be family, or — when they already asked — agree. Returns the resulting
+     *  status: "pending" or "accepted". */
+    @Throws(Exception::class)
+    suspend fun markFamily(riderId: RiderId): String =
+        Api.requestJson("POST", "/friends/${riderId.value}/family").optString("status")
+
+    @Throws(Exception::class)
+    suspend fun unmarkFamily(riderId: RiderId) {
+        Api.request("DELETE", "/friends/${riderId.value}/family")
     }
 
     /** Returns the resulting status: "pending" or "accepted" (when they had

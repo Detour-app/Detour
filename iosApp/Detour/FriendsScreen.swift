@@ -252,6 +252,26 @@ struct FriendsScreen: View {
                             }
                         }
                     }
+                    // Mutual family: leading swipe asks or agrees, or drops an
+                    // agreed/outgoing tier. Keyed by the raw id — FriendLists.family
+                    // is a String map so this bridges cleanly (see its doc).
+                    .swipeActions(edge: .leading) {
+                        if !isMe {
+                            let family = model.friendsState.lists?.family[friend.rider.idValue] ?? "none"
+                            Button {
+                                Task {
+                                    if family == "family" || family == "outgoing" {
+                                        _ = try? await FriendsStore.shared.unmarkFamily(riderId: friend.rider.idValue)
+                                    } else {
+                                        _ = try? await FriendsStore.shared.markFamily(riderId: friend.rider.idValue)
+                                    }
+                                }
+                            } label: {
+                                Label(family == "family" ? "Unfamily" : "Family", systemImage: "person.2.fill")
+                            }
+                            .tint(family == "family" ? .gray : .blue)
+                        }
+                    }
                 }
             }
         }

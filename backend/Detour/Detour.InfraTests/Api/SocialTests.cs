@@ -187,6 +187,72 @@ public class SocialTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Marking_family_is_mutual_pending_until_both_sides_ask()
+    {
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        await Befriend(alex, blake);
+
+        (await MarkFamilyStatus(alex, blake.UserId)).Should().Be("pending");
+
+        // One side alone is not family: alex sees an outgoing family request, blake incoming,
+        // and neither reads as "family" yet.
+        FamilyOf((await Riders(alex)).Single()).Should().Be("outgoing");
+        FamilyOf((await Riders(blake)).Single()).Should().Be("incoming");
+
+        // Blake asking back is the acceptance — now both are family.
+        (await MarkFamilyStatus(blake, alex.UserId)).Should().Be("accepted");
+        FamilyOf((await Riders(alex)).Single()).Should().Be("family");
+        FamilyOf((await Riders(blake)).Single()).Should().Be("family");
+    }
+
+    [Fact]
+    public async Task Marking_a_rider_who_is_not_an_accepted_friend_is_refused()
+    {
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        await Request(alex, blake.Username); // pending, not accepted
+
+        (await MarkFamily(alex, blake.UserId)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // A stranger with no friendship row at all is refused too.
+        var casey = await _factory.SignInAsync();
+        (await MarkFamily(alex, casey.UserId)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Either_side_can_unmark_family_and_it_drops_to_none()
+    {
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        await Befriend(alex, blake);
+        await MarkFamilyStatus(alex, blake.UserId);
+        await MarkFamilyStatus(blake, alex.UserId); // accepted both ways
+
+        // Blake — who did not open the request — drops it.
+        (await blake.DeleteAsync($"/api/friends/{alex.UserId}/family")).StatusCode
+            .Should().Be(HttpStatusCode.NoContent);
+
+        FamilyOf((await Riders(alex)).Single()).Should().Be("none");
+        FamilyOf((await Riders(blake)).Single()).Should().Be("none");
+    }
+
+    [Fact]
+    public async Task Removing_a_friend_clears_family_and_re_adding_does_not_restore_it()
+    {
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        await Befriend(alex, blake);
+        await MarkFamilyStatus(alex, blake.UserId);
+        await MarkFamilyStatus(blake, alex.UserId);
+
+        await alex.DeleteAsync($"/api/friends/{blake.UserId}");
+        await Befriend(alex, blake);
+
+        FamilyOf((await Riders(alex)).Single()).Should().Be("none");
+    }
+
+    [Fact]
     public async Task Friend_stats_return_aggregates_and_never_rides()
     {
         var alex = await _factory.SignInAsync();
@@ -376,6 +442,19 @@ public class SocialTests(PostgresFixture postgres) : IAsyncLifetime
             .Should().Be(HttpStatusCode.NoContent);
         (await Inbox(blake)).GetProperty("routes").GetArrayLength().Should().Be(0);
     }
+
+    private static async Task<HttpResponseMessage> MarkFamily(SignedInClient client, Guid targetId) =>
+        await client.PostAsJsonAsync($"/api/friends/{targetId}/family", new { });
+
+    private static async Task<string> MarkFamilyStatus(SignedInClient client, Guid targetId)
+    {
+        var response = await MarkFamily(client, targetId);
+        response.EnsureSuccessStatusCode();
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return body.GetProperty("status").GetString()!;
+    }
+
+    private static string FamilyOf(JsonElement rider) => rider.GetProperty("family").GetString()!;
 
     private static async Task<string> Request(SignedInClient client, string username)
     {

@@ -30,12 +30,23 @@ public sealed class Friendship : Entity
     /// declined row stays invisible to the original requester.</summary>
     public Guid? DeclinedByUserId { get; private set; }
 
+    /// <summary>The family tier on top of the friendship. Symmetric and consented like the
+    /// friendship itself; <see cref="FamilyStatus.Accepted"/> is what the home-coordinate
+    /// sharing rule reads.</summary>
+    public FamilyStatus FamilyStatus { get; private set; }
+
+    /// <summary>Who asked for the family tier — the mirror of <see cref="RequestedByUserId"/>
+    /// for the family request, so "family pending" knows which direction it points. Null
+    /// whenever <see cref="FamilyStatus"/> is <see cref="FamilyStatus.None"/>.</summary>
+    public Guid? FamilyRequestedByUserId { get; private set; }
+
     private Friendship(Guid lowUserId, Guid highUserId, Guid requestedByUserId)
     {
         LowUserId = lowUserId;
         HighUserId = highUserId;
         RequestedByUserId = requestedByUserId;
         Status = FriendshipStatus.Pending;
+        FamilyStatus = FamilyStatus.None;
         CreatedAt = DateTimeOffset.UtcNow;
     }
 
@@ -83,7 +94,49 @@ public sealed class Friendship : Entity
         return Result.Ok();
     }
 
+    /// <summary>
+    /// Ask for — or, when the other rider already asked, agree to — the family tier. Mutual by
+    /// the same ask-back rule friendship uses: a request from the side that was already asked
+    /// accepts it rather than opening a second one. Only an accepted friendship can carry it.
+    /// </summary>
+    public Result MarkFamily(Guid requesterId)
+    {
+        if (Status != FriendshipStatus.Accepted)
+            return Result.Error(ValidationKeys.Friendship.NotFriends);
+
+        if (FamilyStatus == FamilyStatus.Accepted)
+            return Result.Ok();
+
+        // The other side already asked: this is the acceptance, not a second request.
+        if (FamilyStatus == FamilyStatus.Pending && FamilyRequestedByUserId != requesterId)
+        {
+            FamilyStatus = FamilyStatus.Accepted;
+            return Result.Ok();
+        }
+
+        // None, or a repeat from the same asker: (re)open the request.
+        FamilyStatus = FamilyStatus.Pending;
+        FamilyRequestedByUserId = requesterId;
+        return Result.Ok();
+    }
+
+    /// <summary>
+    /// Drop the family tier — either side may, whether it is still pending or already accepted,
+    /// so a rider is never held in a family relation they no longer want. Idempotent.
+    /// </summary>
+    public Result UnmarkFamily(Guid userId)
+    {
+        if (!Involves(userId))
+            return Result.Error(ValidationKeys.Friendship.NotFriends);
+
+        FamilyStatus = FamilyStatus.None;
+        FamilyRequestedByUserId = null;
+        return Result.Ok();
+    }
+
     public bool IsAccepted => Status == FriendshipStatus.Accepted;
+
+    public bool IsFamily => FamilyStatus == FamilyStatus.Accepted;
 
     public bool IsDeclined => Status == FriendshipStatus.Declined;
 
@@ -99,6 +152,7 @@ public sealed class Friendship : Entity
     private Friendship()
     {
         Status = FriendshipStatus.Pending;
+        FamilyStatus = FamilyStatus.None;
     }
 }
 
@@ -112,4 +166,8 @@ public interface IFriendshipRepository : IBaseRepository<Friendship>
     Task<List<Guid>> GetAcceptedFriendIdsAsync(Guid userId, CancellationToken cancellationToken);
 
     Task<bool> AreFriendsAsync(Guid a, Guid b, CancellationToken cancellationToken);
+
+    /// <summary>Whether the two riders have an accepted family tier — symmetric, so the order
+    /// of the arguments does not matter. What the home-coordinate sharing rule reads.</summary>
+    Task<bool> AreFamilyAsync(Guid a, Guid b, CancellationToken cancellationToken);
 }

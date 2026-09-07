@@ -126,4 +126,67 @@ public class FriendshipTests
 
         friendship.Decline(target).IsFailure.Should().BeFalse();
     }
+
+    private static (Guid A, Guid B, Friendship Friendship) AcceptedPair()
+    {
+        var a = Guid.CreateVersion7();
+        var b = Guid.CreateVersion7();
+        var (_, friendship) = Friendship.Request(a, b);
+        friendship.Accept(b);
+        return (a, b, friendship);
+    }
+
+    [Fact]
+    public void Family_cannot_be_marked_on_a_friendship_that_is_not_accepted()
+    {
+        var requester = Guid.CreateVersion7();
+        var (_, pending) = Friendship.Request(requester, Guid.CreateVersion7());
+
+        var result = pending.MarkFamily(requester);
+
+        result.IsFailure.Should().BeTrue();
+        result.HasError(ValidationKeys.Friendship.NotFriends).Should().BeTrue();
+        pending.IsFamily.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Marking_family_from_one_side_is_pending_until_the_other_asks_back()
+    {
+        var (a, b, friendship) = AcceptedPair();
+
+        friendship.MarkFamily(a);
+
+        friendship.FamilyStatus.Should().Be(FamilyStatus.Pending);
+        friendship.FamilyRequestedByUserId.Should().Be(a);
+        friendship.IsFamily.Should().BeFalse();
+
+        // The other side asking back is the acceptance, not a second request.
+        friendship.MarkFamily(b);
+        friendship.IsFamily.Should().BeTrue();
+    }
+
+    [Fact]
+    public void The_same_rider_asking_twice_stays_pending_on_their_side()
+    {
+        var (a, _, friendship) = AcceptedPair();
+        friendship.MarkFamily(a);
+
+        friendship.MarkFamily(a);
+
+        friendship.FamilyStatus.Should().Be(FamilyStatus.Pending);
+        friendship.FamilyRequestedByUserId.Should().Be(a);
+    }
+
+    [Fact]
+    public void Either_side_can_unmark_family_back_to_none()
+    {
+        var (a, b, friendship) = AcceptedPair();
+        friendship.MarkFamily(a);
+        friendship.MarkFamily(b); // accepted
+
+        friendship.UnmarkFamily(b).IsFailure.Should().BeFalse();
+
+        friendship.FamilyStatus.Should().Be(FamilyStatus.None);
+        friendship.FamilyRequestedByUserId.Should().BeNull();
+    }
 }

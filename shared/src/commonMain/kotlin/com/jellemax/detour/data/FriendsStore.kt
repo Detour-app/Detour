@@ -220,6 +220,17 @@ object FriendsStore {
     suspend fun remove(riderId: RiderId): Boolean =
         act { Friends.remove(riderId) } != null
 
+    /** Asks [riderId] to be family, or — when they already asked — agrees. Mutual, so it is
+     *  not family until both sides have asked; the reloaded list carries the new state. */
+    @Throws(Exception::class)
+    suspend fun markFamily(riderId: RiderId): Boolean =
+        act { Friends.markFamily(riderId) } != null
+
+    /** Drops the family tier with [riderId], from either side, pending or agreed. */
+    @Throws(Exception::class)
+    suspend fun unmarkFamily(riderId: RiderId): Boolean =
+        act { Friends.unmarkFamily(riderId) } != null
+
     /**
      * Runs a mutation, then reloads. Never throws for an ordinary failure:
      * the per-platform helpers this replaces never rethrew to their callers

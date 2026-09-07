@@ -74,6 +74,35 @@ public class FriendsController(ICurrentUser currentUser, IFriendshipService frie
         return NoContent();
     }
 
+    [HttpPost("{id:guid}/family")]
+    [EndpointSummary("Ask a friend to be family, or agree to their request.")]
+    [EndpointDescription(
+        "Mutual, like friendship itself: asking a rider who already asked you agrees instead of "
+        + "opening a second request. Only an accepted friend can be marked. The returned status "
+        + "is pending until both sides have asked, then accepted.")]
+    [ProducesResponseType<FriendshipStatusResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest, Description = "Not an accepted friend.")]
+    public async Task<ActionResult<FriendshipStatusResponse>> MarkFamily(Guid id, CancellationToken cancellationToken)
+    {
+        var user = await currentUser.GetAsync(cancellationToken);
+        var result = await friendships.MarkFamilyAsync(user, id, cancellationToken);
+        result.ThrowIfFailure();
+        return Ok(new FriendshipStatusResponse(result.Value.Wire()));
+    }
+
+    [HttpDelete("{id:guid}/family")]
+    [EndpointSummary("Drop the family tier with a friend.")]
+    [EndpointDescription(
+        "Either side may, whether the request is still pending or already agreed. The friendship "
+        + "itself is untouched.")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> UnmarkFamily(Guid id, CancellationToken cancellationToken)
+    {
+        var user = await currentUser.GetAsync(cancellationToken);
+        (await friendships.UnmarkFamilyAsync(user, id, cancellationToken)).ThrowIfFailure();
+        return NoContent();
+    }
+
     [HttpGet("stats")]
     [EndpointSummary("Friends' lifetime numbers and badges.")]
     [EndpointDescription(

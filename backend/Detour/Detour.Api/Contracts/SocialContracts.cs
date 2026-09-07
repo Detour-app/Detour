@@ -11,9 +11,15 @@ namespace Detour.Api.Contracts;
 /// </summary>
 public record FriendsResponse([Required] IReadOnlyList<FriendEntry> Riders);
 
+/// <summary>
+/// <c>Family</c> is the caller's view of the mutual family tier: <c>none</c>, <c>outgoing</c>
+/// (the caller asked), <c>incoming</c> (the other rider asked) or <c>family</c> (agreed). A
+/// client that predates the field ignores it and sees an ordinary friend.
+/// </summary>
 public record FriendEntry(
     [Required] RiderRef Rider,
-    [Required] string Relation);
+    [Required] string Relation,
+    [Required] string Family);
 
 /// <summary>
 /// <c>sharing</c> reports the caller's own setting, so a client can explain an empty result

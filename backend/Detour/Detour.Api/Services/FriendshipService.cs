@@ -18,6 +18,13 @@ public interface IFriendshipService
 
     Task<Result<RespondOutcome>> RespondAsync(User caller, Guid targetId, bool accept, CancellationToken cancellationToken);
 
+    /// <summary>Ask for — or, by ask-back, agree to — the family tier with an accepted friend.
+    /// Rejected for anyone who is not an accepted friend.</summary>
+    Task<Result<FamilyStatus>> MarkFamilyAsync(User caller, Guid targetId, CancellationToken cancellationToken);
+
+    /// <summary>Drop the family tier, from either side, whether pending or accepted.</summary>
+    Task<Result> UnmarkFamilyAsync(User caller, Guid targetId, CancellationToken cancellationToken);
+
     Task<Result> RemoveAsync(User caller, Guid targetId, CancellationToken cancellationToken);
 
     Task<Result<IReadOnlyList<FriendStatsResponse>>> GetFriendStatsAsync(Guid userId, CancellationToken cancellationToken);
@@ -61,10 +68,23 @@ public class FriendshipService(
                         ? FriendRelation.Outgoing
                         : FriendRelation.Incoming;
 
-            entries.Add(new FriendEntry(new RiderRef(otherId, name), relation.Wire()));
+            entries.Add(new FriendEntry(new RiderRef(otherId, name), relation.Wire(), FamilyWire(friendship, userId)));
         }
 
         return new FriendsResponse(entries);
+    }
+
+    /// <summary>The caller's view of the family tier, so the friends list carries it without a
+    /// second request per friend. Mutual and consented, so it reads like the friendship's own
+    /// relation: <c>outgoing</c> (I asked), <c>incoming</c> (they asked), <c>family</c>
+    /// (agreed) or <c>none</c>.</summary>
+    private static string FamilyWire(Friendship friendship, Guid userId)
+    {
+        if (friendship.FamilyStatus == FamilyStatus.Accepted)
+            return "family";
+        if (friendship.FamilyStatus == FamilyStatus.Pending)
+            return friendship.FamilyRequestedByUserId == userId ? "outgoing" : "incoming";
+        return "none";
     }
 
     public async Task<Result<FriendshipStatus>> RequestAsync(
@@ -129,6 +149,30 @@ public class FriendshipService(
 
         var result = friendship.Accept(caller.Id);
         return result.IsFailure ? result : Result.Ok(RespondOutcome.Accepted);
+    }
+
+    public async Task<Result<FamilyStatus>> MarkFamilyAsync(
+        User caller,
+        Guid targetId,
+        CancellationToken cancellationToken)
+    {
+        // GetForPairAsync tracks the row, so the transition is persisted on commit the same
+        // way RespondAsync's Accept is — no explicit save here.
+        var friendship = await friendships.GetForPairAsync(caller.Id, targetId, cancellationToken);
+        if (friendship is null)
+            return Result.Error(ValidationKeys.Friendship.NotFriends);
+
+        var result = friendship.MarkFamily(caller.Id);
+        return result.IsFailure ? result : Result.Ok(friendship.FamilyStatus);
+    }
+
+    public async Task<Result> UnmarkFamilyAsync(User caller, Guid targetId, CancellationToken cancellationToken)
+    {
+        var friendship = await friendships.GetForPairAsync(caller.Id, targetId, cancellationToken);
+        if (friendship is null)
+            return Result.Error(ValidationKeys.Friendship.NotFriends);
+
+        return friendship.UnmarkFamily(caller.Id);
     }
 
     public async Task<Result> RemoveAsync(User caller, Guid targetId, CancellationToken cancellationToken)
