@@ -69,6 +69,18 @@ object CircleEvents {
      * next real arrive, which is the same shape of gap [decidePlaceEvent]
      * already tolerates.
      *
+     * A second trigger reaches that identical gap with no process death at
+     * all: `GeofenceEvaluator.evaluate` flips its in-memory `PlaceState.inside`
+     * to `true` the moment dwell elapses, *before* `CirclePresence.tick` ever
+     * calls this function — so an ordinary failed POST here (offline, a 5xx,
+     * a timeout) leaves this memory without the key while the evaluator
+     * already believes it arrived. The evaluator can then never re-enter its
+     * arrive branch for that place; it only reaches depart next, which lands
+     * here with nothing to depart from and is suppressed the same way.
+     * [reconcilePlaceMemory] cannot rescue it either — it only walks keys
+     * already in the confirmed set, and this one never joined it. That single
+     * visit self-heals only after a full leave-and-return cycle.
+     *
      * Serialised by [gate], so a fence delivery and a tick cannot both pass
      * the check before either writes. They are separate coroutines in one
      * process — the receiver declares no `android:process` — so the race is
