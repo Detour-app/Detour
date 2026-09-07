@@ -212,6 +212,14 @@ object FriendsStore {
     suspend fun undoDecline(riderId: RiderId): Boolean =
         act { Friends.remove(riderId) } != null
 
+    /** Ends the friendship with [riderId]. The server also deletes every route the two
+     *  of them shared with each other as part of the same DELETE (BACKEND_SPEC.md §6),
+     *  so a screen must confirm first. Same unconditional delete as [undoDecline] — a
+     *  friendship has no other local state to clean up. */
+    @Throws(Exception::class)
+    suspend fun remove(riderId: RiderId): Boolean =
+        act { Friends.remove(riderId) } != null
+
     /**
      * Runs a mutation, then reloads. Never throws for an ordinary failure:
      * the per-platform helpers this replaces never rethrew to their callers

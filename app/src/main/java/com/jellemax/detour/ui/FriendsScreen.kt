@@ -27,6 +27,7 @@ import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.rounded.Check as AcceptIcon
 import androidx.compose.material.icons.rounded.Close as DeclineIcon
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -291,6 +292,11 @@ private fun FriendsSection(username: String) {
     // Declined list below. It asks first because that undo is the only way back.
     var declining by remember { mutableStateOf<FriendRequestRow?>(null) }
 
+    // Unfriending is destructive on both sides — the server drops every route the
+    // pair shared with each other along with the friendship (BACKEND_SPEC §6) —
+    // so it asks first, same as declining above.
+    var removing by remember { mutableStateOf<LeaderboardRow?>(null) }
+
     // Requests first — answering them is the one thing here that's actually
     // time-sensitive; the leaderboard just sits and waits to be looked at.
     if (board.incoming.isNotEmpty()) {
@@ -358,9 +364,27 @@ private fun FriendsSection(username: String) {
         ListCard {
             board.rows.forEachIndexed { i, row ->
                 if (i > 0) CardDivider()
-                LeaderboardRowItem(rank = i + 1, row = row)
+                LeaderboardRowItem(
+                    rank = i + 1,
+                    row = row,
+                    busy = storeState.busy,
+                    // Every non-me row is a friend — the leaderboard is the
+                    // friend list plus own, nothing else.
+                    onRemove = if (row.isMe) null else { { removing = row } },
+                )
             }
         }
+    }
+
+    removing?.let { row ->
+        ConfirmDialog(
+            title = "Remove ${row.username}?",
+            text = "You'll stop seeing each other's totals and badges, and any routes " +
+                "the two of you shared are deleted for both of you.",
+            confirmLabel = "Remove",
+            onConfirm = { scope.launch { FriendsStore.remove(row.riderId) } },
+            onDismiss = { removing = null },
+        )
     }
 }
 
@@ -424,7 +448,13 @@ private fun DeclinedRow(name: String, busy: Boolean, onUndo: () -> Unit) {
  * even when you're not in front.
  */
 @Composable
-private fun LeaderboardRowItem(rank: Int, row: LeaderboardRow) {
+private fun LeaderboardRowItem(
+    rank: Int,
+    row: LeaderboardRow,
+    busy: Boolean,
+    /** Null for the signed-in rider's own row — you can't unfriend yourself. */
+    onRemove: (() -> Unit)?,
+) {
     val highlight = row.isMe || rank == 1
     Row(
         Modifier
@@ -434,7 +464,14 @@ private fun LeaderboardRowItem(rank: Int, row: LeaderboardRow) {
                     Modifier.background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.18f))
                 } else Modifier
             )
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            // Trailing remove button carries its own 48dp target; drop the end
+            // inset to 4dp on those rows so the icon still lines up with the edge.
+            .padding(
+                start = 16.dp,
+                end = if (onRemove != null) 4.dp else 16.dp,
+                top = 12.dp,
+                bottom = 12.dp,
+            ),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -478,6 +515,15 @@ private fun LeaderboardRowItem(rank: Int, row: LeaderboardRow) {
             fontWeight = FontWeight.Bold,
             color = if (highlight) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
         )
+        if (onRemove != null) {
+            IconButton(enabled = !busy, onClick = onRemove) {
+                Icon(
+                    Icons.Rounded.DeleteOutline,
+                    contentDescription = "Remove ${row.username}",
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
     }
 }
 
