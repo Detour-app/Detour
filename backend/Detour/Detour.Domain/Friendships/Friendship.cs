@@ -26,6 +26,10 @@ public sealed class Friendship : Entity
 
     public DateTimeOffset? AcceptedAt { get; private set; }
 
+    /// <summary>Who declined it — the only rider allowed to undo it, and the reason a
+    /// declined row stays invisible to the original requester.</summary>
+    public Guid? DeclinedByUserId { get; private set; }
+
     private Friendship(Guid lowUserId, Guid highUserId, Guid requestedByUserId)
     {
         LowUserId = lowUserId;
@@ -61,7 +65,27 @@ public sealed class Friendship : Entity
         return Result.Ok();
     }
 
+    /// <summary>
+    /// Only the side that did not send the request may decline it — the requester's own
+    /// undo is <c>RemoveAsync</c>, which cancels outright rather than leaving a durable
+    /// decline behind.
+    /// </summary>
+    public Result Decline(Guid declinerId)
+    {
+        if (Status == FriendshipStatus.Declined)
+            return Result.Ok();
+
+        if (declinerId == RequestedByUserId)
+            return Result.Error(ValidationKeys.Friendship.CannotDeclineOwnRequest);
+
+        Status = FriendshipStatus.Declined;
+        DeclinedByUserId = declinerId;
+        return Result.Ok();
+    }
+
     public bool IsAccepted => Status == FriendshipStatus.Accepted;
+
+    public bool IsDeclined => Status == FriendshipStatus.Declined;
 
     public bool Involves(Guid userId) => LowUserId == userId || HighUserId == userId;
 

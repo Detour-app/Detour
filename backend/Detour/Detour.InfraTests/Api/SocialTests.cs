@@ -66,7 +66,7 @@ public class SocialTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Declining_removes_the_request()
+    public async Task Declining_hides_the_request_from_the_requester_but_not_the_decliner()
     {
         var alex = await _factory.SignInAsync();
         var blake = await _factory.SignInAsync();
@@ -76,8 +76,58 @@ public class SocialTests(PostgresFixture postgres) : IAsyncLifetime
             $"/api/friends/requests/{alex.UserId}/respond", new { accept = false });
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        (await Riders(alex)).Should().BeEmpty();
-        (await Riders(blake)).Should().BeEmpty();
+        (await Riders(alex)).Should().BeEmpty("a declined request must not tip off the requester");
+        (await Riders(blake)).Should().ContainSingle()
+            .Which.GetProperty("relation").GetString().Should().Be("declined");
+    }
+
+    [Fact]
+    public async Task A_repeat_request_to_a_declined_rider_is_refused_indistinguishably_from_a_stranger()
+    {
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        await Request(alex, blake.Username);
+        await blake.PostAsJsonAsync($"/api/friends/requests/{alex.UserId}/respond", new { accept = false });
+
+        var repeat = await alex.PostAsJsonAsync("/api/friends/requests", new { username = blake.Username });
+        var unknown = await alex.PostAsJsonAsync("/api/friends/requests", new { username = "nobody-by-this-name" });
+
+        repeat.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        repeat.StatusCode.Should().Be(unknown.StatusCode);
+        (await Riders(blake)).Should().ContainSingle(
+            "the refused retry must not have touched the declined row");
+    }
+
+    [Fact]
+    public async Task Undoing_a_decline_lets_the_next_request_through_normally()
+    {
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        await Request(alex, blake.Username);
+        await blake.PostAsJsonAsync($"/api/friends/requests/{alex.UserId}/respond", new { accept = false });
+
+        (await blake.DeleteAsync($"/api/friends/{alex.UserId}")).StatusCode
+            .Should().Be(HttpStatusCode.NoContent);
+
+        var status = await Request(alex, blake.Username);
+        status.Should().Be("pending");
+        (await Riders(blake)).Should().ContainSingle()
+            .Which.GetProperty("relation").GetString().Should().Be("incoming");
+    }
+
+    [Fact]
+    public async Task The_decliner_asking_back_settles_the_friendship_immediately()
+    {
+        var alex = await _factory.SignInAsync();
+        var blake = await _factory.SignInAsync();
+        await Request(alex, blake.Username);
+        await blake.PostAsJsonAsync($"/api/friends/requests/{alex.UserId}/respond", new { accept = false });
+
+        var status = await Request(blake, alex.Username);
+
+        status.Should().Be("accepted");
+        (await Riders(alex)).Should().ContainSingle()
+            .Which.GetProperty("relation").GetString().Should().Be("friend");
     }
 
     [Fact]

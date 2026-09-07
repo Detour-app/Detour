@@ -286,8 +286,9 @@ private fun FriendsSection(username: String) {
         friendsBoardStateFrom(storeState.leaderboard, storeState.own, loaded)
     }
 
-    // Declining deletes the request outright — the server keeps no trace of a
-    // declined one — so it asks before it does.
+    // Declining is durable — the pair stays on record (invisible to them), and
+    // a repeat request from either side is refused until it's undone from the
+    // Declined list below. It asks first because that undo is the only way back.
     var declining by remember { mutableStateOf<FriendRequestRow?>(null) }
 
     // Requests first — answering them is the one thing here that's actually
@@ -310,8 +311,8 @@ private fun FriendsSection(username: String) {
     declining?.let { rider ->
         ConfirmDialog(
             title = "Decline ${rider.username}?",
-            text = "The request disappears from both sides. Becoming friends later means " +
-                "one of you asking again.",
+            text = "The request goes away and they can't ask again. It moves to Declined " +
+                "below — undo there to let their requests through once more.",
             confirmLabel = "Decline",
             onConfirm = { scope.launch { FriendsStore.respond(rider.id, false) } },
             onDismiss = { declining = null },
@@ -324,6 +325,21 @@ private fun FriendsSection(username: String) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+
+    // Only ever populated for the rider who declined — see FriendLists.declined's doc.
+    // A repeat request from the other side is refused silently, so this is the only
+    // place either of them sees this pair again until it's undone.
+    if (loaded.declined.isNotEmpty()) {
+        Text("Declined", style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        for (rider in loaded.declined) {
+            DeclinedRow(
+                name = rider.username,
+                busy = storeState.busy,
+                onUndo = { scope.launch { FriendsStore.undoDecline(rider.id) } },
+            )
+        }
     }
 
     Text("Leaderboard", style = MaterialTheme.typography.titleSmall,
@@ -376,6 +392,22 @@ private fun RequestRow(name: String, busy: Boolean, onAccept: () -> Unit, onDecl
                 enabled = !busy,
                 onClick = onDecline,
             ) { Icon(Icons.Rounded.DeclineIcon, contentDescription = "Decline $name", Modifier.size(16.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun DeclinedRow(name: String, busy: Boolean, onUndo: () -> Unit) {
+    Card {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, top = 4.dp, bottom = 4.dp, end = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(name, style = MaterialTheme.typography.bodyLarge)
+            TextButton(enabled = !busy, onClick = onUndo) { Text("Undo") }
         }
     }
 }

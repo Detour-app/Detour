@@ -98,6 +98,7 @@ struct FriendsScreen: View {
                 Section { ProgressView() }
             } else {
                 requestsSection
+                declinedSection
                 leaderboardSection
                 addFriendSection
                 convoysSection
@@ -139,6 +140,29 @@ struct FriendsScreen: View {
                         }
                         .buttonStyle(.borderless)
                         .tint(.secondary)
+                        .disabled(model.friendsState.busy || signingOut)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Only ever populated for the rider who declined — see `FriendLists.declined`'s
+    /// doc in Social.kt. A repeat request from the other side is refused silently, so
+    /// this is the only place either of them sees this pair again until it's undone.
+    @ViewBuilder
+    private var declinedSection: some View {
+        let declined = model.friendsState.lists?.declined ?? []
+        if !declined.isEmpty {
+            Section("Declined") {
+                ForEach(declined, id: \.idValue) { rider in
+                    HStack {
+                        Text(rider.username)
+                        Spacer()
+                        Button("Undo") {
+                            Task { _ = try? await FriendsStore.shared.undoDecline(riderId: rider.idValue) }
+                        }
+                        .buttonStyle(.borderless)
                         .disabled(model.friendsState.busy || signingOut)
                     }
                 }

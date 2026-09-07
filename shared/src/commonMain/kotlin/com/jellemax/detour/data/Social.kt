@@ -74,6 +74,10 @@ data class FriendLists(
     val friends: List<RiderRef>,
     val incoming: List<RiderRef>,
     val outgoing: List<RiderRef>,
+    /** Riders whose request this account declined. Never the other way round — the rider
+     *  who was declined gets nothing back for that pair, so a repeat request can't be told
+     *  apart from a stranger who never asked. See BACKEND_SPEC.md §6. */
+    val declined: List<RiderRef> = emptyList(),
 )
 
 /** The caller's own account, as `GET /api/me` returns it. */
@@ -92,7 +96,8 @@ object Friends {
     // @Throws(Exception::class) on [lists], [request], [respond] and [stats]
     // below, all called directly from iosApp/Detour: see the doc on
     // [SyncClient.sync] for why `Exception` and not just `IOException`.
-    // [remove] is not annotated — nothing outside this module calls it.
+    // [remove] is not annotated — every call site goes through [FriendsStore.undoDecline]
+    // or a platform's own remove flow, both of which already catch broadly.
     @Throws(Exception::class)
     suspend fun lists(): FriendLists {
         val entries = Api.requestJson("GET", "/friends").optArray("riders")?.objects().orEmpty()
@@ -104,6 +109,7 @@ object Friends {
             friends = byRelation["friend"].orEmpty(),
             incoming = byRelation["incoming"].orEmpty(),
             outgoing = byRelation["outgoing"].orEmpty(),
+            declined = byRelation["declined"].orEmpty(),
         )
     }
 
