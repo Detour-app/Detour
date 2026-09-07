@@ -2,6 +2,7 @@ package com.jellemax.detour.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -505,6 +506,25 @@ class NavEngineTest {
         // app went to sleep.
         repeat(16) { a = NavEngine.advance(long, LatLon(50.19, 3.0), a) }
         assertEquals(0.95, a.fraction, absoluteTolerance = 0.02)
+    }
+
+    @Test
+    fun advanceSaysWhenThePositionIsBeyondItsWindow() {
+        val long = (0..200).map { LatLon(50.0 + it * 0.001, 3.0) }
+        val start = NavEngine.advance(long, LatLon(50.0, 3.0), null)
+        // Far beyond: the snap clamps at the window's end and says so, and the
+        // fresh search the marker loop does next lands where the rider is.
+        val clamped = NavEngine.advance(long, LatLon(50.19, 3.0), start)
+        assertTrue(clamped.beyondWindow)
+        val fresh = NavEngine.advance(long, LatLon(50.19, 3.0), null)
+        assertFalse(fresh.beyondWindow)
+        assertEquals(0.95, fresh.fraction, absoluteTolerance = 0.02)
+        // Inside the window: a snap, not a clamp.
+        assertFalse(NavEngine.advance(long, LatLon(50.005, 3.0), start).beyondWindow)
+        // Past the end of the line with the window reaching it: the clamp is
+        // the destination, not a window running short.
+        val nearEnd = NavEngine.advance(long, LatLon(50.195, 3.0), null)
+        assertFalse(NavEngine.advance(long, LatLon(50.3, 3.0), nearEnd).beyondWindow)
     }
 
     @Test

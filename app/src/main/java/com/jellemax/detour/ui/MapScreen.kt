@@ -1485,7 +1485,11 @@ fun MapScreen(
                 // other leg where the route rides its own tarmac twice. The first
                 // frame of a drive pays one full search.
                 val a = NavEngine.advance(r.polyline, here, along)
-                along = a
+                // Beyond the window — a resume, a jumped fix — drop it, so the
+                // next frame searches the whole line once instead of walking
+                // the seam forward a window a frame, each of those frames
+                // pushing two route-sized GeoJSON sources.
+                along = if (a.beyondWindow) null else a
                 overlays.setDrivenFraction(a.fraction, a.at)
             }
         }

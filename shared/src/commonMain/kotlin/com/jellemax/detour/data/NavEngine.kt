@@ -204,6 +204,14 @@ object NavEngine {
          * ahead of the rider, dimming road not yet ridden.
          */
         val indexMeters: Double = 0.0,
+        /**
+         * The window ran out before [pos] did: [at] is the far end of the
+         * segments [advance] searched, not the nearest point to the rider.
+         * The marker loop hands `null` back as the next `from`, so the frame
+         * after searches the whole line once — one global search, rather than
+         * one recut of two route-sized GeoJSON sources per window of gap.
+         */
+        val beyondWindow: Boolean = false,
     ) {
         /** [meters] as a share of the whole line, 0..1. */
         val fraction: Double
@@ -222,9 +230,10 @@ object NavEngine {
      * started on.
      *
      * When [pos] is beyond the window — the app was in the background, or a fix
-     * jumped — the snap clamps to the far end of the window and the next frame
-     * carries on from there, closing a kilometre of gap in a few frames rather
-     * than needing a full search. Pass a null [from] to search the whole line,
+     * jumped — the snap clamps to the far end of the window and says so in
+     * [Along.beyondWindow]. A caller that carries on from the clamp closes the
+     * gap a window a frame; the marker loop drops it instead and pays one full
+     * search on the next frame. Pass a null [from] to search the whole line,
      * which is what seeds the first frame of a drive.
      */
     fun advance(line: List<LatLon>, pos: LatLon, from: Along?): Along {
@@ -241,6 +250,7 @@ object NavEngine {
         val mPerLat = 111_320.0
         val mPerLon = 111_320.0 * cos(pos.lat * PI / 180.0)
         var bestDist = Double.MAX_VALUE
+        var bestT = 0.0
         var best = Along(first, line[first], cum, total, cum)
         for (i in first until last) {
             val ax = (line[i].lon - pos.lon) * mPerLon
@@ -254,6 +264,7 @@ object NavEngine {
             val segment = segmentMeters(line[i], line[i + 1])
             if (d < bestDist) {
                 bestDist = d
+                bestT = t
                 best = Along(
                     index = i,
                     at = LatLon(
@@ -266,6 +277,13 @@ object NavEngine {
                 )
             }
             cum += segment
+        }
+        // The far end of a window that stops short of the line's end is a
+        // clamp, not a snap: the rider is further along than it could see. A
+        // window that reaches the end clamps there because the rider is past
+        // the destination, which a full search would only confirm.
+        if (windowed && last < line.size - 1 && best.index == last - 1 && bestT >= 1.0) {
+            best = best.copy(beyondWindow = true)
         }
         return best
     }
