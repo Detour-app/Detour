@@ -107,6 +107,47 @@ object UpdateDownloader {
     }
 
     /**
+     * The already-downloaded, still-valid APK for [update], or null.
+     *
+     * For the reconcile in `UpdateChecker.performCheck` after a process
+     * restart: [UpdateState] is in-memory and starts empty, so a check that
+     * runs then re-offers **Download** for a verified file a previous run
+     * already fetched (#289). "A file exists under the promised name" is
+     * weaker evidence than the in-memory `Downloaded` it stands in for, and
+     * this ends in an APK handed to the package installer (CWE-494) — so the
+     * whole file is re-hashed against the manifest's digest here, the same
+     * check [verify] runs after a download. A file that fails is deleted and
+     * null returned; the caller then offers the download afresh.
+     *
+     * A manifest-less release (blank [PendingUpdate.sha256]) has nothing to
+     * re-check, so a bare filename match is all there is — too little to offer
+     * an install across a restart. It returns null and the file is left where
+     * it is for the next attempt to overwrite.
+     */
+    fun verifiedExisting(context: Context, update: UpdateClient.PendingUpdate): File? =
+        verifiedExisting(dir(context), update)
+
+    internal fun verifiedExisting(dir: File, update: UpdateClient.PendingUpdate): File? {
+        if (update.sha256.isBlank()) return null
+        val paths = UpdatePartFiles.resolve(dir, update.asset) ?: return null
+        if (!paths.target.exists()) return null
+
+        val digest = MessageDigest.getInstance("SHA-256")
+        val read = runCatching {
+            paths.target.inputStream().use { s -> readChunks(s) { buf, n -> digest.update(buf, 0, n) } }
+            paths.target.length()
+        }.getOrElse {
+            log("re-hashing the downloaded APK failed", it)
+            return null
+        }
+        if (!verify(digest, update, read)) {
+            paths.target.delete()
+            return null
+        }
+        return paths.target
+    }
+
+    /**
      * One download attempt for [update], resuming from a partial when one is on
      * disk and provably the same artefact.
      *

@@ -257,7 +257,15 @@ object UpdateChecker {
             }
             UpdateDownloader.prune(context, keep = update.asset)
             if (UpdateState.current()?.version != update.version) {
-                UpdateState.set(UpdateStatus.Available(update))
+                // current() is null after a process restart, so the in-memory
+                // state cannot tell us a previous run already downloaded this.
+                // The file can — re-hashed, not taken on the strength of its
+                // name (#289).
+                val onDisk = UpdateDownloader.verifiedExisting(context, update)
+                UpdateState.set(
+                    if (onDisk != null) UpdateStatus.Downloaded(update, onDisk.path)
+                    else UpdateStatus.Available(update),
+                )
             }
             if (notify) UpdateNotification.notifyOnce(context, update.version)
             Outcome.Found(update.version)
