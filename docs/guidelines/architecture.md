@@ -45,7 +45,7 @@ app/src/main/java/com/jellemax/detour/
 └── data/       Android-side data that has not moved yet     ← audit these
 ```
 
-Rule of thumb, unchanged from `CONTRIBUTING.md`: **if a new non-UI file is not
+Rule of thumb, unchanged from `docs/DEVELOPERS.md`: **if a new non-UI file is not
 in `commonMain`, you must be able to name what blocks it, in a comment, at the
 call site.** "Needs `Context`", "needs `withFrameNanos`", "needs
 `MotionEvent`" are reasons. "It was easier here" is not.

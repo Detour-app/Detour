@@ -22,7 +22,7 @@ review, which is why the conventions above are worth stating.
 
 ### 7.1 Comments
 
-Why-not-what (`CONTRIBUTING.md:239-247`). The house style is a KDoc that
+Why-not-what (`CONTRIBUTING.md` § "Code style"). The house style is a KDoc that
 explains a decision — why this shape, why not the obvious one, which bug it
 prevents. A comment that says *"same fix as X"* or *"identical to the Android
 service"* is a **promise, not an enforcement mechanism**; when you write one,

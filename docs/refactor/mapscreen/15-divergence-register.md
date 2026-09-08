@@ -730,7 +730,7 @@ guard let url = URL(string: BuildDefaults.shared.liveUrl),
 
 `BuildDefaults.liveUrl` is the `DetourLiveURL` Info.plist value. **An iOS install pointed at a
 self-hosted server with no baked-in live URL can never join a convoy**, where Android derives
-`wss://<host>/live` from the same single `server.url` that `CONTRIBUTING.md:105-110` says covers
+`wss://<host>/live` from the same single `server.url` that `docs/DEVELOPERS.md` § "Baking addresses into a build" says covers
 all four services. Both surfaces do report an error, so this is a capability gap, not a silent
 failure. (Kotlin refuses to open the socket at all; iOS opens, fails, and backs off to one attempt
 per 30 s. Same user-visible outcome.)

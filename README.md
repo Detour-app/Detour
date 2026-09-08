@@ -10,665 +10,259 @@ Don't know where to drive? Set a radius, spin, get a random point on a real road
   </tr>
 </table>
 
-<sub>Every screenshot in this README was taken on a phone running a throwaway
-profile: synthetic trips, invented saved places and a mocked GPS position around
-Ghent. Nothing in them is a real location.</sub>
+<sub>Screenshots were taken on a phone running a throwaway profile: synthetic
+trips, invented saved places and a mocked GPS position around Ghent. Nothing in
+them is a real location.</sub>
 
-## Contents
+## Start here
 
-- [Install](#install)
-- [First run](#first-run)
-- [The map screen](#the-map-screen)
-- [Spinning a destination](#spinning-a-destination)
-- [Getting there](#getting-there)
-- [Recording a ride](#recording-a-ride)
-- [Fog of war](#fog-of-war)
-- [Search and saved places](#search-and-saved-places)
-- [Routes](#routes)
-- [You: history, badges, friends](#you-history-badges-friends)
-- [Settings reference](#settings-reference)
-- [On the car screen](#on-the-car-screen)
-- [On iPhone](#on-iphone)
-- [Stack](#stack)
-- [Build](#build)
-- [Self-hosting the server](#self-hosting-the-server)
-  - [Pointing the app at it](#pointing-the-app-at-it)
-  - [What leaves your device](#what-leaves-your-device)
-- [Attribution](#attribution)
-
-Building on it, or changing it, starts at [CONTRIBUTING.md](CONTRIBUTING.md);
-everything else lives in [docs/](docs/README.md).
-
-## Install
-
-Grab the APK from the latest release and install it, or build it yourself (see
-[Build](#build)). Min SDK 26 (Android 8.0).
-
-There is an iPhone app too, sharing the same core — it has no release download,
-because putting an iOS build on a phone needs a paid Apple Developer
-certificate. See [On iPhone](#on-iphone). The screenshots below are all Android.
-
-Releases from CI are signed with a key that a local build does not have, so you
-cannot install a debug build over a release one (or the other way round) without
-uninstalling first — which deletes your trips and fog. Stick to one source. The
-Play build counts as a third source: Play App Signing re-signs it with its own
-key, so it can't be updated by a GitHub APK either.
-
-## First run
-
-1. **Grant location.** Precise location is required: the whole app is "where am
-   I, and where could I go from here". Background location is only needed if you
-   want trips to keep recording with the screen off.
-2. **Allow notifications** if you want the ride-tracking notification and the
-   speed-camera chime.
-3. **Pick a mode** in the bar at the bottom — moto or car. It sets
-   the radius range and which roads a spin is allowed to land on.
-4. **Spin.** The dice button picks a random point within your radius and offers
-   three routed candidates.
-5. **Go.** Navigate in the app, or hand the destination to Google Maps, Waze or
-   anything else installed.
-
-Everything above works with no account and no server. Sign-in only buys you
-sync, friends, convoys, circles and a shared fog of war — and it needs a server
-you run, since the published APKs deliberately ship with none baked in. Point
-Settings → Servers & sync at your own, including the sign-in realm — nothing
-here needs a custom build. See [Pointing the app at it](#pointing-the-app-at-it).
-
-## The map screen
-
-<img src="docs/screenshots/map.png" width="260" align="right" alt="Map screen with fog and shortcut chips">
-
-- **Search pill** (top) — address and place search. See
-  [Search and saved places](#search-and-saved-places).
-- **Avatar** (top right of the pill) — opens **You**: history, badges, friends,
-  saved places, settings.
-- **Crosshair** — follow mode. On, the map tracks you and rotates to your
-  heading; tap it off (or pan the map) to look around freely, tap again to snap
-  back.
-- **Layers** — the fog-of-war toggle.
-- **Shortcut chips** — one tap sets a saved place as the destination. A **Save
-  pin** chip appears whenever there's a destination on the map that isn't saved
-  yet.
-- **Spin dock** (bottom) — current mode, radius and direction; the dice button;
-  and the navigate button. Tap the left half to expand it into the full spin
-  sheet.
-- **Mode bar** — moto, car.
-
-While you are moving, a speed dial appears above the dock, with the posted limit
-next to it when the road has one.
-
-<br clear="right">
-
-## Spinning a destination
-
-<img src="docs/screenshots/spin.png" width="260" align="right" alt="Spin sheet">
-
-Expand the dock to get the full sheet.
-
-**Destination type** — what the spin should aim at:
-
-| Type | What it lands on |
+| You are | Read |
 | --- | --- |
-| Road | Any road the mode is allowed on — the default lucky-dip |
-| Viewpoint | OSM `tourism=viewpoint` |
-| Food & drink | Cafés, restaurants, pubs, bars, ice cream |
-| Sight | Castles, ruins, monuments, forts, memorials, attractions |
-
-**Radius** — how far out to look, as the crow flies. Each mode has its own range
-and picks road types to match:
-
-| Mode | Radius | Default | Roads it uses |
-| --- | --- | --- | --- |
-| Moto | 30–400 km | 120 km | The rural network — see round trips below |
-| Car | 5–100 km | 25 km | Everything up to and including motorways |
-
-**Min distance** — a floor, so a 100 km car spin can't drop you three streets
-away. Leave it at *Off* for a true random draw.
-
-**Direction** — bias the draw towards one of the eight compass sectors, or
-*Any*. Useful when the coast is one way and you'd rather not be sent into it.
-
-**Spin** fires the draw. It samples a random sub-area of your circle rather than
-downloading every road inside it, which is what keeps a 400 km moto spin quick.
-Tap it again while it's running to cancel.
-
-The draw is fog-aware: it biases destinations towards ground your fog of war
-hasn't uncovered yet, so spinning tends to send you somewhere new rather than
-down the road you take every day.
-
-<br clear="right">
-
-<img src="docs/screenshots/candidates.png" width="260" align="right" alt="Three routed candidates">
-
-A spin returns **three candidates**, each routed, with distance and drive time.
-They are all drawn on the map as lettered pins — tap a pin or a row to commit to
-one. **Reroll** draws three new ones; **Cancel** drops them and leaves the map
-as it was.
-
-Picking one draws the route and leaves the destination pinned. From there you
-can save it as a shortcut with the **Save pin** chip.
-
-<br clear="right">
-
-### Moto round trips
-
-Moto mode doesn't hand you a destination — it builds a **loop**. The slider sets
-total trip length, and the spin returns a ride out through the curviest roads
-around you and back to where you started.
-
-Curviness is junction-aware: turn radius is estimated per vertex triple from the
-road geometry, and vertices that sit at intersections are excluded — so a left
-turn at a crossroads doesn't score as a "curve", only sweeping bends within a
-road do. The loop is handed to Google Maps as a multi-waypoint route, or driven
-in-app like any other route.
-
-With a routing server configured, the loop is a single request that comes back
-following real roads. Without one, the app plans an approximate loop from
-Overpass data and says so.
-
-## Getting there
-
-<img src="docs/screenshots/handoff.png" width="260" align="right" alt="Navigation hand-off menu">
-
-The navigate button offers:
-
-- **Navigate in app** — turn-by-turn inside Detour, routed by your own
-  GraphHopper instance (configured under Settings → Servers & sync). Without a
-  routing server configured, this option isn't available.
-- **Google Maps** / **Waze** / **Other app** — hand the destination off. For a
-  moto round trip, Google Maps gets the whole waypoint chain.
-
-Pick one and the app remembers it: the button goes straight there next time.
-Long-press it to bring the chooser back, or clear the choice under Settings →
-Navigation.
-
-<br clear="right">
-
-<img src="docs/screenshots/navigate.png" width="260" align="right" alt="In-app navigation">
-
-In-app navigation shows the next maneuver and the distance to it, a **then**
-pill for the maneuver after that (so a turn-then-turn doesn't ambush you), and a
-bottom bar with remaining distance, remaining time, arrival clock time and a
-progress track. Leave the line and it reroutes; while it's off the route the bar
-says so. The road behind you fades as you drive it, so what's left of the route
-is the part that stands out — in whichever colour you set under Settings →
-Appearance & map → Route line.
-
-Your speed sits bottom-right with the posted limit beside it, and goes red when
-you're over. **Speed cameras** — fixed cameras and Belgian *trajectcontrole*
-sections, both from OpenStreetMap — are drawn on the map; a chime warns when one
-is ahead and you're over the limit. Inside an average-speed section, the running
-average for that section is shown next to your live speed, since that is the
-number the camera pair actually judges.
-
-Navigation can avoid motorways or avoid narrow rural lanes — see
-[Settings reference](#settings-reference).
-
-<br clear="right">
-
-## Recording a ride
-
-<img src="docs/screenshots/speed.png" width="260" align="right" alt="Speed dial while driving">
-
-Two ways in:
-
-- **Automatically.** With *Auto-detect drives* on (the default), a sustained
-  driving pace starts a trip on its own and backdates it to when the drive
-  really began. It ends itself when you stop for good, or when you come back to
-  where you started after a real ride. A brief stop — traffic light, fuel — does
-  not end it.
-- **Manually.** *Track moto / car* in the spin sheet starts one immediately.
-  The red **End trip** button on the map ends whichever trip is running.
-
-A live card shows elapsed time, distance, top speed and — depending on the
-vehicle — max lean angle and cornering g. On a moto both are recorded; in a car
-only g.
-
-**Vehicle auto-detect**: assign paired Bluetooth devices to a vehicle (an
-intercom to the moto, the car's infotainment to the car) and a trip logs under
-that vehicle whenever the device is connected. With nothing connected, a trip
-that never picks up real driving pace is dropped rather than saved. These are
-Bluetooth Classic bonds, so there's no scanning and no location permission
-involved — only connect/disconnect.
-
-If a trip is filed under the wrong vehicle, fix it afterwards from the history
-list; false-positive detections can be deleted outright.
-
-<br clear="right">
-
-## Fog of war
-
-<table>
-  <tr>
-    <td align="center"><img src="docs/screenshots/fog.png" width="240" alt="Fogged map"><br><sub>Unexplored ground stays covered</sub></td>
-    <td align="center"><img src="docs/screenshots/fog-toggle.png" width="240" alt="Fog of war toggle"><br><sub>Layers → Fog of war</sub></td>
-  </tr>
-</table>
-
-Everywhere you have been is uncovered on the map, permanently. Everywhere else
-is under a scrim. The reveal radius around your track is configurable (200 m by
-default) under Settings → Fog of war, and the whole overlay can be switched off
-from the layers button when you just want to read the map.
-
-*Reset explored area* wipes it and starts you back at nothing.
-
-With **Share fog with friends** on, accepted friends' explored ground is drawn
-alongside yours, and yours alongside theirs. It's off by default and strictly
-reciprocal: the server only hands you a friend's traces while you are sharing
-your own.
-
-## Search and saved places
-
-<table>
-  <tr>
-    <td align="center"><img src="docs/screenshots/search.png" width="240" alt="Place search"><br><sub>Search</sub></td>
-    <td align="center"><img src="docs/screenshots/places.png" width="240" alt="Saved places"><br><sub>Saved places</sub></td>
-  </tr>
-</table>
-
-Search runs against Photon and streams suggestions as you type — no search
-button. Recent picks stay on top of the list, then live results, ranked with
-nearby hits first. Tapping a result drops it as the destination and moves the
-map there.
-
-Saved places are named shortcuts. Add one from the **Save pin** chip after
-dropping or spinning a destination, or with **Add place** on the Saved places
-screen. They show up as chips over the map; one tap makes a place the current
-destination.
-
-## Routes
-
-A spin gives you one destination. A **route** is the other way round: stops you
-chose, in the order you want them, kept for later. **You → Routes** lists them,
-each with its stop count, distance and time.
-
-- **Build one** by tapping the map to append stops, or searching for them, then
-  reorder or drop any of them and pick a mode. The routing server strings them
-  together.
-- **Ride it** in the app, or hand the whole chain to Google Maps (up to nine via
-  points; beyond that the extras are dropped rather than silently reordered).
-- **Import and export GPX.** Export writes the routed track; import reads a GPX
-  from anywhere, waypoints-only files included — those get routed on first use.
-- **Share one with a friend.** It lands in their Routes list marked with your
-  name. Un-friending someone deletes every route shared between you, in both
-  directions.
-
-Unlike trips and fog, routes are **not** part of sync: they live on the phone,
-and a shared one only leaves it when you send it to someone. Export the ones you
-want to keep before a reinstall.
-
-## You: history, badges, friends
-
-<table>
-  <tr>
-    <td align="center"><img src="docs/screenshots/you.png" width="240" alt="You screen"><br><sub>You</sub></td>
-    <td align="center"><img src="docs/screenshots/history.png" width="240" alt="Trip history"><br><sub>History</sub></td>
-    <td align="center"><img src="docs/screenshots/badges.png" width="240" alt="Badges"><br><sub>Badges</sub></td>
-  </tr>
-</table>
-
-The avatar on the map opens **You**: lifetime distance, ride count,
-municipalities visited and badges earned, with everything else hanging off it.
-
-**Trip history** lists every ride, newest first, grouped by month with a monthly
-total. Each row has a thumbnail of the route's shape, duration, distance,
-average and top speed, plus peak lean and g where the mode records them. The ⋮
-menu on a row lets you **change vehicle** (for a misclassified trip) or
-**delete** it.
-
-**Badges** track five categories — Distance, Top speed, Single ride, Places and
-Coverage — with progress shown on the ones you haven't earned yet. Coverage is
-how much of a municipality's road network you've actually driven, resolved from
-OSM `admin_level=8` boundaries; "Places" counts municipalities entered at all.
-
-**Friends** needs an account on a sync server. Once signed in you can add
-friends and compare totals, rides and badges on a leaderboard. Friends never see
-your trips or your map — only totals and badges, plus your fog if you have
-opted into sharing it.
-
-**Convoys** are for riding together: everyone in one sees the others move on
-the map in real time, and can share a spin so the group votes on where to go.
-A convoy is per-ride — it exists while you're in it and is gone when the last
-member leaves. *Push-to-talk is currently off* (see
-[Self-hosting the server](#self-hosting-the-server)); everything else in a
-convoy works.
-
-**Circles** are the long-lived counterpart: family or roommates rather than a
-ride. A circle doesn't end when you stop driving, never carries voice, and
-shows each member's last known position — posted every couple of minutes, so it
-reads as "last seen", not a live trail. Share a saved place into one and
-everyone sees arrivals and departures there; the geofence is worked out on your
-own phone, so the stream of fixes behind it never leaves it. Sharing is per
-person per circle and pausable at any time.
-
-Both are invite-only and only ever from someone you're already friends with.
-[docs/CIRCLES_AND_CONVOYS.md](docs/CIRCLES_AND_CONVOYS.md) covers how the two
-share one mechanism, and documents the live protocol behind them.
-
-<img src="docs/screenshots/account.png" width="260" align="right" alt="Account screen">
-
-**Signing in happens in a browser, on your server's own sign-in page.** Tapping
-sign in opens a Custom Tab at the server's identity provider (Keycloak); you
-enter your details there and it hands the app back a token. Detour never sees
-your password, and there is no password form, no registration form and no
-invite-code box in the app — accounts, resets and who may register all live in
-the realm's own pages. See
-[Self-hosting the server](#self-hosting-the-server).
-
-The same account drives trip/trace sync, so a reinstall restores your history
-and fog from the server.
-
-<br clear="right">
-
-## Settings reference
-
-<table>
-  <tr>
-    <td align="center"><img src="docs/screenshots/settings.png" width="240" alt="Settings"><br><sub>Settings</sub></td>
-    <td align="center"><img src="docs/screenshots/tracking.png" width="240" alt="Tracking and vehicles"><br><sub>Tracking &amp; vehicles</sub></td>
-  </tr>
-</table>
-
-**Appearance & map**
-- *Theme* — System, Light, Dark, or **Auto** (light by day, dark by night,
-  following sunrise and sunset at your location).
-- *Your marker* — what's drawn where you are: the blue dot, or a vehicle seen
-  from above that turns to face your heading.
-- *Route line* — the colour of the drawn route, on the phone and on the car
-  screen. **Theme** (the default) follows the accent: amber by night, blue by
-  day. While navigating, the part you have already driven fades to a darker
-  shade of whichever colour you picked, so the road ahead is the bright one.
-- *Default zoom* — where the map sits while following you. It zooms out up to
-  two levels at speed and back in near a turn.
-
-**Tracking & vehicles**
-- *Auto-detect drives* — start trips by themselves.
-- *Vehicles* — assign paired Bluetooth devices per mode.
-- *Vehicle mounting* — calibrate a mount that isn't perfectly upright, so
-  straight-line riding reads as 0° lean. Sit the bike upright, engine off, phone
-  in its cradle, then calibrate.
-
-**Navigation**
-- *Spoken guidance* — turn instructions read aloud on the car screen (and on
-  iPhone). The speaker button on the nav screen mutes them mid-drive.
-- *Remembered nav app* — which app the navigate button launches without asking.
-  Long-press it to change; *Reset* puts the chooser back.
-- *Avoid highways* — in-app navigation skips motorways in car mode.
-- *Avoid small roads* — prefer real roads over narrow rural lanes.
-
-**Fog of war**
-- *Reveal radius* — how wide a corridor your track uncovers.
-- *Share fog with friends* — reciprocal fog sharing, off by default.
-- *Reset explored area* — wipe the fog.
-
-**Displays & media**
-- *External display* — broadcast navigation to an external screen, and show
-  what's playing on it. Needs Bluetooth permission, and notification access for
-  the now-playing part.
-
-**Servers & sync**
-- *Routing server* — your GraphHopper URL. Without one, in-app navigation is
-  unavailable and spin candidates show straight-line distance instead of a
-  routed distance and ETA.
-- *Search server* — your own Photon instance, plus *Fall back to public search*
-  (on by default) which uses `photon.komoot.io` when yours is unreachable.
-- *Sync server* — trips, traces, saved places and friends. *Sync now* forces a
-  round trip and reports what merged.
-- *Server config file* — export the whole server setup to a file and import it
-  on another device, so you configure this once.
-
-## On the car screen
-
-Android Auto gets a car-sized spin: pick a radius, spin a destination, and drive
-it turn by turn on the head unit, with the same map, speed readout and camera
-warnings as the phone. Search works there too.
-
-One catch, and it is Google's rather than the app's: a real head unit only lists
-apps built on the Android for Cars App Library when they were installed **from
-Google Play**. The Desktop Head Unit accepts a sideloaded APK, a car never does.
-[docs/ANDROID_AUTO.md](docs/ANDROID_AUTO.md) covers the Internal App Sharing
-route and how to debug the car screen.
-
-## On iPhone
-
-A SwiftUI app in `iosApp/` runs on the same core as the Android one: map and
-spin, trip recording in the background, history with GPX export, badges, saved
-places and in-app turn-by-turn with spoken directions.
-
-**Sign-in works on iPhone.** It moved to the identity provider's own page in a
-browser, and iOS supplies its half of that — `ASWebAuthenticationSession` plus
-`SecRandomCopyBytes` — the same way Android supplies a Custom Tab plus
-`SecureRandom`; the authorization-code-with-PKCE flow itself is shared
-(`shared/.../data/Oidc.kt`). That unblocks everything that was gated on an
-account: sync, friends and the leaderboard, convoys, circles and the group
-spin.
-
-Be as honest here as [docs/IOS_PORT.md](docs/IOS_PORT.md) is: what has actually
-been exercised is narrower than "works" sounds. The shared flow has unit
-tests, the Android side has been driven on a real device, and the iOS side is
-verified only as far as CI's `ios.yml` reaches — it compiles, boots the
-simulator and gets screenshotted. CI cannot reach a private Keycloak, so
-nobody has yet watched an iPhone finish the browser leg against a real realm.
-Treat that leg as untested, not working, until someone has.
-
-Two things are Android-only and are not coming to iOS: **Android Auto**
-(CarPlay navigation needs an entitlement Apple grants on application, and
-routinely refuses for hobby apps) and **now-playing media** on an external
-display (iOS exposes no equivalent).
-
-Where the platforms behave differently — trip auto-detection, how lean and g
-are measured, guidance audio ducking — the reasoning for each is in
-[docs/IOS_PORT.md](docs/IOS_PORT.md).
-
-There is no download. CI builds a simulator app and an **unsigned** `.ipa` on
-every change, but signing one for a real phone needs a certificate from a paid
-Apple Developer account, which no CI trick removes.
+| Riding with it | **[docs/USER_GUIDE.md](docs/USER_GUIDE.md)** — install, every screen, every setting |
+| Building or changing it | **[docs/DEVELOPERS.md](docs/DEVELOPERS.md)** — prerequisites, layout, build, run the stack |
+| Landing a change | **[CONTRIBUTING.md](CONTRIBUTING.md)** — branches, PRs, versioning, review, style |
+| Running the server | **[Architecture](#architecture)** below, then [backend/INSTALL.md](backend/INSTALL.md) |
+| Looking for something else | [docs/README.md](docs/README.md) — the full index |
+
+The app itself works with **no account and no server**: spin, route hand-off,
+trip recording, fog of war and badges are all local. A server buys sign-in, sync
+across devices, friends, convoys and circles. In-app turn-by-turn buys a router.
+Nothing published here has a server address baked in — you point the app at your
+own under Settings.
+
+## Architecture
+
+Detour is a Kotlin Multiplatform core wrapped in two apps, talking to **up to
+eight services you run yourself** and a handful of third-party ones. Only the
+first three of yours are needed for an account to work at all.
+
+```mermaid
+flowchart TB
+  subgraph device["On the rider's device"]
+    direction TB
+    app["<b>Detour app</b><br/>Android · Android Auto · iOS<br/>shared/ KMP core"]
+    disp["Handlebar display<br/>Waveshare, BLE, optional"]
+  end
+
+  subgraph yours["Services you self-host"]
+    direction TB
+    proxy["<b>Reverse proxy + TLS</b><br/>nginx · Traefik · Caddy · cloudflared<br/>terminates HTTPS, fans out by host or path"]
+    api["<b>Detour API</b> — .NET 10, :7500<br/>REST + /api/live WebSocket<br/>sync · friends · circles · convoys · routes"]
+    kc["<b>Keycloak</b> — :7580<br/>accounts, passwords, the OIDC realm"]
+    db[("<b>Postgres</b><br/>trips, traces, places,<br/>friendships, groups")]
+    kcdb[("<b>Postgres</b><br/>Keycloak's own")]
+    redis[("Redis — optional<br/>L2 cache + backplane")]
+    gh["<b>GraphHopper</b><br/>routing, <code>car</code> + <code>moto</code> profiles"]
+    photon["<b>Photon</b><br/>address and place search"]
+    lgtm["Grafana LGTM — optional<br/>traces, metrics, logs over OTLP"]
+  end
+
+  subgraph third["Third-party, always external"]
+    direction TB
+    ofm["OpenFreeMap<br/>vector basemap tiles"]
+    ovp["Overpass API<br/>OSM roads, POIs,<br/>speed cameras, boundaries"]
+    pubphoton["photon.komoot.io<br/>public search fallback"]
+    fcm["FCM<br/>Google"]
+    apns["APNs<br/>Apple"]
+  end
+
+  ha["Home Assistant — optional<br/>reads /api/dashboard with an API key"]
+
+  app -->|"1 · sign in: OIDC auth code + PKCE,<br/>in a system browser"| proxy
+  app -->|"2 · REST, bearer token"| proxy
+  app -->|"3 · WebSocket /api/live"| proxy
+  ha -->|"REST, API key"| proxy
+
+  proxy --> api
+  proxy --> kc
+
+  api -->|"validate iss + JWKS"| kc
+  api --> db
+  api -.-> redis
+  api -.->|"OTLP gRPC"| lgtm
+  kc --> kcdb
+
+  api -.->|"content-free wake-ping"| fcm
+  api -.->|"content-free wake-ping"| apns
+  fcm -.->|"wakes a frozen app"| app
+  apns -.->|"wakes a frozen app"| app
+
+  app -->|"routes, ETAs, turn-by-turn"| gh
+  app -->|"search as you type"| photon
+  app -.->|"only if yours is unreachable"| pubphoton
+  app --> ofm
+  app --> ovp
+  app <-->|"BLE"| disp
+
+  classDef req fill:#1f6f43,stroke:#0d3a23,color:#fff
+  classDef opt fill:#2b4c7e,stroke:#16294a,color:#fff
+  classDef ext fill:#5a4a2b,stroke:#332a16,color:#fff
+  class api,kc,db,kcdb,proxy req
+  class redis,gh,photon,lgtm,ha,disp opt
+  class ofm,ovp,pubphoton,fcm,apns ext
+```
+
+### Every service, and what it is for
+
+Green in the diagram is required for an account; blue is optional; brown is
+somebody else's.
+
+| Service | What it does | Required? | Without it | Runs from |
+| --- | --- | --- | --- | --- |
+| **Detour API** | The one service this repo *is*: trip and trace sync, saved places, friendships, convoys, circles, shared routes, the live WebSocket relay, and the read-only dashboard endpoints. .NET 10, listens on 7500, applies its own migrations at startup. | Yes, for an account | No sign-in, no sync, no friends, circles or convoys. The app is fully usable locally. | `docker/prod/docker-compose.yml`, or `ghcr.io/jonohas/detour-api` |
+| **Postgres** (app) | Everything the API stores. Needs the real thing, not SQLite: `citext` handles, `jsonb` columns, real unique indexes. | Yes | The API will not start. | same compose file |
+| **Keycloak** | Owns accounts and passwords. Detour has no registration form, no password form and no invite codes — sign-in happens on the realm's own page in a browser, and the API only ever sees the token it issued. | Yes | Nobody can sign in; there is no local fallback. | same compose file |
+| **Postgres** (Keycloak) | Keycloak's own store, deliberately a second instance: separate product, separate upgrade cadence, and restoring one must never involve the other. | Yes | Losing it loses every login. | same compose file |
+| **Reverse proxy with TLS** | Terminates HTTPS and fronts the API and Keycloak. The realm issues tokens against **one fixed issuer URL**, and that URL should be `https`. The prod compose binds everything to `127.0.0.1` on the assumption something sits in front. | In practice, yes | Tokens are issued against a plain-HTTP issuer, and mobile clients are unhappy about it. | Your choice. Overlays ship for [nginx](docker/prod/docker-compose.proxy.yml) and [Cloudflare Tunnel](docker/prod/docker-compose.cloudflare.yml); Traefik and Caddy work equally well |
+| **GraphHopper** | Turn-by-turn routing, and the routed (rather than straight-line) distance and ETA on spin candidates. Must expose profiles named exactly `car` and `moto`. | No | "Navigate in app" is *absent*, not degraded, and spin candidates fall back to crow-flies distance. | You run it — [upstream](https://github.com/graphhopper/graphhopper). A dev instance is in `docker/dev` |
+| **Photon** | Address and place search. | No | Search silently uses the public `photon.komoot.io` instead — unless you turn the fallback off. | You run it — [upstream](https://github.com/komoot/photon) |
+| **Redis** | L2 cache behind FusionCache, plus its backplane. Empty config is a *correct* single-instance deployment. | No | A cache miss is a slower request, not a broken one. Wire it when you run more than one API container. | `--profile cache` in the prod compose |
+| **Grafana LGTM** | Grafana, Loki, Tempo, Prometheus and an OTel collector in one container. The API exports over OTLP. | No | No traces, metrics or logs dashboard. | `docker/dev` only — production picks its own |
+| **Home Assistant** | Optional consumer, not part of the stack: lifetime totals, badges and recent rides as HA entities, read from `/api/dashboard/*` with a dashboard API key that can only ever read its own owner's data. | No | — | [server/homeassistant/](server/homeassistant/README.md) |
+
+Third-party, contacted by the **app** rather than by your server:
+
+| Service | For | Notes |
+| --- | --- | --- |
+| **OpenFreeMap** | Vector basemap tiles | Sees your current map viewport |
+| **Overpass API** | The OSM data behind spins, POIs, speed cameras and coverage boundaries | Sees the spin centre and radius you choose. Two public endpoints are used in rotation |
+| **photon.komoot.io** | Search, when you have no Photon of your own or yours is down | Sees your query and an approximate location. Turn the fallback off to keep search on your own hardware |
+| **FCM / APNs** | The content-free circle wake-ping | Your server talks to these, not the app. Both optional; without them circles still deliver over the socket and the catch-up sweep. See [docs/PUSH.md](docs/PUSH.md) |
+
+### How the pieces connect
+
+**Everything the app sends goes over HTTPS**, and the app addresses each service
+directly — the API, the router and the geocoder are three independent addresses
+in Settings, with one `url` covering them all only when a single host path-routes
+to all three. The sign-in realm is a fourth address and deliberately never falls
+back to the others.
+
+Sign-in is standard OIDC authorization-code with PKCE, run in a **system
+browser** rather than in the app, so Detour never sees a password:
+
+```mermaid
+sequenceDiagram
+  participant R as Rider
+  participant A as Detour app
+  participant B as System browser<br/>Custom Tab / ASWebAuthenticationSession
+  participant K as Keycloak
+  participant P as Detour API
+
+  A->>P: GET /api/capabilities  (unauthenticated)
+  P-->>A: which realm mints tokens, which push clouds are on
+  A->>B: open authorization URL + PKCE challenge
+  B->>K: sign-in page
+  R->>K: username and password, on the realm's own page
+  K-->>B: redirect with authorization code
+  B-->>A: code
+  A->>K: exchange code + PKCE verifier
+  K-->>A: access + refresh token
+  A->>P: GET/POST /api/sync   Authorization: Bearer …
+  P->>K: validate iss and signature against JWKS
+  P-->>A: merged trips, traces, places, friends
+  A->>P: upgrade /api/live to a WebSocket
+  P-->>A: convoy positions, spin votes, circle arrivals
+```
+
+Two consequences worth knowing before you deploy:
+
+- **The issuer URL is load-bearing.** The API requires an exact `iss` claim, not
+  a prefix, and Keycloak builds it from `KC_HOSTNAME` plus `/realms/<realm>`.
+  Changing it invalidates every issued token and every stored redirect URI.
+- **Keycloak must not sit behind an authenticating gateway** such as Cloudflare
+  Access. The token exchange has no way to answer the challenge, and sign-in
+  fails in a way that looks like a client bug. See
+  [docker/prod/CLOUDFLARE.md](docker/prod/CLOUDFLARE.md).
+
+The live relay is a single WebSocket at `/api/live`, shared by convoys and
+circles. Convoy positions are relayed between open sockets and **never written
+down**; a circle keeps exactly one row per member — the latest fix, overwritten
+in place, no history and no trail. Push-to-talk frames are accepted off the wire
+and dropped: voice is deferred, not broken, and will come back as Opus over
+binary frames rather than the raw PCM base64'd into JSON that cost roughly
+40 KB/s per talker per listener. The wire format of every frame is
+[docs/CIRCLES_AND_CONVOYS.md](docs/CIRCLES_AND_CONVOYS.md).
+
+Behind a proxy, **name the proxy** — set `ForwardedHeaders__KnownNetworks` or
+`__KnownProxies`. Both are empty by default, which makes the API ignore
+`X-Forwarded-*` entirely; that is the safe default and the wrong one once
+anything sits in front, because every caller then shares a single rate-limit
+bucket keyed on the proxy's address. [backend/INSTALL.md](backend/INSTALL.md#behind-a-reverse-proxy)
+has the detail, including why clearing the lists to "trust everything" is worse
+than leaving them empty.
+
+## Running a server
+
+Be honest about the shape first: this is **five processes minimum** — the API,
+its Postgres, Keycloak, Keycloak's Postgres, and a reverse proxy — plus two more
+(GraphHopper and Photon) that this repo does not package or start for you.
+Accounts, passwords and resets stop being this project's job, which is the point,
+but it is not a smaller thing to run than the single-file Python server it
+replaced. There is no importer for an old `detour.db`, and passwords cannot be
+carried across at all.
+
+**A development machine** — working passwords on purpose, Keycloak in dev mode,
+the realm imported, and GraphHopper included:
+
+```bash
+docker compose -f docker/dev/docker-compose.yml up -d
+```
+
+**Anywhere real** — no default passwords anywhere; compose refuses to start until
+every secret is set, and no realm is imported, because the dev realm ships a user
+whose password is in this repository:
+
+```bash
+cp docker/prod/.env.example docker/prod/.env
+docker compose -f docker/prod/docker-compose.yml up -d
+```
+
+| Document | Covers |
+| --- | --- |
+| [backend/INSTALL.md](backend/INSTALL.md) | Every configuration key, the container, the reverse-proxy trap, what is still missing |
+| [docker/prod/README.md](docker/prod/README.md) | The production stack, and the realm you have to create yourself |
+| [docker/prod/CLOUDFLARE.md](docker/prod/CLOUDFLARE.md) | Exposing it through a tunnel — and why nothing may sit behind Access |
+| [docker/dev/README.md](docker/dev/README.md) | The local stack: canonical ports, the realm, dev credentials |
+| [docker/dev/config/keycloak/REALM.md](docker/dev/config/keycloak/REALM.md) | Why the realm is configured the way it is |
+| [backend/README.md](backend/README.md) | The service itself: layout, conventions, what is deliberately absent |
+| [bruno/README.md](bruno/README.md) | Poking at every endpoint by hand |
 
 ## Stack
 
 **Kotlin Multiplatform.** The roulette draw, routing, trip recording, badges,
-coverage and sync all live in `shared/` as `commonMain`, compiled for Android
-and iOS alike. Ktor for HTTP (OkHttp on Android, NSURLSession on iOS),
-kotlinx-serialization, kotlinx-datetime and okio. The core is handed its
-location fixes, audio and Bluetooth by whichever platform is running it — it
-never reaches for them — which is why only three things are `expect`.
+coverage and sync all live in `shared/` as `commonMain`, compiled for Android and
+iOS alike. Ktor for HTTP (OkHttp on Android, NSURLSession on iOS),
+kotlinx-serialization, kotlinx-datetime and okio. The core is handed its location
+fixes, audio and Bluetooth by whichever platform is running it — it never reaches
+for them — which is why only three things are `expect`.
 
-**Android** (`app/`): Jetpack Compose, Material 3, MapLibre GL (OpenFreeMap
-vector tiles), fused location provider, Android for Cars App Library. Min SDK
-26 (Android 8.0).
+**Android** (`app/`): Jetpack Compose, Material 3, MapLibre GL, fused location
+provider, Android for Cars App Library. Min SDK 26.
 
 **iOS** (`iosApp/`): SwiftUI, MapLibre GL Native, CoreLocation,
 `CMMotionActivityManager` for the automotive hint and `CMDeviceMotion` for lean
 and g. Targets iOS 17.
 
-Shared throughout: Overpass API for OSM data, GraphHopper for routing, Photon
-for search. Trips and traces stored as JSON in app-private storage.
+**Backend** (`backend/`): .NET 10, ASP.NET Core, EF Core on Postgres, Keycloak for
+identity, FusionCache with an optional Redis L2, OpenTelemetry throughout. Domain
+never references Database; Api is the only project that knows about ASP.NET Core.
 
-## Build
+Trips and traces are stored as JSON in app-private storage on the device, and
+synced as records only their owner can read.
 
-Everything below works on Linux or Windows. Only the last section needs a Mac.
+## Security and privacy
 
-```
-shared/     Kotlin Multiplatform core. All roulette/routing/trip logic.
-app/        Android app — UI and platform services only.
-iosApp/     SwiftUI app — UI and platform services only.
-```
-
-**Android:**
-
-```
-./gradlew assembleDebug
-```
-
-The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. Install with
-`adb install app/build/outputs/apk/debug/app-debug.apk`.
-
-A debug build carries a few `adb` hooks for behaviour that is otherwise slow to
-reach — raising the trip-ended notification without driving for one, opening a
-trip straight from an intent, seeding trip history. None of them exist in a
-release APK; see [docs/DEBUG_INTENTS.md](docs/DEBUG_INTENTS.md).
-
-**The shared core, without a Mac:**
-
-```
-./gradlew :shared:compileCommonMainKotlinMetadata
-```
-
-This type-checks `commonMain` against the common intersection, which excludes
-`java.*` — so a stray JDK import fails here on Linux exactly as it would on
-macOS. `./gradlew :shared:testDebugUnitTest` runs the shared test suite; CI runs
-it again as `:shared:iosSimulatorArm64Test` on Kotlin/Native, where the same
-tests can fail differently.
-
-**iOS, on a Mac:**
-
-```
-brew install xcodegen
-cd iosApp && xcodegen && open Detour.xcodeproj
-```
-
-The Xcode project is generated from `project.yml`, not committed. A pre-build
-phase runs `:shared:packForXcode`, so editing Kotlin and pressing Run rebuilds
-both halves. Without a Mac, the *iOS* workflow builds it on `macos-15` and
-uploads a simulator app, an unsigned `.ipa` and a screenshot — see
-[docs/IOS_PORT.md](docs/IOS_PORT.md).
-
-Releases published from CI are signed and minified (R8), and a push to `main`
-also uploads the app bundle to Play's internal testing track — see
-[docs/RELEASING.md](docs/RELEASING.md) for the version-code scheme and the
-one-time Play Console setup. To verify a downloaded release APK's signature
-yourself:
-
-```
-apksigner verify --print-certs detour-<version>.apk
-```
-
-## Self-hosting the server
-
-The app can sync to your own server (trips, fog of war, friends, circles) and
-route against your own GraphHopper instance.
-
-**This is three separate services, and the repo below only sets up one.** The
-API (with Keycloak) gets you sign-in and sync. In-app navigation and
-self-hosted search are two more services you run yourself:
-
-| Service | Gives you | Without it |
-| --- | --- | --- |
-| API + Keycloak (this repo) | sign-in, sync, friends, circles, convoys | nothing works without this one |
-| [GraphHopper](https://github.com/graphhopper/graphhopper) (routing) | in-app turn-by-turn, and routed distance/ETA for spin candidates | "Navigate in app" is unavailable — not degraded, just absent |
-| [Photon](https://github.com/komoot/photon) (geocoder) | self-hosted address/place search | search keeps *looking* like it works, silently falling back to the public `photon.komoot.io` |
-
-See [`backend/INSTALL.md`](backend/INSTALL.md#routing-and-search) for what each
-one needs to actually answer requests (an OSM extract and graph build for
-GraphHopper, an imported index for Photon) and how the app finds them.
-
-The server is a .NET service in [`backend/`](backend/README.md) backed by
-Postgres, with **identity in Keycloak** rather than in the service itself: you
-sign in on the realm's own page in a browser, and the service only ever sees the
-token it issued. Accounts, passwords, resets and who may register are all
-managed in the realm's admin console — which is also why there is no invite-code
-system or password form in the app any more.
-
-Everything it depends on comes up with the development stack:
-
-```
-docker compose -f docker/dev/docker-compose.yml up -d
-```
-
-See [`docker/dev/README.md`](docker/dev/README.md) for the ports, the realm and
-the credentials, and [`backend/README.md`](backend/README.md) for the service
-itself. Administration that outlived Keycloak — account metadata, row counts,
-deleting an account and revoking its dashboard keys — is API-only, and shows no
-one's rides.
-
-### Running it somewhere real
-
-The development stack above is for a development machine: it ships working
-passwords on purpose and Keycloak runs in dev mode. For anything else there is a
-published image and a stack that refuses to start until you have set every
-secret:
-
-```
-cp docker/prod/.env.example docker/prod/.env
-docker compose -f docker/prod/docker-compose.yml up -d
-```
-
-See [`docker/prod/README.md`](docker/prod/README.md), and
-[`backend/INSTALL.md`](backend/INSTALL.md) for what each configuration key means.
-
-Be aware of the shape before you commit to it. This is five processes where the
-old Python server was one: the API, its Postgres, Keycloak, Keycloak's own
-Postgres, and a reverse proxy holding the TLS certificate the realm issues tokens
-against. Accounts, passwords and resets stop being this project's job, which is
-the point, but it is not a smaller thing to run.
-
-There is no importer for an existing `detour.db`, and passwords cannot be carried
-across at all — Keycloak never saw the old hashes, so every rider signs up again.
-
-Sync is optional; with no server configured everything stays on the phone. With
-one, your trips and traces live on hardware you own.
-
-### Pointing the app at it
-
-Every address — the server URL, its per-service overrides, and the sign-in
-realm alike — can be typed into Settings → Servers & sync at runtime, on
-Android and iOS both (`app/.../ui/SettingsScreen.kt`'s "Sign-in realm URL"
-field, `iosApp/Detour/SettingsScreen.swift`'s "Own server" section). Nothing
-has to be baked into a build for sign-in to work: `RoutingServer.issuer`
-resolves the saved realm ahead of whatever the build shipped. Changing the
-realm signs the device out immediately — `RoutingServer.save` calls
-`Auth.clear()`, because tokens issued by one realm mean nothing to another.
-
-Baking addresses in at build time is still there for whoever would rather
-ship or install an app that already knows its server, so it never has to be
-typed in. Put them in `local.properties` and build your own:
-
-```properties
-api.url=https://api.example.com
-idp.issuer=https://idp.example.com/realms/detour
-```
-
-The APKs published on the releases page are built by CI with **no** server
-configuration baked in — deliberately; a public release should not ship
-someone else's server address. That does not disable sign-in, only
-preconfigure it: enter your own routing/API address and sign-in realm under
-Settings and sync, friends, circles and convoys all work from the stock APK.
-[CONTRIBUTING.md](CONTRIBUTING.md) lists every property, and
-[docker/prod/CLOUDFLARE.md](docker/prod/CLOUDFLARE.md) has a worked example.
-
-**Push-to-talk is the one thing still missing.** The live relay was rebuilt
-along with the rest of the server and is back — convoy live location, the
-shared spin vote and circle arrival alerts all ride it again. Voice does not:
-the relay accepts push-to-talk frames off the wire and drops them, because what
-comes back will be Opus over binary frames rather than the raw PCM base64'd into
-JSON that the old server relayed at roughly 40 KB/s per talker per listener. The
-app says so where the talk button was.
-
-### What leaves your device
-
-Even without a sync server, a few features talk to the network by design:
-Overpass sees the spin center and radius you choose, OpenFreeMap's tiles see
-your current map viewport, and address/place search sends your query (and an
-approximate location, to rank nearby results first) to Photon — your own
-instance if you've set one in Settings, otherwise the public
-`photon.komoot.io`. If you self-host Photon, search falls back to the public
-instance only when yours is unreachable, and only if you leave "Fall back to
-public search" (Settings → Server) turned on; turn it off to keep search on
-your own hardware even when your instance is down.
-
-**Circles are the one feature where the server keeps a position.** Everything
-else is either never uploaded or uploaded as a record only you can read — a
-convoy's live feed is relayed between open sockets and never written down. A
-circle stores one row per member: your latest fix, overwritten in place, no
-history and no trail. It exists only for circles you joined, only while that
-circle's sharing switch is on, and pausing is enforced by the server rather
-than trusted to the app. Leaving a circle deletes it.
+[SECURITY.md](SECURITY.md) is what is in scope and how to report privately.
+[docs/USER_GUIDE.md § What leaves your device](docs/USER_GUIDE.md#what-leaves-your-device)
+is the plain-language version of every network call the app makes;
+[docs/privacy.html](docs/privacy.html) is the published policy.
 
 ## Attribution
 
 Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright)
 contributors, [ODbL](https://opendatacommons.org/licenses/odbl/). Spin
-destinations, speed cameras and coverage are all derived from OpenStreetMap
-via the Overpass API. Map tiles by [OpenFreeMap](https://openfreemap.org/).
-Geocoding by [Photon](https://photon.komoot.io) (komoot) when the public
-fallback is used.
+destinations, speed cameras and coverage are all derived from OpenStreetMap via
+the Overpass API. Map tiles by [OpenFreeMap](https://openfreemap.org/). Geocoding
+by [Photon](https://photon.komoot.io) (komoot) when the public fallback is used.
+Routing by [GraphHopper](https://www.graphhopper.com/). Identity by
+[Keycloak](https://www.keycloak.org/).

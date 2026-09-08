@@ -1,9 +1,9 @@
 # Path-routes one hostname to the three services a rider can otherwise only
 # reach as three separate addresses (Settings → Server → "Different address
-# per service"). See CONTRIBUTING.md's "one-hostname layout".
+# per service"). See docs/DEVELOPERS.md § "Baking addresses into a build".
 #
 # The API and Photon both answer under /api — that's the whole reason a
-# split deployment exists at all (CONTRIBUTING.md says so explicitly). What
+# split deployment exists at all (docs/DEVELOPERS.md says so explicitly). What
 # makes one hostname possible here is that Photon answers *only* the exact
 # path `/api/` (query params carry the search), while every API route is
 # `/api/<something>`. nginx's `=` (exact) location always wins over a prefix
