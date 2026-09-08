@@ -43,6 +43,17 @@ class ScaledDriveClock : DriveClock {
     @Volatile
     private var clock: ScaledClock = ScaledClock.real()
 
+    /**
+     * The same scaling over `SystemClock.elapsedRealtime()`, for [driveElapsedMs].
+     *
+     * A second anchored clock rather than a factor multiplication at the call
+     * site: the two bases tick at the same rate but from different origins, and
+     * both have to stay continuous across a rescale independently. Rescaled in
+     * lockstep by [setScale], so they can never disagree about the factor.
+     */
+    @Volatile
+    private var elapsed: ScaledClock = ScaledClock.real()
+
     override fun nowMs(): Long = clock.at(System.currentTimeMillis())
 
     /** The factor in force, 1 when nothing is replaying. */
@@ -60,6 +71,7 @@ class ScaledDriveClock : DriveClock {
         val wanted = scale.coerceIn(1, ScaledClock.MAX_SCALE)
         if (wanted == clock.scale) return
         clock = clock.rescaled(System.currentTimeMillis(), wanted)
+        elapsed = elapsed.rescaled(SystemClock.elapsedRealtime(), wanted)
         Log.i("DetourReplay", "drive clock now ${wanted}x")
     }
 
@@ -70,12 +82,31 @@ class ScaledDriveClock : DriveClock {
         val wallNow = SystemClock.elapsedRealtime()
         val factor = clock.scale
         if (factor == 1) return wallNow
-        return fixElapsedMs + (wallNow - fixElapsedMs) * factor
+        // Bounded, and this is what stops the camera snapping during a fast
+        // replay. The age is multiplied by the factor, so a stalled emit loop —
+        // 300 ms of wall time between fixes at 20x — asks MapMotion.predict to
+        // throw the target 6 s of driving ahead, which at 100 km/h is 168 m.
+        // Two of those clear CAM_SNAP_METERS (250 m) and shouldSnap fires on
+        // motion that was perfectly continuous, re-anchoring zoom with it.
+        //
+        // Past this horizon prediction is guessing anyway: it extrapolates a
+        // straight line at the last known speed, which a vehicle stops obeying
+        // long before two seconds are up.
+        val ageMs = ((wallNow - fixElapsedMs) * factor).coerceAtMost(MAX_PREDICT_AGE_MS)
+        return fixElapsedMs + ageMs
+    }
+
+    override fun driveElapsedMs(): Long = elapsed.at(SystemClock.elapsedRealtime())
+
+    private companion object {
+        /** How far ahead [predictionNowMs] may ever extrapolate, in drive ms. */
+        const val MAX_PREDICT_AGE_MS = 2_000L
     }
 
     /** Back to real time. For the end of a replay, and for tests. */
     fun reset() {
         clock = ScaledClock.real()
+        elapsed = ScaledClock.real()
     }
 }
 

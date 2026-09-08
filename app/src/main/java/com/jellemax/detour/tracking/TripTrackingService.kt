@@ -20,10 +20,6 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.ble.BoardTelemetry
 import com.jellemax.detour.data.syncQuietly
@@ -424,11 +420,16 @@ class TripTrackingService : Service() {
         }
     }
 
-    private lateinit var fusedClient: FusedLocationProviderClient
-    /** What to ask [fusedClient] for; see [currentLocationMode] for the mode
-     *  decision this acts on. Constructed alongside [fusedClient] once it
-     *  exists, same guarded-init shape as [motionSensors] below. */
-    private lateinit var locationRequests: LocationRequests
+    /**
+     * Where fixes come from (#306): the platform in a shipped app, and a route
+     * read from this app's own files when a debug build arms the replay port.
+     *
+     * [LocationSources] chooses, by source set — this service names no Play
+     * Services location API at all any more. See [currentLocationMode] for the
+     * mode decision it acts on. Same guarded-init shape as [motionSensors]
+     * below, since it needs a `Context` and the service's scope.
+     */
+    private lateinit var locationSource: LocationSource
     private lateinit var sensorManager: SensorManager
     /** The rotation-vector sensor and lean bookkeeping; see its own KDoc for
      *  why [recordLean] stays here rather than moving with it. */
@@ -516,26 +517,28 @@ class TripTrackingService : Service() {
 
     private var lastMunicipalityLookupMs = 0L
 
-    private val locationCallback = object : LocationCallback() {
-        override fun onLocationResult(result: LocationResult) {
-            for (location in result.locations) onLocation(location)
-            // Batched idle fixes arrive together and a probe window can lapse
-            // between them; re-evaluate the mode once the burst is handled.
-            ensureLocationUpdates()
-            // A phone booted stationary in a garage gets its STILL ENTER before
-            // any fix, so the evaluation bailed for want of a position. This is
-            // where that first SLEEP fix arms the park geofence.
-            requestDormancyEvaluation()
-        }
+    /** One delivery from whichever [LocationSource] is running — a batch,
+     *  because an IDLE request is batched and the two calls after the loop are
+     *  per-burst rather than per-fix. Eager, not guarded-init, for the same
+     *  reason [driveTransitions] below is. */
+    private val locationListener = LocationBatchListener { locations ->
+        for (location in locations) onLocation(location)
+        // Batched idle fixes arrive together and a probe window can lapse
+        // between them; re-evaluate the mode once the burst is handled.
+        ensureLocationUpdates()
+        // A phone booted stationary in a garage gets its STILL ENTER before
+        // any fix, so the evaluation bailed for want of a position. This is
+        // where that first SLEEP fix arms the park geofence.
+        requestDormancyEvaluation()
     }
 
     /** Activity-recognition registration, and the STILL/IN_VEHICLE state that
      *  drives auto-start/auto-sleep - see its own KDoc for the IN_VEHICLE
      *  probe-window coupling to the start detector. Eager, not guarded-init
-     *  like [motionSensors]/[locationRequests]: [buildNotification] reads
+     *  like [motionSensors]/[locationSource]: [buildNotification] reads
      *  [DriveTransitions.stationary] from inside `onStartCommand`'s
      *  `startForeground()` call, before that guarded-init block runs on a
-     *  cold start - the same reason [locationCallback] above is eager too. */
+     *  cold start - the same reason [locationListener] above is eager too. */
     private val driveTransitions = DriveTransitions(
         context = this,
         clock = clock,
@@ -754,11 +757,8 @@ class TripTrackingService : Service() {
             return START_NOT_STICKY
         }
         running = true
-        if (!::fusedClient.isInitialized) {
-            fusedClient = LocationServices.getFusedLocationProviderClient(this)
-        }
-        if (!::locationRequests.isInitialized) {
-            locationRequests = LocationRequests(fusedClient, locationCallback) {
+        if (!::locationSource.isInitialized) {
+            locationSource = LocationSources.create(this, locationListener, serviceScope) {
                 // Location permission pulled out from under an already-running
                 // service - clear the notification now rather than leave it
                 // dangling for the ~5 s until the process dies.
@@ -901,7 +901,7 @@ class TripTrackingService : Service() {
             convoyActive = convoyActive,
             stationary = driveTransitions.stationary,
         )
-        if (locationRequests.ensureFor(mode)) updateNotification()
+        if (locationSource.ensureFor(mode)) updateNotification()
     }
 
     /**
@@ -976,7 +976,7 @@ class TripTrackingService : Service() {
             ) != PackageManager.PERMISSION_GRANTED -> "no ACCESS_BACKGROUND_LOCATION"
         // No position yet (booted stationary, no fix before STILL ENTER). The
         // location callback re-evaluates on the first fix.
-        locationRequests.lastKnownLatLon(lastLocation) == null -> "no position to arm at yet"
+        locationSource.lastKnownLatLon(lastLocation) == null -> "no position to arm at yet"
         else -> null
     }
 
@@ -992,7 +992,7 @@ class TripTrackingService : Service() {
         when (geofenceAction(decision, geofenceRequested)) {
             GeofenceAction.NONE -> return
             GeofenceAction.ARM -> {
-                val (lat, lon) = locationRequests.lastKnownLatLon(lastLocation) ?: return
+                val (lat, lon) = locationSource.lastKnownLatLon(lastLocation) ?: return
                 ParkGeofence.arm(this, lat, lon)
                 geofenceRequested = true
             }
@@ -1051,7 +1051,7 @@ class TripTrackingService : Service() {
             return false
         }
         stopping = true
-        if (::locationRequests.isInitialized) locationRequests.stop()
+        if (::locationSource.isInitialized) locationSource.stop()
         flushTrace()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         getSystemService(NotificationManager::class.java).cancel(TripNotifications.NOTIFICATION_ID)
@@ -1615,7 +1615,7 @@ class TripTrackingService : Service() {
         // the handler from holding this instance past its own destruction.
         mainHandler.removeCallbacksAndMessages(null)
         driveTransitions.cancelPendingRegister()
-        if (::locationRequests.isInitialized) locationRequests.stop()
+        if (::locationSource.isInitialized) locationSource.stop()
         vehicleLinks.stop()
         // endTrip()'s save-and-notify tail runs on serviceScope (round-1 fix,
         // off the main thread on every other call site) — but the service is

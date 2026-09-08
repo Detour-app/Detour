@@ -28,6 +28,8 @@ import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.tracking.DriveClock
+import com.jellemax.detour.ui.MAX_FRAME_WALL_S
+import com.jellemax.detour.ui.driveFrameDelta
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
@@ -473,6 +475,7 @@ class CarMapRenderer(
         easeJob?.cancel()
         easeJob = scope.launch {
             var lastNs = System.nanoTime()
+            var lastDriveMs = clock.driveElapsedMs()
             // Whether anything has been pushed at all. This replaces the
             // appliedLat.isNaN() sentinel, and it is the only part of the old
             // last-pushed bookkeeping that survives: MapMotion.shouldPush asks
@@ -494,8 +497,17 @@ class CarMapRenderer(
                 // 0.1, so a resume after the loop was paused arrived as a lurch
                 // rather than an ease. The snap guard below is what handles a gap
                 // too large to ease at all; this bound is for the ordinary case.
-                val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.1)
+                // Drive time, not wall time — the TAUs below were tuned against
+                // fixes arriving once a drive second, so a compressed replay must
+                // advance them in the drive's time or the camera trails and then
+                // snaps. Differenced rather than multiplied, and the stall clamp
+                // stays in wall seconds: see driveFrameDelta (#306).
+                val wallRaw = (ns - lastNs) / 1_000_000_000.0
+                val dtWall = wallRaw.coerceIn(0.0, MAX_FRAME_WALL_S)
+                val driveNow = clock.driveElapsedMs()
+                val dt = driveFrameDelta(wallRaw, (driveNow - lastDriveMs) / 1000.0)
                 lastNs = ns
+                lastDriveMs = driveNow
                 if (camLat.isNaN()) continue
 
                 // Dead reckoning, defect 1 of #37. Easing toward the raw fix
@@ -588,7 +600,7 @@ class CarMapRenderer(
                     camBearing = smoothBearing(
                         camBearing, target, (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat())
                 }
-                camZoom += (targetZoom - camZoom) * (1.0 - exp(-dt / CAM_ZOOM_TAU))
+                camZoom += (targetZoom - camZoom) * (1.0 - exp(-dtWall / CAM_ZOOM_TAU))
 
                 val tgt = predicted
                 val targetMoved = tgt != null && (

@@ -119,11 +119,4 @@ internal class LocationRequests(
         activeMode = null
     }
 
-    /** Last position this service knows about, freshest first, for arming the
-     *  park geofence. Null until the very first fix. [fallback] is the
-     *  service's own last raw [Location] — kept there, since it backs more
-     *  than this one call — for a moment before the first fix lands here. */
-    fun lastKnownLatLon(fallback: Location?): Pair<Double, Double>? =
-        TripTrackingService.lastFix.value?.let { it.lat to it.lon }
-            ?: fallback?.let { it.latitude to it.longitude }
 }

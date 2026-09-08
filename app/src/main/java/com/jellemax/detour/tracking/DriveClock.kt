@@ -77,6 +77,36 @@ interface DriveClock {
      * only the second one scales.
      */
     fun predictionNowMs(fixElapsedMs: Long): Long
+
+    /**
+     * A monotonic drive-time reading, for measuring an interval of the drive.
+     *
+     * For the frame loops. An exponential ease — `1 - exp(-dt / TAU)` — converges
+     * with a time constant in whatever unit `dt` is, and every `TAU` in
+     * `MapCamera` was tuned against fixes arriving once a *drive* second. Left on
+     * wall time, the camera converges at a fixed rate toward a target moving N
+     * times faster, trails it, and then `MapMotion.shouldSnap` fires: at 20x that
+     * reads as the marker lagging back and then jumping.
+     *
+     * The same argument #305 accepted for [predictionNowMs], one step further on:
+     * "how far has the vehicle gone since the fix" and "how far should the camera
+     * have caught up this frame" are both questions about the drive.
+     *
+     * **A reading to difference, not a wall delta to multiply.** Multiplying a
+     * frame's wall delta by the factor in force *now* mis-attributes any frame
+     * that straddles a rescale, because the factor changed part-way through it.
+     * The scaled clock is anchored so its readings stay continuous across a
+     * rescale (that is what `ScaledClock.rescaled` is for), so the difference of
+     * two readings is exact where the multiplication is an approximation.
+     *
+     * **On `elapsedRealtime`, not `currentTimeMillis`.** An interval must not go
+     * backwards, and the wall clock steps under NTP. Same reason
+     * [predictionNowMs] is built on it.
+     *
+     * Exactly `SystemClock.elapsedRealtime()` at 1x, so nothing about a real
+     * drive changes.
+     */
+    fun driveElapsedMs(): Long
 }
 
 /**
@@ -91,4 +121,5 @@ object SystemDriveClock : DriveClock {
     override fun nowMs(): Long = System.currentTimeMillis()
     override fun fixTimeMs(providerTimeMs: Long): Long = providerTimeMs
     override fun predictionNowMs(fixElapsedMs: Long): Long = SystemClock.elapsedRealtime()
+    override fun driveElapsedMs(): Long = SystemClock.elapsedRealtime()
 }
