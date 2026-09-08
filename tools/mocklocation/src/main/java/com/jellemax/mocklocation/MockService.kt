@@ -29,11 +29,28 @@ import kotlin.math.sin
  *
  * then push a route (one "lon lat" pair per line) and start it:
  *
- *     adb push route.txt /sdcard/Download/route.txt
+ *     adb shell "run-as com.jellemax.mocklocation sh -c 'cat > files/route.txt'" < route.txt
  *     adb shell am start-foreground-service \
  *         -n com.jellemax.mocklocation/.MockService \
- *         --es route /sdcard/Download/route.txt --ei intervalMs 1000
+ *         --es route /data/data/com.jellemax.mocklocation/files/route.txt \
+ *         --ei intervalMs 1000 --ei speedup 1
  *     adb shell am stopservice -n com.jellemax.mocklocation/.MockService
+ *
+ * This app requests no storage permission, so under scoped storage it cannot
+ * read a file pushed to shared storage — hence the `run-as` push above rather
+ * than `adb push /sdcard/...`.
+ *
+ * `speedup` compresses the wall clock without touching the drive: the thread
+ * sleeps `intervalMs / speedup` while speed and bearing stay computed against
+ * the nominal `intervalMs`, so a 5x replay of a 45 km/h stretch still reports
+ * 45 km/h and arrives in a fifth of the time.
+ *
+ * The factor cannot be handed to the app on the fix. Putting it in
+ * `Location.extras` was tried and measured: Play Services' fused provider —
+ * which is what Detour reads — delivers a mocked fix with `extras=null`, so
+ * only the standard fields survive. Detour's debug build is told separately, by
+ * `start-replay.sh` broadcasting to its `DebugReplayClockReceiver`, and this
+ * service's only job is the pacing.
  */
 class MockService : Service() {
 
@@ -59,6 +76,12 @@ class MockService : Service() {
             stopSelf(); return START_NOT_STICKY
         }
         val intervalMs = intent.getIntExtra("intervalMs", 1000).toLong()
+        // Clamped rather than refused: a typo'd 500x should replay fast, not
+        // fail after the route has already been pushed. MAX_SPEEDUP is the app's
+        // ceiling too (ScaledClock.MAX_SCALE), and the two must not disagree —
+        // a fix stamped with a factor the app clamps away would scale the drive
+        // and the clock differently.
+        val speedup = intent.getIntExtra("speedup", 1).coerceIn(1, MAX_SPEEDUP)
         val points = readRoute(File(path))
         if (points.size < 2) {
             Log.e(TAG, "route needs at least 2 points, got ${points.size}")
@@ -84,10 +107,16 @@ class MockService : Service() {
             while (running && i < points.size) {
                 val here = points[i]
                 val next = points[(i + 1).coerceAtMost(points.size - 1)]
+                // Nominal interval, never the compressed one: spacing over the
+                // interval the route was recorded at *is* the drive's speed, and
+                // dividing by the compressed sleep instead is what makes a 5x
+                // replay look like 225 km/h through a 45 zone.
                 val speed = (distanceMeters(here, next) / (intervalMs / 1000.0)).toFloat()
                 providers.forEach { p -> push(lm, p, here, bearing(here, next), speed) }
                 i++
-                Thread.sleep(intervalMs)
+                // At least a millisecond: a high factor against a short
+                // interval would otherwise floor to zero and spin.
+                Thread.sleep((intervalMs / speedup).coerceAtLeast(1L))
             }
             Log.i(TAG, "replay finished at point $i/${points.size}")
             stopSelf()
@@ -166,5 +195,10 @@ class MockService : Service() {
     private companion object {
         const val TAG = "MockLocation"
         const val CHANNEL = "mock"
+
+        /** Mirrors `ScaledClock.MAX_SCALE` in the app. Clamping to a different
+         *  ceiling on either side would scale the drive and the app's clock by
+         *  different factors, which is worse than refusing outright. */
+        const val MAX_SPEEDUP = 20
     }
 }

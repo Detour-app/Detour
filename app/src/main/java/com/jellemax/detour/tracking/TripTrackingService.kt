@@ -529,7 +529,7 @@ class TripTrackingService : Service() {
             // Don't end immediately — could be a fuel stop. The grace period
             // is checked against speed in onTripLocation.
             if (_stats.value != null && autoStarted) {
-                pendingStopAtMs = System.currentTimeMillis()
+                pendingStopAtMs = ReplayClock.nowMs()
             }
         },
         onStill = {
@@ -811,7 +811,7 @@ class TripTrackingService : Service() {
      *  began, rather than to the fix that finally proved it. */
     private fun beginTrip(
         auto: Boolean,
-        startTimeMs: Long = System.currentTimeMillis(),
+        startTimeMs: Long = ReplayClock.nowMs(),
         initialDistanceMeters: Double = 0.0,
     ) {
         autoStarted = auto
@@ -822,7 +822,7 @@ class TripTrackingService : Service() {
         resetStartDetector()
         motionSensors.resetLean()
         session.begin(startTimeMs)
-        lastMovingMs = System.currentTimeMillis()
+        lastMovingMs = ReplayClock.nowMs()
         // Re-check what's actually linked: the set may have gone stale since the
         // last trip. Answers async, retagging through VehicleLinks.refreshTripMode.
         vehicleLinks.seedConnectedVehicles()
@@ -1417,7 +1417,10 @@ class TripTrackingService : Service() {
     }
 
     private fun onTripLocation(location: Location, speed: Double, stats: TripStats) {
-        val now = System.currentTimeMillis()
+        // The drive's clock, not the wall's: at 5x replay these dwell and
+        // duration comparisons have to be against the drive they describe.
+        // See ReplayClock for what deliberately stays on the platform clock.
+        val now = ReplayClock.nowMs()
 
         val distance = accumulateDistance(location, stats)
         // The one hop this fix banked, reused by the fuel-economy denominator and

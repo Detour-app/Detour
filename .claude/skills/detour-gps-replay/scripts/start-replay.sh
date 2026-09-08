@@ -26,31 +26,53 @@ set -euo pipefail
 
 usage() {
     cat >&2 <<'EOF'
-usage: start-replay.sh <route.txt> [serial] [interval-ms]
+usage: start-replay.sh <route.txt> [serial] [interval-ms] [speedup]
 
   route.txt     one "lon lat" pair per line — longitude FIRST. Build one with gpx2route.py.
   serial        adb device serial. Defaults to $ANDROID_SERIAL, or the only attached device.
   interval-ms   replay interval, default 1000. Must match the interval the route file was
                 resampled to, or every reported speed is wrong by that ratio.
+  speedup       wall-clock compression, default 1, capped at 20. The route arrives this
+                many times faster while every fix still reports the speed the drive was
+                actually done at, and the debug app is told to scale its own clock to
+                match, so the trip it records is the drive's duration and not the
+                replay's. A release install cannot be told, so replay it at 1.
 EOF
     exit 2
 }
 
 [ "$#" -ge 1 ] || usage
 if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then usage; fi
-[ "$#" -le 3 ] || usage
+[ "$#" -le 4 ] || usage
 
 ROUTE="$1"
 SERIAL="${2:-${ANDROID_SERIAL:-}}"
 INTERVAL="${3:-1000}"
+SPEEDUP="${4:-1}"
 HARNESS=com.jellemax.mocklocation
 RELEASE=io.github.maxke24.detour
+DEBUG_APP=io.github.maxke24.detour.debug
+CLOCK_RECEIVER="$DEBUG_APP/com.jellemax.detour.debug.DebugReplayClockReceiver"
 REMOTE="/data/data/$HARNESS/files/route.txt"
 
 [ -f "$ROUTE" ] || { echo "error: no such route file: $ROUTE" >&2; exit 2; }
 case "$INTERVAL" in
     '' | *[!0-9]*) echo "error: interval-ms must be a positive integer" >&2; exit 2 ;;
 esac
+case "$SPEEDUP" in
+    '' | *[!0-9]* | 0) echo "error: speedup must be a positive integer" >&2; exit 2 ;;
+esac
+# 20 is ScaledClock.MAX_SCALE, and MockService clamps to the same number. Refused rather
+# than clamped here, because a run at a factor other than the one you asked for is a
+# measurement you would go on to trust.
+if [ "$SPEEDUP" -gt 20 ]; then
+    echo "error: speedup $SPEEDUP exceeds the cap of 20 (ScaledClock.MAX_SCALE)" >&2
+    exit 2
+fi
+if [ "$SPEEDUP" -gt 10 ]; then
+    echo "warning: at ${SPEEDUP}x the Overpass prefetch issues a whole drive's requests in" >&2
+    echo "         $((100 / SPEEDUP))% of the wall time, into a mirror that rate-limits by IP." >&2
+fi
 
 # --- validate the route file locally, before any device state changes -------------------
 read -r lines dist_km mean_kmh abs1 abs2 < <(
@@ -153,10 +175,18 @@ if [ "$remote_lines" != "$(wc -l <"$ROUTE" | tr -dc '0-9')" ]; then
     exit 1
 fi
 
+# Before the fixes, so no fix is ever timed at the wrong factor. Ignored by a release
+# install, which has no such receiver — and harmless when the debug app is not installed.
+if [ "$SPEEDUP" -gt 1 ]; then
+    "${ADB[@]}" shell am broadcast -n "$CLOCK_RECEIVER" --ei speedup "$SPEEDUP" >/dev/null 2>&1 \
+        || echo "warning: could not reach $DEBUG_APP's replay clock — is the debug build installed?" >&2
+fi
+
 "${ADB[@]}" shell am start-foreground-service -n "$HARNESS/.MockService" \
-    --es route "$REMOTE" --ei intervalMs "$INTERVAL" >/dev/null
-printf 'replay started: %s lines at %s ms = %d s\n' \
-    "$lines" "$INTERVAL" $((lines * INTERVAL / 1000))
+    --es route "$REMOTE" --ei intervalMs "$INTERVAL" --ei speedup "$SPEEDUP" >/dev/null
+printf 'replay started: %s lines at %s ms, %sx = %d s wall (%d s of drive)\n' \
+    "$lines" "$INTERVAL" "$SPEEDUP" \
+    $((lines * INTERVAL / 1000 / SPEEDUP)) $((lines * INTERVAL / 1000))
 
 cat <<EOF
 

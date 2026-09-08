@@ -112,9 +112,39 @@ touch that file for other reasons, fixing the KDoc is a welcome one-line change.
 ## Running it
 
 ```sh
-.claude/skills/detour-gps-replay/scripts/start-replay.sh <route.txt> [serial] [interval-ms]
+.claude/skills/detour-gps-replay/scripts/start-replay.sh <route.txt> [serial] [interval-ms] [speedup]
 .claude/skills/detour-gps-replay/scripts/stop-replay.sh  [serial] [--recover]
 ```
+
+## Replaying faster than real time
+
+`speedup` (default 1, capped at 20) compresses the wall clock without changing the drive.
+`MockService` sleeps `intervalMs / speedup` while still deriving speed and bearing from the
+**nominal** interval, so every fix reports the speed the recorded drive was done at:
+`routes/trajectcontrole.txt` is 1466 lines ≈ 24 minutes at 1x and under 5 minutes at 5x, at
+the same speeds.
+
+The app has to be told, or the compression is a lie in the other direction — a fifth of the
+duration and five times the average speed. `ReplayClock` is the drive's clock, and
+`start-replay.sh` broadcasts the factor to `DebugReplayClockReceiver` before the first fix;
+`stop-replay.sh` sets it back to 1 unconditionally, because the multiplier lives in the app's
+process and would otherwise still be in force for the next trip you record by hand.
+
+**The factor cannot travel on the fix, and it was tried.** `MockService` stamped it into
+`Location.extras`; Detour reads Play Services' fused provider, and fused delivered every one
+of those fixes with `extras=null` (measured, Android 15 emulator). Only the standard
+`Location` fields survive that hop — which is also worth knowing before inventing any other
+side channel through a mocked fix.
+
+**Two things a compressed run does not compress**, both deliberate and both listed with their
+reasoning in `ReplayClock`'s KDoc: fix staleness stays on the real clock (a compressed
+replay's fixes genuinely are fresher, and an age is only ever a gate that fresher satisfies),
+and the Overpass and municipality throttles stay real so the request rate into a
+rate-limiting public mirror does not multiply by the factor. That second one is why the
+script warns past 10x, and it is the same rate-limit trap #22 records.
+
+**Only the `.debug` variant can be told.** `DebugReplayClockReceiver` is in the debug source
+set, so a release install replays at 1x whatever you pass — its clock has no way to be moved.
 
 `start-replay.sh` validates the route file locally first — line count, distance, mean speed,
 and a warning if column 1 looks like a latitude — then force-stops the release app, pushes the

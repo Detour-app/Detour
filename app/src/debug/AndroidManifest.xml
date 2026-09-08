@@ -29,6 +29,19 @@
                 <action android:name="com.jellemax.detour.DEBUG_TRIP_ENDED" />
             </intent-filter>
         </receiver>
+
+        <!-- Hands the replay speed multiplier to ReplayClock. exported for the
+             same reason as the receiver above, and with the same limit: this
+             entry is merged into debug builds only. The factor cannot ride on
+             the mocked fixes themselves — fused strips Location.extras — which
+             is why this exists rather than a read in the fix path. -->
+        <receiver
+            android:name="com.jellemax.detour.debug.DebugReplayClockReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.jellemax.detour.DEBUG_REPLAY_SPEEDUP" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

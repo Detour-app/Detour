@@ -59,6 +59,13 @@ if [ "$RECOVER" = 1 ]; then
 fi
 
 "${ADB[@]}" shell am stopservice -n "$HARNESS/.MockService" | tr -d '\r'
+
+# Back to real time, unconditionally: the app holds the multiplier in its own process, so a
+# replay that ended at 5x would otherwise leave the next trip — a hand-driven one included —
+# recording five minutes of drive per wall minute. Silent when the debug build is absent.
+"${ADB[@]}" shell am broadcast \
+    -n io.github.maxke24.detour.debug/com.jellemax.detour.debug.DebugReplayClockReceiver \
+    --ei speedup 1 >/dev/null 2>&1 || true
 echo
 echo "last MockLocation log lines:"
 "${ADB[@]}" logcat -d -s MockLocation | tail -15

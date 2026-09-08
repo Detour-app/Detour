@@ -184,7 +184,7 @@ internal class TripSession(
         val durationSec = stats.durationMs / 1000.0
         val trip = Trip(
             startTimeMs = stats.startTimeMs,
-            endTimeMs = System.currentTimeMillis(),
+            endTimeMs = ReplayClock.nowMs(),
             distanceMeters = stats.distanceMeters,
             topSpeedMps = stats.topSpeedMps,
             maxLeanAngleDeg = maxLeanDeg,
