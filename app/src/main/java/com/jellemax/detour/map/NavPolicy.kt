@@ -27,6 +27,24 @@ internal object NavPolicy {
     const val REROUTE_COOLDOWN_MS = 15_000L
 
     /**
+     * `heading_penalty` (seconds) for a reroute request, by current speed.
+     *
+     * A reroute passes the rider's GPS course to the router as a heading hint so
+     * the new line continues forward instead of turning them around; this is how
+     * hard the router is pushed to obey it. Slow enough to stop safely and a
+     * genuine U-turn can still win when it saves real distance. On a 70/90 km/h
+     * road a turn-around is unusable, so the penalty there is large enough that
+     * GraphHopper only takes one when there is no other way back to the route.
+     *
+     * 8 m/s ≈ 29 km/h, 17 m/s ≈ 61 km/h. GraphHopper's own default is 300.
+     */
+    fun rerouteHeadingPenaltySec(speedMps: Double): Int = when {
+        speedMps < 8.0 -> 120
+        speedMps < 17.0 -> 300
+        else -> 1200
+    }
+
+    /**
      * Whether to draw the rider on the route's geometry rather than at the raw
      * fix: the marker on the snapped point, the camera on that point and on the
      * segment's bearing (`ui/MapScreen.kt`'s marker loop).

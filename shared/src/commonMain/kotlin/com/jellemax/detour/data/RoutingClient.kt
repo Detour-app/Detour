@@ -94,6 +94,25 @@ private fun walk(line: List<LatLon>, index: Int, meters: Double, forward: Boolea
 }
 
 /**
+ * A reroute's "keep going this way" hint for the router: favour [deg] (compass
+ * degrees) at the departure point, adding [penaltySec] seconds whenever the
+ * route disobeys it. The penalty is larger the faster the rider is going, so a
+ * fresh line never opens with a U-turn on a fast road.
+ */
+data class HeadingHint(val deg: Double, val penaltySec: Int)
+
+/**
+ * [hint] as GraphHopper `heading` query params, or empty when there is none.
+ * Needs flexible routing, so a caller adding this must also disable CH.
+ */
+internal fun headingQuery(hint: HeadingHint?): String =
+    if (hint == null) ""
+    else "&heading=${headingDegInt(hint.deg)}&heading_penalty=${hint.penaltySec}"
+
+/** [deg] wrapped into GraphHopper's [0, 360) integer degrees. */
+internal fun headingDegInt(deg: Double): Int = ((deg % 360.0 + 360.0) % 360.0).toInt()
+
+/**
  * Client for a self-hosted GraphHopper instance. Configured by the user in
  * the app; the URL lives only in app-private preferences, never in the
  * repo/APK.
@@ -227,7 +246,12 @@ object RoutingClient {
         profile: String,
         avoidHighways: Boolean = false,
         avoidSmallRoads: Boolean = false,
-    ): RouteResult = routeVia(config, listOf(from, to), profile, avoidHighways, avoidSmallRoads)
+        /** Set by a reroute so the fresh line continues in the rider's
+         *  direction of travel instead of turning them around; see [HeadingHint]. */
+        heading: HeadingHint? = null,
+    ): RouteResult = routeVia(
+        config, listOf(from, to), profile, avoidHighways, avoidSmallRoads, heading,
+    )
 
     /**
      * Turn-by-turn route through an ordered list of stops (a saved multi-point
@@ -236,7 +260,8 @@ object RoutingClient {
      * never uses them anyway); [avoidSmallRoads] pushes the route onto
      * roads worth driving instead of the nearest lane through a field. Either
      * one switches to a POST with a custom model, which needs flexible
-     * routing — hence `ch.disable`.
+     * routing — hence `ch.disable`. A [heading] does the same: GraphHopper
+     * only honours `heading` outside CH.
      */
     @Throws(Exception::class)
     suspend fun routeVia(
@@ -245,6 +270,7 @@ object RoutingClient {
         profile: String,
         avoidHighways: Boolean = false,
         avoidSmallRoads: Boolean = false,
+        heading: HeadingHint? = null,
     ): RouteResult {
         if (points.size < 2) throw IOException("routeVia needs at least two points")
         val rules = preferenceRules(avoidHighways, avoidSmallRoads)
@@ -254,6 +280,10 @@ object RoutingClient {
                 append("/route?profile=").append(profile)
                 for (p in points) append("&point=${p.lat},${p.lon}")
                 append("&points_encoded=false&details=max_speed")
+                if (heading != null) {
+                    append("&ch.disable=true")
+                    append(headingQuery(heading))
+                }
             }
             return fetchRoute(query)
         }
@@ -265,6 +295,10 @@ object RoutingClient {
             put("points_encoded", false)
             putJsonArray("details") { add("max_speed") }
             put("ch.disable", true)
+            if (heading != null) {
+                putJsonArray("heading") { add(headingDegInt(heading.deg)) }
+                put("heading_penalty", heading.penaltySec)
+            }
             putJsonObject("custom_model") { put("priority", rules) }
         }
         return fetchRoute(routingBase(config) + "/route", body.string())
