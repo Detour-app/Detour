@@ -143,6 +143,23 @@ and the Overpass and municipality throttles stay real so the request rate into a
 rate-limiting public mirror does not multiply by the factor. That second one is why the
 script warns past 10x, and it is the same rate-limit trap #22 records.
 
+**On an emulator, keep the map off screen for a compressed run.** MapLibre's render thread
+`SIGSEGV`s when fixes arrive at 3-5 Hz under software GL — three times out of three, never at
+1x, and with the app's clock left at 1x as well, so it is the fix rate and not the scaling
+(#301). Hardware GL does not reproduce it: the same 5 Hz stream with the map on screen ran
+clean on a CPH2449. So on an emulator, park the app on a screen that is not the map before
+starting — `am start -n io.github.maxke24.detour.debug/com.jellemax.detour.MainActivity --ez
+open_update_settings true` lands on the update row — and the replay records a trip normally.
+Backgrounding the app instead does *not* work: fused thins the stream to a few fixes a second
+and the auto-start gate is never cleared.
+
+**A real device cannot finish a trip-level comparison yet**, for a different reason. Fused
+blends the real providers with the mock, and any blended fix over the 2.0 m/s moving gate
+resets `lastMovingMs`, so `STATIONARY_END_MS` never elapses and the trip is never saved — the
+trace grows and `trips.json` stays `[]`. That is #47, and on a phone reached over Wi-Fi adb you
+cannot turn the real providers off without dropping your own connection. Compare on an
+emulator, or use USB adb and disable Wi-Fi.
+
 **Only the `.debug` variant can be told.** `DebugReplayClockReceiver` is in the debug source
 set, so a release install replays at 1x whatever you pass — its clock has no way to be moved.
 
