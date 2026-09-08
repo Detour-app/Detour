@@ -167,7 +167,8 @@ struct RouteEditorScreen: View {
                 points: stops.map(\.stop.at),
                 profile: mode.ghProfile,
                 avoidHighways: SettingsValues.shared.avoidHighways,
-                avoidSmallRoads: SettingsValues.shared.avoidSmallRoads
+                avoidSmallRoads: SettingsValues.shared.avoidSmallRoads,
+                heading: nil
             )
             polyline = result.polyline
             distanceMeters = result.distanceMeters?.doubleValue

@@ -177,4 +177,21 @@ class NavPolicyTest {
             assertTrue(NavPolicy.snapToRoute(inBand, wasSnapped = true))
         }
     }
+
+    /** The reroute heading penalty rises with speed: slow enough to stop and a
+     *  genuine U-turn can still win; at 70/90-road speed the router only turns
+     *  the rider around when there is no other way back to the line. */
+    @Test
+    fun rerouteHeadingPenaltyRisesWithSpeed() {
+        // City crawl: modest penalty.
+        assertEquals(120, NavPolicy.rerouteHeadingPenaltySec(5.0))
+        // ~50 km/h arterial: GraphHopper's own default.
+        assertEquals(300, NavPolicy.rerouteHeadingPenaltySec(13.0))
+        // ~70 km/h and up: turn-arounds effectively forbidden.
+        assertEquals(1200, NavPolicy.rerouteHeadingPenaltySec(20.0))
+        // Monotonic, and the boundaries are on the lower tier (`<`).
+        assertEquals(120, NavPolicy.rerouteHeadingPenaltySec(0.0))
+        assertEquals(300, NavPolicy.rerouteHeadingPenaltySec(8.0))
+        assertEquals(1200, NavPolicy.rerouteHeadingPenaltySec(17.0))
+    }
 }
