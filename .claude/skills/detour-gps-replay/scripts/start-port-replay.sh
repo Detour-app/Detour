@@ -33,7 +33,14 @@ ADB=(adb); [ -n "$SERIAL" ] && ADB=(adb -s "$SERIAL")
 
 # The debug variant only: DebugReplayReceiver and the replay source are both in the debug
 # source set, so a release install has no route to either and would silently ignore this.
-if ! "${ADB[@]}" shell pm list packages | tr -d '\r' | grep -qx "package:$APP"; then
+# Captured first, then matched with `grep -x` -- never `grep -q` inside a pipeline. Under
+# `set -o pipefail`, `... | tr | grep -q` reports failure on SUCCESS: grep -q exits the
+# moment it matches, tr takes SIGPIPE, and the pipeline's status becomes 141. This package
+# sits at line 410 of 495 on a CPH2449, so a match reliably reported "not installed" and
+# this script could never start a replay there. -q is omitted below for the same reason:
+# it would SIGPIPE the printf feeding it. Without it, grep drains stdin.
+installed=$("${ADB[@]}" shell pm list packages | tr -d '\r')
+if ! printf '%s\n' "$installed" | grep -x "package:$APP" >/dev/null; then
     echo "$APP is not installed; this rig only exists in the debug variant." >&2
     exit 1
 fi
@@ -47,7 +54,12 @@ fi
 # Into the app's OWN files dir -- that is the whole point of the port. The mock rig pushes
 # into the harness's directory instead, and needs the harness installed and designated.
 "${ADB[@]}" shell "run-as $APP sh -c 'cat > files/$ROUTE_FILE'" < "$ROUTE"
-pushed=$("${ADB[@]}" shell "run-as $APP wc -l < files/$ROUTE_FILE" | tr -d '\r ')
+# The redirect has to happen *inside* run-as. Written as `run-as $APP wc -l < files/...`
+# the outer shell performs it as uid `shell`, which cannot read the app's private files/ --
+# and its cwd is `/`, so the failure reads as "No such file or directory" rather than as a
+# permission problem. Under `set -e` the empty command substitution then killed this script
+# before the replay was ever broadcast. start-replay.sh:241 always had the quoting right.
+pushed=$("${ADB[@]}" shell "run-as $APP sh -c 'wc -l < files/$ROUTE_FILE'" | tr -d '\r ')
 echo "pushed $pushed lines into $APP's own files/$ROUTE_FILE"
 
 # The tracking service has to exist before there is a source to arm; the receiver says so
