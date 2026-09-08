@@ -38,6 +38,13 @@ import com.jellemax.detour.data.Settings
  */
 internal class DriveTransitions(
     private val context: Context,
+    /** The drive's clock (#307). Both ends of the probe window read it: the
+     *  window is a duration of *driving*, so under a compressed replay it has to
+     *  open and close on the same timeline it is measured against. It previously
+     *  opened on `System.currentTimeMillis()` and closed against the replay
+     *  clock, which are the same number at 1x and diverge the moment a replay is
+     *  scaled — so the window shut immediately for the whole of a scaled run. */
+    private val clock: DriveClock,
     private val tripActive: () -> Boolean,
     private val onVehicleEnter: () -> Unit,
     private val onVehicleExit: () -> Unit,
@@ -65,7 +72,7 @@ internal class DriveTransitions(
 
     /** True while a confirmation window is open, from either an IN_VEHICLE
      *  transition or [startSpeedProbe]. */
-    val probing: Boolean get() = probeUntilMs?.let { ReplayClock.nowMs() < it } == true
+    val probing: Boolean get() = probeUntilMs?.let { clock.nowMs() < it } == true
 
     private fun pendingIntent(): PendingIntent =
         PendingIntent.getForegroundService(
@@ -166,7 +173,7 @@ internal class DriveTransitions(
                         // fires for a phone on a desk next to a fan. Open a window
                         // in which a modest sustained speed is enough to confirm.
                         if (!tripActive() && Settings.autoDetectDrives.value) {
-                            probeUntilMs = System.currentTimeMillis() + TripTrackingService.PROBE_WINDOW_MS
+                            probeUntilMs = clock.nowMs() + TripTrackingService.PROBE_WINDOW_MS
                         }
                         onVehicleEnter()
                     } else {
@@ -190,7 +197,7 @@ internal class DriveTransitions(
      *  Escalates straight to [probing]'s tight fixes so the run it's judging
      *  is confirmed in seconds rather than waiting out a batched idle fix. */
     fun startSpeedProbe() {
-        probeUntilMs = System.currentTimeMillis() + TripTrackingService.SPEED_PROBE_WINDOW_MS
+        probeUntilMs = clock.nowMs() + TripTrackingService.SPEED_PROBE_WINDOW_MS
         stationary = false
     }
 

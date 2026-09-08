@@ -28,7 +28,11 @@ cd "$ROOT"
 
 MOCK=tools/mocklocation/src/main/java/com/jellemax/mocklocation/MockService.kt
 TRACK=app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt
-CLOCK=app/src/main/java/com/jellemax/detour/tracking/ReplayClock.kt
+# The moving gate moved out of TripTrackingService with the auto-stop machine
+# (#307); the literal is unchanged, and is still written as a literal precisely
+# so this grep can pin the value rather than a name.
+ENDDET=app/src/main/java/com/jellemax/detour/tracking/TripEndDetector.kt
+CLOCK=app/src/main/java/com/jellemax/detour/tracking/ScaledDriveClock.kt
 
 fails=0
 count() { grep -c "$1" "$2" 2>/dev/null || true; }
@@ -48,13 +52,13 @@ check 'the harness is NOT a module of the root build (its APK is under tools/moc
     0 "$(count mocklocation settings.gradle.kts)"
 check 'the trace is still decimated at 25 m (gap < 25.0)' 1 "$(count 'gap < 25.0' "$TRACK")"
 check 'the moving gate is still 2.0 m/s (if (speed > 2.0) lastMovingMs = now)' \
-    1 "$(count 'if (speed > 2.0) lastMovingMs = now' "$TRACK")"
+    1 "$(count 'if (speed > 2.0) lastMovingMs = now' "$ENDDET")"
 # The two ceilings are written twice, in two builds that share no code by design, and a
 # replay run at a factor one side clamps and the other does not scales the drive and the
 # app's clock differently — which is a wrong A/B rather than a failed run.
 check 'the speedup cap agrees between the harness and the app (both 50)' \
     1 "$(count 'MAX_SPEEDUP = 50' "$MOCK")"
-check 'the app still caps the replay clock at the same 50' \
+check 'the app still caps the drive clock at the same 50' \
     1 "$(count 'MAX_SCALE = 50' "$CLOCK")"
 check 'the harness still paces by intervalMs / speedup (Thread.sleep)' \
     1 "$(count 'Thread.sleep((intervalMs / speedup)' "$MOCK")"
