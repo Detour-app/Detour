@@ -714,6 +714,52 @@ class RoundaboutTurnTest {
 }
 
 /**
+ * A GraphHopper roundabout instruction's `interval` ends at the *next* maneuver,
+ * not where the route leaves the ring — so [RoutingClient.parseRoute] has to take
+ * the exit point from the `roundabout` path detail instead. Geometry: approach
+ * due north, leave due east (a +90° right turn), then the exit road bends back
+ * north well past the exit. Reading the turn at `interval[1]` sees the bend and
+ * reports ~0°; reading it at the ring exit reports ~90°.
+ */
+class RoundaboutParseTest {
+
+    private val coords = listOf(
+        "[0.0,51.0000]", "[0.0,51.0004]", "[0.0,51.0008]",   // approach + entry (idx 2)
+        "[0.0002,51.0009]", "[0.0006,51.0009]",               // ring, then exit (idx 4)
+        "[0.0016,51.0009]", "[0.0026,51.0009]",               // exit road, due east
+        "[0.0027,51.0018]", "[0.00272,51.0028]", "[0.00272,51.0038]", // bends back north
+    ).joinToString(",")
+
+    private fun json(roundaboutDetail: String) = """
+        {"paths":[{
+          "points":{"type":"LineString","coordinates":[$coords]},
+          "instructions":[
+            {"text":"At roundabout, take exit 1 onto Test","distance":120,"sign":6,"exit_number":1,"interval":[2,7]},
+            {"text":"Turn left","distance":40,"sign":-2,"interval":[7,9]},
+            {"text":"Arrive","distance":0,"sign":4,"interval":[9,9]}
+          ],
+          "details":{"roundabout":[$roundaboutDetail]}
+        }]}
+    """.trimIndent()
+
+    @Test
+    fun exitAngleComesFromTheRingExitNotTheNextManeuver() {
+        val route = RoutingClient.parseRoute(json("[0,2,false],[2,4,true],[4,9,false]"))
+        val turn = route.instructions.first { it.sign == 6 }.roundaboutTurnDeg!!
+        assertEquals(90.0, turn, 6.0, "right-turn exit should read ~+90°, got $turn")
+    }
+
+    @Test
+    fun withoutTheDetailItFallsBackToTheInstructionInterval() {
+        // interval[1] sits on the northbound bend, so the fallback misreads the
+        // same right turn as roughly straight-through — the bug this detail fixes.
+        val route = RoutingClient.parseRoute(json("[0,9,false]"))
+        val turn = route.instructions.first { it.sign == 6 }.roundaboutTurnDeg!!
+        assertTrue(turn < 30.0, "fallback reads the bend, not the exit: got $turn")
+    }
+}
+
+/**
  * [headingQuery] is the GraphHopper `heading` hint a reroute appends so the
  * fresh line continues in the rider's direction of travel instead of opening
  * with a U-turn.

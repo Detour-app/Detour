@@ -162,7 +162,7 @@ object RoutingClient {
                     "&round_trip.distance=${distanceMeters.toInt()}" +
                     "&round_trip.seed=$seed" +
                     (headingDeg?.let { "&heading=${it.toInt()}" } ?: "") +
-                    "&points_encoded=false&details=max_speed",
+                    "&points_encoded=false&details=max_speed&details=roundabout",
             )
         }
         // A loop is where this matters most: left to itself, round_trip strings
@@ -179,7 +179,7 @@ object RoutingClient {
             put("round_trip.distance", distanceMeters.toInt())
             put("round_trip.seed", seed)
             put("points_encoded", false)
-            putJsonArray("details") { add("max_speed") }
+            putJsonArray("details") { add("max_speed"); add("roundabout") }
             put("ch.disable", true)
             putJsonObject("custom_model") {
                 put("priority", preferenceRules(avoidHighways = false, avoidSmallRoads = true))
@@ -279,7 +279,7 @@ object RoutingClient {
                 append(routingBase(config))
                 append("/route?profile=").append(profile)
                 for (p in points) append("&point=${p.lat},${p.lon}")
-                append("&points_encoded=false&details=max_speed")
+                append("&points_encoded=false&details=max_speed&details=roundabout")
                 if (heading != null) {
                     append("&ch.disable=true")
                     append(headingQuery(heading))
@@ -293,7 +293,7 @@ object RoutingClient {
                 for (p in points) addJsonArray { add(p.lon); add(p.lat) }
             }
             put("points_encoded", false)
-            putJsonArray("details") { add("max_speed") }
+            putJsonArray("details") { add("max_speed"); add("roundabout") }
             put("ch.disable", true)
             if (heading != null) {
                 putJsonArray("heading") { add(headingDegInt(heading.deg)) }
@@ -322,7 +322,7 @@ object RoutingClient {
         return parseRoute(text)
     }
 
-    private fun parseRoute(text: String): RouteResult {
+    internal fun parseRoute(text: String): RouteResult {
         val path = jsonObjectOf(text).optArray("paths")?.optObject(0)
             ?: throw IOException("Routing server returned no route")
         val coords = path.optObject("points")?.optArray("coordinates") ?: JsonArrayEmpty
@@ -331,6 +331,14 @@ object RoutingClient {
             polyline.add(LatLon(c.optDouble(1), c.optDouble(0)))
         }
         if (polyline.size < 2) throw IOException("Routing server returned an empty route")
+
+        // `[from, to]` spans of the polyline that run on a roundabout, from the
+        // `roundabout` path detail. A roundabout instruction's own `interval`
+        // ends at the *next* maneuver — which can be a kilometre past the exit —
+        // so its `endIndex` is no use for measuring the exit direction; the
+        // detail's `to` is the point where the route actually leaves the ring.
+        val roundaboutSpans = path.optObject("details")?.optArray("roundabout")?.arrays().orEmpty()
+            .mapNotNull { seg -> if (seg.optBoolean(2)) seg.optInt(0)..seg.optInt(1) else null }
 
         val instructions = path.optArray("instructions")?.objects().orEmpty().map { ins ->
             val interval = ins.optArray("interval") ?: JsonArrayEmpty
@@ -346,8 +354,12 @@ object RoutingClient {
                 // Only present on roundabout instructions, and negative when
                 // GraphHopper can't tell which exit; 0 means "don't show one".
                 exitNumber = ins.optInt("exit_number").coerceAtLeast(0),
-                roundaboutTurnDeg = if (sign == 6 || sign == -6)
-                    roundaboutTurnDeg(polyline, startIndex, endIndex) else null,
+                roundaboutTurnDeg = if (sign == 6 || sign == -6) {
+                    val exitIndex = roundaboutSpans
+                        .firstOrNull { startIndex in it.first until it.last }?.last
+                        ?: endIndex
+                    roundaboutTurnDeg(polyline, startIndex, exitIndex)
+                } else null,
             )
         }
 

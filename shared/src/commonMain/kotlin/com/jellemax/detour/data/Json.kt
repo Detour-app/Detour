@@ -83,6 +83,9 @@ internal fun JsonArray.optInt(i: Int, def: Int = 0): Int =
 internal fun JsonArray.optLong(i: Int, def: Long = 0L): Long =
     (getOrNull(i) as? JsonPrimitive)?.longOrNull ?: def
 
+internal fun JsonArray.optBoolean(i: Int, def: Boolean = false): Boolean =
+    (getOrNull(i) as? JsonPrimitive)?.booleanOrNull ?: def
+
 internal fun JsonArray.optObject(i: Int): JsonObject? = getOrNull(i) as? JsonObject
 
 internal fun JsonArray.optArray(i: Int): JsonArray? = getOrNull(i) as? JsonArray
