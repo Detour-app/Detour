@@ -192,6 +192,85 @@ are fine — delete them once they're merged rather than leaving them on origin.
   credential storage, the keychain), say so explicitly — those get a closer
   look.
 
+## Triage
+
+Every open issue carries **exactly one** priority label. The label answers one
+question — *what does it cost to leave this alone?* — and nothing else.
+
+| Label | Means | Read it as |
+| --- | --- | --- |
+| `p0-now` | A rider is being harmed on a shipped build, silently or unavoidably | Drop what you're doing |
+| `p1-next` | A shipped feature doesn't work, or this is blocking other work | Next thing you pick up |
+| `p2-soon` | A real cost that isn't being paid yet | Schedule it |
+| `p3-later` | Wanted, and free to defer | When there's room |
+
+Two more, added on top of the priority rather than instead of it:
+
+- `blocked` — something else has to land first. **Blocked is not a priority.**
+  Label what the issue is worth, then add this. A `p0-now blocked` is a
+  reason to go unblock it, not a reason to demote it.
+- `needs-triage` — no priority decided yet. Every new issue starts here.
+
+`bug` / `enhancement` / `documentation` / `question` say what *kind* of thing it
+is, which is a separate axis — a `bug` can be `p3-later` and an `enhancement`
+can be `p1-next`.
+
+### Deciding
+
+Ask these in order and stop at the first yes. First match wins; don't average
+them.
+
+1. **Is a rider on a shipped build being harmed right now, in a way they can't
+   see or can't avoid?** → `p0-now`
+   Wrong information at a decision point, data loss or corruption, a crash,
+   a credential or location exposure, battery or network drain they'd never
+   attribute to us. The test for "can't see" is: *would a rider know to
+   complain?* If the failure is silent, they wouldn't, and silence is what
+   makes it a p0 rather than a p1.
+
+2. **Is a shipped feature not doing what it says — or is this blocking other
+   work?** → `p1-next`
+   A visible failure with a workaround. A feature that's present but broken.
+   A tooling or verification gate other issues are queued behind: that gate
+   inherits the priority of the most urgent thing waiting on it.
+
+3. **Is there a real cost that isn't being paid yet?** → `p2-soon`
+   Security or dependency debt on a surface not yet exposed. Shipped code
+   nobody has watched run. A correctness bug in a path riders don't reach
+   today. A quality gap in a feature that otherwise works.
+
+4. **Otherwise** → `p3-later`
+   New features, design decisions, refactors, polish, docs.
+
+### The mistakes this replaces
+
+The old `low prio` / `medium prio` pair had no high end, so nothing could be
+marked urgent, and half the tracker went unlabelled. These are the specific
+ways the labels drifted from the code — worth reading before you set one:
+
+- **Judge the cost of leaving it alone, not the quality of the write-up.** A
+  long, careful, well-argued enhancement is still an enhancement. A two-line
+  bug report can be a `p0-now`. This is the failure mode here, by a distance:
+  effort spent writing the issue kept reading as severity.
+- **Re-read the comments before trusting a label.** Evidence posted after
+  filing routinely invalidates the original assessment — a bug that hardware
+  turns out not to reproduce isn't a bug any more, whatever the label says.
+- **An epic takes the priority of its lowest-priority contents.** If something
+  inside it is urgent, carve that out into its own issue. Urgent work hidden
+  inside an umbrella reads as an enhancement and gets skipped.
+- **"Nobody has complained" is not evidence of low priority** when the failure
+  is silent. That's the definition of a p0, not an argument against one.
+- **Re-triage on evidence, not on age.** An issue doesn't become less important
+  by sitting there, and it doesn't become more important either.
+
+### Who sets it
+
+Whoever files the issue picks a priority, or leaves `needs-triage` if they
+genuinely don't know. Anyone can change one — leave a comment saying what
+changed your mind, so the next reader gets the evidence and not just the new
+label. A priority that moves without a reason attached is how the last set
+stopped meaning anything.
+
 ## Versioning
 
 `versionName` in `app/build.gradle.kts` is semver — `MAJOR.MINOR.PATCH` — and the

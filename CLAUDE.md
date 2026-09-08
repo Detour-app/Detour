@@ -17,6 +17,25 @@ and the release-tag mechanics this feeds are in `CONTRIBUTING.md`'s
 `versionCode` is separate and CI-stamped from the run number; never bump it
 by hand.
 
+## Triaging issues
+
+Every open issue carries exactly one priority label: `p0-now`, `p1-next`,
+`p2-soon` or `p3-later`. The label answers one question — what does it cost to
+leave this alone? — decided by a first-match-wins ladder:
+
+- Rider harmed on a shipped build, silently or unavoidably -> `p0-now`
+- Shipped feature doesn't work, or this blocks other work -> `p1-next`
+- A real cost not being paid yet -> `p2-soon`
+- Everything else -> `p3-later`
+
+`blocked` and `needs-triage` go on top of a priority, never instead of one.
+
+Two rules worth stating here because both were violated across the tracker:
+judge the cost of leaving it alone, **not** how well the issue is written; and
+re-read the comments before trusting a label, because later evidence often
+invalidates it. The full ladder, the failure modes and who may change a label
+are in `CONTRIBUTING.md`'s "Triage" section.
+
 ## Reviewing Kotlin
 
 Every review in this repo — human or agent, a full PR or one changed file —
