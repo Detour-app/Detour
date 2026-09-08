@@ -188,6 +188,22 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // `initWith` above copies a build type's *settings*, not its sources. Both
+    // derived types therefore see neither `src/debug/` nor `src/release/`, which
+    // is invisible until something exists once per variant — ReplayFixGate does
+    // (the real filter for a replay rig, a no-op for a shipped app), and
+    // :app:compileGithubReleaseKotlin was the first thing to say so, in CI,
+    // after :app:assembleRelease had passed locally.
+    //
+    // githubRelease is a release and takes the no-op; automotive is a debug and
+    // takes the filter, which also brings the debug receivers along — unused
+    // there, since the manifest entries that register them are in
+    // src/debug/AndroidManifest.xml.
+    sourceSets {
+        getByName("githubRelease").java.srcDir("src/release/java")
+        getByName("automotive").java.srcDir("src/debug/java")
+    }
+
     kotlinOptions {
         jvmTarget = "17"
     }
