@@ -64,6 +64,10 @@ private const val LAYER_ROUTE = "mr-route-line"
 private const val LAYER_ROUTE_DRIVEN = "mr-route-driven-line"
 private const val LAYER_ROUTE_TAIL = "mr-route-tail-line"
 const val LAYER_CANDIDATES = "mr-candidates-dot"
+// Queried by MapScreen's map-tap handler to resolve a tap back to a rider
+// (issue #156); each feature carries a "rider" id property for that lookup.
+const val LAYER_FRIENDS = "mr-friends"
+const val LAYER_CIRCLE_MEMBERS = "mr-circle-members"
 // Every symbol layer that carries a text label must name this font stack.
 // MapLibre's spec default is ["Open Sans Regular", "Arial Unicode MS Regular"]
 // and OpenFreeMap serves neither - both 404 on its glyph endpoint, and it is
@@ -227,7 +231,7 @@ class MapOverlays(
             PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)))
         // Convoy friends: heading arrow rotated per-feature, username labelled
         // underneath so several friends on screen stay distinguishable.
-        style.addLayer(SymbolLayer("mr-friends", SRC_FRIENDS).withProperties(
+        style.addLayer(SymbolLayer(LAYER_FRIENDS, SRC_FRIENDS).withProperties(
             PropertyFactory.iconImage(IMG_FRIEND),
             PropertyFactory.iconRotate(Expression.get("bearing")),
             PropertyFactory.iconRotationAlignment(Property.ICON_ROTATION_ALIGNMENT_MAP),
@@ -241,7 +245,7 @@ class MapOverlays(
         // even if it did, minutes-old speed/direction isn't worth showing as
         // if it were current) - just a static dot with a "name · age" label,
         // so this reads as "last seen", not "live", next to the convoy arrow.
-        style.addLayer(SymbolLayer("mr-circle-members", SRC_CIRCLE_MEMBERS).withProperties(
+        style.addLayer(SymbolLayer(LAYER_CIRCLE_MEMBERS, SRC_CIRCLE_MEMBERS).withProperties(
             PropertyFactory.iconImage(IMG_CIRCLE_MEMBER),
             PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true),
             PropertyFactory.textField(Expression.get("label")), PropertyFactory.textFont(GLYPH_FONT),
@@ -417,6 +421,7 @@ class MapOverlays(
         setData(SRC_FRIENDS, FeatureCollection.fromFeatures(
             friends.map { f ->
                 Feature.fromGeometry(Point.fromLngLat(f.fix.lon, f.fix.lat)).apply {
+                    addStringProperty("rider", f.fix.riderId.value)
                     addStringProperty("name", f.username)
                     addNumberProperty("bearing", f.fix.headingDeg ?: 0.0)
                 }
@@ -437,6 +442,7 @@ class MapOverlays(
                 Feature.fromGeometry(Point.fromLngLat(f.fix.lon, f.fix.lat)).apply {
                     val ageMin = ((now - f.fix.tsMs).coerceAtLeast(0) / 60_000L)
                     val ageLabel = if (ageMin < 1) "just now" else "${ageMin}m ago"
+                    addStringProperty("rider", f.fix.riderId.value)
                     addStringProperty("label", "${f.username} · $ageLabel")
                 }
             }))
