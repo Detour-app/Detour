@@ -25,11 +25,17 @@ class InstallResultReceiver : BroadcastReceiver() {
             }
 
             PackageInstaller.STATUS_SUCCESS -> {
-                // The process is about to be replaced by the new build, so
-                // there is nothing to update in the UI. Clearing the status
-                // keeps a stale banner off the screen if it is not.
+                // This branch already runs in the new build: the old process
+                // was killed by its own install and the system respawned the
+                // app from the new APK to deliver this queued broadcast. So
+                // clearing the status is for the case where it somehow was
+                // not, and keeps a stale row off the screen.
                 UpdateState.set(UpdateStatus.None)
                 UpdateDownloader.prune(context, keep = null)
+                // Whichever screen the rider was on is gone with that process,
+                // and they are looking at their launcher. ReopenNotification
+                // documents why the app cannot simply reopen itself.
+                ReopenNotification.post(context)
             }
 
             PackageInstaller.STATUS_FAILURE_ABORTED -> {
