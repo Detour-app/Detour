@@ -191,9 +191,10 @@ auto_detect="$("${ADB[@]}" shell "run-as $DEBUG_APP cat shared_prefs/settings.xm
     | tr -d '\r' | grep -o 'name="auto_detect_drives" value="[a-z]*"' || true)"
 case "$auto_detect" in
     *'value="false"'*)
-        echo "warning: auto-detect drives is OFF in $DEBUG_APP — this replay cannot start a" >&2
-        echo "         trip, so trip distance, duration and mode will not be measurable." >&2
-        echo "         Turn it on in Settings, or expect the fix pipeline only." >&2
+        echo "note: auto-detect drives is off in $DEBUG_APP; mock mode turns it on for this"
+        echo "      run and puts it back afterwards. Without it no route can start a trip,"
+        echo "      so trip distance, duration and mode would not be measurable."
+        echo "      Synthetic trips are recorded and, on a signed-in install, synced."
         ;;
 esac
 

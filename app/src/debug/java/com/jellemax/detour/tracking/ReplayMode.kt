@@ -1,6 +1,7 @@
 package com.jellemax.detour.tracking
 
 import android.util.Log
+import com.jellemax.detour.data.Settings
 
 /**
  * Whether the app is currently being driven by a replay rather than by the world.
@@ -25,22 +26,49 @@ import android.util.Log
  * comes back trusting the world again, so a replay that outlives a crash starts
  * blending real fixes back in. The alternative is persisting a test-rig flag into
  * the rider's settings, which is worse. `start-replay.sh` re-arms it on every run.
+ *
+ * The one setting it does write is auto-detect drives, and only because a replay is
+ * pointless without it: `onIdleLocation` resets the start detector and returns
+ * before any speed gate when it is off, so no route however good can start a trip,
+ * and the whole trip half of a measurement silently reports nothing. [enter] turns
+ * it on, [exit] puts it back to whatever it was. The debug install is the only one
+ * this can reach, and only while a rig is driving it.
  */
 object ReplayMode {
 
     @Volatile
     private var replaying = false
 
+    /** What auto-detect was before [enter] turned it on, or null when it was
+     *  already on and there is nothing to put back. */
+    @Volatile
+    private var autoDetectWas: Boolean? = null
+
     /** True while a replay owns this app's idea of where it is. */
     val active: Boolean get() = replaying
 
     fun enter() {
         replaying = true
+        // Idempotent, and called first for the reason BootReceiver and
+        // PlaceGeofenceReceiver call it: a broadcast can spawn this process, and
+        // reading Settings before init throws.
+        Settings.init()
+        if (!Settings.autoDetectDrives.value) {
+            autoDetectWas = false
+            Settings.setAutoDetectDrives(true)
+            Log.i(TAG, "auto-detect drives was off; on for this run")
+        }
         Log.i(TAG, "mock-only: real positions will be rejected until told otherwise")
     }
 
     fun exit() {
         replaying = false
+        autoDetectWas?.let {
+            Settings.init()
+            Settings.setAutoDetectDrives(it)
+            autoDetectWas = null
+            Log.i(TAG, "auto-detect drives restored to $it")
+        }
         Log.i(TAG, "mock-only off: back to the world")
     }
 
