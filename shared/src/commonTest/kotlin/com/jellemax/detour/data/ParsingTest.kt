@@ -667,3 +667,48 @@ class ExploredAreaTest {
         assertTrue(!ExploredArea(emptyList()).isExplored(LatLon(50.8, 3.2)))
     }
 }
+
+/**
+ * [roundaboutTurnDeg] reads the exit direction off the route polyline — the
+ * signal the phone's roundabout glyph is drawn to. Synthetic lines along a
+ * meridian / parallel so the bearings are exact by construction. Steps are
+ * ~33 m so the 25 m sampling on each side clears one segment.
+ */
+class RoundaboutTurnTest {
+
+    // idx 0..2 approach north, 2..4 the island arc, 4..6 the exit.
+    private fun line(exit: List<LatLon>) = listOf(
+        LatLon(0.0000, 0.0), LatLon(0.0003, 0.0), LatLon(0.0006, 0.0),
+        LatLon(0.00063, 0.0), LatLon(0.00065, 0.0),
+    ) + exit
+
+    @Test
+    fun straightThroughIsZero() {
+        val l = line(listOf(LatLon(0.0009, 0.0), LatLon(0.0012, 0.0)))
+        assertEquals(0.0, roundaboutTurnDeg(l, 2, 4)!!, 1.0)
+    }
+
+    @Test
+    fun exitRightIsPositive() {
+        val l = line(listOf(LatLon(0.00065, 0.0003), LatLon(0.00065, 0.0006)))
+        assertEquals(90.0, roundaboutTurnDeg(l, 2, 4)!!, 2.0)
+    }
+
+    @Test
+    fun exitLeftIsNegative() {
+        val l = line(listOf(LatLon(0.00065, -0.0003), LatLon(0.00065, -0.0006)))
+        assertEquals(-90.0, roundaboutTurnDeg(l, 2, 4)!!, 2.0)
+    }
+
+    @Test
+    fun tooShortToSampleReturnsNull() {
+        assertNull(roundaboutTurnDeg(listOf(LatLon(0.0, 0.0), LatLon(0.001, 0.0)), 0, 1))
+    }
+
+    @Test
+    fun badIndicesReturnNull() {
+        val l = line(listOf(LatLon(0.0009, 0.0)))
+        assertNull(roundaboutTurnDeg(l, 4, 2))
+        assertNull(roundaboutTurnDeg(l, 0, 99))
+    }
+}

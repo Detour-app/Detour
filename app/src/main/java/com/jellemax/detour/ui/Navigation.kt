@@ -16,7 +16,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ForkLeft
 import androidx.compose.material.icons.rounded.ForkRight
-import androidx.compose.material.icons.rounded.RoundaboutLeft
 import androidx.compose.material.icons.rounded.SportsScore
 import androidx.compose.material.icons.rounded.Straight
 import androidx.compose.material.icons.rounded.TurnLeft
@@ -37,8 +36,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -47,8 +48,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jellemax.detour.presentation.NavState
 import com.jellemax.detour.presentation.NavThenPill
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
-/** GraphHopper sign code → maneuver arrow. */
+/** GraphHopper sign code → maneuver arrow. Same table as `car/NavScreen.kt`'s
+ *  `maneuverType()`. Roundabouts (6, -6) are not here — they get [RoundaboutGlyph],
+ *  drawn to the measured exit angle rather than a fixed arrow. */
 private fun signIcon(sign: Int): ImageVector = when (sign) {
     -98, -8 -> Icons.Rounded.UTurnLeft
     8 -> Icons.Rounded.UTurnRight
@@ -61,8 +67,76 @@ private fun signIcon(sign: Int): ImageVector = when (sign) {
     2 -> Icons.Rounded.TurnRight
     3 -> Icons.Rounded.TurnSharpRight
     4, 5 -> Icons.Rounded.SportsScore
-    6 -> Icons.Rounded.RoundaboutLeft
     else -> Icons.Rounded.Straight
+}
+
+/** The maneuver glyph for the banner and the "then" pill: a roundabout drawn to
+ *  its real exit angle for [sign] 6/-6, otherwise the [signIcon] arrow. */
+@Composable
+private fun ManeuverGlyph(
+    sign: Int,
+    roundaboutTurnDeg: Double?,
+    size: Dp,
+    tint: Color,
+) {
+    if (sign == 6 || sign == -6) {
+        RoundaboutGlyph(
+            exitTurnDeg = (roundaboutTurnDeg ?: 0.0).toFloat(),
+            tint = tint,
+            modifier = Modifier.size(size),
+        )
+    } else {
+        Icon(signIcon(sign), contentDescription = null, Modifier.size(size), tint = tint)
+    }
+}
+
+/**
+ * Roundabout maneuver glyph drawn to the actual exit angle. [exitTurnDeg] is how
+ * far the rider's heading turns from the approach to the exit — negative bears
+ * left, positive right, ~0 straight through — measured off the route polyline in
+ * `RoutingClient`. The ring always circulates anticlockwise, the way traffic runs
+ * a roundabout everywhere the app is used; [exitTurnDeg] moves only the exit spur.
+ */
+@Composable
+private fun RoundaboutGlyph(exitTurnDeg: Float, tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val s = size.minDimension
+        val w = s * 0.11f
+        val r = s * 0.30f
+        val c = Offset(size.width / 2f, size.height / 2f)
+        val cap = StrokeCap.Round
+
+        // Faint full ring, then the travelled arc thick over it.
+        drawCircle(tint.copy(alpha = 0.3f), r, c, style = Stroke(w))
+
+        // Screen angle, degrees, clockwise from +x (matches atan2(y, x) with y
+        // pointing down): the south entry is at 90°, straight-on exit at -90°.
+        val exitPhi = -90f + exitTurnDeg
+        drawArc(
+            color = tint,
+            startAngle = 90f,
+            // Anticlockwise from the entry to the exit — negative sweep.
+            sweepAngle = (exitPhi - 90f).coerceIn(-360f, 0f),
+            useCenter = false,
+            topLeft = Offset(c.x - r, c.y - r),
+            size = Size(r * 2f, r * 2f),
+            style = Stroke(w, cap = cap),
+        )
+
+        // Entry stub, bottom edge up to the ring.
+        drawLine(tint, Offset(c.x, size.height), Offset(c.x, c.y + r), w, cap)
+
+        // Exit spur along the exit heading, with an arrowhead.
+        val a = (exitPhi * PI.toFloat() / 180f)
+        val dir = Offset(cos(a), sin(a))
+        val tip = c + dir * (s * 0.52f)
+        drawLine(tint, c + dir * r, tip, w, cap)
+        val head = s * 0.14f
+        for (spread in listOf(140f, -140f)) {
+            val b = a + spread * PI.toFloat() / 180f
+            drawLine(tint, tip, tip + Offset(cos(b), sin(b)) * head, w, cap)
+        }
+    }
 }
 
 /**
@@ -84,10 +158,10 @@ fun NavigationBanner(state: NavState, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // The speed limit lives on the speed HUD; showing it twice was noise.
-            Icon(
-                signIcon(state.maneuverSign),
-                contentDescription = null,
-                Modifier.size(38.dp),
+            ManeuverGlyph(
+                sign = state.maneuverSign,
+                roundaboutTurnDeg = state.maneuverRoundaboutTurnDeg,
+                size = 38.dp,
                 tint = MaterialTheme.colorScheme.primary,
             )
             Column(Modifier.weight(1f)) {
@@ -120,10 +194,10 @@ private fun ThenChip(pill: NavThenPill) {
             .padding(horizontal = 10.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(
-            signIcon(pill.sign),
-            contentDescription = null,
-            Modifier.size(18.dp),
+        ManeuverGlyph(
+            sign = pill.sign,
+            roundaboutTurnDeg = pill.roundaboutTurnDeg,
+            size = 18.dp,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
