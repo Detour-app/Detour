@@ -540,26 +540,31 @@ class TripTrackingService : Service() {
         context = this,
         clock = clock,
         tripActive = { _stats.value != null },
-        onVehicleEnter = {
-            endDetector.onVehicleEnter()
-            // Only ever a no-op reset while a trip is running - see
-            // DriveTransitions' KDoc: the start detector's run is already
-            // empty for the life of any trip, so folding this call in
-            // unconditionally changes nothing observable.
-            resetStartDetector()
-        },
-        onVehicleExit = {
-            // Don't end immediately — could be a fuel stop. The grace period
-            // is checked against speed in onTripLocation.
-            if (_stats.value != null && autoStarted) {
-                endDetector.onVehicleExit()
+        listener = object : DriveTransitions.Listener {
+            override fun onVehicleEnter() {
+                endDetector.onVehicleEnter()
+                // Only ever a no-op reset while a trip is running - see
+                // DriveTransitions' KDoc: the start detector's run is already
+                // empty for the life of any trip, so folding this call in
+                // unconditionally changes nothing observable.
+                resetStartDetector()
             }
+
+            override fun onVehicleExit() {
+                // Don't end immediately — could be a fuel stop. The grace period
+                // is checked against speed in onTripLocation.
+                if (_stats.value != null && autoStarted) {
+                    endDetector.onVehicleExit()
+                }
+            }
+
+            override fun onStill() {
+                resetStartDetector()
+                flushTrace()
+            }
+
+            override fun onWalking() = resetStartDetector()
         },
-        onStill = {
-            resetStartDetector()
-            flushTrace()
-        },
-        onWalking = { resetStartDetector() },
     )
 
     /** Set in [onDestroy] before teardown, so a dormancy evaluation coalesced

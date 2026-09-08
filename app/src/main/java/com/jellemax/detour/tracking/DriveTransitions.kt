@@ -29,12 +29,11 @@ import com.jellemax.detour.data.Settings
  * coupling is why this class exposes a write path into its own probe state
  * rather than only reacting to [onTransitionIntent].
  *
- * [tripActive] and the four callbacks all run back on the service: a running
- * trip gates several of this class's own state changes (matching the
- * original inline `_stats.value == null` checks exactly), and
- * `resetStartDetector()`/`flushTrace()`/`pendingStopAtMs` are state this class
- * has no business holding — see each callback's call site in
- * [TripTrackingService] for what it does and why.
+ * [tripActive] and [listener] both run back on the service: a running trip
+ * gates several of this class's own state changes (matching the original inline
+ * `_stats.value == null` checks exactly), and the start detector, the trace and
+ * the end detector are state this class has no business holding — see each
+ * method's call site in [TripTrackingService] for what it does and why.
  */
 internal class DriveTransitions(
     private val context: Context,
@@ -46,11 +45,31 @@ internal class DriveTransitions(
      *  scaled — so the window shut immediately for the whole of a scaled run. */
     private val clock: DriveClock,
     private val tripActive: () -> Boolean,
-    private val onVehicleEnter: () -> Unit,
-    private val onVehicleExit: () -> Unit,
-    private val onStill: () -> Unit,
-    private val onWalking: () -> Unit,
+    private val listener: Listener,
 ) {
+
+    /**
+     * The four edges this class reports back to the service.
+     *
+     * One interface rather than four function parameters: with the drive clock
+     * handed in (#307) the constructor reached detekt's `LongParameterList`
+     * threshold, and four lambdas that are always passed together, always by the
+     * same caller, and always implemented against the same service state are one
+     * collaborator rather than four independent knobs.
+     */
+    internal interface Listener {
+        /** Activity recognition saw IN_VEHICLE. */
+        fun onVehicleEnter()
+
+        /** Activity recognition saw the rider leave the vehicle. */
+        fun onVehicleExit()
+
+        /** Activity recognition saw STILL. */
+        fun onStill()
+
+        /** Activity recognition saw WALKING, with no trip running. */
+        fun onWalking()
+    }
     /** Carries only the bounded registration retry (#144) — never anything
      *  that must survive [cancelPendingRegister]'s call from
      *  [TripTrackingService.onDestroy]. */
@@ -164,7 +183,7 @@ internal class DriveTransitions(
             when (event.activityType) {
                 DetectedActivity.STILL -> {
                     if (!tripActive()) stationary = entering
-                    if (entering) onStill()
+                    if (entering) listener.onStill()
                 }
                 DetectedActivity.IN_VEHICLE -> {
                     if (entering) {
@@ -175,17 +194,17 @@ internal class DriveTransitions(
                         if (!tripActive() && Settings.autoDetectDrives.value) {
                             probeUntilMs = clock.nowMs() + TripTrackingService.PROBE_WINDOW_MS
                         }
-                        onVehicleEnter()
+                        listener.onVehicleEnter()
                     } else {
                         probeUntilMs = null
-                        onVehicleExit()
+                        listener.onVehicleExit()
                     }
                 }
                 DetectedActivity.WALKING -> {
                     if (entering && !tripActive()) {
                         stationary = false
                         probeUntilMs = null // walking never becomes a drive
-                        onWalking()
+                        listener.onWalking()
                     }
                 }
             }
