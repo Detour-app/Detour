@@ -14,6 +14,8 @@ import kotlinx.datetime.TimeZone
 data class NavThenPill(
     val sign: Int,
     val distanceText: String,
+    /** Roundabout exit turn for [sign] 6/-6 — see [NavState.maneuverRoundaboutTurnDeg]. */
+    val roundaboutTurnDeg: Double? = null,
 )
 
 /**
@@ -29,6 +31,12 @@ data class NavState(
     val maneuverText: String,
     /** `nextInstruction?.sign ?: 0`, for the caller's own icon lookup. */
     val maneuverSign: Int,
+    /** For a roundabout maneuver ([maneuverSign] 6 or -6): how far the rider's
+     *  heading turns from the approach to the exit, degrees, negative left /
+     *  positive right / ~0 straight on — `NavInstruction.roundaboutTurnDeg`,
+     *  measured off the route polyline. The phone banner draws the roundabout
+     *  glyph's exit spur to this angle; null falls back to a straight-on exit. */
+    val maneuverRoundaboutTurnDeg: Double?,
     /** Null past the last turn or when there's only one left — same guard
      *  `Navigation.kt`'s `ThenChip` uses today to render nothing. */
     val thenPill: NavThenPill?,
@@ -123,7 +131,11 @@ internal fun navStateFrom(
     }
     val thenPill = progress?.nextNextInstruction?.let { nextNext ->
         progress.distanceToNextNextMeters?.let { distance ->
-            NavThenPill(sign = nextNext.sign, distanceText = formatDistanceKm(distance, sep))
+            NavThenPill(
+                sign = nextNext.sign,
+                distanceText = formatDistanceKm(distance, sep),
+                roundaboutTurnDeg = nextNext.roundaboutTurnDeg,
+            )
         }
     }
     val remainingText = progress?.let {
@@ -138,6 +150,7 @@ internal fun navStateFrom(
         headlineText = headlineText,
         maneuverText = progress?.nextInstruction?.text ?: "",
         maneuverSign = progress?.nextInstruction?.sign ?: 0,
+        maneuverRoundaboutTurnDeg = progress?.nextInstruction?.roundaboutTurnDeg,
         thenPill = thenPill,
         remainingText = remainingText,
         arrivalText = arrivalText,

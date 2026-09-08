@@ -45,7 +45,53 @@ data class NavInstruction(
     val endIndex: Int,
     /** Roundabout exit to take when [sign] is 6; 0 when not a roundabout. */
     val exitNumber: Int = 0,
+    /**
+     * For a roundabout ([sign] 6, or -6 "leave the roundabout"): how far the
+     * rider's heading turns from the approach to the exit — degrees, negative
+     * bears left, positive right, near zero straight on. Measured off the route
+     * polyline as it is parsed, null when it can't be (fewer than a segment of
+     * road either side, or not a roundabout). GraphHopper's own `turn_angle` is
+     * the roundabout's *circulation* direction, not this. Drives the exit spur
+     * on the maneuver glyph so it points the way the exit actually leaves.
+     */
+    val roundaboutTurnDeg: Double? = null,
 )
+
+/**
+ * Net heading change across [start]..[end] of [line], degrees in -180..180
+ * (negative left, positive right). Sampled a road-segment's length back from the
+ * entry and forward from the exit — [spanMeters] — so the tightly spaced
+ * vertices a router drops around the island don't swing the answer. Null when
+ * the indices are unusable or the polyline is too short to sample either side.
+ */
+internal fun roundaboutTurnDeg(
+    line: List<LatLon>,
+    start: Int,
+    end: Int,
+    spanMeters: Double = 25.0,
+): Double? {
+    if (start !in line.indices || end !in line.indices || end <= start) return null
+    val approach = walk(line, start, spanMeters, forward = false) ?: return null
+    val depart = walk(line, end, spanMeters, forward = true) ?: return null
+    val inBearing = RoadRoulette.bearingDeg(approach, line[start])
+    val outBearing = RoadRoulette.bearingDeg(line[end], depart)
+    return ((outBearing - inBearing + 540.0) % 360.0) - 180.0
+}
+
+/** The point at least [meters] along [line] from [index], stepping [forward] or
+ *  back. Null when that direction runs off the end before covering the distance. */
+private fun walk(line: List<LatLon>, index: Int, meters: Double, forward: Boolean): LatLon? {
+    val step = if (forward) 1 else -1
+    var i = index
+    var covered = 0.0
+    while (covered < meters) {
+        val next = i + step
+        if (next !in line.indices) return null
+        covered += RoadRoulette.distanceMeters(line[i], line[next])
+        i = next
+    }
+    return line[i]
+}
 
 /**
  * Client for a self-hosted GraphHopper instance. Configured by the user in
@@ -254,15 +300,20 @@ object RoutingClient {
 
         val instructions = path.optArray("instructions")?.objects().orEmpty().map { ins ->
             val interval = ins.optArray("interval") ?: JsonArrayEmpty
+            val sign = ins.optInt("sign")
+            val startIndex = interval.optInt(0)
+            val endIndex = interval.optInt(1)
             NavInstruction(
                 text = ins.optString("text"),
                 distanceMeters = ins.optDouble("distance", 0.0),
-                sign = ins.optInt("sign"),
-                startIndex = interval.optInt(0),
-                endIndex = interval.optInt(1),
+                sign = sign,
+                startIndex = startIndex,
+                endIndex = endIndex,
                 // Only present on roundabout instructions, and negative when
                 // GraphHopper can't tell which exit; 0 means "don't show one".
                 exitNumber = ins.optInt("exit_number").coerceAtLeast(0),
+                roundaboutTurnDeg = if (sign == 6 || sign == -6)
+                    roundaboutTurnDeg(polyline, startIndex, endIndex) else null,
             )
         }
 
