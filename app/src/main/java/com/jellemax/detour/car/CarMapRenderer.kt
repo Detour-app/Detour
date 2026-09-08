@@ -471,6 +471,54 @@ class CarMapRenderer(
      * only when the step is big enough to see. This is the difference between a
      * map that glides along the road and one that lurches once a second.
      */
+    /**
+     * Advance the camera one frame toward [target], [targetBearing] and
+     * [targetZoom].
+     *
+     * Pulled out of [startCameraLoop], which reached detekt's 100-line limit
+     * when the frame delta grew a second reading (#306). Free to extract: every
+     * value it steps is a field on this class, so nothing had to be threaded
+     * through a parameter list — the seven-parameter gate in
+     * `docs/guidelines/boundaries.md` §8.4 never comes into it.
+     *
+     * [dt] is drive time and [dtWall] is wall time, and which one each ease gets
+     * is the point rather than an oversight: position and bearing are the camera
+     * catching up to a vehicle, so a compressed replay has to advance them in
+     * the drive's time; zoom smooths a speed-derived target, and scaling that
+     * switches the smoothing off.
+     */
+    private fun stepCamera(
+        target: LatLon?,
+        targetBearing: Float?,
+        targetZoom: Double,
+        dt: Double,
+        dtWall: Double,
+    ) {
+        target?.let {
+            if (MapMotion.shouldSnap(LatLon(camLat, camLon), it)) {
+                // Too far to be continuous motion — the session was backgrounded
+                // while the car kept driving, or the host paused the surface.
+                // Easing across that distance walks the camera over ground the
+                // driver never saw. Bearing and zoom re-anchor with it so the
+                // whole camera teleports as one rather than arriving and then
+                // rotating.
+                camLat = it.lat
+                camLon = it.lon
+                targetBearing?.let { b -> camBearing = b }
+                camZoom = targetZoom
+            } else {
+                val a = 1.0 - exp(-dt / CAM_POS_TAU)
+                camLat += (it.lat - camLat) * a
+                camLon += (it.lon - camLon) * a
+            }
+        }
+        targetBearing?.let {
+            camBearing = smoothBearing(
+                camBearing, it, (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat())
+        }
+        camZoom += (targetZoom - camZoom) * (1.0 - exp(-dtWall / CAM_ZOOM_TAU))
+    }
+
     private fun startCameraLoop() {
         easeJob?.cancel()
         easeJob = scope.launch {
@@ -578,29 +626,7 @@ class CarMapRenderer(
                     }
                 }
 
-                predicted?.let { target ->
-                    if (MapMotion.shouldSnap(LatLon(camLat, camLon), target)) {
-                        // Too far to be continuous motion — the session was
-                        // backgrounded while the car kept driving, or the host
-                        // paused the surface. Easing across that distance walks the
-                        // camera over ground the driver never saw. Bearing and zoom
-                        // re-anchor with it so the whole camera teleports as one
-                        // rather than arriving and then rotating.
-                        camLat = target.lat
-                        camLon = target.lon
-                        targetBearing?.let { camBearing = it }
-                        camZoom = targetZoom
-                    } else {
-                        val a = 1.0 - exp(-dt / CAM_POS_TAU)
-                        camLat += (target.lat - camLat) * a
-                        camLon += (target.lon - camLon) * a
-                    }
-                }
-                targetBearing?.let { target ->
-                    camBearing = smoothBearing(
-                        camBearing, target, (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat())
-                }
-                camZoom += (targetZoom - camZoom) * (1.0 - exp(-dtWall / CAM_ZOOM_TAU))
+                stepCamera(predicted, targetBearing, targetZoom, dt, dtWall)
 
                 val tgt = predicted
                 val targetMoved = tgt != null && (
