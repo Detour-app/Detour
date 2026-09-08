@@ -33,6 +33,13 @@ import com.jellemax.detour.BuildConfig
  * - Geofence wake grace, BLE board telemetry age, the sensor publish throttle —
  *   real events on a real clock.
  *
+ * One consequence to expect rather than debug: the readings are absolute
+ * timestamps, so a trip recorded at 5x ends in what is still the future by the
+ * wall clock — a 560-second drive replayed in 112 seconds stamps an end time
+ * about seven minutes ahead of real time. A debug install's history is a test
+ * rig, and a duration that matches the drive is worth more there than an end
+ * time that matches the wall.
+ *
  * The multiplier arrives out of band, through
  * `DebugReplayClockReceiver` in the debug source set, because it cannot travel
  * on the fix: `MockService` stamped it into `Location.extras` and Play
@@ -73,6 +80,21 @@ object ReplayClock {
         clock = clock.rescaled(System.currentTimeMillis(), wanted)
         Log.i("DetourReplay", "replay clock now ${wanted}x")
     }
+
+    /**
+     * The timestamp to record for a fix the provider stamped [providerTimeMs].
+     *
+     * Unscaled, this is the provider's own number and nothing changes: when the
+     * position was measured beats when we got round to processing it, and a
+     * real drive should keep it. Under compression it cannot be kept — the
+     * stored trace would carry the replay's 112 seconds while the trip it
+     * belongs to carries the drive's 560, and every tool that derives a speed
+     * or a stop length from those timestamps (`profile-trace.py`, and the stop
+     * detection in `gpx2route.py`'s heuristics) would read the factor back as
+     * five times the speed.
+     */
+    fun fixTimeMs(providerTimeMs: Long): Long =
+        if (clock.scale == 1) providerTimeMs else nowMs()
 
     /** Back to real time. For the end of a replay, and for tests. */
     fun reset() {

@@ -1054,7 +1054,7 @@ class TripTrackingService : Service() {
             speedMps = resolveDisplaySpeedMps(speed, vehicleLinks.resolvedMode()),
             bearingDeg = if (location.hasBearing()) location.bearing else null,
             accuracyMeters = location.accuracy,
-            timeMs = location.time,
+            timeMs = ReplayClock.fixTimeMs(location.time),
             elapsedRealtimeMs = location.elapsedRealtimeNanos / 1_000_000L,
         )
         _lastFix.value = fix
@@ -1072,7 +1072,10 @@ class TripTrackingService : Service() {
     private fun onIdleLocation(location: Location, speed: Double) {
         if (location.accuracy <= MAX_TRACE_ACCURACY_M) {
             addTracePoint(
-                LatLon(location.latitude, location.longitude), location.time, speed)
+                LatLon(location.latitude, location.longitude),
+                ReplayClock.fixTimeMs(location.time),
+                speed,
+            )
         }
         if (!Settings.autoDetectDrives.value) {
             resetStartDetector()
@@ -1147,7 +1150,7 @@ class TripTrackingService : Service() {
         // and append the point to the persisted trace. No usable accuracy, no draw.
         if (!(location.accuracy <= MAX_TRACE_ACCURACY_M)) return false
         val p = LatLon(location.latitude, location.longitude)
-        addTracePoint(p, location.time, speed)
+        addTracePoint(p, ReplayClock.fixTimeMs(location.time), speed)
 
         // Auto-stop when back at the starting point after a real trip.
         if (origin == null) origin = p
