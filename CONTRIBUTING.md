@@ -211,10 +211,6 @@ Two more, added on top of the priority rather than instead of it:
   reason to go unblock it, not a reason to demote it.
 - `needs-triage` — no priority decided yet. Every new issue starts here.
 
-`bug` / `enhancement` / `documentation` / `question` say what *kind* of thing it
-is, which is a separate axis — a `bug` can be `p3-later` and an `enhancement`
-can be `p1-next`.
-
 ### Deciding
 
 Ask these in order and stop at the first yes. First match wins; don't average
@@ -241,6 +237,39 @@ them.
 
 4. **Otherwise** → `p3-later`
    New features, design decisions, refactors, polish, docs.
+
+### Type
+
+A second, independent axis — a `bug` can be `p3-later` and an `enhancement` can
+be `p1-next`. Pick it with one question: **what commit type closes this?** The
+label set is the commit vocabulary this repo already uses, so the answer is
+already decided by the time you write the PR title.
+
+| Closing commit | Label | Bumps `versionName`? |
+| --- | --- | --- |
+| `fix:` | `bug` | patch |
+| `feat:` | `enhancement` | minor |
+| `docs:` | `documentation` | no |
+| `refactor:` / `chore:` / test-only | `chore` | no |
+
+`chore` covers the work that changes no behaviour and bumps nothing:
+dependency and config migrations, harness and tooling, running a verification
+nobody has run, taking a measurement, and refactors that exist to make
+something testable. That row of the Versioning table below has always existed;
+until recently it had no label, which is why a sixth of the tracker carried no
+type at all.
+
+`question` is orthogonal to all of these and stacks on top — an issue that has
+to be *decided* before it can be built.
+
+Two traps:
+
+- **Type by the change, not by the complaint.** "This is slow" closed by a
+  measurement is a `chore`; the same complaint closed by rewriting the loop is
+  a `bug`. If you don't yet know which, that is what `needs-triage` is for.
+- **A defect in the harness is still a `bug`.** It is not rider-facing, and the
+  priority label is what says so — don't downgrade the type to make it look
+  less alarming.
 
 ### The mistakes this replaces
 

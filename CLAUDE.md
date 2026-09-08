@@ -30,6 +30,13 @@ leave this alone? — decided by a first-match-wins ladder:
 
 `blocked` and `needs-triage` go on top of a priority, never instead of one.
 
+Type is a separate axis, picked by asking what commit type closes the issue:
+`fix:` -> `bug`, `feat:` -> `enhancement`, `docs:` -> `documentation`,
+`refactor:`/`chore:`/test-only -> `chore`. So a dependency bump, a harness fix,
+an unrun verification and a measurement are all `chore`, whatever their
+priority. A defect in the test harness is still a `bug` — the priority label is
+what says it isn't rider-facing.
+
 Two rules worth stating here because both were violated across the tracker:
 judge the cost of leaving it alone, **not** how well the issue is written; and
 re-read the comments before trusting a label, because later evidence often
