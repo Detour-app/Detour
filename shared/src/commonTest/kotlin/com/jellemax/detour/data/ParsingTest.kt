@@ -712,3 +712,28 @@ class RoundaboutTurnTest {
         assertNull(roundaboutTurnDeg(l, 0, 99))
     }
 }
+
+/**
+ * [headingQuery] is the GraphHopper `heading` hint a reroute appends so the
+ * fresh line continues in the rider's direction of travel instead of opening
+ * with a U-turn.
+ */
+class HeadingQueryTest {
+
+    @Test
+    fun noHintIsAnEmptyFragment() {
+        assertEquals("", headingQuery(null))
+    }
+
+    @Test
+    fun theHintCarriesTheDegreesAndThePenalty() {
+        assertEquals("&heading=90&heading_penalty=1200", headingQuery(HeadingHint(90.4, 1200)))
+    }
+
+    @Test
+    fun degreesWrapIntoTheZeroToThreeSixtyRange() {
+        assertEquals(10, headingDegInt(370.0))
+        assertEquals(350, headingDegInt(-10.0))
+        assertEquals(0, headingDegInt(360.0))
+    }
+}
