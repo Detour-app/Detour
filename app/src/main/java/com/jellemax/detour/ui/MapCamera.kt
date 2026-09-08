@@ -8,6 +8,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.withFrameNanos
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.tracking.ReplayClock
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
@@ -163,7 +164,10 @@ internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap) {
                     bearingDeg = f.bearingDeg,
                     speedMps = f.speedMps,
                     fixElapsedMs = f.elapsedRealtimeMs,
-                    nowElapsedMs = nowElapsed,
+                    // Drive time, not wall time: the fix's speed is the drive's,
+                    // so the age it is multiplied by has to be too. Identical to
+                    // nowElapsed at 1x — see ReplayClock.predictionNowMs.
+                    nowElapsedMs = ReplayClock.predictionNowMs(f.elapsedRealtimeMs),
                     leadSeconds = CAM_POS_TAU,
                 )
                 else -> retained.camTarget
@@ -286,7 +290,7 @@ internal fun MapPositionMarker(s: MapScreenState, retained: RetainedMap) {
                 bearingDeg = f.bearingDeg,
                 speedMps = f.speedMps,
                 fixElapsedMs = f.elapsedRealtimeMs,
-                nowElapsedMs = SystemClock.elapsedRealtime(),
+                nowElapsedMs = ReplayClock.predictionNowMs(f.elapsedRealtimeMs),
                 leadSeconds = 0.0,
             )
             // One snap a frame, and everything the route contributes comes off it:

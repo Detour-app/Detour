@@ -29,6 +29,20 @@
                 <action android:name="com.jellemax.detour.DEBUG_TRIP_ENDED" />
             </intent-filter>
         </receiver>
+
+        <!-- The replay rig's way in: the speed multiplier, and whether the app
+             should believe anything but the replay. exported for the same reason
+             as the receiver above, and with the same limit: this entry is merged
+             into debug builds only. Neither knob can ride on the mocked fixes
+             themselves — fused strips Location.extras — which is why this exists
+             rather than a read in the fix path. -->
+        <receiver
+            android:name="com.jellemax.detour.debug.DebugReplayReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.jellemax.detour.DEBUG_REPLAY" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

@@ -45,6 +45,7 @@ import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.presentation.ActiveTripCardState
 import com.jellemax.detour.presentation.NavState
 import com.jellemax.detour.presentation.activeTripCardStateFrom
+import com.jellemax.detour.tracking.ReplayClock
 import com.jellemax.detour.tracking.TripStats
 import kotlinx.coroutines.delay
 
@@ -348,10 +349,10 @@ private fun EndButton(
  */
 @Composable
 internal fun rememberActiveTripCardState(stats: TripStats): ActiveTripCardState {
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var now by remember { mutableLongStateOf(ReplayClock.nowMs()) }
     LaunchedEffect(stats.startTimeMs) {
         while (true) {
-            now = System.currentTimeMillis()
+            now = ReplayClock.nowMs()
             delay(1000)
         }
     }

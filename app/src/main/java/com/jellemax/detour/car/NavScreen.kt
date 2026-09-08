@@ -46,6 +46,7 @@ import com.jellemax.detour.drive.CameraPrefetch
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.map.NavPolicy
+import com.jellemax.detour.tracking.ReplayClock
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -256,8 +257,10 @@ class NavScreen(
             headingDeg = bearingDeg?.toDouble(),
             speedMps = speedMps,
             // nowMs() in :shared is internal to that module; the Android call
-            // sites pass the platform clock, same as MapScreen.kt does.
-            nowMs = System.currentTimeMillis(),
+            // sites pass ReplayClock, same as MapScreen.kt does — the drive's
+            // clock, so a time-compressed replay averages over the drive's
+            // elapsed time rather than the replay's.
+            nowMs = ReplayClock.nowMs(),
         )
         renderer.updateHud(currentSpeedKmh, p.speedLimitKmh, sectionState.reading)
         // No setPosition here any more: the renderer's camera loop interpolates the
@@ -274,7 +277,9 @@ class NavScreen(
         // Arrival and reroute are NavPolicy's call, shared with MapScreen.kt's
         // navigating LaunchedEffect. `arrived` stays here: it is this screen's
         // own once-only latch on popping itself, not part of the policy.
-        val now = System.currentTimeMillis()
+        // Drive clock: the reroute cooldown bounds how often a *drive* may
+        // reroute, so a 5x replay must not get five times the reroutes.
+        val now = ReplayClock.nowMs()
         when (NavPolicy.decide(
             progress = p,
             hasDestination = true, // a constructor parameter on this screen

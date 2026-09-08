@@ -12,6 +12,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.tracking.ReplayClock
 import com.jellemax.detour.tracking.TripTrackingService
 
 /**
@@ -116,7 +117,7 @@ internal fun MapHazardAlerts(
                 at = LatLon(fix.lat, fix.lon),
                 headingDeg = fix.bearingDeg?.toDouble(),
                 speedMps = fix.speedMps,
-                nowMs = System.currentTimeMillis(),
+                nowMs = ReplayClock.nowMs(),
             )
             // One owner. The reading was also mirrored into two `remember`ed
             // vars here, which is a second copy of a value that already has a

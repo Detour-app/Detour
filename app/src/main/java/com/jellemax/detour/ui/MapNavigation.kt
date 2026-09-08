@@ -20,6 +20,7 @@ import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.fetchNavRoute
 import com.jellemax.detour.tracking.Fix
+import com.jellemax.detour.tracking.ReplayClock
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -89,7 +90,9 @@ internal fun MapNavigationSession(
 
         // Arrival and reroute are NavPolicy's call, shared with car/NavScreen.kt.
         val dest = s.destination
-        val now = System.currentTimeMillis()
+        // The drive's clock, as in car/NavScreen.kt: the cooldown NavPolicy
+        // applies is per drive, not per wall second.
+        val now = ReplayClock.nowMs()
         when (NavPolicy.decide(
             progress = progress,
             hasDestination = dest != null,

@@ -529,7 +529,7 @@ class TripTrackingService : Service() {
             // Don't end immediately — could be a fuel stop. The grace period
             // is checked against speed in onTripLocation.
             if (_stats.value != null && autoStarted) {
-                pendingStopAtMs = System.currentTimeMillis()
+                pendingStopAtMs = ReplayClock.nowMs()
             }
         },
         onStill = {
@@ -811,7 +811,7 @@ class TripTrackingService : Service() {
      *  began, rather than to the fix that finally proved it. */
     private fun beginTrip(
         auto: Boolean,
-        startTimeMs: Long = System.currentTimeMillis(),
+        startTimeMs: Long = ReplayClock.nowMs(),
         initialDistanceMeters: Double = 0.0,
     ) {
         autoStarted = auto
@@ -822,7 +822,7 @@ class TripTrackingService : Service() {
         resetStartDetector()
         motionSensors.resetLean()
         session.begin(startTimeMs)
-        lastMovingMs = System.currentTimeMillis()
+        lastMovingMs = ReplayClock.nowMs()
         // Re-check what's actually linked: the set may have gone stale since the
         // last trip. Answers async, retagging through VehicleLinks.refreshTripMode.
         vehicleLinks.seedConnectedVehicles()
@@ -1046,6 +1046,14 @@ class TripTrackingService : Service() {
     }
 
     private fun onLocation(location: Location) {
+        // Debug builds only, and by source set rather than by a flag: the gate
+        // in a release build is a function returning true. It throws out the
+        // real position that fused blends into a mock replay (#47) — which is
+        // what a compressed replay's trip duration depends on, since a blended
+        // fix from hundreds of kilometres away is movement over the 2.0 m/s
+        // gate and stops the trip ever ending. Ahead of everything, so a
+        // rejected fix reaches no state at all.
+        if (!ReplayFixGate.accept(location)) return
         val speed = speedOf(location)
         lastGpsSpeedMps = speed
         val fix = Fix(
@@ -1054,7 +1062,7 @@ class TripTrackingService : Service() {
             speedMps = resolveDisplaySpeedMps(speed, vehicleLinks.resolvedMode()),
             bearingDeg = if (location.hasBearing()) location.bearing else null,
             accuracyMeters = location.accuracy,
-            timeMs = location.time,
+            timeMs = ReplayClock.fixTimeMs(location.time),
             elapsedRealtimeMs = location.elapsedRealtimeNanos / 1_000_000L,
         )
         _lastFix.value = fix
@@ -1072,7 +1080,10 @@ class TripTrackingService : Service() {
     private fun onIdleLocation(location: Location, speed: Double) {
         if (location.accuracy <= MAX_TRACE_ACCURACY_M) {
             addTracePoint(
-                LatLon(location.latitude, location.longitude), location.time, speed)
+                LatLon(location.latitude, location.longitude),
+                ReplayClock.fixTimeMs(location.time),
+                speed,
+            )
         }
         if (!Settings.autoDetectDrives.value) {
             resetStartDetector()
@@ -1147,7 +1158,7 @@ class TripTrackingService : Service() {
         // and append the point to the persisted trace. No usable accuracy, no draw.
         if (!(location.accuracy <= MAX_TRACE_ACCURACY_M)) return false
         val p = LatLon(location.latitude, location.longitude)
-        addTracePoint(p, location.time, speed)
+        addTracePoint(p, ReplayClock.fixTimeMs(location.time), speed)
 
         // Auto-stop when back at the starting point after a real trip.
         if (origin == null) origin = p
@@ -1417,7 +1428,10 @@ class TripTrackingService : Service() {
     }
 
     private fun onTripLocation(location: Location, speed: Double, stats: TripStats) {
-        val now = System.currentTimeMillis()
+        // The drive's clock, not the wall's: at 5x replay these dwell and
+        // duration comparisons have to be against the drive they describe.
+        // See ReplayClock for what deliberately stays on the platform clock.
+        val now = ReplayClock.nowMs()
 
         val distance = accumulateDistance(location, stats)
         // The one hop this fix banked, reused by the fuel-economy denominator and

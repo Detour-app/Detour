@@ -28,6 +28,7 @@ cd "$ROOT"
 
 MOCK=tools/mocklocation/src/main/java/com/jellemax/mocklocation/MockService.kt
 TRACK=app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt
+CLOCK=app/src/main/java/com/jellemax/detour/tracking/ReplayClock.kt
 
 fails=0
 count() { grep -c "$1" "$2" 2>/dev/null || true; }
@@ -48,8 +49,17 @@ check 'the harness is NOT a module of the root build (its APK is under tools/moc
 check 'the trace is still decimated at 25 m (gap < 25.0)' 1 "$(count 'gap < 25.0' "$TRACK")"
 check 'the moving gate is still 2.0 m/s (if (speed > 2.0) lastMovingMs = now)' \
     1 "$(count 'if (speed > 2.0) lastMovingMs = now' "$TRACK")"
+# The two ceilings are written twice, in two builds that share no code by design, and a
+# replay run at a factor one side clamps and the other does not scales the drive and the
+# app's clock differently — which is a wrong A/B rather than a failed run.
+check 'the speedup cap agrees between the harness and the app (both 50)' \
+    1 "$(count 'MAX_SPEEDUP = 50' "$MOCK")"
+check 'the app still caps the replay clock at the same 50' \
+    1 "$(count 'MAX_SCALE = 50' "$CLOCK")"
+check 'the harness still paces by intervalMs / speedup (Thread.sleep)' \
+    1 "$(count 'Thread.sleep((intervalMs / speedup)' "$MOCK")"
 
-printf '\n%d checks, %d failed\n' 5 "$fails"
+printf '\n%d checks, %d failed\n' 8 "$fails"
 if [ "$fails" -ne 0 ]; then
     cat >&2 <<'EOF'
 Stop. A failure here means the standstill arithmetic in SKILL.md is stale: re-derive the

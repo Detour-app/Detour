@@ -65,7 +65,7 @@ internal class DriveTransitions(
 
     /** True while a confirmation window is open, from either an IN_VEHICLE
      *  transition or [startSpeedProbe]. */
-    val probing: Boolean get() = probeUntilMs?.let { System.currentTimeMillis() < it } == true
+    val probing: Boolean get() = probeUntilMs?.let { ReplayClock.nowMs() < it } == true
 
     private fun pendingIntent(): PendingIntent =
         PendingIntent.getForegroundService(
