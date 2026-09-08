@@ -38,7 +38,18 @@ object RoadRoulette {
         "https://overpass.kumi.systems/api/interpreter",
     )
 
-    /** What one whole [rawQuery] may cost, every mirror included. */
+    /**
+     * The window one [rawQuery] gets, and by default what it splits across the
+     * mirrors — see [MIRROR_TIMEOUT_MS].
+     *
+     * **Three callers deliberately spend it all on each mirror instead**, by
+     * passing it as `timeoutMs`: [overpassWays], [PoiRoulette] and
+     * [SpeedCameras.near]. What they have in common is a query heavy enough that
+     * a slice expires while the answer is still coming, and an expired slice is
+     * indistinguishable from an empty area — so the slice does not make them
+     * fail faster, it makes them fail *wrongly*. So this is not a hard ceiling
+     * on a whole call: with two mirrors those three can cost twice this.
+     */
     internal const val QUERY_BUDGET_MS = 12_000L
 
     /**

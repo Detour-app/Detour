@@ -76,7 +76,23 @@ object SpeedCameras {
         radiusMeters: Double = PREFETCH_RADIUS_M,
     ): Result? {
         val r = radiusMeters.toInt()
-        val query = "[out:json][timeout:${RoadRoulette.SERVER_TIMEOUT_S}];(" +
+        // The whole budget per mirror, not a slice, for the reason
+        // [RoadRoulette.overpassWays] gives: this query is heavy — two
+        // `around` searches over a 4 km radius, one of them for relations with
+        // `out geom` — and a slice that expires mid-answer is not a fast
+        // failure, it is a wrong one. `near` returning null leaves
+        // [speedSections] empty, and an empty section list cannot arm a
+        // measurement at all, so the readout simply never appears.
+        //
+        // Measured on 2026-09-09 against both configured mirrors: this exact
+        // query answered in **9.5 s** and **28 s** on `kumi.systems` and was
+        // refused outright by `overpass-api.de`, against a 6 s slice — so no
+        // trajectcontrole could arm on that network for as long as the load
+        // lasted, while the *lighter* speed-limit query kept succeeding and the
+        // sign stayed on screen. Earlier the same evening the same query
+        // answered in 0.44 s, which is what makes this intermittent and is why
+        // maxke24/Detour#22 reads as "sometimes it triggers".
+        val query = "[out:json][timeout:${RoadRoulette.QUERY_BUDGET_MS / 1000}];(" +
             "node(around:$r,${center.lat},${center.lon})[\"highway\"=\"speed_camera\"];" +
             "relation(around:$r,${center.lat},${center.lon})[\"enforcement\"=\"average_speed\"];" +
             ");out geom;"
@@ -85,7 +101,8 @@ object SpeedCameras {
         // thing to the caller — no data this time — and letting a JSONException
         // out would kill the collector that drives the prefetch for good.
         val elements = try {
-            jsonObjectOf(RoadRoulette.rawQuery(query)).optArray("elements") ?: JsonArrayEmpty
+            jsonObjectOf(RoadRoulette.rawQuery(query, timeoutMs = RoadRoulette.QUERY_BUDGET_MS))
+                .optArray("elements") ?: JsonArrayEmpty
         } catch (e: IOException) {
             return null
         } catch (e: SerializationException) {

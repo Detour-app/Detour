@@ -25,6 +25,14 @@ class OverpassMirrorsTest {
     /** The client budget for one whole `rawQuery`, mirrors included. */
     private val budgetMs = 12_000L
 
+    /**
+     * The **default** slice, which is what a mirror gets unless the caller says
+     * otherwise. Three callers do say otherwise — `overpassWays`, `PoiRoulette`
+     * and `SpeedCameras.near` pass [RoadRoulette.QUERY_BUDGET_MS] as `timeoutMs`
+     * and so hand the whole window to each mirror in turn; see that constant's
+     * KDoc for why their queries are heavy enough to need it. So read this
+     * test's name as being about the default, not about every call the app makes.
+     */
     @Test
     fun noSingleMirrorCanSpendTheWholeBudget() {
         // The bug exactly: 12 s each, sequentially, so the second mirror only
