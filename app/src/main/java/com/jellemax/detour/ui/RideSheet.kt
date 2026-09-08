@@ -45,7 +45,6 @@ import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.presentation.ActiveTripCardState
 import com.jellemax.detour.presentation.NavState
 import com.jellemax.detour.presentation.activeTripCardStateFrom
-import com.jellemax.detour.tracking.ReplayClock
 import com.jellemax.detour.tracking.TripStats
 import kotlinx.coroutines.delay
 
@@ -349,10 +348,13 @@ private fun EndButton(
  */
 @Composable
 internal fun rememberActiveTripCardState(stats: TripStats): ActiveTripCardState {
-    var now by remember { mutableLongStateOf(ReplayClock.nowMs()) }
+    // Hoisted for the ticker below — see MapCamera's note. The clock is the
+    // drive's, so a trip replayed at 5x counts up the drive's elapsed time.
+    val clock = LocalDriveClock.current
+    var now by remember { mutableLongStateOf(clock.nowMs()) }
     LaunchedEffect(stats.startTimeMs) {
         while (true) {
-            now = ReplayClock.nowMs()
+            now = clock.nowMs()
             delay(1000)
         }
     }

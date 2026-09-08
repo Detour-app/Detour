@@ -27,7 +27,9 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.drive.SectionAverageTracker
-import com.jellemax.detour.tracking.ReplayClock
+import com.jellemax.detour.tracking.DriveClock
+import com.jellemax.detour.ui.MAX_FRAME_WALL_S
+import com.jellemax.detour.ui.driveFrameDelta
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
@@ -110,6 +112,10 @@ private const val CIRCLE_FIX_POLL_MS = CirclePresence.ACTIVE_INTERVAL_MS
 class CarMapRenderer(
     private val carContext: CarContext,
     private val darkTheme: Boolean,
+    /** The drive's clock (#307). Handed in by [DetourCarSession], which is the
+     *  car surface's composition root, rather than reached for from the two
+     *  frame-loop call sites below. */
+    private val clock: DriveClock,
 ) : SurfaceCallback {
 
     // MainActivity initialises MapLibre for the phone UI, but the car flow can
@@ -465,10 +471,59 @@ class CarMapRenderer(
      * only when the step is big enough to see. This is the difference between a
      * map that glides along the road and one that lurches once a second.
      */
+    /**
+     * Advance the camera one frame toward [target], [targetBearing] and
+     * [targetZoom].
+     *
+     * Pulled out of [startCameraLoop], which reached detekt's 100-line limit
+     * when the frame delta grew a second reading (#306). Free to extract: every
+     * value it steps is a field on this class, so nothing had to be threaded
+     * through a parameter list — the seven-parameter gate in
+     * `docs/guidelines/boundaries.md` §8.4 never comes into it.
+     *
+     * [dt] is drive time and [dtWall] is wall time, and which one each ease gets
+     * is the point rather than an oversight: position and bearing are the camera
+     * catching up to a vehicle, so a compressed replay has to advance them in
+     * the drive's time; zoom smooths a speed-derived target, and scaling that
+     * switches the smoothing off.
+     */
+    private fun stepCamera(
+        target: LatLon?,
+        targetBearing: Float?,
+        targetZoom: Double,
+        dt: Double,
+        dtWall: Double,
+    ) {
+        target?.let {
+            if (MapMotion.shouldSnap(LatLon(camLat, camLon), it)) {
+                // Too far to be continuous motion — the session was backgrounded
+                // while the car kept driving, or the host paused the surface.
+                // Easing across that distance walks the camera over ground the
+                // driver never saw. Bearing and zoom re-anchor with it so the
+                // whole camera teleports as one rather than arriving and then
+                // rotating.
+                camLat = it.lat
+                camLon = it.lon
+                targetBearing?.let { b -> camBearing = b }
+                camZoom = targetZoom
+            } else {
+                val a = 1.0 - exp(-dt / CAM_POS_TAU)
+                camLat += (it.lat - camLat) * a
+                camLon += (it.lon - camLon) * a
+            }
+        }
+        targetBearing?.let {
+            camBearing = smoothBearing(
+                camBearing, it, (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat())
+        }
+        camZoom += (targetZoom - camZoom) * (1.0 - exp(-dtWall / CAM_ZOOM_TAU))
+    }
+
     private fun startCameraLoop() {
         easeJob?.cancel()
         easeJob = scope.launch {
             var lastNs = System.nanoTime()
+            var lastDriveMs = clock.driveElapsedMs()
             // Whether anything has been pushed at all. This replaces the
             // appliedLat.isNaN() sentinel, and it is the only part of the old
             // last-pushed bookkeeping that survives: MapMotion.shouldPush asks
@@ -490,8 +545,17 @@ class CarMapRenderer(
                 // 0.1, so a resume after the loop was paused arrived as a lurch
                 // rather than an ease. The snap guard below is what handles a gap
                 // too large to ease at all; this bound is for the ordinary case.
-                val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.1)
+                // Drive time, not wall time — the TAUs below were tuned against
+                // fixes arriving once a drive second, so a compressed replay must
+                // advance them in the drive's time or the camera trails and then
+                // snaps. Differenced rather than multiplied, and the stall clamp
+                // stays in wall seconds: see driveFrameDelta (#306).
+                val wallRaw = (ns - lastNs) / 1_000_000_000.0
+                val dtWall = wallRaw.coerceIn(0.0, MAX_FRAME_WALL_S)
+                val driveNow = clock.driveElapsedMs()
+                val dt = driveFrameDelta(wallRaw, (driveNow - lastDriveMs) / 1000.0)
                 lastNs = ns
+                lastDriveMs = driveNow
                 if (camLat.isNaN()) continue
 
                 // Dead reckoning, defect 1 of #37. Easing toward the raw fix
@@ -506,8 +570,8 @@ class CarMapRenderer(
                         speedMps = fixSpeedMps,
                         fixElapsedMs = fixElapsedMs,
                         // Drive time under a compressed replay, wall time
-                        // otherwise — see ReplayClock.predictionNowMs.
-                        nowElapsedMs = ReplayClock.predictionNowMs(fixElapsedMs),
+                        // otherwise — see DriveClock.predictionNowMs.
+                        nowElapsedMs = clock.predictionNowMs(fixElapsedMs),
                         leadSeconds = CAM_POS_TAU,
                     )
                 }
@@ -524,8 +588,8 @@ class CarMapRenderer(
                         speedMps = fixSpeedMps,
                         fixElapsedMs = fixElapsedMs,
                         // Drive time under a compressed replay, wall time
-                        // otherwise — see ReplayClock.predictionNowMs.
-                        nowElapsedMs = ReplayClock.predictionNowMs(fixElapsedMs),
+                        // otherwise — see DriveClock.predictionNowMs.
+                        nowElapsedMs = clock.predictionNowMs(fixElapsedMs),
                         leadSeconds = 0.0,
                     )
                     // #38's fix, on this surface: ease the heading instead of
@@ -562,29 +626,7 @@ class CarMapRenderer(
                     }
                 }
 
-                predicted?.let { target ->
-                    if (MapMotion.shouldSnap(LatLon(camLat, camLon), target)) {
-                        // Too far to be continuous motion — the session was
-                        // backgrounded while the car kept driving, or the host
-                        // paused the surface. Easing across that distance walks the
-                        // camera over ground the driver never saw. Bearing and zoom
-                        // re-anchor with it so the whole camera teleports as one
-                        // rather than arriving and then rotating.
-                        camLat = target.lat
-                        camLon = target.lon
-                        targetBearing?.let { camBearing = it }
-                        camZoom = targetZoom
-                    } else {
-                        val a = 1.0 - exp(-dt / CAM_POS_TAU)
-                        camLat += (target.lat - camLat) * a
-                        camLon += (target.lon - camLon) * a
-                    }
-                }
-                targetBearing?.let { target ->
-                    camBearing = smoothBearing(
-                        camBearing, target, (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat())
-                }
-                camZoom += (targetZoom - camZoom) * (1.0 - exp(-dt / CAM_ZOOM_TAU))
+                stepCamera(predicted, targetBearing, targetZoom, dt, dtWall)
 
                 val tgt = predicted
                 val targetMoved = tgt != null && (

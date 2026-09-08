@@ -70,8 +70,33 @@ object ReplayFixGate {
      * [ReplayMode] this is always `true` and nothing is filtered.
      */
     fun accept(location: Location): Boolean {
-        if (!ReplayMode.active) return true
+        // Counted for every fix the ingest path sees, not only in mock-only mode,
+        // so the port rig (#306) has a delivered count too — it does not use
+        // [ReplayMode], having nothing to filter. This is the only place both
+        // rigs pass through, which is what makes one counter honest for both.
         accepted++
+
+        // The port rig's half (#306). Measured: a run that pushed 768 fixes saw
+        // 777 reach the ingest path — Play Services kept delivering real ones for
+        // several seconds after removeLocationUpdates, and a real fix hundreds of
+        // metres off-route resets lastMovingMs, so STATIONARY_END_MS never
+        // elapses and the trip is never saved. That is #47 again, arriving by a
+        // different door, and it is why a port replay recorded no trip at all.
+        //
+        // Tested by provider rather than by isMock: fixes from
+        // ReplayLocationSource are not mock fixes — nothing designated this app —
+        // and the provider name is something only that source sets.
+        if (LocationSources.replay?.armed == true) {
+            if (location.provider == REPLAY_PROVIDER) return true
+            accepted--
+            rejected++
+            if (rejected % REJECT_LOG_EVERY == 1L) {
+                Log.d(TAG, "rejected $rejected platform fixes while the port is armed")
+            }
+            return false
+        }
+
+        if (!ReplayMode.active) return true
         val isMock = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             location.isMock
         } else {
@@ -97,5 +122,7 @@ object ReplayFixGate {
     }
 
     private const val REJECT_LOG_EVERY = 20L
+    /** The provider name [ReplayLocationSource] stamps on every fix it emits. */
+    private const val REPLAY_PROVIDER = "detour-replay"
     private const val TAG = "DetourFixGate"
 }

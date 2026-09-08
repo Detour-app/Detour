@@ -20,7 +20,6 @@ import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.fetchNavRoute
 import com.jellemax.detour.tracking.Fix
-import com.jellemax.detour.tracking.ReplayClock
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -53,6 +52,10 @@ internal fun MapNavigationSession(
     // Derived here rather than drilled in: each was an alias for something the
     // holder or a Settings flow already owns (state-holders.md §14.1).
     val context = LocalContext.current
+    // Hoisted: a CompositionLocal is only readable in a @Composable, and the
+    // effect below needs it. One instance for the process, so holding it across
+    // the effect's life cannot go stale (compose-state-hazards §2).
+    val clock = LocalDriveClock.current
     val liveFix by TripTrackingService.lastFix.collectAsStateWithLifecycle()
     val mode by Settings.tripMode.collectAsStateWithLifecycle()
     val serverConfig = remember { RoutingServer.load() }
@@ -92,7 +95,7 @@ internal fun MapNavigationSession(
         val dest = s.destination
         // The drive's clock, as in car/NavScreen.kt: the cooldown NavPolicy
         // applies is per drive, not per wall second.
-        val now = ReplayClock.nowMs()
+        val now = clock.nowMs()
         when (NavPolicy.decide(
             progress = progress,
             hasDestination = dest != null,

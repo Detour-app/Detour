@@ -60,7 +60,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.jellemax.detour.audio.NavVoice
 import com.jellemax.detour.audio.PushToTalk
@@ -124,6 +123,7 @@ import com.jellemax.detour.map.bearingDelta
 import com.jellemax.detour.map.smoothBearing
 import com.jellemax.detour.obd2.Obd2Connection
 import com.jellemax.detour.obd2.Obd2ConnectionState
+import com.jellemax.detour.tracking.LocationSources
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ble.BleNavServer
 import kotlinx.coroutines.CancellationException
@@ -458,11 +458,14 @@ fun MapScreen(
         ) return
         scope.launch {
             try {
-                val client = LocationServices.getFusedLocationProviderClient(context)
-                val loc = client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
-                    ?: client.lastLocation.await()
+                // Through the location port (#306), not the platform directly.
+                // Asking fused here was right while the only replay rig pushed
+                // its fixes *into* fused; through the port the platform has
+                // never heard of the route, so it answers with where the phone
+                // physically is and this moveCamera yanks the map off the replay.
+                val loc = LocationSources.currentLatLon(context)
                 if (loc != null) {
-                    s.myLocation = LatLon(loc.latitude, loc.longitude)
+                    s.myLocation = loc
                     // Only take the camera if it is still ours to take. This
                     // await can run for seconds, and a parked camera means the
                     // rider has since chosen something to look at - a search
@@ -470,7 +473,7 @@ fun MapScreen(
                     // would yank the map back off it long after the tap.
                     if (!s.camAuthority.camSuspended) {
                         mapLibreMap?.moveCamera(CameraUpdateFactory.newLatLngZoom(
-                            LatLng(loc.latitude, loc.longitude), Settings.defaultZoom.value.toDouble()))
+                            LatLng(loc.lat, loc.lon), Settings.defaultZoom.value.toDouble()))
                     }
                 } else {
                     s.error = "Could not get location; is GPS on?"

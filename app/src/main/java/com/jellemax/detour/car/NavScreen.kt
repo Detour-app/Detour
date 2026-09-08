@@ -46,7 +46,8 @@ import com.jellemax.detour.drive.CameraPrefetch
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.map.NavPolicy
-import com.jellemax.detour.tracking.ReplayClock
+import com.jellemax.detour.tracking.DriveClock
+import com.jellemax.detour.tracking.DriveClocks
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -94,6 +95,21 @@ class NavScreen(
     private val serverConfig: ServerConfig,
     private val destinationName: String? = null,
 ) : Screen(carContext) {
+
+    /**
+     * The drive's clock (#307).
+     *
+     * A field rather than a constructor parameter, which is the one place in
+     * this change that does not hand the clock in. This constructor already
+     * takes seven, which is `docs/guidelines/boundaries.md` §8.4's limit, and
+     * the two call sites that build a [NavScreen] ([SpinScreen] and
+     * [SearchScreen]) would each have to grow a pass-through parameter to carry
+     * it. Nothing would be bought with that: the car surface has no test that
+     * could inject a fake — this repo has no Robolectric and no `androidTest` —
+     * so the seam would exist for nobody. Declared here, read once, and named so
+     * the reach is visible.
+     */
+    private val clock: DriveClock = DriveClocks.current
 
     private val navigationManager = carContext.getCarService(NavigationManager::class.java)
     private val voice = NavVoice(carContext)
@@ -257,10 +273,10 @@ class NavScreen(
             headingDeg = bearingDeg?.toDouble(),
             speedMps = speedMps,
             // nowMs() in :shared is internal to that module; the Android call
-            // sites pass ReplayClock, same as MapScreen.kt does — the drive's
+            // sites pass the drive's clock, same as MapScreen.kt does — the
             // clock, so a time-compressed replay averages over the drive's
             // elapsed time rather than the replay's.
-            nowMs = ReplayClock.nowMs(),
+            nowMs = clock.nowMs(),
         )
         renderer.updateHud(currentSpeedKmh, p.speedLimitKmh, sectionState.reading)
         // No setPosition here any more: the renderer's camera loop interpolates the
@@ -279,7 +295,7 @@ class NavScreen(
         // own once-only latch on popping itself, not part of the policy.
         // Drive clock: the reroute cooldown bounds how often a *drive* may
         // reroute, so a 5x replay must not get five times the reroutes.
-        val now = ReplayClock.nowMs()
+        val now = clock.nowMs()
         when (NavPolicy.decide(
             progress = p,
             hasDestination = true, // a constructor parameter on this screen

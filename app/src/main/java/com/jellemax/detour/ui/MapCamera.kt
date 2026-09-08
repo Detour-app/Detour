@@ -8,7 +8,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.withFrameNanos
 import com.jellemax.detour.data.LatLon
-import com.jellemax.detour.tracking.ReplayClock
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
@@ -61,6 +60,9 @@ internal fun MapSpeedEase(retained: RetainedMap) {
             // backgrounded); 0.25s ~= one tau, enough that heavy frame jank
             // during fast motion no longer starves the ease. exp() form is
             // stable at any dt, so this is a smoothness knob, not a safety one.
+            // Wall time, deliberately, unlike the camera's position and bearing:
+            // SPEED_TAU smooths a *readout*, and scaling it by a replay factor
+            // switches the smoothing off and makes the number jump.
             val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.25)
             lastNs = ns
             val target = speedTarget.value
@@ -82,6 +84,13 @@ internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap) {
     val fogView = retained.fogView
     val cameraActive = s.camAuthority.cameraActive(s.navigating)
     val liveFix by TripTrackingService.lastFix.collectAsStateWithLifecycle()
+    // Hoisted out of the frame loop below, and it has to be: a CompositionLocal
+    // is only readable in a @Composable. Safe to hold as a plain value across the
+    // life of the effect — compose-state-hazards §2's stale-capture rule is about
+    // values that change, and DriveClocks holds one instance for the process; a
+    // replay re-paces the clock inside it rather than swapping it.
+    val clock = LocalDriveClock.current
+
     val defaultZoom by Settings.defaultZoom.collectAsStateWithLifecycle()
     // The camera itself: one loop, one frame at a time, easing toward whatever
     // the last fix asked for. Compose only produces frames while the activity is
@@ -126,11 +135,23 @@ internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap) {
         var lastTargetLat = Double.NaN
         var lastTargetLon = Double.NaN
         var lastNs = withFrameNanos { it }
+        var lastDriveMs = clock.driveElapsedMs()
         while (true) {
             val ns = withFrameNanos { it }
             // Clamp dt so a dropped frame or a stalled render doesn't teleport us.
-            val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.1)
+            val wallRaw = (ns - lastNs) / 1_000_000_000.0
+            val dtWall = wallRaw.coerceIn(0.0, MAX_FRAME_WALL_S)
+            val driveNow = clock.driveElapsedMs()
+            // Two deltas, because these eases are not the same kind of quantity.
+            // Position and bearing are the camera catching up to a vehicle, so a
+            // compressed replay must advance them in the drive's time or the
+            // camera trails and then snaps. Zoom is a comfort filter over a
+            // speed-derived target (MapScreen recomputes camTargetZoom on every
+            // fix): scaling it makes `1 - exp(-dt / CAM_ZOOM_TAU)` ~0.81 at 20x,
+            // which is the smoothing switched off.
+            val dt = driveFrameDelta(wallRaw, (driveNow - lastDriveMs) / 1000.0)
             lastNs = ns
+            lastDriveMs = driveNow
 
             // Where the vehicle is now, plus CAM_POS_TAU of lead. The lead is what
             // cancels the ease's own steady-state error: a first-order lag driven at
@@ -166,8 +187,8 @@ internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap) {
                     fixElapsedMs = f.elapsedRealtimeMs,
                     // Drive time, not wall time: the fix's speed is the drive's,
                     // so the age it is multiplied by has to be too. Identical to
-                    // nowElapsed at 1x — see ReplayClock.predictionNowMs.
-                    nowElapsedMs = ReplayClock.predictionNowMs(f.elapsedRealtimeMs),
+                    // nowElapsed at 1x — see DriveClock.predictionNowMs.
+                    nowElapsedMs = clock.predictionNowMs(f.elapsedRealtimeMs),
                     leadSeconds = CAM_POS_TAU,
                 )
                 else -> retained.camTarget
@@ -194,7 +215,7 @@ internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap) {
                 bearing = smoothBearing(
                     bearing, target, (1.0 - exp(-dt / CAM_BEARING_TAU)).toFloat())
             }
-            zoom += (targetZoom - zoom) * (1.0 - exp(-dt / CAM_ZOOM_TAU))
+            zoom += (targetZoom - zoom) * (1.0 - exp(-dtWall / CAM_ZOOM_TAU))
 
             // Heading-up while moving: MapLibre bearing points the camera along
             // travel, so the road you're on runs up the screen. The camera-move
@@ -236,6 +257,12 @@ internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap) {
  */
 @Composable
 internal fun MapPositionMarker(s: MapScreenState, retained: RetainedMap) {
+    // Hoisted out of the frame loop below, and it has to be: a CompositionLocal
+    // is only readable in a @Composable. Safe to hold as a plain value across the
+    // life of the effect — compose-state-hazards §2's stale-capture rule is about
+    // values that change, and DriveClocks holds one instance for the process; a
+    // replay re-paces the clock inside it rather than swapping it.
+    val clock = LocalDriveClock.current
     val mapOverlays = retained.overlays
     val fogView = retained.fogView
     val liveFix by TripTrackingService.lastFix.collectAsStateWithLifecycle()
@@ -278,19 +305,24 @@ internal fun MapPositionMarker(s: MapScreenState, retained: RetainedMap) {
         var along: NavEngine.Along? = null
         var alongLine: List<LatLon>? = null
         var lastNs = withFrameNanos { it }
+        var lastDriveMs = clock.driveElapsedMs()
         while (true) {
             val ns = withFrameNanos { it }
             // Same clamp as the camera loop: a dropped frame or a stalled render must not
-            // let one frame close the whole gap.
-            val dt = ((ns - lastNs) / 1_000_000_000.0).coerceIn(0.0, 0.1)
+            // let one frame close the whole gap. Drive time, differenced — see
+            // driveFrameDelta.
+            val driveNow = clock.driveElapsedMs()
+            val dt = driveFrameDelta(
+                (ns - lastNs) / 1_000_000_000.0, (driveNow - lastDriveMs) / 1000.0)
             lastNs = ns
+            lastDriveMs = driveNow
             val f = liveFix ?: continue
             val here = MapMotion.predict(
                 at = LatLon(f.lat, f.lon),
                 bearingDeg = f.bearingDeg,
                 speedMps = f.speedMps,
                 fixElapsedMs = f.elapsedRealtimeMs,
-                nowElapsedMs = ReplayClock.predictionNowMs(f.elapsedRealtimeMs),
+                nowElapsedMs = clock.predictionNowMs(f.elapsedRealtimeMs),
                 leadSeconds = 0.0,
             )
             // One snap a frame, and everything the route contributes comes off it:

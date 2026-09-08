@@ -109,12 +109,53 @@ scoped storage it cannot read a file you pushed to shared storage. Note the conf
 `docs/PLAY_LOCATION_DECLARATION.md:171-178` is right** — use the `run-as` push above. If you
 touch that file for other reasons, fixing the KDoc is a welcome one-line change.
 
+## Two rigs, and which question each answers
+
+There are two ways to get a route into the app, both kept on purpose, chosen per run.
+
+| | **The location port** (#306) | **The platform mock provider** |
+|---|---|---|
+| Script | `start-port-replay.sh` | `start-replay.sh` |
+| Setup | none | second app, installed and designated |
+| Delivery | **lossless to 50x** (measured 768/768) | 5-9 fixes/s, so 5x is the lossless ceiling |
+| Real fixes | never produced | blended in; filtered by `ReplayFixGate` (#47) |
+| Exercises | the app's own arithmetic | provider selection, the accuracy gate, `elapsedRealtimeNanos` freshness, fused's blending and thinning |
+
+**Use the port** for anything that is arithmetic over fixes and wants a whole route in
+seconds: trajectcontrole entry and exit gating, standstill and auto-stop detection, mode
+classification, fog of war, trip distance. **Use the mock provider** for the leg the port
+bypasses — two of the defects behind #306 lived exactly there, and only that rig can see
+them. A port run is not evidence about fused.
+
+Measured on a CPH2449, `public-trajectcontrole.txt` plus a 310-line standstill tail (768
+lines), against the same route at 5x through the mock rig (12700.18 m / 27.934 m/s):
+
+| rig | factor | wall | delivered / pushed | trip distance |
+|---|---|---|---|---|
+| mock | 5x | 153 s | 722 / 768 | 12700.18 m |
+| port | 20x | 39 s | **768 / 768** | 12668.07 m |
+| port | 50x | 17 s | **768 / 768** | 12536.05 m |
+
 ## Running it
 
 ```sh
+# The port: no second app, no designation.
+.claude/skills/detour-gps-replay/scripts/start-port-replay.sh <route.txt> [serial] [interval-ms] [speedup]
+.claude/skills/detour-gps-replay/scripts/stop-port-replay.sh  [serial]
+
+# The platform mock provider.
 .claude/skills/detour-gps-replay/scripts/start-replay.sh <route.txt> [serial] [interval-ms] [speedup]
 .claude/skills/detour-gps-replay/scripts/stop-replay.sh  [serial] [--recover]
 ```
+
+Both read the same route files and both report `pushed=` / `delivered=` into
+`files/replay-run.txt`, so a ramp reads the two rigs the same way.
+
+**The port rejects platform fixes while armed, and that is load-bearing.** A run without it
+measured 777 fixes delivered against 768 pushed: Play Services kept delivering real ones for
+several seconds after `removeLocationUpdates`, and one real fix off-route resets
+`lastMovingMs`, so `STATIONARY_END_MS` never elapses and the trip is never saved. Same
+mechanism as #47, arriving by a different door.
 
 ## Replaying faster than real time
 
@@ -125,7 +166,8 @@ touch that file for other reasons, fixing the KDoc is a welcome one-line change.
 the same speeds.
 
 The app has to be told, or the compression is a lie in the other direction — a fifth of the
-duration and five times the average speed. `ReplayClock` is the drive's clock, and
+duration and five times the average speed. `DriveClock` is the drive's clock — a port in
+`app/`, with `ScaledDriveClock` as the compressed implementation the rig installs (#307) — and
 `start-replay.sh` broadcasts the factor to `DebugReplayReceiver` before the first fix;
 `stop-replay.sh` sets it back to 1 unconditionally, because the multiplier lives in the app's
 process and would otherwise still be in force for the next trip you record by hand.
@@ -137,7 +179,7 @@ of those fixes with `extras=null` (measured, Android 15 emulator). Only the stan
 side channel through a mocked fix.
 
 **Two things a compressed run does not compress**, both deliberate and both listed with their
-reasoning in `ReplayClock`'s KDoc: fix staleness stays on the real clock (a compressed
+reasoning in `DriveClock`'s KDoc: fix staleness stays on the real clock (a compressed
 replay's fixes genuinely are fresher, and an age is only ever a gate that fresher satisfies),
 and the Overpass and municipality throttles stay real so the request rate into a
 rate-limiting public mirror does not multiply by the factor. That second one is why the

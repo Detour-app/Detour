@@ -101,7 +101,14 @@ Compose:
   # design decision that needs its own argument in review.
   CompositionLocalAllowlist:
     active: true
-    allowedCompositionLocals: ''
+    # LocalDriveClock (#307) is the one this app defines. The rule is right in
+    # general — an implicit dependency is harder to trace than a parameter — and
+    # the argument for the exception is in the property's own KDoc: the clock is
+    # process-scoped and read by six composables across four files, a parameter
+    # would take MapNavigationSession to six of boundaries.md §8.4's seven, and
+    # parking it on MapScreenState or RetainedMap would put process lifetime
+    # inside screen and Activity lifetime, which §8.1's first test forbids.
+    allowedCompositionLocals: 'LocalDriveClock'
 
   CompositionLocalNaming:
     active: true

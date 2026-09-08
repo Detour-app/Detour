@@ -7,6 +7,7 @@ import androidx.car.app.Session
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.tracking.DriveClocks
 
 class DetourCarSession : Session() {
 
@@ -26,7 +27,7 @@ class DetourCarSession : Session() {
         // run, and the car screens both read (map zoom) and write (voice
         // guidance) settings from the first frame. init is idempotent.
         Settings.init()
-        val map = CarMapRenderer(carContext, carContext.isDarkMode())
+        val map = CarMapRenderer(carContext, carContext.isDarkMode(), DriveClocks.current)
         renderer = map
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(map)
         lifecycle.addObserver(object : DefaultLifecycleObserver {

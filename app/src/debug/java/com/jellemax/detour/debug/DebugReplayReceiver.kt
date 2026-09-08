@@ -4,7 +4,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import com.jellemax.detour.tracking.ReplayClock
+import com.jellemax.detour.tracking.DriveClocks
+import com.jellemax.detour.tracking.LocationSources
 import com.jellemax.detour.tracking.ReplayFixGate
 import com.jellemax.detour.tracking.ReplayMode
 import java.io.File
@@ -14,9 +15,11 @@ import java.io.File
  * should believe anything but the replay.
  *
  * Debug source set only. Neither this class nor the manifest entry registering it
- * exists in a release build, so there is no route to [ReplayMode] or to
- * `ReplayClock.setScale` in a shipped app — belt as well as the braces of
- * `setScale`'s own `BuildConfig.DEBUG` check.
+ * exists in a release build, so there is no route to [ReplayMode] or to the
+ * drive clock's `setScale` in a shipped app. That is now structural on both
+ * sides: [DriveClocks]'s release twin holds a [com.jellemax.detour.tracking.SystemDriveClock]
+ * and declares no `setScale` at all, so a shipped app has no compressed clock to
+ * decline at runtime — it has no route to one (#307).
  *
  * Out of band, and it has to be: the factor was first stamped onto every mocked
  * `Location` in `MockService`, and Play Services' fused provider delivered every
@@ -56,10 +59,32 @@ class DebugReplayReceiver : BroadcastReceiver() {
                 report(context)
             }
         }
+        // The port rig (#306): fixes come from a route in this app's own files
+        // instead of through the platform. Handled before the speed factor,
+        // because arming sets the factor itself — the pacing and the drive clock
+        // are two halves of one decision and must not be set separately.
+        if (intent.hasExtra(EXTRA_PORT_ROUTE)) {
+            val route = intent.getStringExtra(EXTRA_PORT_ROUTE).orEmpty()
+            val source = LocationSources.replay
+            when {
+                source == null ->
+                    Log.w(TAG, "no location source yet — start the app before arming the port")
+                route.isEmpty() -> {
+                    source.disarm()
+                    Log.i(TAG, "port replay disarmed; fixes come from the platform again")
+                }
+                else -> source.arm(
+                    routeFile = route,
+                    intervalMs = intent.getLongExtra(EXTRA_INTERVAL_MS, 1_000L),
+                    speedup = intent.getIntExtra(EXTRA_SPEEDUP, 1),
+                )
+            }
+            return
+        }
         if (intent.hasExtra(EXTRA_SPEEDUP)) {
             val speedup = intent.getIntExtra(EXTRA_SPEEDUP, 1)
-            ReplayClock.setScale(speedup)
-            Log.i(TAG, "asked for ${speedup}x, clock is now ${ReplayClock.scale()}x")
+            DriveClocks.current.setScale(speedup)
+            Log.i(TAG, "asked for ${speedup}x, clock is now ${DriveClocks.current.scale()}x")
         }
     }
 
@@ -83,6 +108,9 @@ class DebugReplayReceiver : BroadcastReceiver() {
     private companion object {
         const val RUN_FILE = "replay-run.txt"
         const val EXTRA_MOCK_ONLY = "mock_only"
+        /** A route file in *this* app's filesDir; empty string disarms. */
+        const val EXTRA_PORT_ROUTE = "port_route"
+        const val EXTRA_INTERVAL_MS = "interval_ms"
         const val EXTRA_SPEEDUP = "speedup"
         const val TAG = "DebugReplay"
     }

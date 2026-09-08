@@ -20,10 +20,6 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.ble.BoardTelemetry
 import com.jellemax.detour.data.syncQuietly
@@ -161,14 +157,17 @@ class TripTrackingService : Service() {
          *  (#90) until some unrelated onStartCommand happens to arrive. */
         internal const val AR_REGISTER_RETRY_MS = 15_000L
 
-        // Auto start/stop tuning.
-        private const val FAST_SPEED_MPS = 7.0          // ~25 km/h, no vehicle hint
-        private const val PROBE_SPEED_MPS = 4.0         // ~14 km/h, IN_VEHICLE was seen
-        private const val FAST_FIXES_TO_START = 3
-        private const val MIN_FAST_RUN_MS = 8_000L
-        private const val MIN_FAST_RUN_METERS = 120.0
+        // Auto start/stop tuning. Not private: [TripStartDetector] and
+        // [TripEndDetector] apply these. Same rule as [AR_REGISTER_RETRY_MS] and
+        // [PROBE_WINDOW_MS] below — tuning stays declared once, here, and is
+        // referenced from the collaborator rather than copied into it.
+        internal const val FAST_SPEED_MPS = 7.0         // ~25 km/h, no vehicle hint
+        internal const val PROBE_SPEED_MPS = 4.0        // ~14 km/h, IN_VEHICLE was seen
+        internal const val FAST_FIXES_TO_START = 3
+        internal const val MIN_FAST_RUN_MS = 8_000L
+        internal const val MIN_FAST_RUN_METERS = 120.0
         /** Fixes looser than this never contribute to a start decision. */
-        private const val MAX_START_ACCURACY_M = 25f
+        internal const val MAX_START_ACCURACY_M = 25f
 
         /** Loosest fix still worth *drawing*: the fog-of-war trace, and with it
          *  the auto-stop-at-origin check that rides on the same point. A scatter
@@ -197,8 +196,10 @@ class TripTrackingService : Service() {
          *  short: one freak fix shouldn't buy three minutes of GPS. Not private:
          *  [DriveTransitions.startSpeedProbe] opens against this. */
         internal const val SPEED_PROBE_WINDOW_MS = 60_000L
-        private const val EXIT_GRACE_MS = 2 * 60_000L   // after IN_VEHICLE exit
-        private const val STATIONARY_END_MS = 5 * 60_000L
+        /** After IN_VEHICLE exit. Not private: [TripEndDetector] applies it. */
+        internal const val EXIT_GRACE_MS = 2 * 60_000L
+        /** Not private: [TripEndDetector] applies it. */
+        internal const val STATIONARY_END_MS = 5 * 60_000L
         /** The worth-saving thresholds are not private: [TripSession.end]
          *  applies them. Same rule as [AR_REGISTER_RETRY_MS] and
          *  [PROBE_WINDOW_MS] above — tuning stays declared once, here, and is
@@ -419,11 +420,16 @@ class TripTrackingService : Service() {
         }
     }
 
-    private lateinit var fusedClient: FusedLocationProviderClient
-    /** What to ask [fusedClient] for; see [currentLocationMode] for the mode
-     *  decision this acts on. Constructed alongside [fusedClient] once it
-     *  exists, same guarded-init shape as [motionSensors] below. */
-    private lateinit var locationRequests: LocationRequests
+    /**
+     * Where fixes come from (#306): the platform in a shipped app, and a route
+     * read from this app's own files when a debug build arms the replay port.
+     *
+     * [LocationSources] chooses, by source set — this service names no Play
+     * Services location API at all any more. See [currentLocationMode] for the
+     * mode decision it acts on. Same guarded-init shape as [motionSensors]
+     * below, since it needs a `Context` and the service's scope.
+     */
+    private lateinit var locationSource: LocationSource
     private lateinit var sensorManager: SensorManager
     /** The rotation-vector sensor and lean bookkeeping; see its own KDoc for
      *  why [recordLean] stays here rather than moving with it. */
@@ -440,15 +446,32 @@ class TripTrackingService : Service() {
     private var awayFromOrigin = false
 
     private var autoStarted = false
-    private var pendingStopAtMs: Long? = null
-    private var lastMovingMs = 0L
     private var circleSyncStarted = false
     private var obdSpeedRefreshStarted = false
 
-    // Run of consecutive fast, accurate fixes that would start a trip.
-    private var fastFixes = 0
-    private var fastRunStartMs = 0L
-    private var fastRunStart: LatLon? = null
+    /**
+     * The drive's clock — real time in a shipped app, and a compressed one while
+     * the replay rig is running (#307).
+     *
+     * A field read of [DriveClocks] rather than a constructor parameter because
+     * a `Service` is constructed by the framework and cannot take one. Three
+     * places in `app/` reach for the clock and no more — here, `LocalDriveClock`'s
+     * default for the UI, and the car surface's `DetourCarSession`/`NavScreen`.
+     * Everything downstream of those is *handed* it: the two detectors below,
+     * `TripSession`, `DriveTransitions`, every composable. That is the rule
+     * `CONTRIBUTING.md` states — "the core is handed things, it never reaches for
+     * them" — and the nine scattered reads #307 replaced.
+     */
+    private val clock: DriveClock = DriveClocks.current
+
+    /** The run of consecutive fast, accurate fixes that would start a trip.
+     *  A plain class rather than three loose `var`s so its bar can be checked
+     *  against literals — see its KDoc. */
+    private val startDetector = TripStartDetector()
+
+    /** The "still moving" clock and the two ways a trip ends by itself. Takes
+     *  [clock], so a compressed replay's grace periods are the drive's. */
+    private val endDetector = TripEndDetector(clock)
 
     /** Wall clock past which a geofence wake no longer protects this instance
      *  from re-parking; 0 when this start was not a geofence wake. Per-instance
@@ -494,49 +517,57 @@ class TripTrackingService : Service() {
 
     private var lastMunicipalityLookupMs = 0L
 
-    private val locationCallback = object : LocationCallback() {
-        override fun onLocationResult(result: LocationResult) {
-            for (location in result.locations) onLocation(location)
-            // Batched idle fixes arrive together and a probe window can lapse
-            // between them; re-evaluate the mode once the burst is handled.
-            ensureLocationUpdates()
-            // A phone booted stationary in a garage gets its STILL ENTER before
-            // any fix, so the evaluation bailed for want of a position. This is
-            // where that first SLEEP fix arms the park geofence.
-            requestDormancyEvaluation()
-        }
+    /** One delivery from whichever [LocationSource] is running — a batch,
+     *  because an IDLE request is batched and the two calls after the loop are
+     *  per-burst rather than per-fix. Eager, not guarded-init, for the same
+     *  reason [driveTransitions] below is. */
+    private val locationListener = LocationBatchListener { locations ->
+        for (location in locations) onLocation(location)
+        // Batched idle fixes arrive together and a probe window can lapse
+        // between them; re-evaluate the mode once the burst is handled.
+        ensureLocationUpdates()
+        // A phone booted stationary in a garage gets its STILL ENTER before
+        // any fix, so the evaluation bailed for want of a position. This is
+        // where that first SLEEP fix arms the park geofence.
+        requestDormancyEvaluation()
     }
 
     /** Activity-recognition registration, and the STILL/IN_VEHICLE state that
      *  drives auto-start/auto-sleep - see its own KDoc for the IN_VEHICLE
      *  probe-window coupling to the start detector. Eager, not guarded-init
-     *  like [motionSensors]/[locationRequests]: [buildNotification] reads
+     *  like [motionSensors]/[locationSource]: [buildNotification] reads
      *  [DriveTransitions.stationary] from inside `onStartCommand`'s
      *  `startForeground()` call, before that guarded-init block runs on a
-     *  cold start - the same reason [locationCallback] above is eager too. */
+     *  cold start - the same reason [locationListener] above is eager too. */
     private val driveTransitions = DriveTransitions(
         context = this,
+        clock = clock,
         tripActive = { _stats.value != null },
-        onVehicleEnter = {
-            pendingStopAtMs = null
-            // Only ever a no-op reset while a trip is running - see
-            // DriveTransitions' KDoc: fastFixes/fastRunStart are already
-            // 0/null for the life of any trip, so folding this call in
-            // unconditionally changes nothing observable.
-            resetStartDetector()
-        },
-        onVehicleExit = {
-            // Don't end immediately — could be a fuel stop. The grace period
-            // is checked against speed in onTripLocation.
-            if (_stats.value != null && autoStarted) {
-                pendingStopAtMs = ReplayClock.nowMs()
+        listener = object : DriveTransitions.Listener {
+            override fun onVehicleEnter() {
+                endDetector.onVehicleEnter()
+                // Only ever a no-op reset while a trip is running - see
+                // DriveTransitions' KDoc: the start detector's run is already
+                // empty for the life of any trip, so folding this call in
+                // unconditionally changes nothing observable.
+                resetStartDetector()
             }
+
+            override fun onVehicleExit() {
+                // Don't end immediately — could be a fuel stop. The grace period
+                // is checked against speed in onTripLocation.
+                if (_stats.value != null && autoStarted) {
+                    endDetector.onVehicleExit()
+                }
+            }
+
+            override fun onStill() {
+                resetStartDetector()
+                flushTrace()
+            }
+
+            override fun onWalking() = resetStartDetector()
         },
-        onStill = {
-            resetStartDetector()
-            flushTrace()
-        },
-        onWalking = { resetStartDetector() },
     )
 
     /** Set in [onDestroy] before teardown, so a dormancy evaluation coalesced
@@ -726,11 +757,8 @@ class TripTrackingService : Service() {
             return START_NOT_STICKY
         }
         running = true
-        if (!::fusedClient.isInitialized) {
-            fusedClient = LocationServices.getFusedLocationProviderClient(this)
-        }
-        if (!::locationRequests.isInitialized) {
-            locationRequests = LocationRequests(fusedClient, locationCallback) {
+        if (!::locationSource.isInitialized) {
+            locationSource = LocationSources.create(this, locationListener, serviceScope) {
                 // Location permission pulled out from under an already-running
                 // service - clear the notification now rather than leave it
                 // dangling for the ~5 s until the process dies.
@@ -811,18 +839,17 @@ class TripTrackingService : Service() {
      *  began, rather than to the fix that finally proved it. */
     private fun beginTrip(
         auto: Boolean,
-        startTimeMs: Long = ReplayClock.nowMs(),
+        startTimeMs: Long = clock.nowMs(),
         initialDistanceMeters: Double = 0.0,
     ) {
         autoStarted = auto
         origin = null
         awayFromOrigin = false
         driveTransitions.reset()
-        pendingStopAtMs = null
         resetStartDetector()
         motionSensors.resetLean()
         session.begin(startTimeMs)
-        lastMovingMs = ReplayClock.nowMs()
+        endDetector.onTripBegan()
         // Re-check what's actually linked: the set may have gone stale since the
         // last trip. Answers async, retagging through VehicleLinks.refreshTripMode.
         vehicleLinks.seedConnectedVehicles()
@@ -855,7 +882,7 @@ class TripTrackingService : Service() {
         destLat = null
         destLon = null
         autoStarted = false
-        pendingStopAtMs = null
+        endDetector.onTripEnded()
         ensureLocationUpdates()
         updateNotification()
         if (saveJob != null) session.lastSaveJob = saveJob
@@ -874,7 +901,7 @@ class TripTrackingService : Service() {
             convoyActive = convoyActive,
             stationary = driveTransitions.stationary,
         )
-        if (locationRequests.ensureFor(mode)) updateNotification()
+        if (locationSource.ensureFor(mode)) updateNotification()
     }
 
     /**
@@ -949,7 +976,7 @@ class TripTrackingService : Service() {
             ) != PackageManager.PERMISSION_GRANTED -> "no ACCESS_BACKGROUND_LOCATION"
         // No position yet (booted stationary, no fix before STILL ENTER). The
         // location callback re-evaluates on the first fix.
-        locationRequests.lastKnownLatLon(lastLocation) == null -> "no position to arm at yet"
+        locationSource.lastKnownLatLon(lastLocation) == null -> "no position to arm at yet"
         else -> null
     }
 
@@ -965,7 +992,7 @@ class TripTrackingService : Service() {
         when (geofenceAction(decision, geofenceRequested)) {
             GeofenceAction.NONE -> return
             GeofenceAction.ARM -> {
-                val (lat, lon) = locationRequests.lastKnownLatLon(lastLocation) ?: return
+                val (lat, lon) = locationSource.lastKnownLatLon(lastLocation) ?: return
                 ParkGeofence.arm(this, lat, lon)
                 geofenceRequested = true
             }
@@ -1024,7 +1051,7 @@ class TripTrackingService : Service() {
             return false
         }
         stopping = true
-        if (::locationRequests.isInitialized) locationRequests.stop()
+        if (::locationSource.isInitialized) locationSource.stop()
         flushTrace()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         getSystemService(NotificationManager::class.java).cancel(TripNotifications.NOTIFICATION_ID)
@@ -1041,8 +1068,7 @@ class TripTrackingService : Service() {
     }
 
     private fun resetStartDetector() {
-        fastFixes = 0
-        fastRunStart = null
+        startDetector.reset()
     }
 
     private fun onLocation(location: Location) {
@@ -1062,7 +1088,7 @@ class TripTrackingService : Service() {
             speedMps = resolveDisplaySpeedMps(speed, vehicleLinks.resolvedMode()),
             bearingDeg = if (location.hasBearing()) location.bearing else null,
             accuracyMeters = location.accuracy,
-            timeMs = ReplayClock.fixTimeMs(location.time),
+            timeMs = clock.fixTimeMs(location.time),
             elapsedRealtimeMs = location.elapsedRealtimeNanos / 1_000_000L,
         )
         _lastFix.value = fix
@@ -1081,51 +1107,42 @@ class TripTrackingService : Service() {
         if (location.accuracy <= MAX_TRACE_ACCURACY_M) {
             addTracePoint(
                 LatLon(location.latitude, location.longitude),
-                ReplayClock.fixTimeMs(location.time),
+                clock.fixTimeMs(location.time),
                 speed,
             )
         }
+        // Whether auto-detection is on at all is a Settings read, so it stays
+        // here rather than inside the detector — which knows only about fixes.
         if (!Settings.autoDetectDrives.value) {
-            resetStartDetector()
-            return
-        }
-        // A loose fix can drift 100 m in a minute while the phone sits indoors,
-        // which reads as a comfortable 6 km/h — or, over one bad jump, as 25.
-        if (location.accuracy > MAX_START_ACCURACY_M) {
             resetStartDetector()
             return
         }
 
         val probing = driveTransitions.probing
-        if (speed < (if (probing) PROBE_SPEED_MPS else FAST_SPEED_MPS)) {
-            resetStartDetector()
-            return
-        }
+        val decision = startDetector.onFix(
+            accuracyM = location.accuracy,
+            speed = speed,
+            at = LatLon(location.latitude, location.longitude),
+            fixTimeMs = location.time,
+            probing = probing,
+        )
+        if (decision == TripStartDetector.Decision.Idle) return
 
         // One accurate fix at driving speed is enough to *look closer*, and that
         // is the whole reason a drive used to take minutes to notice: we waited
         // for IN_VEHICLE, then confirmed against fixes that arrived every 20 s.
         // Escalating here puts us on 4 s fixes immediately — the run below is
         // then confirmed in seconds. The evidence bar for starting is unchanged.
+        // Before beginTrip, as it always was: beginTrip's driveTransitions.reset()
+        // clears the window this opens.
         if (!probing) driveTransitions.startSpeedProbe()
 
-        val here = LatLon(location.latitude, location.longitude)
-        val runStart = fastRunStart
-        if (runStart == null) {
-            fastRunStart = here
-            // GPS timestamps, not wall clock: a batched burst of idle fixes all
-            // arrive at the same instant but describe minutes of driving.
-            fastRunStartMs = location.time
-            fastFixes = 1
-            return
-        }
-        fastFixes++
-        val runDistanceMeters = RoadRoulette.distanceMeters(runStart, here)
-        if (fastFixes >= FAST_FIXES_TO_START &&
-            location.time - fastRunStartMs >= MIN_FAST_RUN_MS &&
-            runDistanceMeters >= MIN_FAST_RUN_METERS
-        ) {
-            beginTrip(auto = true, startTimeMs = fastRunStartMs, initialDistanceMeters = runDistanceMeters)
+        if (decision is TripStartDetector.Decision.Start) {
+            beginTrip(
+                auto = true,
+                startTimeMs = decision.startTimeMs,
+                initialDistanceMeters = decision.distanceMeters,
+            )
         }
     }
 
@@ -1158,7 +1175,7 @@ class TripTrackingService : Service() {
         // and append the point to the persisted trace. No usable accuracy, no draw.
         if (!(location.accuracy <= MAX_TRACE_ACCURACY_M)) return false
         val p = LatLon(location.latitude, location.longitude)
-        addTracePoint(p, ReplayClock.fixTimeMs(location.time), speed)
+        addTracePoint(p, clock.fixTimeMs(location.time), speed)
 
         // Auto-stop when back at the starting point after a real trip.
         if (origin == null) origin = p
@@ -1175,26 +1192,12 @@ class TripTrackingService : Service() {
     }
 
     /** Keeps the "still moving" clock, then decides whether the rider has left
-     *  the vehicle for good. Returns true if it ended the trip. */
+     *  the vehicle for good. Returns true if it ended the trip. The decision
+     *  itself is [TripEndDetector]'s; ending the trip is this service's. */
     private fun checkVehicleExit(speed: Double, now: Long): Boolean {
-        if (speed > 2.0) lastMovingMs = now
-
-        // Left the vehicle and stayed slow through the grace period: trip over.
-        pendingStopAtMs?.let { exitedAt ->
-            if (speed > 5.0) {
-                pendingStopAtMs = null
-            } else if (now - exitedAt > EXIT_GRACE_MS) {
-                endTrip()
-                return true
-            }
-        }
-        // Fallback if the vehicle-exit event never arrives. Also stops the
-        // high-accuracy fixes draining the battery in a car park.
-        if (autoStarted && now - lastMovingMs > STATIONARY_END_MS) {
-            endTrip()
-            return true
-        }
-        return false
+        if (!endDetector.shouldEnd(speed, autoStarted, now)) return false
+        endTrip()
+        return true
     }
 
     /** Everything the rest of the per-fix pipeline needs to know about this
@@ -1430,8 +1433,8 @@ class TripTrackingService : Service() {
     private fun onTripLocation(location: Location, speed: Double, stats: TripStats) {
         // The drive's clock, not the wall's: at 5x replay these dwell and
         // duration comparisons have to be against the drive they describe.
-        // See ReplayClock for what deliberately stays on the platform clock.
-        val now = ReplayClock.nowMs()
+        // See DriveClock for what deliberately stays on the platform clock.
+        val now = clock.nowMs()
 
         val distance = accumulateDistance(location, stats)
         // The one hop this fix banked, reused by the fuel-economy denominator and
@@ -1601,6 +1604,7 @@ class TripTrackingService : Service() {
         context = this,
         scope = serviceScope,
         resolvedVehicle = vehicleLinks::resolvedVehicle,
+        clock = clock,
         checkBadges = ::checkBadges,
     )
 
@@ -1611,7 +1615,7 @@ class TripTrackingService : Service() {
         // the handler from holding this instance past its own destruction.
         mainHandler.removeCallbacksAndMessages(null)
         driveTransitions.cancelPendingRegister()
-        if (::locationRequests.isInitialized) locationRequests.stop()
+        if (::locationSource.isInitialized) locationSource.stop()
         vehicleLinks.stop()
         // endTrip()'s save-and-notify tail runs on serviceScope (round-1 fix,
         // off the main thread on every other call site) — but the service is
