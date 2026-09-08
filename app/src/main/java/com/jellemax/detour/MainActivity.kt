@@ -63,6 +63,7 @@ import com.jellemax.detour.notif.PendingTripOpen
 import com.jellemax.detour.notif.PendingUpdateOpen
 import com.jellemax.detour.notif.PlaceNotifications
 import com.jellemax.detour.notif.Push
+import com.jellemax.detour.update.ReopenNotification
 import com.jellemax.detour.update.UpdateChecker
 import com.jellemax.detour.ui.BadgesScreen
 import com.jellemax.detour.ui.CircleDetailScreen
@@ -96,6 +97,9 @@ class MainActivity : ComponentActivity() {
         PlaceNotifications.takeOpenCircleId(intent)
         PendingTripOpen.take(intent)
         PendingUpdateOpen.take(intent)
+        // The app is open, so an offer to reopen it is stale — whether it was
+        // tapped, swiped, or ignored until the rider came back another way.
+        ReopenNotification.cancel(this)
         enableEdgeToEdge()
         // A map app is glanced at while driving: keep the screen awake while visible.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
