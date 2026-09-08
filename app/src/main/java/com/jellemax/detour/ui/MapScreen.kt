@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -23,9 +24,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.outlined.Navigation
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -71,6 +74,7 @@ import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NamedMemberFix
 import com.jellemax.detour.data.NavAnnouncer
+import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.PoiKind
@@ -96,6 +100,8 @@ import com.jellemax.detour.presentation.navStateFrom
 import com.jellemax.detour.presentation.obd2FedThisTrip
 import com.jellemax.detour.presentation.pushToTalkShown
 import com.jellemax.detour.presentation.reachMeters
+import com.jellemax.detour.presentation.RiderCardState
+import com.jellemax.detour.presentation.riderCardStateFrom
 import com.jellemax.detour.presentation.speedHudStateFrom
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
@@ -682,6 +688,23 @@ fun MapScreen(
             s.layersOpen = false
             s.searchOpen = false
             val p = map.projection.toScreenLocation(ll)
+            // A tap on a convoy peer or circle member opens its rider card
+            // (#156). Queried first, and with a gloved-thumb box around the
+            // finger rather than the icon's own pixels — 28 dp each way.
+            val riderHalf = 28f * context.resources.displayMetrics.density
+            val hitRider = map.queryRenderedFeatures(
+                RectF(p.x - riderHalf, p.y - riderHalf, p.x + riderHalf, p.y + riderHalf),
+                LAYER_FRIENDS, LAYER_CIRCLE_MEMBERS,
+            ).firstOrNull()?.getStringProperty("rider")
+            if (hitRider != null) {
+                s.tappedRider = RiderId(hitRider)
+                return@OnMapClickListener true
+            }
+            // Empty map with the card open: the tap just dismisses it.
+            if (s.tappedRider != null) {
+                s.tappedRider = null
+                return@OnMapClickListener true
+            }
             val tap = RectF(p.x - 22f, p.y - 22f, p.x + 22f, p.y + 22f)
             val idx = map.queryRenderedFeatures(tap, LAYER_CANDIDATES)
                 .firstOrNull()?.getNumberProperty("index")?.toInt()
@@ -998,6 +1021,48 @@ fun MapScreen(
         if (next.clearSpinOffer) ConvoyLiveClient.clearSpinOffer()
     }
 
+    // The card a tapped rider marker opens (#156). Only the id lives in state;
+    // the contents are re-derived here from the live convoy-peer and circle-fix
+    // collections every recomposition, so a fresh position frame updates an
+    // open card in place — and a convoy peer past its expiry arrives with
+    // RiderCardState.stale set. A tapped id in neither collection any more (the
+    // peer left, the circle stopped sharing) closes the card.
+    val riderCard: RiderCardState? = s.tappedRider?.let { id ->
+        val nowMs = System.currentTimeMillis()
+        val sep = Settings.decimalSeparatorChar()
+        val peer = convoyPeers[id]
+        when {
+            peer != null -> riderCardStateFrom(
+                handle = activeConvoyMembers.handleFor(id),
+                riderLocation = LatLon(peer.lat, peer.lon),
+                headingDeg = peer.headingDeg,
+                speedKmh = peer.speedKmh,
+                fixTsMs = peer.tsMs,
+                expiresAtMs = peer.expiresAtMs,
+                ownLocation = s.myLocation,
+                nowMs = nowMs,
+                sep = sep,
+            )
+            else -> s.circleFixes.firstOrNull { it.fix.riderId == id }?.let { m ->
+                riderCardStateFrom(
+                    handle = m.username,
+                    riderLocation = LatLon(m.fix.lat, m.fix.lon),
+                    headingDeg = null,
+                    speedKmh = null,
+                    fixTsMs = m.fix.tsMs,
+                    expiresAtMs = null,
+                    ownLocation = s.myLocation,
+                    nowMs = nowMs,
+                    sep = sep,
+                )
+            }
+        }
+    }
+    LaunchedEffect(s.tappedRider, riderCard == null) {
+        if (s.tappedRider != null && riderCard == null) s.tappedRider = null
+    }
+    BackHandler(enabled = s.tappedRider != null) { s.tappedRider = null }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -1254,6 +1319,27 @@ fun MapScreen(
                     s.route = null
                 },
             )
+
+            // Drawn last, so it floats over the bottom slot: a tap on a rider
+            // marker asked for it, and Back or a tap elsewhere takes it away
+            // again (#156). Camera follow/park is not touched here.
+            AnimatedVisibility(
+                visible = riderCard != null,
+                enter = slideInVertically { it } + fadeIn(),
+                exit = slideOutVertically { it } + fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(12.dp)
+                    .widthIn(max = 420.dp),
+            ) {
+                // Held past the dismiss so the card animates out with content.
+                val shown = remember { mutableStateOf(riderCard) }
+                riderCard?.let { shown.value = it }
+                shown.value?.let { card ->
+                    RiderCard(state = card, onDismiss = { s.tappedRider = null })
+                }
+            }
         }
     }
 

@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NamedMemberFix
 import com.jellemax.detour.data.NavEngine
+import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.map.CameraAuthority
@@ -89,6 +90,13 @@ internal class MapScreenState(seed: SpinResult) {
     // --- convoy and circles ---------------------------------------------
     var convoyName: String? by mutableStateOf(null)
     var circleFixes: List<NamedMemberFix> by mutableStateOf(emptyList())
+
+    /** The rider whose map marker was last tapped, or null with the card
+     *  closed (issue #156). Holds only the id — the card's contents are
+     *  re-derived from the live peer/circle collections each recomposition, so
+     *  they update in place and go stale on their own. Plain state, not
+     *  saveable: a transient info card, dismissed on a tap or Back. */
+    var tappedRider: RiderId? by mutableStateOf(null)
 
     // --- chrome ----------------------------------------------------------
     var layersOpen: Boolean by mutableStateOf(false)
