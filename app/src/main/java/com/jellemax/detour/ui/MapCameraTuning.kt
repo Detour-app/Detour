@@ -96,3 +96,30 @@ internal const val CAM_RESUME_QUIET_MS = 8_000L
 // at most, so polling faster than that would just re-fetch the same row —
 // read from there rather than retyped, so the two can't drift apart.
 internal const val CIRCLE_FIX_POLL_MS = CirclePresence.ACTIVE_INTERVAL_MS
+
+/**
+ * Longest wall-clock frame that still counts in full toward an ease.
+ *
+ * A dropped frame or a stalled render must not let one frame close the whole
+ * gap. A stall is a real event on the real clock however fast the drive is, so
+ * this stays in wall seconds even though the eases it bounds run on drive time.
+ */
+internal const val MAX_FRAME_WALL_S = 0.1
+
+/**
+ * One frame's worth of *drive* time, with the stall clamp applied.
+ *
+ * [driveSeconds] is the difference of two [com.jellemax.detour.tracking.DriveClock.driveElapsedMs]
+ * readings — differenced rather than derived by multiplying the wall delta by
+ * the factor, because a frame that straddles a rescale was not run at one
+ * factor and the scaled clock is anchored precisely so its readings stay
+ * continuous across that change.
+ *
+ * When a frame overruns [MAX_FRAME_WALL_S], only that much of it counts, scaled
+ * down in the same proportion. That keeps the clamp exact at 1x — where
+ * `driveSeconds == wallSeconds` and this is the old `coerceIn(0.0, 0.1)` — while
+ * needing no factor arithmetic of its own at any other rate.
+ */
+internal fun driveFrameDelta(wallSeconds: Double, driveSeconds: Double): Double =
+    if (wallSeconds > MAX_FRAME_WALL_S) driveSeconds * (MAX_FRAME_WALL_S / wallSeconds)
+    else driveSeconds

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.jellemax.detour.tracking.DriveClocks
+import com.jellemax.detour.tracking.LocationSources
 import com.jellemax.detour.tracking.ReplayFixGate
 import com.jellemax.detour.tracking.ReplayMode
 import java.io.File
@@ -58,6 +59,28 @@ class DebugReplayReceiver : BroadcastReceiver() {
                 report(context)
             }
         }
+        // The port rig (#306): fixes come from a route in this app's own files
+        // instead of through the platform. Handled before the speed factor,
+        // because arming sets the factor itself — the pacing and the drive clock
+        // are two halves of one decision and must not be set separately.
+        if (intent.hasExtra(EXTRA_PORT_ROUTE)) {
+            val route = intent.getStringExtra(EXTRA_PORT_ROUTE).orEmpty()
+            val source = LocationSources.replay
+            when {
+                source == null ->
+                    Log.w(TAG, "no location source yet — start the app before arming the port")
+                route.isEmpty() -> {
+                    source.disarm()
+                    Log.i(TAG, "port replay disarmed; fixes come from the platform again")
+                }
+                else -> source.arm(
+                    routeFile = route,
+                    intervalMs = intent.getLongExtra(EXTRA_INTERVAL_MS, 1_000L),
+                    speedup = intent.getIntExtra(EXTRA_SPEEDUP, 1),
+                )
+            }
+            return
+        }
         if (intent.hasExtra(EXTRA_SPEEDUP)) {
             val speedup = intent.getIntExtra(EXTRA_SPEEDUP, 1)
             DriveClocks.current.setScale(speedup)
@@ -85,6 +108,9 @@ class DebugReplayReceiver : BroadcastReceiver() {
     private companion object {
         const val RUN_FILE = "replay-run.txt"
         const val EXTRA_MOCK_ONLY = "mock_only"
+        /** A route file in *this* app's filesDir; empty string disarms. */
+        const val EXTRA_PORT_ROUTE = "port_route"
+        const val EXTRA_INTERVAL_MS = "interval_ms"
         const val EXTRA_SPEEDUP = "speedup"
         const val TAG = "DebugReplay"
     }

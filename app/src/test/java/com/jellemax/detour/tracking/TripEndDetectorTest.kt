@@ -30,6 +30,7 @@ class TripEndDetectorTest {
         override fun nowMs(): Long = t
         override fun fixTimeMs(providerTimeMs: Long): Long = providerTimeMs
         override fun predictionNowMs(fixElapsedMs: Long): Long = fixElapsedMs
+        override fun driveElapsedMs(): Long = t
         fun advance(ms: Long): Long {
             t += ms
             return t
