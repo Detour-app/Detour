@@ -81,7 +81,8 @@ final class SpinModel: ObservableObject {
             to: target,
             profile: mode.ghProfile,
             avoidHighways: SettingsValues.shared.avoidHighways,
-            avoidSmallRoads: SettingsValues.shared.avoidSmallRoads
+            avoidSmallRoads: SettingsValues.shared.avoidSmallRoads,
+            heading: nil
         )
         // Compared field-wise rather than by identity: another commit or a
         // search may have moved the destination while this was in flight, and

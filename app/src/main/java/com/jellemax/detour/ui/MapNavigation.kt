@@ -9,6 +9,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.audio.NavVoice
 import com.jellemax.detour.ble.BleNavServer
+import com.jellemax.detour.data.HeadingHint
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.NavEngine
@@ -109,9 +110,15 @@ internal fun MapNavigationSession(
                 s.rerouting = true
                 s.lastRerouteMs = now
                 announce(announcer.rerouting())
+                // Continue in the direction of travel: keeps the fresh line from
+                // opening with a U-turn, and the penalty scales up with speed so
+                // it never asks for one on a 70/90 road. Skipped while parked or
+                // before GPS has a course.
+                val heading = fix.bearingDeg?.toDouble()?.takeIf { fix.speedMps >= 2.0 }
+                    ?.let { HeadingHint(it, NavPolicy.rerouteHeadingPenaltySec(fix.speedMps)) }
                 scope.launch {
                     try {
-                        s.route = fetchNavRoute(serverConfig, pos, target, mode)
+                        s.route = fetchNavRoute(serverConfig, pos, target, mode, heading)
                         // Instruction indices belong to the old polyline; start
                         // the new line's prompts from scratch.
                         announcer.routeChanged()

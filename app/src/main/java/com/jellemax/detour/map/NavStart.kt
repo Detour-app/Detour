@@ -1,5 +1,6 @@
 package com.jellemax.detour.map
 
+import com.jellemax.detour.data.HeadingHint
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.RoutingClient
@@ -60,9 +61,13 @@ suspend fun fetchNavRoute(
     from: LatLon,
     to: LatLon,
     mode: TravelMode,
+    /** Set on a reroute so the fresh line continues in the rider's direction of
+     *  travel rather than turning them around; null on the initial route. */
+    heading: HeadingHint? = null,
 ): RouteResult = withContext(Dispatchers.IO) {
     RoutingClient.route(
         serverConfig, from, to, mode.ghProfile,
         Settings.avoidHighways.value, Settings.avoidSmallRoads.value,
+        heading,
     )
 }
