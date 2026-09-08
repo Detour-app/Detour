@@ -48,6 +48,7 @@ import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.tracking.DriveClock
 import com.jellemax.detour.tracking.DriveClocks
+import com.jellemax.detour.tracking.SectionAverageLog
 import com.jellemax.detour.tracking.TripTrackingService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -266,7 +267,9 @@ class NavScreen(
         // in [checkCameras] so the HUD draws *this* fix's reading instead of the
         // previous one; the section list itself being a fix behind costs
         // nothing, since it is a 4 km prefetch either way.
-        sectionState = SectionAverageTracker.onFix(
+        // `step`, not `onFix`: same reason as the phone's call in
+        // ui/MapHazardAlerts.kt, and the same line out, so one grep covers both.
+        val sectionStep = SectionAverageTracker.step(
             state = sectionState,
             sections = speedSections,
             at = pos,
@@ -278,6 +281,8 @@ class NavScreen(
             // elapsed time rather than the replay's.
             nowMs = clock.nowMs(),
         )
+        sectionState = sectionStep.state
+        SectionAverageLog.log(sectionStep.outcome)
         renderer.updateHud(currentSpeedKmh, p.speedLimitKmh, sectionState.reading)
         // No setPosition here any more: the renderer's camera loop interpolates the
         // marker per tick from the same fix `follow` above just handed it. A per-fix

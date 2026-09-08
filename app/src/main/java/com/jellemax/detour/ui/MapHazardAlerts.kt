@@ -12,6 +12,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.tracking.SectionAverageLog
 import com.jellemax.detour.tracking.TripTrackingService
 
 /**
@@ -114,7 +115,11 @@ internal fun MapHazardAlerts(
         var st = retained.sectionState
         TripTrackingService.lastFix.collect { fix ->
             fix ?: return@collect
-            st = SectionAverageTracker.onFix(
+            // `step`, not `onFix`: the transition is the only record of why a
+            // readout appeared or vanished, and without it #22 spent a month
+            // being argued from screenshots. SectionAverageLog says why not to
+            // format it here.
+            val sectionStep = SectionAverageTracker.step(
                 state = st,
                 sections = speedSectionsRef.value,
                 at = LatLon(fix.lat, fix.lon),
@@ -122,6 +127,8 @@ internal fun MapHazardAlerts(
                 speedMps = fix.speedMps,
                 nowMs = clock.nowMs(),
             )
+            st = sectionStep.state
+            SectionAverageLog.log(sectionStep.outcome)
             // One owner. The reading was also mirrored into two `remember`ed
             // vars here, which is a second copy of a value that already has a
             // home in `retained.sectionState` — and a second copy is a second

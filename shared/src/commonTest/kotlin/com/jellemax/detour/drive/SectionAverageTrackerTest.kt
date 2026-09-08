@@ -17,13 +17,18 @@ import kotlin.test.assertTrue
  * `LaunchedEffect` before it was repointed, so a repoint that changes behaviour
  * fails here rather than in the field.
  *
- * **Characterisation, not correctness.** maxke24/Detour#22 (the average vanishing
- * a few hundred metres in and never re-arming) is still undiagnosed, and these
- * tests deliberately encode no cause: the parser theory is refuted
- * (`data/ParsingTest.kt`'s `SpeedCameraSectionTest`), and the shape below is
- * what makes the suppression observable at all - every transition that can null
- * [SectionAverageTracker.Reading] is now one step of one fix, so a test can drive
- * the recorded sequence offline and watch which one fires.
+ * **Mostly characterisation.** maxke24/Detour#22 (the average vanishing a few
+ * hundred metres in and never re-arming) was undiagnosed when these were
+ * written, and most of them still deliberately encode no cause: the parser
+ * theory is refuted (`data/ParsingTest.kt`'s `SpeedCameraSectionTest`), and the
+ * shape below is what makes the suppression observable at all - every transition
+ * that can null [SectionAverageTracker.Reading] is one step of one fix, so a test
+ * can drive the recorded sequence offline and watch which one fires.
+ *
+ * Driving it is what settled it, and the answer was that **none** of them fires:
+ * see [aRebuiltStateLosesTheMeasurementAndCannotResumeMidSection], which is the
+ * one test here that does encode a cause. The clear was the state being rebuilt
+ * between fixes rather than any exit this machine can take.
  *
  * Three of those transitions have **no replay coverage and never will from this
  * route**: `reachedEnd` at a far gantry entered from the near end (this route's
@@ -376,6 +381,202 @@ class SectionAverageTrackerTest {
         assertEquals(listOf(eastGate), st.exitGate)
         // The first section is not re-entered from here: its far end (the west
         // gate) is 180deg off the heading, outside the 75deg wedge.
+    }
+
+    // ---- the reported transition ------------------------------------------
+
+    /**
+     * Every exit reports the clause that caused it, and the distance that
+     * decides `REACHED_END` comes out with it.
+     *
+     * The reason is the whole point of `step`: an early clear used to leave no
+     * record of which clause fired, so #22 was argued from the outside for a
+     * month. The three fixtures are the same ones
+     * [theHundredAndFiftyMetreFloorStopsAnImmediateExit], [overshootEndsIt] and
+     * [theTimeoutEndsItAndExactlyTheTimeoutDoesNot] already pin, so a reason that
+     * disagreed with the state change would fail both here and there.
+     */
+    @Test
+    fun eachExitReportsWhichClauseEndedIt() {
+        val armed = armAt(shortEntry, 0.0, listOf(shortSection()))
+
+        // 180 m: over the 150 m floor and 20 m from the exit node.
+        val end = SectionAverageTracker.step(
+            armed, listOf(shortSection()), at(shortEntry, 180.0, 0.0), 0.0, 20.0, t0 + 10_000L,
+        )
+        val cleared = end.outcome as SectionAverageTracker.Outcome.Cleared
+        assertEquals(SectionAverageTracker.ExitReason.REACHED_END, cleared.reason)
+        assertTrue(cleared.nearestExitGateMeters < SectionAverageTracker.SECTION_GATE_METERS)
+        assertEquals(180.0, cleared.accMeters, 1.0)
+        assertEquals(10_000L, cleared.elapsedMs)
+
+        // 700 m: 500 m past the exit node, so well outside its gate.
+        val over = SectionAverageTracker.step(
+            armed, listOf(shortSection()), at(shortEntry, 700.0, 0.0), 0.0, 20.0, t0 + 40_000L,
+        )
+        val overshot = over.outcome as SectionAverageTracker.Outcome.Cleared
+        assertEquals(SectionAverageTracker.ExitReason.OVERSHOT, overshot.reason)
+        // The field that convicts #22: an overshoot exit whose gate is nowhere near.
+        assertTrue(overshot.nearestExitGateMeters > SectionAverageTracker.SECTION_GATE_METERS)
+
+        val late = SectionAverageTracker.step(
+            armed, listOf(shortSection()), at(shortEntry, 50.0, 0.0), 0.0, 20.0,
+            nowMs = t0 + SectionAverageTracker.TIMEOUT_MS + 1,
+        )
+        assertEquals(
+            SectionAverageTracker.ExitReason.TIMED_OUT,
+            (late.outcome as SectionAverageTracker.Outcome.Cleared).reason,
+        )
+    }
+
+    /**
+     * Arming reports the section it chose, how far its far end is, and how many
+     * it could have chosen.
+     *
+     * `candidates` is the field that answers the question #22 could not:
+     * whether a *short* relation sharing this gantry was preferred to the long
+     * one the rider is driving. Both E40 relations meet at the Bertem node, so
+     * two candidates at one gate is a real configuration, not a contrived one.
+     */
+    @Test
+    fun armingReportsTheChosenSectionItsFarEndAndHowManyItCouldHavePicked() {
+        val nearer = section()
+        val farther = section(endA = listOf(at(westGate, 40.0, eastward)), endB = listOf(eastGate))
+        val step = SectionAverageTracker.step(
+            SectionAverageTracker.State(), listOf(farther, nearer),
+            at = westGate, headingDeg = eastward, speedMps = 33.0, nowMs = t0,
+        )
+        val armed = step.outcome as SectionAverageTracker.Outcome.Armed
+        assertSame(nearer, armed.section)
+        assertEquals(2, armed.candidates)
+        assertEquals(westGate, armed.at)
+        // The far end, not the one just passed - so a short exitGate against a
+        // long span reads as the wrong section having been picked.
+        assertEquals(RoadRoulette.distanceMeters(westGate, eastGate), armed.exitGateMeters, 1.0)
+    }
+
+    /** A fix that neither arms nor ends reports [Silent], and a fix that cannot
+     *  arm leaves the state untouched - so a log driven off outcomes prints one
+     *  line per transition rather than one per fix. */
+    @Test
+    fun anOrdinaryFixIsSilent() {
+        val sections = listOf(section())
+        val armed = armAt(westGate, eastward, sections)
+        val mid = SectionAverageTracker.step(
+            armed, sections, at(westGate, 1_000.0, eastward), eastward, 33.0, t0 + 36_000L,
+        )
+        assertEquals(SectionAverageTracker.Outcome.Silent, mid.outcome)
+
+        val nowhere = SectionAverageTracker.step(
+            SectionAverageTracker.State(), sections,
+            at = at(westGate, 4_000.0, eastward), headingDeg = eastward, speedMps = 33.0, nowMs = t0,
+        )
+        assertEquals(SectionAverageTracker.Outcome.Silent, nowhere.outcome)
+        assertEquals(SectionAverageTracker.State(), nowhere.state)
+    }
+
+    /** [SectionAverageTracker.onFix] is [SectionAverageTracker.step]'s state and
+     *  nothing else, on the same inputs. The two must not drift: every test above
+     *  this section drives `onFix`, and would stop covering the real machine if
+     *  it grew a path of its own. */
+    @Test
+    fun onFixIsExactlyStepsState() {
+        val sections = listOf(section())
+        val args = listOf(westGate, at(westGate, 3_000.0, eastward), eastGate)
+        var viaOnFix = SectionAverageTracker.State()
+        var viaStep = SectionAverageTracker.State()
+        for ((i, p) in args.withIndex()) {
+            val ms = t0 + i * 100_000L
+            viaOnFix = SectionAverageTracker.onFix(viaOnFix, sections, p, eastward, 33.0, ms)
+            viaStep = SectionAverageTracker.step(viaStep, sections, p, eastward, 33.0, ms).state
+            assertEquals(viaOnFix, viaStep)
+        }
+    }
+
+    // ---- resuming versus rebuilding the holder ----------------------------
+
+    /** When a fix [meters] along at 33 m/s lands, so a transit reads as one. */
+    private fun msAt(meters: Double) = t0 + (meters / 33.0 * 1000.0).toLong()
+
+    /**
+     * The mechanism behind maxke24/Detour#22, made executable.
+     *
+     * The issue reported the average vanishing a few hundred metres into a
+     * 3 852 m section and never re-arming, and its own arithmetic ruled out all
+     * three exit conditions: `reachedEnd` needed a gate node **3 529 m** away,
+     * `overshot`'s floor is **680 m** for *any* span at or above
+     * `SpeedCameras.MIN_SPAN_M`, and `timedOut` needs half an hour against nine
+     * elapsed seconds. Re-checked here against the real relation geometry from
+     * `api.openstreetmap.org` - `15685856` spans Bertem to Leuven at 3 854 m -
+     * and it holds. **Nothing this machine can do clears a reading 306 m in**,
+     * so the clear was never an exit. It was the state being *rebuilt* rather
+     * than carried across a composition.
+     *
+     * Rebuilt, the measurement is unrecoverable, and that is the report's second
+     * symptom rather than a separate defect: arming only ever fires within
+     * [SectionAverageTracker.SECTION_GATE_METERS] of an end, and a vehicle
+     * mid-section is past the entry gate and not yet at the far one. The far
+     * gantry does not rescue it either - arriving there, the only end left to
+     * head towards is the one behind you, outside
+     * [SectionAverageTracker.SECTION_WEDGE_DEG].
+     *
+     * `ui/RetainedMap.kt:130-143` is the fix (#86) and states this symptom in
+     * prose. This is the executable form, because the holder that KDoc describes
+     * is an Android class commonTest cannot reach - so nothing currently fails
+     * if a later change stops carrying the state.
+     */
+    @Test
+    fun aRebuiltStateLosesTheMeasurementAndCannotResumeMidSection() {
+        val sections = listOf(section())
+        var st = armAt(westGate, eastward, sections)
+        st = SectionAverageTracker.onFix(
+            st, sections, at(westGate, 3_000.0, eastward), eastward, 33.0, msAt(3_000.0),
+        )
+        assertNotNull(st.active)
+        assertNotNull(st.reading.averageKmh)
+
+        // Exactly what a rebuilt holder hands the next fix: the default State.
+        var rebuilt = SectionAverageTracker.State()
+        for (m in listOf(3_100.0, 4_000.0, 5_000.0, 6_000.0, 7_000.0)) {
+            rebuilt = SectionAverageTracker.onFix(
+                rebuilt, sections, at(westGate, m, eastward), eastward, 33.0, msAt(m),
+            )
+            assertNull(rebuilt.active)
+            assertNull(rebuilt.reading.averageKmh)
+        }
+        // The far gantry, reached with nothing armed. Still nothing: the entry it
+        // would need is 180deg behind.
+        rebuilt = SectionAverageTracker.onFix(
+            rebuilt, sections, eastGate, eastward, 33.0, msAt(7_936.0),
+        )
+        assertNull(rebuilt.active)
+        assertNull(rebuilt.reading.averageKmh)
+    }
+
+    /**
+     * The control for [aRebuiltStateLosesTheMeasurementAndCannotResumeMidSection]:
+     * the identical fix sequence, with the state carried, measures the whole
+     * section and clears at the far gantry by `reachedEnd`.
+     *
+     * Carrying it across the boundary is all `ui/RetainedMap.kt` does, and the pair
+     * is what makes that load-bearing rather than tidy.
+     */
+    @Test
+    fun aCarriedStateMeasuresTheWholeSectionAndClearsAtTheFarGantry() {
+        val sections = listOf(section())
+        var st = armAt(westGate, eastward, sections)
+        for (m in listOf(3_000.0, 3_100.0, 4_000.0, 5_000.0, 6_000.0, 7_000.0)) {
+            st = SectionAverageTracker.onFix(
+                st, sections, at(westGate, m, eastward), eastward, 33.0, msAt(m),
+            )
+            assertNotNull(st.active)
+        }
+        val done = SectionAverageTracker.onFix(
+            st, sections, eastGate, eastward, 33.0, msAt(7_936.0),
+        )
+        assertNull(done.active) // reachedEnd, not overshot: the bound is 11 530 m
+        assertTrue(done.accMeters > 7_900.0)
+        assertNull(done.reading.averageKmh)
     }
 
     // ---- the posted limit -------------------------------------------------

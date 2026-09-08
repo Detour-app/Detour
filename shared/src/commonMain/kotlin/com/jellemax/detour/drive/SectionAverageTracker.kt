@@ -70,6 +70,53 @@ object SectionAverageTracker {
         val reading: Reading = Reading(null, null),
     )
 
+    /** Which of the three clauses in [advance] ended a measurement. Reported
+     *  rather than recomputed: a caller that wants to say *why* a readout
+     *  vanished would otherwise have to re-derive all three from [State], and a
+     *  second copy of that arithmetic is a second thing that can disagree. */
+    enum class ExitReason { REACHED_END, OVERSHOT, TIMED_OUT }
+
+    /**
+     * What this fix did, for a caller that logs. Nothing here is needed to
+     * render a readout — [State.reading] is that — so [onFix] stays the API for
+     * callers that only draw.
+     */
+    sealed interface Outcome {
+        /** Still measuring, or still nothing to measure. */
+        data object Silent : Outcome
+
+        /**
+         * A measurement started. [exitGateMeters] is how far the far end is from
+         * [at], and [candidates] how many held sections this fix could have
+         * entered — the pair that says whether a *short* section sharing this
+         * gantry was picked over the long one the rider is driving.
+         */
+        data class Armed(
+            val section: SpeedCameras.Section,
+            val at: LatLon,
+            val exitGateMeters: Double,
+            val candidates: Int,
+        ) : Outcome
+
+        /**
+         * A measurement ended. [nearestExitGateMeters] is the distance that
+         * decided `REACHED_END`, and the number that convicts the other two
+         * reasons when it is large: maxke24/Detour#22 is a clear with no gate
+         * within 3.5 km of it.
+         */
+        data class Cleared(
+            val reason: ExitReason,
+            val section: SpeedCameras.Section,
+            val at: LatLon,
+            val accMeters: Double,
+            val elapsedMs: Long,
+            val nearestExitGateMeters: Double,
+        ) : Outcome
+    }
+
+    /** The next state and what this fix did. */
+    data class Step(val state: State, val outcome: Outcome)
+
     /**
      * One GPS fix. Returns the next state; [State.reading] is what a readout
      * shows, both halves null when not inside a section.
@@ -77,6 +124,10 @@ object SectionAverageTracker {
      * [sections] is whatever the caller's Overpass prefetch currently holds -
      * this machine never fetches. [headingDeg] and [speedMps] are only read
      * while unarmed, which is where the bearing test lives.
+     *
+     * Thin over [step], which is the same fix with the transition reported. Kept
+     * as the default because most callers only draw the reading, and because
+     * every existing caller and test was written against this shape.
      */
     fun onFix(
         state: State,
@@ -85,7 +136,25 @@ object SectionAverageTracker {
         headingDeg: Double?,
         speedMps: Double,
         nowMs: Long,
-    ): State {
+    ): State = step(state, sections, at, headingDeg, speedMps, nowMs).state
+
+    /**
+     * [onFix], plus why the readout appeared or vanished.
+     *
+     * Exists because nothing could say why before it: a run that lost its
+     * average mid-section left no record of which section was armed, how far
+     * its far end was, or which clause fired — so maxke24/Detour#22 was argued
+     * from screenshots for a month. The transition is one step of one fix, so
+     * reporting it costs a return value rather than any state.
+     */
+    fun step(
+        state: State,
+        sections: List<SpeedCameras.Section>,
+        at: LatLon,
+        headingDeg: Double?,
+        speedMps: Double,
+        nowMs: Long,
+    ): Step {
         val current = state.active ?: return arm(state, sections, at, headingDeg, speedMps, nowMs)
         return advance(state, current, at, nowMs)
     }
@@ -97,23 +166,32 @@ object SectionAverageTracker {
         headingDeg: Double?,
         speedMps: Double,
         nowMs: Long,
-    ): State {
-        val heading = headingDeg?.takeIf { speedMps > ARM_MIN_MPS } ?: return state
+    ): Step {
+        val heading = headingDeg?.takeIf { speedMps > ARM_MIN_MPS }
+            ?: return Step(state, Outcome.Silent)
         // Nearest match, not the first: the two directions of one
         // trajectcontrole are separate relations sharing a location, and
         // a short section can sit inside a longer one.
-        val entered = sections
-            .mapNotNull { s -> sectionExitGate(s, at, heading)?.let { s to it } }
+        val candidates = sections.mapNotNull { s -> sectionExitGate(s, at, heading)?.let { s to it } }
+        val entered = candidates
             .minByOrNull { (s, _) ->
                 (s.endA + s.endB).minOf { RoadRoulette.distanceMeters(at, it) }
-            } ?: return state
-        return state.copy(
-            active = entered.first,
-            exitGate = entered.second,
-            entryMs = nowMs,
-            accMeters = 0.0,
-            last = at,
-            reading = Reading(null, entered.first.maxspeedKmh),
+            } ?: return Step(state, Outcome.Silent)
+        return Step(
+            state.copy(
+                active = entered.first,
+                exitGate = entered.second,
+                entryMs = nowMs,
+                accMeters = 0.0,
+                last = at,
+                reading = Reading(null, entered.first.maxspeedKmh),
+            ),
+            Outcome.Armed(
+                section = entered.first,
+                at = at,
+                exitGateMeters = entered.second.minOf { RoadRoulette.distanceMeters(at, it) },
+                candidates = candidates.size,
+            ),
         )
     }
 
@@ -122,24 +200,23 @@ object SectionAverageTracker {
         current: SpeedCameras.Section,
         at: LatLon,
         nowMs: Long,
-    ): State {
+    ): Step {
         val accMeters = state.accMeters +
             (state.last?.let { RoadRoulette.distanceMeters(it, at) } ?: 0.0)
-        val elapsedHours = (nowMs - state.entryMs) / 3_600_000.0
+        val elapsedMs = nowMs - state.entryMs
+        val elapsedHours = elapsedMs / 3_600_000.0
         val reading =
             if (elapsedHours > 0 && accMeters > MIN_ACC_METERS_FOR_AVERAGE) {
                 state.reading.copy(averageKmh = (accMeters / 1000.0) / elapsedHours)
             } else {
                 state.reading
             }
-        // Only the end we drove in towards ends the measurement. The
-        // 150 m floor keeps the gate we entered through from counting as
-        // the exit on the fix right after entering.
-        val reachedEnd = accMeters > MIN_ACC_METERS_BEFORE_EXIT &&
-            state.exitGate.any { RoadRoulette.distanceMeters(at, it) < SECTION_GATE_METERS }
-        val overshot = accMeters > current.spanMeters * OVERSHOOT_FACTOR + OVERSHOOT_SLACK_METERS
-        val timedOut = nowMs - state.entryMs > TIMEOUT_MS
-        return if (reachedEnd || overshot || timedOut) {
+        // An empty gate reads as unreachably far, which is what `any {}` did.
+        val nearestExit = state.exitGate
+            .minOfOrNull { RoadRoulette.distanceMeters(at, it) } ?: Double.MAX_VALUE
+        val reason = exitReason(accMeters, current.spanMeters, nearestExit, elapsedMs)
+            ?: return Step(state.copy(accMeters = accMeters, last = at, reading = reading), Outcome.Silent)
+        return Step(
             // accMeters is carried, not zeroed: the inline version did not zero
             // it either, and arming overwrites it.
             state.copy(
@@ -148,10 +225,38 @@ object SectionAverageTracker {
                 accMeters = accMeters,
                 last = null,
                 reading = Reading(null, null),
-            )
-        } else {
-            state.copy(accMeters = accMeters, last = at, reading = reading)
-        }
+            ),
+            Outcome.Cleared(
+                reason = reason,
+                section = current,
+                at = at,
+                accMeters = accMeters,
+                elapsedMs = elapsedMs,
+                nearestExitGateMeters = nearestExit,
+            ),
+        )
+    }
+
+    /**
+     * Which clause ends the measurement, or null to keep measuring. Order is the
+     * order the three used to sit in one `if`, so a fix that satisfies more than
+     * one reports the same reason it always exited by.
+     *
+     * Only the end we drove in towards ends it, and the 150 m floor keeps the
+     * gate we entered through from counting as the exit on the fix right after
+     * entering.
+     */
+    private fun exitReason(
+        accMeters: Double,
+        spanMeters: Double,
+        nearestExitMeters: Double,
+        elapsedMs: Long,
+    ): ExitReason? = when {
+        accMeters > MIN_ACC_METERS_BEFORE_EXIT && nearestExitMeters < SECTION_GATE_METERS ->
+            ExitReason.REACHED_END
+        accMeters > spanMeters * OVERSHOOT_FACTOR + OVERSHOOT_SLACK_METERS -> ExitReason.OVERSHOT
+        elapsedMs > TIMEOUT_MS -> ExitReason.TIMED_OUT
+        else -> null
     }
 
     /**
