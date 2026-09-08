@@ -1046,6 +1046,14 @@ class TripTrackingService : Service() {
     }
 
     private fun onLocation(location: Location) {
+        // Debug builds only, and by source set rather than by a flag: the gate
+        // in a release build is a function returning true. It throws out the
+        // real position that fused blends into a mock replay (#47) — which is
+        // what a compressed replay's trip duration depends on, since a blended
+        // fix from hundreds of kilometres away is movement over the 2.0 m/s
+        // gate and stops the trip ever ending. Ahead of everything, so a
+        // rejected fix reaches no state at all.
+        if (!ReplayFixGate.accept(location)) return
         val speed = speedOf(location)
         lastGpsSpeedMps = speed
         val fix = Fix(

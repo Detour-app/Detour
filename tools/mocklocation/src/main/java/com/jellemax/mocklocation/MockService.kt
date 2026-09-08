@@ -45,6 +45,17 @@ import kotlin.math.sin
  * the nominal `intervalMs`, so a 5x replay of a 45 km/h stretch still reports
  * 45 km/h and arrives in a fifth of the time.
  *
+ * A second start command while a replay is running **re-paces it in place**
+ * rather than restarting it, so a run can be ramped without losing the route
+ * position or the app's trip:
+ *
+ *     adb shell am start-foreground-service \
+ *         -n com.jellemax.mocklocation/.MockService --ei speedup 10
+ *
+ * `replay-speed.sh` in the `detour-gps-replay` skill does that and tells the
+ * app in one call, which is the only safe way round: re-pacing the fixes
+ * without moving the app's clock makes the drive lie again.
+ *
  * The factor cannot be handed to the app on the fix. Putting it in
  * `Location.extras` was tried and measured: Play Services' fused provider —
  * which is what Detour reads — delivers a mocked fix with `extras=null`, so
@@ -66,22 +77,43 @@ class MockService : Service() {
     )
     @Volatile private var running = false
 
+    /** The wall-clock factor in force. Written by [onStartCommand] — including
+     *  mid-replay, which is the whole point of it being volatile — and read by
+     *  the replay thread on every fix. */
+    @Volatile private var speedup = 1
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(1, notification())
+
+        // Clamped rather than refused: a typo'd 500x should replay fast, not
+        // fail after the route has already been pushed. MAX_SPEEDUP is the app's
+        // ceiling too (ScaledClock.MAX_SCALE), and the two must not disagree —
+        // a run paced at a factor the app clamps away scales the drive and the
+        // clock differently, which is a wrong measurement rather than a failed
+        // one.
+        val wanted = intent?.getIntExtra("speedup", speedup.toInt())?.coerceIn(1, MAX_SPEEDUP)
+            ?: speedup.toInt()
+
+        // A command arriving mid-replay re-paces the run in place: the thread
+        // reads [speedup] every iteration, so the route keeps its position and
+        // the app keeps its trip. Ahead of the route extra deliberately —
+        // re-pacing carries no route, and the check below would otherwise stop
+        // the service it was meant to adjust. It is also what stops a second
+        // start from spawning a second replay thread onto the same file.
+        if (running) {
+            Log.i(TAG, "re-pacing: ${speedup}x -> ${wanted}x")
+            speedup = wanted
+            return START_NOT_STICKY
+        }
+        speedup = wanted
 
         val path = intent?.getStringExtra("route") ?: run {
             Log.e(TAG, "no --es route <file>")
             stopSelf(); return START_NOT_STICKY
         }
         val intervalMs = intent.getIntExtra("intervalMs", 1000).toLong()
-        // Clamped rather than refused: a typo'd 500x should replay fast, not
-        // fail after the route has already been pushed. MAX_SPEEDUP is the app's
-        // ceiling too (ScaledClock.MAX_SCALE), and the two must not disagree —
-        // a fix stamped with a factor the app clamps away would scale the drive
-        // and the clock differently.
-        val speedup = intent.getIntExtra("speedup", 1).coerceIn(1, MAX_SPEEDUP)
         val points = readRoute(File(path))
         if (points.size < 2) {
             Log.e(TAG, "route needs at least 2 points, got ${points.size}")
@@ -114,8 +146,10 @@ class MockService : Service() {
                 val speed = (distanceMeters(here, next) / (intervalMs / 1000.0)).toFloat()
                 providers.forEach { p -> push(lm, p, here, bearing(here, next), speed) }
                 i++
-                // At least a millisecond: a high factor against a short
-                // interval would otherwise floor to zero and spin.
+                // Read per iteration, so a re-pacing command takes effect on
+                // the next fix rather than the next run. At least a
+                // millisecond: a high factor against a short interval would
+                // otherwise floor to zero and spin.
                 Thread.sleep((intervalMs / speedup).coerceAtLeast(1L))
             }
             Log.i(TAG, "replay finished at point $i/${points.size}")
@@ -198,7 +232,14 @@ class MockService : Service() {
 
         /** Mirrors `ScaledClock.MAX_SCALE` in the app. Clamping to a different
          *  ceiling on either side would scale the drive and the app's clock by
-         *  different factors, which is worse than refusing outright. */
-        const val MAX_SPEEDUP = 20
+         *  different factors, which is worse than refusing outright.
+         *
+         *  50 rather than a defensible number, because where this actually
+         *  breaks is a measurement nobody had taken: at 50x a 1000 ms route is
+         *  a 50 Hz fix stream, four `setTestProviderLocation` calls a fix, and
+         *  fused thinning somewhere above that. The cap is here to keep a typo
+         *  from spinning, not to express a limit — see the ramp in
+         *  `detour-gps-replay`. */
+        const val MAX_SPEEDUP = 50
     }
 }

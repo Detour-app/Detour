@@ -41,7 +41,7 @@ import com.jellemax.detour.BuildConfig
  * time that matches the wall.
  *
  * The multiplier arrives out of band, through
- * `DebugReplayClockReceiver` in the debug source set, because it cannot travel
+ * `DebugReplayReceiver` in the debug source set, because it cannot travel
  * on the fix: `MockService` stamped it into `Location.extras` and Play
  * Services' fused provider delivered every one of those fixes with
  * `extras=null` (measured on an Android 15 emulator). The app reads fused, so
@@ -131,14 +131,19 @@ internal class ScaledClock private constructor(
         /**
          * The ceiling on the multiplier.
          *
-         * Not a performance limit — the app keeps up well past this — but the
-         * point where a replay stops resembling a drive. Everything left on the
-         * platform clock by design (see [ReplayClock]) is being asked to
-         * tolerate a factor of this much: at 20x a 1 Hz route is a 20 Hz fix
-         * stream, and the Overpass prefetch is issuing a real drive's requests
-         * twenty times faster into a public mirror that rate-limits by IP.
+         * A stop against a typo, not a claim about where replay stops being
+         * useful — that is measured per rig, and the ramp in
+         * `detour-gps-replay` is how. It mirrors `MockService.MAX_SPEEDUP`, and
+         * the two must agree: a run paced at a factor the app clamped away
+         * scales the drive and the clock differently.
+         *
+         * What degrades as the factor rises, and why the scripts warn past 10x:
+         * everything deliberately left on the platform clock (above) is asked
+         * to tolerate the factor, and the Overpass prefetch issues a whole
+         * drive's requests that much faster into a mirror that rate-limits by
+         * IP.
          */
-        const val MAX_SCALE = 20
+        const val MAX_SCALE = 50
 
         /** Wall time, unscaled: `at(t) == t` for every `t`. */
         fun real(): ScaledClock = ScaledClock(0L, 0L, 1)

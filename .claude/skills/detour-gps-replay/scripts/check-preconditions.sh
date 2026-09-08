@@ -52,10 +52,10 @@ check 'the moving gate is still 2.0 m/s (if (speed > 2.0) lastMovingMs = now)' \
 # The two ceilings are written twice, in two builds that share no code by design, and a
 # replay run at a factor one side clamps and the other does not scales the drive and the
 # app's clock differently — which is a wrong A/B rather than a failed run.
-check 'the speedup cap agrees between the harness and the app (both 20)' \
-    1 "$(count 'MAX_SPEEDUP = 20' "$MOCK")"
-check 'the app still caps the replay clock at the same 20' \
-    1 "$(count 'MAX_SCALE = 20' "$CLOCK")"
+check 'the speedup cap agrees between the harness and the app (both 50)' \
+    1 "$(count 'MAX_SPEEDUP = 50' "$MOCK")"
+check 'the app still caps the replay clock at the same 50' \
+    1 "$(count 'MAX_SCALE = 50' "$CLOCK")"
 check 'the harness still paces by intervalMs / speedup (Thread.sleep)' \
     1 "$(count 'Thread.sleep((intervalMs / speedup)' "$MOCK")"
 

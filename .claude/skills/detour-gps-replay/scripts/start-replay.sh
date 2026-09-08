@@ -27,12 +27,18 @@ set -euo pipefail
 usage() {
     cat >&2 <<'EOF'
 usage: start-replay.sh <route.txt> [serial] [interval-ms] [speedup]
+       start-replay.sh <route.txt> [--serial S] [--interval-ms N] [--speedup N]
+
+  Both forms work; the named one is what to reach for when you only want to set the last
+  argument — `start-replay.sh route.txt --speedup 10` needs no serial and no interval.
 
   route.txt     one "lon lat" pair per line — longitude FIRST. Build one with gpx2route.py.
   serial        adb device serial. Defaults to $ANDROID_SERIAL, or the only attached device.
   interval-ms   replay interval, default 1000. Must match the interval the route file was
                 resampled to, or every reported speed is wrong by that ratio.
-  speedup       wall-clock compression, default 1, capped at 20. The route arrives this
+  speedup       wall-clock compression, default 1, capped at 50. Change it mid-run with
+                replay-speed.sh, which moves the app's clock in the same call. The route
+                arrives this
                 many times faster while every fix still reports the speed the drive was
                 actually done at, and the debug app is told to scale its own clock to
                 match, so the trip it records is the drive's duration and not the
@@ -43,16 +49,38 @@ EOF
 
 [ "$#" -ge 1 ] || usage
 if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then usage; fi
-[ "$#" -le 4 ] || usage
 
-ROUTE="$1"
-SERIAL="${2:-${ANDROID_SERIAL:-}}"
-INTERVAL="${3:-1000}"
-SPEEDUP="${4:-1}"
+# Positional for the callers that already exist, named for everything else — an agent
+# setting only --speedup should not have to know the serial or restate the interval.
+ROUTE=""
+SERIAL="${ANDROID_SERIAL:-}"
+INTERVAL=1000
+SPEEDUP=1
+positional=0
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --serial) [ "$#" -ge 2 ] || usage; SERIAL="$2"; shift 2 ;;
+        --interval-ms) [ "$#" -ge 2 ] || usage; INTERVAL="$2"; shift 2 ;;
+        --speedup) [ "$#" -ge 2 ] || usage; SPEEDUP="$2"; shift 2 ;;
+        -*) usage ;;
+        *)
+            case "$positional" in
+                0) ROUTE="$1" ;;
+                1) [ -n "$1" ] && SERIAL="$1" ;;
+                2) INTERVAL="$1" ;;
+                3) SPEEDUP="$1" ;;
+                *) usage ;;
+            esac
+            positional=$((positional + 1))
+            shift
+            ;;
+    esac
+done
+[ -n "$ROUTE" ] || usage
 HARNESS=com.jellemax.mocklocation
 RELEASE=io.github.maxke24.detour
 DEBUG_APP=io.github.maxke24.detour.debug
-CLOCK_RECEIVER="$DEBUG_APP/com.jellemax.detour.debug.DebugReplayClockReceiver"
+RIG_RECEIVER="$DEBUG_APP/com.jellemax.detour.debug.DebugReplayReceiver"
 REMOTE="/data/data/$HARNESS/files/route.txt"
 
 [ -f "$ROUTE" ] || { echo "error: no such route file: $ROUTE" >&2; exit 2; }
@@ -65,8 +93,8 @@ esac
 # 20 is ScaledClock.MAX_SCALE, and MockService clamps to the same number. Refused rather
 # than clamped here, because a run at a factor other than the one you asked for is a
 # measurement you would go on to trust.
-if [ "$SPEEDUP" -gt 20 ]; then
-    echo "error: speedup $SPEEDUP exceeds the cap of 20 (ScaledClock.MAX_SCALE)" >&2
+if [ "$SPEEDUP" -gt 50 ]; then
+    echo "error: speedup $SPEEDUP exceeds the cap of 50 (ScaledClock.MAX_SCALE)" >&2
     exit 2
 fi
 if [ "$SPEEDUP" -gt 10 ]; then
@@ -154,9 +182,50 @@ if ! "${ADB[@]}" shell appops get "$HARNESS" android:mock_location 2>/dev/null \
     exit 1
 fi
 
+# Auto-detect drives off means no replay can ever start a trip, however good the route is —
+# `onIdleLocation` resets the start detector and returns before any of the speed gates. The
+# default is on, so this is somebody having turned it off, and it costs a whole run to notice.
+# Read-only: this reports it and carries on, because a replay is still worth running for the
+# map, the camera, fog of war and the HUD.
+auto_detect="$("${ADB[@]}" shell "run-as $DEBUG_APP cat shared_prefs/settings.xml" 2>/dev/null \
+    | tr -d '\r' | grep -o 'name="auto_detect_drives" value="[a-z]*"' || true)"
+case "$auto_detect" in
+    *'value="false"'*)
+        echo "warning: auto-detect drives is OFF in $DEBUG_APP — this replay cannot start a" >&2
+        echo "         trip, so trip distance, duration and mode will not be measurable." >&2
+        echo "         Turn it on in Settings, or expect the fix pipeline only." >&2
+        ;;
+esac
+
 # --- from here on, device state changes --------------------------------------------------
-echo "stopping the release app so the replay cannot be recorded into real trip history"
-"${ADB[@]}" shell am force-stop "$RELEASE"
+# The release app monitors for trips whenever it is installed, and a mock stream clears its
+# auto-start gate, so a replay can record a fabricated ride into somebody's real history and
+# sync it to their account. A force-stop alone is not enough: the OS restarts the monitoring
+# service, and a 9-minute 1x run gives it plenty of chances. Disabling is what actually holds
+# for the length of the run, and it keeps every byte of the app's data — stop-replay.sh
+# re-enables it.
+#
+# The marker is on the device rather than here, so a host process that dies mid-run does not
+# lose the fact that something needs re-enabling. stop-replay.sh re-enables only when it finds
+# it, which is what keeps it from switching on a release app the rider had disabled themselves.
+if "${ADB[@]}" shell pm list packages | tr -d '\r' | grep -qx "package:$RELEASE"; then
+    if "${ADB[@]}" shell pm disable-user "$RELEASE" 2>&1 | grep -q "new state: disabled"; then
+        echo "release app disabled for the run (stop-replay.sh re-enables it; its data is untouched)"
+        "${ADB[@]}" shell "run-as $HARNESS mkdir -p files" >/dev/null 2>&1 || true
+        # One shell string, as with the route push below: `adb shell run-as PKG sh -c '...'`
+        # split across arguments loses the command and silently succeeds against the data
+        # directory root instead — which is how the first version of this wrote no marker at
+        # all and left a release app disabled after the run.
+        "${ADB[@]}" shell "run-as $HARNESS sh -c 'echo 1 > files/release-disabled'" >/dev/null 2>&1 || true
+    else
+        echo "warning: could not disable $RELEASE on this device — falling back to force-stop." >&2
+        echo "         The OS may restart it mid-run and record the replay into real trip" >&2
+        echo "         history. Stop the run if that history matters." >&2
+        "${ADB[@]}" shell am force-stop "$RELEASE"
+    fi
+else
+    echo "release app not installed; nothing to disable"
+fi
 
 echo "pushing $(basename "$ROUTE") into the harness's own files dir"
 # A freshly installed harness has no files/ yet — MockService only ever *reads* a path, so
@@ -175,11 +244,15 @@ if [ "$remote_lines" != "$(wc -l <"$ROUTE" | tr -dc '0-9')" ]; then
     exit 1
 fi
 
-# Before the fixes, so no fix is ever timed at the wrong factor. Ignored by a release
-# install, which has no such receiver — and harmless when the debug app is not installed.
-if [ "$SPEEDUP" -gt 1 ]; then
-    "${ADB[@]}" shell am broadcast -n "$CLOCK_RECEIVER" --ei speedup "$SPEEDUP" >/dev/null 2>&1 \
-        || echo "warning: could not reach $DEBUG_APP's replay clock — is the debug build installed?" >&2
+# Before the fixes, both of them: no fix should ever be timed at the wrong factor, and none
+# should arrive while the app still believes the real world. mock_only is what makes the debug
+# app reject the real position fused blends into the mock stream — without it a handful of real
+# fixes per run break trip auto-start and stop a trip ever ending (#47). Ignored by a release
+# install, which has no such receiver, and harmless when the debug app is not installed.
+if ! "${ADB[@]}" shell am broadcast -n "$RIG_RECEIVER" \
+        --ez mock_only true --ei speedup "$SPEEDUP" >/dev/null 2>&1; then
+    echo "warning: could not reach $DEBUG_APP's replay rig — is the debug build installed?" >&2
+    echo "         Without it the real position blends into the replay (#47)." >&2
 fi
 
 "${ADB[@]}" shell am start-foreground-service -n "$HARNESS/.MockService" \

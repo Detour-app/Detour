@@ -126,7 +126,7 @@ the same speeds.
 
 The app has to be told, or the compression is a lie in the other direction — a fifth of the
 duration and five times the average speed. `ReplayClock` is the drive's clock, and
-`start-replay.sh` broadcasts the factor to `DebugReplayClockReceiver` before the first fix;
+`start-replay.sh` broadcasts the factor to `DebugReplayReceiver` before the first fix;
 `stop-replay.sh` sets it back to 1 unconditionally, because the multiplier lives in the app's
 process and would otherwise still be in force for the next trip you record by hand.
 
@@ -142,6 +142,35 @@ replay's fixes genuinely are fresher, and an age is only ever a gate that freshe
 and the Overpass and municipality throttles stay real so the request rate into a
 rate-limiting public mirror does not multiply by the factor. That second one is why the
 script warns past 10x, and it is the same rate-limit trap #22 records.
+
+### How far it actually goes
+
+Measured on a CPH2449 (Android 16), the 560-fix `ab.txt` fixture, map on screen, mock-only
+mode on, counted by `ReplayFixGate` and read back from `files/replay-run.txt`:
+
+| factor | wall | fixes pushed | delivered to the app | delivered |
+|---|---|---|---|---|
+| 5x | 112 s | 560 | **560** | 100 % |
+| 10x | 56 s | 560 | 280 | 50 % |
+| 20x | 28 s | 560 | 186 | 33 % |
+| 30x | 18 s | 560 | 127 | 23 % |
+| 50x | 11 s | 560 | 101 | 18 % |
+
+Nothing broke at any factor — the harness paced accurately (`replay finished at point 560/560`
+every time) and the app never crashed or restarted. What runs out is **delivery**: the app
+receives roughly 5 to 9 fixes a second whatever the factor, which is Play Services' fused
+provider thinning the stream, not the harness and not the app.
+
+So **5x is the highest lossless factor**, and it is lossless exactly because 5 fixes a second
+is the cap. Above it a run is still faster in wall time and still reports honest speeds, but a
+proportional share of the route never arrives: at 20x two thirds of it is missing. That is fine
+for a camera, HUD or fog-of-war smoke test and useless for anything counting fixes, measuring
+distance, or checking that a gate fires at a particular point on the route. Use 5x for
+measurement, higher only to get somewhere quickly.
+
+The ceiling is in the platform, so no amount of work on the harness moves it. Feeding the app
+from a replay *adapter* rather than through the mock-location provider would remove it
+entirely, along with the designation dance and the interleave — see the follow-up issues.
 
 **On an emulator, keep the map off screen for a compressed run.** MapLibre's render thread
 `SIGSEGV`s when fixes arrive at 3-5 Hz under software GL — three times out of three, never at
@@ -160,7 +189,7 @@ trace grows and `trips.json` stays `[]`. That is #47, and on a phone reached ove
 cannot turn the real providers off without dropping your own connection. Compare on an
 emulator, or use USB adb and disable Wi-Fi.
 
-**Only the `.debug` variant can be told.** `DebugReplayClockReceiver` is in the debug source
+**Only the `.debug` variant can be told.** `DebugReplayReceiver` is in the debug source
 set, so a release install replays at 1x whatever you pass — its clock has no way to be moved.
 
 `start-replay.sh` validates the route file locally first — line count, distance, mean speed,
