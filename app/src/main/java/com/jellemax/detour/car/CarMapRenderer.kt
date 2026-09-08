@@ -27,7 +27,7 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.drive.SectionAverageTracker
-import com.jellemax.detour.tracking.ReplayClock
+import com.jellemax.detour.tracking.DriveClock
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
@@ -110,6 +110,10 @@ private const val CIRCLE_FIX_POLL_MS = CirclePresence.ACTIVE_INTERVAL_MS
 class CarMapRenderer(
     private val carContext: CarContext,
     private val darkTheme: Boolean,
+    /** The drive's clock (#307). Handed in by [DetourCarSession], which is the
+     *  car surface's composition root, rather than reached for from the two
+     *  frame-loop call sites below. */
+    private val clock: DriveClock,
 ) : SurfaceCallback {
 
     // MainActivity initialises MapLibre for the phone UI, but the car flow can
@@ -506,8 +510,8 @@ class CarMapRenderer(
                         speedMps = fixSpeedMps,
                         fixElapsedMs = fixElapsedMs,
                         // Drive time under a compressed replay, wall time
-                        // otherwise — see ReplayClock.predictionNowMs.
-                        nowElapsedMs = ReplayClock.predictionNowMs(fixElapsedMs),
+                        // otherwise — see DriveClock.predictionNowMs.
+                        nowElapsedMs = clock.predictionNowMs(fixElapsedMs),
                         leadSeconds = CAM_POS_TAU,
                     )
                 }
@@ -524,8 +528,8 @@ class CarMapRenderer(
                         speedMps = fixSpeedMps,
                         fixElapsedMs = fixElapsedMs,
                         // Drive time under a compressed replay, wall time
-                        // otherwise — see ReplayClock.predictionNowMs.
-                        nowElapsedMs = ReplayClock.predictionNowMs(fixElapsedMs),
+                        // otherwise — see DriveClock.predictionNowMs.
+                        nowElapsedMs = clock.predictionNowMs(fixElapsedMs),
                         leadSeconds = 0.0,
                     )
                     // #38's fix, on this surface: ease the heading instead of

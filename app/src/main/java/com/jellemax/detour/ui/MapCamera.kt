@@ -8,7 +8,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.withFrameNanos
 import com.jellemax.detour.data.LatLon
-import com.jellemax.detour.tracking.ReplayClock
 import com.jellemax.detour.data.NavEngine
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
@@ -82,6 +81,13 @@ internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap) {
     val fogView = retained.fogView
     val cameraActive = s.camAuthority.cameraActive(s.navigating)
     val liveFix by TripTrackingService.lastFix.collectAsStateWithLifecycle()
+    // Hoisted out of the frame loop below, and it has to be: a CompositionLocal
+    // is only readable in a @Composable. Safe to hold as a plain value across the
+    // life of the effect — compose-state-hazards §2's stale-capture rule is about
+    // values that change, and DriveClocks holds one instance for the process; a
+    // replay re-paces the clock inside it rather than swapping it.
+    val clock = LocalDriveClock.current
+
     val defaultZoom by Settings.defaultZoom.collectAsStateWithLifecycle()
     // The camera itself: one loop, one frame at a time, easing toward whatever
     // the last fix asked for. Compose only produces frames while the activity is
@@ -166,8 +172,8 @@ internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap) {
                     fixElapsedMs = f.elapsedRealtimeMs,
                     // Drive time, not wall time: the fix's speed is the drive's,
                     // so the age it is multiplied by has to be too. Identical to
-                    // nowElapsed at 1x — see ReplayClock.predictionNowMs.
-                    nowElapsedMs = ReplayClock.predictionNowMs(f.elapsedRealtimeMs),
+                    // nowElapsed at 1x — see DriveClock.predictionNowMs.
+                    nowElapsedMs = clock.predictionNowMs(f.elapsedRealtimeMs),
                     leadSeconds = CAM_POS_TAU,
                 )
                 else -> retained.camTarget
@@ -236,6 +242,12 @@ internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap) {
  */
 @Composable
 internal fun MapPositionMarker(s: MapScreenState, retained: RetainedMap) {
+    // Hoisted out of the frame loop below, and it has to be: a CompositionLocal
+    // is only readable in a @Composable. Safe to hold as a plain value across the
+    // life of the effect — compose-state-hazards §2's stale-capture rule is about
+    // values that change, and DriveClocks holds one instance for the process; a
+    // replay re-paces the clock inside it rather than swapping it.
+    val clock = LocalDriveClock.current
     val mapOverlays = retained.overlays
     val fogView = retained.fogView
     val liveFix by TripTrackingService.lastFix.collectAsStateWithLifecycle()
@@ -290,7 +302,7 @@ internal fun MapPositionMarker(s: MapScreenState, retained: RetainedMap) {
                 bearingDeg = f.bearingDeg,
                 speedMps = f.speedMps,
                 fixElapsedMs = f.elapsedRealtimeMs,
-                nowElapsedMs = ReplayClock.predictionNowMs(f.elapsedRealtimeMs),
+                nowElapsedMs = clock.predictionNowMs(f.elapsedRealtimeMs),
                 leadSeconds = 0.0,
             )
             // One snap a frame, and everything the route contributes comes off it:

@@ -82,4 +82,4 @@ fi
     --ei speedup "$FACTOR" >/dev/null 2>&1 || true
 
 printf 'speed now %sx on %s\n' "$FACTOR" "$SERIAL"
-"${ADB[@]}" logcat -d -s MockLocation DebugReplayClock 2>/dev/null | tail -2 | tr -d '\r'
+"${ADB[@]}" logcat -d -s MockLocation DebugReplay DetourReplay 2>/dev/null | tail -2 | tr -d '\r'

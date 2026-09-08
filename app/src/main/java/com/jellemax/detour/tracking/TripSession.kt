@@ -44,6 +44,9 @@ internal class TripSession(
      *  so [end]'s `looksLikeAWalk` keeps its original short-circuit: the lookup
      *  only happens for a trip long enough to be judged. */
     private val resolvedVehicle: () -> Settings.VehicleDevice?,
+    /** The drive's clock (#307), so a trip replayed at 5x records the duration
+     *  the drive took rather than a fifth of it. */
+    private val clock: DriveClock,
     /** Rescore badges once the trip is on disk; see the service's `checkBadges`,
      *  which keeps its own scope launch and notification. */
     private val checkBadges: () -> Unit,
@@ -184,7 +187,7 @@ internal class TripSession(
         val durationSec = stats.durationMs / 1000.0
         val trip = Trip(
             startTimeMs = stats.startTimeMs,
-            endTimeMs = ReplayClock.nowMs(),
+            endTimeMs = clock.nowMs(),
             distanceMeters = stats.distanceMeters,
             topSpeedMps = stats.topSpeedMps,
             maxLeanAngleDeg = maxLeanDeg,

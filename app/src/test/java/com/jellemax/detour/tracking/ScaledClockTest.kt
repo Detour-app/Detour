@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * [ScaledClock]'s arithmetic, which is the whole of [ReplayClock] that can be
+ * [ScaledClock]'s arithmetic, which is the whole of [ScaledDriveClock] that can be
  * tested without Android: `setScale`'s clamp and its `BuildConfig.DEBUG` gate
  * are platform reads, and the anchoring below is what would actually be wrong
  * if a replay recorded a bogus duration.
@@ -49,7 +49,7 @@ class ScaledClockTest {
     fun `re-anchoring at the same factor changes nothing observable`() {
         val once = ScaledClock.real().rescaled(wallMs = 1_000L, scale = 5)
         val twice = once.rescaled(wallMs = 2_000L, scale = 5)
-        // This is the case ReplayClock.setScale returns early for; if it ever
+        // This is the case ScaledDriveClock.setScale returns early for; if it ever
         // stopped doing that, the readings still have to agree.
         assertEquals(once.at(5_000L), twice.at(5_000L))
     }

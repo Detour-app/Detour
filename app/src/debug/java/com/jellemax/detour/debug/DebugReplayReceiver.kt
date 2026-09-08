@@ -4,7 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import com.jellemax.detour.tracking.ReplayClock
+import com.jellemax.detour.tracking.DriveClocks
 import com.jellemax.detour.tracking.ReplayFixGate
 import com.jellemax.detour.tracking.ReplayMode
 import java.io.File
@@ -14,9 +14,11 @@ import java.io.File
  * should believe anything but the replay.
  *
  * Debug source set only. Neither this class nor the manifest entry registering it
- * exists in a release build, so there is no route to [ReplayMode] or to
- * `ReplayClock.setScale` in a shipped app — belt as well as the braces of
- * `setScale`'s own `BuildConfig.DEBUG` check.
+ * exists in a release build, so there is no route to [ReplayMode] or to the
+ * drive clock's `setScale` in a shipped app. That is now structural on both
+ * sides: [DriveClocks]'s release twin holds a [com.jellemax.detour.tracking.SystemDriveClock]
+ * and declares no `setScale` at all, so a shipped app has no compressed clock to
+ * decline at runtime — it has no route to one (#307).
  *
  * Out of band, and it has to be: the factor was first stamped onto every mocked
  * `Location` in `MockService`, and Play Services' fused provider delivered every
@@ -58,8 +60,8 @@ class DebugReplayReceiver : BroadcastReceiver() {
         }
         if (intent.hasExtra(EXTRA_SPEEDUP)) {
             val speedup = intent.getIntExtra(EXTRA_SPEEDUP, 1)
-            ReplayClock.setScale(speedup)
-            Log.i(TAG, "asked for ${speedup}x, clock is now ${ReplayClock.scale()}x")
+            DriveClocks.current.setScale(speedup)
+            Log.i(TAG, "asked for ${speedup}x, clock is now ${DriveClocks.current.scale()}x")
         }
     }
 

@@ -12,7 +12,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
-import com.jellemax.detour.tracking.ReplayClock
 import com.jellemax.detour.tracking.TripTrackingService
 
 /**
@@ -42,6 +41,10 @@ internal fun MapHazardAlerts(
     // the one case worth interrupting for. The rule, the one-chime-per-camera
     // latch and the wording are CameraWarner's (shared/…/drive/), where they live
     // with their tests; what to do about a warning is ours.
+    // Hoisted: a CompositionLocal is only readable in a @Composable, and the
+    // effect below needs it. One instance for the process, so holding it across
+    // the effect's life cannot go stale (compose-state-hazards §2).
+    val clock = LocalDriveClock.current
     val announce by rememberUpdatedState(announceAloud)
     val speedCamerasRef = rememberUpdatedState(retained.speedCameras)
     val ambientLimitRef = rememberUpdatedState(retained.ambientSpeedLimitKmh)
@@ -117,7 +120,7 @@ internal fun MapHazardAlerts(
                 at = LatLon(fix.lat, fix.lon),
                 headingDeg = fix.bearingDeg?.toDouble(),
                 speedMps = fix.speedMps,
-                nowMs = ReplayClock.nowMs(),
+                nowMs = clock.nowMs(),
             )
             // One owner. The reading was also mirrored into two `remember`ed
             // vars here, which is a second copy of a value that already has a
