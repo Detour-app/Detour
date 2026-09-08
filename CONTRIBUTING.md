@@ -284,9 +284,19 @@ ways the labels drifted from the code — worth reading before you set one:
 - **Re-read the comments before trusting a label.** Evidence posted after
   filing routinely invalidates the original assessment — a bug that hardware
   turns out not to reproduce isn't a bug any more, whatever the label says.
-- **An epic takes the priority of its lowest-priority contents.** If something
-  inside it is urgent, carve that out into its own issue. Urgent work hidden
-  inside an umbrella reads as an enhancement and gets skipped.
+- **An epic takes the priority of its lowest-priority contents,** because one
+  issue can only hold one priority. So an epic whose parts don't share a
+  priority isn't an issue — it's a parent. Split it into GitHub sub-issues and
+  let each carry its own labels; keep the parent for the context and the open
+  questions they share. Urgent work hidden inside an umbrella reads as an
+  enhancement and gets skipped, and #17 sat at `p3-later` over two `p1` bugs
+  for exactly this reason.
+- **A checklist in an issue body is a claim about code, and it rots.** #17's
+  was re-verified in full against a named commit, and three of its items were
+  wrong again a handful of merges later — one whole work area had shipped and
+  was still listed as open. Sub-issues close themselves; a checkbox has to be
+  re-earned by hand every time someone reads it. Prefer the one that maintains
+  itself, and where you do cite code, name the commit you checked against.
 - **"Nobody has complained" is not evidence of low priority** when the failure
   is silent. That's the definition of a p0, not an argument against one.
 - **Re-triage on evidence, not on age.** An issue doesn't become less important

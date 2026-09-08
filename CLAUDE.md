@@ -37,10 +37,13 @@ an unrun verification and a measurement are all `chore`, whatever their
 priority. A defect in the test harness is still a `bug` — the priority label is
 what says it isn't rider-facing.
 
-Two rules worth stating here because both were violated across the tracker:
-judge the cost of leaving it alone, **not** how well the issue is written; and
-re-read the comments before trusting a label, because later evidence often
-invalidates it. The full ladder, the failure modes and who may change a label
+Three rules worth stating here because all three were violated across the
+tracker: judge the cost of leaving it alone, **not** how well the issue is
+written; re-read the comments before trusting a label, because later evidence
+often invalidates it; and split an epic whose parts don't share a priority into
+GitHub sub-issues rather than a checklist body — one issue holds one priority,
+and a hand-maintained checklist of what has shipped goes stale within a few
+merges. The full ladder, the failure modes and who may change a label
 are in `CONTRIBUTING.md`'s "Triage" section.
 
 ## Reviewing Kotlin
