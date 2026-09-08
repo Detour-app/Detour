@@ -214,15 +214,27 @@ The ceiling is in the platform, so no amount of work on the harness moves it. Fe
 from a replay *adapter* rather than through the mock-location provider would remove it
 entirely, along with the designation dance and the interleave — see the follow-up issues.
 
-**On an emulator, keep the map off screen for a compressed run.** MapLibre's render thread
-`SIGSEGV`s when fixes arrive at 3-5 Hz under software GL — three times out of three, never at
-1x, and with the app's clock left at 1x as well, so it is the fix rate and not the scaling
-(#301). Hardware GL does not reproduce it: the same 5 Hz stream with the map on screen ran
-clean on a CPH2449. So on an emulator, park the app on a screen that is not the map before
-starting — `am start -n io.github.maxke24.detour.debug/com.jellemax.detour.MainActivity --ez
+**On an emulator, keep the map off screen for *any* run, compressed or not.** MapLibre's
+render thread `SIGSEGV`s under software GL with the map on screen (#301), and the crash takes
+the app with it — which on the port rig also kills the replay, since the source lives in the
+app's own process. Hardware GL does not reproduce it: the same 5 Hz stream with the map on
+screen ran clean on a CPH2449. So park the app on a screen that is not the map before starting
+— `am start -n io.github.maxke24.detour.debug/com.jellemax.detour.MainActivity --ez
 open_update_settings true` lands on the update row — and the replay records a trip normally.
 Backgrounding the app instead does *not* work: fused thins the stream to a few fixes a second
 and the auto-start gate is never cleared.
+
+> **"Never at 1x" was wrong, and it cost a run.** This paragraph used to say the crash needed
+> 3-5 Hz and never happened at 1x, which read as "1x with the map on screen is safe". On
+> 2026-09-09 a **1x** port replay on a headless AVD (`-gpu swiftshader_indirect`, Android 15,
+> SDK 35) crashed 17 s in: `Fatal signal 11 (SIGSEGV) ... tid (RenderThread)`, the stack
+> entirely inside `libmaplibre.so` at `mbgl::android::MapRenderer::render`. The rate makes it
+> *likelier*, not necessary. Treat software GL plus a visible map as unusable at any rate.
+>
+> **This is why a section measurement cannot be taken on a software-GL emulator at all**: the
+> phone's trajectcontrole machine collects fixes inside `MapScreen`'s composition
+> (`ui/MapHazardAlerts.kt`), so the map has to be on screen for it to run — and on screen is
+> exactly what crashes. Either give the AVD hardware GL, or use a real device.
 
 **A real device cannot finish a trip-level comparison yet**, for a different reason. Fused
 blends the real providers with the mock, and any blended fix over the 2.0 m/s moving gate
