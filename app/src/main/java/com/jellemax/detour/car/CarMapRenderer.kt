@@ -27,6 +27,7 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.handleFor
 import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.tracking.ReplayClock
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
@@ -504,7 +505,9 @@ class CarMapRenderer(
                         bearingDeg = fixBearingDeg,
                         speedMps = fixSpeedMps,
                         fixElapsedMs = fixElapsedMs,
-                        nowElapsedMs = SystemClock.elapsedRealtime(),
+                        // Drive time under a compressed replay, wall time
+                        // otherwise — see ReplayClock.predictionNowMs.
+                        nowElapsedMs = ReplayClock.predictionNowMs(fixElapsedMs),
                         leadSeconds = CAM_POS_TAU,
                     )
                 }
@@ -520,7 +523,9 @@ class CarMapRenderer(
                         bearingDeg = fixBearingDeg,
                         speedMps = fixSpeedMps,
                         fixElapsedMs = fixElapsedMs,
-                        nowElapsedMs = SystemClock.elapsedRealtime(),
+                        // Drive time under a compressed replay, wall time
+                        // otherwise — see ReplayClock.predictionNowMs.
+                        nowElapsedMs = ReplayClock.predictionNowMs(fixElapsedMs),
                         leadSeconds = 0.0,
                     )
                     // #38's fix, on this surface: ease the heading instead of

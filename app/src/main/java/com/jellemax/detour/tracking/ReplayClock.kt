@@ -1,5 +1,6 @@
 package com.jellemax.detour.tracking
 
+import android.os.SystemClock
 import android.util.Log
 import com.jellemax.detour.BuildConfig
 
@@ -95,6 +96,33 @@ object ReplayClock {
      */
     fun fixTimeMs(providerTimeMs: Long): Long =
         if (clock.scale == 1) providerTimeMs else nowMs()
+
+    /**
+     * The `nowElapsedMs` to hand `MapMotion.predict`, given the fix's own
+     * `elapsedRealtime` stamp.
+     *
+     * Prediction advances a position by `speed × (now - fixStamp + lead)`, and the
+     * speed on a replayed fix is the *drive's* speed — spacing over the nominal
+     * interval, unchanged by the factor. The age therefore has to be in drive
+     * time too, or the two disagree: at 5x, fixes arrive every 200 ms of wall
+     * time and describe 1000 ms of driving, so a wall-clock age advances the
+     * marker a fifth of the way to the next fix and the fix itself then snaps it
+     * the rest. That is the position marker stuttering at high factors.
+     *
+     * Deliberately *not* the same decision as fix staleness, which stays on the
+     * platform clock (see above): "how old is this fix" and "how far has the
+     * vehicle gone since it" are different questions about the same number, and
+     * only the second one scales.
+     *
+     * Exactly `SystemClock.elapsedRealtime()` at 1x, so nothing about a real
+     * drive changes.
+     */
+    fun predictionNowMs(fixElapsedMs: Long): Long {
+        val wallNow = SystemClock.elapsedRealtime()
+        val factor = clock.scale
+        if (factor == 1) return wallNow
+        return fixElapsedMs + (wallNow - fixElapsedMs) * factor
+    }
 
     /** Back to real time. For the end of a replay, and for tests. */
     fun reset() {
