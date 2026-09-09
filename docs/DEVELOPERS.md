@@ -187,7 +187,7 @@ docker build -t detour-api backend
 
 The context is `backend/`, not the repository root — the API references projects
 across `Shared/` and nothing outside `backend/` is needed to build it. You rarely
-need to: every push to `main` publishes `ghcr.io/jonohas/detour-api:latest`, and
+need to: every push to `main` publishes `ghcr.io/detour-app/detour-api:latest`, and
 a tag per commit sha for a deployment you can roll back.
 
 ### Conventions worth knowing before you edit

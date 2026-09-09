@@ -13,7 +13,8 @@
 
 services:
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    # Pinned — bump deliberately; a tunnel image that moves under you is a debugging surprise.
+    image: cloudflare/cloudflared:2026.9.0
     restart: unless-stopped
     # `edge` alone is enough: both the API and Keycloak join it precisely so that
     # one reverse proxy can reach them without also being able to reach either

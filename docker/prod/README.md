@@ -64,6 +64,13 @@ has already moved.
 The API applies migrations on startup, so a `pull` that crosses a schema change
 applies it the moment the container comes up. Back up `postgres-data` first.
 
+This release moves `keycloak-db` from Postgres 17 to 18. Postgres does not
+upgrade its data directory across a major version in place: before `pull`ing,
+`docker compose exec keycloak-db pg_dump -U keycloak keycloak > kc.sql`, then
+after the upgrade `docker compose down -v keycloak-db` and restore. Or accept a
+fresh realm database and recreate the realm — see "The realm is not created for
+you" above.
+
 ## Backups
 
 Two volumes matter and losing either is unrecoverable:

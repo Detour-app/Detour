@@ -67,7 +67,7 @@ separate again and deliberately never falls back to `url` — see
 You do not have to build it. Every push to `main` publishes one:
 
 ```bash
-docker pull ghcr.io/jonohas/detour-api:latest
+docker pull ghcr.io/detour-app/detour-api:latest
 ```
 
 Tagged `latest` for `main`, and by commit sha — pin to a sha for a deployment you

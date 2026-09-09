@@ -1,0 +1,89 @@
+# docker/prod/docker-compose.idp.yml
+#
+# Bundled Keycloak, as an overlay. Add it to COMPOSE_FILE in .env unless you run
+# your own identity provider — in which case set Idp__Authority to point at it
+# and leave this file out.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.idp.yml up -d
+#
+# Extracted from the base file (previously mandatory) so "API only" is a real
+# option. The API starts without Keycloak — its JWT bearer handler fetches the
+# issuer's discovery document lazily on the first authenticated request, not at
+# boot — but every authenticated request 401s until an issuer is reachable.
+
+name: ${PROJECT_NAME:-detour}
+
+services:
+  api:
+    depends_on:
+      keycloak:
+        condition: service_healthy
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7
+    restart: unless-stopped
+    networks:
+      - keycloak-int
+      - edge
+    ports:
+      - 127.0.0.1:${KC_PORT:-7580}:8080
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+    environment:
+      KC_LOG_LEVEL: ${KC_LOG_LEVEL:-info}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USERNAME:?Set KC_ADMIN_USERNAME in docker/prod/.env}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:?Set KC_ADMIN_PASSWORD in docker/prod/.env}
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_URL_DATABASE: ${KC_DB_NAME:-keycloak}
+      KC_DB_USERNAME: ${KC_DB_USER:-keycloak}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD:?Set KC_DB_PASSWORD in docker/prod/.env}
+      KC_CACHE: local
+      KC_HOSTNAME: ${KC_HOSTNAME:?Set KC_HOSTNAME, e.g. https://idp.example.com}
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      TZ: ${TZ:-Europe/Brussels}
+    command: start --optimized
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  keycloak-db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    networks:
+      - keycloak-int
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${KC_DB_USER:-keycloak}
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD:?Set KC_DB_PASSWORD in docker/prod/.env}
+      POSTGRES_DB: ${KC_DB_NAME:-keycloak}
+      TZ: ${TZ:-Europe/Brussels}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${KC_DB_USER:-keycloak} -d ${KC_DB_NAME:-keycloak}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  keycloak-int:
+
+volumes:
+  keycloak-data:
+  keycloak-db-data:
