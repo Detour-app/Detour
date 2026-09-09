@@ -34,7 +34,7 @@ data class FriendsState(
  * bookkeeping that used to be written once per platform.
  *
  * No coroutine of its own: `commonMain` has no `Dispatchers` (see
- * CONTRIBUTING.md and Platform.kt's ceiling), so every action here is
+ * docs/DEVELOPERS.md § "Where code belongs" and Platform.kt's ceiling), so every action here is
  * `suspend` and the caller supplies the scope — `scope.launch { }` in Compose,
  * a `Task { }` in SwiftUI. The store owns the state and nothing else, which is
  * the only division of labour this module's constraints allow.

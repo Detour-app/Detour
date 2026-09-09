@@ -37,7 +37,7 @@ package, does not build an image for, and does not start:
 | Service | Gives you | Without it |
 | --- | --- | --- |
 | [GraphHopper](https://github.com/graphhopper/graphhopper) | in-app turn-by-turn navigation, and routed (not straight-line) distance/ETA for spin candidates | the "Navigate in app" option in the hand-off menu is unavailable; the app still works otherwise |
-| [Photon](https://github.com/komoot/photon) | self-hosted address/place search | search keeps working, silently, against the public `photon.komoot.io` — see [What leaves your device](../README.md#what-leaves-your-device) |
+| [Photon](https://github.com/komoot/photon) | self-hosted address/place search | search keeps working, silently, against the public `photon.komoot.io` — see [What leaves your device](../docs/USER_GUIDE.md#what-leaves-your-device) |
 
 Run both yourself, following their own install docs:
 
@@ -54,8 +54,9 @@ Run both yourself, following their own install docs:
 
 Point the app at them under Settings → Servers & sync → *Routing server* /
 *Search server*, or bake `routing.url` / `geocoder.url` into `local.properties`
-(see [CONTRIBUTING.md](../CONTRIBUTING.md)). One `url` covers the API, routing
-and search together only when a single host fronts all three; each has its own
+(see [docs/DEVELOPERS.md](../docs/DEVELOPERS.md#baking-addresses-into-a-build)).
+One `url` covers the API, routing and search together only when a single host
+fronts all three; each has its own
 override field for the common case of a split deployment (`RoutingServer.kt`'s
 `ServerConfig` KDoc has the full reasoning). The sign-in realm (`idp.issuer`) is
 separate again and deliberately never falls back to `url` — see

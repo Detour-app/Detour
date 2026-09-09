@@ -11,9 +11,9 @@ import kotlin.time.TimeSource
  * `println` and no `Dispatchers`. So this only produces [Sample]s and each
  * platform decides what to do with them — [sink] is pushed in from the platform
  * side rather than reached for, the same way location, audio and notifications
- * already are (`Platform.kt:11-14`, CONTRIBUTING.md:23-31). A settable function
+ * already are (`Platform.kt:11-14`, docs/DEVELOPERS.md § "Where code belongs"). A settable function
  * property rather than an interface, because there is one implementation today
- * (`app/.../PerfSink.kt`) and CONTRIBUTING.md:40 is the bar for adding a fourth
+ * (`app/.../PerfSink.kt`) and docs/DEVELOPERS.md § "Where code belongs" is the bar for adding a fourth
  * interface to `commonMain`.
  *
  * The platform half of this already existed for cold start —

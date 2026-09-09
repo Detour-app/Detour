@@ -23,7 +23,7 @@ import okio.ByteString.Companion.toByteString
  *
  * Entropy is pushed in rather than reached for ([begin] takes it as an
  * argument) because `Platform.kt` expects three things and a CSPRNG is not one
- * of them. See `CONTRIBUTING.md` and `Platform.kt:11-14`: when the core wants a
+ * of them. See docs/DEVELOPERS.md § "Where code belongs" and `Platform.kt:11-14`: when the core wants a
  * fourth platform capability, the answer is to be handed the value instead.
  */
 object Oidc {

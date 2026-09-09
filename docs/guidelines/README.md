@@ -5,7 +5,7 @@ core), `app/` (Android phone + Android Auto), and the Kotlin that faces
 `iosApp/`'s Swift. It is the repo-specific form of a generic KMP/Compose
 Multiplatform guideline, adapted to what Detour actually is.
 
-The one rule everything else serves is already in `CONTRIBUTING.md:23-56`:
+The one rule everything else serves is already in docs/DEVELOPERS.md § "Where code belongs":
 **the core is handed things, it never reaches for them.** Logic, state and data
 access are written once in `shared/src/commonMain`; only UI and platform
 primitives diverge. These pages are how to apply it.

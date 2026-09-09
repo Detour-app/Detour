@@ -9,7 +9,7 @@ import kotlin.math.roundToInt
  * `iosApp/Detour/NavScreen.swift`, both with the same three thresholds, the
  * same `spokenDistance` and the same three-field latch — and register decision
  * 1 adds the phone as a third consumer. A policy written more than once earns
- * the core (`CONTRIBUTING.md:23-32`), and the point of writing it here is that
+ * the core (docs/DEVELOPERS.md § "Where code belongs"), and the point of writing it here is that
  * three surfaces can no longer word the same maneuver differently.
  *
  * **Decision and wording here; delivery per platform.** The same split

@@ -49,7 +49,7 @@ with literal arguments and no fake.
 with one implementation is an `object`.
 
 > A port earns an interface when it has more than one implementation.
-> — `CONTRIBUTING.md:40`
+> — docs/DEVELOPERS.md § "Where code belongs"
 
 Adding a fourth needs an argument in its KDoc, not just a preference for
 indirection.
