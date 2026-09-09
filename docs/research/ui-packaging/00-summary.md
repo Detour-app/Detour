@@ -41,7 +41,12 @@ ui/                              (flat, 59 files)
   FriendsScreen.kt (883)  HistoryScreen.kt (586)  ... 54 more, same level
 ```
 
-**After (proposal C's shape).** One package per destination cluster, each
+**After (proposal C's shape).** One package per *feature area* — a set of
+destinations whose implementation files overlap. Not one per destination:
+there are 22 destinations (15 plus 7 settings spokes) but 14 packages,
+because `SettingsScreen.kt` alone serves 8 of them and `CirclesScreen.kt`
+serves 2. The group list has to be written down explicitly; it is not
+derivable per-file. Each package
 holding its own `components/` (renders), `state/` (state holders), and
 `utils/` (pure helpers) tiers — populated only where real content exists:
 
@@ -118,7 +123,10 @@ feature or which source set they came from — with 8 manifest edits:
 are — they are the feature, not a shell, and splitting them is a separate,
 state-ownership question (see caveats), not a packaging one. `MainActivity`
 shrinks to the bare `ComponentActivity` (`onCreate`, cold-start work, OAuth
-redirect handling); the nav host moves, unchanged, to `nav/AppRoot.kt`.
+redirect handling); the nav host is lifted out into `nav/AppRoot.kt`. The
+declarations move verbatim, but `MainActivity.kt` itself gets ~360 lines
+shorter — this is an extraction, not a file move. See "What actually changes"
+below.
 
 ## 4. Platform specific
 
@@ -162,7 +170,7 @@ Issue #184 is where that decision belongs.
 | | Axis | Scope | Cost |
 |---|---|---|---|
 | **A** | design-system-first | `ui/` only | 7 files move to `base/`; no nesting introduced anywhere |
-| **B** | feature-slice-first | `ui/` only | one package per destination under `ui/` |
+| **B** | feature-slice-first | `ui/` only | one package per feature area under `ui/`, plus a small shared tier |
 | **C** | React-informed, two-tier | whole `app/` module | fullest of the three; the shape the owner is leaning toward |
 
 The AFTER sections above use C because it's the most complete, not because
@@ -203,6 +211,42 @@ every declaration involved is far under the 7-parameter ownership gate
    provably inert move.
 2. **The `entry/` tier**, above — 8 files across 5 packages, plus 8
    manifest edits, none of which touches `components/` or `features/`.
+
+## What actually changes, and what this step does not fix
+
+Worth being exact, because "structural change" is easy to over-read.
+
+**No logic changes.** Every declaration that moves is copied verbatim,
+KDoc included. Nothing changes what the app does. Three proposals, all the
+same on this point.
+
+**But files do change.** Three tiers, and only the first leaves file
+contents untouched:
+
+| Tier | What happens | Example |
+| --- | --- | --- |
+| Pure file move | whole file unchanged; its `package` line and callers' imports change | the 7 shared files → `components/` |
+| Extraction | a declaration is cut out of a file that keeps existing, so **two** files change | `HubRow` out of `HubScreen.kt`; the nav host out of `MainActivity.kt` |
+| Content decision | files merged or a symbol renamed | merging two dialog files; every proposal marks these optional and separately committed |
+
+Roughly 7-8 files get edited rather than moved. The discipline all three
+proposals adopt: extraction and repackaging never share a commit — extract
+in place keeping the same package, prove it inert with the zero-added-lines
+check from `detour-file-split`, then a separate commit changes the package
+line.
+
+**File sizes are not fixed by this work.** After every stage of every
+proposal:
+
+    MapScreen.kt              1353 lines   unchanged
+    SettingsScreen.kt         1228 lines   unchanged
+    TripTrackingService.kt    1736 lines   unchanged, and out of scope
+    MainActivity.kt            573 -> ~210 lines  (the one real reduction)
+
+`MapScreen.kt` and `SettingsScreen.kt` stay over the 1000-line hard limit.
+That is deliberate, not an oversight: breaking them up is a state-ownership
+problem gated by the caveat below, and it is separate, later work. This step
+decides where files live. It does not make them smaller.
 
 ## Two honest caveats
 
