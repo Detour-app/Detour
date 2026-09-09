@@ -34,13 +34,16 @@ admin account and an unauthenticated Grafana; neither belongs on your LAN.
 
 ## Routing (GraphHopper)
 
-`backend/INSTALL.md` is right that this repo does not package routing for
-production — a real deployment picks its own region, extract cadence and
-hardware. This service exists so the features that need a route can be exercised
-at a desk: in-app turn-by-turn, and the routed rather than straight-line
-distance and ETA on spin candidates. Without a router those paths cannot run at
-all — `RoutingClient` has no public fallback the way `Geocoder` does, so `route`
-comes back null and navigation never starts.
+This service exists so the features that need a route can be exercised at a desk:
+in-app turn-by-turn, and the routed rather than straight-line distance and ETA on
+spin candidates. Without a router those paths cannot run at all —
+`RoutingClient` has no public fallback the way `Geocoder` does, so `route` comes
+back null and navigation never starts.
+
+Routing is packaged for production too, in
+`docker/prod/docker-compose.routing.yml` — same image and version, same config,
+and it downloads its own extract for the region you pick. Keep the two configs in
+sync.
 
 **It will not start without an OSM extract**, which is not in git — 662 MB of
 Belgium. Fetch it once:
@@ -58,7 +61,14 @@ point", which reads in the app exactly like a routing outage.
 First start builds the graph and the contraction hierarchies for both profiles —
 minutes, and several GB of heap. That lands in a named volume, so later starts
 are seconds. Deleting the volume pays for it again, and so does changing the
-extract or the profile set, because the cache is keyed to both.
+extract or the profile set, because the cache is keyed to both. A GraphHopper
+major bump does too, and it does not fail gracefully — a graph built by 8.x will
+not load on 11, so drop the volume first:
+
+```bash
+docker compose -f docker/dev/docker-compose.yml down graphhopper
+docker volume rm detour-dev_graphhopper-data
+```
 
 The profile **names** are load-bearing: the app sends `car` and `moto` as the
 `profile` query parameter, from `TravelMode.ghProfile`. Renaming either leaves

@@ -1,22 +1,20 @@
-# GraphHopper routing, for local development only. Keep the graphhopper: block in
-# sync with docker/prod/config/graphhopper/config.yml — only datareader.file
-# differs, because dev reads a manually-downloaded extract.
+# GraphHopper 11 routing for docker/prod.
 #
-# The profile NAMES here are load-bearing: the app sends them as the `profile`
-# query parameter, from TravelMode.ghProfile in
-# shared/src/commonMain/kotlin/com/jellemax/detour/data/TravelMode.kt. They are
-# `car` and `moto`. Renaming either leaves every routing request 400ing, which
-# surfaces in the app as a null route - a spin candidate showing
-# "~ straight-line" distance, and no in-app navigation - rather than as an
-# error you can see.
+# The profile NAMES `car` and `moto` are load-bearing: the app sends them as the
+# `profile` query parameter, from TravelMode.ghProfile in
+# shared/src/commonMain/kotlin/com/jellemax/detour/data/TravelMode.kt. Renaming
+# either leaves every routing request 400ing, which surfaces in the app as a null
+# route — a spin candidate showing "~ straight-line" distance, and no in-app
+# navigation — rather than as an error you can see.
+#
+# `datareader.file` is the fixed name scripts/fetch-extract.sh writes; which
+# region is behind it is chosen by OSM_REGION in .env, not here.
 
 graphhopper:
-  # Manually downloaded; see services/graphhopper.yml for the curl. Prod points
-  # this at /osm/region.osm.pbf, which its osm-extract init container writes.
-  datareader.file: /osm/belgium-latest.osm.pbf
+  datareader.file: /osm/region.osm.pbf
   graph.location: /graph
 
-  # Where moto.json is mounted by services/graphhopper.yml. Built-in models
+  # Where moto.json is mounted by docker-compose.routing.yml. Built-in models
   # (car.json below) come from inside the jar and need no file here — in fact a
   # file in this directory named after one of them is a hard startup error:
   # "Custom model file name 'car.json' is already used for built-in profiles".
@@ -29,9 +27,8 @@ graphhopper:
   # Everything the two models below read (car_access, car_average_speed from the
   # built-in car.json; road_class, surface, track_type from moto.json), plus
   # road_environment / road_access / max_speed, which cost little and are what
-  # path details and any future model would want. From 9.x on a vehicle IS an
-  # encoded value — `car_access` and `car_average_speed` did not exist in 8.x, and
-  # there is no `vehicle:` profile key any more.
+  # path details and any future model would want. In 9.x and later a vehicle IS
+  # an encoded value — there is no `vehicle:` profile key any more.
   graph.encoded_values: >-
     road_class, road_environment, road_access, surface, track_type,
     max_speed, car_access, car_average_speed
@@ -52,9 +49,9 @@ graphhopper:
       turn_costs:
         vehicle_types: [motorcar, motor_vehicle]
 
-  # Speed mode. Each profile listed here gets its own contraction-hierarchy
-  # prepared at build time, which is the slow part of a cold start and the
-  # reason the graph cache is a named volume rather than a tmpfs.
+  # Speed mode. Each profile listed here gets its own contraction hierarchy
+  # prepared at build time, which is the slow part of a cold start and the reason
+  # the graph lives in a named volume rather than a tmpfs.
   profiles_ch:
     - profile: car
     - profile: moto

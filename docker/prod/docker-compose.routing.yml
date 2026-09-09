@@ -1,0 +1,113 @@
+# GraphHopper routing, as an overlay. Add docker-compose.routing.yml to
+# COMPOSE_FILE in .env for in-app turn-by-turn and routed (rather than
+# straight-line) spin distances and ETAs. Without a router those paths cannot
+# run at all: RoutingClient has no public fallback the way Geocoder does, so
+# `route` comes back null and navigation never starts.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.routing.yml up -d
+#
+# First boot downloads the OSM extract for OSM_REGION and then builds the routing
+# graph and the contraction hierarchies for both profiles — 25 min (benelux) to
+# 65 min (germany), and GRAPHHOPPER_HEAP of RAM on the machine doing it.
+# `docker compose logs -f graphhopper` shows progress. /health is down for the
+# whole build, which is why start_period is so long; that is expected, not a
+# failure. The result lands in the graphhopper-data volume, so later starts are
+# seconds — deleting that volume, or changing the region or the profile set, pays
+# for the build again.
+#
+# Image mechanics verified against israelhikingmap/graphhopper:11.0 on
+# 2026-09-09 (GraphHopper still publishes no image of its own):
+#   - the jar is /graphhopper/graphhopper-web-11.0-SNAPSHOT.jar, but the image's
+#     own /graphhopper/graphhopper.sh finds it with `find . -name "*.jar"`, so the
+#     entrypoint below names the helper and not the jar. One less thing to edit
+#     when the tag moves.
+#   - graphhopper.sh honours JAVA_OPTS and takes `-c <config>` and
+#     `-o <graph-cache>`. `-o` is not optional: it defaults to /data/default-gh
+#     and is passed as -Ddw.graphhopper.graph.location, which overrides
+#     config.yml. No `-i` — datareader.file in config.yml is the input.
+#   - the image's JDK is 21, which reads cgroup v2 correctly, so the
+#     `-XX:-UseContainerSupport` workaround the 8.0 image needed is gone.
+
+name: ${PROJECT_NAME:-detour}
+
+services:
+  # ---------------------------------------------------------------------------
+  # One-shot: download the OSM extract for OSM_REGION into the osm-data volume.
+  # scripts/fetch-extract.sh is md5-verified and idempotent — it exits early if
+  # the extract is already there — so this runs at every `up` and costs nothing
+  # after the first. graphhopper waits on it completing successfully, so a failed
+  # or truncated download stops the stack instead of producing a half-built graph.
+  # ---------------------------------------------------------------------------
+  osm-extract:
+    image: curlimages/curl:8.22.0
+    restart: "no"
+    # curlimages/curl runs as uid 100, and a named volume Docker has just created
+    # is root-owned 0755 — so the default user cannot write /osm and the first boot
+    # dies with "Failed to open the file /osm/region.osm.pbf.part: Permission
+    # denied". This container exists for one download and then exits, so root is
+    # cheaper than wrapping the script in a chown. graphhopper reads the result
+    # read-only.
+    user: "0:0"
+    networks:
+      - detour-int
+    volumes:
+      - osm-data:/osm
+      - ./config/regions.env:/regions.env:ro
+      - ./scripts/fetch-extract.sh:/fetch-extract.sh:ro
+    environment:
+      OSM_REGION: ${OSM_REGION:-}
+      OSM_EXTRACT_URL: ${OSM_EXTRACT_URL:-}
+      TZ: ${TZ:-Europe/Brussels}
+    # REGIONS_FILE and OSM_DIR are left to the script's defaults (/regions.env
+    # and /osm), which is what the mounts above line up with.
+    entrypoint: ["sh", "/fetch-extract.sh"]
+
+  # ---------------------------------------------------------------------------
+  # The router. Profile names `car` and `moto` come from config/graphhopper/
+  # config.yml and are what the app sends as `profile` — see that file.
+  # ---------------------------------------------------------------------------
+  graphhopper:
+    image: israelhikingmap/graphhopper:11.0
+    restart: unless-stopped
+    networks:
+      - detour-int
+      # `edge` so the proxy / cloudflared overlays can reach it, since a rider's
+      # phone talks to GraphHopper directly rather than through the API.
+      - edge
+    ports:
+      - 127.0.0.1:${GRAPHHOPPER_PORT:-7510}:8989
+    volumes:
+      # Read-only: a graph rebuild must not be able to corrupt the download.
+      - osm-data:/osm:ro
+      - graphhopper-data:/graph
+      - ./config/graphhopper/config.yml:/config.yml:ro
+      # custom_models.directory in config.yml. Only moto.json — the `car` profile
+      # uses GraphHopper's built-in car.json from inside the jar, and mounting a
+      # file of that name here is a hard startup error. See moto.json.
+      - ./config/graphhopper/moto.json:/config/moto.json:ro
+    environment:
+      # Read by graphhopper.sh. The build is the memory-hungry part; see
+      # .env.example for the per-region figures.
+      JAVA_OPTS: -Xmx${GRAPHHOPPER_HEAP:-10g} -Xms1g
+      TZ: ${TZ:-Europe/Brussels}
+    entrypoint: ["./graphhopper.sh", "-c", "/config.yml", "-o", "/graph"]
+    depends_on:
+      osm-extract:
+        condition: service_completed_successfully
+    healthcheck:
+      # /health reports up only once the graph is loaded, so this stays unhealthy
+      # through the whole first build rather than flapping. start_period is that
+      # build.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8989/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: ${GRAPHHOPPER_BUILD_TIMEOUT:-75m}
+
+networks:
+  detour-int:
+  edge:
+
+volumes:
+  osm-data:
+  graphhopper-data:
