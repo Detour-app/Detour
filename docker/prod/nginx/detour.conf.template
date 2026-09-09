@@ -9,23 +9,32 @@
 # `/api/<something>`. nginx's `=` (exact) location always wins over a prefix
 # one regardless of file order, so the two can't collide.
 #
+# GraphHopper and Photon are in this compose project on the shared networks
+# (docker-compose.routing.yml / docker-compose.search.yml), so they're
+# addressed by service name — `graphhopper:8989` and `photon:2322` — the same
+# way `api:7500` is. No copied-in IP to keep in sync. For a deployment where
+# GraphHopper or Photon runs outside this project (another LAN host), the
+# GRAPHHOPPER_UPSTREAM / PHOTON_UPSTREAM env-var forms are kept below as
+# commented alternatives (envsubst blanks the ${...} inside those comments
+# when the var is unset — set the var and uncomment and it renders).
+#
 # A .template: the official nginx image's entrypoint runs envsubst over
 # every file here and writes the result to /etc/nginx/conf.d before nginx
 # starts (see docker-compose.proxy.yml). envsubst only touches names that
 # are actually set as container env vars — $host, $remote_addr and $scheme
 # below are nginx's own request variables, never exported, so they pass
-# through untouched; only ${PHOTON_UPSTREAM} and ${GRAPHHOPPER_UPSTREAM} get
-# substituted.
+# through untouched; PHOTON_UPSTREAM / GRAPHHOPPER_UPSTREAM matter only if you
+# uncomment the commented proxy_pass lines below and set the vars in .env.
 server {
     listen 80;
     server_name _;
 
     # Photon: exact "/api/" only (its query-string search endpoint).
-    # PHOTON_UPSTREAM is a required env var (docker-compose.proxy.yml) —
-    # Photon isn't part of this compose project, so it can't be addressed
-    # by service name.
     location = /api/ {
-        proxy_pass ${PHOTON_UPSTREAM}/api/;
+        proxy_pass http://photon:2322/api/;
+        # Off-box Photon: comment the line above, uncomment the next, and set
+        # PHOTON_UPSTREAM in docker/prod/.env (e.g. http://192.168.x.x:2322).
+        # proxy_pass ${PHOTON_UPSTREAM}/api/;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
@@ -47,11 +56,13 @@ server {
         proxy_read_timeout 1h;
     }
 
-    # GraphHopper. GRAPHHOPPER_UPSTREAM is required the same way
-    # PHOTON_UPSTREAM is, and for the same reason: another LAN host outside
-    # this compose project.
+    # GraphHopper. RoutingClient only ever calls /route (GET and POST) — no
+    # /isochrone, /nearest or /health from the app, so nothing else is routed.
     location /route {
-        proxy_pass ${GRAPHHOPPER_UPSTREAM}/route;
+        proxy_pass http://graphhopper:8989/route;
+        # Off-box GraphHopper: comment the line above, uncomment the next, and
+        # set GRAPHHOPPER_UPSTREAM in docker/prod/.env (e.g. http://192.168.x.x:8989).
+        # proxy_pass ${GRAPHHOPPER_UPSTREAM}/route;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;

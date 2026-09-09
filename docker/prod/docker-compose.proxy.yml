@@ -1,7 +1,8 @@
 # One-hostname layout, as an overlay on the production stack.
 #
-#   PHOTON_UPSTREAM=http://<lan-ip>:2322 GRAPHHOPPER_UPSTREAM=http://<lan-ip>:8989 \
 #   docker compose -f docker/prod/docker-compose.yml \
+#                  -f docker/prod/docker-compose.routing.yml \
+#                  -f docker/prod/docker-compose.search.yml \
 #                  -f docker/prod/docker-compose.proxy.yml up -d
 #
 # Path-routes a single public hostname to the API, GraphHopper and Photon —
@@ -15,23 +16,25 @@
 # (see docker-compose.lan.yml) and reaches this container across the LAN the
 # same way it already reaches the api and keycloak ports.
 #
-# The API is in this compose project and already on `edge` (see
-# docker-compose.yml), so this container joins that network and addresses it
-# as `api:7500` — no IP to keep in sync. GraphHopper and Photon are other LAN
-# hosts, genuinely outside the project, so those two have no service name to
-# use: PHOTON_UPSTREAM and GRAPHHOPPER_UPSTREAM are required env vars (set
-# them in docker/prod/.env) rather than a default pointing at one developer's
-# network.
+# This overlay assumes +routing and +search are also in COMPOSE_FILE: the API,
+# GraphHopper and Photon are then all in this compose project and on `edge`, so
+# nginx addresses them as `api:7500`, `graphhopper:8989`, `photon:2322` — no IP
+# to keep in sync. PHOTON_UPSTREAM / GRAPHHOPPER_UPSTREAM are optional and only
+# used for a deployment where GraphHopper or Photon runs outside this project
+# (set them in docker/prod/.env and uncomment the matching lines in
+# nginx/detour.conf.template).
 services:
   proxy:
     image: nginx:1.27-alpine
     restart: unless-stopped
+    # `edge` alone: the API, GraphHopper and Photon all join it precisely so one
+    # reverse proxy can reach them without also reaching either database.
     networks:
       - edge
     ports:
       - 0.0.0.0:${PROXY_PORT:-8088}:80
     environment:
-      PHOTON_UPSTREAM: ${PHOTON_UPSTREAM:?Set PHOTON_UPSTREAM, e.g. http://192.168.x.x:2322}
-      GRAPHHOPPER_UPSTREAM: ${GRAPHHOPPER_UPSTREAM:?Set GRAPHHOPPER_UPSTREAM, e.g. http://192.168.x.x:8989}
+      PHOTON_UPSTREAM: ${PHOTON_UPSTREAM:-}
+      GRAPHHOPPER_UPSTREAM: ${GRAPHHOPPER_UPSTREAM:-}
     volumes:
       - ./nginx/detour.conf.template:/etc/nginx/templates/detour.conf.template:ro
