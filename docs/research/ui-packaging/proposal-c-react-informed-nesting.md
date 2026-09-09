@@ -1,85 +1,14 @@
 # Proposal C: React-informed nesting, at full app-module scope
 
 Evidence base: `01-ui-inventory.md`, `02-repo-guidelines.md`, `03-move-cost.md`,
-`04-android-compose-precedent.md`, `05-kotlin-package-idiom.md`, and the sibling
-proposals `proposal-a-design-system-first.md` and `proposal-b-feature-slice-first.md`
-(all in this directory, captured against commit `efa6c9ad`, 2026-09-09). Every
+`04-android-compose-precedent.md` and `05-kotlin-package-idiom.md` (all in this
+directory, captured against commit `efa6c9ad`, 2026-09-09). Every
 count, file:line, and git-blame date below was re-verified directly against the
 tree while writing this document — three findings below (§ "The SpeedInfoPill
 case," the `lib/` cost table, and the package/directory decoupling in
 Sequencing) correct or extend the earlier research rather than merely restate
 it, and each says so at the point it matters.
 
-This is the owner's own reference shape:
-
-```
-components/          <- global, shared
-  cards/
-  buttons/
-features/
-  Map/
-    components/  MapLibre.tsx, SpeedInfoPill.tsx
-    api/
-    hooks/
-    utils/
-  Social/
-  Routes/
-  TripHistory/
-routes/              <- base layout, page construction, routing between them
-lib/
-  audio/ ble/ notification/ nav/
-```
-
-taken seriously as a target, not as a mood board.
-
----
-
-## What A and B missed
-
-Both proposals scoped themselves to `app/…/ui/` and never asked what the rest
-of `app/` should look like. Both stopped at exactly one level of nesting under
-a new sibling of `ui/` (A's `base/`, B's per-destination packages under `ui/`)
-and neither nested *inside* a package a second time. Concretely:
-
-- **Neither proposes two tiers of component.** A's whole axis *is* "does this
-  belong to a design system," which is one tier with one membership test — it
-  never asks "is this shared within one feature but not across features," the
-  exact question the owner's `features/Map/components/` vs. `components/`
-  split exists to answer. B's axis is the mirror image: one tier, "which
-  destination owns this," with a `ui.shared` escape valve that is deliberately
-  kept small and undifferentiated — B never distinguishes "shared and renders"
-  from "shared and holds state" from "shared and computes." Neither document
-  contains the phrase "two tiers of component," and neither's placement test
-  has a step that asks which of two component homes a file lands in, because
-  neither has two.
-- **Neither addresses anything outside `ui/`.** `02-repo-guidelines.md`'s own
-  citation of `architecture.md:38-46` diagrams `app/`'s full layout — `ui/`,
-  `car/`, `tracking/`, `net/ ble/ obd2/ audio/ media/ notif/ auth/ update/
-  perf/`, `map/ nav/`, `data/` — and both proposals quote that diagram only to
-  say "we are not touching anything but the `ui/` leaf." `car/`, the nine
-  packages that same diagram calls "platform ports," `MainActivity.kt`, and
-  `nav/Destination.kt` do not
-  appear in either proposal's target tree at all.
-- **Neither has a `hooks/`-shaped tier**, because neither is organized by
-  feature *and* by kind at once. A's `base/` never asks "does this hold
-  state," because A's whole axis is about what a thing renders. B's per-
-  destination packages keep `rememberMapPermissions` (`MapPermissions.kt`),
-  `rememberActiveTripCardState` (`RideSheet.kt:350`) and the rest sitting
-  undifferentiated next to the composables that call them, because B's axis
-  never distinguishes render from state within one destination's package.
-- **Neither confronts `features/X/api/`.** Because neither models a
-  per-feature package with sub-tiers, neither has occasion to ask what
-  happens to a React feature folder's data-access layer when the real data
-  layer lives in a KMP module the folder cannot see into. This is the
-  question this document's evidence-gathering step (below) had to resolve
-  before writing a single line of the tree, since a wrong answer here would
-  either duplicate `shared/` or scatter empty folders through every feature.
-
-None of this is a defect in A or B on their own terms — each is explicit about
-being scoped to one axis inside `ui/` — but it is why a third document exists:
-the owner's verdict was that neither covered a properly nested structure, and
-"properly nested" here means two tiers of component, a `hooks/`-shaped tier,
-and the rest of `app/`, not just `ui/`.
 
 ---
 
@@ -115,8 +44,8 @@ depends on how much of the tree has moved yet.
 
 | React tier | Kotlin home | Name | Why / why not |
 |---|---|---|---|
-| `components/` (global) | top-level `com.jellemax.detour.components/`, flat, with one sibling subfolder `components/theme/` | **`components/`** | Translates cleanly. This is Proposal A's `base/` under a different, more literal name, with one change: unlike A's design-system axis, this tier does **not** exclude a component for taking a `data/`-layer type in its signature (see the `TripCardShareDialog` case below) — reach (≥2 destinations) is the only membership test, matching Now in Android's looser `core:ui` ("dependent on the data layer since it renders models," `04-android-compose-precedent.md` §2d) rather than its stricter `core:designsystem`. |
-| `features/X/components/` | `com.jellemax.detour.features.<name>.components/` | **`features/<name>/components/`** | Translates cleanly — this is exactly B's per-destination package, with `components` as an explicit child rather than the destination's package root holding everything undifferentiated. `<name>` is the destination lowercased, concatenated, no separator — see the placement test for the naming rule and its one collision (`map`). |
+| `components/` (global) | top-level `com.jellemax.detour.components/`, flat, with one sibling subfolder `components/theme/` | **`components/`** | Translates cleanly. This tier does **not** exclude a component for taking a `data/`-layer type in its signature (see the `TripCardShareDialog` case below) — reach (≥2 destinations) is the only membership test, matching Now in Android's looser `core:ui` ("dependent on the data layer since it renders models," `04-android-compose-precedent.md` §2d) rather than its stricter `core:designsystem`. |
+| `features/X/components/` | `com.jellemax.detour.features.<name>.components/` | **`features/<name>/components/`** | Translates cleanly. `components` is an explicit child rather than the feature's package root holding everything undifferentiated. `<name>` is the destination lowercased, concatenated, no separator — see the placement test for the naming rule and its one collision (`map`). |
 | `features/X/api/` | `shared/src/commonMain/kotlin/com/jellemax/detour/data/`, one module up | **stays in `shared/`, not created in `app/`** | **Truncated at the presentation boundary — correctly, not as a compromise.** See "Why `features/X/api/` resolves to `shared/`" below. |
 | `features/X/hooks/` | `com.jellemax.detour.features.<name>.state/` | **`state/`**, not `hooks/` | Renamed, not moved-as-is. Kotlin already has a name for this — `docs/guidelines/state-holders.md` calls it a "state holder" throughout, never a "hook," and the existing instances in this codebase (`rememberMapPermissions`, `rememberRetainedMap`, `MapScreenState`, `LocalDriveClock`) are `remember` factories, classes and `CompositionLocal`s, not React's closure-and-hook-order machinery. Same job (feature-local derived/retained state), Kotlin's own vocabulary. |
 | `features/X/utils/` | `com.jellemax.detour.features.<name>.utils/` | **`utils/`** | Translates cleanly for pure, non-rendering, feature-scoped functions and constants (`MapCameraTuning.kt`'s tuning constants, `SpinShare.kt`'s extension mappers). |
@@ -627,12 +556,11 @@ mixing kinds, and this test defers to that license.
      `.../utils/`.
 3. **Is it called from ≥2 distinct destinations** (the same "distinct calling
    files, traced to distinct `Destination`s" count `01-ui-inventory.md` §A
-   and Proposal B's placement test already compute)? → promote to the
+   already computes)? → promote to the
    top-level tier of the same name (`components/`, `state/`, or `utils/`,
    sibling of `features/`). A caller count of 2 within one feature's own
    spokes or bottom-sheet cluster does **not** count — trace through
-   `nav/Destination.kt`, exactly as Proposal A's step 4 and Proposal B's rule
-   3 both already do.
+   `nav/Destination.kt`.
 4. **Not a feature and not a component at all** — a platform port with no
    `Destination` and nothing rendered, and specifically one of the 9 packages
    `architecture.md` itself already calls a platform port (`audio/`, `ble/`,
@@ -650,19 +578,17 @@ conventions carry the same rule. `CoverageMap` → `coveragemap`, `SavedPlaces`
 never `coverageMap`/`coverage_map`. PascalCase directories (`Map/`, `Social/`
 in the owner's own sketch) are a React/JS convention and do not survive
 translation for the same reason. **One collision exists and needs a
-deliberate resolution, reused from Proposal B rather than reinvented:**
+deliberate resolution:**
 `Destination.Map` would naturally lowercase to `map`, which collides with the
 already-existing `com.jellemax.detour.map` (the pure map-decision package,
 staying flat and top-level under this proposal — see "The `lib/` decision").
 The feature package is named `features/mapscreen/` instead — distinct at a
-glance from `map/`, and the same resolution Proposal B already argued for
-this exact conflict.
+glance from `map/`.
 
 Two people applying this test to the same new file get the same answer
 because every step resolves to a lookup (is it a route? does it import
 `androidx.compose.*`? how many distinct destinations call it?) rather than a
-judgment call — with the same one honest exception Proposal A and B both
-already flag: step 3's "which destinations are genuinely different" trace
+judgment call — with one honest exception: step 3's "which destinations are genuinely different" trace
 needs a look at `nav/Destination.kt`, not a bare grep count, and a threshold
 of exactly 2 is a line drawn by convention (matching `01-ui-inventory.md`'s
 own SHARED definition), not derived from anything sharper.
@@ -906,8 +832,8 @@ by `SettingsHub.kt` (the hub, `fun SettingsScreen` at `SettingsHub.kt:45`) and
 `SettingsDiagnostics.kt`, `SecureFields.kt`, `UpdateProgressButton.kt`. Every
 external caller of every file in this list is another file in the same
 cluster or `nav/AppRoot.kt`'s `entry<Destination.SettingsXxx>` registrations —
-one destination-family, one feature package, reusing Proposal B's own
-argument for treating all 7 spokes as one package rather than nesting a
+one destination-family, one feature package, treating all 7 spokes as one
+package rather than nesting a
 second level per spoke (which would be the same per-variant mistake
 `05-kotlin-package-idiom.md` §5-6 diagnoses against `base/button/confirm/`).
 
@@ -956,7 +882,7 @@ the file named `SettingsScreen.kt` declares `SettingsSpokeScreen`, not
 `SettingsScreen`. Moving both into the same `features/settings/components/`
 folder makes the mismatch easier to spot (one folder to scan instead of 59
 files) but does not resolve it — a rename is available as a zero-risk,
-separate commit, exactly as Proposal B already noted.
+separate commit.
 
 Blast radius: `nav/AppRoot.kt`'s 8 `entry<Destination.SettingsXxx>`
 registrations get their import paths updated
@@ -970,11 +896,8 @@ dependency of anything outside the cluster).
 ### 3. The Map cluster — confronting the ownership gate directly
 
 `Destination.Map` (`MapScreen.kt`, routed at `nav/AppRoot.kt`) anchors a
-27-file cluster — the same set Proposal B enumerated for its `ui.mapscreen`
-package (B's own tree header says "26 files," but its own enumerated list is
-one short of that: it names 26 files *besides* `MapScreen.kt`, plus
-`MapScreen.kt` itself makes 27 — corrected here rather than propagated),
-here split three ways by kind:
+27-file cluster — 26 files besides `MapScreen.kt`, plus `MapScreen.kt`
+itself — here split three ways by kind:
 
 - **`features/mapscreen/components/`** (21 files) — `MapScreen.kt`,
   `MapBottom.kt`, `MapCamera.kt` (minus its tuning constants),
@@ -1025,9 +948,9 @@ one import-path edit — the same 7-file, 8-line blast radius
 Every one of the 138 `.kt` files currently under
 `app/src/main/java/com/jellemax/detour/` is placed below, plus the 2 files
 `entry/` draws in from `app/src/debug/java/com/jellemax/detour/debug/`.
-Three content extractions (matching Proposal B's own three: `HubRow` out of
-`HubScreen.kt`, `BackgroundLocationDisclosure` out of `MapDialogs.kt`, the
-trip-formatting trio out of `HistoryScreen.kt`) plus one new file
+Three content extractions (`HubRow` out of `HubScreen.kt`,
+`BackgroundLocationDisclosure` out of `MapDialogs.kt`, the trip-formatting
+trio out of `HistoryScreen.kt`) plus one new file
 (`nav/AppRoot.kt`, extracted from `MainActivity.kt`) bring the `app/src/main`
 total to 142; the 2 debug-sourced files bring the grand total to 144.
 
@@ -1196,8 +1119,8 @@ was 11 — loses `InstallResultReceiver.kt` to `entry/`), `auth` (2).
 (`state/`) + 8 (`entry/`) + 27 (`features/mapscreen`) + 21 (the other 13
 feature packages) + 5 (`car/`) + 33 (the four flat, unmoved packages) + 30
 (`lib/`) = 144**, against 138 in `app/src/main` today. The count is +6 over
-the 138 figure used everywhere else in this document: +4 from Proposal B's
-three content extractions plus `nav/AppRoot.kt` (as before), and +2 because
+the 138 figure used everywhere else in this document: +4 from the three
+content extractions plus `nav/AppRoot.kt` (as before), and +2 because
 `entry/` is the first tier in this document to reach outside
 `app/src/main` at all — `DebugTripEndedReceiver.kt` and
 `DebugReplayReceiver.kt` live in `app/src/debug`, never counted in the
@@ -1371,8 +1294,8 @@ of the owner's intuition this document does not argue against:
 has 12 callers spanning 12 different destinations, so the global
 `components/` tier has to exist — as a real package, with real files in it —
 before the first `features/X/components/` package can unambiguously place a
-file that calls it. Proposal A already measured this set at ~7 files; this
-proposal's version is the 9 (+2 `theme/`) files enumerated above. **That
+file that calls it. This proposal's version is the 9 (+2 `theme/`) files
+enumerated above. **That
 commit is small, but it is not optional, and it is not divisible further** —
 a feature package created before `components/` exists has no answer to
 "where does `SubScreenTopBar` live" other than a forward reference to a
@@ -1389,7 +1312,7 @@ Ordered stages, each independently landable and revertable:
 | 1b | `entry/` tier: 8 files, `car/`+`notif/`+`tracking/`(×3)+`update/`+`debug/`(×2) → `com.jellemax.detour.entry` (6 in `app/src/main`, 2 in `app/src/debug`), plus 8 manifest `android:name` edits | content relocation, zero §8.4 gate (no parameter list on any of the 8) | 8 manifest edits (2 files: `app/src/main/AndroidManifest.xml`, `app/src/debug/AndroidManifest.xml`); zero cross-source-set risk — none of the 8 has a `src/debug`/`src/release` counterpart sharing its name (see "Source-set atomicity") | direct read of both manifests |
 | 2 | `git mv` the rest of the tree (132 files — 138 minus the 6 `entry/` files already relocated in Stage 1b) into their target directories, **package lines untouched** | pure directory move | 0 | per the decoupling above |
 | 3 | `components/` + `components/theme/` (11 files) — package line change + import edits at every one of their combined ~82 caller-file counts (`01-ui-inventory.md` §A: 12+8+11+3+9+7+5+3+6+12 for `AppBar`/`Cards`(×3 symbols)/`GlassSurface`(×3)/`ConfirmDialog`/`Pills`/`TravelModeIcon`/`Theme`, deduplicated by calling file) | package alignment | ~75-85 import lines, method: `01-ui-inventory.md` §A's own per-symbol caller-file counts, deduplicated | reused, not re-derived |
-| 4 | 3 content extractions (`Rows.kt`, `BackgroundLocationDisclosure.kt`, `TripFormat.kt` in `utils/`) — each a same-package mechanical split first (`detour-file-split` §1-8, zero-added-lines proof), *then* its own package-alignment commit | content extraction + package alignment | per Proposal B's own count: 5 (Rows) + 2 (BackgroundLocationDisclosure) + 4 (TripFormat, including `tracking/TripSession.kt`) = 11 import lines | `detour-file-split` zero-added-lines check, then the repackage check below |
+| 4 | 3 content extractions (`Rows.kt`, `BackgroundLocationDisclosure.kt`, `TripFormat.kt` in `utils/`) — each a same-package mechanical split first (`detour-file-split` §1-8, zero-added-lines proof), *then* its own package-alignment commit | content extraction + package alignment | 5 (Rows) + 2 (BackgroundLocationDisclosure) + 4 (TripFormat, including `tracking/TripSession.kt`) = 11 import lines | `detour-file-split` zero-added-lines check, then the repackage check below |
 | 5 | The 13 single-destination feature packages (`history`, `tripdetail`, `badges`, `coveragemap`, `social`, `profile`, `friends`, `circles`, `savedplaces`, `routes`, `routeeditor`, `hub`, `settings`) | package alignment | `nav/AppRoot.kt`'s per-screen import path edits only — no cross-feature caller exists for any of these (confirmed against `01`/`03`'s complete caller tables) | direct |
 | 6 | `features/mapscreen` (27 files) | package alignment | `nav/AppRoot.kt` (1 path), `car/` (8 lines, 2 files), `map/` (3 files — flat, unmoved, top-level), `app/src/test/.../map/` (3 files) — the same 7-file, 8-line set §2-3 already measured, unaffected by which package `MapCameraTuning` itself moves to | reused from `02-repo-guidelines.md` §2-3 |
 | 7 | `lib/` — exactly the 9 named "platform ports" (61 import lines, 40 files; `tracking/`, `map/`, `data/`, `convoy/` excluded — see "The `lib/` decision") | package alignment | 61 import lines | measured directly above |
@@ -1414,15 +1337,14 @@ self-import) + 8 manifest edits, not import lines (Stage 1b, `entry/`) + 0
 (Stage 2, directory move) + ~75-85 (`components/`) + 11 (content
 extractions) + 0 (single-destination features) + 8 (mapscreen's
 outside-`ui/` consumers) + 61 (`lib/`, narrowed to the 9 named platform
-ports) ≈ **155-165 import lines, plus 8 manifest edits**, smaller than
-Proposal B's ~300-370
-estimate for `ui/` alone (`03-move-cost.md` §5) for two independent reasons:
-this proposal's `components/` tier is smaller than B's `ui.shared` (B folds
-`TravelModeIcon`, `Format`, `TripCardRenderer` and `Pills` into one
-undifferentiated shared package with wider internal cross-references; this
-proposal's kind-based split keeps `utils/` and `state/` separately counted
-and several of B's counted cross-references are actually intra-mapscreen,
-not cross-package, under this proposal's finer feature boundary); and this
+ports) ≈ **155-165 import lines, plus 8 manifest edits**, smaller than the ~300-370
+estimate for a full `ui/` nesting in `03-move-cost.md` §5, for two independent
+reasons: this proposal's `components/` tier is narrower than a single
+undifferentiated shared package would be, because its kind-based split keeps
+`utils/` and `state/` separately counted,
+and because several cross-references that a single-tier count treats as
+cross-package are intra-mapscreen under this proposal's finer feature
+boundary; and this
 proposal's `lib/` cost is a deliberately narrow 61 lines (9 packages), not
 the 559-line, 13-package figure a literal reading of the owner's sketch
 would have produced — the difference is entirely `data/`, `map/`,
@@ -1454,9 +1376,8 @@ precedent than `api/` does. **This packaging move does not create a single
 new state holder.** It gives the thirteen a folder to receive one, the day
 someone extracts it, and no sooner.
 
-**A reader loses screen-locality for the shared tiers**, the same cost
-Proposal A and B each already name for their own single shared tier — here
-paid twice, once for `components/` and once for `utils/`. Reading
+**A reader loses screen-locality for the shared tiers**, here paid twice, once for
+`components/` and once for `utils/`. Reading
 `HubScreen.kt` top to bottom today shows `HubRow` right there; after this
 move, understanding what `HubScreen.kt` renders costs a trip to
 `components/Rows.kt`, and understanding `HistoryScreen.kt` costs a second
@@ -1475,8 +1396,7 @@ means seven of fourteen features are, in practice, one file inside one
 subfolder inside one named package: three nesting levels
 (`com.jellemax.detour.features.<name>.components`) to reach a single
 1xx-to-6xx-line file that used to be one hop from `com.jellemax.detour.ui`.
-This is exactly the "11-single-file-packages problem" Proposal B hit,
-reproduced here at one level deeper, because this axis adds a `components/`
+This is the single-file-package problem, one level deeper here, because this axis adds a `components/`
 segment even a one-file feature must have.
 
 **`internal` buys none of the isolation "two-tier component library"
@@ -1488,8 +1408,7 @@ global `components/` — nesting changes nothing about who *can* reach it, only
 about where a reader expects to find it and whether an import line is
 required to do so.
 
-**`Navigation.kt`'s holding-pen shape survives unexamined**, as Proposal B
-already found for its own version of this move: `NavigationBanner`,
+**`Navigation.kt`'s holding-pen shape survives unexamined**: `NavigationBanner`,
 `RouteProgressTrack`, `SpeedLimitSign` (`01-ui-inventory.md` Anomaly 5) each
 have exactly one caller, and each caller is a different file, but all three
 callers sit inside `features/mapscreen/`, so this axis's step 3 never fires
@@ -1522,9 +1441,9 @@ across fourteen packages the way this proposal does.
 
 ## Verification
 
-Reused directly from `.claude/skills/detour-file-split/SKILL.md`, in the two
-forms Proposal A and B already adapted it to, plus a third form for the
-directory-only stage this proposal's sequencing introduces:
+Reused directly from `.claude/skills/detour-file-split/SKILL.md`, in two
+forms, plus a third for the directory-only stage this proposal's sequencing
+introduces:
 
 1. **Stage 2 (pure directory move, package line untouched):** the diff for
    each moved file must show a path change and **zero** content changes —
@@ -1536,8 +1455,7 @@ directory-only stage this proposal's sequencing introduces:
 2. **Stages 3, 5, 6, 7 (package alignment only):** the moved file's diff must
    show exactly one changed line pair (`package …` old vs. new) and zero
    other lines; every dependent file's diff must be confined to its import
-   block, matching `^[+-]import `, the same adapted check Proposal B already
-   specifies. `./gradlew :app:compileDebugKotlin` green after every commit,
+   block, matching `^[+-]import `. `./gradlew :app:compileDebugKotlin` green after every commit,
    not just the last.
 3. **Stage 1a (`nav/AppRoot.kt` extraction) and Stage 4 (the three content
    extractions):** run `detour-file-split`'s procedure exactly as documented
@@ -1570,8 +1488,7 @@ directory-only stage this proposal's sequencing introduces:
    package created stays inside `:app`, so `internal` still means
    module-wide exactly as it does today. If a moved symbol's `internal`
    modifier needs to change during any stage, something was misclassified —
-   confirm by *not* touching any `internal`/`private` modifier during a move,
-   per the same rule Proposal A already states.
+   confirm by *not* touching any `internal`/`private` modifier during a move.
 6. **Test-source-set consumers** (`TripStatLineTest.kt`,
    `TripTraceMatchingTest.kt`, `MapMotionTest.kt`, `FollowCameraTest.kt`,
    `CameraAuthorityTest.kt`) get one new import line each and must show zero

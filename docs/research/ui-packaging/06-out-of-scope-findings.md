@@ -181,5 +181,5 @@ requires a packaging decision:
 13,743 lines. As of this commit it is 59 files and 18,033 lines: +55% files,
 +31% lines. The issue's own "done" definition asks for a decided separation
 axis written where humans read it, plus a project skill carrying the placement
-test. The three proposals in this directory are the evidence base for that
+test. The research and the proposal in this directory are the evidence base for that
 decision; none of them is that decision.

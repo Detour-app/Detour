@@ -172,9 +172,8 @@ because `RoutesScreen.kt` (a different feature) also reads it
 (`SpinResultHolder.kt:… seedRouteNavigation`, called from `RoutesScreen.kt`).
 `NavAppLaunch.kt` (248 lines, `NavButton`/`NavMenuItems`, used only from
 `SpinCards.kt`, `RideSheet.kt`, `NavigationDock.kt` — all mapscreen files)
-takes its place. Proposal C's own text flags a related error in Proposal B:
-B's tree header says "26 files" but its enumerated list names only 26
-*besides* `MapScreen.kt` — 27 total, which C corrects rather than repeats.
+takes its place. The cluster is 26 files besides `MapScreen.kt`, plus
+`MapScreen.kt` itself — 27 in total.
 
 ### 4a. A pure file move
 

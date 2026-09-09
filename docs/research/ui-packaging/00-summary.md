@@ -21,7 +21,7 @@ sat open: issue **#184** (open, `p3-later`) recorded `ui/` at 38 files /
 55% in files, 31% in lines, with no placement rule added in between.
 
 Below, each of four areas gets a BEFORE (today) and an AFTER (the shape
-proposal C sketches — not a decision, see "Three proposals" below).
+proposal C sketches — not a decision, see "The proposal" below).
 
 ## 1. Screens
 
@@ -88,7 +88,7 @@ the trapped-component problem: `HubRow` and `BackgroundLocationDisclosure`
 | `BackgroundLocationDisclosure.kt` | extracted from `MapDialogs.kt` |
 | `Pills.kt`, `TripCardRenderer.kt`, `TravelModeIcon.kt` | the rest |
 
-All three proposals agree on roughly this set — it is the least contested
+This set is the least contested
 part of the research.
 
 ## 3. Services
@@ -162,19 +162,18 @@ with a release-variant compile — this repo has already been bitten once by
 a variant-only miss, caught only by `:app:compileGithubReleaseKotlin` in
 CI, after a local `assembleRelease` had already passed.
 
-## Three proposals — no decision made
+## The proposal — no decision made
 
-Three documents in this folder sketch different axes. **None is chosen.**
-Issue #184 is where that decision belongs.
+`proposal-c-react-informed-nesting.md` is the shape on the table: two
+component tiers (global and per-feature), an `entry/` tier for the thin
+Android entry points, and `lib/` scoped to the nine packages
+`architecture.md` already calls platform ports. Scope is the whole `app/`
+module, not just `ui/`.
 
-| | Axis | Scope | Cost |
-|---|---|---|---|
-| **A** | design-system-first | `ui/` only | 7 files move to `base/`; no nesting introduced anywhere |
-| **B** | feature-slice-first | `ui/` only | one package per feature area under `ui/`, plus a small shared tier |
-| **C** | React-informed, two-tier | whole `app/` module | fullest of the three; the shape the owner is leaning toward |
-
-The AFTER sections above use C because it's the most complete, not because
-it has been picked.
+**It has not been chosen.** Issue #184 is where that decision belongs. Two
+earlier proposals on different axes — a design-system-first `base/` tier, and
+one package per feature area confined to `ui/` — were written and retired;
+they are in git history if the reasoning is ever wanted.
 
 ## What it costs
 
@@ -217,8 +216,7 @@ every declaration involved is far under the 7-parameter ownership gate
 Worth being exact, because "structural change" is easy to over-read.
 
 **No logic changes.** Every declaration that moves is copied verbatim,
-KDoc included. Nothing changes what the app does. Three proposals, all the
-same on this point.
+KDoc included. Nothing changes what the app does.
 
 **But files do change.** Three tiers, and only the first leaves file
 contents untouched:
@@ -274,5 +272,6 @@ cross-surface reuse and move-cost numbers. `04` and `05` are external
 precedent — real Android/Compose codebases, and whether deep nesting is
 idiomatic Kotlin (short answer: no, not past one level). `06` is real
 findings that fell out of this research but are out of scope (the largest
-file in the repo, `car/`'s own factoring, dead code). `proposal-a/b/c` are
-the three candidate shapes in full.
+file in the repo, `car/`'s own factoring, dead code). `proposal-c-react-informed-nesting.md`
+is the candidate shape in full, and `07` works it through MapScreen
+end to end. `../renderer-layer/` is a separate refactor.
