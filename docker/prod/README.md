@@ -65,11 +65,28 @@ The API applies migrations on startup, so a `pull` that crosses a schema change
 applies it the moment the container comes up. Back up `postgres-data` first.
 
 This release moves `keycloak-db` from Postgres 17 to 18. Postgres does not
-upgrade its data directory across a major version in place: before `pull`ing,
-`docker compose exec keycloak-db pg_dump -U keycloak keycloak > kc.sql`, then
-after the upgrade `docker compose down -v keycloak-db` and restore. Or accept a
-fresh realm database and recreate the realm — see "The realm is not created for
-you" above.
+upgrade its data directory across a major version in place. Before `pull`ing,
+dump the realm database:
+
+```bash
+docker compose exec -T keycloak-db pg_dump -U keycloak keycloak > kc.sql
+```
+
+Then, after the new images are up, replace only the `keycloak-db` volume and
+restore into it — never `docker compose down -v`, which would also delete
+`postgres-data` and every trip and trace with it:
+
+```bash
+docker compose stop keycloak-db
+# The volume is named <project>_keycloak-db-data — "detour_keycloak-db-data" with
+# the default PROJECT_NAME. Confirm the exact name first with `docker volume ls`.
+docker volume rm detour_keycloak-db-data
+docker compose up -d keycloak-db
+docker compose exec -T keycloak-db psql -U keycloak keycloak < kc.sql
+```
+
+Or accept a fresh realm database and recreate the realm — see "The realm is not
+created for you" above.
 
 ## Backups
 
