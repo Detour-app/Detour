@@ -11,6 +11,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Read-only: this workflow checks out and runs compose, nothing else.
+# If ghcr.io/detour-app/detour-api goes private, the smoke job additionally
+# needs `packages: read` plus a docker/login-action step with GITHUB_TOKEN.
+permissions:
+  contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -60,10 +66,12 @@ jobs:
         run: |
           # The +idp overlay re-adds the api -> keycloak dependency as a fragment;
           # compose has to deep-merge it onto the base api.depends_on (db), not
-          # replace it. Assert both survive the merge.
+          # replace it. Assert both survive the merge, structurally — a grep over
+          # the YAML would also match keycloak's own `depends_on: keycloak-db` and
+          # pass even if api.depends_on.keycloak stopped merging.
           export COMPOSE_FILE=docker-compose.yml:docker-compose.idp.yml
-          docker compose config | grep -A6 'depends_on' | grep -q keycloak
-          docker compose config | grep -A6 'depends_on' | grep -q 'db:'
+          docker compose config --format json \
+            | jq -e '.services.api.depends_on | has("db") and has("keycloak")'
 
   smoke:
     runs-on: ubuntu-latest
@@ -83,7 +91,11 @@ jobs:
           EOF
           export COMPOSE_FILE=docker-compose.yml:docker-compose.idp.yml
           docker compose up -d
-          if ! timeout 240 sh -c 'until curl -fsS localhost:7500/api/health | grep -q Healthy; do sleep 5; done' ; then
+          # Poll on the postgres critical check, structurally — `grep Healthy` also
+          # matches "Unhealthy", and an overall "Degraded" still answers HTTP 200 so
+          # `curl -fsS` would not catch it. /api/health shape:
+          #   {"status":"Healthy","checks":{"postgres":{"status":"Healthy",...}}}
+          if ! timeout 240 sh -c 'until curl -fsS localhost:7500/api/health | jq -e ".checks.postgres.status == \"Healthy\"" >/dev/null 2>&1; do sleep 5; done' ; then
             docker compose logs
             docker compose down -v
             exit 1
