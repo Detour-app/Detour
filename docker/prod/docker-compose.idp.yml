@@ -44,7 +44,12 @@ services:
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
       TZ: ${TZ:-Europe/Brussels}
-    command: start --optimized
+    # `start`, not `start --optimized`: the stock quay.io image ships no prior
+    # `kc.sh build`, and `--optimized` hard-fails ("don't use this flag for the
+    # first startup") on a fresh volume. Plain `start` runs a short build against
+    # the current env (KC_DB=postgres etc.) on boot, then serves. To skip that
+    # ~15s step, bake your own image with `kc.sh build` and re-add --optimized.
+    command: start
     depends_on:
       keycloak-db:
         condition: service_healthy
@@ -65,7 +70,11 @@ services:
     networks:
       - keycloak-int
     volumes:
-      - keycloak-db-data:/var/lib/postgresql/data
+      # Postgres 18's docker image stores data in a major-version subdirectory and
+      # wants the mount one level up at /var/lib/postgresql (matches the base db).
+      # Mounting the pre-18 /var/lib/postgresql/data path makes the container
+      # refuse to start. See docker/prod/README.md "Upgrading" for the 17 -> 18 move.
+      - keycloak-db-data:/var/lib/postgresql
     environment:
       POSTGRES_USER: ${KC_DB_USER:-keycloak}
       POSTGRES_PASSWORD: ${KC_DB_PASSWORD:?Set KC_DB_PASSWORD in docker/prod/.env}

@@ -1,0 +1,92 @@
+name: Compose
+
+on:
+  push:
+    branches: [main]
+    paths: ['docker/**', '.github/workflows/compose.yml']
+  pull_request:
+    paths: ['docker/**', '.github/workflows/compose.yml']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: fetch-extract.sh
+        run: sh docker/prod/scripts/fetch-extract.test.sh
+
+      - name: compose config — every COMPOSE_FILE combination
+        working-directory: docker/prod
+        run: |
+          # A throwaway .env: .env.example plus CI dummy values for every ${VAR:?}
+          # secret compose interpolates before it will emit config. Later lines win,
+          # so the example's placeholder issuer/hostname are overridden here.
+          cp .env.example .env
+          cat >> .env <<'EOF'
+          POSTGRES_PASSWORD=ci
+          KC_ADMIN_PASSWORD=ci
+          KC_DB_PASSWORD=ci
+          KC_HOSTNAME=https://idp.ci.invalid
+          IDP_ISSUER=https://idp.ci.invalid/realms/detour
+          PHOTON_REGION=be
+          CLOUDFLARE_TUNNEL_TOKEN=ci
+          EOF
+          fail=0
+          for combo in \
+            "docker-compose.yml" \
+            "docker-compose.yml:docker-compose.idp.yml" \
+            "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml" \
+            "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml:docker-compose.search.yml" \
+            "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml:docker-compose.search.yml:docker-compose.proxy.yml" \
+            "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml:docker-compose.search.yml:docker-compose.cloudflare.yml" ; do
+            echo "::group::$combo"
+            if COMPOSE_FILE="$combo" docker compose config -q ; then
+              echo "OK   $combo"
+            else
+              echo "::error::$combo does not pass docker compose config"
+              fail=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $fail
+
+      - name: api depends on both db and keycloak under +idp
+        working-directory: docker/prod
+        run: |
+          # The +idp overlay re-adds the api -> keycloak dependency as a fragment;
+          # compose has to deep-merge it onto the base api.depends_on (db), not
+          # replace it. Assert both survive the merge.
+          export COMPOSE_FILE=docker-compose.yml:docker-compose.idp.yml
+          docker compose config | grep -A6 'depends_on' | grep -q keycloak
+          docker compose config | grep -A6 'depends_on' | grep -q 'db:'
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: base + idp comes up healthy
+        working-directory: docker/prod
+        run: |
+          cp .env.example .env
+          cat >> .env <<'EOF'
+          POSTGRES_PASSWORD=ci
+          KC_ADMIN_PASSWORD=ci
+          KC_DB_PASSWORD=ci
+          KC_HOSTNAME=http://localhost:7580
+          IDP_ISSUER=http://localhost:7580/realms/detour
+          IDP_REQUIRE_HTTPS=false
+          EOF
+          export COMPOSE_FILE=docker-compose.yml:docker-compose.idp.yml
+          docker compose up -d
+          if ! timeout 240 sh -c 'until curl -fsS localhost:7500/api/health | grep -q Healthy; do sleep 5; done' ; then
+            docker compose logs
+            docker compose down -v
+            exit 1
+          fi
+          curl -s localhost:7500/api/health
+          docker compose down -v
