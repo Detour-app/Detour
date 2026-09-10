@@ -16,8 +16,9 @@ services:
     # Pinned — bump deliberately; a tunnel image that moves under you is a debugging surprise.
     image: cloudflare/cloudflared:2026.9.0
     restart: unless-stopped
-    # `edge` alone is enough: both the API and Keycloak join it precisely so that
-    # one reverse proxy can reach them without also being able to reach either
+    # `edge` alone is enough: every service a client reaches — API, Keycloak, and
+    # the routing/search overlays when run — shares `edge` precisely so that one
+    # reverse proxy can reach them without also being able to reach either
     # database.
     networks:
       - edge

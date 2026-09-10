@@ -58,7 +58,7 @@ do not, and that is expected, not a failure:
   routing graph and the contraction hierarchies for both profiles. That is
   **25 min (`benelux`) to 65 min (`germany`)** and wants `GRAPHHOPPER_HEAP` of
   RAM on the machine doing it. `/health` reports down for the whole build and the
-  container sits `unhealthy` — `start_period` is sized to outlast it.
+  container sits at `health: starting` — `start_period` is sized to outlast it.
   `docker compose logs -f graphhopper` shows progress. The result lands in the
   `graphhopper-data` volume, so later starts are seconds; deleting that volume,
   or changing `OSM_REGION` or the profile set, pays for the build again.
@@ -82,6 +82,9 @@ then). The curated three, first-boot cost on GraphHopper 11 (graph + CH for
 | `benelux` | ~10 GB | ~25 min |
 | `france` | ~18 GB | ~50 min |
 | `germany` | ~22 GB | ~65 min |
+
+*Figures are estimates from the extract sizes, not yet measured against a real
+build — watch `docker compose logs -f graphhopper` for your actual numbers.*
 
 `benelux` runs on a modest box. `france` and `germany` need a build machine with
 real RAM until sub-project 2's prebuilt graphs land (they drop the serve need to

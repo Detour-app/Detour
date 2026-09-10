@@ -46,6 +46,8 @@ jobs:
           for combo in \
             "docker-compose.yml" \
             "docker-compose.yml:docker-compose.idp.yml" \
+            "docker-compose.yml:docker-compose.routing.yml" \
+            "docker-compose.yml:docker-compose.search.yml" \
             "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml" \
             "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml:docker-compose.search.yml" \
             "docker-compose.yml:docker-compose.idp.yml:docker-compose.routing.yml:docker-compose.search.yml:docker-compose.proxy.yml" \

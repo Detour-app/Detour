@@ -59,7 +59,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30m
+      start_period: ${PHOTON_BUILD_TIMEOUT:-30m}
 
 networks:
   detour-int:

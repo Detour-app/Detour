@@ -77,6 +77,9 @@ services:
     ports:
       - 127.0.0.1:${GRAPHHOPPER_PORT:-7510}:8989
     volumes:
+      # Runs as root (the image sets no USER) — that's what lets it write the
+      # graphhopper-data volume; a future non-root image tag would need the volume
+      # pre-chowned.
       # Read-only: a graph rebuild must not be able to corrupt the download.
       - osm-data:/osm:ro
       - graphhopper-data:/graph

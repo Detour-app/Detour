@@ -25,9 +25,9 @@ That is five processes where there was one, plus routing and search on top — a
 seven now shipped by `docker/prod/` as layers you opt into through `COMPOSE_FILE`,
 not services you assemble yourself. The README's promise that "your trips and
 traces live on hardware you own" now costs meaningfully more of that hardware
-(the graph build alone wants 10–24 GB of RAM by region). That trade has already
-been made — the Python server was removed rather than kept alongside — so this is
-what self-hosting Detour costs now.
+(the graph build alone wants an estimated 10–24 GB of RAM by region). That
+trade has already been made — the Python server was removed rather than kept
+alongside — so this is what self-hosting Detour costs now.
 
 ## Routing and search
 
