@@ -216,4 +216,62 @@ class CameraWarnerTest {
             step(cameras = listOf(far, near)).outcome,
         )
     }
+
+    // ---- camera:direction (#318) -------------------------------------------
+
+    /** Camera due north of you, facing due south - the tag OSM mappers give a
+     *  camera that watches northbound traffic i.e. traffic heading the same way
+     *  you are. It faces you: it warns. */
+    @Test
+    fun aCameraFacingYouStillWarns() {
+        val facingYou = SpeedCameras.Camera(ahead.at, facingDeg = 180.0)
+        assertEquals(
+            CameraWarner.Outcome.Warn(facingYou.at, "Speed camera ahead"),
+            step(cameras = listOf(facingYou)).outcome,
+        )
+    }
+
+    /** Same camera, but tagged facing the same way you're driving - it watches
+     *  the opposite carriageway, not you. Ahead-of-you by the wedge alone, but
+     *  not pointed at you, so silent - the false warning issue #318 reports. */
+    @Test
+    fun aCameraOnTheOppositeCarriagewayDoesNotWarn() {
+        val facingAway = SpeedCameras.Camera(ahead.at, facingDeg = 0.0)
+        assertEquals(
+            CameraWarner.Outcome.Silent,
+            step(cameras = listOf(facingAway)).outcome,
+        )
+    }
+
+    /** An untagged camera behaves exactly as before the tag was read at all -
+     *  the wedge alone decides. */
+    @Test
+    fun anUntaggedCameraIgnoresFacingEntirely() {
+        assertEquals(
+            CameraWarner.Outcome.Warn(ahead.at, "Speed camera ahead"),
+            step(cameras = listOf(ahead)).outcome,
+        )
+    }
+
+    /** No heading means no "behind" for the wedge either - the tolerance is
+     *  stated the same way, in [CameraWarner.CAMERA_FACING_TOLERANCE_DEG]. */
+    @Test
+    fun theFacingToleranceBoundaryIsInclusive() {
+        val facingYou = SpeedCameras.Camera(
+            ahead.at,
+            facingDeg = 180.0 + CameraWarner.CAMERA_FACING_TOLERANCE_DEG,
+        )
+        assertEquals(
+            CameraWarner.Outcome.Warn(facingYou.at, "Speed camera ahead"),
+            step(cameras = listOf(facingYou)).outcome,
+        )
+        val justPast = SpeedCameras.Camera(
+            ahead.at,
+            facingDeg = 180.0 + CameraWarner.CAMERA_FACING_TOLERANCE_DEG + 0.1,
+        )
+        assertEquals(
+            CameraWarner.Outcome.Silent,
+            step(cameras = listOf(justPast)).outcome,
+        )
+    }
 }

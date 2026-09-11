@@ -3,6 +3,8 @@ package com.jellemax.detour.drive
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.SpeedCameras
+import kotlin.math.abs
+import kotlin.math.min
 
 /**
  * Whether a speed camera ahead is worth interrupting for, and the wording if it
@@ -31,6 +33,13 @@ object CameraWarner {
 
     /** How far off the heading a camera may lie and still count as ahead. */
     const val AHEAD_WEDGE_DEG = 45.0
+
+    /** How far a tagged camera's facing bearing may sit from dead-opposite your
+     *  heading and still count as pointed at you (issue #318). Same magnitude as
+     *  [AHEAD_WEDGE_DEG] for the same reason - a road bends under both. Only
+     *  applies when the camera is tagged; an untagged one keeps the wedge as its
+     *  only test. */
+    const val CAMERA_FACING_TOLERANCE_DEG = 45.0
 
     /** Over the posted limit by this much before a camera is worth interrupting
      *  for. Under it you are not the driver the camera is about to photograph. */
@@ -67,7 +76,8 @@ object CameraWarner {
         val ahead = cameras.filter { cam ->
             RoadRoulette.distanceMeters(at, cam.at) <= SpeedCameras.WARN_METERS &&
                 (headingDeg == null ||
-                    RoadRoulette.withinWedge(at, cam.at, headingDeg, AHEAD_WEDGE_DEG))
+                    RoadRoulette.withinWedge(at, cam.at, headingDeg, AHEAD_WEDGE_DEG)) &&
+                (cam.facingDeg == null || headingDeg == null || facesYou(cam.facingDeg, headingDeg))
         }.minByOrNull { RoadRoulette.distanceMeters(at, it.at) }
             // Nothing in range clears the latch, which is what re-arms it for the
             // next camera. Being in range and *not* too fast does not.
@@ -81,4 +91,13 @@ object CameraWarner {
     /** The wording, declared once for every surface. The phone's own comment said
      *  this literal was waiting for this machine to own it. */
     private const val WARNING_TEXT = "Speed camera ahead"
+
+    /** Whether a camera tagged facing [facingDeg] is pointed at someone heading
+     *  [headingDeg] - i.e. its facing bearing is roughly opposite your own,
+     *  within [CAMERA_FACING_TOLERANCE_DEG]. A camera facing north watches
+     *  southbound traffic. */
+    private fun facesYou(facingDeg: Double, headingDeg: Double): Boolean {
+        val diff = abs((facingDeg + 180.0) - headingDeg) % 360.0
+        return min(diff, 360.0 - diff) <= CAMERA_FACING_TOLERANCE_DEG
+    }
 }
