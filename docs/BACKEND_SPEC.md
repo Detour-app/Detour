@@ -469,10 +469,13 @@ Role changes take effect on the next token the realm issues, which is the
 
 ## 14. Out of scope
 
-Two adjacent self-hosted services are **not part of this backend, and `docker/`
-does not start either of them** — the app calls them directly, and a self-hoster
-runs them separately. See [`backend/INSTALL.md`](../backend/INSTALL.md#routing-and-search)
-for what each needs to run and [README.md](../README.md#every-service-and-what-it-is-for)
+Two adjacent self-hosted services are **not part of this backend** — the app
+calls them directly, not through the API, so that boundary is unchanged.
+`docker/prod/` now ships them as optional compose overlays
+(`docker-compose.routing.yml`, `docker-compose.search.yml`); they run as separate
+containers on their own upgrade cadence, and the API neither proxies nor depends
+on them. See [`backend/INSTALL.md`](../backend/INSTALL.md#routing-and-search) for
+what each costs to run and [README.md](../README.md#every-service-and-what-it-is-for)
 for what breaks in the app without them.
 
 | Service | Function |

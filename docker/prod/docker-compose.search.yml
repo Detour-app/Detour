@@ -1,0 +1,69 @@
+# Self-hosted geocoding (address / place search), as an overlay. Add
+# docker-compose.search.yml to COMPOSE_FILE in .env to stop search falling back
+# to the public photon.komoot.io instance.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.search.yml up -d
+#
+# One country only. PHOTON_REGION is a single country code (be, nl, de, ...) or
+# region name; Photon's db-mode index is per-region. Multi-country needs the
+# image's experimental jsonl mode, which is sub-project 2. First boot downloads
+# that region's prebuilt index (photon-db-<region>-latest.tar.bz2) into
+# photon-data and extracts it — hundreds of MB and up, so /status stays down for
+# a while; `docker compose logs -f photon` shows the download and import. Later
+# starts reuse the volume and come up in seconds.
+#
+# Image mechanics verified against ghcr.io/rtuszik/photon-docker:2.4.0 on
+# 2026-09-09 (Dockerfile + src/utils/config.py at tag 2.4.0, and the pulled
+# image):
+#   - Env names moved once (COUNTRY_CODE -> REGION). At 2.4.0 the country var is
+#     REGION (no default), IMPORT_MODE defaults to db, the update knobs are
+#     UPDATE_STRATEGY (default SEQUENTIAL) and UPDATE_INTERVAL (default 30d), and
+#     INITIAL_DOWNLOAD (default TRUE) auto-triggers when the data dir is empty.
+#   - DATA_DIR is /photon/data (the index lands in /photon/data/photon_data);
+#     the earlier /photon/photon_data path is gone. The volume mounts /photon/data.
+#   - The API listens on 2322 (EXPOSEd). PHOTON_LISTEN_IP defaults to 0.0.0.0.
+#   - No USER directive: entrypoint.sh runs as root, chowns /photon/data (so the
+#     fresh named volume needs no `user:` fix), then gosu-drops to photon (9011).
+#   - curl is installed (/usr/bin/curl) — the healthcheck below uses it, same as
+#     the image's own baked-in HEALTHCHECK, but with a start_period that outlasts
+#     the first-boot index download instead of the image's 240s.
+
+name: ${PROJECT_NAME:-detour}
+
+services:
+  photon:
+    image: ghcr.io/rtuszik/photon-docker:2.4.0
+    restart: unless-stopped
+    networks:
+      - detour-int
+      # `edge` so the proxy / cloudflared overlays can reach it — a rider's phone
+      # talks to Photon directly, not through the API (Geocoder__BaseUrl only
+      # announces the URL; #177).
+      - edge
+    ports:
+      - 127.0.0.1:${PHOTON_PORT:-2322}:2322
+    environment:
+      # Unset region fails the stack rather than starting an empty index (#178).
+      REGION: ${PHOTON_REGION:?Set PHOTON_REGION to one country code (e.g. be), or drop docker-compose.search.yml from COMPOSE_FILE and use the public photon.komoot.io fallback}
+      IMPORT_MODE: db
+      UPDATE_STRATEGY: PARALLEL
+      UPDATE_INTERVAL: ${PHOTON_UPDATE_INTERVAL:-720h}
+      TZ: ${TZ:-Europe/Brussels}
+    volumes:
+      - photon-data:/photon/data
+    healthcheck:
+      # /status is up only once the index is imported, so this stays unhealthy
+      # through the first-boot download rather than flapping. start_period is that
+      # download. Nothing depends_on photon with a condition — this is advisory.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:2322/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: ${PHOTON_BUILD_TIMEOUT:-30m}
+
+networks:
+  detour-int:
+  edge:
+
+volumes:
+  photon-data:

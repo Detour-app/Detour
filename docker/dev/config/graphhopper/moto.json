@@ -1,0 +1,35 @@
+// Keep in sync with docker/prod/config/graphhopper/moto.json.
+//
+// Motorcycle weighting — the deltas on top of GraphHopper's built-in car model,
+// not a whole model.
+//
+// GraphHopper has no motorcycle encoder, so `moto` rides on the car model and
+// adjusts priority: motorways are dull on a bike and this app exists to avoid
+// them, tracks and poor surfaces are unpleasant on two wheels, and the app's own
+// round-trip planner biases toward curvature on top of whatever comes back here.
+//
+// This is a plausible motorcycle route, not a tuned motorcycle profile.
+//
+// Layering: config.yml lists `custom_model_files: [car.json, moto.json]` and
+// GraphHopper merges them in order. There is NO `"base"` key in a custom model
+// — CustomModel's only fields are speed, priority, areas, distance_influence,
+// heading_penalty and turn_penalty — so the file list is how a model inherits.
+//
+// That car.json is GraphHopper's built-in one, out of the jar, not a file in this
+// directory. Checking a copy in here is not an option: GraphHopper refuses to
+// start with "Custom model file name 'car.json' is already used for built-in
+// profiles" if custom_models.directory holds a file named after a built-in.
+//
+// Every encoded value below (road_class, track_type, surface) must be in
+// config.yml's graph.encoded_values or the build fails.
+
+{
+  "priority": [
+    { "if": "road_class == MOTORWAY",    "multiply_by": "0.3" },
+    { "if": "road_class == TRUNK",       "multiply_by": "0.7" },
+    { "if": "road_class == RESIDENTIAL", "multiply_by": "0.8" },
+    { "if": "track_type != MISSING",     "multiply_by": "0.2" },
+    { "if": "surface == GRAVEL || surface == DIRT || surface == SAND",
+      "multiply_by": "0.2" }
+  ]
+}

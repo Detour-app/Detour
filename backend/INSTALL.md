@@ -18,39 +18,46 @@ a Raspberry Pi and walked away. This one needs:
 | Keycloak's own Postgres | Keycloak will not keep a realm in memory across restarts | no |
 | A reverse proxy with TLS | the realm issues tokens against one fixed issuer URL | in practice, no |
 | Redis | second-level cache only; a miss is a slower request | **yes** |
-| GraphHopper (routing) | serves in-app turn-by-turn; **not started by this stack** | without it, the navigate-in-app button is unavailable |
-| Photon (geocoding) | serves address/place search; **not started by this stack** | without it, search silently uses the public `photon.komoot.io` instead |
+| GraphHopper (routing) | serves in-app turn-by-turn; started by `docker-compose.routing.yml` | without it, the navigate-in-app button is unavailable |
+| Photon (geocoding) | serves address/place search; started by `docker-compose.search.yml` | without it, search silently uses the public `photon.komoot.io` instead |
 
-That is five processes where there was one, plus two more this repo does not run
-for you at all — see [Routing and search](#routing-and-search) below. The
-README's promise that "your trips and traces live on hardware you own" now costs
-meaningfully more of that hardware. That trade has already been made — the
-Python server was removed rather than kept alongside — so this is what
-self-hosting Detour costs now.
+That is five processes where there was one, plus routing and search on top — all
+seven now shipped by `docker/prod/` as layers you opt into through `COMPOSE_FILE`,
+not services you assemble yourself. The README's promise that "your trips and
+traces live on hardware you own" now costs meaningfully more of that hardware
+(the graph build alone wants an estimated 10–24 GB of RAM by region). That
+trade has already been made — the Python server was removed rather than kept
+alongside — so this is what self-hosting Detour costs now.
 
 ## Routing and search
 
-`docker/prod/` brings up the API, Postgres and Keycloak — nothing routes or
-searches. Those are two separate open-source services this repo does not
-package, does not build an image for, and does not start:
+`docker/prod/` ships GraphHopper and Photon as opt-in overlays —
+`docker-compose.routing.yml` and `docker-compose.search.yml`. Add them to the
+`COMPOSE_FILE` line in `.env` and they come up with everything else;
+[`docker/prod/README.md`](../docker/prod/README.md#the-layers) has the layer
+table, the region/RAM tiers and the first-boot timings. The app still talks to
+both **directly**, not through the API — the boundary in
+[`docs/BACKEND_SPEC.md`](../docs/BACKEND_SPEC.md#14-out-of-scope) §14 is
+unchanged; only the packaging is.
 
 | Service | Gives you | Without it |
 | --- | --- | --- |
 | [GraphHopper](https://github.com/graphhopper/graphhopper) | in-app turn-by-turn navigation, and routed (not straight-line) distance/ETA for spin candidates | the "Navigate in app" option in the hand-off menu is unavailable; the app still works otherwise |
 | [Photon](https://github.com/komoot/photon) | self-hosted address/place search | search keeps working, silently, against the public `photon.komoot.io` — see [What leaves your device](../docs/USER_GUIDE.md#what-leaves-your-device) |
 
-Run both yourself, following their own install docs:
+Two things still bite regardless of who runs them:
 
-- **GraphHopper** needs an OSM extract for the area you want to route in and a
-  graph build before it answers anything — there is no default extract shipped
-  here. It must expose the **`moto`** and **`car`** profiles by name; the app's
-  routing requests ask for them by that string
+- **GraphHopper profile names.** It must expose the **`moto`** and **`car`**
+  profiles by name; the app's routing requests ask for them by that string
   (`shared/src/commonMain/kotlin/com/jellemax/detour/data/RoutingClient.kt`), so
-  a `config.yml` with different profile names leaves every request 400ing.
-- **Photon** needs an imported search index or one of the prebuilt regional
-  dumps from the project — an empty Elasticsearch/Lucene index answers every
-  query with zero results, not an error, which looks like "search is just
-  broken" rather than "index is empty."
+  a `config.yml` with different profile names leaves every request 400ing. The
+  shipped `config/graphhopper/config.yml` gets this right; a hand-rolled one is
+  where it goes wrong.
+- **Photon's first-boot index.** `PHOTON_REGION`'s prebuilt country index is a
+  few hundred MB and up, and until it finishes downloading and importing Photon
+  answers every query with zero results, not an error — which looks like "search
+  is just broken" rather than "index is still loading". `docker compose logs -f
+  photon` shows progress.
 
 Point the app at them under Settings → Servers & sync → *Routing server* /
 *Search server*, or bake `routing.url` / `geocoder.url` into `local.properties`
@@ -67,7 +74,7 @@ separate again and deliberately never falls back to `url` — see
 You do not have to build it. Every push to `main` publishes one:
 
 ```bash
-docker pull ghcr.io/jonohas/detour-api:latest
+docker pull ghcr.io/detour-app/detour-api:latest
 ```
 
 Tagged `latest` for `main`, and by commit sha — pin to a sha for a deployment you
@@ -86,8 +93,14 @@ non-root user.
 
 ```bash
 cp docker/prod/.env.example docker/prod/.env
-docker compose -f docker/prod/docker-compose.yml up -d
+cd docker/prod && docker compose up -d
 ```
+
+`.env`'s `COMPOSE_FILE` line selects the layers (API only, `+idp`, `+routing`,
+`+search`); the example defaults to the full stack, and every `docker compose`
+command from `docker/prod/` then needs no `-f` flags. A bare
+`docker compose -f docker/prod/docker-compose.yml up -d` now starts the API and
+its database *only* — Keycloak moved to `docker-compose.idp.yml`.
 
 See [`docker/prod/README.md`](../docker/prod/README.md). Nothing in it has a
 default password: compose refuses to start until every secret is set, which is the

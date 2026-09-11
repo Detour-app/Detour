@@ -4,19 +4,20 @@ services:
   # ---------------------------------------------------------------------------
   # GraphHopper — routing, for local development.
   #
-  # backend/INSTALL.md is right that this repo does not package routing for
-  # production: a real deployment picks its own region, its own extract cadence
-  # and its own hardware. This service exists so a developer can exercise the
-  # features that need a route at all — in-app turn-by-turn, and the routed
-  # (rather than straight-line) distance and ETA on spin candidates. Without a
-  # router those paths cannot run: RoutingClient has no public fallback the way
-  # Geocoder does, so `route` comes back null and navigation never starts.
+  # This service exists so a developer can exercise the features that need a route
+  # at all — in-app turn-by-turn, and the routed (rather than straight-line)
+  # distance and ETA on spin candidates. Without a router those paths cannot run:
+  # RoutingClient has no public fallback the way Geocoder does, so `route` comes
+  # back null and navigation never starts.
+  #
+  # Routing IS packaged for production now, in docker/prod/docker-compose.routing.yml
+  # — same image, same version, same config. Keep the two in sync; the only
+  # intended difference is where the OSM extract comes from.
   #
   # The image is israelhikingmap's rather than an official one — GraphHopper
-  # publishes no image to Docker Hub. Pinned to 8.0 because the profile syntax
-  # in config/graphhopper/config.yml (`vehicle: car`) was replaced by
-  # `custom_model_files` in 9.x; moving the tag without rewriting that config
-  # gives a container that starts and then rejects every profile.
+  # publishes no image to Docker Hub. It tracks the current major (#259 moved this
+  # off 8.0, whose `vehicle: car` profile syntax 9.x replaced with
+  # `custom_model_files`); bump it and config.yml together.
   #
   # The OSM extract is NOT in git — 662 MB of Belgium. Fetch it once:
   #
@@ -32,10 +33,14 @@ services:
   # profiles: minutes, and several GB of heap. That lands in the named volume,
   # so later starts are seconds. Deleting the volume pays for it again — and so
   # does changing the extract or the profile set, since the cache is keyed to
-  # both.
+  # both. A GraphHopper major bump does too, and does not fail gracefully: a graph
+  # built by 8.x will not load on 11. Drop it first:
+  #
+  #   docker compose -f docker/dev/docker-compose.yml down graphhopper
+  #   docker volume rm detour-dev_graphhopper-data
   # ---------------------------------------------------------------------------
   graphhopper:
-    image: israelhikingmap/graphhopper:8.0
+    image: israelhikingmap/graphhopper:11.0
     restart: unless-stopped
     networks:
       - detour-int
@@ -46,18 +51,24 @@ services:
       - ../data/graphhopper:/osm:ro
       - graphhopper-data:/graph
       - ../config/graphhopper/config.yml:/config.yml:ro
+      # custom_models.directory in config.yml. Only moto.json — the `car` profile
+      # uses GraphHopper's built-in car.json from inside the jar, and mounting a
+      # file of that name here is a hard startup error. See moto.json.
+      - ../config/graphhopper/moto.json:/config/moto.json:ro
     environment:
+      # Read by the image's graphhopper.sh.
+      JAVA_OPTS: -Xmx6g -Xms1g
       TZ: ${TZ:-Europe/Brussels}
-    # The image's default entrypoint runs its own config-example.yml. Point it
-    # at ours instead; every path it needs is already in that file.
-    # -XX:-UseContainerSupport: this image's JDK reads cgroup v1 layouts and
-    # NPEs out of CgroupV2Subsystem.getInstance on a cgroup v2 host, before any
-    # GraphHopper code runs. Turning container awareness off skips that probe;
-    # the heap is pinned below anyway, which is the only thing the probe would
-    # have informed.
-    entrypoint:
-      ["java", "-XX:-UseContainerSupport", "-Xmx6g", "-Xms1g", "-jar",
-       "/graphhopper/graphhopper-web-8.0-SNAPSHOT.jar", "server", "/config.yml"]
+    # The image's default entrypoint runs its own config-example.yml. Point its
+    # own helper script at ours instead — the helper finds the jar itself, so
+    # there is no version-stamped jar name to keep updating here. `-o` is not
+    # optional: it defaults to /data/default-gh and is passed as
+    # -Ddw.graphhopper.graph.location, which overrides config.yml.
+    #
+    # The 8.0 image needed -XX:-UseContainerSupport, because its JDK read cgroup
+    # v1 layouts and NPEd out of CgroupV2Subsystem.getInstance on a cgroup v2
+    # host. The 11.0 image is on JDK 21 and starts clean without it.
+    entrypoint: ["./graphhopper.sh", "-c", "/config.yml", "-o", "/graph"]
     healthcheck:
       # /health reports up only once the graph is loaded, so this stays
       # unhealthy through the whole first build rather than flapping. The long

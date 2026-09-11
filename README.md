@@ -109,14 +109,14 @@ somebody else's.
 
 | Service | What it does | Required? | Without it | Runs from |
 | --- | --- | --- | --- | --- |
-| **Detour API** | The one service this repo *is*: trip and trace sync, saved places, friendships, convoys, circles, shared routes, the live WebSocket relay, and the read-only dashboard endpoints. .NET 10, listens on 7500, applies its own migrations at startup. | Yes, for an account | No sign-in, no sync, no friends, circles or convoys. The app is fully usable locally. | `docker/prod/docker-compose.yml`, or `ghcr.io/jonohas/detour-api` |
-| **Postgres** (app) | Everything the API stores. Needs the real thing, not SQLite: `citext` handles, `jsonb` columns, real unique indexes. | Yes | The API will not start. | same compose file |
-| **Keycloak** | Owns accounts and passwords. Detour has no registration form, no password form and no invite codes — sign-in happens on the realm's own page in a browser, and the API only ever sees the token it issued. | Yes | Nobody can sign in; there is no local fallback. | same compose file |
-| **Postgres** (Keycloak) | Keycloak's own store, deliberately a second instance: separate product, separate upgrade cadence, and restoring one must never involve the other. | Yes | Losing it loses every login. | same compose file |
+| **Detour API** | The one service this repo *is*: trip and trace sync, saved places, friendships, convoys, circles, shared routes, the live WebSocket relay, and the read-only dashboard endpoints. .NET 10, listens on 7500, applies its own migrations at startup. | Yes, for an account | No sign-in, no sync, no friends, circles or convoys. The app is fully usable locally. | `docker/prod/docker-compose.yml` (the base layer), or `ghcr.io/detour-app/detour-api` |
+| **Postgres** (app) | Everything the API stores. Needs the real thing, not SQLite: `citext` handles, `jsonb` columns, real unique indexes. | Yes | The API will not start. | base layer, alongside the API |
+| **Keycloak** | Owns accounts and passwords. Detour has no registration form, no password form and no invite codes — sign-in happens on the realm's own page in a browser, and the API only ever sees the token it issued. | Yes | Nobody can sign in; there is no local fallback. | add `docker-compose.idp.yml` to `COMPOSE_FILE`, or point `IDP_ISSUER` at your own realm |
+| **Postgres** (Keycloak) | Keycloak's own store, deliberately a second instance: separate product, separate upgrade cadence, and restoring one must never involve the other. | Yes | Losing it loses every login. | `docker-compose.idp.yml`, with Keycloak |
 | **Reverse proxy with TLS** | Terminates HTTPS and fronts the API and Keycloak. The realm issues tokens against **one fixed issuer URL**, and that URL should be `https`. The prod compose binds everything to `127.0.0.1` on the assumption something sits in front. | In practice, yes | Tokens are issued against a plain-HTTP issuer, and mobile clients are unhappy about it. | Your choice. Overlays ship for [nginx](docker/prod/docker-compose.proxy.yml) and [Cloudflare Tunnel](docker/prod/docker-compose.cloudflare.yml); Traefik and Caddy work equally well |
-| **GraphHopper** | Turn-by-turn routing, and the routed (rather than straight-line) distance and ETA on spin candidates. Must expose profiles named exactly `car` and `moto`. | No | "Navigate in app" is *absent*, not degraded, and spin candidates fall back to crow-flies distance. | You run it — [upstream](https://github.com/graphhopper/graphhopper). A dev instance is in `docker/dev` |
-| **Photon** | Address and place search. | No | Search silently uses the public `photon.komoot.io` instead — unless you turn the fallback off. | You run it — [upstream](https://github.com/komoot/photon) |
-| **Redis** | L2 cache behind FusionCache, plus its backplane. Empty config is a *correct* single-instance deployment. | No | A cache miss is a slower request, not a broken one. Wire it when you run more than one API container. | `--profile cache` in the prod compose |
+| **GraphHopper** | Turn-by-turn routing, and the routed (rather than straight-line) distance and ETA on spin candidates. Must expose profiles named exactly `car` and `moto`. | No | "Navigate in app" is *absent*, not degraded, and spin candidates fall back to crow-flies distance. | add `docker-compose.routing.yml` to `COMPOSE_FILE` — GraphHopper 11, region-driven, with a first-boot graph build (tens of minutes, RAM-hungry). See [docker/prod/README.md](docker/prod/README.md#the-layers) |
+| **Photon** | Address and place search. | No | Search silently uses the public `photon.komoot.io` instead — unless you turn the fallback off. | add `docker-compose.search.yml` to `COMPOSE_FILE` — one country per `PHOTON_REGION`. See [docker/prod/README.md](docker/prod/README.md#the-layers) |
+| **Redis** | L2 cache behind FusionCache, plus its backplane. Empty config is a *correct* single-instance deployment. | No | A cache miss is a slower request, not a broken one. Wire it when you run more than one API container. | `--profile cache` on the base layer |
 | **Grafana LGTM** | Grafana, Loki, Tempo, Prometheus and an OTel collector in one container. The API exports over OTLP. | No | No traces, metrics or logs dashboard. | `docker/dev` only — production picks its own |
 | **Home Assistant** | Optional consumer, not part of the stack: lifetime totals, badges and recent rides as HA entities, read from `/api/dashboard/*` with a dashboard API key that can only ever read its own owner's data. | No | — | [server/homeassistant/](server/homeassistant/README.md) |
 
@@ -194,12 +194,12 @@ than leaving them empty.
 ## Running a server
 
 Be honest about the shape first: this is **five processes minimum** — the API,
-its Postgres, Keycloak, Keycloak's Postgres, and a reverse proxy — plus two more
-(GraphHopper and Photon) that this repo does not package or start for you.
-Accounts, passwords and resets stop being this project's job, which is the point,
-but it is not a smaller thing to run than the single-file Python server it
-replaced. There is no importer for an old `detour.db`, and passwords cannot be
-carried across at all.
+its Postgres, Keycloak, Keycloak's Postgres, and a reverse proxy — plus routing
+(GraphHopper) and search (Photon), which `docker/prod/` now ships as opt-in
+layers rather than leaving to you. Accounts, passwords and resets stop being this
+project's job, which is the point, but it is not a smaller thing to run than the
+single-file Python server it replaced. There is no importer for an old
+`detour.db`, and passwords cannot be carried across at all.
 
 **A development machine** — working passwords on purpose, Keycloak in dev mode,
 the realm imported, and GraphHopper included:
@@ -210,11 +210,13 @@ docker compose -f docker/dev/docker-compose.yml up -d
 
 **Anywhere real** — no default passwords anywhere; compose refuses to start until
 every secret is set, and no realm is imported, because the dev realm ships a user
-whose password is in this repository:
+whose password is in this repository. `.env` carries a `COMPOSE_FILE` line that
+picks which layers run (API only, `+idp`, `+routing`, `+search`); every command
+after that needs no `-f` flags:
 
 ```bash
 cp docker/prod/.env.example docker/prod/.env
-docker compose -f docker/prod/docker-compose.yml up -d
+docker compose up -d          # from docker/prod/
 ```
 
 | Document | Covers |
