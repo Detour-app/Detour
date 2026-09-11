@@ -53,11 +53,13 @@ private const val SRC_CANDIDATES = "mr-candidates"
 private const val SRC_DEST = "mr-dest"
 private const val SRC_POSITION = "mr-position"
 private const val SRC_CAMERAS = "mr-cameras"
+private const val SRC_CAMERAS_REDLIGHT = "mr-cameras-redlight"
 private const val SRC_FRIENDS = "mr-friends"
 private const val SRC_CIRCLE_MEMBERS = "mr-circle-members"
 private const val IMG_DEST = "mr-img-dest"
 private const val IMG_POSITION = "mr-img-position"
 private const val IMG_CAMERA = "mr-img-camera"
+private const val IMG_CAMERA_REDLIGHT = "mr-img-camera-redlight"
 private const val IMG_FRIEND = "mr-img-friend"
 private const val IMG_CIRCLE_MEMBER = "mr-img-circle-member"
 private const val LAYER_ROUTE = "mr-route-line"
@@ -143,6 +145,11 @@ class MapOverlays(
                 it.intrinsicWidth * CAMERA_ICON_SCALE,
                 it.intrinsicHeight * CAMERA_ICON_SCALE))
         }
+        ContextCompat.getDrawable(context, R.drawable.ic_map_camera_redlight)?.let {
+            style.addImage(IMG_CAMERA_REDLIGHT, it.toBitmap(
+                it.intrinsicWidth * CAMERA_ICON_SCALE,
+                it.intrinsicHeight * CAMERA_ICON_SCALE))
+        }
         ContextCompat.getDrawable(context, R.drawable.ic_map_friend)?.let {
             style.addImage(IMG_FRIEND, it.toBitmap())
         }
@@ -150,8 +157,8 @@ class MapOverlays(
             style.addImage(IMG_CIRCLE_MEMBER, it.toBitmap())
         }
         listOf(SRC_REACH, SRC_WEDGE, SRC_ROUTE, SRC_ROUTE_DRIVEN, SRC_ROUTE_TAIL,
-            SRC_CANDIDATES, SRC_DEST, SRC_POSITION, SRC_CAMERAS, SRC_FRIENDS,
-            SRC_CIRCLE_MEMBERS)
+            SRC_CANDIDATES, SRC_DEST, SRC_POSITION, SRC_CAMERAS, SRC_CAMERAS_REDLIGHT,
+            SRC_FRIENDS, SRC_CIRCLE_MEMBERS)
             .forEach { style.addSource(GeoJsonSource(it)) }
 
         // Whatever the user picked in Settings > Route line; the default,
@@ -257,6 +264,14 @@ class MapOverlays(
         // candidate dots so a spin result is never hidden behind a camera.
         style.addLayer(SymbolLayer("mr-cameras", SRC_CAMERAS).withProperties(
             PropertyFactory.iconImage(IMG_CAMERA),
+            PropertyFactory.iconSize(1f / CAMERA_ICON_SCALE),
+            PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)
+        ).also { it.setMinZoom(SPEED_CAMERA_MIN_ZOOM) })
+        // Red-light (and combined) cameras: same feed, a distinct icon so a
+        // rider can tell "measures speed" from "photographs the signal" before
+        // CameraWarner ever has to say so out loud.
+        style.addLayer(SymbolLayer("mr-cameras-redlight", SRC_CAMERAS_REDLIGHT).withProperties(
+            PropertyFactory.iconImage(IMG_CAMERA_REDLIGHT),
             PropertyFactory.iconSize(1f / CAMERA_ICON_SCALE),
             PropertyFactory.iconAllowOverlap(true), PropertyFactory.iconIgnorePlacement(true)
         ).also { it.setMinZoom(SPEED_CAMERA_MIN_ZOOM) })
@@ -409,8 +424,11 @@ class MapOverlays(
     /** Replace the speed-camera markers. Fed by the prefetch loop, not [render],
      *  because cameras refresh only as you near the edge of the fetched area. */
     fun setCameras(cameras: List<SpeedCameras.Camera>) {
+        val (redLight, plain) = cameras.partition { it.kind != SpeedCameras.CameraKind.SPEED }
         setData(SRC_CAMERAS, FeatureCollection.fromFeatures(
-            cameras.map { Feature.fromGeometry(Point.fromLngLat(it.at.lon, it.at.lat)) }))
+            plain.map { Feature.fromGeometry(Point.fromLngLat(it.at.lon, it.at.lat)) }))
+        setData(SRC_CAMERAS_REDLIGHT, FeatureCollection.fromFeatures(
+            redLight.map { Feature.fromGeometry(Point.fromLngLat(it.at.lon, it.at.lat)) }))
     }
 
     /** Replace the convoy friend markers. Fed on its own cadence by
