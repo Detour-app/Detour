@@ -7,9 +7,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.withFrameNanos
+import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NavEngine
+import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.data.handleFor
+import com.jellemax.detour.drive.FriendPosition
 import com.jellemax.detour.map.CAM_BEARING_EPS_DEG
 import com.jellemax.detour.map.CAM_BEARING_TAU
 import com.jellemax.detour.map.CameraAuthority
@@ -17,6 +21,7 @@ import com.jellemax.detour.map.MapMotion
 import com.jellemax.detour.map.NavPolicy
 import com.jellemax.detour.map.bearingDelta
 import com.jellemax.detour.map.smoothBearing
+import com.jellemax.detour.net.ConvoyLiveClient
 import com.jellemax.detour.tracking.Fix
 import com.jellemax.detour.tracking.TripTrackingService
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -70,6 +75,69 @@ internal fun MapSpeedEase(retained: RetainedMap) {
             retained.displaySpeedKmh =
                 if (abs(gap) < SPEED_EPS_KMH) target
                 else retained.displaySpeedKmh + gap * (1.0 - exp(-dt / SPEED_TAU))
+        }
+    }
+}
+
+/** A convoy peer's last fix and when *this device* received it — never
+ *  [FriendPosition.tsMs], the sender's wall clock, which [MapMotion.predict]
+ *  cannot take (it needs a monotonic pair, see its own doc). */
+private data class PeerAnchor(val fix: FriendPosition, val arrivalElapsedMs: Long)
+
+/**
+ * Convoy peer markers, advancing between `positions` frames instead of
+ * stepping — the position-marker loop below gives the rider's own marker this
+ * treatment already (#21); this is the same idea for #161.
+ *
+ * Keyed on nothing but [mapOverlays]: peers and membership are read live off
+ * their own collectors, so a `positions` frame or a membership reload updates
+ * the extrapolation in place instead of restarting its clock.
+ *
+ * Circle members are out of scope — those fixes arrive on a ~minute poll, and
+ * extrapolating a minute-old fix invents distance rather than smoothing it.
+ */
+@Composable
+internal fun MapConvoyPeerMotion(mapOverlays: MapOverlays?) {
+    val peers by ConvoyLiveClient.peers.collectAsStateWithLifecycle()
+    val activeConvoyId by ConvoyLiveClient.activeConvoyId.collectAsStateWithLifecycle()
+    val convoysState by ConvoysStore.state.collectAsStateWithLifecycle()
+    LaunchedEffect(mapOverlays) {
+        val overlays = mapOverlays ?: return@LaunchedEffect
+        // riderId -> the fix currently anchoring it. Replaced only when a new
+        // frame actually changes the fix, so a settled peer's extrapolation
+        // clock isn't reset every render.
+        val anchors = mutableMapOf<RiderId, PeerAnchor>()
+        var wasEmpty = false
+        while (true) {
+            withFrameNanos { }
+            val current = peers
+            if (current.isEmpty()) {
+                anchors.clear()
+                // One push to clear the layer, not one a frame while idle —
+                // the common case is no convoy at all.
+                if (!wasEmpty) overlays.setFriends(emptyList())
+                wasEmpty = true
+                continue
+            }
+            wasEmpty = false
+            val now = SystemClock.elapsedRealtime()
+            anchors.keys.retainAll(current.keys)
+            val members = convoysState.convoys.firstOrNull { it.id == activeConvoyId }?.members.orEmpty()
+            overlays.setFriends(
+                current.map { (id, fix) ->
+                    val anchor = anchors[id]?.takeIf { it.fix == fix }
+                        ?: PeerAnchor(fix, now).also { anchors[id] = it }
+                    val here = MapMotion.predict(
+                        at = LatLon(fix.lat, fix.lon),
+                        bearingDeg = fix.headingDeg?.toFloat(),
+                        speedMps = (fix.speedKmh ?: 0.0) / 3.6,
+                        fixElapsedMs = anchor.arrivalElapsedMs,
+                        nowElapsedMs = now,
+                        leadSeconds = 0.0,
+                    )
+                    NamedFriendPosition(fix.copy(lat = here.lat, lon = here.lon), members.handleFor(id))
+                },
+            )
         }
     }
 }
