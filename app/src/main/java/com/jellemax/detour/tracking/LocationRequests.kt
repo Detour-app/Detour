@@ -1,6 +1,5 @@
 package com.jellemax.detour.tracking
 
-import android.location.Location
 import android.os.Looper
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
