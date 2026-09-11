@@ -3,6 +3,7 @@ package com.jellemax.detour.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,12 +37,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -93,6 +104,11 @@ internal val HOME_SHEET_FONT_SCALE_GROWTH = 64.dp
  *  `surfaceContainerLowest` (0xFF101309) and `surfaceContainerLow` (0xFF1A1E15);
  *  the latter is the nearer of the two per channel, so that is the one used. */
 private const val SHEET_ALPHA = 0.96f
+
+/** How far a drag on a sheet handle (#205) has to travel before it counts as a
+ *  swipe rather than an aborted tap or a scroll that started on the handle.
+ *  Shared with [SpinSheet]'s handle in `SpinCards.kt`, same package. */
+internal val SHEET_SWIPE_THRESHOLD = 24.dp
 
 /**
  * The map's idle home state: a bottom sheet carrying everywhere you might want
@@ -153,7 +169,7 @@ internal fun ColumnScope.HomeSheet(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 14.dp),
         ) {
-            DragHandle()
+            DragHandle(onExpand = onSpinSettings)
             SearchIsland(
                 open = searchOpen,
                 onOpenChange = onSearchOpenChange,
@@ -201,18 +217,54 @@ internal fun ColumnScope.HomeSheet(
     }
 }
 
-/** Decoration, not a control: the sheet has one height, so there is nothing to
- *  drag. It says "this is a sheet, and the map continues above it" — hence the
- *  cleared semantics, so a screen reader is not offered a handle that moves
- *  nothing. The ride sheets (`RideSheet.kt`) draw the same bar when open, where
- *  the card around it is the control. */
+/** [onExpand] null (the ride sheets, `RideSheet.kt`, which draw the same bar
+ *  when open): pure decoration, with cleared semantics so a screen reader
+ *  isn't offered a handle that moves nothing — the card around it is the
+ *  control there.
+ *
+ *  [onExpand] non-null (the home sheet, resting at its one height): a swipe up
+ *  past [SHEET_SWIPE_THRESHOLD] opens the spin sheet, same as tapping the
+ *  Spin chip (#205) — a bare drag-handle bar is the gesture riders try first,
+ *  and before this it did nothing. */
 @Composable
-internal fun DragHandle() {
+internal fun DragHandle(onExpand: (() -> Unit)? = null) {
+    val density = LocalDensity.current
+    // rememberUpdatedState rather than keying pointerInput on onExpand itself:
+    // the lambda's identity changes on every recomposition (it's not a stable
+    // reference), and keying on it would restart - and drop - the gesture
+    // detector mid-drag any time the sheet recomposes.
+    val currentOnExpand by rememberUpdatedState(onExpand)
     Box(
         Modifier
             .fillMaxWidth()
             .padding(top = 10.dp, bottom = 12.dp)
-            .clearAndSetSemantics { },
+            .then(
+                if (onExpand != null) {
+                    var dragged by remember { mutableFloatStateOf(0f) }
+                    Modifier
+                        .clickable(onClick = onExpand)
+                        .pointerInput(Unit) {
+                            val thresholdPx = with(density) { SHEET_SWIPE_THRESHOLD.toPx() }
+                            detectVerticalDragGestures(
+                                onDragEnd = {
+                                    if (dragged <= -thresholdPx) currentOnExpand?.invoke()
+                                    dragged = 0f
+                                },
+                            ) { change, dragAmount ->
+                                change.consume()
+                                dragged += dragAmount
+                            }
+                        }
+                        .semantics {
+                            contentDescription = "Spin settings, collapsed"
+                            customActions = listOf(
+                                CustomAccessibilityAction("Expand") { currentOnExpand?.invoke(); true },
+                            )
+                        }
+                } else {
+                    Modifier.clearAndSetSemantics { }
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Box(
