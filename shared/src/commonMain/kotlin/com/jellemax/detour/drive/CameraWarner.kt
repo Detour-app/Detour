@@ -28,6 +28,11 @@ import kotlin.math.min
  * sign to fall back on; the head unit passes the route's limit alone because it
  * does not. "Does this surface have an ambient sign" is a per-surface fact, and
  * keeping it at the call site is what stops it becoming a branch in here.
+ *
+ * The camera itself can also tag a limit ([SpeedCameras.Camera.maxspeedKmh]),
+ * and that one wins over the caller's when both exist - it's the limit the
+ * camera is actually enforcing, and it's how a camera on an otherwise-untagged
+ * road gets judged at all.
  */
 object CameraWarner {
 
@@ -83,12 +88,17 @@ object CameraWarner {
             // next camera. Being in range and *not* too fast does not.
             ?: return Step(State(warnedAt = null), Outcome.Silent)
 
+        // The camera's own tagged limit is the one it enforces, so it beats the
+        // caller's ambient/route limit where both exist (#319) - and is the only
+        // limit at all on an otherwise-untagged road.
+        val effectiveLimitKmh = ahead.maxspeedKmh ?: limitKmh
         // A red-light camera doesn't measure speed - it's worth announcing on
         // approach regardless, which is exactly when a speed-only camera stays
         // silent (maxke24/Detour#317). Combined inherits the same rule: a device
         // that's also a red-light camera is worth announcing even at the limit.
         val worthWarning = when (ahead.kind) {
-            SpeedCameras.CameraKind.SPEED -> limitKmh != null && speedKmh > limitKmh + OVER_LIMIT_KMH
+            SpeedCameras.CameraKind.SPEED ->
+                effectiveLimitKmh != null && speedKmh > effectiveLimitKmh + OVER_LIMIT_KMH
             SpeedCameras.CameraKind.RED_LIGHT, SpeedCameras.CameraKind.COMBINED -> true
         }
         if (!worthWarning || ahead.at == state.warnedAt) return Step(state, Outcome.Silent)

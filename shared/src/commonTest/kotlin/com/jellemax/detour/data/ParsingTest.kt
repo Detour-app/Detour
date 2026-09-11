@@ -301,6 +301,57 @@ class SpeedCameraSectionTest {
             "far end should be nowhere near the real gantry: got ${s.endB[0]}",
         )
     }
+
+    // ---- foldMaxspeedRelations: a fixed camera's limit tagged on its
+    // ---- enforcement=maxspeed relation, not on the device node (#319) --------
+
+    @Test
+    fun aFixedCamerasMaxspeedRelationFoldsOntoItsDeviceNode() {
+        val relation = jsonObjectOf(
+            """{"type":"relation","id":1,"members":[$leuven],""" +
+                """"tags":{"type":"enforcement","enforcement":"maxspeed","maxspeed":"70"}}""",
+        )
+        val cameras = mutableListOf(SpeedCameras.Camera(leuvenAt))
+        SpeedCameras.foldMaxspeedRelations(listOf(relation), cameras)
+        assertEquals(70.0, cameras[0].maxspeedKmh!!, absoluteTolerance = 1e-9)
+    }
+
+    /** The node's own tag is the more specific source and wins. */
+    @Test
+    fun theDeviceNodesOwnTaggedLimitWinsOverTheRelations() {
+        val relation = jsonObjectOf(
+            """{"type":"relation","id":1,"members":[$leuven],""" +
+                """"tags":{"type":"enforcement","enforcement":"maxspeed","maxspeed":"70"}}""",
+        )
+        val cameras = mutableListOf(cameraNode(leuvenAt, "50"))
+        SpeedCameras.foldMaxspeedRelations(listOf(relation), cameras)
+        assertEquals(50.0, cameras[0].maxspeedKmh!!, absoluteTolerance = 1e-9)
+    }
+
+    @Test
+    fun aMaxspeedRelationWithNoTagDonatesNothing() {
+        val untagged = jsonObjectOf(
+            """{"type":"relation","id":1,"members":[$leuven],""" +
+                """"tags":{"type":"enforcement","enforcement":"maxspeed"}}""",
+        )
+        val cameras = mutableListOf(SpeedCameras.Camera(leuvenAt))
+        SpeedCameras.foldMaxspeedRelations(listOf(untagged), cameras)
+        assertNull(cameras[0].maxspeedKmh)
+    }
+
+    /** Same guard as [aCameraThatIsNotOneOfTheGantriesDonatesNothing]: only a
+     *  camera standing at the relation's own device donates its limit. */
+    @Test
+    fun aMaxspeedRelationDonatesNothingToACameraThatIsNotItsDevice() {
+        val elsewhere = RoadRoulette.offset(leuvenAt, 1_000.0, 0.0)
+        val relation = jsonObjectOf(
+            """{"type":"relation","id":1,"members":[$leuven],""" +
+                """"tags":{"type":"enforcement","enforcement":"maxspeed","maxspeed":"70"}}""",
+        )
+        val cameras = mutableListOf(SpeedCameras.Camera(elsewhere))
+        SpeedCameras.foldMaxspeedRelations(listOf(relation), cameras)
+        assertNull(cameras[0].maxspeedKmh)
+    }
 }
 
 class NavEngineTest {

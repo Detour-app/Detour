@@ -11,10 +11,14 @@ import okio.IOException
  * In OSM a fixed camera is a node tagged `highway=speed_camera`. A Belgian
  * trajectcontrole (average-speed section) is a `type=enforcement,
  * enforcement=average_speed` relation whose start/end *device* members are
- * themselves such nodes; the relation carries the posted `maxspeed`. We fetch
- * the individual camera nodes (for the map markers and the over-speed chime)
- * and the enforcement relations (whose device coordinates let us tell when you
- * enter and leave a section, so the average can be timed) in one request.
+ * themselves such nodes; the relation carries the posted `maxspeed`. A single
+ * fixed camera can carry the same `maxspeed` on a `type=enforcement,
+ * enforcement=maxspeed` relation instead of on the device node itself. We
+ * fetch the individual camera nodes (for the map markers and the over-speed
+ * chime), the average-speed relations (whose device coordinates let us tell
+ * when you enter and leave a section, so the average can be timed) and the
+ * fixed-camera relations (folded back onto their device node, see
+ * [foldMaxspeedRelations]) in one request.
  *
  * Same prefetch shape as [RoadRoulette.speedLimitWays]: fetched once for a wide
  * area, refreshed only as you near the edge of what you already have, so there
@@ -117,6 +121,7 @@ object SpeedCameras {
             "node(around:$r,${center.lat},${center.lon})[\"highway\"=\"speed_camera\"];" +
             "relation(around:$r,${center.lat},${center.lon})[\"enforcement\"=\"average_speed\"];" +
             "relation(around:$r,${center.lat},${center.lon})[\"enforcement\"=\"traffic_signals\"];" +
+            "relation(around:$r,${center.lat},${center.lon})[\"enforcement\"=\"maxspeed\"];" +
             ");out geom;"
         // A busy Overpass answers 200 with an HTML "runtime error" page, so the
         // parse can fail on a perfectly good HTTP response. Both are the same
@@ -137,9 +142,11 @@ object SpeedCameras {
         val cameras = ArrayList<Camera>()
         val avgSpeedRelations = ArrayList<JsonObject>()
         val redLightRelations = ArrayList<JsonObject>()
-        // Two passes, deliberately: [parseSection] resolves a section's limit off
-        // its device nodes when the relation doesn't tag one, and the answer is
-        // not ordered, so every node has to be read before the first relation is.
+        val maxspeedRelations = ArrayList<JsonObject>()
+        // Two passes, deliberately: [parseSection], [foldMaxspeedRelations] and
+        // [withRedLightKind] all resolve a relation against the device nodes,
+        // and the answer is not ordered, so every node has to be read before
+        // the first relation is.
         for (el in elements.objects()) {
             when (el.optString("type")) {
                 "node" -> {
@@ -152,10 +159,17 @@ object SpeedCameras {
                 "relation" -> when (el.optObject("tags")?.optString("enforcement")) {
                     "average_speed" -> avgSpeedRelations.add(el)
                     "traffic_signals" -> redLightRelations.add(el)
+                    "maxspeed" -> maxspeedRelations.add(el)
                 }
             }
         }
         val sections = avgSpeedRelations.mapNotNull { parseSection(it, cameras) }
+        // Limits before kinds: [foldMaxspeedRelations] writes onto the camera
+        // nodes the answer actually carried, and [withRedLightKind] may append
+        // devices those relations never named. Folding second would mean a
+        // relation-only red-light marker could pick up a neighbouring gantry's
+        // posted limit, which is not its to claim.
+        foldMaxspeedRelations(maxspeedRelations, cameras)
         return Result(withRedLightKind(cameras, redLightRelations), sections)
     }
 
@@ -269,6 +283,37 @@ object SpeedCameras {
             cam.maxspeedKmh != null &&
                 ends.any { RoadRoulette.distanceMeters(it, cam.at) <= SAME_NODE_M }
         }?.maxspeedKmh
+
+    /**
+     * The reverse of [deviceMaxspeed]: a fixed camera's limit is often tagged on
+     * its `enforcement=maxspeed` *relation* rather than on the device node
+     * itself. For each such relation with a `maxspeed` tag, fold it onto every
+     * [cameras] entry that sits within [SAME_NODE_M] of one of the relation's
+     * node members and doesn't already have its own tag - the node's own tag,
+     * when present, is the more specific source and wins.
+     */
+    // internal, not private, so commonTest can feed it a relation literal - see
+    // [parseSection]'s comment for why [near] itself cannot be tested.
+    internal fun foldMaxspeedRelations(relations: List<JsonObject>, cameras: MutableList<Camera>) {
+        for (relation in relations) {
+            val maxspeed = maxspeedOf(relation) ?: continue
+            val members = relation.optArray("members") ?: continue
+            val deviceNodes = members.objects().mapNotNull { m ->
+                if (m.optString("type") != "node") return@mapNotNull null
+                val lat = m.optDouble("lat", Double.NaN)
+                val lon = m.optDouble("lon", Double.NaN)
+                if (lat.isNaN() || lon.isNaN()) null else LatLon(lat, lon)
+            }
+            for (i in cameras.indices) {
+                val cam = cameras[i]
+                if (cam.maxspeedKmh == null &&
+                    deviceNodes.any { RoadRoulette.distanceMeters(it, cam.at) <= SAME_NODE_M }
+                ) {
+                    cameras[i] = cam.copy(maxspeedKmh = maxspeed)
+                }
+            }
+        }
+    }
 
     /** A relation member and the node element it refers to are the same OSM node
      *  printed twice, so this only has to absorb float formatting — not a
