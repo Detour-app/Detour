@@ -23,9 +23,11 @@ import com.jellemax.detour.data.CirclePresence
 import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.NamedMemberFix
+import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import com.jellemax.detour.data.handleFor
+import com.jellemax.detour.drive.FriendPosition
 import com.jellemax.detour.drive.SectionAverageTracker
 import com.jellemax.detour.tracking.DriveClock
 import com.jellemax.detour.ui.MAX_FRAME_WALL_S
@@ -109,6 +111,12 @@ private const val CIRCLE_FIX_POLL_MS = CirclePresence.ACTIVE_INTERVAL_MS
  * once a second — which is what a full [MapOverlays.render] per fix costs — is
  * enough main-thread work on a head unit to make the whole map feel stuck.
  */
+
+/** A convoy peer's last fix and when *this device* received it — never
+ *  [FriendPosition.tsMs], the sender's wall clock, which [MapMotion.predict]
+ *  cannot take (it needs a monotonic pair, see its own doc). */
+private data class PeerAnchor(val fix: FriendPosition, val arrivalElapsedMs: Long)
+
 class CarMapRenderer(
     private val carContext: CarContext,
     private val darkTheme: Boolean,
@@ -153,14 +161,26 @@ class CarMapRenderer(
             // (MapScreen.kt) reads, so a peer who joined mid-ride gets a name
             // here the moment ConvoysStore's watchPeers self-heal learns it,
             // rather than this renderer keeping a second id-to-name lookup.
+            //
+            // Only anchors and names are stored here — #161: the camera loop
+            // below extrapolates and pushes them every tick, so a peer marker
+            // advances between `positions` frames instead of stepping.
             combine(
                 ConvoyLiveClient.peers,
                 ConvoyLiveClient.activeConvoyId,
                 ConvoysStore.state,
             ) { peers, activeConvoyId, convoysState ->
-                val members = convoysState.convoys.firstOrNull { it.id == activeConvoyId }?.members.orEmpty()
-                peers.map { (id, fix) -> NamedFriendPosition(fix, members.handleFor(id)) }
-            }.collect { setFriends(it) }
+                peers to (convoysState.convoys.firstOrNull { it.id == activeConvoyId }?.members.orEmpty())
+            }.collect { (peers, members) ->
+                val now = SystemClock.elapsedRealtime()
+                // A rider's anchor moves only when its fix actually changes —
+                // resetting it every collection would restart the
+                // extrapolation's clock on every unrelated membership reload.
+                peerAnchors = peers.mapValues { (id, fix) ->
+                    peerAnchors[id]?.takeIf { it.fix == fix } ?: PeerAnchor(fix, now)
+                }
+                peerNames = peers.keys.associateWith { members.handleFor(it) }
+            }
         }
         scope.launch {
             while (true) {
@@ -215,6 +235,11 @@ class CarMapRenderer(
     private var cameras: List<SpeedCameras.Camera> = emptyList()
     private var friends: Collection<NamedFriendPosition> = emptyList()
     private var circleMembers: Collection<NamedMemberFix> = emptyList()
+
+    // Raw convoy peer state, extrapolated into `friends` once a tick by
+    // startCameraLoop — see PeerAnchor's own doc.
+    private var peerAnchors: Map<RiderId, PeerAnchor> = emptyMap()
+    private var peerNames: Map<RiderId, String> = emptyMap()
 
     // Where the camera is being eased to, and where it currently is.
     private var targetPos: LatLon? = null
@@ -519,6 +544,35 @@ class CarMapRenderer(
         camZoom += (targetZoom - camZoom) * (1.0 - exp(-dtWall / CAM_ZOOM_TAU))
     }
 
+    /**
+     * Extrapolates every convoy peer's marker forward from its last fix and
+     * pushes the result — #161. Pulled out of [startCameraLoop] for the same
+     * reason [stepCamera] was (detekt's 100-line limit, #306): everything it
+     * reads is a field on this class, so nothing had to be threaded through a
+     * parameter list.
+     *
+     * Skips the push once both sides are already empty, so an idle car with
+     * no convoy costs nothing on this tick — the common case.
+     */
+    private fun pushPeerFriends() {
+        if (peerAnchors.isEmpty() && friends.isEmpty()) return
+        val now = SystemClock.elapsedRealtime()
+        setFriends(
+            peerAnchors.map { (id, anchor) ->
+                val fix = anchor.fix
+                val here = MapMotion.predict(
+                    at = LatLon(fix.lat, fix.lon),
+                    bearingDeg = fix.headingDeg?.toFloat(),
+                    speedMps = (fix.speedKmh ?: 0.0) / 3.6,
+                    fixElapsedMs = anchor.arrivalElapsedMs,
+                    nowElapsedMs = now,
+                    leadSeconds = 0.0,
+                )
+                NamedFriendPosition(fix.copy(lat = here.lat, lon = here.lon), peerNames[id].orEmpty())
+            },
+        )
+    }
+
     private fun startCameraLoop() {
         easeJob?.cancel()
         easeJob = scope.launch {
@@ -556,6 +610,12 @@ class CarMapRenderer(
                 val dt = driveFrameDelta(wallRaw, (driveNow - lastDriveMs) / 1000.0)
                 lastNs = ns
                 lastDriveMs = driveNow
+
+                // Convoy peer markers, extrapolated forward every tick — #161.
+                // Ahead of the own-camera gate below on purpose: peers arrive
+                // independently of this renderer's own fix.
+                pushPeerFriends()
+
                 if (camLat.isNaN()) continue
 
                 // Dead reckoning, defect 1 of #37. Easing toward the raw fix

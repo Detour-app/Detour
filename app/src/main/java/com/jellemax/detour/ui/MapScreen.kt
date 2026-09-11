@@ -844,19 +844,9 @@ fun MapScreen(
         mapOverlays?.setCameras(retained.speedCameras)
     }
 
-    // Convoy friend markers, on ConvoyLiveClient's own relay-driven cadence —
-    // same reasoning as the camera markers above. (convoyPeers itself is
-    // collected further up, alongside the other convoy state.) Also keyed on
-    // activeConvoyMembers, unlike the camera effect above: a position frame
-    // repeats every couple of seconds and would eventually pick up a
-    // membership reload on its own, but there is no reason to wait out that
-    // window when the peer list itself hasn't changed — the redraw here is
-    // idempotent, so re-running it the moment a name resolves costs nothing.
-    LaunchedEffect(mapOverlays, convoyPeers, activeConvoyMembers) {
-        mapOverlays?.setFriends(
-            convoyPeers.map { (id, fix) -> NamedFriendPosition(fix, activeConvoyMembers.handleFor(id)) },
-        )
-    }
+    // Convoy friend markers, extrapolated between `positions` frames — #161.
+    // MapConvoyPeerMotion collects peers and membership itself.
+    MapConvoyPeerMotion(mapOverlays)
 
     // Circle member markers: the poll and the two draws, in MapCircleMembers.kt.
     MapCircleMemberMarkers(
