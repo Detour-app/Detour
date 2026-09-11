@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Diversity3
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Route
@@ -108,9 +107,10 @@ private const val SHEET_ALPHA = 0.96f
  * the keyboard up and the search results expanding *upward* out of the bar,
  * the results shrink instead of pushing the bar off the top of the screen.
  *
- * @param canSavePin whether there is a dropped pin to save. The `Save pin` chip
- *   is drawn either way — the prototype's `+` is unconditional — and disabled
- *   rather than hidden when there is nothing to save.
+ * Save-pin lives on [NavigationDock] instead of here (#329): this sheet only
+ * shows once there is *no* destination, which is exactly when there would be
+ * nothing to save.
+ *
  * @param mode the travel mode a spin would roll under. A readout, not a
  *   control — the switch itself lives in `SpinSheet`, one tap away through the
  *   same chip, which is where the Spin chip's glyph comes from; see
@@ -125,8 +125,6 @@ internal fun ColumnScope.HomeSheet(
     onPickDestination: (GeocodeResult) -> Unit,
     savedPlaces: List<SavedPlace>,
     onPickPlace: (SavedPlace) -> Unit,
-    canSavePin: Boolean,
-    onSavePin: () -> Unit,
     mode: TravelMode,
     onSpinSettings: () -> Unit,
     onOpenRoutes: () -> Unit,
@@ -173,9 +171,7 @@ internal fun ColumnScope.HomeSheet(
             if (!searchOpen) {
                 ShortcutChipRow(
                     places = shortcuts,
-                    canSavePin = canSavePin,
                     onPick = onPickPlace,
-                    onSavePin = onSavePin,
                     mode = mode,
                     onSpinSettings = onSpinSettings,
                 )
@@ -226,8 +222,7 @@ internal fun DragHandle() {
 }
 
 /**
- * One-tap a saved place, open the spin settings, or save the pin you just
- * dropped.
+ * One-tap a saved place, or open the spin settings.
  *
  * [places] is what [homeShortcutPlaces] selected — Home, Work and the rider's
  * favourites, in that order — not the whole store the map's chips used to
@@ -248,9 +243,7 @@ internal fun DragHandle() {
 @Composable
 private fun ShortcutChipRow(
     places: List<SavedPlace>,
-    canSavePin: Boolean,
     onPick: (SavedPlace) -> Unit,
-    onSavePin: () -> Unit,
     mode: TravelMode,
     onSpinSettings: () -> Unit,
 ) {
@@ -259,9 +252,9 @@ private fun ShortcutChipRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // The places give way rather than push: they scroll inside whatever
-        // the two chips after them leave, so Spin and Save pin are on screen
-        // however many favourites the rider has and however long a saved name
-        // is. An M3 chip spends 50 dp on chrome before a character of label, so
+        // the Spin chip after them leaves, so Spin is on screen however many
+        // favourites the rider has and however long a saved name is. An M3
+        // chip spends 50 dp on chrome before a character of label, so
         // Home and Work show their glyph alone and each favourite is capped and
         // ellipsized ([PLACE_CHIP_MAX_WIDTH]); the scroll carries the rest. The
         // favourites the rider marked, in the store's order, are the row —
@@ -295,30 +288,13 @@ private fun ShortcutChipRow(
                 MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
             ),
         )
-        // The `+` alone. The words cost 54 dp the row does not have, and a
-        // plus beside the place chips is the prototype's own affordance for
-        // adding one; the name it lost is the icon's description, so a screen
-        // reader still reads "Save pin". In the label slot rather than as a
-        // leading icon, so it takes `labelColor` like the Home and Work glyphs
-        // — a leading icon would default to `primary` (AssistChipTokens
-        // .IconColor) and make this the second accent chip in the row.
-        AssistChip(
-            onClick = onSavePin,
-            enabled = canSavePin,
-            label = {
-                Icon(Icons.Outlined.Add, contentDescription = "Save pin", Modifier.size(18.dp))
-            },
-            colors = AssistChipDefaults.assistChipColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            ),
-        )
     }
 }
 
 /**
  * How wide a named place chip may grow before its name ellipsizes.
  *
- * The row has to hold five chips inside the 328 dp a 360 dp screen leaves at
+ * The row has to hold four chips inside the 328 dp a 360 dp screen leaves at
  * `fontScale` 1 (360 − 2 × 16 dp of sheet padding), and an `AssistChip` spends
  * **50 dp** on chrome before a character of label. That is two paddings, not
  * one: the chip pads itself 8 dp each side (`AssistChipPadding`, material3
@@ -333,20 +309,16 @@ private fun ShortcutChipRow(
  *  50  Work             glyph, no label
  *  60  the third place  32 + up to 28 dp of name — this constant
  *  80  Spin             50 + "Spin"
- *  50  Save pin         the `+` alone
- *  32  four 8 dp gaps
+ *  24  three 8 dp gaps
  * ---
- * 322, inside 328 at the longest name this allows.
+ * 264, inside 328 at the longest name this allows.
  * ```
  *
- * The 42/34 dp this KDoc claimed before counted the chip's padding once and
- * missed the label slot's own, which is why the row it described as 316 dp
- * really drew about 372 and clipped the third chip's tail. The row before that
- * — three named place chips with glyphs, `Spin · Car` and `Save pin` — was
- * about 490 dp, so Spin and Save pin started off the right edge entirely.
+ * Save-pin used to be a fifth chip here; it moved to [NavigationDock] (#329),
+ * which is the only state where there is ever a pin to save.
  *
  * 28 dp of name is four or five characters, which is the honest ceiling for
- * five chips on a 360 dp screen; anything longer ellipsizes and the region
+ * four chips on a 360 dp screen; anything longer ellipsizes and the region
  * scrolls.
  */
 private val PLACE_CHIP_MAX_WIDTH = 60.dp

@@ -195,6 +195,7 @@ internal fun BoxScope.MapBottomSlot(
                         error = error,
                         onSelectMode = onSelectMode,
                         onClear = onClearDestination,
+                        onSavePin = onSavePin,
                     )
                     HomeBottomCard.CANDIDATES -> CandidatesCard(
                         candidates = shownCandidates.value,
@@ -263,8 +264,6 @@ internal fun BoxScope.MapBottomSlot(
                 onPickDestination = onPickDestination,
                 savedPlaces = savedPlaces,
                 onPickPlace = onPickPlace,
-                canSavePin = destination != null,
-                onSavePin = onSavePin,
                 mode = mode,
                 onSpinSettings = onExpand,
                 onOpenRoutes = onOpenRoutes,
