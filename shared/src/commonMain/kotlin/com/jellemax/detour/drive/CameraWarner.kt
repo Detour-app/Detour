@@ -26,6 +26,11 @@ import com.jellemax.detour.data.SpeedCameras
  * sign to fall back on; the head unit passes the route's limit alone because it
  * does not. "Does this surface have an ambient sign" is a per-surface fact, and
  * keeping it at the call site is what stops it becoming a branch in here.
+ *
+ * The camera itself can also tag a limit ([SpeedCameras.Camera.maxspeedKmh]),
+ * and that one wins over the caller's when both exist - it's the limit the
+ * camera is actually enforcing, and it's how a camera on an otherwise-untagged
+ * road gets judged at all.
  */
 object CameraWarner {
 
@@ -73,7 +78,8 @@ object CameraWarner {
             // next camera. Being in range and *not* too fast does not.
             ?: return Step(State(warnedAt = null), Outcome.Silent)
 
-        val tooFast = limitKmh != null && speedKmh > limitKmh + OVER_LIMIT_KMH
+        val effectiveLimitKmh = ahead.maxspeedKmh ?: limitKmh
+        val tooFast = effectiveLimitKmh != null && speedKmh > effectiveLimitKmh + OVER_LIMIT_KMH
         if (!tooFast || ahead.at == state.warnedAt) return Step(state, Outcome.Silent)
         return Step(State(warnedAt = ahead.at), Outcome.Warn(ahead.at, WARNING_TEXT))
     }
