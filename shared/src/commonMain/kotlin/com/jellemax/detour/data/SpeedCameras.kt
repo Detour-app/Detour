@@ -25,6 +25,13 @@ import okio.IOException
 object SpeedCameras {
 
     /**
+     * What a camera enforces. A device can be tagged as both — a red-light
+     * camera on a gantry that also carries a `highway=speed_camera` node —
+     * which is [COMBINED] rather than two markers for one device.
+     */
+    enum class CameraKind { SPEED, RED_LIGHT, COMBINED }
+
+    /**
      * One camera to draw on the map.
      *
      * [maxspeedKmh] is the limit tagged on the camera node itself, when it has
@@ -32,8 +39,15 @@ object SpeedCameras {
      * — both real E40 trajectcontrole relations tag no `maxspeed` at all and
      * carry the 120 on their device nodes — so a section that reads its limit
      * only off the relation gets nothing to judge its average against.
+     *
+     * [kind] defaults to [CameraKind.SPEED] — a bare `highway=speed_camera`
+     * node with no enforcement relation naming it otherwise.
      */
-    data class Camera(val at: LatLon, val maxspeedKmh: Double? = null)
+    data class Camera(
+        val at: LatLon,
+        val maxspeedKmh: Double? = null,
+        val kind: CameraKind = CameraKind.SPEED,
+    )
 
     /**
      * An average-speed section, as the two ends you can pass it through.
@@ -95,6 +109,7 @@ object SpeedCameras {
         val query = "[out:json][timeout:${RoadRoulette.QUERY_BUDGET_MS / 1000}];(" +
             "node(around:$r,${center.lat},${center.lon})[\"highway\"=\"speed_camera\"];" +
             "relation(around:$r,${center.lat},${center.lon})[\"enforcement\"=\"average_speed\"];" +
+            "relation(around:$r,${center.lat},${center.lon})[\"enforcement\"=\"traffic_signals\"];" +
             ");out geom;"
         // A busy Overpass answers 200 with an HTML "runtime error" page, so the
         // parse can fail on a perfectly good HTTP response. Both are the same
@@ -113,7 +128,8 @@ object SpeedCameras {
             return null
         }
         val cameras = ArrayList<Camera>()
-        val relations = ArrayList<JsonObject>()
+        val avgSpeedRelations = ArrayList<JsonObject>()
+        val redLightRelations = ArrayList<JsonObject>()
         // Two passes, deliberately: [parseSection] resolves a section's limit off
         // its device nodes when the relation doesn't tag one, and the answer is
         // not ordered, so every node has to be read before the first relation is.
@@ -126,11 +142,14 @@ object SpeedCameras {
                         cameras.add(Camera(LatLon(lat, lon), maxspeedOf(el)))
                     }
                 }
-                "relation" -> relations.add(el)
+                "relation" -> when (el.optObject("tags")?.optString("enforcement")) {
+                    "average_speed" -> avgSpeedRelations.add(el)
+                    "traffic_signals" -> redLightRelations.add(el)
+                }
             }
         }
-        val sections = relations.mapNotNull { parseSection(it, cameras) }
-        return Result(cameras, sections)
+        val sections = avgSpeedRelations.mapNotNull { parseSection(it, cameras) }
+        return Result(withRedLightKind(cameras, redLightRelations), sections)
     }
 
     /**
@@ -175,6 +194,46 @@ object SpeedCameras {
         // with nothing to judge against on the road it was developed on.
         val maxspeed = maxspeedOf(relation) ?: deviceMaxspeed(endA + endB, cameras)
         return Section(endA, endB, span, maxspeed)
+    }
+
+    /**
+     * Folds `traffic_signals` enforcement relations onto [cameras]: a device
+     * member within [SAME_NODE_M] of an existing camera upgrades its kind
+     * ([CameraKind.SPEED] to [CameraKind.COMBINED]); one with no match at all
+     * gets its own [CameraKind.RED_LIGHT] marker. A device matched by more than
+     * one relation, or by more than one member of the same relation, still
+     * produces exactly one marker — the same resolution [parseSection] already
+     * does for average-speed devices, reused rather than reinvented.
+     */
+    // internal, not private, so commonTest can feed it relation literals:
+    // [near] is the only caller and it cannot be tested without Overpass.
+    internal fun withRedLightKind(
+        cameras: List<Camera>,
+        redLightRelations: List<JsonObject>,
+    ): List<Camera> {
+        val result = cameras.toMutableList()
+        val addedRedLights = ArrayList<LatLon>()
+        for (relation in redLightRelations) {
+            for (m in (relation.optArray("members") ?: continue).objects()) {
+                if (m.optString("type") != "node") continue
+                val lat = m.optDouble("lat", Double.NaN)
+                val lon = m.optDouble("lon", Double.NaN)
+                if (lat.isNaN() || lon.isNaN()) continue
+                val at = LatLon(lat, lon)
+                val existing = result.indexOfFirst {
+                    RoadRoulette.distanceMeters(it.at, at) <= SAME_NODE_M
+                }
+                if (existing >= 0) {
+                    if (result[existing].kind == CameraKind.SPEED) {
+                        result[existing] = result[existing].copy(kind = CameraKind.COMBINED)
+                    }
+                } else if (addedRedLights.none { RoadRoulette.distanceMeters(it, at) <= SAME_NODE_M }) {
+                    addedRedLights.add(at)
+                    result.add(Camera(at, kind = CameraKind.RED_LIGHT))
+                }
+            }
+        }
+        return result
     }
 
     /** The `maxspeed` tag on an element, in km/h, or null when it has none we
