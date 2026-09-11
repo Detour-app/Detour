@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Navigation
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Button
@@ -52,6 +53,12 @@ import com.jellemax.detour.data.TravelMode
  * The loop case never reaches here — a loop spin nulls the destination, so
  * [homeBottomCard] keeps it in the spin sheet, where the loop's own
  * [ResultCallout] and [NavButton] already live.
+ *
+ * [onSavePin] lives here rather than on the idle home sheet's own `+` chip
+ * (#329): [homeBottomCard] only shows this dock once a destination exists,
+ * and only shows the home sheet once it doesn't, so a save-pin action gated
+ * on "there is a destination" could never be reachable from the sheet that
+ * used to carry it.
  */
 @Composable
 internal fun NavigationDock(
@@ -59,6 +66,7 @@ internal fun NavigationDock(
     error: String?,
     onSelectMode: (TravelMode) -> Unit,
     onClear: () -> Unit,
+    onSavePin: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -87,11 +95,19 @@ internal fun NavigationDock(
                         fontWeight = FontWeight.Bold,
                     )
                 }
-                IconButton(onClick = onClear, modifier = Modifier.size(28.dp)) {
-                    Icon(
-                        Icons.Rounded.Close,
-                        contentDescription = "Clear destination",
-                    )
+                Row {
+                    IconButton(onClick = onSavePin, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            Icons.Outlined.Add,
+                            contentDescription = "Save pin",
+                        )
+                    }
+                    IconButton(onClick = onClear, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            Icons.Rounded.Close,
+                            contentDescription = "Clear destination",
+                        )
+                    }
                 }
             }
 
