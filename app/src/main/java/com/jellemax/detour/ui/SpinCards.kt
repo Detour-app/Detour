@@ -3,6 +3,7 @@ package com.jellemax.detour.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,10 +33,19 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -137,10 +147,34 @@ internal fun SpinSheet(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            val density = LocalDensity.current
+            // See HomeSheet.kt's DragHandle for why this reads the current
+            // onCollapse through rememberUpdatedState rather than keying the
+            // gesture detector on it directly.
+            val currentOnCollapse by rememberUpdatedState(onCollapse)
+            var dragged by remember { mutableFloatStateOf(0f) }
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .clickable(onClick = onCollapse),
+                    .clickable(onClick = onCollapse)
+                    .pointerInput(Unit) {
+                        val thresholdPx = with(density) { SHEET_SWIPE_THRESHOLD.toPx() }
+                        detectVerticalDragGestures(
+                            onDragEnd = {
+                                if (dragged >= thresholdPx) currentOnCollapse()
+                                dragged = 0f
+                            },
+                        ) { change, dragAmount ->
+                            change.consume()
+                            dragged += dragAmount
+                        }
+                    }
+                    .semantics {
+                        contentDescription = "Spin settings, expanded"
+                        customActions = listOf(
+                            CustomAccessibilityAction("Collapse") { currentOnCollapse(); true },
+                        )
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
