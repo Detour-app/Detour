@@ -1123,7 +1123,7 @@ class TripTrackingService : Service() {
             accuracyM = location.accuracy,
             speed = speed,
             at = LatLon(location.latitude, location.longitude),
-            fixTimeMs = location.time,
+            fixTimeMs = clock.fixTimeMs(location.time),
             probing = probing,
         )
         if (decision == TripStartDetector.Decision.Idle) return
