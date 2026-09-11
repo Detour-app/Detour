@@ -11,7 +11,6 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.location.Location
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -434,7 +433,7 @@ class TripTrackingService : Service() {
     /** The rotation-vector sensor and lean bookkeeping; see its own KDoc for
      *  why [recordLean] stays here rather than moving with it. */
     private lateinit var motionSensors: RideMotionSensors
-    private var lastLocation: Location? = null
+    private var lastLocation: LocationFix? = null
     // The raw GPS speed of the last fix, kept for the OBD2 speed-refresh loop:
     // between GPS callbacks it has no other way to re-run resolveDisplaySpeedMps'
     // GPS-contradiction guard.
@@ -1071,7 +1070,7 @@ class TripTrackingService : Service() {
         startDetector.reset()
     }
 
-    private fun onLocation(location: Location) {
+    private fun onLocation(location: LocationFix) {
         // Debug builds only, and by source set rather than by a flag: the gate
         // in a release build is a function returning true. It throws out the
         // real position that fused blends into a mock replay (#47) — which is
@@ -1083,12 +1082,12 @@ class TripTrackingService : Service() {
         val speed = speedOf(location)
         lastGpsSpeedMps = speed
         val fix = Fix(
-            lat = location.latitude,
-            lon = location.longitude,
+            lat = location.lat,
+            lon = location.lon,
             speedMps = resolveDisplaySpeedMps(speed, vehicleLinks.resolvedMode()),
-            bearingDeg = if (location.hasBearing()) location.bearing else null,
-            accuracyMeters = location.accuracy,
-            timeMs = clock.fixTimeMs(location.time),
+            bearingDeg = location.bearingDeg,
+            accuracyMeters = location.accuracyMeters,
+            timeMs = clock.fixTimeMs(location.timeMs),
             elapsedRealtimeMs = location.elapsedRealtimeNanos / 1_000_000L,
         )
         _lastFix.value = fix
@@ -1103,11 +1102,11 @@ class TripTrackingService : Service() {
     }
 
     /** Idle/probe/sleep: extend the explored trace, watch for a drive starting. */
-    private fun onIdleLocation(location: Location, speed: Double) {
-        if (location.accuracy <= MAX_TRACE_ACCURACY_M) {
+    private fun onIdleLocation(location: LocationFix, speed: Double) {
+        if (location.accuracyMeters <= MAX_TRACE_ACCURACY_M) {
             addTracePoint(
-                LatLon(location.latitude, location.longitude),
-                clock.fixTimeMs(location.time),
+                LatLon(location.lat, location.lon),
+                clock.fixTimeMs(location.timeMs),
                 speed,
             )
         }
@@ -1120,10 +1119,10 @@ class TripTrackingService : Service() {
 
         val probing = driveTransitions.probing
         val decision = startDetector.onFix(
-            accuracyM = location.accuracy,
+            accuracyM = location.accuracyMeters,
             speed = speed,
-            at = LatLon(location.latitude, location.longitude),
-            fixTimeMs = location.time,
+            at = LatLon(location.lat, location.lon),
+            fixTimeMs = location.timeMs,
             probing = probing,
         )
         if (decision == TripStartDetector.Decision.Idle) return
@@ -1148,13 +1147,16 @@ class TripTrackingService : Service() {
 
     /** The trip's distance with this fix's hop added, or unchanged when the fix
      *  fails [TripFixMath.distanceHopMeters]'s accuracy/recency gate. */
-    private fun accumulateDistance(location: Location, stats: TripStats): Double {
+    private fun accumulateDistance(location: LocationFix, stats: TripStats): Double {
         val last = lastLocation
+        val rawHopMeters = last?.let {
+            RoadRoulette.distanceMeters(LatLon(it.lat, it.lon), LatLon(location.lat, location.lon))
+        } ?: 0.0
         return stats.distanceMeters + TripFixMath.distanceHopMeters(
-            rawHopMeters = last?.distanceTo(location)?.toDouble() ?: 0.0,
-            lastFixMs = last?.time,
-            fixMs = location.time,
-            accuracyM = location.accuracy,
+            rawHopMeters = rawHopMeters,
+            lastFixMs = last?.timeMs,
+            fixMs = location.timeMs,
+            accuracyM = location.accuracyMeters,
             maxAccuracyM = MAX_DISTANCE_ACCURACY_M,
             minGapMs = MIN_FIX_GAP_MS,
             maxGapMs = MAX_FIX_GAP_MS,
@@ -1165,7 +1167,7 @@ class TripTrackingService : Service() {
      *  point, watches for the trip closing back on where it started.
      *  Returns true if it ended the trip. */
     private fun appendTracePoint(
-        location: Location,
+        location: LocationFix,
         speed: Double,
         stats: TripStats,
         now: Long,
@@ -1173,9 +1175,9 @@ class TripTrackingService : Service() {
         // Negated `<=` rather than `>`, same reason as TripFixMath.distanceHopMeters:
         // every comparison with a NaN accuracy is false, so `>` would fall through
         // and append the point to the persisted trace. No usable accuracy, no draw.
-        if (!(location.accuracy <= MAX_TRACE_ACCURACY_M)) return false
-        val p = LatLon(location.latitude, location.longitude)
-        addTracePoint(p, clock.fixTimeMs(location.time), speed)
+        if (!(location.accuracyMeters <= MAX_TRACE_ACCURACY_M)) return false
+        val p = LatLon(location.lat, location.lon)
+        addTracePoint(p, clock.fixTimeMs(location.timeMs), speed)
 
         // Auto-stop when back at the starting point after a real trip.
         if (origin == null) origin = p
@@ -1210,7 +1212,7 @@ class TripTrackingService : Service() {
         val recordedFixMs: Long,
     )
 
-    private fun resolveSpeed(location: Location, speed: Double, stats: TripStats): FixSpeed {
+    private fun resolveSpeed(location: LocationFix, speed: Double, stats: TripStats): FixSpeed {
         // One OBD2 snapshot for this fix: the speed chain, the attribution
         // counter, the engine-summary fold and speedIsReal all read the same
         // values, so a poll landing mid-function can't make them disagree.
@@ -1252,7 +1254,7 @@ class TripTrackingService : Service() {
             // hasSpeed() is set, or fresh OBD2/board telemetry supplied the number
             // effectiveSpeedMps is using.
             isReal = TripFixMath.speedIsReal(
-                fixHasSpeed = location.hasSpeed(),
+                fixHasSpeed = location.speedMps != null,
                 boardHasSpeed = board != null && board.hasSpeed,
                 modeTracksGForce = stats.mode.tracksGForce,
                 obdHasSpeed = obd != null && obd.hasSpeed,
@@ -1266,7 +1268,7 @@ class TripTrackingService : Service() {
             recordedFixMs = TripFixMath.recordedFixMs(
                 obdDroveSpeed = obdSpeedMps != null,
                 obdReceivedAtMs = obd?.receivedAtMs,
-                locationTimeMs = location.time,
+                locationTimeMs = location.timeMs,
             ),
         )
     }
@@ -1317,7 +1319,7 @@ class TripTrackingService : Service() {
         if (obd.fuelEstimated) session.fuelWasEstimated = true
     }
 
-    private fun detectHardEvents(location: Location, stats: TripStats, fix: FixSpeed) {
+    private fun detectHardEvents(location: LocationFix, stats: TripStats, fix: FixSpeed) {
         // Thresholds here are scoped to car/moto (tracksGForce) — a bike or walk
         // decelerating normally must not print a "hard brake" meant for a vehicle.
         // Cornering is separately gated: heading-rate below to CAR, lean-based
@@ -1332,9 +1334,9 @@ class TripTrackingService : Service() {
             }
             // No speedIsReal guard needed: a fabricated 0.0 here just fails the
             // MIN_CORNER_SPEED_MPS gate harmlessly inside onHeadingFix.
-            if (stats.mode == TravelMode.CAR && location.hasBearing()) {
+            if (stats.mode == TravelMode.CAR && location.bearingDeg != null) {
                 val (nextHeadingState, cornerEvent) = HardEventDetector.onHeadingFix(
-                    session.headingEventState, location.bearing.toDouble(), fix.effectiveMps, location.time)
+                    session.headingEventState, location.bearingDeg.toDouble(), fix.effectiveMps, location.timeMs)
                 session.headingEventState = nextHeadingState
                 if (cornerEvent) session.hardCornerCount++
             }
@@ -1352,9 +1354,9 @@ class TripTrackingService : Service() {
     /** Advances the trip's speed-limit state for this fix (fetching ways when
      *  the tracker asks for them) and folds any time spent over the limit into
      *  `secondsOverLimit`. Null when the fix carried no real speed measurement. */
-    private fun updateSpeedLimit(location: Location, fix: FixSpeed, now: Long): Boolean? {
-        val here = LatLon(location.latitude, location.longitude)
-        val bearing = if (location.hasBearing()) location.bearing.toDouble() else null
+    private fun updateSpeedLimit(location: LocationFix, fix: FixSpeed, now: Long): Boolean? {
+        val here = LatLon(location.lat, location.lon)
+        val bearing = location.bearingDeg?.toDouble()
         if (fix.effectiveMps >= SpeedLimitTracker.MIN_MPS &&
             SpeedLimitTracker.needsWays(session.tripLimitState, here, now) &&
             session.tripLimitFetchJob?.isActive != true
@@ -1376,8 +1378,8 @@ class TripTrackingService : Service() {
         // left stale on a skipped fix so the next real fix's Δt spans the gap.
         if (!fix.isReal) return null
         val over = SpeedLimitTracker.isOverLimit(fix.effectiveMps * 3.6, limitKmh)
-        if (over) cappedFixDtSec(location.time, session.lastLimitFixMs)?.let { session.secondsOverLimit += it }
-        session.lastLimitFixMs = location.time
+        if (over) cappedFixDtSec(location.timeMs, session.lastLimitFixMs)?.let { session.secondsOverLimit += it }
+        session.lastLimitFixMs = location.timeMs
         return over
     }
 
@@ -1396,7 +1398,7 @@ class TripTrackingService : Service() {
      * not raw speed.
      */
     private fun updateRoadType(
-        location: Location,
+        location: LocationFix,
         stats: TripStats,
         fix: FixSpeed,
         hopMeters: Double,
@@ -1405,7 +1407,7 @@ class TripTrackingService : Service() {
         // Scoped to car/moto (tracksGForce), same reasoning as the hard-event
         // block: a walk/bike's road-type mix isn't part of this stat.
         if (!stats.mode.tracksGForce) return
-        val here = LatLon(location.latitude, location.longitude)
+        val here = LatLon(location.lat, location.lon)
         if (fix.effectiveMps >= SpeedLimitTracker.MIN_MPS &&
             RoadTypeTracker.needsWays(session.roadTypeState, here, now) &&
             session.roadTypeFetchJob?.isActive != true
@@ -1425,12 +1427,12 @@ class TripTrackingService : Service() {
             }
         }
         if (hopMeters > 0.0) {
-            val bearing = if (location.hasBearing()) location.bearing.toDouble() else null
+            val bearing = location.bearingDeg?.toDouble()
             session.roadTypeState = RoadTypeTracker.onFix(session.roadTypeState, here, bearing, hopMeters)
         }
     }
 
-    private fun onTripLocation(location: Location, speed: Double, stats: TripStats) {
+    private fun onTripLocation(location: LocationFix, speed: Double, stats: TripStats) {
         // The drive's clock, not the wall's: at 5x replay these dwell and
         // duration comparisons have to be against the drive they describe.
         // See DriveClock for what deliberately stays on the platform clock.
@@ -1472,18 +1474,18 @@ class TripTrackingService : Service() {
         vehicleLinks.refreshTripMode()
     }
 
-    private fun speedOf(location: Location): Double {
-        if (location.hasSpeed()) return location.speed.toDouble()
+    private fun speedOf(location: LocationFix): Double {
+        location.speedMps?.let { return it.toDouble() }
         // Coarse fixes often lack speed, and deriving it from two positions is
         // only honest when both are tight — otherwise a single indoor GPS jump
         // between sparse idle fixes looks exactly like pulling out of a driveway.
         val last = lastLocation ?: return 0.0
-        if (location.accuracy > MAX_START_ACCURACY_M ||
-            last.accuracy > MAX_START_ACCURACY_M
+        if (location.accuracyMeters > MAX_START_ACCURACY_M ||
+            last.accuracyMeters > MAX_START_ACCURACY_M
         ) return 0.0
-        val dtSec = (location.time - last.time) / 1000.0
+        val dtSec = (location.timeMs - last.timeMs) / 1000.0
         if (dtSec !in 1.0..120.0) return 0.0
-        return last.distanceTo(location) / dtSec
+        return RoadRoulette.distanceMeters(LatLon(last.lat, last.lon), LatLon(location.lat, location.lon)) / dtSec
     }
 
     /**

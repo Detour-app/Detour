@@ -1,6 +1,8 @@
 package com.jellemax.detour.tracking
 
 import android.content.Context
+import android.location.Location
+import android.os.Build
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
@@ -37,7 +39,7 @@ internal class FusedLocationSource(
 
     private val callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
-            listener.onFixes(result.locations)
+            listener.onFixes(result.locations.map { it.toLocationFix() })
         }
     }
 
@@ -72,4 +74,31 @@ internal suspend fun fusedCurrentLatLon(context: Context): LatLon? {
     val loc = client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null).await()
         ?: client.lastLocation.await()
     return loc?.let { LatLon(it.latitude, it.longitude) }
+}
+
+/**
+ * The one place fused's [Location] is read at all (#312) — everything past
+ * this point, [ReplayFixGate] included, sees only [LocationFix].
+ *
+ * [FixOrigin.MOCK_PROVIDER] is fused blending in a real fix from a designated
+ * mock-location app (the [ReplayFixGate]'s `isMock` rig, distinct from
+ * [ReplayLocationSource]'s own port, which never reaches this function).
+ */
+private fun Location.toLocationFix(): LocationFix {
+    val mock = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        isMock
+    } else {
+        @Suppress("DEPRECATION")
+        isFromMockProvider
+    }
+    return LocationFix(
+        lat = latitude,
+        lon = longitude,
+        speedMps = if (hasSpeed()) speed else null,
+        bearingDeg = if (hasBearing()) bearing else null,
+        accuracyMeters = accuracy,
+        timeMs = time,
+        elapsedRealtimeNanos = elapsedRealtimeNanos,
+        origin = if (mock) FixOrigin.MOCK_PROVIDER else FixOrigin.PLATFORM,
+    )
 }

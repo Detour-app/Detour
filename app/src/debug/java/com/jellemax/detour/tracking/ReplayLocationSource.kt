@@ -1,7 +1,6 @@
 package com.jellemax.detour.tracking
 
 import android.content.Context
-import android.location.Location
 import android.os.SystemClock
 import android.util.Log
 import com.jellemax.detour.data.LatLon
@@ -148,23 +147,23 @@ internal class ReplayLocationSource(
         ReplayAutoDetect.restore()
     }
 
-    private fun fixAt(at: LatLon, speedMps: Double, next: LatLon): Location =
-        Location(PROVIDER).apply {
-            latitude = at.lat
-            longitude = at.lon
-            // The same fixed accuracy the mock harness reports, and for the same
-            // reason: comfortably inside MAX_START_ACCURACY_M (25 m), so a
-            // replay never accidentally tests the degraded-accuracy paths. Those
-            // still need a real device in a bad spot.
-            accuracy = 4f
-            speed = speedMps.toFloat()
-            if (at != next) bearing = RoadRoulette.bearingDeg(at, next).toFloat()
-            // Wall time, deliberately: this is the provider's own stamp, and
-            // DriveClock.fixTimeMs is what decides whether the drive's clock
-            // replaces it. A source that pre-scaled this would scale it twice.
-            time = System.currentTimeMillis()
-            elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
-        }
+    private fun fixAt(at: LatLon, speedMps: Double, next: LatLon): LocationFix = LocationFix(
+        lat = at.lat,
+        lon = at.lon,
+        speedMps = speedMps.toFloat(),
+        bearingDeg = if (at != next) RoadRoulette.bearingDeg(at, next).toFloat() else null,
+        // The same fixed accuracy the mock harness reports, and for the same
+        // reason: comfortably inside MAX_START_ACCURACY_M (25 m), so a
+        // replay never accidentally tests the degraded-accuracy paths. Those
+        // still need a real device in a bad spot.
+        accuracyMeters = 4f,
+        // Wall time, deliberately: this is the provider's own stamp, and
+        // DriveClock.fixTimeMs is what decides whether the drive's clock
+        // replaces it. A source that pre-scaled this would scale it twice.
+        timeMs = System.currentTimeMillis(),
+        elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos(),
+        origin = FixOrigin.REPLAY_PORT,
+    )
 
     /** One `lon lat` pair per line — longitude first, matching the harness's
      *  format so the same route files work on both rigs. Unparseable lines are
@@ -206,7 +205,6 @@ internal class ReplayLocationSource(
         if (armed) lastEmitted else fused.currentLatLon()
 
     private companion object {
-        const val PROVIDER = "detour-replay"
         const val RUN_FILE = "replay-run.txt"
         const val TAG = "DetourPortReplay"
         val SEPARATOR = Regex("[ ,\t]+")
