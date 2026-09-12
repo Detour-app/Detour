@@ -46,6 +46,13 @@ object UpdateCheck {
         val prerelease: Boolean,
         /** Asset name to its `browser_download_url`. */
         val assets: Map<String, String>,
+        /** The release body GitHub already hands back with everything else in
+         *  this response — null rather than blank, so a caller can `?:` past
+         *  it with one check instead of two (#295). Plain text as GitHub's
+         *  generator writes it: a PR-title list, not markdown to be rendered
+         *  as trusted HTML — see CONTRIBUTING.md's "Release notes" section for
+         *  why that's a decision and not an oversight. */
+        val notes: String? = null,
     ) {
         fun assetUrl(name: String): String? = assets[name]
     }
@@ -66,6 +73,7 @@ object UpdateCheck {
             version = o.optString("tag_name").removePrefix("v"),
             prerelease = o.optBoolean("prerelease", false),
             assets = assets,
+            notes = o.optString("body").trim().ifBlank { null },
         )
     } catch (e: Exception) {
         null

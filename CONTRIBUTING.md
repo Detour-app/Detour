@@ -70,6 +70,17 @@ The mock-location harness (`tools/mocklocation/build.gradle.kts`) versions
 independently — this rule is about `app/build.gradle.kts`, the app people
 actually install.
 
+### Release notes
+
+Each GitHub release's notes are GitHub's own auto-generated "What's Changed"
+list (`generate_release_notes: true` in `build.yml`), grouped by label via
+`.github/release.yml`, and shown to a rider **verbatim** — merged PR titles,
+not hand-written prose (#295). That's a deliberate, written-down choice, not
+an oversight: a hand-maintained changelog is a second thing to remember on
+every PR, on top of the version bump above, and this repo's PR titles already
+follow `type(scope): summary (#NNN)`, so the generated list reads reasonably
+well without a human rewriting it. Revisit this if that stops being true.
+
 ## Documentation
 
 [`docs/`](docs/README.md) has an index; start there rather than guessing at
