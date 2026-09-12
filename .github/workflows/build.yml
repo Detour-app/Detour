@@ -262,6 +262,15 @@ jobs:
             detour-${{ steps.version.outputs.name }}.apk
             app/build/outputs/mapping/githubRelease/mapping.txt
             update.json
+          # generate_release_notes appends a "What's Changed" section, grouped
+          # by .github/release.yml, below the body text — the standing
+          # boilerplate below it is not replaced, only followed (#295). Built
+          # from merged PR titles, which this repo already keys to `type(scope):
+          # summary (#NNN)` (CONTRIBUTING.md's Versioning section), so the list
+          # reads like a developer-facing changelog rather than prose written
+          # for a rider — that's the deliberate, written-down choice for now
+          # (see CONTRIBUTING.md), not an oversight to fix later.
+          generate_release_notes: true
           body: |
             Detour v${{ steps.version.outputs.name }} (versionCode
             ${{ steps.version.outputs.code }}), built from
