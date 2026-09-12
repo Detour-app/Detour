@@ -285,9 +285,10 @@ both hold:
 Neither implies the other, and checking only the first is the trap: a CI-built
 APK pointed at a self-hosted backend with no Firebase key registers its token
 happily and then receives nothing. The client reads the second answer from
-`RoutingServer.knownServerFeatures()`, which is stored from the last probe —
-`null` there means "never asked", and that keeps the socket running rather than
-gambling on it.
+`RoutingServer.hasFeature(ServerFeature.PUSH_ANDROID)`, backed by the feature
+list stored from the last probe — an unprobed server reads as "no", which
+keeps the socket running rather than gambling on it. See CONTRIBUTING.md's
+"Gating on server capabilities" for the convention this follows.
 
 Both false is the self-hosted fallback described in §5, unchanged: the relay
 socket, its foreground notification, and the catch-up on reconnect.
