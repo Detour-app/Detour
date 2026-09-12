@@ -285,6 +285,35 @@ class CredentialMigrationTest {
     // the name makes distinct groups distinct by construction, so this test uses two
     // groups that exist nowhere else to prove the construction and not the two
     // declarations.
+    // #42: iOS's Keychain migration for securePrefs() sources from a bag that, on
+    // any install that already opened the app, already carries SESSION_GROUP's own
+    // *armed* marker — an earlier CredentialMigration run already copied plaintext
+    // credentials into it. A migration that reused SESSION_GROUP to move those
+    // values into the Keychain would read that marker as "already migrated to the
+    // Keychain" and take the delete branch immediately, destroying the only copy of
+    // the session before it was ever written to the new store. A group with its own
+    // name reads its own (unarmed) marker instead, so it copies first, as intended.
+    @Test
+    fun aGroupWithItsOwnNameDoesNotMistakeAnUnrelatedArmedMarkerForItsOwn() {
+        val secureBag = FakePrefs().apply {
+            put("access_token", "at")
+            put("refresh_token", "rt")
+            put("auth_username", "andre")
+            // As if SESSION_GROUP's own migration had already run to completion
+            // against this bag before the Keychain existed as a destination.
+            put(CredentialMigration.SESSION_GROUP.marker, CredentialMigration.MARKER_VALUE)
+        }
+        val keychain = FakePrefs()
+        val keychainGroup = SecretGroup(name = "keychain", keys = CredentialMigration.SESSION_GROUP.keys)
+
+        val outcome = CredentialMigration.step(secureBag, keychain, keychainGroup)
+
+        assertEquals(CredentialMigration.Outcome.Copied, outcome)
+        assertEquals("at", keychain.string("access_token", ""))
+        // Not deleted: this run only copied, exactly as a genuine first run would.
+        assertEquals("at", secureBag.string("access_token", ""))
+    }
+
     @Test
     fun twoAdHocGroupsAgainstOneStoreDoNotArmEachOther() {
         val alpha = SecretGroup("alpha", listOf(SecretKey("alpha_token", SecretType.Text)))

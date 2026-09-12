@@ -59,12 +59,60 @@ internal class UserDefaultsPrefs(private val bag: String) : Prefs {
 actual fun prefs(name: String): Prefs = UserDefaultsPrefs(name)
 
 /**
- * Not yet encrypted. iOS keeps NSUserDefaults behind the same interface so the
- * Keychain implementation is a self-contained follow-up rather than a rewrite —
- * it cannot be verified from this repo's CI (no Swift test target), and shipping
- * security-critical code on a compile alone is how surfaces drift apart.
+ * The plaintext store [securePrefs] used to return, kept around only as the source
+ * for [migrateLegacySecureStoreToKeychain] — see that function's doc for why this
+ * cannot be folded into [CredentialMigration.SESSION_GROUP]'s own plaintext bag.
  */
-actual fun securePrefs(): Prefs = UserDefaultsPrefs("secure")
+private val legacySecurePrefs by lazy { UserDefaultsPrefs("secure") }
+
+private val keychainPrefs by lazy { KeychainPrefs() }
+
+/**
+ * A second migration, distinct from [CredentialMigration.SESSION_GROUP]: its source
+ * is `secure.*` in `NSUserDefaults`, not `settings.*`.
+ *
+ * On any iOS install that already opened the app before this change, the session's
+ * two-phase migration has already run to completion: the six credential values were
+ * copied out of the `settings`/`routing_server` bags into the `secure` bag (still
+ * `NSUserDefaults`, still plaintext), the copies were verified, and both
+ * `__migration_session`/`__migration_server` markers are armed. Reusing
+ * [CredentialMigration.SESSION_GROUP] here would read that armed marker as "already
+ * migrated to the Keychain", take the delete branch immediately, and remove the only
+ * copy of the session from a Keychain that was never written — signing every such
+ * install out and destroying its Cloudflare Access token. A group with its own name
+ * gets its own marker ([SecretGroup.marker] derives from it), so this cannot arm
+ * itself off a run that was migrating between two entirely different stores.
+ */
+private val KEYCHAIN_GROUP = SecretGroup(
+    name = "keychain",
+    keys = CredentialMigration.SESSION_GROUP.keys,
+)
+
+// Guards migrateLegacySecureStoreToKeychain the same way CredentialMigration.migrated
+// guards migrateOnce(): CredentialMigration.step() may run at most once per process
+// per group, or a second call in the same run sees the marker its own first call just
+// armed and deletes the plaintext before a process restart has proven the Keychain
+// write actually survived.
+private val secureStoreMigrationLock = PlatformLock()
+private var secureStoreMigrated = false
+
+private fun migrateLegacySecureStoreToKeychain() = secureStoreMigrationLock.withLock {
+    if (secureStoreMigrated) return@withLock
+    secureStoreMigrated = true
+    if (CredentialMigration.groupHasPlaintext(legacySecurePrefs, KEYCHAIN_GROUP)) {
+        CredentialMigration.step(legacySecurePrefs, keychainPrefs, KEYCHAIN_GROUP)
+    }
+}
+
+/**
+ * Keychain-backed, per #42. [migrateLegacySecureStoreToKeychain] runs at most once per
+ * process before the store is handed out, so every reader — `Settings.init()` included —
+ * sees credentials already moved rather than racing the migration.
+ */
+actual fun securePrefs(): Prefs {
+    migrateLegacySecureStoreToKeychain()
+    return keychainPrefs
+}
 
 /**
  * Documents rather than Application Support: these are the user's own trips
