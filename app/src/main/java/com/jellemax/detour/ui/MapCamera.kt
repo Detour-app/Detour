@@ -3,7 +3,9 @@ package com.jellemax.detour.ui
 import android.os.SystemClock
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.withFrameNanos
@@ -82,7 +84,11 @@ internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap) {
     val mapLibreMap = retained.map
     val mapOverlays = retained.overlays
     val fogView = retained.fogView
-    val cameraActive = s.camAuthority.cameraActive(s.navigating)
+    // derivedStateOf so this composable's scope recomposes only when
+    // cameraActive actually flips, not on every write to camAuthority - a
+    // drag stamps lastGestureMs on every ACTION_MOVE (CameraAuthority.kt's
+    // Action.Gesture), and nothing else here reads that field (#33).
+    val cameraActive by remember(s) { derivedStateOf { s.camAuthority.cameraActive(s.navigating) } }
     val liveFix by TripTrackingService.lastFix.collectAsStateWithLifecycle()
     // Hoisted out of the frame loop below, and it has to be: a CompositionLocal
     // is only readable in a @Composable. Safe to hold as a plain value across the

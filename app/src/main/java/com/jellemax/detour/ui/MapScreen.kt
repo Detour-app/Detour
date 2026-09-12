@@ -934,6 +934,15 @@ fun MapScreen(
         }
     }
 
+    // Same reasoning as navState above: derivedStateOf so MapTopChrome's scope
+    // recomposes only when following/northUpAvailable actually change, not on
+    // every write to camAuthority - a drag stamps lastGestureMs on every
+    // ACTION_MOVE and neither of these reads it (#33).
+    val camFollowing by remember(s) { derivedStateOf { s.camAuthority.following } }
+    val camNorthUpAvailable by remember(s) {
+        derivedStateOf { s.camAuthority.northUpAvailable(s.navigating) }
+    }
+
     fun spin() {
         val loc = s.myLocation ?: run {
             s.error = "Waiting for your location…"
@@ -1154,7 +1163,7 @@ fun MapScreen(
                     .fillMaxWidth(),
             ) {
                 MapTopChrome(
-                    followMe = s.camAuthority.following,
+                    followMe = camFollowing,
                     convoyName = if (convoyConnected) s.convoyName else null,
                     layers = MapLayers(
                         open = s.layersOpen,
@@ -1173,7 +1182,7 @@ fun MapScreen(
                     // every frame otherwise. `mapLibreMap` is read here rather
                     // than captured: this lambda is rebuilt on recomposition,
                     // so there is no stale-capture hazard to defeat.
-                    onFaceNorth = if (s.camAuthority.northUpAvailable(s.navigating)) {
+                    onFaceNorth = if (camNorthUpAvailable) {
                         { mapLibreMap?.let { levelToNorthUp(it) } }
                     } else null,
                     modifier = Modifier
