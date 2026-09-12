@@ -46,6 +46,10 @@ public abstract record LiveOutbound;
 /// a circle member arrive on the same stream at wildly different cadences: a single hardcoded
 /// staleness window either flickers circle members out between their updates or leaves a dropped
 /// convoy rider frozen on the map.
+///
+/// <paramref name="VehicleName"/> is the vehicle that rider opted to share (#158) — null when
+/// they have not, the same as an absent field to every existing client's `optString` reader
+/// (see the Kotlin `RelayProtocol`'s own doc on that point).
 /// </summary>
 public sealed record PeerPosition(
     [property: JsonPropertyName("u")] Guid User,
@@ -54,7 +58,8 @@ public sealed record PeerPosition(
     [property: JsonPropertyName("h")] double? HeadingDegrees,
     [property: JsonPropertyName("s")] double? SpeedKmh,
     [property: JsonPropertyName("ts")] long TimestampMs,
-    [property: JsonPropertyName("ttl")] int TtlSeconds) : LiveOutbound;
+    [property: JsonPropertyName("ttl")] int TtlSeconds,
+    [property: JsonPropertyName("veh")] string? VehicleName = null) : LiveOutbound;
 
 /// <summary>A frame that is written as-is, in order, and never merged with its neighbours.</summary>
 public sealed record LiveMessage(object Payload) : LiveOutbound;

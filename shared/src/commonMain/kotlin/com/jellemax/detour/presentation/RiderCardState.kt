@@ -29,6 +29,9 @@ data class RiderCardState(
     /** The fix is past its expiry deadline — the card leads with age, not a
      *  speed presented as current. */
     val stale: Boolean,
+    /** The vehicle this rider opted to share (#158), or null — most peers,
+     *  who never opted in, or a circle member, which never carries one. */
+    val vehicleName: String? = null,
 )
 
 /**
@@ -48,6 +51,7 @@ fun riderCardStateFrom(
     ownLocation: LatLon?,
     nowMs: Long,
     sep: Char = '.',
+    vehicleName: String? = null,
 ): RiderCardState {
     val stale = expiresAtMs != null && nowMs > expiresAtMs
     return RiderCardState(
@@ -59,6 +63,10 @@ fun riderCardStateFrom(
             formatDistanceKm(RoadRoulette.distanceMeters(it, riderLocation), sep)
         },
         stale = stale,
+        // A stale fix's vehicle is not shown either - same reasoning as
+        // speedText/headingText above, it's a property of a fix that is no
+        // longer current.
+        vehicleName = vehicleName?.takeIf { !stale },
     )
 }
 

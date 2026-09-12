@@ -146,6 +146,13 @@ object Settings {
          *  wherever the vehicle is shown. Null or blank means "use [name]".
          *  Capped at [VEHICLE_LABEL_MAX]; see [cleanLabel]. */
         val label: String? = null,
+        /** Opt-in: broadcast [displayName] to the other riders in a live
+         *  convoy, alongside this device's position frames (#158). Off by
+         *  default — a rider who never opts in sends no new field. Per
+         *  vehicle, not global: someone may be happy to share the bike and
+         *  not the work van. Never reaches a circle — convoy peers are the
+         *  only ones this rides to, see [com.jellemax.detour.drive.ConvoyRelay.sendLocation]. */
+        val shareName: Boolean = false,
     ) {
         /** What to show for this vehicle: the rider's [label] if they set one,
          *  otherwise the Bluetooth device's own [name]. */
@@ -373,6 +380,7 @@ object Settings {
             fuelCalibrationPct = v.optInt("fuelCalibrationPct", 100)
                 .coerceIn(FUEL_CALIBRATION_MIN, FUEL_CALIBRATION_MAX),
             label = cleanLabel(v.optString("label")),
+            shareName = v.optBoolean("shareName", false),
         )
         else -> VehicleDevice(address, address, TravelMode.of(v.toString().trim('"')), null)
     }
@@ -384,6 +392,7 @@ object Settings {
         if (d.fuelType != FuelType.PETROL) put("fuelType", d.fuelType.name)
         if (d.fuelCalibrationPct != 100) put("fuelCalibrationPct", d.fuelCalibrationPct)
         d.label?.let { put("label", it) }
+        if (d.shareName) put("shareName", true)
     }
 
     /** Trim, cap at [VEHICLE_LABEL_MAX], and collapse an empty result to `null`
@@ -405,6 +414,15 @@ object Settings {
         val current = _vehicleDevices.value[address] ?: return
         val next = _vehicleDevices.value.toMutableMap()
         next[address] = current.copy(label = cleanLabel(label))
+        writeVehicleDevices(next)
+    }
+
+    /** Opt [address] in or out of broadcasting its [VehicleDevice.displayName]
+     *  to live convoy peers — see [VehicleDevice.shareName]. */
+    fun setVehicleShareName(address: String, share: Boolean) {
+        val current = _vehicleDevices.value[address] ?: return
+        val next = _vehicleDevices.value.toMutableMap()
+        next[address] = current.copy(shareName = share)
         writeVehicleDevices(next)
     }
 

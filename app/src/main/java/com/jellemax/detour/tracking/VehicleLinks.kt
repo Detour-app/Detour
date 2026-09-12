@@ -36,6 +36,11 @@ class VehicleLinks(
     private val uiVisible: () -> Boolean,
     private val currentTripMode: () -> TravelMode?,
     private val onModeChanged: (TravelMode) -> Unit,
+    /** Told of the resolved vehicle every time [refreshTripMode] re-evaluates
+     *  it, whether or not the trip mode itself changed — two mapped devices
+     *  of the same [TravelMode] swapping connection is a vehicle change
+     *  [onModeChanged] alone would miss (#158). */
+    private val onVehicleChanged: (Settings.VehicleDevice?) -> Unit = {},
 ) {
 
     // Mapped Classic devices (Cardo, car infotainment) pick the trip mode,
@@ -251,6 +256,7 @@ class VehicleLinks(
      *  connected or left), via [onModeChanged] — which restarts motion
      *  sensors to match. */
     fun refreshTripMode() {
+        onVehicleChanged(resolvedVehicle())
         val mode = resolvedMode()
         val runningMode = currentTripMode()
         if (runningMode != null && runningMode != mode) {

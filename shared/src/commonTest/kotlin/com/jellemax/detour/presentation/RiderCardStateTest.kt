@@ -27,6 +27,7 @@ class RiderCardStateTest {
         fixTsMs: Long = now,
         expiresAtMs: Long? = now + 20_000,
         ownLocation: LatLon? = here,
+        vehicleName: String? = null,
     ) = riderCardStateFrom(
         handle = handle,
         riderLocation = riderLocation,
@@ -36,6 +37,7 @@ class RiderCardStateTest {
         expiresAtMs = expiresAtMs,
         ownLocation = ownLocation,
         nowMs = now,
+        vehicleName = vehicleName,
     )
 
     @Test fun liveConvoyPeerShowsSpeedHeadingAndDistance() {
@@ -66,6 +68,20 @@ class RiderCardStateTest {
 
     @Test fun noOwnLocationHidesDistance() {
         assertNull(state(ownLocation = null).distanceText)
+    }
+
+    @Test fun anOptedInPeerShowsTheirVehicleName() {
+        assertEquals("The Triumph", state(vehicleName = "The Triumph").vehicleName)
+    }
+
+    @Test fun aPeerWhoNeverOptedInShowsNoVehicleName() {
+        assertNull(state().vehicleName)
+    }
+
+    @Test fun aStalePeersVehicleNameIsHiddenTooNotPresentedAsCurrent() {
+        val s = state(fixTsMs = now - 240_000, expiresAtMs = now - 10_000, vehicleName = "The Triumph")
+        assertTrue(s.stale)
+        assertNull(s.vehicleName)
     }
 
     @Test fun compassPointWrapsAtNorth() {
