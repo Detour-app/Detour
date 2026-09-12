@@ -2,7 +2,9 @@ package com.jellemax.detour.drive
 
 import com.jellemax.detour.data.HighwayClass
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.OverpassCache
 import com.jellemax.detour.data.RoadRoulette
+import com.jellemax.detour.data.cacheKey
 import com.jellemax.detour.data.jsonObjectOf
 import com.jellemax.detour.data.objects
 import com.jellemax.detour.data.optArray
@@ -65,8 +67,9 @@ object RoadTypeTracker {
             "way(around:${radiusMeters.toInt()},${center.lat},${center.lon})" +
             "[\"highway\"~\"^(${RoadRoulette.DRIVABLE_HIGHWAYS})$\"];" +
             "out tags geom;"
+        val key = cacheKey("roadtype", center, radiusMeters)
         val json = try {
-            RoadRoulette.rawQuery(query)
+            OverpassCache.fetch(key) { RoadRoulette.rawQuery(query) }
         } catch (e: IOException) {
             return null
         }

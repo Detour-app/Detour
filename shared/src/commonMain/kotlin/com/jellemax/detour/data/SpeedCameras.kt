@@ -101,8 +101,10 @@ object SpeedCameras {
         // thing to the caller — no data this time — and letting a JSONException
         // out would kill the collector that drives the prefetch for good.
         val elements = try {
-            jsonObjectOf(RoadRoulette.rawQuery(query, timeoutMs = RoadRoulette.QUERY_BUDGET_MS))
-                .optArray("elements") ?: JsonArrayEmpty
+            val key = cacheKey("cameras", center, radiusMeters)
+            jsonObjectOf(
+                OverpassCache.fetch(key) { RoadRoulette.rawQuery(query, timeoutMs = RoadRoulette.QUERY_BUDGET_MS) },
+            ).optArray("elements") ?: JsonArrayEmpty
         } catch (e: IOException) {
             return null
         } catch (e: SerializationException) {
