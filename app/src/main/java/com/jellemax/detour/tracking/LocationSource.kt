@@ -1,6 +1,5 @@
 package com.jellemax.detour.tracking
 
-import android.location.Location
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.tracking.TripTrackingService.LocationMode
 
@@ -71,16 +70,16 @@ internal interface LocationSource {
     /**
      * Last position this source knows about, freshest first, for arming the park
      * geofence. Null until the very first fix. [fallback] is the service's own
-     * last raw [Location] — kept there, since it backs more than this one call —
-     * for a moment before the first fix lands.
+     * last raw [LocationFix] — kept there, since it backs more than this one
+     * call — for a moment before the first fix lands.
      *
      * Implemented here rather than per adapter: it reads the fix stream's own
      * published state, which is the same whichever source filled it, so an
      * override would be a second copy of one expression.
      */
-    fun lastKnownLatLon(fallback: Location?): Pair<Double, Double>? =
+    fun lastKnownLatLon(fallback: LocationFix?): Pair<Double, Double>? =
         TripTrackingService.lastFix.value?.let { it.lat to it.lon }
-            ?: fallback?.let { it.latitude to it.longitude }
+            ?: fallback?.let { it.lat to it.lon }
 }
 
 /**
@@ -93,5 +92,5 @@ internal interface LocationSource {
  * **once per burst** rather than once per fix — see the call site.
  */
 internal fun interface LocationBatchListener {
-    fun onFixes(locations: List<Location>)
+    fun onFixes(locations: List<LocationFix>)
 }

@@ -1,7 +1,5 @@
 package com.jellemax.detour.tracking
 
-import android.location.Location
-import android.os.Build
 import android.util.Log
 
 /**
@@ -31,7 +29,9 @@ import android.util.Log
  *
  * What is left guesses nothing: the platform supplies the discriminator — a fix
  * derived from a test provider carries `isMock`, true on all 91 above and false on
- * all 4 — and the rig supplies the mode.
+ * all 4 — [FusedLocationSource] reads that at the boundary and stamps
+ * [FixOrigin.MOCK_PROVIDER] onto the [LocationFix] this gate actually sees (#312),
+ * and the rig supplies the mode.
  *
  * **Debug variant only, by source set rather than by an `if`.** The release build
  * compiles `app/src/release/.../ReplayFixGate.kt` instead — same signatures,
@@ -40,7 +40,7 @@ import android.util.Log
  * a test rig, and `isMock` on a real device means somebody attached a mock
  * provider deliberately, which is their business.
  */
-object ReplayFixGate {
+internal object ReplayFixGate {
 
     /** How many real fixes this run has thrown away. The number that says whether
      *  a rig is leaking the real world into a measurement. */
@@ -63,13 +63,13 @@ object ReplayFixGate {
         private set
 
     /**
-     * Whether to believe [location].
+     * Whether to believe [fix].
      *
      * Called at the top of the ingest path, so a rejected fix reaches no state at
      * all — not the trip, not the trace, not the start detector. Outside
      * [ReplayMode] this is always `true` and nothing is filtered.
      */
-    fun accept(location: Location): Boolean {
+    fun accept(fix: LocationFix): Boolean {
         // Counted for every fix the ingest path sees, not only in mock-only mode,
         // so the port rig (#306) has a delivered count too — it does not use
         // [ReplayMode], having nothing to filter. This is the only place both
@@ -83,11 +83,11 @@ object ReplayFixGate {
         // elapses and the trip is never saved. That is #47 again, arriving by a
         // different door, and it is why a port replay recorded no trip at all.
         //
-        // Tested by provider rather than by isMock: fixes from
-        // ReplayLocationSource are not mock fixes — nothing designated this app —
-        // and the provider name is something only that source sets.
+        // Tested by origin rather than by isMock: fixes from ReplayLocationSource
+        // are tagged REPLAY_PORT at that source's own boundary (#312) — they are
+        // not mock fixes, nothing designated this app.
         if (LocationSources.replay?.armed == true) {
-            if (location.provider == REPLAY_PROVIDER) return true
+            if (fix.origin == FixOrigin.REPLAY_PORT) return true
             accepted--
             rejected++
             if (rejected % REJECT_LOG_EVERY == 1L) {
@@ -97,12 +97,7 @@ object ReplayFixGate {
         }
 
         if (!ReplayMode.active) return true
-        val isMock = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            location.isMock
-        } else {
-            @Suppress("DEPRECATION")
-            location.isFromMockProvider
-        }
+        val isMock = fix.origin == FixOrigin.MOCK_PROVIDER
         if (!isMock) {
             accepted--
             rejected++
@@ -122,7 +117,5 @@ object ReplayFixGate {
     }
 
     private const val REJECT_LOG_EVERY = 20L
-    /** The provider name [ReplayLocationSource] stamps on every fix it emits. */
-    private const val REPLAY_PROVIDER = "detour-replay"
     private const val TAG = "DetourFixGate"
 }
