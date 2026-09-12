@@ -87,6 +87,35 @@ Change behaviour that either one describes, and the document is part of the
 change — a spec that has quietly drifted is worse than none, because the next
 person checks their work against it.
 
+## Gating on server capabilities
+
+A self-hosted deployment updates on its own schedule, so a feature that needs
+something new from the server has three states to handle, not one: the server
+has it, the server does not have it yet, or the server is unreachable. Query
+`RoutingServer.hasFeature(ServerFeature.X)` rather than hand-rolling
+`RoutingServer.knownServerFeatures()?.contains(...) == true` at each call site
+— that was tried once (`CircleNotifyService.pushCovers`) and is exactly the
+copy-or-diverge choice a second feature would otherwise face.
+
+`hasFeature` always answers with a plain `Boolean`: unknown (never probed, or
+the last probe failed) reads as false, the same as "the server said no". What
+a caller does with that false is not this function's decision — record it at
+the call site, since the right answer differs per feature:
+
+- **Hide or disable the control.** The default for something new the rider
+  would otherwise be able to trigger against a server that cannot serve it.
+- **Keep the old behaviour running.** What `pushCovers` does: an unprobed
+  server must not stand down the always-on relay socket on a guess, so
+  "cannot confirm push" and "confirmed no push" both keep it running.
+- **Degrade to an older path.** For a feature that replaces something rather
+  than adding it.
+
+Add the feature string to `ServerFeature` (`shared/.../data/Capabilities.kt`)
+as a plain `val`, not `const` — see that file's own comment on why. It must
+match the server's `CapabilitiesResponse` spelling exactly; renaming one side
+without the other breaks the pair silently, since unknown features are
+ignored rather than rejected.
+
 ## Code style
 
 Comments in this repo explain **why**, not what — a line like

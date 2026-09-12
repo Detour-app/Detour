@@ -2,7 +2,9 @@ package com.jellemax.detour.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * The stored form of a server's advertised feature list, and the one thing it
@@ -40,5 +42,27 @@ class ServerFeatureStorageTest {
         // The marker is what makes the empty answer expressible, so a value without
         // one is not this key's — fail to "unknown", which keeps today's transport.
         assertNull(RoutingServer.decodeFeatures("idp-discovery,push-android"))
+    }
+
+    @Test
+    fun hasFindsAFeatureAmongOthers() {
+        assertTrue(RoutingServer.has(listOf("idp-discovery", ServerFeature.PUSH_ANDROID), ServerFeature.PUSH_ANDROID))
+    }
+
+    @Test
+    fun hasIsFalseForAFeatureTheServerDidNotName() {
+        assertFalse(RoutingServer.has(listOf("idp-discovery"), ServerFeature.PUSH_ANDROID))
+    }
+
+    @Test
+    fun hasIsFalseForAnUnprobedServer() {
+        // Same rule `decodeFeatures` documents: a server nobody has asked reads
+        // the same as one that said no, not as one that said yes.
+        assertFalse(RoutingServer.has(null, ServerFeature.PUSH_ANDROID))
+    }
+
+    @Test
+    fun hasIsFalseForAServerThatAdvertisesNothing() {
+        assertFalse(RoutingServer.has(emptyList(), ServerFeature.PUSH_ANDROID))
     }
 }
