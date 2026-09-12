@@ -20,6 +20,7 @@ import platform.Foundation.CFBridgingRelease
 import platform.Foundation.CFBridgingRetain
 import platform.Foundation.NSData
 import platform.Foundation.NSMutableData
+import platform.Foundation.appendBytes
 import platform.Security.SecItemAdd
 import platform.Security.SecItemCopyMatching
 import platform.Security.SecItemDelete
