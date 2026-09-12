@@ -19,6 +19,7 @@ import platform.CoreFoundation.kCFBooleanTrue
 import platform.Foundation.CFBridgingRelease
 import platform.Foundation.CFBridgingRetain
 import platform.Foundation.NSData
+import platform.Foundation.NSMutableData
 import platform.Security.SecItemAdd
 import platform.Security.SecItemCopyMatching
 import platform.Security.SecItemDelete
@@ -122,10 +123,12 @@ internal class KeychainPrefs(private val service: String = "com.jellemax.detour.
 }
 
 @OptIn(ExperimentalForeignApi::class)
-private fun ByteArray.toNSData(): NSData = if (isEmpty()) {
-    NSData()
-} else {
-    usePinned { pinned -> NSData.create(bytes = pinned.addressOf(0), length = size.convert()) }
+private fun ByteArray.toNSData(): NSData {
+    val mutable = NSMutableData()
+    if (isNotEmpty()) {
+        usePinned { pinned -> mutable.appendBytes(pinned.addressOf(0), size.convert()) }
+    }
+    return mutable
 }
 
 @OptIn(ExperimentalForeignApi::class)
