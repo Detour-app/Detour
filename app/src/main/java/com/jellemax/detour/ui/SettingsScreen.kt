@@ -993,6 +993,21 @@ private fun VehicleSection() {
                                 Modifier.size(18.dp))
                         }
                     }
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Share \"$display\" with your convoy",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Switch(
+                            checked = d.shareName,
+                            onCheckedChange = { Settings.setVehicleShareName(d.address, it) },
+                        )
+                    }
                     if (removing == d.address) {
                         ConfirmDialog(
                             title = "Remove $display?",

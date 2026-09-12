@@ -143,6 +143,30 @@ class SettingsVehicleDeviceTest {
     }
 
     @Test
+    fun shareNameRoundTripsThroughEncodeAndDecode() {
+        val device = Settings.VehicleDevice(
+            "AA:BB:CC:DD:EE:FF", "Cardo PACKTALK", TravelMode.MOTO, shareName = true,
+        )
+        val decoded = Settings.decodeVehicleDevice(device.address, Settings.encodeVehicleDevice(device))
+        assertEquals(device, decoded)
+    }
+
+    @Test
+    fun anEntrySavedBeforeShareNameExistedDecodesWithItOff() {
+        val old: JsonObject = buildJsonObject {
+            put("mode", TravelMode.MOTO.name)
+            put("name", "My Bike")
+        }
+        assertEquals(false, Settings.decodeVehicleDevice("11:22:33", old).shareName)
+    }
+
+    @Test
+    fun shareNameOffIsNotWrittenToJson() {
+        val json = Settings.encodeVehicleDevice(Settings.VehicleDevice("AA:BB", "Car", TravelMode.CAR))
+        assertNull(json["shareName"])
+    }
+
+    @Test
     fun displayNamePrefersTheLabelAndFallsBackToTheDeviceName() {
         val named = Settings.VehicleDevice("AA:BB", "SYNC 3", TravelMode.CAR, label = "The Passat")
         val bare = Settings.VehicleDevice("AA:BB", "SYNC 3", TravelMode.CAR)

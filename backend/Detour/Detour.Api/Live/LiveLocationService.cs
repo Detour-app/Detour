@@ -12,13 +12,20 @@ namespace Detour.Api.Live;
 public sealed record LiveRider(Guid Id);
 
 /// <summary>One fix, as reported by a device, before the relay decides who may see it.</summary>
+/// <param name="VehicleName">
+/// The vehicle a rider opted to broadcast alongside their fix (#158), or null — most riders,
+/// who never opted in, or a fix arriving over the HTTP (circle) path, which carries none. Never
+/// persisted: <see cref="LiveLocationService.StoreFixAsync"/> does not touch it, so a circle's
+/// last-known fix never grows this field however it was sent.
+/// </param>
 public sealed record LivePosition(
     double Latitude,
     double Longitude,
     double? AccuracyMetres,
     double? HeadingDegrees,
     double? SpeedKmh,
-    long TimestampMs);
+    long TimestampMs,
+    string? VehicleName = null);
 
 /// <summary>
 /// Where a fix arrived from. This is the only thing the backend knows about a device's reporting
@@ -128,7 +135,8 @@ internal sealed class LiveLocationService(
                 position.TimestampMs > 0
                     ? position.TimestampMs
                     : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                source == LivePositionSource.Socket ? SocketTtlSeconds : HttpTtlSeconds));
+                source == LivePositionSource.Socket ? SocketTtlSeconds : HttpTtlSeconds,
+                NormaliseVehicleName(position.VehicleName)));
 
         return Result.Ok();
     }
@@ -160,4 +168,21 @@ internal sealed class LiveLocationService(
     /// </summary>
     private static double? Normalise(double? value, double min, double max) =>
         value is { } v && double.IsFinite(v) && v >= min && v <= max ? v : null;
+
+    /// <summary>
+    /// A vehicle name is rider-authored text, not a measurement — capped on the way out as well
+    /// as on the way in (<see cref="LiveController"/> already trims and caps what it reads off
+    /// the socket), because this relay is not the only writer of <see cref="PeerPosition"/> a
+    /// future caller might add, and a blank string is sent as absent rather than as an empty
+    /// value a client would have to special-case.
+    /// </summary>
+    private static string? NormaliseVehicleName(string? value)
+    {
+        var trimmed = value?.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+            return null;
+        return trimmed.Length > VehicleNameMaxLength ? trimmed[..VehicleNameMaxLength] : trimmed;
+    }
+
+    private const int VehicleNameMaxLength = 40;
 }
