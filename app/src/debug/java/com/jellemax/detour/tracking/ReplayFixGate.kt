@@ -40,7 +40,7 @@ import android.util.Log
  * a test rig, and `isMock` on a real device means somebody attached a mock
  * provider deliberately, which is their business.
  */
-object ReplayFixGate {
+internal object ReplayFixGate {
 
     /** How many real fixes this run has thrown away. The number that says whether
      *  a rig is leaking the real world into a measurement. */

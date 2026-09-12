@@ -14,7 +14,7 @@ package com.jellemax.detour.tracking
  * artefact, which is the only version of "conditionally compiled" worth having.
  * Two source sets, one signature; R8 folds the constant and the call site goes.
  */
-object ReplayFixGate {
+internal object ReplayFixGate {
 
     /** Always true: see the file's doc for why a release build filters nothing. */
     @Suppress("UNUSED_PARAMETER")
