@@ -11,7 +11,7 @@
     <ID>ComposableParamOrder:TripCardRenderer.kt$CardFooter</ID>
     <ID>ComposableParamOrder:TripCardRenderer.kt$MapSnapshotContent</ID>
     <ID>CyclomaticComplexMethod:CarMapRenderer.kt$CarMapRenderer$private fun startCameraLoop()</ID>
-    <ID>CyclomaticComplexMethod:CirclesScreen.kt$@Composable private fun CircleDetailSection( circle: Group, riderId: RiderId, state: CirclesState, onLeave: () -&gt; Unit, onToggleSharing: (Boolean) -&gt; Unit, )</ID>
+    <ID>CyclomaticComplexMethod:CirclesScreen.kt$@Composable private fun CircleDetailSection( circle: Group, riderId: RiderId, state: CirclesState, onLeave: () -&gt; Unit, onToggleSharing: (Boolean) -&gt; Unit, onFocusRider: (RiderId, String) -&gt; Unit, )</ID>
     <ID>CyclomaticComplexMethod:CoverageMapScreen.kt$@Composable fun CoverageMapScreen(onBack: () -&gt; Unit)</ID>
     <ID>CyclomaticComplexMethod:FriendsScreen.kt$@Composable private fun ConvoysSection()</ID>
     <ID>CyclomaticComplexMethod:MapCamera.kt$@Composable internal fun MapCameraLoops(s: MapScreenState, retained: RetainedMap)</ID>
@@ -37,7 +37,7 @@
     <ID>LambdaParameterInRestartableEffect:CirclesScreen.kt$onBack</ID>
     <ID>LargeClass:TripTrackingService.kt$TripTrackingService : Service</ID>
     <ID>LongMethod:CandidatesCard.kt$@Composable internal fun CandidatesCard( candidates: List&lt;RouteCandidate&gt;, // Same size/order as [candidates] - the mapper's read-out of exactly the // fields this card renders (name, distance, duration), spinStateFrom'd by // the caller so this card never formats a number itself. [candidates] // itself stays around for what the mapper doesn't carry: the RouteCandidate // identity onPick needs, and the coordinates the map pins are drawn from. rows: List&lt;SpinCandidateRow&gt;, onPick: (Int, RouteCandidate) -&gt; Unit, onReroll: () -&gt; Unit, onCancel: () -&gt; Unit, // Null = a solo spin, not shared with anyone. Non-null (even empty) = // a convoy vote is in progress; the map holds rider id -&gt; chosen index. convoyVotes: Map&lt;RiderId, Int&gt;? = null, // The convoy's own membership, to resolve a voter's id to the handle // drawn under a candidate — this card has no store access of its own and // should not gain one just to look up a name. members: List&lt;GroupMember&gt;, // Non-null only pre-share, in a convoy, with a spin actually on screen. onShare: (() -&gt; Unit)? = null, onGoWithLead: (() -&gt; Unit)? = null, modifier: Modifier = Modifier, )</ID>
-    <ID>LongMethod:CirclesScreen.kt$@Composable private fun CircleDetailSection( circle: Group, riderId: RiderId, state: CirclesState, onLeave: () -&gt; Unit, onToggleSharing: (Boolean) -&gt; Unit, )</ID>
+    <ID>LongMethod:CirclesScreen.kt$@Composable private fun CircleDetailSection( circle: Group, riderId: RiderId, state: CirclesState, onLeave: () -&gt; Unit, onToggleSharing: (Boolean) -&gt; Unit, onFocusRider: (RiderId, String) -&gt; Unit, )</ID>
     <ID>LongMethod:CoverageMapScreen.kt$@Composable fun CoverageMapScreen(onBack: () -&gt; Unit)</ID>
     <ID>LongMethod:HistoryScreen.kt$@Composable private fun TripCard( entry: HistoryEntry, onOpen: () -&gt; Unit, onChangeMode: (TravelMode) -&gt; Unit, onDelete: () -&gt; Unit, modifier: Modifier = Modifier, )</ID>
     <ID>LongMethod:HubScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun HubScreen( onBack: () -&gt; Unit, onOpenProfile: () -&gt; Unit, onOpenSocial: () -&gt; Unit, onOpenSettings: () -&gt; Unit, onOpenHistory: () -&gt; Unit, onOpenRoutes: () -&gt; Unit, onOpenSavedPlaces: () -&gt; Unit, onOpenBadges: () -&gt; Unit, )</ID>
