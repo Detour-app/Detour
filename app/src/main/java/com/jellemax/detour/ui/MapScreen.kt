@@ -140,6 +140,14 @@ import org.maplibre.android.maps.MapView
 import kotlin.math.abs
 import kotlin.math.exp
 
+/** How long a rider-focus request (#294) waits for a position before giving
+ *  up. Circle fixes poll on the order of [CIRCLE_FIX_POLL_MS]; a convoy peer
+ *  update arrives sooner, over the live relay. Long enough to survive one
+ *  circle poll cycle landing just after the tap, short enough that a rider
+ *  who genuinely has no position on the map (stopped sharing between the tap
+ *  and arriving here) gets an answer rather than a card that never opens. */
+private const val RIDER_FRAME_TIMEOUT_MS = 20_000L
+
 @Composable
 fun MapScreen(
     onOpenHub: () -> Unit,
@@ -172,7 +180,7 @@ fun MapScreen(
     // One owner for the screen's own state. `remember`, so its lifetime is
     // exactly what the twenty loose vars had; the five rememberSaveable ones
     // below are deliberately NOT in here (see MapScreenState's KDoc).
-    val s = remember { MapScreenState(SpinResultHolder.state.value) }
+    val s = remember { MapScreenState(SpinResultHolder.state.value, RiderFocusHolder.state.value) }
     // `error` has a dozen writers and, until now, one reader — inside SpinSheet,
     // which is collapsed by default. A denied location permission therefore
     // reported itself to nobody. The snackbar shows it whatever the bottom card
@@ -805,6 +813,12 @@ fun MapScreen(
             return
         }
         s.camAuthority = CameraAuthority.reduce(s.camAuthority, CameraAuthority.Action.NavigationStarted)
+        // #294 AC: starting navigation clears a rider focus/selection — the
+        // route drives the camera from here, and a card for someone else's
+        // position would be left stranded over a screen that's now guiding a
+        // drive.
+        s.tappedRider = null
+        s.pendingRiderFrame = null
         if (stats == null) {
             TripTrackingService.start(context, s.destination?.lat, s.destination?.lon)
         }
@@ -1066,6 +1080,49 @@ fun MapScreen(
     }
     BackHandler(enabled = s.tappedRider != null) { s.tappedRider = null }
 
+    // A rider asked for by name (#294): frame their position and open the
+    // same card #156 opens for a marker tap, the moment it appears in either
+    // live collection. Keyed on both so a fix arriving from either source
+    // resolves the request — a circle member polled in, or (in principle,
+    // once a convoy peer can be asked for by name too) a live peer relayed
+    // in. No coroutine-local accumulator here (§3 of the state-hazards
+    // skill): every run re-derives the position fresh, so re-keying on a new
+    // poll costs nothing to lose.
+    LaunchedEffect(s.pendingRiderFrame, s.circleFixes, convoyPeers, mapLibreMap) {
+        val pending = s.pendingRiderFrame ?: return@LaunchedEffect
+        val position = convoyPeers[pending.riderId]?.let { LatLon(it.lat, it.lon) }
+            ?: s.circleFixes.firstOrNull { it.fix.riderId == pending.riderId }
+                ?.let { LatLon(it.fix.lat, it.fix.lon) }
+            ?: return@LaunchedEffect
+        s.tappedRider = pending.riderId
+        s.pendingRiderFrame = null
+        RiderFocusHolder.clear(pending)
+        // Parks the camera exactly as a picked destination does (#294's own
+        // AC): it does not fight follow mode, and panning away afterwards
+        // does not snap back.
+        s.camAuthority = CameraAuthority.reduce(
+            s.camAuthority,
+            CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
+        )
+        mapLibreMap?.animateCamera(
+            CameraUpdateFactory.newLatLngZoom(LatLng(position.lat, position.lon), 15.0), 800,
+        )
+    }
+    // The give-up half of the same request: keyed on the whole request, not
+    // just the id, so a second tap on the same still-pending rider restarts
+    // the clock rather than being silently absorbed into the first one's —
+    // and per §1 of the state-hazards skill, this is also what cancels the
+    // timer the instant the request above resolves (the key goes to null).
+    LaunchedEffect(s.pendingRiderFrame) {
+        val pending = s.pendingRiderFrame ?: return@LaunchedEffect
+        delay(RIDER_FRAME_TIMEOUT_MS)
+        if (s.pendingRiderFrame == pending) {
+            s.pendingRiderFrame = null
+            RiderFocusHolder.clear(pending)
+            s.error = "Couldn't find ${pending.displayName} on the map — they may have stopped sharing"
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -1163,10 +1220,19 @@ fun MapScreen(
                         onToggleFog = { Settings.setFogEnabled(!fogEnabled) },
                     ),
                     onToggleFollow = {
+                        // #294 AC: turning follow back on clears a rider
+                        // focus/selection, the same way it clears any other
+                        // park — checked before dispatching the toggle,
+                        // since `following` flips under it.
+                        val resuming = !s.camAuthority.following
                         s.camAuthority = CameraAuthority.reduce(
                             s.camAuthority,
                             CameraAuthority.Action.FollowToggled,
                         )
+                        if (resuming) {
+                            s.tappedRider = null
+                            s.pendingRiderFrame = null
+                        }
                     },
                     // Offered only while the camera is idle, which is exactly
                     // when the map can hold a bearing — the loop overwrites it

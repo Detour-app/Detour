@@ -275,7 +275,7 @@ fun CirclesScreen(onBack: () -> Unit, onOpenCircle: (String) -> Unit) {
  * during the first frame of a legitimate open.
  */
 @Composable
-fun CircleDetailScreen(circleId: String, onBack: () -> Unit) {
+fun CircleDetailScreen(circleId: String, onBack: () -> Unit, onFocusRider: (RiderId, String) -> Unit) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val riderId by Account.riderId.collectAsStateWithLifecycle()
@@ -340,6 +340,7 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit) {
                         if (CirclesStore.setSharing(it.id, sharing)) CircleNotifyService.refresh(context)
                     }
                 },
+                onFocusRider = onFocusRider,
             )
         }
     }
@@ -472,6 +473,7 @@ private fun CircleDetailSection(
     state: CirclesState,
     onLeave: () -> Unit,
     onToggleSharing: (Boolean) -> Unit,
+    onFocusRider: (RiderId, String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -562,7 +564,13 @@ private fun CircleDetailSection(
     ListCard {
         detail.members.forEachIndexed { i, row ->
             if (i > 0) CardDivider()
-            CircleMemberListRow(row)
+            val canFocus = row.sharing && row.id != riderId
+            CircleMemberListRow(
+                row = row,
+                onFocusOnMap = if (canFocus) {
+                    { onFocusRider(row.id, row.displayName) }
+                } else null,
+            )
         }
     }
 
@@ -776,17 +784,36 @@ private fun BatteryOptimizationDialog(onDismiss: () -> Unit) {
 
 /** One row of the shared mapper's [CircleMemberRow] — `displayName` already
  *  carries the "(you)"/"· invited" suffixes, `sharing` gates the icon
- *  directly, nothing recomputed here. */
+ *  directly, nothing recomputed here.
+ *
+ *  [onFocusOnMap] is null for the viewing rider's own row and for a member
+ *  not currently sharing — #294's AC that a rider with no shared position
+ *  gets a stated reason and no tap action, rather than a tap that appears to
+ *  do nothing. `sharing` is the same flag the map's own poll
+ *  (`CircleFixes.othersFixes`, `MapCircleMembers.kt`) is gated on, so it is
+ *  the row's own answer to "will the map have a position for this tap" — not
+ *  a guarantee a fix has landed yet, which is what MapScreen's own
+ *  give-up timeout is for. */
 @Composable
-private fun CircleMemberListRow(row: CircleMemberRow) {
+private fun CircleMemberListRow(row: CircleMemberRow, onFocusOnMap: (() -> Unit)?) {
     Row(
         Modifier
             .fillMaxWidth()
+            .let { if (onFocusOnMap != null) it.clickable(onClick = onFocusOnMap) else it }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(row.displayName, style = MaterialTheme.typography.bodyMedium)
+        Column {
+            Text(row.displayName, style = MaterialTheme.typography.bodyMedium)
+            if (onFocusOnMap == null && !row.sharing) {
+                Text(
+                    "Not sharing with you",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         Icon(
             if (row.sharing) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
             contentDescription = if (row.sharing) "Sharing location" else "Not sharing",
