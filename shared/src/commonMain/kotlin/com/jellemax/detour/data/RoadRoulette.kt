@@ -215,7 +215,8 @@ object RoadRoulette {
             out geom;
         """.trimIndent()
 
-        return parseWays(rawQuery(query, endpointOffset, timeoutMs = QUERY_BUDGET_MS))
+        val key = cacheKey("roads:$highwayRegex", center, radiusMeters)
+        return parseWays(OverpassCache.fetch(key) { rawQuery(query, endpointOffset, timeoutMs = QUERY_BUDGET_MS) })
     }
 
     /** Road classes a car/moto can legally be on; excludes the footways,
@@ -251,8 +252,9 @@ object RoadRoulette {
             "way(around:${radiusMeters.toInt()},${point.lat},${point.lon})" +
             "[\"maxspeed\"][\"highway\"~\"^($DRIVABLE_HIGHWAYS)$\"];" +
             "out tags geom;"
+        val key = cacheKey("speedlimit-point", point, radiusMeters)
         val json = try {
-            rawQuery(query)
+            OverpassCache.fetch(key) { rawQuery(query) }
         } catch (e: IOException) {
             return null
         }
@@ -318,8 +320,9 @@ object RoadRoulette {
         // Overpass answers 200 with an HTML "runtime error" page, so the parse
         // fails on a perfectly good HTTP response - the same three catches
         // SpeedCameras.near documents, which this used to let escape.
+        val key = cacheKey("speedlimit-ways", center, radiusMeters)
         val json = try {
-            rawQuery(query)
+            OverpassCache.fetch(key) { rawQuery(query) }
         } catch (e: IOException) {
             return null
         }
