@@ -291,14 +291,40 @@ class MapOverlays(
     // can be reached during that window, so they all route through this one check
     // rather than each catching the throw. A skipped update here is harmless: the
     // replacement MapOverlays redraws current state as soon as it exists.
-    private val styleUsable: Boolean
-        get() = style.isFullyLoaded
+    //
+    // This used to read style.isFullyLoaded, which is not what it sounds like: it
+    // tracks whether every tile and sprite the *current viewport* needs has finished
+    // loading, not whether this Style instance is still the live one. It goes false
+    // during perfectly ordinary tile loading - any pan, any zoom, any patch of map
+    // not cached yet - and stays false for as long as loading is slow, which is most
+    // of a drive on a constrained connection (a car head unit tethered through the
+    // phone, a weak signal). Every setData/setRouteColor/setPositionIcon call made
+    // during that window was silently dropped: the own-position marker and circle
+    // members, which are pushed by a running loop and get another chance within a
+    // second, mostly self-healed and went unnoticed; circle members, refreshed once
+    // a minute, could sit missing for the length of a test session (#157).
+    //
+    // A one-way latch, set the first time a style call actually throws, is what the
+    // comment above always meant: "has this Style been torn down", not "has every
+    // tile finished loading".
+    private var styleTornDown = false
+
+    /** Runs [block] against [style] unless it is already known torn down, and
+     *  latches [styleTornDown] the first time it actually throws - see the note
+     *  above. */
+    private inline fun onStyle(block: (Style) -> Unit) {
+        if (styleTornDown) return
+        try {
+            block(style)
+        } catch (e: IllegalStateException) {
+            styleTornDown = true
+        }
+    }
 
     private fun setData(sourceId: String, fc: FeatureCollection) {
         // render() drives this once per source per GPS fix, which is why the
-        // whole class routes through one boolean rather than catching per call.
-        if (!styleUsable) return
-        (style.getSource(sourceId) as? GeoJsonSource)?.setGeoJson(fc)
+        // whole class routes through one guard rather than catching per call.
+        onStyle { (it.getSource(sourceId) as? GeoJsonSource)?.setGeoJson(fc) }
     }
 
     private fun empty() = FeatureCollection.fromFeatures(emptyList())
@@ -313,13 +339,12 @@ class MapOverlays(
     /** Recolour all three route layers. Cheap enough to call on every change of
      *  the setting — three paint properties, no source or layer rebuild — for
      *  the same reason [setPositionIcon] is. */
-    fun setRouteColor(color: Settings.RouteColor) {
-        if (!styleUsable) return
-        (style.getLayer(LAYER_ROUTE) as? LineLayer)?.setProperties(
+    fun setRouteColor(color: Settings.RouteColor) = onStyle {
+        (it.getLayer(LAYER_ROUTE) as? LineLayer)?.setProperties(
             PropertyFactory.lineColor(RouteColors.hex(color, darkTheme)))
         val driven = PropertyFactory.lineColor(RouteColors.drivenHex(color, darkTheme))
-        (style.getLayer(LAYER_ROUTE_DRIVEN) as? LineLayer)?.setProperties(driven)
-        (style.getLayer(LAYER_ROUTE_TAIL) as? LineLayer)?.setProperties(driven)
+        (it.getLayer(LAYER_ROUTE_DRIVEN) as? LineLayer)?.setProperties(driven)
+        (it.getLayer(LAYER_ROUTE_TAIL) as? LineLayer)?.setProperties(driven)
     }
 
     // The route as last pushed, its length, how far along it the last cut was
@@ -453,10 +478,11 @@ class MapOverlays(
      *  already points at, with no layer or source rebuild. */
     fun setPositionIcon(icon: Settings.MapIcon) {
         val drawable = ContextCompat.getDrawable(context, mapIconDrawable(icon)) ?: return
-        if (!styleUsable) return
-        style.addImage(IMG_POSITION, drawable.toBitmap(
-            drawable.intrinsicWidth * POSITION_ICON_SCALE,
-            drawable.intrinsicHeight * POSITION_ICON_SCALE))
+        onStyle {
+            it.addImage(IMG_POSITION, drawable.toBitmap(
+                drawable.intrinsicWidth * POSITION_ICON_SCALE,
+                drawable.intrinsicHeight * POSITION_ICON_SCALE))
+        }
     }
 
     // A GPS bearing goes null the moment you stop, and a car icon that snaps
