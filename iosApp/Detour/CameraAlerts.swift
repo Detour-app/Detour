@@ -13,16 +13,20 @@ final class CameraPrefetchModel: ObservableObject {
 
     @Published private(set) var cameras: [SpeedCameras.Camera] = []
 
-    private var state = CameraPrefetch.State()
+    // Not `CameraPrefetch.State` held directly: its constructor parameter is
+    // defaulted, and Kotlin/Native does not export a defaulted constructor at
+    // all, so Swift cannot write `CameraPrefetch.State()` — Xcode reports
+    // `'init()' is unavailable`. `CameraPrefetchHolder` (shared/iosMain) is
+    // the same fix `SectionAverageHolder` already applies for the section
+    // tracker's own defaulted `State`.
+    private let holder = CameraPrefetchHolder()
     private var fetching = false
 
     func update(with fix: CLLocation) {
         let at = LatLon(lat: fix.coordinate.latitude, lon: fix.coordinate.longitude)
-        guard !fetching,
-              CameraPrefetch.shared.needsFetch(state: state, at: at, nowMs: nowMs())
-        else { return }
+        guard !fetching, holder.needsFetch(at: at, nowMs: nowMs()) else { return }
 
-        state = CameraPrefetch.shared.fetchStarted(state: state, nowMs: nowMs())
+        holder.fetchStarted(nowMs: nowMs())
         fetching = true
         Task {
             defer { fetching = false }
@@ -30,7 +34,7 @@ final class CameraPrefetchModel: ObservableObject {
             // whatever markers we already have instead of blanking the map.
             let result = try? await SpeedCameras.shared.near(
                 center: at, radiusMeters: Enums.shared.cameraPrefetchRadiusMeters)
-            state = CameraPrefetch.shared.fetched(state: state, result: result, center: at)
+            holder.fetched(result: result, center: at)
             if let result { cameras = result.cameras }
         }
     }
