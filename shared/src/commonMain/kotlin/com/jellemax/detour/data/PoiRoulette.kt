@@ -40,8 +40,10 @@ object PoiRoulette {
             out center 300;
         """.trimIndent()
 
-        val elements = jsonObjectOf(RoadRoulette.rawQuery(query, timeoutMs = RoadRoulette.QUERY_BUDGET_MS)).optArray("elements")
-            ?: JsonArrayEmpty
+        val key = cacheKey("poi:${kind.name}", center, radiusMeters)
+        val elements = jsonObjectOf(
+            OverpassCache.fetch(key) { RoadRoulette.rawQuery(query, timeoutMs = RoadRoulette.QUERY_BUDGET_MS) },
+        ).optArray("elements") ?: JsonArrayEmpty
         val allPois = ArrayList<Poi>(elements.size)
         for (el in elements.objects()) {
             val lat: Double
