@@ -27,7 +27,8 @@ struct NavScreen: View {
                 route: route.polyline.map {
                     CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
                 },
-                driven: drivenPolyline
+                driven: drivenPolyline,
+                cameras: model.cameras
             )
             .ignoresSafeArea()
 
@@ -129,9 +130,16 @@ private struct SpeedLimitSign: View {
 final class NavModel: ObservableObject {
 
     @Published private(set) var progress: NavEngine.Progress?
+    /// Speed camera markers, for `NavScreen`'s own map. A separate prefetch
+    /// from `MapScreen`'s — see `CameraPrefetchModel`'s doc — since this
+    /// screen can outlive the map screen's own polling being paused, or start
+    /// from a cold `fullScreenCover` with nothing prefetched yet.
+    @Published private(set) var cameras: [SpeedCameras.Camera] = []
 
     private var route: RouteResult?
     private let voice = NavVoice()
+    private let cameraAlerts = CameraPrefetchModel()
+    private let cameraWarner = CameraWarnerHolder()
 
     /// Spoken guidance being switched off has to cut the prompt already in
     /// flight, which is what the car does (car/NavScreen.kt:479-480). Without
@@ -180,6 +188,30 @@ final class NavModel: ObservableObject {
         guard let p = NavEngine.shared.progress(route: route, pos: here) else { return }
         progress = p
         announce(p)
+        warnOfCameras(at: here, fix: fix, limitKmh: p.speedLimitKmh)
+    }
+
+    /// The enforcement-camera chime. `CameraWarner` in `:shared` decides
+    /// whether one is worth interrupting for and words it; this only speaks
+    /// that wording, through the same `NavVoice` a turn instruction uses.
+    ///
+    /// The posted limit judged is the route's own (`p.speedLimitKmh`) rather
+    /// than an ambient sign — this surface has no ambient sign to fall back
+    /// on yet, the same reasoning the head unit's `car/NavScreen.kt` gives
+    /// for passing its route limit alone.
+    private func warnOfCameras(at here: LatLon, fix: CLLocation, limitKmh: KotlinDouble?) {
+        cameraAlerts.update(with: fix)
+        cameras = cameraAlerts.cameras
+        guard let warning = cameraWarner.onFix(
+            cameras: cameras,
+            at: here,
+            // CoreLocation reports a negative course when it has no usable
+            // bearing, same convention `SectionAverageModel` follows.
+            headingDeg: fix.course >= 0 ? KotlinDouble(value: fix.course) : nil,
+            speedKmh: max(0, fix.speed) * 3.6,
+            limitKmh: limitKmh
+        ) else { return }
+        say(warning.text)
     }
 
     /// Says whatever `NavAnnouncer` says is due for this fix. The decision and
