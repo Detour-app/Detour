@@ -1,9 +1,15 @@
 package com.jellemax.detour.data
 
+import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
+import kotlinx.cinterop.convert
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
+import kotlinx.cinterop.readBytes
+import kotlinx.cinterop.reinterpret
+import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.value
 import platform.CoreFoundation.CFDictionaryAddValue
 import platform.CoreFoundation.CFDictionaryCreateMutable
@@ -13,8 +19,6 @@ import platform.CoreFoundation.kCFBooleanTrue
 import platform.Foundation.CFBridgingRelease
 import platform.Foundation.CFBridgingRetain
 import platform.Foundation.NSData
-import platform.Foundation.NSString
-import platform.Foundation.NSUTF8StringEncoding
 import platform.Security.SecItemAdd
 import platform.Security.SecItemCopyMatching
 import platform.Security.SecItemDelete
@@ -34,7 +38,7 @@ import platform.Security.kSecValueData
  * The one bag [securePrefs] needs, backed by the iOS Keychain instead of the plaintext
  * `NSUserDefaults` [UserDefaultsPrefs] used everywhere else — see #42.
  *
- * Every value is stored as its UTF-8 text under `kSecValueData` (a generic-password
+ * Every value is stored as its UTF-8 bytes under `kSecValueData` (a generic-password
  * item's data must be `NSData`; encoding numbers and booleans as their string form
  * avoids relying on how the framework would otherwise coerce an `NSNumber`). A missing
  * item and an item that fails to decrypt/decode both read back as "absent", which is
@@ -44,7 +48,7 @@ import platform.Security.kSecValueData
  * `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`: the session is read from a
  * background refresh after first unlock, so it must not require the device to be
  * currently unlocked, and it must never sync to iCloud Keychain — a synced copy of the
- * session/refresh token is exactly the cross-device leak
+ * session/refresh token would be exactly the cross-device leak
  * `kSecAttrSynchronizable = false` (the default this project relies on rather than sets
  * explicitly) exists to avoid.
  *
@@ -97,7 +101,7 @@ internal class KeychainPrefs(private val service: String = "com.jellemax.detour.
      *  fact), and this bag has no read-modify-write caller that would care about the
      *  extra round trip. */
     private fun write(key: String, value: String) {
-        val data = (value as NSString).dataUsingEncoding(NSUTF8StringEncoding)
+        val data = value.encodeToByteArray().toNSData()
         SecItemDelete(query(key))
         val insert = query(key)
         CFDictionaryAddValue(insert, kSecValueData, CFBridgingRetain(data))
@@ -113,6 +117,20 @@ internal class KeychainPrefs(private val service: String = "com.jellemax.detour.
         val status = SecItemCopyMatching(q, result.ptr)
         if (status != errSecSuccess) return@memScoped null
         val data = CFBridgingRelease(result.value) as? NSData ?: return@memScoped null
-        NSString(data = data, encoding = NSUTF8StringEncoding) as String?
+        data.toByteArray().decodeToString()
     }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun ByteArray.toNSData(): NSData = if (isEmpty()) {
+    NSData()
+} else {
+    usePinned { pinned -> NSData.create(bytes = pinned.addressOf(0), length = size.convert()) }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun NSData.toByteArray(): ByteArray {
+    val len = length.toInt()
+    if (len == 0) return ByteArray(0)
+    return bytes!!.reinterpret<ByteVar>().readBytes(len)
 }
