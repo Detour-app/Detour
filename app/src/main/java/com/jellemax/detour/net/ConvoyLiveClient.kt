@@ -137,10 +137,17 @@ object ConvoyLiveClient {
     private val locationForwarder: Job = scope.launch {
         TripTrackingService.lastFix.collect { fix ->
             if (fix == null) return@collect
+            // Read fresh on every fix rather than collected as its own flow:
+            // a rider can flip the opt-in mid-ride, and the next fix is
+            // exactly when that should take effect either way (#158).
+            val vehicle = TripTrackingService.resolvedVehicle.value
+            val vehicleName = if (vehicle != null && vehicle.shareName) vehicle.displayName else null
             // timeMs, not elapsedRealtimeMs - Fix's own doc: elapsedRealtimeMs
             // is this device's uptime basis, meaningless to a peer reading it
             // off the wire as FriendPosition.tsMs.
-            relay.sendLocation(fix.lat, fix.lon, fix.bearingDeg?.toDouble(), fix.speedMps * 3.6, fix.timeMs)
+            relay.sendLocation(
+                fix.lat, fix.lon, fix.bearingDeg?.toDouble(), fix.speedMps * 3.6, fix.timeMs, vehicleName,
+            )
         }
     }
 

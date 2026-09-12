@@ -193,7 +193,11 @@ final class ConvoyLiveClient: ObservableObject {
                     // The fix's own time, not the moment this loop iteration
                     // runs - same conversion CircleSync.swift's fixTsMs
                     // already uses for the same CLLocation.timestamp.
-                    tsMs: Int64(fix.timestamp.timeIntervalSince1970 * 1000))
+                    tsMs: Int64(fix.timestamp.timeIntervalSince1970 * 1000),
+                    // iOS has no Bluetooth vehicle auto-detect (#158 is
+                    // Android-only for now, see Settings.VehicleDevice) - so
+                    // there's no vehicle name to opt into sharing yet.
+                    vehicleName: nil)
             }
         }
     }

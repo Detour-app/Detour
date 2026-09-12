@@ -54,6 +54,13 @@ internal fun RiderCard(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
+                    state.vehicleName?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Text(
                         if (state.stale) "Last seen ${state.ageText}" else "Updated ${state.ageText}",
                         style = MaterialTheme.typography.bodySmall,

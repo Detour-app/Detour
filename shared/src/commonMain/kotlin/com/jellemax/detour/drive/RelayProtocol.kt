@@ -41,6 +41,11 @@ data class FriendPosition(
     val speedKmh: Double?,
     val tsMs: Long,
     val expiresAtMs: Long,
+    /** The vehicle that rider opted to share (#158), or null - most peers,
+     *  who never opted in, or a circle member, which never carries this at
+     *  all. Untrusted, rider-authored text: capped at [RelayProtocol.VEHICLE_NAME_MAX]
+     *  on the way in by [RelayProtocol.decode], not just on the way out. */
+    val vehicleName: String? = null,
 )
 
 /** One decoded `ptt_audio` frame: [riderId]'s raw PCM chunk, already
@@ -148,6 +153,12 @@ object RelayProtocol {
      *  dropped off stops being shown as live. */
     const val FALLBACK_PEER_TTL_MS = 20_000L
 
+    /** A rider-authored vehicle name is capped on receive as well as on send
+     *  (#158) - a peer's own client is not trusted to have enforced
+     *  [com.jellemax.detour.data.Settings.VEHICLE_LABEL_MAX] itself, and this
+     *  is display text rendered directly in a rider card. */
+    const val VEHICLE_NAME_MAX = 40
+
     // --- decoding ---------------------------------------------------------
 
     /** Decodes one inbound frame, or `null` when [text] isn't JSON at all, is
@@ -196,6 +207,7 @@ object RelayProtocol {
                 // clock is minutes out would otherwise vanish immediately or
                 // linger forever.
                 expiresAtMs = nowMs + if (ttlSeconds > 0) ttlSeconds * 1_000L else FALLBACK_PEER_TTL_MS,
+                vehicleName = o.optString("veh").trim().take(VEHICLE_NAME_MAX).ifBlank { null },
             )
         }
         return RelayEvent.Positions(peers)
@@ -254,7 +266,13 @@ object RelayProtocol {
         put("groupId", groupId)
     }.string()
 
-    fun buildLocation(location: LatLon, headingDeg: Double?, speedKmh: Double, tsMs: Long): String = buildJsonObject {
+    fun buildLocation(
+        location: LatLon,
+        headingDeg: Double?,
+        speedKmh: Double,
+        tsMs: Long,
+        vehicleName: String? = null,
+    ): String = buildJsonObject {
         put("type", "location")
         put("lat", location.lat)
         put("lon", location.lon)
@@ -264,6 +282,10 @@ object RelayProtocol {
         if (headingDeg != null) put("headingDeg", headingDeg)
         put("speedKmh", speedKmh)
         put("ts", tsMs)
+        // Omitted, not sent blank - most riders never opt in (#158), and an
+        // absent field is what an old server and an old peer both already
+        // treat as "nothing to show".
+        vehicleName?.trim()?.take(VEHICLE_NAME_MAX)?.ifBlank { null }?.let { put("veh", it) }
     }.string()
 
     fun buildPttStart(groupId: String): String = buildJsonObject {

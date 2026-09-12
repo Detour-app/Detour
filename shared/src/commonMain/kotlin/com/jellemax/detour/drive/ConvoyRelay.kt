@@ -1060,11 +1060,18 @@ class ConvoyRelay {
      * staleness detection breaks; only the displayed age would read
      * slightly optimistic.
      */
-    fun sendLocation(lat: Double, lon: Double, headingDeg: Double?, speedKmh: Double, tsMs: Long) {
+    fun sendLocation(
+        lat: Double,
+        lon: Double,
+        headingDeg: Double?,
+        speedKmh: Double,
+        tsMs: Long,
+        vehicleName: String? = null,
+    ) {
         val now = nowMs()
         if (now - lastLocationSentMs < LOCATION_SEND_INTERVAL_MS) return
         lastLocationSentMs = now
-        send(RelayProtocol.buildLocation(LatLon(lat, lon), headingDeg, speedKmh, tsMs))
+        send(RelayProtocol.buildLocation(LatLon(lat, lon), headingDeg, speedKmh, tsMs, vehicleName))
     }
 
     private fun send(text: String) {
