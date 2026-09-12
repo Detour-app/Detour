@@ -38,6 +38,12 @@ struct MapView: UIViewRepresentable {
     /// rows of the card below the map. Empty once one is committed — it
     /// becomes `destination` then.
     var candidates: [CLLocationCoordinate2D] = []
+    /// Speed cameras from `CameraPrefetchModel`'s prefetch, fed by `MapScreen`
+    /// on a free drive and by `NavScreen` while navigating. Same plain
+    /// point-annotation treatment as `circleMembers` — the limit, when the
+    /// camera carries one, surfaces on tap rather than as an always-visible
+    /// label.
+    var cameras: [SpeedCameras.Camera] = []
 
     func makeUIView(context: Context) -> MLNMapView {
         let view = MLNMapView(frame: .zero)
@@ -97,6 +103,14 @@ struct MapView: UIViewRepresentable {
             // itself — positions carry an id and no handle now (#133); see
             // `NamedMemberFix`'s own doc in CircleFixes.kt.
             pin.title = "\(member.username) · \(circleFixAge(member.fix.tsMs))"
+            view.addAnnotation(pin)
+        }
+
+        for camera in cameras {
+            let pin = MLNPointAnnotation()
+            pin.coordinate = CLLocationCoordinate2D(latitude: camera.at.lat, longitude: camera.at.lon)
+            pin.title = camera.maxspeedKmh.map { "Speed camera · \(Int($0.doubleValue)) km/h" }
+                ?? "Speed camera"
             view.addAnnotation(pin)
         }
 
