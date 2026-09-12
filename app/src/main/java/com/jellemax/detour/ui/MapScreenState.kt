@@ -59,7 +59,7 @@ internal data class MapLayers(
     val onToggleFog: () -> Unit,
 )
 
-internal class MapScreenState(seed: SpinResult) {
+internal class MapScreenState(seed: SpinResult, riderFocusSeed: RiderFocusRequest?) {
 
     // --- the spin result ------------------------------------------------
     // Seeded from SpinResultHolder, which is what carries these across an
@@ -95,8 +95,22 @@ internal class MapScreenState(seed: SpinResult) {
      *  closed (issue #156). Holds only the id — the card's contents are
      *  re-derived from the live peer/circle collections each recomposition, so
      *  they update in place and go stale on their own. Plain state, not
-     *  saveable: a transient info card, dismissed on a tap or Back. */
+     *  saveable: a transient info card, dismissed on a tap or Back.
+     *
+     *  Also opened, not just by a marker tap, once [pendingRiderFrame] below
+     *  resolves a position for a rider asked for by name (#294) — the same
+     *  card either way, since by the time it opens the two cases are
+     *  indistinguishable: a rider whose position is known. */
     var tappedRider: RiderId? by mutableStateOf(null)
+
+    /** A rider asked for by name (today: a `CircleDetailScreen` member row;
+     *  see [RiderFocusHolder]'s KDoc for why the Friends leaderboard isn't
+     *  wired to this yet) whose position the map has not resolved yet,
+     *  seeded from [RiderFocusHolder] so the request survives the activity
+     *  recreation a screen swap plus a rotate can both cause between the tap
+     *  and this composition existing. Cleared by MapScreen once framed, or
+     *  once it gives up waiting — see the effect that reads it. */
+    var pendingRiderFrame: RiderFocusRequest? by mutableStateOf(riderFocusSeed)
 
     // --- chrome ----------------------------------------------------------
     var layersOpen: Boolean by mutableStateOf(false)
