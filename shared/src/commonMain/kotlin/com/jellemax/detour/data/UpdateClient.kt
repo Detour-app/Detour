@@ -21,6 +21,9 @@ object UpdateClient {
         val size: Long,
         /** Blank when the release carries no manifest. */
         val sha256: String,
+        /** Null when the release carries no body, or GitHub's generated notes
+         *  parsed as blank — see [UpdateCheck.Release.notes]. */
+        val notes: String? = null,
     )
 
     /**
@@ -66,6 +69,7 @@ object UpdateClient {
             downloadUrl = url,
             size = artifact?.size ?: 0L,
             sha256 = artifact?.sha256 ?: "",
+            notes = release.notes,
         )
     }
 }

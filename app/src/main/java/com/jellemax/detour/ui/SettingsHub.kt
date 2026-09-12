@@ -1,5 +1,8 @@
 package com.jellemax.detour.ui
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -11,11 +14,18 @@ import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -159,6 +169,45 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
                     },
                     paintCard = false,
                 )
+                // An expandable summary, Available only (#295): notes are for
+                // deciding whether to download, not for a download already
+                // running or done, and row.notes is already null everywhere
+                // else. Collapsed by default — the notes are what GitHub's
+                // generator writes (CONTRIBUTING.md's "Release notes"
+                // section), a PR-title list rather than rider-facing prose,
+                // and shown as plain text: it comes from whatever repo
+                // BuildConfig.UPDATE_REPO names, which for a fork isn't this
+                // one.
+                val notes = row.notes
+                if (notes != null) {
+                    var notesExpanded by remember(updateStatus) { mutableStateOf(false) }
+                    CardDivider()
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { notesExpanded = !notesExpanded }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("What's new", style = MaterialTheme.typography.bodyMedium)
+                        Icon(
+                            if (notesExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                            contentDescription = if (notesExpanded) "Collapse" else "Expand",
+                        )
+                    }
+                    if (notesExpanded) {
+                        Text(
+                            notes,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .padding(bottom = 12.dp),
+                        )
+                    }
+                }
                 // Every phase past the check puts its verb on its own button:
                 // the row's tap is a check, and only the button downloads,
                 // cancels or installs.

@@ -42,6 +42,27 @@ class UpdateRowStateTest {
         assertEquals("Detour 2.14.0 is available", row.title)
         assertEquals(UpdateAction.DOWNLOAD, row.action)
         assertEquals("Download 2.14.0", row.actionLabel)
+        assertNull(row.notes)
+    }
+
+    /** #295: the release's own notes ride along on the Available row so the
+     *  Settings screen can offer an expandable "What's new". */
+    @Test fun anAvailableUpdateCarriesTheReleaseNotes() {
+        val row = updateRowStateFrom(
+            ManualCheck.Found("2.14.0"),
+            UpdateStatus.Available(update().copy(notes = "* fix(nav): thing (#225)")),
+        )
+        assertEquals("* fix(nav): thing (#225)", row.notes)
+    }
+
+    /** Notes belong to the decision to download, not to a download already
+     *  running or finished — every other status keeps [UpdateRowState.notes]
+     *  null even when the underlying [UpdateClient.PendingUpdate] has some. */
+    @Test fun notesDoNotSurviveIntoOtherPhases() {
+        val withNotes = update().copy(notes = "* fix(nav): thing (#225)")
+        assertNull(updateRowStateFrom(ManualCheck.Idle, UpdateStatus.Downloading(withNotes, 0.5f)).notes)
+        assertNull(updateRowStateFrom(ManualCheck.Idle, UpdateStatus.Downloaded(withNotes, "/tmp/x.apk")).notes)
+        assertNull(updateRowStateFrom(ManualCheck.Idle, UpdateStatus.Failed(withNotes)).notes)
     }
 
     @Test fun aDownloadInFlightCarriesItsFraction() {
