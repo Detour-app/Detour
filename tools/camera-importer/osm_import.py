@@ -128,13 +128,18 @@ class RelationPass(osmium.SimpleHandler):
                     span, a, b = d, pts[i], pts[j]
         if span < MIN_SPAN_M:
             return
-        polyline = [p for p in pts if hav(p, a) <= END_CLUSTER_M or hav(p, b) <= END_CLUSTER_M]
+        # a and b are themselves members of pts (distance to self is 0, always <= the cluster
+        # radius), so this filter already includes them — drop them from the middle before
+        # wrapping, or they'd appear twice (a zero-length segment at each end).
+        mid = [p for p in pts
+               if p is not a and p is not b
+               and (hav(p, a) <= END_CLUSTER_M or hav(p, b) <= END_CLUSTER_M)]
         ms = parse_maxspeed(r.tags.get("maxspeed"))
         self.sections.append({
             "sourceId": f"r{r.id}",
             "kind": "Section",
             "lat": None, "lon": None,
-            "polyline": [[p[0], p[1]] for p in ([a] + polyline + [b])],
+            "polyline": [[p[0], p[1]] for p in ([a] + mid + [b])],
             "maxSpeedKmh": ms,
             "roadRef": r.tags.get("ref") or r.tags.get("name"),
         })
