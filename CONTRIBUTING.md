@@ -82,6 +82,25 @@ every PR, on top of the version bump above, and this repo's PR titles already
 follow `type(scope): summary (#NNN)`, so the generated list reads reasonably
 well without a human rewriting it. Revisit this if that stops being true.
 
+**The release body is that list and nothing else — `build.yml` sets no `body:`,
+and adding one has a cost that is not obvious.** The body has two audiences: a
+person reading the releases page in a browser, and a rider tapping "What's new"
+in Settings, which renders the same text inside the app
+(`UpdateCheck.parseRelease` takes `body` entire). Anything written here is shown
+to both, and text aimed at the first reads as noise to the second — "Download
+the `.apk` below" points at a "below" that does not exist in the app, which is
+already doing the download itself.
+
+A standing preamble used to live there — version/versionCode/sha, sideload
+instructions, and a "no server configured" paragraph. #295 required it be kept;
+#360 retired it, because on v2.31.0 it was 552 of 805 characters and 15 of 21
+lines *above* the changes, and because `README.md`'s own "no account and no
+server" paragraph covers the setup half better and where people look for it.
+
+So: put installation and first-run guidance in `README.md`, and leave the
+release body to say what changed. If you do need a `body:` again, read #360
+first — the app-side half of the problem is why it was removed.
+
 ## Documentation
 
 [`docs/`](docs/README.md) has an index; start there rather than guessing at
