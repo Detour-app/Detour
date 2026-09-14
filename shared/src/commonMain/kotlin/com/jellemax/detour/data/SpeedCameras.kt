@@ -42,11 +42,18 @@ object SpeedCameras {
      *
      * [kind] defaults to [CameraKind.SPEED] — a bare `highway=speed_camera`
      * node with no enforcement relation naming it otherwise.
+     *
+     * [facingDeg] is the compass bearing the camera itself faces (`camera:direction`,
+     * falling back to `direction`), when tagged as a plain number — the cardinal
+     * spelling (`N`, `SE`, …) some mappers use instead is left unparsed. Null means
+     * "untagged", not "faces everywhere": [CameraWarner] keeps its heading wedge
+     * as the only test for such a camera.
      */
     data class Camera(
         val at: LatLon,
         val maxspeedKmh: Double? = null,
         val kind: CameraKind = CameraKind.SPEED,
+        val facingDeg: Double? = null,
     )
 
     /**
@@ -139,7 +146,7 @@ object SpeedCameras {
                     val lat = el.optDouble("lat", Double.NaN)
                     val lon = el.optDouble("lon", Double.NaN)
                     if (!lat.isNaN() && !lon.isNaN()) {
-                        cameras.add(Camera(LatLon(lat, lon), maxspeedOf(el)))
+                        cameras.add(Camera(LatLon(lat, lon), maxspeedOf(el), facingDeg = facingDegOf(el)))
                     }
                 }
                 "relation" -> when (el.optObject("tags")?.optString("enforcement")) {
@@ -243,6 +250,16 @@ object SpeedCameras {
         el.optObject("tags")?.optString("maxspeed")
             ?.takeIf { it.isNotBlank() }
             ?.let { RoadRoulette.parseMaxSpeed(it) }
+
+    /** The compass bearing a camera node faces, `camera:direction` falling back
+     *  to `direction` — see [Camera.facingDeg] for why cardinal spellings are
+     *  skipped rather than parsed. */
+    private fun facingDegOf(el: JsonObject): Double? {
+        val tags = el.optObject("tags") ?: return null
+        return (tags.optString("camera:direction") ?: tags.optString("direction"))
+            ?.takeIf { it.isNotBlank() }
+            ?.toDoubleOrNull()
+    }
 
     /** The limit tagged on the section's own gantry nodes, if any of them carry
      *  one. The two ends of a trajectcontrole post the same limit, so the first
