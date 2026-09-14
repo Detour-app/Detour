@@ -33,17 +33,18 @@ public class CameraRepositoryTests(PostgresFixture postgres) : IntegrationTestBa
     public async Task BboxAsync_excludes_cameras_outside_the_box()
     {
         var repo = new CameraRepository(Factory);
-        // Deliberately far from the coordinates the upsert-merge test above uses (50.85000,
-        // 4.36000) — this class shares one live table across its tests with no truncation
-        // between them (the same convention SchemaTests uses via random per-test data), and the
-        // clustering pre-filter in UpsertAsync would otherwise pick up this row as a candidate.
-        var inside = Camera.CreatePoint(CameraKind.FixedSpeed, 50.87, 4.38, 50, "N9", OsmSource("n3")).Value;
-        var outside = Camera.CreatePoint(CameraKind.FixedSpeed, 51.90, 4.36, 50, "N9", OsmSource("n4")).Value;
+        // A different city entirely from the upsert-merge test above (50.85, 4.36, Belgium) —
+        // this class shares one live table across its tests with no truncation between them
+        // (the same convention SchemaTests uses via random per-test data), and a query box wide
+        // enough to prove exclusion would otherwise risk catching that test's rows too,
+        // regardless of which test happens to run first.
+        var inside = Camera.CreatePoint(CameraKind.FixedSpeed, 48.85, 2.35, 50, "N9", OsmSource("n3")).Value;
+        var outside = Camera.CreatePoint(CameraKind.FixedSpeed, 49.90, 2.35, 50, "N9", OsmSource("n4")).Value;
         await repo.UpsertAsync(inside, CancellationToken.None);
         await repo.UpsertAsync(outside, CancellationToken.None);
         await repo.FlushChangesAsync(CancellationToken.None);
 
-        var found = await repo.BboxAsync(50.80, 4.30, 50.90, 4.40, CancellationToken.None);
+        var found = await repo.BboxAsync(48.80, 2.30, 48.90, 2.40, CancellationToken.None);
 
         Assert.Single(found);
         Assert.Equal(inside.Id, found[0].Id);
