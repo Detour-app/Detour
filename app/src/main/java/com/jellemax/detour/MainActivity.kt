@@ -76,6 +76,7 @@ import com.jellemax.detour.ui.MapScreen
 import com.jellemax.detour.ui.GraphiteDark
 import com.jellemax.detour.ui.GraphiteLight
 import com.jellemax.detour.ui.ProfileScreen
+import com.jellemax.detour.ui.RiderFocusHolder
 import com.jellemax.detour.ui.RouteEditorScreen
 import com.jellemax.detour.ui.RoutesScreen
 import com.jellemax.detour.ui.SavedPlacesScreen
@@ -446,7 +447,19 @@ private fun AppRoot() {
                     )
                 }
                 entry<Destination.CircleDetail> { key ->
-                    CircleDetailScreen(circleId = key.circleId, onBack = { backStack.pop() })
+                    CircleDetailScreen(
+                        circleId = key.circleId,
+                        onBack = { backStack.pop() },
+                        // #294: go from a name to their position on the map.
+                        // Circles is up to three pushes deep, so this leaves
+                        // everything and returns to the map the way
+                        // RoutesScreen's onNavigate already does, rather than
+                        // popping once.
+                        onFocusRider = { riderId, displayName ->
+                            RiderFocusHolder.request(riderId, displayName)
+                            backStack.returnToMap()
+                        },
+                    )
                 }
                 entry<Destination.Settings> {
                     SettingsScreen(
