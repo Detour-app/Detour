@@ -216,4 +216,59 @@ class CameraWarnerTest {
             step(cameras = listOf(far, near)).outcome,
         )
     }
+
+    // ---- camera kind (#317) ------------------------------------------------
+
+    /** A red-light camera doesn't measure speed - it warns at or under the
+     *  limit, exactly the case a speed camera stays silent for. */
+    @Test
+    fun aRedLightCameraWarnsAtOrUnderTheLimit() {
+        val redLight = ahead.copy(kind = SpeedCameras.CameraKind.RED_LIGHT)
+        assertEquals(
+            CameraWarner.Outcome.Warn(redLight.at, "Red light camera ahead"),
+            step(cameras = listOf(redLight), speedKmh = 100.0).outcome,
+        )
+    }
+
+    /** Same rule holds with no limit known at all - a plain speed camera would
+     *  stay silent (see [silentWhenTheLimitIsUnknownAtAnySpeed]); a red-light
+     *  camera has nothing to do with the limit in the first place. */
+    @Test
+    fun aRedLightCameraWarnsEvenWithNoLimitKnown() {
+        val redLight = ahead.copy(kind = SpeedCameras.CameraKind.RED_LIGHT)
+        assertEquals(
+            CameraWarner.Outcome.Warn(redLight.at, "Red light camera ahead"),
+            step(cameras = listOf(redLight), limitKmh = null).outcome,
+        )
+    }
+
+    /** A device that's both kinds warns like a red-light camera - worth
+     *  announcing regardless of speed - with wording naming both. */
+    @Test
+    fun aCombinedCameraWarnsAtOrUnderTheLimitWithBothNamed() {
+        val combined = ahead.copy(kind = SpeedCameras.CameraKind.COMBINED)
+        assertEquals(
+            CameraWarner.Outcome.Warn(combined.at, "Speed and red light camera ahead"),
+            step(cameras = listOf(combined), speedKmh = 100.0).outcome,
+        )
+    }
+
+    /** The latch is still per-camera-position, not per-kind: a second fix at
+     *  the same red-light camera stays silent. */
+    @Test
+    fun aRedLightCameraStillLatchesOncePerPosition() {
+        val redLight = ahead.copy(kind = SpeedCameras.CameraKind.RED_LIGHT)
+        val first = step(cameras = listOf(redLight), speedKmh = 100.0)
+        assertEquals(redLight.at, first.state.warnedAt)
+        val second = step(state = first.state, cameras = listOf(redLight), speedKmh = 100.0)
+        assertEquals(CameraWarner.Outcome.Silent, second.outcome)
+    }
+
+    /** A plain speed camera's own behaviour is unaffected by the kind branch -
+     *  every existing case above already pins this; this one names it. */
+    @Test
+    fun aPlainSpeedCameraIsUnaffectedByKind() {
+        assertEquals(SpeedCameras.CameraKind.SPEED, ahead.kind)
+        assertEquals(CameraWarner.Outcome.Silent, step(speedKmh = 100.0).outcome)
+    }
 }

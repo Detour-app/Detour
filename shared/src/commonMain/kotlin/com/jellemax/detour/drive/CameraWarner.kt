@@ -73,12 +73,23 @@ object CameraWarner {
             // next camera. Being in range and *not* too fast does not.
             ?: return Step(State(warnedAt = null), Outcome.Silent)
 
-        val tooFast = limitKmh != null && speedKmh > limitKmh + OVER_LIMIT_KMH
-        if (!tooFast || ahead.at == state.warnedAt) return Step(state, Outcome.Silent)
-        return Step(State(warnedAt = ahead.at), Outcome.Warn(ahead.at, WARNING_TEXT))
+        // A red-light camera doesn't measure speed - it's worth announcing on
+        // approach regardless, which is exactly when a speed-only camera stays
+        // silent (maxke24/Detour#317). Combined inherits the same rule: a device
+        // that's also a red-light camera is worth announcing even at the limit.
+        val worthWarning = when (ahead.kind) {
+            SpeedCameras.CameraKind.SPEED -> limitKmh != null && speedKmh > limitKmh + OVER_LIMIT_KMH
+            SpeedCameras.CameraKind.RED_LIGHT, SpeedCameras.CameraKind.COMBINED -> true
+        }
+        if (!worthWarning || ahead.at == state.warnedAt) return Step(state, Outcome.Silent)
+        return Step(State(warnedAt = ahead.at), Outcome.Warn(ahead.at, warningTextFor(ahead.kind)))
     }
 
     /** The wording, declared once for every surface. The phone's own comment said
      *  this literal was waiting for this machine to own it. */
-    private const val WARNING_TEXT = "Speed camera ahead"
+    private fun warningTextFor(kind: SpeedCameras.CameraKind): String = when (kind) {
+        SpeedCameras.CameraKind.SPEED -> "Speed camera ahead"
+        SpeedCameras.CameraKind.RED_LIGHT -> "Red light camera ahead"
+        SpeedCameras.CameraKind.COMBINED -> "Speed and red light camera ahead"
+    }
 }
