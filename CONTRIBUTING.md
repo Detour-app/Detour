@@ -62,9 +62,10 @@ name** (`.github/workflows/build.yml`). Pushing to `main` twice without
 bumping it overwrites that version's release instead of creating a new one.
 Bump it in the same commit/PR that lands the change, not as an afterthought.
 
-`versionCode` is unrelated and untouched by this: CI stamps it from the run
-number on every build (`VERSION_CODE` in `build.yml`), so it always increases
-regardless of what `versionName` says. Only `versionName` is yours to bump.
+`versionCode` is derived from `versionName` in `app/build.gradle.kts` —
+`major*10000 + minor*100 + patch` — so it's never edited by hand and a code
+always maps back to the name it came from. Bumping `versionName` bumps
+`versionCode` for free; there's nothing else to touch.
 
 The mock-location harness (`tools/mocklocation/build.gradle.kts`) versions
 independently — this rule is about `app/build.gradle.kts`, the app people
