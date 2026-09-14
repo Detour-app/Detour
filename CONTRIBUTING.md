@@ -101,6 +101,21 @@ So: put installation and first-run guidance in `README.md`, and leave the
 release body to say what changed. If you do need a `body:` again, read #360
 first — the app-side half of the problem is why it was removed.
 
+The app renders that body as Markdown rather than showing its source (#357), so
+`##` headings and `*` bullets become typography and a `[text](url)` link becomes
+a link. Two properties hold and are worth not breaking:
+
+- **Links are live, HTML is not.** A tap opens the platform browser through
+  `LocalUriHandler`; there is no WebView and no markup path. Live links are
+  defensible only because `BuildConfig.UPDATE_REPO` is baked at build time from
+  `github.repository` — the body comes from the repo that compiled the APK, which
+  the app already trusts to hand it a binary it installs. A runtime-configurable
+  update source would change that and this decision with it.
+- **Images never load.** No `imageTransformer` is passed and no coil artifact is
+  on the classpath, so a Markdown image cannot fire a request when the expander
+  opens. That is an absence, not a setting — adding the artifact would silently
+  re-enable it.
+
 ## Documentation
 
 [`docs/`](docs/README.md) has an index; start there rather than guessing at

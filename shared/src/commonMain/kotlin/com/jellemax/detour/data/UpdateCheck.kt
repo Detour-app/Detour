@@ -48,10 +48,17 @@ object UpdateCheck {
         val assets: Map<String, String>,
         /** The release body GitHub already hands back with everything else in
          *  this response — null rather than blank, so a caller can `?:` past
-         *  it with one check instead of two (#295). Plain text as GitHub's
-         *  generator writes it: a PR-title list, not markdown to be rendered
-         *  as trusted HTML — see CONTRIBUTING.md's "Release notes" section for
-         *  why that's a decision and not an oversight. */
+         *  it with one check instead of two (#295).
+         *
+         *  Markdown, as GitHub's generator writes it. Carried verbatim: this
+         *  type does no filtering, and the Android surface renders it with a
+         *  Markdown renderer rather than showing the source (#357). What has
+         *  not changed since #295 is that it is never treated as trusted
+         *  **HTML** — no WebView, and no markup path at all. Links are live,
+         *  because the body comes from the repo that built this APK
+         *  (`BuildConfig.UPDATE_REPO`, baked from `github.repository`), which
+         *  is already trusted to hand the app a binary it installs. See
+         *  CONTRIBUTING.md's "Release notes" section. */
         val notes: String? = null,
     ) {
         fun assetUrl(name: String): String? = assets[name]

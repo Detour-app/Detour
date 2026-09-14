@@ -19,6 +19,9 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.m3.markdownColor
+import com.mikepenz.markdown.m3.markdownTypography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -172,12 +175,27 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
                 // An expandable summary, Available only (#295): notes are for
                 // deciding whether to download, not for a download already
                 // running or done, and row.notes is already null everywhere
-                // else. Collapsed by default — the notes are what GitHub's
-                // generator writes (CONTRIBUTING.md's "Release notes"
-                // section), a PR-title list rather than rider-facing prose,
-                // and shown as plain text: it comes from whatever repo
-                // BuildConfig.UPDATE_REPO names, which for a fork isn't this
-                // one.
+                // else. Collapsed by default.
+                //
+                // Rendered as Markdown rather than shown as source (#357): the
+                // body is GitHub's generated list, so as plain text a rider read
+                // an HTML comment, `##`/`###` markers and two bare URLs — 63 % of
+                // v2.31.3's 326-character body.
+                //
+                // Links are live, and that is a decision. The body comes from
+                // whatever repo BuildConfig.UPDATE_REPO names — baked at build
+                // time from `github.repository` (build.yml), so it is the repo
+                // that compiled this APK and a rider cannot repoint it. That same
+                // origin already hands this app an APK it downloads and installs,
+                // so a link is strictly the smaller trust. Taps go through
+                // LocalUriHandler to the platform browser; no WebView is
+                // introduced (MASVS 2.1.0 MASVS-PLATFORM-2).
+                //
+                // Images are the exception and stay off: one would fetch on
+                // *expand*, with no tap, disclosing the rider's IP to a host the
+                // release author chose. There is no imageTransformer and no coil
+                // artifact on the classpath, so the path does not exist rather
+                // than being switched off (see app/build.gradle.kts).
                 val notes = row.notes
                 if (notes != null) {
                     var notesExpanded by remember(updateStatus) { mutableStateOf(false) }
@@ -197,10 +215,24 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
                         )
                     }
                     if (notesExpanded) {
-                        Text(
-                            notes,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Markdown(
+                            content = notes,
+                            colors = markdownColor(
+                                text = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                            typography = markdownTypography(
+                                text = MaterialTheme.typography.bodySmall,
+                                paragraph = MaterialTheme.typography.bodySmall,
+                                ordered = MaterialTheme.typography.bodySmall,
+                                bullet = MaterialTheme.typography.bodySmall,
+                                list = MaterialTheme.typography.bodySmall,
+                                h1 = MaterialTheme.typography.titleSmall,
+                                h2 = MaterialTheme.typography.titleSmall,
+                                h3 = MaterialTheme.typography.labelLarge,
+                                h4 = MaterialTheme.typography.labelLarge,
+                                h5 = MaterialTheme.typography.labelLarge,
+                                h6 = MaterialTheme.typography.labelLarge,
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp)
