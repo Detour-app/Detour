@@ -34,6 +34,16 @@ public class CameraTests
     }
 
     [Fact]
+    public void CreateSection_rejects_out_of_range_coordinates()
+    {
+        var polylineWithBadLat = new[] { (50.80, 4.30), (95.0, 4.35) }; // 95.0 is > 90
+        var result = Camera.CreateSection(CameraKind.Section, polylineWithBadLat, 70, "N141", OsmSource);
+
+        Assert.True(result.IsFailure);
+        Assert.True(result.HasError(ValidationKeys.Camera.CoordinatesInvalid));
+    }
+
+    [Fact]
     public void MergeSource_replaces_a_same_source_entry_rather_than_duplicating_it()
     {
         var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9", OsmSource).Value;

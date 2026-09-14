@@ -90,6 +90,12 @@ public sealed class Camera : Entity
         if (polyline.Count < 2)
             return Result.Error(ValidationKeys.Camera.PolylineTooShort);
 
+        foreach (var point in polyline)
+        {
+            if (point.Lat is < -90 or > 90 || point.Lon is < -180 or > 180)
+                return Result.Error(ValidationKeys.Camera.CoordinatesInvalid);
+        }
+
         var minLat = polyline.Min(p => p.Lat);
         var maxLat = polyline.Max(p => p.Lat);
         var minLon = polyline.Min(p => p.Lon);
