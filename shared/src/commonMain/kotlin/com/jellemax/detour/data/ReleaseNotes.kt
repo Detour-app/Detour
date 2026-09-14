@@ -145,7 +145,11 @@ internal object ReleaseNotes {
     }
 
     private const val WHATS_CHANGED = "## What's Changed"
-    private val HTML_COMMENT = Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL)
+    // `[\s\S]` rather than RegexOption.DOT_MATCHES_ALL, for the reason
+    // RouteGpx.kt already records: that option exists only on the JVM, and this
+    // is common code. It compiles for the Android target either way, so the
+    // gate that catches it is `compileCommonMainKotlinMetadata`, not the tests.
+    private val HTML_COMMENT = Regex("""<!--[\s\S]*?-->""")
     private val CHANGELOG_LINE = Regex("""\*\*Full Changelog\*\*:.*""")
     private val CATEGORY_LINE = Regex("""###\s+\S.*""")
     private val PULL_CREDIT = Regex("""\s+by @[\w-]+ in https://github\.com/\S+/pull/(\d+)""")
