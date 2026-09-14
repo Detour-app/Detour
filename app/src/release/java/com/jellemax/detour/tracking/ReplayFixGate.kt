@@ -1,7 +1,5 @@
 package com.jellemax.detour.tracking
 
-import android.location.Location
-
 /**
  * The release build's half of [ReplayFixGate]: believe every fix.
  *
@@ -16,11 +14,11 @@ import android.location.Location
  * artefact, which is the only version of "conditionally compiled" worth having.
  * Two source sets, one signature; R8 folds the constant and the call site goes.
  */
-object ReplayFixGate {
+internal object ReplayFixGate {
 
     /** Always true: see the file's doc for why a release build filters nothing. */
     @Suppress("UNUSED_PARAMETER")
-    fun accept(location: Location): Boolean = true
+    fun accept(fix: LocationFix): Boolean = true
 
     /** Nothing to reset; kept so both variants offer the same surface. */
     fun reset() = Unit
