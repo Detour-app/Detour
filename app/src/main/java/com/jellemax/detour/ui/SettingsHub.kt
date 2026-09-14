@@ -19,6 +19,12 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextLinkStyles
+import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.m3.markdownColor
+import com.mikepenz.markdown.m3.markdownTypography
+import com.mikepenz.markdown.model.markdownPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -172,12 +178,27 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
                 // An expandable summary, Available only (#295): notes are for
                 // deciding whether to download, not for a download already
                 // running or done, and row.notes is already null everywhere
-                // else. Collapsed by default — the notes are what GitHub's
-                // generator writes (CONTRIBUTING.md's "Release notes"
-                // section), a PR-title list rather than rider-facing prose,
-                // and shown as plain text: it comes from whatever repo
-                // BuildConfig.UPDATE_REPO names, which for a fork isn't this
-                // one.
+                // else. Collapsed by default.
+                //
+                // Rendered as Markdown rather than shown as source (#357): the
+                // body is GitHub's generated list, so as plain text a rider read
+                // an HTML comment, `##`/`###` markers and two bare URLs — 63 % of
+                // v2.31.3's 326-character body.
+                //
+                // Links are live, and that is a decision. The body comes from
+                // whatever repo BuildConfig.UPDATE_REPO names — baked at build
+                // time from `github.repository` (build.yml), so it is the repo
+                // that compiled this APK and a rider cannot repoint it. That same
+                // origin already hands this app an APK it downloads and installs,
+                // so a link is strictly the smaller trust. Taps go through
+                // LocalUriHandler to the platform browser; no WebView is
+                // introduced (MASVS 2.1.0 MASVS-PLATFORM-2).
+                //
+                // Images are the exception and stay off: one would fetch on
+                // *expand*, with no tap, disclosing the rider's IP to a host the
+                // release author chose. There is no imageTransformer and no coil
+                // artifact on the classpath, so the path does not exist rather
+                // than being switched off (see app/build.gradle.kts).
                 val notes = row.notes
                 if (notes != null) {
                     var notesExpanded by remember(updateStatus) { mutableStateOf(false) }
@@ -197,10 +218,68 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
                         )
                     }
                     if (notesExpanded) {
-                        Text(
-                            notes,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Markdown(
+                            content = notes,
+                            // Every slot is set, none defaulted. The library's
+                            // defaults are sized for a full-page document —
+                            // h1 is displayLarge, and `link` is bodyLarge +
+                            // Bold + Underline, which is why an unstyled render
+                            // put two wrapped, oversized URLs where the changes
+                            // should be. Inside a settings card everything is
+                            // one size (bodySmall) and hierarchy comes from
+                            // weight and colour instead.
+                            colors = markdownColor(
+                                text = MaterialTheme.colorScheme.onSurfaceVariant,
+                                linkText = MaterialTheme.colorScheme.primary,
+                                inlineCodeText = MaterialTheme.colorScheme.onSurfaceVariant,
+                                codeText = MaterialTheme.colorScheme.onSurfaceVariant,
+                                inlineCodeBackground = Color.Transparent,
+                                codeBackground = Color.Transparent,
+                                dividerColor = MaterialTheme.colorScheme.outlineVariant,
+                            ),
+                            typography = markdownTypography(
+                                text = MaterialTheme.typography.bodySmall,
+                                paragraph = MaterialTheme.typography.bodySmall,
+                                list = MaterialTheme.typography.bodySmall,
+                                ordered = MaterialTheme.typography.bodySmall,
+                                bullet = MaterialTheme.typography.bodySmall,
+                                quote = MaterialTheme.typography.bodySmall,
+                                code = MaterialTheme.typography.bodySmall,
+                                inlineCode = MaterialTheme.typography.bodySmall,
+                                table = MaterialTheme.typography.bodySmall,
+                                // A link is body text in the accent colour, not
+                                // a headline. No underline: the colour already
+                                // marks it and an underlined 60-character URL
+                                // is the thing that made this unreadable.
+                                link = MaterialTheme.typography.bodySmall,
+                                textLink = TextLinkStyles(
+                                    style = MaterialTheme.typography.bodySmall
+                                        .copy(color = MaterialTheme.colorScheme.primary)
+                                        .toSpanStyle(),
+                                ),
+                                // GitHub emits `## What's Changed` then a
+                                // `### <label group>` per category. Both are
+                                // labels above a short list, so they are sized
+                                // as labels — not as the display scale the
+                                // defaults reach for.
+                                h1 = MaterialTheme.typography.labelLarge,
+                                h2 = MaterialTheme.typography.labelLarge,
+                                h3 = MaterialTheme.typography.labelMedium,
+                                h4 = MaterialTheme.typography.labelMedium,
+                                h5 = MaterialTheme.typography.labelMedium,
+                                h6 = MaterialTheme.typography.labelMedium,
+                            ),
+                            // The card already pads 16dp; the defaults add a
+                            // document's worth on top, which is what made the
+                            // bullet, its URL and the changelog line each start
+                            // at a different left edge.
+                            padding = markdownPadding(
+                                block = 4.dp,
+                                list = 2.dp,
+                                listItemTop = 1.dp,
+                                listItemBottom = 1.dp,
+                                listIndent = 6.dp,
+                            ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp)

@@ -81,7 +81,7 @@ android {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
         targetSdk = 36
-        versionName = "2.31.3"
+        versionName = "2.32.0"
         // Derived from versionName instead of a CI run counter, so the code
         // Play sees always matches the name shown to riders and a workflow
         // rename/reset can't drop it back below an already-published code
@@ -224,6 +224,18 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+    // Release notes are GitHub's generated Markdown, rendered in Settings →
+    // "What's new" (#357). Pinned to 0.35.0 deliberately: it is the last release
+    // built against Kotlin 2.1.x (stdlib 2.1.21) and so the last this module's
+    // 2.1.20 compiler can read — 0.37.0 moved to 2.2.20. Raise it when Kotlin
+    // does, not before.
+    //
+    // No `-coil3` artifact and no `imageTransformer` is passed, so a Markdown
+    // image cannot be fetched: opening the expander makes no request of its own,
+    // to any host a release author chose. That is omission, not a setting to
+    // regress — GitHub's generator emits no images, so nothing is lost.
+    implementation("com.mikepenz:multiplatform-markdown-renderer-android:0.35.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.35.0")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.core:core-ktx:1.13.1")
     // Custom Tabs, for the sign-in leg. A native app must not put the identity
