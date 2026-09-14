@@ -27,6 +27,37 @@ object UpdateClient {
     )
 
     /**
+     * Every release of [repo] newer than [installedVersion], merged into one
+     * body for the "What's new" expander (#358).
+     *
+     * Null when there is nothing to add — already current, no readable bodies,
+     * or a repo that answers with something that is not a release list. The
+     * caller keeps whatever it already had, which is the newest release's own
+     * notes from [newerThan]; that is the degradation path for a fork, a yanked
+     * release, or a rate-limited response.
+     *
+     * **One request, never paginated.** `per_page` is [ReleaseNotes.RANGE_CAP]
+     * and there is no second page: a rider on a year-old build costs the same
+     * one request as a rider on yesterday's, and gets a compare link for the
+     * part that does not fit. See that constant for why the number is what it
+     * is — the payload, not the rate limit, is what bounds this.
+     *
+     * Deliberately *not* part of [newerThan]. That runs on the hourly automatic
+     * check, and an update stays available until the rider takes it, so folding
+     * this in would re-download the list every hour for as long as the update
+     * was deferred. The caller fetches this once, when the rider opens the
+     * expander.
+     */
+    @Throws(Exception::class)
+    suspend fun rangeNotes(repo: String, installedVersion: String): String? {
+        if (repo.isBlank()) return null
+        val url = "https://api.github.com/repos/$repo/releases?per_page=${ReleaseNotes.RANGE_CAP}"
+        val releases = UpdateCheck.parseReleaseList(Http.get(url, HEADERS))
+        if (releases.isEmpty()) return null
+        return ReleaseNotes.releaseRangeNotes(releases, installedVersion, repo)
+    }
+
+    /**
      * The newest release of [repo] if it is newer than [installedVersion],
      * else null.
      *
