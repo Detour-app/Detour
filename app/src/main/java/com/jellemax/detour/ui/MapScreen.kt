@@ -776,6 +776,15 @@ fun MapScreen(
     }
 
     fun stopNavigation() {
+        // The trip navigation itself started (#271): ending navigation must end
+        // that too, or it keeps recording — with auto-stop disabled, since a
+        // nav-started trip goes through TripTrackingService.start()'s manual
+        // path — until the rider notices and taps End trip by hand. A trip that
+        // was already running when navigation began is the rider's to end.
+        if (retained.navStartedTrip) {
+            retained.navStartedTrip = false
+            TripTrackingService.stop(context)
+        }
         s.navigating = false
         s.navProgress = null
         // Drop the route line: arrival or the Exit button ends the navigation,
@@ -807,6 +816,7 @@ fun MapScreen(
         s.camAuthority = CameraAuthority.reduce(s.camAuthority, CameraAuthority.Action.NavigationStarted)
         if (stats == null) {
             TripTrackingService.start(context, s.destination?.lat, s.destination?.lon)
+            retained.navStartedTrip = true
         }
         s.error = null
         // A fresh session hears its first turn immediately, whatever the

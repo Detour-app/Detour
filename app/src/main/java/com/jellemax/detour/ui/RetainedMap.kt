@@ -90,6 +90,13 @@ class RetainedMap(context: Context) {
     var camTarget: LatLon? by mutableStateOf(null)
     var camTargetBearing: Float? by mutableStateOf(null)
 
+    /** True once [MapScreen.startNavigation] starts the trip that backs this
+     *  navigation (no trip was already running). Nothing recomposes on it, so
+     *  plain state: it only tells [MapScreen.stopNavigation] whether ending
+     *  navigation should also end the trip, rather than leaving alone one the
+     *  rider already had running before navigating (#271). */
+    var navStartedTrip: Boolean = false
+
     /** Null until the first fix computes one, so MapScreen can fall back to
      *  the current `defaultZoom` setting rather than to a stale copy of it. */
     var camTargetZoom: Double? by mutableStateOf(null)
