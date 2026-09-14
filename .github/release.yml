@@ -1,0 +1,22 @@
+# Groups build.yml's generate_release_notes output (CONTRIBUTING.md's
+# "Release notes" section) into a rider-facing "New" / "Fixed" split instead
+# of one flat list of PR titles. chore/docs/test PRs are dropped rather than
+# shown under a third heading — CONTRIBUTING.md's versioning table already
+# treats them as not worth a bump, and they are not worth a rider's attention
+# either.
+changelog:
+  exclude:
+    labels:
+      - chore
+      - documentation
+      - test
+  categories:
+    - title: New
+      labels:
+        - enhancement
+    - title: Fixed
+      labels:
+        - bug
+    - title: Other
+      labels:
+        - "*"

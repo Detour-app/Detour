@@ -16,6 +16,12 @@ data class UpdateRowState(
     val action: UpdateAction?,
     val actionLabel: String?,
     val fraction: Float?,
+    /** What changed in [UpdateStatus.Available.update], for an expandable
+     *  "What's new" under the row (#295). Null everywhere else — a download
+     *  in progress or already finished isn't the moment to ask whether to
+     *  read about it, and [UpdateClient.PendingUpdate.notes] itself is null
+     *  for a release published with no body. */
+    val notes: String? = null,
 )
 
 /**
@@ -33,6 +39,7 @@ fun updateRowStateFrom(manual: ManualCheck, status: UpdateStatus): UpdateRowStat
         action = UpdateAction.DOWNLOAD,
         actionLabel = "Download ${status.update.version}",
         fraction = null,
+        notes = status.update.notes,
     )
 
     is UpdateStatus.Downloading -> UpdateRowState(

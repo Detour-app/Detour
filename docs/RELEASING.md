@@ -19,6 +19,15 @@ Internal track means testers on that list get it within minutes with no review
 queue. **Nothing here writes to production** — promoting a build is a manual
 step in the Play Console.
 
+## Release notes
+
+The GitHub release body is the standing sideload/server boilerplate, followed
+by GitHub's auto-generated "What's Changed" list (`generate_release_notes:
+true`), grouped into New/Fixed via `.github/release.yml`. The app's update
+check reads that body back (`UpdateCheck.Release.notes`) and can show it in
+Settings before a rider downloads. See CONTRIBUTING.md's "Release notes"
+section for why the list is shown verbatim rather than hand-written.
+
 ## Versioning
 
 `versionName` in `app/build.gradle.kts` is yours to bump; it names the tag and

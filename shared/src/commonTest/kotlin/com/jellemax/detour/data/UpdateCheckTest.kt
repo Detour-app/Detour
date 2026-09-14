@@ -96,6 +96,30 @@ class UpdateCheckTest {
         assertFalse(r.prerelease)
     }
 
+    /** The release body — GitHub's generated "What's Changed" list, per
+     *  CONTRIBUTING.md's "Release notes" section — arrives in the same
+     *  response as everything else here (#295). */
+    @Test
+    fun aReleaseYieldsItsNotes() {
+        val withBody = """{"tag_name":"v1.87.0","prerelease":false,"assets":[],
+            "body":"## What's Changed\n* fix(nav): thing (#225)"}"""
+        val r = UpdateCheck.parseRelease(withBody)
+        assertNotNull(r)
+        assertEquals("## What's Changed\n* fix(nav): thing (#225)", r.notes)
+    }
+
+    /** A release with no body (§10's missing-body case) or a blank one both
+     *  read as "nothing to show" — a rider must not see an empty "What's new"
+     *  section. */
+    @Test
+    fun aMissingOrBlankBodyYieldsNoNotes() {
+        assertNull(UpdateCheck.parseRelease(releaseJson())?.notes)
+        val blankBody = """{"tag_name":"v1.87.0","prerelease":false,"assets":[],"body":"   "}"""
+        assertNull(UpdateCheck.parseRelease(blankBody)?.notes)
+        val nullBody = """{"tag_name":"v1.87.0","prerelease":false,"assets":[],"body":null}"""
+        assertNull(UpdateCheck.parseRelease(nullBody)?.notes)
+    }
+
     @Test
     fun anAssetIsFoundByExactName() {
         val r = UpdateCheck.parseRelease(releaseJson())
