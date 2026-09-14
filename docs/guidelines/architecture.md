@@ -38,6 +38,7 @@ shared/src/
 ```
 app/src/main/java/com/jellemax/detour/
 ├── ui/         Compose phone screens                      (Android only, by nature)
+│               flat today; packaging target is docs/DEVELOPERS.md#packaging-ui
 ├── car/        Android Auto screens                        (Android only, by nature)
 ├── tracking/   foreground service, sensors, location plumbing
 ├── net/ ble/ obd2/ audio/ media/ notif/ auth/ update/ perf/  platform ports

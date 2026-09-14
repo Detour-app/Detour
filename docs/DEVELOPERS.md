@@ -13,6 +13,7 @@ for landing a change (branches, PRs, versioning, review, style) are
 - [Prerequisites](#prerequisites)
 - [Repository layout](#repository-layout)
 - [Where code belongs](#where-code-belongs)
+- [Packaging `ui/`](#packaging-ui)
 - [Building the apps](#building-the-apps)
 - [Building the backend](#building-the-backend)
 - [Running the whole stack locally](#running-the-whole-stack-locally)
@@ -106,6 +107,65 @@ an interface with one implementation is indirection, not a boundary.
 
 The long form is [guidelines/](guidelines/README.md), whose section numbers are
 what a review cites.
+
+## Packaging `ui/`
+
+`app/src/main/java/com/jellemax/detour/ui/` holds 59 files and over 18,000
+lines flat, with no subpackages and no rule for what goes where. This section
+settles the rule (#184); it does not move anything yet — see "Sequencing"
+below.
+
+**The separation axis is feature = navigation destination**, the same one
+[`nav/Destination.kt`](../app/src/main/java/com/jellemax/detour/nav/Destination.kt)
+already uses to key the back stack, with one type-based exception for code
+that has no destination of its own. Placement test for any file in `ui/`,
+in order:
+
+1. **Does it reference a `shared/` data model** (a store, a `*State`, a
+   domain type)? No → it belongs in the design-system tier: theme, icons,
+   generic Material primitives, and dumb widgets built only from `String`,
+   `Int`, `Boolean`, `() -> Unit` and the like. `GraphiteTheme.kt`, `Theme.kt`,
+   `GlassSurface.kt`, `Pills.kt`, `ConfirmDialog.kt` and `SecureFields.kt` are
+   already this shape.
+2. **Yes, and used by two or more destinations?** → a shared component,
+   package-level (directly under `ui/`, not inside any destination's
+   package) — this is the smallest tier, and it is meant to stay small. A
+   component earns it the same way a policy earns `shared/` (see "Where code
+   belongs" above): it is used more than once, not because it might be
+   someday.
+3. **Yes, and used by exactly one destination?** → that destination's own
+   package, named for the `Destination` it draws: `ui/map/` for `Map`,
+   `ui/friends/` for `Friends`, `ui/settings/` for `Settings` and every
+   `SettingsSpoke`, and so on. A destination that is one file stays one file
+   in its package; nothing here requires splitting a screen that already
+   fits.
+
+**The state-holder gap is explicitly not this decision's job.** Screens in
+`ui/` are the state holders today — over 200 direct `import
+com.jellemax.detour.data.*` statements, one `ViewModel`-shaped file
+(`RetainedMap.kt`) — and a feature-destination package does not, by itself,
+give a screen anywhere else to put that state. §13 in
+[guidelines/state.md](guidelines/state.md) ("The screen-model layer (target
+state)") is where that question lives; packaging `ui/` by destination is a
+precondition for it, not an answer to it.
+
+**Sequencing.** Not applied now, and not a backlog item to schedule either:
+applied incrementally, the next time a file is touched for an unrelated
+reason. A change that already edits a file's content is the wrong place to
+also move it — see `detour-file-split`'s same-package rule for why a move
+and a content change never share a commit — so relocating a file into its
+target package is its own mechanical commit, done only when something else
+about that file was already being changed. Two things make this the right
+call over doing it now or leaving it undecided: a redesign is in flight, and
+`ui/MapScreen.kt` alone had 34 commits in the 60 days before this was
+written, with five of the repo's nine unmerged local branches touching
+`ui/` — a bulk move today conflicts with all of them for no behaviour
+change. The placement test above is what makes each eventual move
+unambiguous when its turn comes.
+
+The full placement test, with the current file list run through it, is
+`detour-ui-structure` — read that skill before adding a new file to `ui/` or
+relocating an existing one.
 
 ## Building the apps
 
