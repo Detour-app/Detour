@@ -13,6 +13,9 @@ struct MapScreen: View {
     /// or not navigation is running, and a section is most likely to catch
     /// someone on a free drive down a motorway they are not being routed along.
     @StateObject private var sections = SectionAverageModel()
+    /// Speed camera markers. Here for the same reason `sections` is: the
+    /// phone shows them on a free drive, not only while navigating.
+    @StateObject private var cameraAlerts = CameraPrefetchModel()
     @State private var showSearch = false
     @State private var navigating = false
     /// Last-known position per other member, across every circle you're in.
@@ -44,7 +47,8 @@ struct MapScreen: View {
                 circleMembers: circleFixes,
                 candidates: candidateRows.map {
                     CLLocationCoordinate2D(latitude: $0.location.lat, longitude: $0.location.lon)
-                }
+                },
+                cameras: cameraAlerts.cameras
             )
             .ignoresSafeArea()
 
@@ -74,6 +78,7 @@ struct MapScreen: View {
         .onChange(of: recorder.lastFix) { _, fix in
             guard let fix else { return }
             sections.update(with: fix)
+            cameraAlerts.update(with: fix)
         }
         // The three places a vote round can resolve from: a new offer landing
         // (which may itself be the closing one-candidate offer), a vote
