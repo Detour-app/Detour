@@ -97,6 +97,44 @@ class CameraWarnerTest {
         )
     }
 
+    // ---- the camera's own tagged limit (#319) ------------------------------
+
+    /** Where the camera tags its own limit, that one is judged, not the
+     *  caller's - "it is the limit actually being enforced" (issue #319). */
+    @Test
+    fun theCamerasOwnTaggedLimitWinsOverTheCallersWhenBothExist() {
+        val taggedAhead = SpeedCameras.Camera(ahead.at, maxspeedKmh = 90.0)
+        assertEquals(
+            CameraWarner.Outcome.Warn(taggedAhead.at, "Speed camera ahead"),
+            step(cameras = listOf(taggedAhead), speedKmh = 95.0, limitKmh = 120.0).outcome,
+        )
+        assertEquals(
+            CameraWarner.Outcome.Silent,
+            step(cameras = listOf(taggedAhead), speedKmh = 92.0, limitKmh = 120.0).outcome,
+        )
+    }
+
+    /** A camera's own limit warns even where the caller has none at all - a
+     *  road with no route or ambient limit is no longer silent by default. */
+    @Test
+    fun theCamerasOwnTaggedLimitWarnsWhenTheCallerHasNone() {
+        val taggedAhead = SpeedCameras.Camera(ahead.at, maxspeedKmh = 70.0)
+        assertEquals(
+            CameraWarner.Outcome.Warn(taggedAhead.at, "Speed camera ahead"),
+            step(cameras = listOf(taggedAhead), speedKmh = 80.0, limitKmh = null).outcome,
+        )
+    }
+
+    /** An untagged camera behaves exactly as before: the caller's limit alone. */
+    @Test
+    fun anUntaggedCameraStillFallsBackToTheCallersLimit() {
+        assertEquals(CameraWarner.Outcome.Silent, step(speedKmh = 120.0).outcome)
+        assertEquals(
+            CameraWarner.Outcome.Warn(ahead.at, "Speed camera ahead"),
+            step(speedKmh = 120.0 + CameraWarner.OVER_LIMIT_KMH + 0.01).outcome,
+        )
+    }
+
     // ---- the latch --------------------------------------------------------
 
     /** One warning per camera. The state carries the latch, so a second fix at
