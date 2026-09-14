@@ -70,6 +70,34 @@ public class LiveRelayTests
     }
 
     [Fact]
+    public async Task An_opted_in_vehicle_name_rides_the_position()
+    {
+        var rider = NewUser("rider");
+        var peerId = Guid.CreateVersion7();
+        var harness = new Harness();
+        harness.WithConvoys(ConvoyWith(rider.Id, peerId));
+
+        var peer = harness.Connect(peerId);
+        await harness.Ingest(rider, LivePositionSource.Socket, vehicleName: "  The Triumph  ");
+
+        (await peer.ReadFrameAsync()).Should().Contain("\"veh\":\"The Triumph\"");
+    }
+
+    [Fact]
+    public async Task A_blank_vehicle_name_is_dropped_rather_than_relayed_empty()
+    {
+        var rider = NewUser("rider");
+        var peerId = Guid.CreateVersion7();
+        var harness = new Harness();
+        harness.WithConvoys(ConvoyWith(rider.Id, peerId));
+
+        var peer = harness.Connect(peerId);
+        await harness.Ingest(rider, LivePositionSource.Socket, vehicleName: "   ");
+
+        (await peer.ReadFrameAsync()).Should().NotContain("\"veh\":\"");
+    }
+
+    [Fact]
     public async Task A_peer_shared_through_two_groups_is_sent_one_copy()
     {
         var rider = NewUser("rider");
@@ -276,11 +304,11 @@ public class LiveRelayTests
             Groups.Setup(r => r.GetForUserAsync(It.IsAny<Guid>(), kind, It.IsAny<CancellationToken>()))
                 .ReturnsAsync([.. groups]);
 
-        public Task Ingest(User rider, LivePositionSource source) =>
+        public Task Ingest(User rider, LivePositionSource source, string? vehicleName = null) =>
             new LiveLocationService(Groups.Object, MemberFixes.Object, Relay)
                 .IngestAsync(
                     new LiveRider(rider.Id),
-                    new LivePosition(51.05431, 3.71742, 12.0, 142.5, 48.3, 1_754_923_456_789),
+                    new LivePosition(51.05431, 3.71742, 12.0, 142.5, 48.3, 1_754_923_456_789, vehicleName),
                     source,
                     CancellationToken.None);
 

@@ -289,6 +289,15 @@ class TripTrackingService : Service() {
         private val _lastFix = MutableStateFlow<Fix?>(null)
         val lastFix: StateFlow<Fix?> = _lastFix
 
+        /** The mapped Bluetooth device currently classifying the trip, if any
+         *  — see [VehicleLinks.resolvedVehicle]. Companion-level for the same
+         *  reason [lastFix] is: [com.jellemax.detour.net.ConvoyLiveClient]
+         *  reads it to decide whether this device's position frames carry a
+         *  vehicle name (#158), and it has no instance of this service to
+         *  reach into. */
+        private val _resolvedVehicle = MutableStateFlow<Settings.VehicleDevice?>(null)
+        val resolvedVehicle: StateFlow<Settings.VehicleDevice?> = _resolvedVehicle
+
         /** Best-available display speed in m/s, on a faster cadence than [lastFix]:
          *  a paired OBD2 adapter refreshes this every ~1s between GPS fixes so the
          *  speed HUD keeps gliding through a tunnel or a pocketed phone. [lastFix]
@@ -726,6 +735,7 @@ class TripTrackingService : Service() {
             startMotionSensors(mode)
             updateNotification()
         },
+        onVehicleChanged = { vehicle -> _resolvedVehicle.value = vehicle },
     )
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

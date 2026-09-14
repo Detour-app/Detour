@@ -1054,6 +1054,7 @@ fun MapScreen(
                 ownLocation = s.myLocation,
                 nowMs = nowMs,
                 sep = sep,
+                vehicleName = peer.vehicleName,
             )
             else -> s.circleFixes.firstOrNull { it.fix.riderId == id }?.let { m ->
                 riderCardStateFrom(

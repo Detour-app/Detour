@@ -261,7 +261,8 @@ public class LiveController(
             TryReadDouble(frame, "accuracyM", out var accuracy) ? accuracy : null,
             TryReadDouble(frame, "headingDeg", out var heading) ? heading : null,
             TryReadDouble(frame, "speedKmh", out var speed) ? speed : null,
-            TryReadInt64(frame, "ts", out var timestamp) ? timestamp : 0);
+            TryReadInt64(frame, "ts", out var timestamp) ? timestamp : 0,
+            TryReadString(frame, "veh", out var vehicle) ? vehicle : null);
 
         // Identity comes off the connection rather than out of the database: it was established
         // by the token at upgrade time and cannot change while the socket is open, so re-reading
@@ -426,6 +427,15 @@ public class LiveController(
         return element.TryGetProperty(name, out var property)
                && property.ValueKind == JsonValueKind.Number
                && property.TryGetInt32(out value);
+    }
+
+    private static bool TryReadString(JsonElement element, string name, out string value)
+    {
+        value = "";
+        if (!element.TryGetProperty(name, out var property) || property.ValueKind != JsonValueKind.String)
+            return false;
+        value = property.GetString() ?? "";
+        return true;
     }
 
     private static async Task SwallowAsync(Task task)

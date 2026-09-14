@@ -65,6 +65,7 @@ class RelayProtocolTest {
         s: Double? = 42.0,
         ts: Long = 1_700_000_000_000L,
         ttl: Int? = 10,
+        veh: String? = null,
     ): String {
         val fields = buildList {
             add(""""u":"$u"""")
@@ -74,6 +75,7 @@ class RelayProtocolTest {
             if (s != null) add(""""s":$s""")
             add(""""ts":$ts""")
             if (ttl != null) add(""""ttl":$ttl""")
+            if (veh != null) add(""""veh":"$veh"""")
         }
         return "{${fields.joinToString(",")}}"
     }
@@ -215,6 +217,29 @@ class RelayProtocolTest {
         val p = (RelayProtocol.decode(frame, nowMs = 0) as RelayEvent.Positions).peers.single()
         assertEquals(null, p.headingDeg)
         assertEquals(null, p.speedKmh)
+    }
+
+    @Test
+    fun positionsWithNoVehDecodesVehicleNameAsNull() {
+        val p = (RelayProtocol.decode(positionsFrame(peerRow()), nowMs = 0) as RelayEvent.Positions).peers.single()
+        assertEquals(null, p.vehicleName)
+    }
+
+    @Test
+    fun positionsDecodesAnOptedInVehicleName() {
+        val frame = positionsFrame(peerRow(veh = "The Triumph"))
+        val p = (RelayProtocol.decode(frame, nowMs = 0) as RelayEvent.Positions).peers.single()
+        assertEquals("The Triumph", p.vehicleName)
+    }
+
+    @Test
+    fun positionsCapsAnOversizeVehicleNameOnReceive() {
+        // A peer's own client is not trusted to have enforced the cap itself -
+        // #158's own point: capped on the way in, not just the way out.
+        val overlong = "x".repeat(RelayProtocol.VEHICLE_NAME_MAX + 20)
+        val frame = positionsFrame(peerRow(veh = overlong))
+        val p = (RelayProtocol.decode(frame, nowMs = 0) as RelayEvent.Positions).peers.single()
+        assertEquals(RelayProtocol.VEHICLE_NAME_MAX, p.vehicleName?.length)
     }
 
     // --- unknown / malformed ----------------------------------------------
@@ -390,6 +415,43 @@ class RelayProtocolTest {
         )
         assertEquals(setOf("type", "lat", "lon", "headingDeg", "speedKmh", "ts"), obj.keys)
         assertEquals(275.5, obj.optDouble("headingDeg"))
+    }
+
+    @Test
+    fun buildLocationOmitsVehWhenVehicleNameIsNull() {
+        val obj = jsonObjectOf(
+            RelayProtocol.buildLocation(location = LatLon(51.0, 4.0), headingDeg = null, speedKmh = 42.0, tsMs = 123L),
+        )
+        assertEquals(false, obj.keys.contains("veh"))
+    }
+
+    @Test
+    fun buildLocationIncludesVehWhenOptedIn() {
+        val obj = jsonObjectOf(
+            RelayProtocol.buildLocation(
+                location = LatLon(51.0, 4.0),
+                headingDeg = null,
+                speedKmh = 42.0,
+                tsMs = 123L,
+                vehicleName = "The Triumph",
+            ),
+        )
+        assertEquals("The Triumph", obj.optString("veh"))
+    }
+
+    @Test
+    fun buildLocationCapsAnOversizeVehicleNameOnSend() {
+        val overlong = "x".repeat(RelayProtocol.VEHICLE_NAME_MAX + 20)
+        val obj = jsonObjectOf(
+            RelayProtocol.buildLocation(
+                location = LatLon(51.0, 4.0),
+                headingDeg = null,
+                speedKmh = 42.0,
+                tsMs = 123L,
+                vehicleName = overlong,
+            ),
+        )
+        assertEquals(RelayProtocol.VEHICLE_NAME_MAX, obj.optString("veh").length)
     }
 
     @Test
