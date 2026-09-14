@@ -16,6 +16,8 @@ public class ApiConfiguration
     public required OpenTelemetrySettings OpenTelemetry { get; set; }
     public CacheSettings Cache { get; set; } = new();
     public CorsSettings Cors { get; set; } = new();
+    public RoutingSettings Routing { get; set; } = new();
+    public GeocoderSettings Geocoder { get; set; } = new();
 }
 
 /// <summary>
@@ -58,6 +60,34 @@ public class IdpSettings
     /// the default five minutes silently extends every token's life.
     /// </summary>
     public int ClockSkewSeconds { get; set; } = 30;
+}
+
+/// <summary>
+/// Where this deployment's own GraphHopper instance lives, if it announces one via
+/// <c>/api/capabilities</c> (issue #177). Blank by default — an unconfigured deployment
+/// announces nothing, and a rider keeps typing the routing address (or the app's baked-in
+/// one) exactly as before.
+/// </summary>
+public class RoutingSettings
+{
+    public const string SectionName = "Routing";
+
+    /// <summary>Base URL of the GraphHopper instance, which serves <c>/route</c>. Blank means
+    /// "not announced" — not "announced as nothing".</summary>
+    public string BaseUrl { get; set; } = "";
+}
+
+/// <summary>
+/// Where this deployment's own Photon instance lives, if it announces one via
+/// <c>/api/capabilities</c>. See <see cref="RoutingSettings"/> for the reasoning; the two are
+/// configured independently because a self-hoster may run one and not the other.
+/// </summary>
+public class GeocoderSettings
+{
+    public const string SectionName = "Geocoder";
+
+    /// <summary>Base URL of the Photon instance, which serves <c>/api/?q=</c>.</summary>
+    public string BaseUrl { get; set; } = "";
 }
 
 public class CacheSettings

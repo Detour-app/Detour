@@ -35,8 +35,8 @@ class ServerResolutionTest {
         noBakedDefaults()
         val c = split()
         assertEquals("https://api.example", RoutingServer.apiBase(c))
-        assertEquals("https://route.example", RoutingServer.routingBase(c))
-        assertEquals("https://search.example", RoutingServer.geocoderBase(c))
+        assertEquals("https://route.example", RoutingServer.routingBase(c, discoveredRouting = ""))
+        assertEquals("https://search.example", RoutingServer.geocoderBase(c, discoveredGeocoder = ""))
     }
 
     @Test
@@ -46,8 +46,8 @@ class ServerResolutionTest {
         noBakedDefaults()
         val c = ServerConfig(url = "https://all.example", enabled = true)
         assertEquals("https://all.example", RoutingServer.apiBase(c))
-        assertEquals("https://all.example", RoutingServer.routingBase(c))
-        assertEquals("https://all.example", RoutingServer.geocoderBase(c))
+        assertEquals("https://all.example", RoutingServer.routingBase(c, discoveredRouting = ""))
+        assertEquals("https://all.example", RoutingServer.geocoderBase(c, discoveredGeocoder = ""))
     }
 
     @Test
@@ -58,11 +58,50 @@ class ServerResolutionTest {
             geocoderUrl = "https://baked-search.example",
         )
         assertEquals("https://baked-api.example", RoutingServer.apiBase(null))
-        assertEquals("https://baked-route.example", RoutingServer.routingBase(null))
-        assertEquals("https://baked-search.example", RoutingServer.geocoderBase(null))
+        assertEquals(
+            "https://baked-route.example",
+            RoutingServer.routingBase(null, discoveredRouting = ""),
+        )
+        assertEquals(
+            "https://baked-search.example",
+            RoutingServer.geocoderBase(null, discoveredGeocoder = ""),
+        )
 
         val c = ServerConfig(url = "https://all.example", enabled = true)
         assertEquals("https://all.example", RoutingServer.apiBase(c))
+    }
+
+    @Test
+    fun aDiscoveredRoutingBaseIsUsedWhenNothingElseIsConfigured() {
+        // A rider pointing at their own server should route through the
+        // GraphHopper it announces, not this build's baked-in one — the same
+        // reasoning [aDiscoveredIssuerBeatsTheBakedDefault] applies to the realm.
+        BuildDefaults.configure(routingUrl = "https://baked-route.example")
+        val c = ServerConfig(url = "https://all.example", enabled = true)
+        assertEquals(
+            "https://discovered-route.example",
+            RoutingServer.routingBase(c, discoveredRouting = "https://discovered-route.example"),
+        )
+    }
+
+    @Test
+    fun aTypedRoutingUrlBeatsADiscoveredOne() {
+        noBakedDefaults()
+        val c = split()
+        assertEquals(
+            "https://route.example",
+            RoutingServer.routingBase(c, discoveredRouting = "https://discovered-route.example"),
+        )
+    }
+
+    @Test
+    fun aDiscoveredGeocoderBaseIsUsedWhenNothingElseIsConfigured() {
+        BuildDefaults.configure(geocoderUrl = "https://baked-search.example")
+        val c = ServerConfig(url = "https://all.example", enabled = true)
+        assertEquals(
+            "https://discovered-search.example",
+            RoutingServer.geocoderBase(c, discoveredGeocoder = "https://discovered-search.example"),
+        )
     }
 
     @Test
@@ -143,8 +182,8 @@ class ServerResolutionTest {
     fun nothingConfiguredAnywhereResolvesToBlank() {
         noBakedDefaults()
         assertEquals("", RoutingServer.apiBase(null))
-        assertEquals("", RoutingServer.routingBase(null))
-        assertEquals("", RoutingServer.geocoderBase(null))
+        assertEquals("", RoutingServer.routingBase(null, discoveredRouting = ""))
+        assertEquals("", RoutingServer.geocoderBase(null, discoveredGeocoder = ""))
         assertEquals("", RoutingServer.issuer(null, discovered = ""))
     }
 

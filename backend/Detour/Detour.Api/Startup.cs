@@ -48,6 +48,8 @@ public class Startup(IConfiguration configuration)
         services.Configure<IdpSettings>(configuration.GetSection(IdpSettings.SectionName));
         services.AddSingleton<IOptions<IdpSettings>>(
             new OptionsWrapper<IdpSettings>(MappedConfiguration.Idp));
+        services.Configure<RoutingSettings>(configuration.GetSection(RoutingSettings.SectionName));
+        services.Configure<GeocoderSettings>(configuration.GetSection(GeocoderSettings.SectionName));
 
         services.AddTrustedProxies(ForwardedHeaders);
 

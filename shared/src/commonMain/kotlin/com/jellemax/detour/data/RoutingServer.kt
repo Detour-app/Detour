@@ -106,13 +106,27 @@ object RoutingServer {
     fun apiBase(custom: ServerConfig?): String =
         pick(custom?.apiUrl ?: "", custom?.url ?: "", BuildDefaults.apiUrl)
 
-    /** Base of the GraphHopper instance, which serves `/route`. */
-    fun routingBase(custom: ServerConfig?): String =
-        pick(custom?.routingUrl ?: "", custom?.url ?: "", BuildDefaults.routingUrl)
+    /** Base of the GraphHopper instance, which serves `/route`. The discovered
+     *  value sits between the rider's own typed addresses and the baked
+     *  default, the same slot [discoveredIssuer] holds for the realm — a rider
+     *  who typed an address keeps winning, and one who pointed at their own
+     *  server reaches whatever it announces rather than this build's baked-in
+     *  routing host. */
+    fun routingBase(custom: ServerConfig?): String = routingBase(custom, discoveredRoutingBase())
 
-    /** Base of the Photon instance, which serves `/api/?q=`. */
-    fun geocoderBase(custom: ServerConfig?): String =
-        pick(custom?.geocoderUrl ?: "", custom?.url ?: "", BuildDefaults.geocoderUrl)
+    /** `internal` with the discovered value passed in, for the same reason the
+     *  [issuer] overload exists: reading it means touching `prefs`, which
+     *  reaches a Context that does not exist in a unit test. */
+    internal fun routingBase(custom: ServerConfig?, discoveredRouting: String): String =
+        pick(custom?.routingUrl ?: "", custom?.url ?: "", discoveredRouting, BuildDefaults.routingUrl)
+
+    /** Base of the Photon instance, which serves `/api/?q=`. Same precedence as
+     *  [routingBase]. */
+    fun geocoderBase(custom: ServerConfig?): String = geocoderBase(custom, discoveredGeocoderBase())
+
+    /** `internal` counterpart of [routingBase]'s, for the same reason. */
+    internal fun geocoderBase(custom: ServerConfig?, discoveredGeocoder: String): String =
+        pick(custom?.geocoderUrl ?: "", custom?.url ?: "", discoveredGeocoder, BuildDefaults.geocoderUrl)
 
     /**
      * The realm that issues rider tokens.
@@ -264,6 +278,13 @@ object RoutingServer {
             // about the new one, and carrying it across would have a client
             // configure itself against a server it is no longer talking to.
             prefs(PREFS).remove(KEY_SERVER_FEATURES)
+            // Same reason again: a routing/geocoder base the old deployment
+            // announced — accepted, still pending, or declined — belonged to
+            // that deployment. Carrying an accepted one across would silently
+            // route a rider's destinations through a host the *new* server
+            // never announced.
+            clearAnnouncedService(ROUTING_KEYS)
+            clearAnnouncedService(GEOCODER_KEYS)
         }
 
         prefs(PREFS).apply {
@@ -439,9 +460,17 @@ object RoutingServer {
     @Throws(Exception::class)
     suspend fun probeCapabilities() {
         val custom = loadCustom()
-        rememberServerFeatures(
-            Capabilities.fetch(apiBase(custom), userAgentHeaders())?.features,
-        )
+        val api = apiBase(custom)
+        val fetched = Capabilities.fetch(api, userAgentHeaders())
+        rememberServerFeatures(fetched?.features)
+        // Same "null leaves it alone, a parsed document always overwrites" rule
+        // as rememberServerFeatures — a failed or unparseable probe must not
+        // evict an accepted routing/geocoder base just because the rider is
+        // offline right now.
+        if (fetched != null) {
+            rememberAnnouncedService(ROUTING_KEYS, fetched.routingBaseUrl, api)
+            rememberAnnouncedService(GEOCODER_KEYS, fetched.geocoderBaseUrl, api)
+        }
     }
 
     /**
@@ -450,4 +479,173 @@ object RoutingServer {
      */
     internal fun userAgentHeaders(): Map<String, String> =
         mapOf("User-Agent" to "Detour/${BuildDefaults.versionName}")
+
+    // --- Routing/geocoder discovery (#177) ------------------------------------
+    //
+    // The same shape as the issuer's own discovery pair above, extended with a
+    // consent step: an issuer is mandatory and the server is trusted for it by
+    // construction (the ID-token `iss` check downstream re-verifies it anyway),
+    // but a routing/geocoder base is optional and moves rider data — a typed
+    // destination, an origin/destination pair — whichever way it points. See
+    // `Capabilities.acceptable`'s KDoc and `docs/BACKEND_SPEC.md` §15.5.
+    //
+    // Three states per service, not one: [AnnouncedServiceKeys.discovered] is
+    // what [routingBase]/[geocoderBase] actually use; [pending] is an announced
+    // value that differs from the API's own host and awaits the rider's tap;
+    // [declined] is the last value the rider said no to, so an unchanged
+    // re-announcement does not nag them on every app start.
+
+    private data class AnnouncedServiceKeys(
+        val discovered: String,
+        val pending: String,
+        val declined: String,
+    )
+
+    private val ROUTING_KEYS = AnnouncedServiceKeys(
+        discovered = "routing_discovered_base",
+        pending = "routing_pending_base",
+        declined = "routing_declined_base",
+    )
+
+    private val GEOCODER_KEYS = AnnouncedServiceKeys(
+        discovered = "geocoder_discovered_base",
+        pending = "geocoder_pending_base",
+        declined = "geocoder_declined_base",
+    )
+
+    /** What a probe's freshly-announced value, plus the previous stored state,
+     *  resolve to — see [AnnouncedServiceKeys] for what each field means. */
+    internal data class AnnouncedServiceState(
+        val discovered: String = "",
+        val pending: String = "",
+        val declined: String = "",
+    )
+
+    /**
+     * Pure — touches no `prefs` — so it can be asserted directly, the same split
+     * [vettedIssuer] and [issuerAfterSave] use for the issuer's own discovery.
+     *
+     * [announced] is [ServerCapabilities.routingBaseUrl] or `.geocoderBaseUrl`
+     * from a probe that *parsed* — the caller is what decides a failed probe
+     * changes nothing, same as [rememberServerFeatures].
+     */
+    internal fun nextAnnouncedServiceState(
+        announced: String,
+        apiBase: String,
+        previous: AnnouncedServiceState,
+    ): AnnouncedServiceState {
+        val normalised = normalisedAddress(announced)
+        // Blank means the deployment stopped announcing (or never did). Nothing
+        // stale survives it — an accepted value from a server that has since
+        // stood the service down must not go on being used silently.
+        if (normalised.isBlank()) return AnnouncedServiceState()
+        // Refused outright rather than stored anywhere: an unacceptable value
+        // (plain HTTP, a malformed authority) is not a pending decision for the
+        // rider to make, it is not a value at all.
+        if (!Capabilities.acceptable(normalised)) return AnnouncedServiceState()
+        // Already in effect: re-announcing the same value on the next probe
+        // must not re-litigate a decision already made, and must clear a
+        // pending prompt for a value this now supersedes.
+        if (normalised == previous.discovered) return previous.copy(pending = "")
+        // Same host as the API itself: a rider who already trusts the API host
+        // — by having pointed the app at it, or by shipping with it baked in —
+        // is trusting this by construction, so no separate prompt is owed for
+        // the same host answering a second service.
+        if (Capabilities.hostOf(normalised) != null &&
+            Capabilities.hostOf(normalised) == Capabilities.hostOf(apiBase)
+        ) {
+            return AnnouncedServiceState(discovered = normalised)
+        }
+        // Already declined exactly this value: do not ask again until it
+        // changes. Compared against the raw announcement, not a vetted read, so
+        // a value that was acceptable when declined and is unchanged now still
+        // matches.
+        if (normalised == previous.declined) return previous
+        return previous.copy(pending = normalised)
+    }
+
+    private fun readAnnouncedServiceState(keys: AnnouncedServiceKeys): AnnouncedServiceState =
+        AnnouncedServiceState(
+            discovered = prefs(PREFS).string(keys.discovered),
+            pending = prefs(PREFS).string(keys.pending),
+            declined = prefs(PREFS).string(keys.declined),
+        )
+
+    private fun writeAnnouncedServiceState(keys: AnnouncedServiceKeys, state: AnnouncedServiceState) {
+        prefs(PREFS).apply {
+            put(keys.discovered, state.discovered)
+            put(keys.pending, state.pending)
+            put(keys.declined, state.declined)
+        }
+    }
+
+    private fun clearAnnouncedService(keys: AnnouncedServiceKeys) =
+        writeAnnouncedServiceState(keys, AnnouncedServiceState())
+
+    private fun rememberAnnouncedService(keys: AnnouncedServiceKeys, announced: String, apiBase: String) {
+        val next = nextAnnouncedServiceState(announced, apiBase, readAnnouncedServiceState(keys))
+        writeAnnouncedServiceState(keys, next)
+    }
+
+    /** What is actually on disk for [keys], vetted on read the same way
+     *  [discoveredIssuer] vets [storedIssuerRaw] — a value written under looser
+     *  rules by an older build must not outlive the tightening just because it
+     *  is sitting there unread. */
+    private fun vettedAnnounced(keys: AnnouncedServiceKeys): String =
+        prefs(PREFS).string(keys.discovered).takeIf { Capabilities.acceptable(it) } ?: ""
+
+    /** Base of the announced GraphHopper instance this device has accepted —
+     *  auto-accepted because its host matched the API's own, or accepted by the
+     *  rider via [acceptRoutingAnnouncement] — or blank. Feeds [routingBase]. */
+    internal fun discoveredRoutingBase(): String = vettedAnnounced(ROUTING_KEYS)
+
+    /** Same as [discoveredRoutingBase], for Photon. Feeds [geocoderBase]. */
+    internal fun discoveredGeocoderBase(): String = vettedAnnounced(GEOCODER_KEYS)
+
+    /** An announced routing base awaiting the rider's decision — differs from
+     *  the API's own host, and has been neither accepted nor declined for this
+     *  exact value — or null. What Settings shows the one-time prompt for. */
+    fun pendingRoutingAnnouncement(): String? =
+        prefs(PREFS).string(ROUTING_KEYS.pending).takeIf { it.isNotBlank() }
+
+    /** Same as [pendingRoutingAnnouncement], for Photon. */
+    fun pendingGeocoderAnnouncement(): String? =
+        prefs(PREFS).string(GEOCODER_KEYS.pending).takeIf { it.isNotBlank() }
+
+    fun acceptRoutingAnnouncement() = resolvePendingAnnouncement(ROUTING_KEYS, accept = true)
+
+    fun declineRoutingAnnouncement() = resolvePendingAnnouncement(ROUTING_KEYS, accept = false)
+
+    fun acceptGeocoderAnnouncement() = resolvePendingAnnouncement(GEOCODER_KEYS, accept = true)
+
+    fun declineGeocoderAnnouncement() = resolvePendingAnnouncement(GEOCODER_KEYS, accept = false)
+
+    /**
+     * What accepting or declining [previous]'s pending value resolves to.
+     *
+     * Declining does not touch [AnnouncedServiceState.discovered]: a pending
+     * value only ever appears *beside* an existing accepted one when the
+     * deployment re-announces a different host before the rider has answered
+     * the first prompt (see [nextAnnouncedServiceState]'s last branch), and
+     * saying no to the new one must not silently stop using the old one — that
+     * would be the exact stale-address failure #177 asks not to reintroduce,
+     * just triggered by a decline instead of by a server outage.
+     */
+    internal fun resolvedAnnouncedServiceState(
+        previous: AnnouncedServiceState,
+        accept: Boolean,
+    ): AnnouncedServiceState = if (accept)
+        AnnouncedServiceState(discovered = previous.pending)
+    else
+        previous.copy(pending = "", declined = previous.pending)
+
+    /** A no-op once nothing is pending, which is the ordinary case: a rider can
+     *  reach the Settings row that calls this after the pending value has
+     *  already resolved itself (accepted on a previous tap, superseded by a
+     *  newer probe) without a stale button doing something unexpected. */
+    private fun resolvePendingAnnouncement(keys: AnnouncedServiceKeys, accept: Boolean) {
+        val previous = readAnnouncedServiceState(keys)
+        if (previous.pending.isBlank()) return
+        writeAnnouncedServiceState(keys, resolvedAnnouncedServiceState(previous, accept))
+    }
 }

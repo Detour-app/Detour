@@ -37,6 +37,8 @@ namespace Detour.Api.Controllers;
 [AllowAnonymous]
 public class CapabilitiesController(
     IOptions<IdpSettings> idpSettings,
+    IOptions<RoutingSettings> routingSettings,
+    IOptions<GeocoderSettings> geocoderSettings,
     IEnumerable<IPushGateway> pushGateways) : ControllerBase
 {
     [HttpGet]
@@ -49,5 +51,7 @@ public class CapabilitiesController(
     public ActionResult<CapabilitiesResponse> Get() => Ok(
         CapabilitiesResponse.From(
             idpSettings.Value,
-            pushGateways.Where(g => g.Enabled).Select(g => g.Platform)));
+            pushGateways.Where(g => g.Enabled).Select(g => g.Platform),
+            routingSettings.Value,
+            geocoderSettings.Value));
 }

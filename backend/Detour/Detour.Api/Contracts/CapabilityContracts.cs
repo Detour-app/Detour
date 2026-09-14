@@ -23,7 +23,9 @@ namespace Detour.Api.Contracts;
 public record CapabilitiesResponse(
     [Required] int Schema,
     [Required] IReadOnlyList<string> Features,
-    [Required] IdpCapabilityResponse Idp)
+    [Required] IdpCapabilityResponse Idp,
+    RoutingCapabilityResponse? Routing,
+    GeocoderCapabilityResponse? Geocoder)
 {
     /// <summary>
     /// Bumped only when an existing field on this response changes meaning —
@@ -44,15 +46,25 @@ public record CapabilitiesResponse(
     /// <summary>iOS wake-pings are configured and this server can send them.</summary>
     public const string PushIosFeature = "push-ios";
 
+    /// <summary>This deployment announces its own GraphHopper instance (issue #177).</summary>
+    public const string RoutingDiscoveryFeature = "routing-discovery";
+
+    /// <summary>This deployment announces its own Photon instance (issue #177).</summary>
+    public const string GeocoderDiscoveryFeature = "geocoder-discovery";
+
     /// <summary>
     /// The advertised feature set for a deployment whose push gateways are
-    /// <paramref name="pushPlatforms"/>.
+    /// <paramref name="pushPlatforms"/>, and whose routing/geocoder discovery is
+    /// <paramref name="routingAnnounced"/>/<paramref name="geocoderAnnounced"/>.
     ///
     /// Split from <see cref="From"/> so the mapping can be asserted without a
-    /// host: the controller's job is to read the gateways, and this one's is to
-    /// decide what that means on the wire.
+    /// host: the controller's job is to read the gateways and settings, and this
+    /// one's is to decide what that means on the wire.
     /// </summary>
-    public static IReadOnlyList<string> FeaturesFor(IEnumerable<DevicePlatform> pushPlatforms)
+    public static IReadOnlyList<string> FeaturesFor(
+        IEnumerable<DevicePlatform> pushPlatforms,
+        bool routingAnnounced,
+        bool geocoderAnnounced)
     {
         var platforms = pushPlatforms.ToHashSet();
         var features = new List<string>(AlwaysOnFeatures);
@@ -60,14 +72,35 @@ public record CapabilitiesResponse(
             features.Add(PushAndroidFeature);
         if (platforms.Contains(DevicePlatform.Ios))
             features.Add(PushIosFeature);
+        if (routingAnnounced)
+            features.Add(RoutingDiscoveryFeature);
+        if (geocoderAnnounced)
+            features.Add(GeocoderDiscoveryFeature);
         return features;
     }
 
     public static CapabilitiesResponse From(
-        IdpSettings idpSettings, IEnumerable<DevicePlatform> pushPlatforms) => new(
-        SchemaVersion,
-        FeaturesFor(pushPlatforms),
-        new IdpCapabilityResponse(idpSettings.Authority));
+        IdpSettings idpSettings,
+        IEnumerable<DevicePlatform> pushPlatforms,
+        RoutingSettings routingSettings,
+        GeocoderSettings geocoderSettings)
+    {
+        // Blank means "not configured", and the field itself carries that —
+        // absent, not present-but-empty, so a client can test for null rather
+        // than for a blank string.
+        var routing = string.IsNullOrWhiteSpace(routingSettings.BaseUrl)
+            ? null
+            : new RoutingCapabilityResponse(routingSettings.BaseUrl);
+        var geocoder = string.IsNullOrWhiteSpace(geocoderSettings.BaseUrl)
+            ? null
+            : new GeocoderCapabilityResponse(geocoderSettings.BaseUrl);
+        return new(
+            SchemaVersion,
+            FeaturesFor(pushPlatforms, routing is not null, geocoder is not null),
+            new IdpCapabilityResponse(idpSettings.Authority),
+            routing,
+            geocoder);
+    }
 }
 
 /// <summary>
@@ -77,3 +110,23 @@ public record CapabilitiesResponse(
 /// advertise a realm whose tokens it would then refuse.
 /// </summary>
 public record IdpCapabilityResponse([Required] string Issuer);
+
+/// <summary>
+/// Where this deployment's own GraphHopper instance is, for a client that would
+/// otherwise need it typed in by hand (issue #177). Absent — not present with a
+/// blank <see cref="BaseUrl"/> — when <c>Routing:BaseUrl</c> is unconfigured.
+///
+/// The client is the one place that decides whether to trust this: it is never
+/// promoted into a rider's own typed configuration, and a plain-<c>http://</c>
+/// value is refused rather than upgraded. See <c>RoutingServer.kt</c>'s
+/// discovery pair for the mirror of <see cref="IdpCapabilityResponse"/>'s own
+/// rule, extended to this field.
+/// </summary>
+public record RoutingCapabilityResponse([Required] string BaseUrl);
+
+/// <summary>
+/// Where this deployment's own Photon instance is. See
+/// <see cref="RoutingCapabilityResponse"/> for the reasoning, which applies here
+/// unchanged.
+/// </summary>
+public record GeocoderCapabilityResponse([Required] string BaseUrl);
