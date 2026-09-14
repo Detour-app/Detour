@@ -44,6 +44,13 @@ internal class TripEndDetector(private val clock: DriveClock) {
         lastMovingMs = clock.nowMs()
     }
 
+    /** How long since the vehicle was last above the moving gate. Ending
+     *  navigation asks this to tell a rider who has pulled up from one who
+     *  drove on past their guidance and should keep the drive (#272) — see
+     *  [navEndDecision]. Seeded by [onTripBegan], so a drive that has only
+     *  just started reads as moving rather than as five minutes parked. */
+    fun msSinceMoving(now: Long): Long = now - lastMovingMs
+
     /** A trip just ended, by any route. */
     fun onTripEnded() {
         pendingStopAtMs = null

@@ -135,12 +135,6 @@ class NavScreen(
     private var navigating = false
     private var arrived = false
 
-    /** True once [onStart] below starts the trip this screen's navigation
-     *  runs on (no trip was already running). Tells [onStop] whether leaving
-     *  this screen should also end that trip, rather than leaving alone one
-     *  the rider already had running before navigating here (#271). */
-    private var startedTrip = false
-
     /** What the template last showed, so an unchanged screen isn't rebuilt and
      *  re-sent over the projection link once a second. */
     private var templateKey: String? = null
@@ -175,7 +169,6 @@ class NavScreen(
                 // sitting locked in a cradle is exactly that. Losing the trip
                 // recording is survivable; taking the car app down mid-drive
                 // with it is not.
-                startedTrip = TripTrackingService.stats.value == null
                 runCatching { TripTrackingService.start(carContext, destination.lat, destination.lon) }
                     .onFailure { Log.w(TAG, "could not start trip tracking", it) }
                 // navigationStarted() throws unless a callback is registered
@@ -218,12 +211,11 @@ class NavScreen(
                     runCatching { navigationManager.navigationEnded() }
                 }
                 runCatching { navigationManager.clearNavigationManagerCallback() }
-                if (startedTrip) {
-                    startedTrip = false
-                    runCatching { TripTrackingService.stop(carContext) }
-                        .onFailure { Log.w(TAG, "could not stop trip tracking", it) }
-                }
                 voice.stop()
+                // Navigation is leaving the front of the stack — end the trip
+                // it started so it does not outlive its guidance (#271). The
+                // service keeps it running if the rider is still driving on.
+                TripTrackingService.navigationEnded(carContext)
                 // The map outlives this screen — hand it back to free drive
                 // without the finished route still drawn on it.
                 renderer.setRoute(null, null)

@@ -784,15 +784,10 @@ fun MapScreen(
     }
 
     fun stopNavigation() {
-        // The trip navigation itself started (#271): ending navigation must end
-        // that too, or it keeps recording — with auto-stop disabled, since a
-        // nav-started trip goes through TripTrackingService.start()'s manual
-        // path — until the rider notices and taps End trip by hand. A trip that
-        // was already running when navigation began is the rider's to end.
-        if (retained.navStartedTrip) {
-            retained.navStartedTrip = false
-            TripTrackingService.stop(context)
-        }
+        // Tears down guidance only. Whether the drive behind it ends is the
+        // service's call, not this screen's — it is the side that knows
+        // whether navigation started the trip and whether the rider is still
+        // moving. Every caller signals it with navigationEnded() (#271, #272).
         s.navigating = false
         s.navProgress = null
         // Drop the route line: arrival or the Exit button ends the navigation,
@@ -830,7 +825,6 @@ fun MapScreen(
         s.pendingRiderFrame = null
         if (stats == null) {
             TripTrackingService.start(context, s.destination?.lat, s.destination?.lon)
-            retained.navStartedTrip = true
         }
         s.error = null
         // A fresh session hears its first turn immediately, whatever the
@@ -922,7 +916,12 @@ fun MapScreen(
         scope = scope,
         announcer = announcer,
         announceAloud = { announceAloud(it) },
-        onArrive = { stopNavigation() },
+        // Arrival is a definite end of the drive — end the trip navigation
+        // started at once, rather than leaving it to a movement check.
+        onArrive = {
+            stopNavigation()
+            TripTrackingService.navigationEnded(context, endNow = true)
+        },
     )
 
     // The banner, its "then" chip, the bottom bar and the HUD's limit source all
@@ -1322,7 +1321,13 @@ fun MapScreen(
                 onSavePin = { s.destination?.let { s.savePinTarget = it } },
                 bottomCard = bottomCard,
                 navState = navState,
-                onExitNavigation = { stopNavigation() },
+                onExitNavigation = {
+                    stopNavigation()
+                    // Exit is ambiguous — pulled up, or driving on past the
+                    // guidance — so the service decides by whether the rider
+                    // is still moving.
+                    TripTrackingService.navigationEnded(context)
+                },
                 displayCandidates = visibleCandidates,
                 // Non-null only once a spin has actually been shared.
                 convoyVotes = spinOffer?.let { spinVotes },
@@ -1383,9 +1388,6 @@ fun MapScreen(
                     if (stats == null) {
                         TripTrackingService.start(context, s.destination?.lat, s.destination?.lon)
                     }
-                },
-                onTrack = {
-                    TripTrackingService.start(context, s.destination?.lat, s.destination?.lon)
                 },
                 // The navigation dock's ✕: drop the destination and everything
                 // derived from it. `settingsCollapsed` is left untouched, so
