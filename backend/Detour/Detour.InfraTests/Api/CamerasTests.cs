@@ -65,6 +65,15 @@ public class CamerasTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Get_with_an_out_of_range_longitude_returns_400()
+    {
+        var response = await _factory.CreateClient()
+            .GetAsync("/api/cameras?minLat=50.80&minLon=-200&maxLat=50.90&maxLon=200");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Get_with_minLat_greater_than_maxLat_returns_400()
     {
         var response = await _factory.CreateClient()
