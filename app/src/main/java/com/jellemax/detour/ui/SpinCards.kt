@@ -160,10 +160,16 @@ internal fun SpinSheet(
                     .pointerInput(Unit) {
                         val thresholdPx = with(density) { SHEET_SWIPE_THRESHOLD.toPx() }
                         detectVerticalDragGestures(
+                            // Reset at both ends, same reason as the home
+                            // sheet's handle in HomeSheet.kt: a cancelled
+                            // gesture never reaches onDragEnd, and the travel
+                            // it left behind would count toward the next one.
+                            onDragStart = { dragged = 0f },
                             onDragEnd = {
                                 if (dragged >= thresholdPx) currentOnCollapse()
                                 dragged = 0f
                             },
+                            onDragCancel = { dragged = 0f },
                         ) { change, dragAmount ->
                             change.consume()
                             dragged += dragAmount

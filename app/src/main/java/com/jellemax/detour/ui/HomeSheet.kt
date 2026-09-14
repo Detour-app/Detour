@@ -242,10 +242,19 @@ internal fun DragHandle(onExpand: (() -> Unit)? = null) {
                         .pointerInput(Unit) {
                             val thresholdPx = with(density) { SHEET_SWIPE_THRESHOLD.toPx() }
                             detectVerticalDragGestures(
+                                // Both ends reset the accumulator, not just
+                                // onDragEnd: a gesture the system takes away
+                                // mid-drag (a scroll claiming the pointer, the
+                                // sheet recomposing under it) never reaches
+                                // onDragEnd, and a leftover travel would then
+                                // let the *next* short drag cross the
+                                // threshold on the previous one's distance.
+                                onDragStart = { dragged = 0f },
                                 onDragEnd = {
                                     if (dragged <= -thresholdPx) currentOnExpand?.invoke()
                                     dragged = 0f
                                 },
+                                onDragCancel = { dragged = 0f },
                             ) { change, dragAmount ->
                                 change.consume()
                                 dragged += dragAmount
