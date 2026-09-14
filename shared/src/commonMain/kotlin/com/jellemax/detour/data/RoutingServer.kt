@@ -102,31 +102,71 @@ object RoutingServer {
     private fun pick(vararg candidates: String): String =
         normalisedAddress(candidates.firstOrNull { it.isNotBlank() } ?: "")
 
-    /** Base of the sync + social API, which serves everything under `/api`. */
-    fun apiBase(custom: ServerConfig?): String =
-        pick(custom?.apiUrl ?: "", custom?.url ?: "", BuildDefaults.apiUrl)
+    /**
+     * The precedence every address in this file resolves by, stated once and
+     * nowhere else.
+     *
+     * | slot | meaning |
+     * | --- | --- |
+     * | [typed] | what the rider entered for *this* service |
+     * | [announced] | what the server stated for *this* service |
+     * | [general] | the rider's one address for everything ([ServerConfig.url]) |
+     * | [baked] | what this build was compiled against |
+     *
+     * Specific beats general, which is the rule #355 broke: [general] used to
+     * sit ahead of [announced] for routing and search, so a rider who filled in
+     * Server URL — the documented way to configure the app — could accept an
+     * announcement and have it silently discarded. The consent prompt only
+     * appears when the announced host differs from the API host, which is
+     * exactly when [general] is the wrong answer, so accepting could never take
+     * effect.
+     *
+     * A service declares which slots it *has*; it never declares an order. That
+     * is the point: the defect was one service disagreeing with the other three
+     * about the order, which was invisible while each wrote its own argument
+     * list. Pass `""` for a slot that does not apply and the reason belongs in a
+     * comment at that call site.
+     */
+    private fun resolve(typed: String, announced: String, general: String, baked: String): String =
+        pick(typed, announced, general, baked)
 
-    /** Base of the GraphHopper instance, which serves `/route`. The discovered
-     *  value sits between the rider's own typed addresses and the baked
-     *  default, the same slot [discoveredIssuer] holds for the realm — a rider
-     *  who typed an address keeps winning, and one who pointed at their own
-     *  server reaches whatever it announces rather than this build's baked-in
-     *  routing host. */
+    /** Base of the sync + social API, which serves everything under `/api`. */
+    fun apiBase(custom: ServerConfig?): String = resolve(
+        typed = custom?.apiUrl.orEmpty(),
+        // Nothing announces the API: it is the address the rider points at, and
+        // the document that would announce it is the one served from it.
+        announced = "",
+        general = custom?.url.orEmpty(),
+        baked = BuildDefaults.apiUrl,
+    )
+
+    /** Base of the GraphHopper instance, which serves `/route`. A rider who
+     *  typed a routing address keeps winning; one who only pointed the app at
+     *  their own server reaches whatever that server announces, rather than the
+     *  general address or this build's baked-in routing host (#355). */
     fun routingBase(custom: ServerConfig?): String = routingBase(custom, discoveredRoutingBase())
 
     /** `internal` with the discovered value passed in, for the same reason the
      *  [issuer] overload exists: reading it means touching `prefs`, which
      *  reaches a Context that does not exist in a unit test. */
-    internal fun routingBase(custom: ServerConfig?, discoveredRouting: String): String =
-        pick(custom?.routingUrl ?: "", custom?.url ?: "", discoveredRouting, BuildDefaults.routingUrl)
+    internal fun routingBase(custom: ServerConfig?, discoveredRouting: String): String = resolve(
+        typed = custom?.routingUrl.orEmpty(),
+        announced = discoveredRouting,
+        general = custom?.url.orEmpty(),
+        baked = BuildDefaults.routingUrl,
+    )
 
     /** Base of the Photon instance, which serves `/api/?q=`. Same precedence as
      *  [routingBase]. */
     fun geocoderBase(custom: ServerConfig?): String = geocoderBase(custom, discoveredGeocoderBase())
 
     /** `internal` counterpart of [routingBase]'s, for the same reason. */
-    internal fun geocoderBase(custom: ServerConfig?, discoveredGeocoder: String): String =
-        pick(custom?.geocoderUrl ?: "", custom?.url ?: "", discoveredGeocoder, BuildDefaults.geocoderUrl)
+    internal fun geocoderBase(custom: ServerConfig?, discoveredGeocoder: String): String = resolve(
+        typed = custom?.geocoderUrl.orEmpty(),
+        announced = discoveredGeocoder,
+        general = custom?.url.orEmpty(),
+        baked = BuildDefaults.geocoderUrl,
+    )
 
     /**
      * The realm that issues rider tokens.
@@ -142,15 +182,18 @@ object RoutingServer {
      * `internal` with the discovered value passed in, for the same reason
      * [Oidc.begin] has an overload taking the issuer: reading it means touching
      * `prefs`, and `prefs` reaches a Context that does not exist in a unit test.
-     * The precedence order lives here so a test can assert it.
      *
-     * [discovered] sits between the typed value and the baked one on purpose. A
-     * rider who typed an address is overruling their server deliberately and
-     * keeps winning; a rider who pointed at their own server should reach their
-     * own realm rather than whichever one this build was compiled against.
+     * [discovered] sits ahead of the baked default on purpose: a rider who
+     * pointed at their own server should reach their own realm rather than
+     * whichever one this build was compiled against.
      */
-    internal fun issuer(custom: ServerConfig?, discovered: String): String =
-        pick(custom?.idpIssuer ?: "", discovered, BuildDefaults.idpIssuer)
+    internal fun issuer(custom: ServerConfig?, discovered: String): String = resolve(
+        typed = custom?.idpIssuer.orEmpty(),
+        announced = discovered,
+        // See this function's own KDoc: the general address is never a realm.
+        general = "",
+        baked = BuildDefaults.idpIssuer,
+    )
 
     /**
      * What is actually on disk, unvetted. Only [discoveredIssuer] and

@@ -107,17 +107,67 @@ class ServerResolutionTest {
         )
     }
 
+    /**
+     * The regression for #355.
+     *
+     * An announced address is the server naming *this* service; [ServerConfig.url]
+     * is a general "everything is at this host". The specific one wins, or
+     * accepting an announcement does nothing for every rider who filled in
+     * Server URL — which is the documented way to configure the app, so the
+     * consent prompt was unreachable in exactly the case it is shown.
+     *
+     * A non-blank `url` is the whole point of the fixture: every other discovery
+     * test here passes `null` or leaves it blank, which is how one wrong
+     * argument order reached a release with a green suite.
+     */
     @Test
-    fun aDiscoveredRoutingBaseLosesToTheGeneralAddressWhenOneWasTyped() {
-        // Unlike the issuer, a routing/geocoder discovery sits behind
-        // [ServerConfig.url] too, not only behind the per-service field — a
-        // rider who typed one general address for everything is still
-        // overruling the server on purpose.
+    fun aDiscoveredRoutingBaseBeatsTheGeneralAddress() {
         noBakedDefaults()
         val c = ServerConfig(url = "https://all.example", enabled = true)
         assertEquals(
-            "https://all.example",
+            "https://discovered-route.example",
             RoutingServer.routingBase(c, discoveredRouting = "https://discovered-route.example"),
+            "an accepted routing announcement must outrank the general server address (#355)",
+        )
+    }
+
+    /** The same rule for search — untested before #355, which is the other half
+     *  of why this escaped: the geocoder had no general-address case at all. */
+    @Test
+    fun aDiscoveredGeocoderBaseBeatsTheGeneralAddress() {
+        noBakedDefaults()
+        val c = ServerConfig(url = "https://all.example", enabled = true)
+        assertEquals(
+            "https://discovered-search.example",
+            RoutingServer.geocoderBase(c, discoveredGeocoder = "https://discovered-search.example"),
+            "an accepted geocoder announcement must outrank the general server address (#355)",
+        )
+    }
+
+    /** The general address is still the fallback when nothing was announced —
+     *  the one-hostname deployment `docker/prod/docker-compose.proxy.yml` serves,
+     *  which #355's fix must not break. */
+    @Test
+    fun theGeneralAddressStillServesWhenNothingWasAnnounced() {
+        noBakedDefaults()
+        val c = ServerConfig(url = "https://all.example", enabled = true)
+        assertEquals("https://all.example", RoutingServer.routingBase(c, discoveredRouting = ""))
+        assertEquals("https://all.example", RoutingServer.geocoderBase(c, discoveredGeocoder = ""))
+    }
+
+    /** A declined announcement never reaches `discovered`, so the general
+     *  address keeps serving — accepting and declining must stay distinguishable. */
+    @Test
+    fun aTypedPerServiceAddressStillBeatsAnAnnouncedOne() {
+        noBakedDefaults()
+        val c = split()
+        assertEquals(
+            "https://route.example",
+            RoutingServer.routingBase(c, discoveredRouting = "https://discovered-route.example"),
+        )
+        assertEquals(
+            "https://search.example",
+            RoutingServer.geocoderBase(c, discoveredGeocoder = "https://discovered-search.example"),
         )
     }
 
