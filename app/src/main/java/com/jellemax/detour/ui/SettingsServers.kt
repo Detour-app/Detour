@@ -301,6 +301,12 @@ private fun ServerSection(
     // is never thrown away.
     var draft by remember(custom) { mutableStateOf(custom ?: ServerConfig()) }
     var saved by remember { mutableStateOf(false) }
+    // Read once and cleared locally on a tap, rather than re-read from prefs:
+    // the whole point of the accept/decline pair (#177) is a one-time prompt,
+    // and re-reading after a state-changing tap would just show it again for
+    // the instant before the next composition catches up.
+    var pendingRouting by remember { mutableStateOf(RoutingServer.pendingRoutingAnnouncement()) }
+    var pendingGeocoder by remember { mutableStateOf(RoutingServer.pendingGeocoderAnnouncement()) }
     // Opens already expanded when anything inside it is set, so a split
     // deployment — or a server still on the deprecated realm field — does not
     // look unconfigured on the way back in.
@@ -319,6 +325,22 @@ private fun ServerSection(
                 "one-hostname layout). Leave empty to use the built-in " +
                 "routing/search servers, with sync and live off.",
         )
+        pendingRouting?.let { baseUrl ->
+            AnnouncedServicePrompt(
+                label = "routing",
+                baseUrl = baseUrl,
+                onAccept = { RoutingServer.acceptRoutingAnnouncement(); pendingRouting = null },
+                onDecline = { RoutingServer.declineRoutingAnnouncement(); pendingRouting = null },
+            )
+        }
+        pendingGeocoder?.let { baseUrl ->
+            AnnouncedServicePrompt(
+                label = "search",
+                baseUrl = baseUrl,
+                onAccept = { RoutingServer.acceptGeocoderAnnouncement(); pendingGeocoder = null },
+                onDecline = { RoutingServer.declineGeocoderAnnouncement(); pendingGeocoder = null },
+            )
+        }
         CredentialTextField(
             value = draft.url,
             onValueChange = { draft = draft.copy(url = it); saved = false },
@@ -353,6 +375,39 @@ private fun ServerSection(
         }
         if (showAdvanced) {
             ServerAdvanced(draft = draft, onDraftChange = { draft = it; saved = false })
+        }
+    }
+}
+
+/**
+ * The one-time consent issue #177 asks for: shown only when the API server
+ * announces a routing/geocoder base on a *different* host than itself — an
+ * announcement on the API's own host is accepted without asking, per
+ * `RoutingServer.nextAnnouncedServiceState`'s host-match branch, so this never
+ * appears for the common one-hostname deployment at all.
+ *
+ * A tap clears the local flag immediately rather than waiting on `custom` to
+ * change, because accepting or declining touches neither [ServerConfig] nor
+ * [custom] — the announced base is never written into the rider's own typed
+ * configuration (#177's own rule 4), so nothing else on this screen would
+ * otherwise notice the decision was made.
+ */
+@Composable
+private fun AnnouncedServicePrompt(
+    label: String,
+    baseUrl: String,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            "Your server suggests a $label address: $baseUrl",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = onAccept) { Text("Use it") }
+            TextButton(onClick = onDecline) { Text("No thanks") }
         }
     }
 }

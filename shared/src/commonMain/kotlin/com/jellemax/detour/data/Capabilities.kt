@@ -13,6 +13,11 @@ internal data class ServerCapabilities(
     val features: List<String>,
     /** Blank when the server has the endpoint but names no realm. */
     val idpIssuer: String,
+    /** Blank when the server does not announce its own GraphHopper instance
+     *  (issue #177) — absent on the wire, not present-but-empty. */
+    val routingBaseUrl: String = "",
+    /** Blank when the server does not announce its own Photon instance. */
+    val geocoderBaseUrl: String = "",
 )
 
 /**
@@ -79,6 +84,11 @@ internal object Capabilities {
             // which carries no trailing slash — would refuse a sign-in that is
             // correct.
             idpIssuer = normalisedAddress(o.optObject("idp")?.optString("issuer").orEmpty()),
+            // Same normalisation, same reason: RoutingServer.pick compares this
+            // against a rider's typed address and needs the two to agree on
+            // trailing-slash and whitespace before either wins.
+            routingBaseUrl = normalisedAddress(o.optObject("routing")?.optString("baseUrl").orEmpty()),
+            geocoderBaseUrl = normalisedAddress(o.optObject("geocoder")?.optString("baseUrl").orEmpty()),
         )
     }
 
@@ -96,35 +106,7 @@ internal object Capabilities {
      * advertised passes. Anything this function accepts is trusted from here on.
      */
     fun acceptable(issuer: String): Boolean {
-        val scheme = when {
-            issuer.startsWith("https://") -> "https://"
-            issuer.startsWith("http://") -> "http://"
-            // Case-sensitive, so `HTTPS://` is refused. Fail-closed and
-            // deliberate: a realm whose issuer is spelled that way already
-            // fails the backend's own exact `iss` comparison.
-            else -> return false
-        }
-        val authority = issuer.removePrefix(scheme).substringBefore('/')
-        // Userinfo is what turns a host check into a host *prefix* check:
-        // `localhost:8080@evil.example` has userinfo `localhost:8080` and host
-        // `evil.example`, so truncating at the first colon reads an attacker's
-        // credentials as the hostname. No OIDC issuer identifier carries
-        // userinfo, so refusing the shape outright is both correct and simpler
-        // than parsing it properly.
-        if ('@' in authority) return false
-        // `trim()` upstream only strips the ends, so an interior newline
-        // survives into a string that becomes a URL.
-        if (authority.any { it.isWhitespace() || it.isISOControl() }) return false
-        // Whatever follows a colon here is treated as a port and never checked
-        // for being numeric — deliberately: an invalid port cannot resolve
-        // anywhere, so `toHttpUrlOrNull()` in `AuthBrowser` fails closed on it
-        // with no route to a foreign host, and validating it here would buy
-        // nothing.
-        val host = authority.substringBefore(':')
-        // A prefix check alone would accept a bare `https://`, which reaches
-        // Auth.endpoint() as `https:///protocol/...` and fails as a malformed
-        // URL instead of as the actionable "no realm advertised".
-        if (host.isEmpty()) return false
+        val (scheme, host) = schemeAndHost(issuer) ?: return false
         // Loopback over cleartext is the one carve-out, and the reason is that
         // the traffic never leaves the device, so there is no on-path attacker
         // to defend against. `BuildDefaults.idpIssuer` documents
@@ -135,6 +117,55 @@ internal object Capabilities {
         // That is the safe direction, and widening it needs a reason better
         // than symmetry.
         return scheme == "https://" || host == "localhost" || host == "127.0.0.1"
+    }
+
+    /**
+     * The host [url] resolves to, or null when it is not `http://`/`https://`
+     * with a parseable authority — the same shape [acceptable] refuses.
+     *
+     * Split out so a host *comparison* (an announced routing/geocoder base
+     * against the API's own host) and [acceptable]'s scheme-and-loopback check
+     * share one parse rather than two that could quietly disagree about what
+     * "the host" of a malformed URL means.
+     */
+    fun hostOf(url: String): String? = schemeAndHost(url)?.second
+
+    /**
+     * The scheme (`"https://"` or `"http://"`) and host of [url], or null if it
+     * is not that shape at all. `null` on anything [acceptable] would refuse for
+     * shape reasons, before the loopback/HTTPS policy is even applied.
+     */
+    private fun schemeAndHost(url: String): Pair<String, String>? {
+        val scheme = when {
+            url.startsWith("https://") -> "https://"
+            url.startsWith("http://") -> "http://"
+            // Case-sensitive, so `HTTPS://` is refused. Fail-closed and
+            // deliberate: a realm whose issuer is spelled that way already
+            // fails the backend's own exact `iss` comparison.
+            else -> return null
+        }
+        val authority = url.removePrefix(scheme).substringBefore('/')
+        // Userinfo is what turns a host check into a host *prefix* check:
+        // `localhost:8080@evil.example` has userinfo `localhost:8080` and host
+        // `evil.example`, so truncating at the first colon reads an attacker's
+        // credentials as the hostname. No OIDC issuer identifier carries
+        // userinfo, so refusing the shape outright is both correct and simpler
+        // than parsing it properly.
+        if ('@' in authority) return null
+        // `trim()` upstream only strips the ends, so an interior newline
+        // survives into a string that becomes a URL.
+        if (authority.any { it.isWhitespace() || it.isISOControl() }) return null
+        // Whatever follows a colon here is treated as a port and never checked
+        // for being numeric — deliberately: an invalid port cannot resolve
+        // anywhere, so `toHttpUrlOrNull()` in `AuthBrowser` fails closed on it
+        // with no route to a foreign host, and validating it here would buy
+        // nothing.
+        val host = authority.substringBefore(':')
+        // A prefix check alone would accept a bare `https://`, which reaches
+        // Auth.endpoint() as `https:///protocol/...` and fails as a malformed
+        // URL instead of as the actionable "no realm advertised".
+        if (host.isEmpty()) return null
+        return scheme to host
     }
 
     /**

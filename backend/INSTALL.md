@@ -120,6 +120,8 @@ form too (`Idp__Authority`, `ConnectionStrings__DefaultConnection`, and so on).
 | `Idp:Authority` | The exact `iss` claim to require, e.g. `https://idp.example/realms/detour`. Exact, not a prefix. The API also states this value on the unauthenticated `/api/capabilities`, so riders configuring the app against your deployment do not have to retype it — set it correctly and they get it for free. |
 | `Idp:Audience` | `detour-api` unless you renamed the client. |
 | `Idp:RequireHttpsMetadata` | Leave `true`. Off is for a local stack on plain HTTP. |
+| `Routing:BaseUrl` | Base URL of your own GraphHopper instance, if you run one. Optional — blank means not announced, and riders keep typing (or leave at the app's built-in) routing address. Also stated on `/api/capabilities` (issue #177), same reasoning as `Idp:Authority` above. |
+| `Geocoder:BaseUrl` | Base URL of your own Photon instance. Same as `Routing:BaseUrl`, configured independently — you may run one service and not the other. |
 | `Cors:AllowedOrigins` | Only needed for a browser origin. The app is not one. |
 | `Cache:RedisConnectionString` | Empty means memory-only, which is a correct single-instance deployment. |
 | `ForwardedHeaders:KnownProxies` / `KnownNetworks` | **Set one of these if anything sits in front of the API.** See below. |

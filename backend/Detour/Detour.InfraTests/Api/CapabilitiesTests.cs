@@ -99,6 +99,61 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
         payload.Features.Should().NotContain("push-ios");
     }
 
+    [Fact]
+    public async Task Capabilities_do_not_announce_routing_or_geocoder_when_unconfigured()
+    {
+        // The default deployment — this factory sets neither `Routing:BaseUrl`
+        // nor `Geocoder:BaseUrl` — matches every server running today, which is
+        // why this needs no coordination with them (#177).
+        var payload = await _factory.CreateClient()
+            .GetFromJsonAsync<CapabilitiesPayload>("/api/capabilities");
+
+        payload.Should().NotBeNull();
+        payload!.Routing.Should().BeNull();
+        payload.Geocoder.Should().BeNull();
+        payload.Features.Should().NotContain("routing-discovery");
+        payload.Features.Should().NotContain("geocoder-discovery");
+    }
+
+    [Fact]
+    public async Task Capabilities_announce_a_configured_routing_and_geocoder_base_url()
+    {
+        using var web = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("Routing:BaseUrl", "https://gh.example.invalid");
+            builder.UseSetting("Geocoder:BaseUrl", "https://photon.example.invalid");
+        });
+
+        var payload = await web.CreateClient()
+            .GetFromJsonAsync<CapabilitiesPayload>("/api/capabilities");
+
+        payload.Should().NotBeNull();
+        payload!.Routing.Should().NotBeNull();
+        payload.Routing!.BaseUrl.Should().Be("https://gh.example.invalid");
+        payload.Geocoder.Should().NotBeNull();
+        payload.Geocoder!.BaseUrl.Should().Be("https://photon.example.invalid");
+        payload.Features.Should().Contain("routing-discovery");
+        payload.Features.Should().Contain("geocoder-discovery");
+    }
+
+    [Fact]
+    public async Task Capabilities_announce_routing_independently_of_geocoder()
+    {
+        // A self-hoster routinely runs one and not the other — GraphHopper and
+        // Photon are separate processes with separate reasons to exist.
+        using var web = _factory.WithWebHostBuilder(builder =>
+            builder.UseSetting("Routing:BaseUrl", "https://gh.example.invalid"));
+
+        var payload = await web.CreateClient()
+            .GetFromJsonAsync<CapabilitiesPayload>("/api/capabilities");
+
+        payload.Should().NotBeNull();
+        payload!.Routing.Should().NotBeNull();
+        payload.Geocoder.Should().BeNull();
+        payload.Features.Should().Contain("routing-discovery");
+        payload.Features.Should().NotContain("geocoder-discovery");
+    }
+
     private sealed record StubGateway(DevicePlatform Platform, bool Enabled) : IPushGateway
     {
         public Task<PushSendResult> SendWakeAsync(
@@ -109,7 +164,13 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
     private sealed record CapabilitiesPayload(
         int Schema,
         IReadOnlyList<string> Features,
-        IdpPayload Idp);
+        IdpPayload Idp,
+        RoutingPayload? Routing,
+        GeocoderPayload? Geocoder);
 
     private sealed record IdpPayload(string Issuer);
+
+    private sealed record RoutingPayload(string BaseUrl);
+
+    private sealed record GeocoderPayload(string BaseUrl);
 }

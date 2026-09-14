@@ -84,6 +84,50 @@ class CapabilitiesTest {
     }
 
     @Test
+    fun aDocumentAnnouncingRoutingAndGeocoderYieldsBothBaseUrls() {
+        val caps = Capabilities.parse(
+            """{"schema":1,"features":["routing-discovery","geocoder-discovery"],
+                "idp":{"issuer":"https://idp.example/realms/detour"},
+                "routing":{"baseUrl":"https://gh.example"},
+                "geocoder":{"baseUrl":"https://photon.example"}}"""
+        )
+        assertEquals("https://gh.example", caps?.routingBaseUrl)
+        assertEquals("https://photon.example", caps?.geocoderBaseUrl)
+    }
+
+    @Test
+    fun aDocumentWithNeitherFieldOffersNeitherBaseUrl() {
+        // Every deployment running today: the fields are absent, not present
+        // with a blank baseUrl, and both must read back blank either way.
+        val caps = Capabilities.parse(
+            """{"schema":1,"features":[],"idp":{"issuer":"https://idp.example/realms/detour"}}"""
+        )
+        assertEquals("", caps?.routingBaseUrl)
+        assertEquals("", caps?.geocoderBaseUrl)
+    }
+
+    @Test
+    fun routingCanBeAnnouncedIndependentlyOfGeocoder() {
+        // A self-hoster routinely runs one and not the other.
+        val caps = Capabilities.parse(
+            """{"schema":1,"features":["routing-discovery"],
+                "idp":{"issuer":"https://idp.example/realms/detour"},
+                "routing":{"baseUrl":"https://gh.example"}}"""
+        )
+        assertEquals("https://gh.example", caps?.routingBaseUrl)
+        assertEquals("", caps?.geocoderBaseUrl)
+    }
+
+    @Test
+    fun anAnnouncedRoutingBaseIsNormalisedTheSameWayTheIssuerIs() {
+        val caps = Capabilities.parse(
+            """{"schema":1,"features":[],"idp":{"issuer":"https://idp.example/realms/detour"},
+                "routing":{"baseUrl":" https://gh.example/ "}}"""
+        )
+        assertEquals("https://gh.example", caps?.routingBaseUrl)
+    }
+
+    @Test
     fun onlyHttpsIsAcceptableForARemoteRealm() {
         assertTrue(Capabilities.acceptable("https://idp.example/realms/detour"))
         assertFalse(Capabilities.acceptable("http://idp.example/realms/detour"))
@@ -192,6 +236,22 @@ class CapabilitiesTest {
         // octal spellings of 127.0.0.1, both genuinely loopback, both refused.
         assertFalse(Capabilities.acceptable("http://2130706433/realms/detour"))
         assertFalse(Capabilities.acceptable("http://0177.0.0.1/realms/detour"))
+    }
+
+    @Test
+    fun hostOfExtractsTheHostAloneFromAWellFormedUrl() {
+        assertEquals("idp.example", Capabilities.hostOf("https://idp.example/realms/detour"))
+        assertEquals("localhost", Capabilities.hostOf("http://localhost:7580/realms/detour"))
+    }
+
+    @Test
+    fun hostOfIsNullForAnythingAcceptableWouldRefuseForItsShape() {
+        // Same parse as acceptable(), so a routing/geocoder host comparison
+        // cannot disagree with it about what counts as a host at all.
+        assertEquals(null, Capabilities.hostOf(""))
+        assertEquals(null, Capabilities.hostOf("ftp://idp.example"))
+        assertEquals(null, Capabilities.hostOf("https://"))
+        assertEquals(null, Capabilities.hostOf("http://localhost:8080@evil.example"))
     }
 
     @Test

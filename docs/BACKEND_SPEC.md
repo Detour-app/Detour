@@ -548,8 +548,10 @@ answers is which realm mints them.
 ```json
 {
   "schema": 1,
-  "features": ["idp-discovery", "push-android"],
-  "idp": { "issuer": "https://idp.example/realms/detour" }
+  "features": ["idp-discovery", "push-android", "routing-discovery", "geocoder-discovery"],
+  "idp": { "issuer": "https://idp.example/realms/detour" },
+  "routing": { "baseUrl": "https://example.com/gh" },
+  "geocoder": { "baseUrl": "https://example.com/photon" }
 }
 ```
 
@@ -561,10 +563,25 @@ which is not the same question as what this software supports:
 | `idp-discovery` | Always. |
 | `push-android` | An FCM gateway is configured — `Notifications:FirebaseCredentialsPath` is set and loaded. |
 | `push-ios` | An APNs gateway is configured — the four `Notifications:Apns*` keys are set and the `.p8` loaded. |
+| `routing-discovery` | `Routing:BaseUrl` is set. |
+| `geocoder-discovery` | `Geocoder:BaseUrl` is set. |
 
 The two push strings are per-platform rather than one `push`, because having
 Firebase credentials and no APNs key is an ordinary state and an iOS client must
-not read Android's answer as its own.
+not read Android's answer as its own. `routing` and `geocoder` are configured
+the same way — independently, both blank by default — because a self-hoster
+routinely runs one and not the other.
+
+`routing` and `geocoder` are absent, not present with a blank `baseUrl`, when
+their env keys (`Routing__BaseUrl`, `Geocoder__BaseUrl`) are unset — the same
+"absent means not announced" rule `idp` does not get to use only because a
+realm is mandatory. Unlike `idp.issuer`, a client is not free to trust either
+verbatim: it is server-supplied and moves rider data (a destination typed into
+search, an origin/destination pair sent for a route) to wherever it names, so
+the client validates it — HTTPS only, and a host that differs from the API's
+own asks the rider before it is used. See `RoutingServer.kt`'s discovery pair
+in `shared/` for the mirror of the `idp.issuer` discovery this reuses the shape
+of, extended with that consent step.
 
 They exist because a client cannot work this out for itself. An Android build
 with a `google-services.json` baked in registers a token successfully against a
