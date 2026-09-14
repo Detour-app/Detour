@@ -43,8 +43,14 @@ public sealed class Camera : Entity
     public int? MaxSpeedKmh { get; private set; }
     public string? RoadRef { get; private set; }
 
-    private readonly List<CameraSource> _sources = [];
-    public IReadOnlyList<CameraSource> Sources => _sources;
+    /// <summary>The source list as opaque JSON — same "stored string, lazily-parsed view"
+    /// convention as <c>SavedPlace.Payload</c>. Stored (not a computed/shadow property) so EF
+    /// can map it directly; see <see cref="Sources"/> for the parsed view every caller uses.</summary>
+    public string SourcesJson { get; private set; } = "[]";
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<CameraSource> Sources =>
+        System.Text.Json.JsonSerializer.Deserialize<List<CameraSource>>(SourcesJson) ?? [];
 
     public CameraStatus Status { get; private set; } = CameraStatus.Active;
     public DateTimeOffset FirstSeen { get; private set; }
@@ -68,7 +74,7 @@ public sealed class Camera : Entity
         BboxMaxLon = maxLon;
         MaxSpeedKmh = maxSpeedKmh;
         RoadRef = roadRef;
-        _sources.Add(source);
+        SourcesJson = System.Text.Json.JsonSerializer.Serialize(new List<CameraSource> { source });
         FirstSeen = source.FirstSeen;
         LastSeen = source.LastSeen;
         UpdatedAt = DateTimeOffset.UtcNow;
@@ -111,8 +117,10 @@ public sealed class Camera : Entity
     /// the camera <see cref="CameraStatus.Active"/> even while another has stopped seeing it.</summary>
     public void MergeSource(CameraSource incoming)
     {
-        var i = _sources.FindIndex(s => s.Source == incoming.Source && s.SourceId == incoming.SourceId);
-        if (i >= 0) _sources[i] = incoming; else _sources.Add(incoming);
+        var sources = Sources.ToList();
+        var i = sources.FindIndex(s => s.Source == incoming.Source && s.SourceId == incoming.SourceId);
+        if (i >= 0) sources[i] = incoming; else sources.Add(incoming);
+        SourcesJson = System.Text.Json.JsonSerializer.Serialize(sources);
 
         if (incoming.LastSeen > LastSeen) LastSeen = incoming.LastSeen;
         if (incoming.FirstSeen < FirstSeen) FirstSeen = incoming.FirstSeen;
