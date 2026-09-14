@@ -1,5 +1,7 @@
 package com.jellemax.detour.data
 
+import kotlinx.serialization.json.JsonObject
+
 /**
  * The decidable half of the update check: is the published release newer than
  * this build, and which file should be downloaded for it.
@@ -72,18 +74,38 @@ object UpdateCheck {
      *  and `RelayProtocol.decode`: a bad payload is "no update", never a throw
      *  reaching a screen. */
     fun parseRelease(text: String): Release? = try {
-        val o = jsonObjectOf(text)
+        releaseFrom(jsonObjectOf(text))
+    } catch (e: Exception) {
+        null
+    }
+
+    /**
+     * The `/releases` list response, which is an array of exactly the objects
+     * [parseRelease] reads one of — same fields, bodies included, so a whole
+     * range of releases costs one request rather than one per version (#358).
+     *
+     * Empty for anything unreadable, and an individually-unreadable entry is
+     * dropped rather than failing the list: same contract as [parseRelease],
+     * and the same shape `Routes.load` already uses for a stored array.
+     */
+    fun parseReleaseList(text: String): List<Release> = try {
+        jsonArrayOf(text).objects().mapNotNull { runCatching { releaseFrom(it) }.getOrNull() }
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    /** One release object, shared by [parseRelease] and [parseReleaseList] so
+     *  the two cannot drift about what a release is. */
+    private fun releaseFrom(o: JsonObject): Release {
         val assets = (o.optArray("assets")?.objects() ?: emptyList()).associate {
             it.optString("name") to it.optString("browser_download_url")
         }
-        Release(
+        return Release(
             version = o.optString("tag_name").removePrefix("v"),
             prerelease = o.optBoolean("prerelease", false),
             assets = assets,
             notes = o.optString("body").trim().ifBlank { null },
         )
-    } catch (e: Exception) {
-        null
     }
 
     fun parseManifest(text: String): UpdateManifest? = try {
