@@ -360,6 +360,33 @@ object RoutingServer {
     fun knownServerFeatures(): List<String>? = decodeFeatures(prefs(PREFS).string(KEY_SERVER_FEATURES))
 
     /**
+     * Whether the configured server has stated it supports [feature] — the one
+     * query every capability-gated call site should share, instead of each one
+     * hand-rolling `knownServerFeatures()?.contains(...) == true`.
+     *
+     * Unknown reads as false, same as [knownServerFeatures]'s null does for its
+     * one caller today ([com.jellemax.detour.notif]'s `pushCovers`): a server
+     * that has never been asked, or whose last probe failed, is indistinguishable
+     * here from one that answered "no". What a caller *does* with that false is
+     * a decision for the call site, not for this function — "hide the control",
+     * "keep the old behaviour running" and "degrade to an older path" are all
+     * valid answers for different features, and which one applies belongs in a
+     * comment at the call site, not folded into a shared default.
+     *
+     * Synchronous for the same reason [knownServerFeatures] is: a caller such as
+     * [com.jellemax.detour.notif] reads this on a cold start, before any
+     * coroutine has reached the network.
+     */
+    fun hasFeature(feature: String): Boolean = has(knownServerFeatures(), feature)
+
+    /**
+     * The pure half of [hasFeature], split out so the unknown-reads-as-false
+     * rule can be asserted without a `Context` — same reason [decodeFeatures] is
+     * split from [knownServerFeatures].
+     */
+    internal fun has(features: List<String>?, feature: String): Boolean = features?.contains(feature) == true
+
+    /**
      * The stored form read back, or null when nothing was ever stored.
      *
      * Split from [knownServerFeatures] so the tri-state can be asserted:

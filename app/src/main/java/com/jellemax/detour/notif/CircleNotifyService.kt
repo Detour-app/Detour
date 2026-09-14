@@ -124,8 +124,7 @@ class CircleNotifyService : Service() {
          * `MainActivity` re-runs this the moment the probe lands.
          */
         private fun pushCovers(context: Context): Boolean =
-            Push.available(context) &&
-                RoutingServer.knownServerFeatures()?.contains(ServerFeature.PUSH_ANDROID) == true
+            Push.available(context) && RoutingServer.hasFeature(ServerFeature.PUSH_ANDROID)
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
