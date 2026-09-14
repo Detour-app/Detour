@@ -561,7 +561,12 @@ object RoutingServer {
         // a value that was acceptable when declined and is unchanged now still
         // matches.
         if (normalised == previous.declined) return previous
-        return previous.copy(pending = normalised)
+        // A genuinely new value to ask about. `declined` is dropped rather than
+        // carried — it named a different, now-superseded announcement, and
+        // keeping it around answers no future comparison (the next declined
+        // value, if any, overwrites it when the rider actually says no to
+        // *this* one).
+        return AnnouncedServiceState(discovered = previous.discovered, pending = normalised)
     }
 
     private fun readAnnouncedServiceState(keys: AnnouncedServiceKeys): AnnouncedServiceState =

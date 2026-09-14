@@ -76,11 +76,14 @@ class ServerResolutionTest {
         // A rider pointing at their own server should route through the
         // GraphHopper it announces, not this build's baked-in one — the same
         // reasoning [aDiscoveredIssuerBeatsTheBakedDefault] applies to the realm.
+        // No custom server at all here — unlike the issuer, [routingBase] falls
+        // back to [ServerConfig.url] before the baked default, so a config that
+        // set `url` would mask the discovered value behind that fallback rather
+        // than testing the slot this covers.
         BuildDefaults.configure(routingUrl = "https://baked-route.example")
-        val c = ServerConfig(url = "https://all.example", enabled = true)
         assertEquals(
             "https://discovered-route.example",
-            RoutingServer.routingBase(c, discoveredRouting = "https://discovered-route.example"),
+            RoutingServer.routingBase(null, discoveredRouting = "https://discovered-route.example"),
         )
     }
 
@@ -96,11 +99,25 @@ class ServerResolutionTest {
 
     @Test
     fun aDiscoveredGeocoderBaseIsUsedWhenNothingElseIsConfigured() {
+        // Same reasoning as [aDiscoveredRoutingBaseIsUsedWhenNothingElseIsConfigured].
         BuildDefaults.configure(geocoderUrl = "https://baked-search.example")
-        val c = ServerConfig(url = "https://all.example", enabled = true)
         assertEquals(
             "https://discovered-search.example",
-            RoutingServer.geocoderBase(c, discoveredGeocoder = "https://discovered-search.example"),
+            RoutingServer.geocoderBase(null, discoveredGeocoder = "https://discovered-search.example"),
+        )
+    }
+
+    @Test
+    fun aDiscoveredRoutingBaseLosesToTheGeneralAddressWhenOneWasTyped() {
+        // Unlike the issuer, a routing/geocoder discovery sits behind
+        // [ServerConfig.url] too, not only behind the per-service field — a
+        // rider who typed one general address for everything is still
+        // overruling the server on purpose.
+        noBakedDefaults()
+        val c = ServerConfig(url = "https://all.example", enabled = true)
+        assertEquals(
+            "https://all.example",
+            RoutingServer.routingBase(c, discoveredRouting = "https://discovered-route.example"),
         )
     }
 
