@@ -48,7 +48,13 @@ class NodeLocationPass(osmium.SimpleHandler):
     def __init__(self):
         super().__init__()
         self.cameras = {}  # node id -> camera dict
-        self.locations = {}  # node id -> (lat, lon), for every node any relation might need
+        # node id -> Location, for every node any relation might need. A country-scale extract
+        # (Belgium alone: ~19M nodes) OOMs a plain Python dict of (lat, lon) tuples — each entry
+        # costs several times a raw float pair once CPython's per-object overhead is counted.
+        # osmium's own sparse_mmap_array index stores the same data compactly off-heap, which is
+        # what NodeLocationsForWays is built on; used directly here since ways aren't consumed
+        # by this pass, only plain node lookups by id are.
+        self.locations = osmium.index.create_map("sparse_mmap_array")
 
     def node(self, n):
         if n.tags.get("highway") == "speed_camera":
@@ -61,10 +67,10 @@ class NodeLocationPass(osmium.SimpleHandler):
                 "roadRef": None,
             }
         # Locations are needed for *any* node a relation might reference as a device/from/to
-        # member or a way endpoint; recording all of them is simpler and cheap (a pbf's node
-        # count fits comfortably in memory at Western-Europe scale) than pre-scanning relations
-        # to know which ids matter before this pass has read them.
-        self.locations[n.id] = (n.location.lat, n.location.lon)
+        # member or a way endpoint; recording all of them is simpler and cheap (in exchange for
+        # off-heap storage — see the field comment above) than pre-scanning relations to know
+        # which ids matter before this pass has read them.
+        self.locations.set(n.id, osmium.osm.Location(n.location.lon, n.location.lat))
 
 
 class RelationPass(osmium.SimpleHandler):
@@ -77,11 +83,15 @@ class RelationPass(osmium.SimpleHandler):
     def _member_points(self, relation, role=None):
         pts = []
         for m in relation.members:
-            if m.type != "n" or m.ref not in self.locations:
+            if m.type != "n":
                 continue
             if role is not None and m.role != role:
                 continue
-            pts.append(self.locations[m.ref])
+            try:
+                loc = self.locations.get(m.ref)
+            except KeyError:
+                continue
+            pts.append((loc.lat, loc.lon))
         return pts
 
     def relation(self, r):
@@ -147,7 +157,12 @@ class RelationPass(osmium.SimpleHandler):
 
 def import_region(pbf_path, region):
     node_pass = NodeLocationPass()
-    node_pass.apply_file(pbf_path, locations=True)
+    # No `locations=True`: that flag has pyosmium build its own internal node-location cache
+    # for consumers like NodeLocationsForWays, which nothing here uses — every node already
+    # carries its own location inline (only ways/relations need external lookup), and this
+    # handler indexes locations itself into `self.locations`. Passing it anyway would build
+    # the same data twice — real memory on a country-scale extract, not just wasted cycles.
+    node_pass.apply_file(pbf_path)
 
     rel_pass = RelationPass(node_pass.locations, node_pass.cameras)
     rel_pass.apply_file(pbf_path)
