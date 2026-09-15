@@ -83,6 +83,17 @@ public class CamerasTests(PostgresFixture postgres) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Get_with_a_bbox_spanning_the_whole_globe_returns_400()
+    {
+        // The span guard (#303 review finding 9): an unauthenticated, only lightly rate-limited
+        // caller must not be able to force the whole table to materialize and serialize.
+        var response = await _factory.CreateClient()
+            .GetAsync("/api/cameras?minLat=-90&minLon=-180&maxLat=90&maxLon=180");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Get_excludes_a_camera_outside_the_query_box()
     {
         // Far from the query box below — a different city entirely — so this proves exclusion
