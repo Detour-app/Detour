@@ -30,6 +30,7 @@ Usage: python3 lufop_import.py <country.osm> --region <name> --out <out.json>
 """
 import argparse, json, re, datetime, sys
 import xml.etree.ElementTree as ET
+from collections import Counter
 
 GPX_NS = "{http://www.topografix.com/GPX/1/1}"
 
@@ -37,7 +38,7 @@ GPX_NS = "{http://www.topografix.com/GPX/1/1}"
 # "Radar Fixe FR Passage Niveau" doesn't fall through to being parsed as a speed.
 NAME_PATTERNS = [
     (re.compile(r"^Radar Feu Rouge \w+$"), "RedLight", False),
-    (re.compile(r"^Radar Chantier \w+\s*$"), "MobileHotspot", False),
+    (re.compile(r"^Radar Chantier \w+$"), "MobileHotspot", False),
     (re.compile(r"^Radar Fixe \w+ Passage Niveau$"), "FixedSpeed", False),
     (re.compile(r"^Radar Fixe \w+ Covoiturage$"), "FixedSpeed", False),
     (re.compile(r"^Radar Poid lourd \w+$"), "FixedSpeed", False),
@@ -63,7 +64,7 @@ def import_country(gpx_path, region):
     tree = ET.parse(gpx_path)
     root = tree.getroot()
     cameras = []
-    unrecognised = set()
+    unrecognised = Counter()
 
     for wpt in root.iter(f"{GPX_NS}wpt"):
         name_el = wpt.find(f"{GPX_NS}name")
@@ -71,12 +72,18 @@ def import_country(gpx_path, region):
         classified = classify(name)
         if classified is None:
             if name and name != "Base Radars" and not SKIP_PATTERN.match(name):
-                unrecognised.add(name)
+                unrecognised[name] += 1
             continue
         kind, max_speed = classified
         lat = float(wpt.get("lat"))
         lon = float(wpt.get("lon"))
         cameras.append({
+            # ponytail: sourceId is derived from rounded coordinates, not a stable id (LUFOP's
+            # GPX export has no id field of its own). Stable under re-running this importer on
+            # the same file, but NOT stable across LUFOP data revisions that nudge a camera's
+            # coordinate past the 6th decimal -- that produces a second Sources entry rather
+            # than refreshing the existing one. A real fix needs LUFOP to publish a stable
+            # per-camera id, which it currently doesn't.
             "sourceId": f"{lat:.6f}_{lon:.6f}",
             "lat": lat,
             "lon": lon,
@@ -89,7 +96,7 @@ def import_country(gpx_path, region):
     if unrecognised:
         print(f"warning: {len(unrecognised)} unrecognised waypoint name(s), skipped:", file=sys.stderr)
         for n in sorted(unrecognised):
-            print(f"  {n!r}", file=sys.stderr)
+            print(f"  {n!r} ({unrecognised[n]} waypoint(s))", file=sys.stderr)
 
     return {
         "source": "lufop",
@@ -128,10 +135,10 @@ def _demo():
   <wpt lat="49.3" lon="6.4"><name>Radar Troncon Fin LU</name></wpt>
   <wpt lat="49.4" lon="6.5"><name>Something Unexpected</name></wpt>
 </gpx>'''
-    with tempfile.NamedTemporaryFile(suffix=".osm", mode="w", delete=False) as f:
+    with tempfile.NamedTemporaryFile(suffix=".osm", mode="w") as f:
         f.write(fixture)
-        path = f.name
-    result = import_country(path, region="demo")
+        f.flush()
+        result = import_country(f.name, region="demo")
     assert len(result["cameras"]) == 4, f"expected 4 real cameras, got {len(result['cameras'])}"
     kinds = {c["kind"] for c in result["cameras"]}
     assert kinds == {"RedLight", "FixedSpeed", "MobileHotspot"}, f"unexpected kinds: {kinds}"
