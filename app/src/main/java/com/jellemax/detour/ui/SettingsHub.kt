@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Brightness6
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.DirectionsCar
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Navigation
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.SystemUpdate
@@ -229,6 +230,17 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
                 }
             }
         }
+        SectionLabel("ABOUT")
+        ListCard {
+            HubRow(
+                icon = Icons.Outlined.Info,
+                title = spokeTitle(Destination.SettingsLicences),
+                subtitle = "Open-data attribution for cameras, roads and the basemap",
+                onClick = { onOpenSpoke(Destination.SettingsLicences) },
+                paintCard = false,
+            )
+        }
+
         Text(
             "Detour ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
             style = MaterialTheme.typography.bodySmall,

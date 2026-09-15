@@ -146,4 +146,11 @@ sealed interface Destination : NavKey {
 
     @Serializable
     data object SettingsObd2 : SettingsSpoke
+
+    /** Attribution for every open dataset the app ships with — OpenStreetMap,
+     *  lufop.net, and whatever else the camera dataset (#303) adds — required by
+     *  ODbL's share-alike/attribution terms and not covered by MapLibre's own
+     *  basemap attribution button (#371). */
+    @Serializable
+    data object SettingsLicences : SettingsSpoke
 }
