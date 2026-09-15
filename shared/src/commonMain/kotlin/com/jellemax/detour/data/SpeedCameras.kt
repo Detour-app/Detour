@@ -119,14 +119,20 @@ object SpeedCameras {
             // the fallback chain entirely.
             null
         }
-        if (fromBackend != null) {
+        // An empty answer reads the same as a miss here: the deployed self-host can have data for
+        // only part of the world (Luxembourg-only today), and a 200 with an empty `cameras` array
+        // is exactly what every rider outside that coverage gets. Caching that emptiness for
+        // TTL_MS would wipe every marker they already have and keep them wiped for a day, so it
+        // must fall through to the disk cache/Overpass the same as a failed fetch — and must never
+        // itself get written to disk, where it could stomp a previously-cached non-empty tile.
+        if (fromBackend != null && isUsable(fromBackend)) {
             SpeedCameraStore.save(center, radiusMeters, fromBackend)
             return fromBackend
         }
-        // Backend announced but unreachable this time: the disk cache survives the outage per
-        // issue #303; only once that's also empty does this fall back to Overpass, so a rider on a
-        // self-host with a blipped camera-data endpoint still sees yesterday's markers instead of
-        // suddenly reverting to the public API for one request.
+        // Backend announced but unreachable (or answered empty) this time: the disk cache survives
+        // the outage per issue #303; only once that's also empty does this fall back to Overpass,
+        // so a rider on a self-host with a blipped or not-yet-covering camera-data endpoint still
+        // sees yesterday's markers instead of suddenly reverting to the public API for one request.
         return SpeedCameraStore.load(center, radiusMeters) ?: nearViaOverpass(center, radiusMeters)
     }
 
@@ -180,6 +186,14 @@ object SpeedCameras {
         }
         return Result(cameras, sections)
     }
+
+    /**
+     * Whether [result] is worth caching or returning as final, rather than a miss [near] should
+     * fall through past — see its own doc for why an empty backend answer must not be treated as
+     * "this region genuinely has no cameras". Split out the same way [parseCamerasResponse] is so
+     * it can be tested without a live backend.
+     */
+    internal fun isUsable(result: Result): Boolean = result.cameras.isNotEmpty() || result.sections.isNotEmpty()
 
     /**
      * Null on network error; an empty [Result] means the area really has

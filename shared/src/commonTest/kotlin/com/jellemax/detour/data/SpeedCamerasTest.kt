@@ -2,6 +2,8 @@ package com.jellemax.detour.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /**
  * [SpeedCameras.withRedLightKind] - folding `traffic_signals` enforcement
@@ -186,5 +188,41 @@ class SpeedCamerasTest {
         val result = SpeedCameras.parseCamerasResponse(body)
         assertEquals(0, result.cameras.size)
         assertEquals(0, result.sections.size)
+    }
+
+    // --- isUsable (near()'s empty-answer-is-a-miss guard) ----------------------
+    //
+    // `near` itself needs a live backend and can't be exercised here (same reason as
+    // `nearViaBackend`), but the decision it makes off a fetched Result is this pure
+    // function - split out the same way parseCamerasResponse is, for the same reason.
+
+    /** A 200 with an empty `cameras` array - the deployed self-host outside its covered
+     *  region, per issue #303 - must not be treated as "this area really has no cameras":
+     *  `near` has to fall through to the disk cache/Overpass instead of caching it. */
+    @Test
+    fun anEmptyBackendResultIsNotUsable() {
+        val result = SpeedCameras.parseCamerasResponse(jsonObjectOf("""{"cameras":[]}"""))
+        assertFalse(SpeedCameras.isUsable(result))
+    }
+
+    @Test
+    fun aBackendResultWithACameraIsUsable() {
+        val body = jsonObjectOf(
+            """{"cameras":[{"id":"7","kind":"RedLight","lat":50.85,"lon":4.35,
+                "polyline":null,"maxSpeedKmh":null,"roadRef":null}]}""",
+        )
+        assertTrue(SpeedCameras.isUsable(SpeedCameras.parseCamerasResponse(body)))
+    }
+
+    /** A response with only a Section/AverageSpeedZone entry (no point cameras at all) is
+     *  still usable - the guard must not key on `cameras` alone once the two are folded
+     *  apart into [SpeedCameras.Result.cameras]/[SpeedCameras.Result.sections]. */
+    @Test
+    fun aBackendResultWithOnlyASectionIsUsable() {
+        val body = jsonObjectOf(
+            """{"cameras":[{"id":"8","kind":"Section","lat":null,"lon":null,
+                "polyline":[[50.85,4.35],[50.86,4.35]],"maxSpeedKmh":120,"roadRef":null}]}""",
+        )
+        assertTrue(SpeedCameras.isUsable(SpeedCameras.parseCamerasResponse(body)))
     }
 }
