@@ -45,7 +45,7 @@ public class CamerasController(ICameraRepository repository) : ControllerBase
             return BadRequest();
 
         var cameras = await repository.BboxAsync(minLat, minLon, maxLat, maxLon, cancellationToken);
-        return Ok(new CamerasBboxResponse(cameras.Select(ToDto).ToList()));
+        return Ok(new CamerasBboxResponse([.. cameras.Select(ToDto)]));
     }
 
     private static CameraDto ToDto(Camera c) => new(
