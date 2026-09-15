@@ -93,4 +93,98 @@ class SpeedCamerasTest {
         val result = SpeedCameras.withRedLightKind(cameras = listOf(speedCam), redLightRelations = emptyList())
         assertEquals(listOf(speedCam), result)
     }
+
+    // --- parseCamerasResponse (issue #303 backend bbox response) --------------
+    //
+    // The wire shape is Task 3's CamerasBboxResponse/CameraDto
+    // (backend/Detour/Detour.Api/Contracts/CameraContracts.cs): camelCase JSON,
+    // `kind` one of the backend's CameraKind enum names. `near`/`nearViaBackend`
+    // cannot be exercised here (need a live backend, same reason `near` via
+    // Overpass can't be either) - this is the pure half that can.
+
+    @Test
+    fun aSectionKindWithARealPolylineBecomesASectionSpanningItsLength() {
+        val body = jsonObjectOf(
+            """{"cameras":[{"id":"1","kind":"Section","lat":null,"lon":null,
+                "polyline":[[50.85,4.35],[50.86,4.35],[50.87,4.35]],
+                "maxSpeedKmh":120,"roadRef":"E40"}]}""",
+        )
+        val result = SpeedCameras.parseCamerasResponse(body)
+        assertEquals(0, result.cameras.size)
+        assertEquals(1, result.sections.size)
+        val section = result.sections[0]
+        assertEquals(listOf(LatLon(50.85, 4.35)), section.endA)
+        assertEquals(listOf(LatLon(50.87, 4.35)), section.endB)
+        assertEquals(120.0, section.maxspeedKmh)
+        // Summed along both legs of the polyline, not the straight-line
+        // endpoint distance - a real road curves between the two ends.
+        val leg1 = RoadRoulette.distanceMeters(LatLon(50.85, 4.35), LatLon(50.86, 4.35))
+        val leg2 = RoadRoulette.distanceMeters(LatLon(50.86, 4.35), LatLon(50.87, 4.35))
+        assertEquals(leg1 + leg2, section.spanMeters, 0.001)
+    }
+
+    @Test
+    fun aRedLightKindBecomesARedLightCamera() {
+        val body = jsonObjectOf(
+            """{"cameras":[{"id":"2","kind":"RedLight","lat":50.85,"lon":4.35,
+                "polyline":null,"maxSpeedKmh":null,"roadRef":null}]}""",
+        )
+        val result = SpeedCameras.parseCamerasResponse(body)
+        assertEquals(1, result.cameras.size)
+        assertEquals(0, result.sections.size)
+        assertEquals(SpeedCameras.CameraKind.RED_LIGHT, result.cameras[0].kind)
+        assertEquals(LatLon(50.85, 4.35), result.cameras[0].at)
+        assertEquals(null, result.cameras[0].maxspeedKmh)
+    }
+
+    @Test
+    fun aSpeedAndRedLightKindBecomesACombinedCamera() {
+        val body = jsonObjectOf(
+            """{"cameras":[{"id":"3","kind":"SpeedAndRedLight","lat":50.9,"lon":4.4,
+                "polyline":null,"maxSpeedKmh":50,"roadRef":null}]}""",
+        )
+        val result = SpeedCameras.parseCamerasResponse(body)
+        assertEquals(1, result.cameras.size)
+        assertEquals(SpeedCameras.CameraKind.COMBINED, result.cameras[0].kind)
+        assertEquals(50.0, result.cameras[0].maxspeedKmh)
+    }
+
+    /** `FixedSpeed`/`MobileHotspot`, and anything this client doesn't yet
+     *  recognise, all fall through to [SpeedCameras.CameraKind.SPEED] - the
+     *  "unknown reads as the safe default" rule `docs/BACKEND_SPEC.md` §15.5
+     *  states for the rest of this wire. */
+    @Test
+    fun anUnrecognisedKindFallsThroughToPlainSpeed() {
+        val body = jsonObjectOf(
+            """{"cameras":[{"id":"4","kind":"FixedSpeed","lat":50.8,"lon":4.3,
+                "polyline":null,"maxSpeedKmh":90,"roadRef":null},
+                {"id":"5","kind":"SomeFutureKindThisClientDoesNotKnowYet","lat":50.81,"lon":4.31,
+                "polyline":null,"maxSpeedKmh":null,"roadRef":null}]}""",
+        )
+        val result = SpeedCameras.parseCamerasResponse(body)
+        assertEquals(2, result.cameras.size)
+        assertEquals(SpeedCameras.CameraKind.SPEED, result.cameras[0].kind)
+        assertEquals(SpeedCameras.CameraKind.SPEED, result.cameras[1].kind)
+    }
+
+    @Test
+    fun anEmptyCamerasArrayProducesAnEmptyResult() {
+        val body = jsonObjectOf("""{"cameras":[]}""")
+        val result = SpeedCameras.parseCamerasResponse(body)
+        assertEquals(0, result.cameras.size)
+        assertEquals(0, result.sections.size)
+    }
+
+    /** A `Section`/`AverageSpeedZone` with fewer than two polyline points is
+     *  dropped rather than producing a zero-length section. */
+    @Test
+    fun aSectionWithTooShortAPolylineIsDropped() {
+        val body = jsonObjectOf(
+            """{"cameras":[{"id":"6","kind":"AverageSpeedZone","lat":null,"lon":null,
+                "polyline":[[50.85,4.35]],"maxSpeedKmh":100,"roadRef":null}]}""",
+        )
+        val result = SpeedCameras.parseCamerasResponse(body)
+        assertEquals(0, result.cameras.size)
+        assertEquals(0, result.sections.size)
+    }
 }

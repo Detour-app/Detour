@@ -134,13 +134,33 @@ object SpeedCameras {
      *  wire shape is [Task 3's `CamerasBboxResponse`/`CameraDto`]
      *  (`backend/Detour/Detour.Api/Contracts/CameraContracts.cs`). Null on a malformed-but-parsed
      *  body with no usable `elements` is not a case here — an empty `cameras` array simply
-     *  produces an empty [Result], same as Overpass. */
-    private suspend fun nearViaBackend(base: String, center: LatLon, radiusMeters: Double): Result? {
+     *  produces an empty [Result], same as Overpass. The parse itself is [parseCamerasResponse],
+     *  split out so it is unit-testable without a MockEngine — same reason [Capabilities.parse]
+     *  is split from [Capabilities.fetch]. */
+    private suspend fun nearViaBackend(base: String, center: LatLon, radiusMeters: Double): Result {
         val degLat = radiusMeters / 111_320.0
         val degLon = radiusMeters / (111_320.0 * kotlin.math.cos(center.lat * kotlin.math.PI / 180))
         val url = "$base/api/cameras?minLat=${center.lat - degLat}&minLon=${center.lon - degLon}" +
             "&maxLat=${center.lat + degLat}&maxLon=${center.lon + degLon}"
         val body = jsonObjectOf(RoadRoulette.rawGet(url, headers = RoutingServer.userAgentHeaders()))
+        return parseCamerasResponse(body)
+    }
+
+    /**
+     * The pure half of [nearViaBackend]: turns one `/api/cameras` response body into a [Result].
+     *
+     * `Section`/`AverageSpeedZone` kinds carry a `polyline` — folded down to the two endpoints
+     * [Section] actually needs, with [Section.spanMeters] summed along every leg of the polyline
+     * rather than the straight-line endpoint distance, since a real road curves. A polyline with
+     * fewer than two points is dropped rather than producing a zero-length section. `RedLight` and
+     * `SpeedAndRedLight` map to the matching [CameraKind]; every other kind string (`FixedSpeed`,
+     * `MobileHotspot`, and anything this client doesn't yet recognise) falls through to
+     * [CameraKind.SPEED] — the same "unknown reads as the safe default" rule
+     * `docs/BACKEND_SPEC.md` §15.5 states for the rest of this wire.
+     */
+    // internal, not private, so commonTest can feed it canned response bodies: nearViaBackend
+    // itself needs a live backend, the same reason near()'s other helpers cannot be tested.
+    internal fun parseCamerasResponse(body: JsonObject): Result {
         val cameras = ArrayList<Camera>()
         val sections = ArrayList<Section>()
         for (el in (body.optArray("cameras") ?: JsonArrayEmpty).objects()) {
