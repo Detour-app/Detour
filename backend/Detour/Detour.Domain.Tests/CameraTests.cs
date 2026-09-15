@@ -126,6 +126,20 @@ public class CameraTests
     }
 
     [Fact]
+    public void MergeSource_does_not_let_a_null_incoming_attribute_clear_an_existing_value()
+    {
+        var lufopSource = new CameraSource("lufop", "l1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 90, null, lufopSource).Value;
+
+        var osmSource = new CameraSource("osm", "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var incoming = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, null, null, osmSource).Value;
+
+        cam.MergeSource(incoming);
+
+        Assert.Equal(90, cam.MaxSpeedKmh);
+    }
+
+    [Fact]
     public void Cluster_matches_same_kind_within_40_metres()
     {
         var existing = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85000, 4.36000, 50, "N9", OsmSource).Value;
