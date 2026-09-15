@@ -18,6 +18,7 @@ public class CameraConfiguration : IEntityTypeConfiguration<Camera>
         builder.Property(c => c.RoadRef).HasMaxLength(64);
         builder.Property(c => c.PolylineJson).HasColumnType("jsonb");
         builder.Property(c => c.SourcesJson).HasColumnName("sources_json").HasColumnType("jsonb");
+        builder.Property(c => c.AttributionJson).HasColumnName("attribution_json").HasColumnType("jsonb");
 
         // Sources is a lazily-parsed view over SourcesJson (see Camera.cs), not an independent
         // property — without this, EF's convention discovery still tries to map CameraSource as
