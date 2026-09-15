@@ -126,15 +126,19 @@ public sealed class Camera : Entity
     private static int RankOf(string source) => SourceRank.GetValueOrDefault(source, 0);
 
     /// <summary>Refreshes this source's own entry (matched on <see cref="CameraSource.Source"/> +
-    /// <see cref="CameraSource.SourceId"/>) rather than appending a duplicate, advances
+    /// <see cref="CameraSource.SourceId"/>) rather than appending a duplicate, and advances
     /// <see cref="LastSeen"/> — the max over every source, so one still-reporting source keeps
-    /// the camera <see cref="CameraStatus.Active"/> even while another has stopped reporting —
-    /// and, per issue #303's cross-source precedence rule, adopts <paramref name="incoming"/>'s
-    /// attribute values only when its source's <see cref="RankOf"/> is at least as high as every
-    /// *other* source already on this camera. A lower-ranked source (LUFOP arriving after OSM
-    /// already set an attribute) still contributes to <see cref="Sources"/> — it just cannot
-    /// downgrade an attribute a higher-ranked source already set. A source refreshing its own
-    /// previously-seen entry is not a cross-source overwrite and always applies.</summary>
+    /// the camera <see cref="CameraStatus.Active"/> even while another has stopped reporting.
+    /// This <see cref="Sources"/>-list bookkeeping (and <see cref="FirstSeen"/>/<see cref="Status"/>)
+    /// always happens for the incoming source, regardless of rank.
+    /// <para>Attribute values (<see cref="MaxSpeedKmh"/>, <see cref="RoadRef"/>, position),
+    /// however, adopt <paramref name="incoming"/>'s values only when its source's <see cref="RankOf"/>
+    /// is at least as high as every *other* source already on this camera — per issue #303's
+    /// cross-source precedence rule. This rank gate applies even when <paramref name="incoming"/>
+    /// is refreshing its own previously-seen entry: a lower-ranked source cannot use a
+    /// self-refresh to bypass a higher-ranked source's already-set attribute. A lower-ranked
+    /// source still always contributes its row to <see cref="Sources"/> — it just never gets to
+    /// downgrade an attribute a higher-ranked source already set.</para></summary>
     public void MergeSource(Camera incoming)
     {
         var incomingSource = incoming.Sources[0];
