@@ -7,8 +7,9 @@
 #   docker compose -f docker-compose.yml -f docker-compose.routing.yml up -d
 #
 # First boot downloads the OSM extract for OSM_REGION and then builds the routing
-# graph and the contraction hierarchies for both profiles — 25 min (benelux) to
-# 65 min (germany), and GRAPHHOPPER_HEAP of RAM on the machine doing it.
+# graph and the contraction hierarchies for both profiles — a few minutes
+# (belgium/netherlands/luxembourg) to 65 min (germany), and GRAPHHOPPER_HEAP of RAM
+# on the machine doing it.
 # `docker compose logs -f graphhopper` shows progress. /health is down for the
 # whole build, which is why start_period is so long; that is expected, not a
 # failure. The result lands in the graphhopper-data volume, so later starts are
