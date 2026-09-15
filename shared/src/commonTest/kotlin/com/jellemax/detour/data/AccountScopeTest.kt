@@ -292,6 +292,16 @@ class SessionSwitchTest {
             topSpeedMps = 48.2,
             tripCount = 37,
         )
+        SpeedCameraStore.cache = listOf(
+            CachedTile(
+                key = "505:435:4000",
+                fetchedAtMs = 1L,
+                result = SpeedCameras.Result(
+                    cameras = listOf(SpeedCameras.Camera(LatLon(50.85, 4.35))),
+                    sections = emptyList(),
+                ),
+            ),
+        )
         val traceVersionBefore = TraceStore.version.value
 
         Auth.resetAccountScopedStores()
@@ -310,6 +320,7 @@ class SessionSwitchTest {
         )
         assertNull(MunicipalityStore.cache, "MunicipalityStore kept the previous rider's learned boundaries")
         assertEquals(emptySet(), MunicipalityStore.misses, "MunicipalityStore kept the previous rider's misses")
+        assertNull(SpeedCameraStore.cache, "SpeedCameraStore kept the previous rider's cached camera tiles")
         // The record is per-account on disk (accountFile), so only the in-memory
         // copy can outlive a session change — and it is the one Hub and Badges
         // read, so keeping it shows the new rider the previous rider's lifetime
