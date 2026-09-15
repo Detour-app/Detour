@@ -14,10 +14,10 @@ import kotlin.concurrent.Volatile
 /** One cached bbox fetch: the box itself (rounded so nearby prefetches share a cache entry),
  *  when it was fetched, and the result.
  *
- *  internal, not private, so commonTest can feed/inspect it directly — see [parseSection]'s
- *  comment for why: [SpeedCameraStore.load]/[SpeedCameraStore.save] need a real account
- *  directory and cannot be exercised here, so the pure functions around this type are what
- *  the disk-cache tests actually drive. */
+ *  internal, not private, so commonTest can feed/inspect it directly — see
+ *  [SpeedCameras.parseCamerasResponse]'s comment for why: [SpeedCameraStore.load]/
+ *  [SpeedCameraStore.save] need a real account directory and cannot be exercised here, so the
+ *  pure functions around this type are what the disk-cache tests actually drive. */
 internal data class CachedTile(val key: String, val fetchedAtMs: Long, val result: SpeedCameras.Result)
 
 /**
@@ -76,8 +76,13 @@ object SpeedCameraStore {
     fun load(center: LatLon, radiusMeters: Double): SpeedCameras.Result? {
         val k = key(center, radiusMeters)
         val tile = loadAll().firstOrNull { it.key == k } ?: return null
-        return tile.result.takeIf { nowMs() - tile.fetchedAtMs <= TTL_MS }
+        return tile.result.takeIf { fresh(tile, nowMs()) }
     }
+
+    /** Whether [tile] is still within [TTL_MS] of [nowMs] — the exact check [load] applies to a
+     *  disk hit. internal, not private, so the TTL tests call this predicate rather than
+     *  re-deriving it inline, which wouldn't catch a broken check here (#367). */
+    internal fun fresh(tile: CachedTile, nowMs: Long): Boolean = nowMs - tile.fetchedAtMs <= TTL_MS
 
     /** `suspend`, taking [writeLock], because [save] is only ever called from [SpeedCameras.near]
      *  — already `suspend` — and two concurrent prefetches (see [writeLock]'s doc) must not
