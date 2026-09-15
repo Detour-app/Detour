@@ -49,10 +49,10 @@ object SpeedCameraStore {
     @Volatile internal var cache: List<CachedTile>? = null
 
     /** Serialises [save]'s read-modify-write, the same reason and shape as
-     *  [MunicipalityStore.writeLock]: [near] can be driven concurrently by
-     *  [com.jellemax.detour.data.MapHazardPrefetch] (screen on) and the car surface's NavScreen
-     *  (Android Auto connected) at once, and an interleaved read-modify-write there would drop
-     *  whichever tile lost the race rather than keeping both. */
+     *  [MunicipalityStore.writeLock]: [SpeedCameras.near] can be driven concurrently by
+     *  `com.jellemax.detour.ui.MapHazardPrefetch` (phone screen on) and the car surface's
+     *  `NavScreen` (Android Auto connected) at once, and an interleaved read-modify-write there
+     *  would drop whichever tile lost the race rather than keeping both. */
     private val writeLock = Mutex()
 
     private fun loadAll(): List<CachedTile> {
@@ -91,9 +91,9 @@ object SpeedCameraStore {
 
     /** [save]'s pure half: the tile list once [tile] lands — any existing tile at the same key
      *  replaced rather than duplicated, and every tile older than [TTL_MS] pruned so a long
-     *  drive's repeated refetches (roughly every 3 km, per [com.jellemax.detour.data.CameraPrefetch]'s
-     *  edge-of-area logic) don't grow this file forever. Split out for the same reason
-     *  [parseAll] is. */
+     *  drive's repeated refetches (roughly every 3 km, per `CameraPrefetch`'s edge-of-area
+     *  margin, in `com.jellemax.detour.drive`) don't grow this file forever. Split out for the
+     *  same reason [parseAll] is. */
     internal fun withTile(existing: List<CachedTile>, tile: CachedTile, nowMs: Long): List<CachedTile> =
         existing.filterNot { it.key == tile.key || nowMs - it.fetchedAtMs > TTL_MS } + tile
 
