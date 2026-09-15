@@ -35,7 +35,7 @@ public class CameraRepository(ICustomDbContextFactory<DetourDbContext> factory)
             return incoming;
         }
 
-        match.MergeSource(incoming.Sources[0]);
+        match.MergeSource(incoming);
         return match;
     }
 }

@@ -111,20 +111,71 @@ public sealed class Camera : Entity
         return new Camera(kind, null, null, json, minLat, maxLat, minLon, maxLon, maxSpeedKmh, roadRef, source);
     }
 
-    /// <summary>Refreshes this source's own entry (matched on <see cref="CameraSource.Source"/> +
-    /// <see cref="CameraSource.SourceId"/>) rather than appending a duplicate, and advances
-    /// <see cref="LastSeen"/> — the max over every source, so one still-reporting source keeps
-    /// the camera <see cref="CameraStatus.Active"/> even while another has stopped seeing it.</summary>
-    public void MergeSource(CameraSource incoming)
+    /// <summary>Ranks a source's claim over another's for attribute precedence — higher
+    /// wins. Not present means rank 0, the lowest: an unrecognised source can still
+    /// contribute a new camera or provenance, it just never overwrites anyone else's
+    /// attributes. `lufop` sits below `osm` per issue #303's stated precedence
+    /// ("official portal > OSM > LUFOP"); a future official-portal source goes above
+    /// both, here.</summary>
+    private static readonly IReadOnlyDictionary<string, int> SourceRank = new Dictionary<string, int>
     {
+        ["lufop"] = 1,
+        ["osm"] = 2,
+    };
+
+    private static int RankOf(string source) => SourceRank.GetValueOrDefault(source, 0);
+
+    /// <summary>Refreshes this source's own entry (matched on <see cref="CameraSource.Source"/> +
+    /// <see cref="CameraSource.SourceId"/>) rather than appending a duplicate, advances
+    /// <see cref="LastSeen"/> — the max over every source, so one still-reporting source keeps
+    /// the camera <see cref="CameraStatus.Active"/> even while another has stopped reporting —
+    /// and, per issue #303's cross-source precedence rule, adopts <paramref name="incoming"/>'s
+    /// attribute values only when its source's <see cref="RankOf"/> is at least as high as every
+    /// *other* source already on this camera. A lower-ranked source (LUFOP arriving after OSM
+    /// already set an attribute) still contributes to <see cref="Sources"/> — it just cannot
+    /// downgrade an attribute a higher-ranked source already set. A source refreshing its own
+    /// previously-seen entry is not a cross-source overwrite and always applies.</summary>
+    public void MergeSource(Camera incoming)
+    {
+        var incomingSource = incoming.Sources[0];
         var sources = Sources.ToList();
-        var i = sources.FindIndex(s => s.Source == incoming.Source && s.SourceId == incoming.SourceId);
-        if (i >= 0) sources[i] = incoming; else sources.Add(incoming);
+        var otherSources = sources
+            .Where(s => !(s.Source == incomingSource.Source && s.SourceId == incomingSource.SourceId))
+            .ToList();
+
+        var i = sources.FindIndex(s => s.Source == incomingSource.Source && s.SourceId == incomingSource.SourceId);
+        if (i >= 0) sources[i] = incomingSource; else sources.Add(incomingSource);
         SourcesJson = System.Text.Json.JsonSerializer.Serialize(sources);
 
-        if (incoming.LastSeen > LastSeen) LastSeen = incoming.LastSeen;
-        if (incoming.FirstSeen < FirstSeen) FirstSeen = incoming.FirstSeen;
+        if (incomingSource.LastSeen > LastSeen) LastSeen = incomingSource.LastSeen;
+        if (incomingSource.FirstSeen < FirstSeen) FirstSeen = incomingSource.FirstSeen;
         Status = CameraStatus.Active;
+
+        var incomingRank = RankOf(incomingSource.Source);
+        var blockingRank = otherSources.Select(s => RankOf(s.Source)).DefaultIfEmpty(0).Max();
+        if (incomingRank >= blockingRank)
+        {
+            if (incoming.MaxSpeedKmh is not null) MaxSpeedKmh = incoming.MaxSpeedKmh;
+            if (incoming.RoadRef is not null) RoadRef = incoming.RoadRef;
+            if (incoming.Lat is not null && incoming.Lon is not null)
+            {
+                Lat = incoming.Lat;
+                Lon = incoming.Lon;
+                BboxMinLat = incoming.BboxMinLat;
+                BboxMaxLat = incoming.BboxMaxLat;
+                BboxMinLon = incoming.BboxMinLon;
+                BboxMaxLon = incoming.BboxMaxLon;
+            }
+            else if (incoming.PolylineJson is not null)
+            {
+                PolylineJson = incoming.PolylineJson;
+                BboxMinLat = incoming.BboxMinLat;
+                BboxMaxLat = incoming.BboxMaxLat;
+                BboxMinLon = incoming.BboxMinLon;
+                BboxMaxLon = incoming.BboxMaxLon;
+            }
+        }
+
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 
