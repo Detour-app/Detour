@@ -18,6 +18,9 @@ internal data class ServerCapabilities(
     val routingBaseUrl: String = "",
     /** Blank when the server does not announce its own Photon instance. */
     val geocoderBaseUrl: String = "",
+    /** Blank when the server does not announce its own camera-data endpoint
+     *  (issue #303). */
+    val camerasBaseUrl: String = "",
 )
 
 /**
@@ -89,6 +92,7 @@ internal object Capabilities {
             // trailing-slash and whitespace before either wins.
             routingBaseUrl = normalisedAddress(o.optObject("routing")?.optString("baseUrl").orEmpty()),
             geocoderBaseUrl = normalisedAddress(o.optObject("geocoder")?.optString("baseUrl").orEmpty()),
+            camerasBaseUrl = normalisedAddress(o.optObject("cameras")?.optString("baseUrl").orEmpty()),
         )
     }
 

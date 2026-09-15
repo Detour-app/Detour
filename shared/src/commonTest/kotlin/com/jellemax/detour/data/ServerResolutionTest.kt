@@ -171,6 +171,31 @@ class ServerResolutionTest {
         )
     }
 
+    /** No baked default exists for the camera-data endpoint (#303): an install
+     *  that has announced nothing resolves to blank rather than to a public
+     *  host, which is what tells [SpeedCameras.near] to fall back to Overpass. */
+    @Test
+    fun camerasBase_prefers_announced_over_general_and_baked() {
+        val custom = ServerConfig(url = "https://general.example", enabled = true)
+        assertEquals(
+            "https://announced.example",
+            RoutingServer.camerasBase(custom, discoveredCameras = "https://announced.example"),
+        )
+    }
+
+    @Test
+    fun camerasBase_falls_back_to_general_when_nothing_announced() {
+        val custom = ServerConfig(url = "https://general.example", enabled = true)
+        assertEquals("https://general.example", RoutingServer.camerasBase(custom, discoveredCameras = ""))
+    }
+
+    @Test
+    fun camerasBase_resolves_to_blank_when_nothing_is_configured() {
+        // Unlike routingBase/geocoderBase, cameras has no BuildDefaults value to
+        // fall back to — there is no public camera-data host.
+        assertEquals("", RoutingServer.camerasBase(null, discoveredCameras = ""))
+    }
+
     @Test
     fun theIssuerNeverFallsBackToTheGeneralServerAddress() {
         // A realm URL is never the API base, so a saved server with no issuer

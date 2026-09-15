@@ -87,6 +87,81 @@ object SpeedCameras {
     const val WARN_METERS = 400.0
 
     /**
+     * Cameras/sections near [center]: the backend's own dataset first (issue
+     * #303), when this deployment has announced a camera-data endpoint on
+     * `/api/capabilities`; a disk cache from an earlier successful fetch when
+     * the backend is reachable-in-principle but this call failed; Overpass
+     * only once both of those come up empty. An install that has announced
+     * nothing at all (the ordinary case today) resolves [RoutingServer.camerasBase]
+     * to blank and goes straight to Overpass, unchanged from before this path
+     * existed.
+     */
+    @Throws(Exception::class)
+    suspend fun near(
+        center: LatLon,
+        radiusMeters: Double = PREFETCH_RADIUS_M,
+    ): Result? {
+        val backendBase = RoutingServer.camerasBase(RoutingServer.loadCustom())
+        if (backendBase.isBlank()) return nearViaOverpass(center, radiusMeters)
+
+        val fromBackend = try {
+            nearViaBackend(backendBase, center, radiusMeters)
+        } catch (e: IOException) {
+            null
+        } catch (e: SerializationException) {
+            null
+        } catch (e: IllegalArgumentException) {
+            // Same reasoning as nearViaOverpass's own catch of this: a
+            // misbehaving reverse proxy in front of a self-host can answer
+            // 200 with an HTML page, which parseToJsonElement rejects before
+            // it is even a JSON value — this must fall through to the disk
+            // cache/Overpass same as any other backend failure, not escape
+            // the fallback chain entirely.
+            null
+        }
+        if (fromBackend != null) {
+            SpeedCameraStore.save(center, radiusMeters, fromBackend)
+            return fromBackend
+        }
+        // Backend announced but unreachable this time: the disk cache survives the outage per
+        // issue #303; only once that's also empty does this fall back to Overpass, so a rider on a
+        // self-host with a blipped camera-data endpoint still sees yesterday's markers instead of
+        // suddenly reverting to the public API for one request.
+        return SpeedCameraStore.load(center, radiusMeters) ?: nearViaOverpass(center, radiusMeters)
+    }
+
+    /** The bbox fetch against this deployment's own camera-data endpoint (issue #303) — the
+     *  wire shape is [Task 3's `CamerasBboxResponse`/`CameraDto`]
+     *  (`backend/Detour/Detour.Api/Contracts/CameraContracts.cs`). Null on a malformed-but-parsed
+     *  body with no usable `elements` is not a case here — an empty `cameras` array simply
+     *  produces an empty [Result], same as Overpass. */
+    private suspend fun nearViaBackend(base: String, center: LatLon, radiusMeters: Double): Result? {
+        val degLat = radiusMeters / 111_320.0
+        val degLon = radiusMeters / (111_320.0 * kotlin.math.cos(center.lat * kotlin.math.PI / 180))
+        val url = "$base/api/cameras?minLat=${center.lat - degLat}&minLon=${center.lon - degLon}" +
+            "&maxLat=${center.lat + degLat}&maxLon=${center.lon + degLon}"
+        val body = jsonObjectOf(RoadRoulette.rawGet(url, headers = RoutingServer.userAgentHeaders()))
+        val cameras = ArrayList<Camera>()
+        val sections = ArrayList<Section>()
+        for (el in (body.optArray("cameras") ?: JsonArrayEmpty).objects()) {
+            val lat = el.optDouble("lat", Double.NaN)
+            val polyline = el.optArray("polyline")
+            val maxspeed = el.optDouble("maxSpeedKmh").takeIf { !it.isNaN() }
+            when (el.optString("kind")) {
+                "Section", "AverageSpeedZone" -> if (polyline != null && polyline.size >= 2) {
+                    val pts = polyline.arrays().map { LatLon(it.optDouble(0), it.optDouble(1)) }
+                    val span = pts.zipWithNext { a, b -> RoadRoulette.distanceMeters(a, b) }.sum()
+                    sections.add(Section(listOf(pts.first()), listOf(pts.last()), span, maxspeed))
+                }
+                "RedLight" -> if (!lat.isNaN()) cameras.add(Camera(LatLon(lat, el.optDouble("lon")), maxspeed, CameraKind.RED_LIGHT))
+                "SpeedAndRedLight" -> if (!lat.isNaN()) cameras.add(Camera(LatLon(lat, el.optDouble("lon")), maxspeed, CameraKind.COMBINED))
+                else -> if (!lat.isNaN()) cameras.add(Camera(LatLon(lat, el.optDouble("lon")), maxspeed, CameraKind.SPEED))
+            }
+        }
+        return Result(cameras, sections)
+    }
+
+    /**
      * Null on network error; an empty [Result] means the area really has
      * none. The Overpass fetch's own network/parse failures are caught
      * below and turned into that null, but this still carries
@@ -94,9 +169,14 @@ object SpeedCameras {
      * the JSON walk after the fetch (parsing elements into cameras and
      * sections) is not inside that same catch and a malformed-but-still-JSON
      * response could throw out of it.
+     *
+     * Overpass-only. [near] is the entry point every caller should use — it
+     * tries the backend's own `/api/cameras` first (when the deployment
+     * announces one, issue #303) and only reaches here once that path, and
+     * the disk cache behind it, both come up empty.
      */
     @Throws(Exception::class)
-    suspend fun near(
+    suspend fun nearViaOverpass(
         center: LatLon,
         radiusMeters: Double = PREFETCH_RADIUS_M,
     ): Result? {
