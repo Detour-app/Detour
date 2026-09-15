@@ -117,7 +117,7 @@ public sealed class Camera : Entity
     /// attributes. `lufop` sits below `osm` per issue #303's stated precedence
     /// ("official portal > OSM > LUFOP"); a future official-portal source goes above
     /// both, here.</summary>
-    private static readonly IReadOnlyDictionary<string, int> SourceRank = new Dictionary<string, int>
+    private static readonly IReadOnlyDictionary<string, int> SourceRank = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
     {
         ["lufop"] = 1,
         ["osm"] = 2,
@@ -136,9 +136,11 @@ public sealed class Camera : Entity
     /// is at least as high as every *other* source already on this camera — per issue #303's
     /// cross-source precedence rule. This rank gate applies even when <paramref name="incoming"/>
     /// is refreshing its own previously-seen entry: a lower-ranked source cannot use a
-    /// self-refresh to bypass a higher-ranked source's already-set attribute. A lower-ranked
-    /// source still always contributes its row to <see cref="Sources"/> — it just never gets to
-    /// downgrade an attribute a higher-ranked source already set.</para></summary>
+    /// self-refresh to bypass a higher-ranked source present on this row — even one that never
+    /// actually supplied this particular attribute itself (this method's precedence is
+    /// per-source, not per-field; see issue #373 for the gap and the planned per-attribute fix).
+    /// A lower-ranked source still always contributes its row to <see cref="Sources"/> — it just
+    /// never gets to downgrade an attribute a higher-ranked source already set.</para></summary>
     public void MergeSource(Camera incoming)
     {
         var incomingSource = incoming.Sources[0];
