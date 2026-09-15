@@ -51,4 +51,28 @@ public class CameraRepository(ICustomDbContextFactory<DetourDbContext> factory)
         match.MergeSource(incoming);
         return match;
     }
+
+    // ponytail: loads every active camera into memory to find which ones carry `source`, since
+    // SourcesJson is an opaque jsonb blob rather than a queryable column — fine at the current
+    // Western-Europe row count (~15k) for a one-shot admin import run (see CameraImport), not
+    // fine at continent scale. Upgrade: a Postgres jsonb containment query/index on SourcesJson,
+    // or a proper sources join table, once the row count actually hurts.
+    public async Task<int> RetireMissingAsync(string source, IReadOnlySet<string> seenSourceIds, int retireAfterMisses, CancellationToken cancellationToken)
+    {
+        var candidates = await Set
+            .TagWith(Tag(nameof(RetireMissingAsync)))
+            .Where(c => c.Status == CameraStatus.Active)
+            .ToListAsync(cancellationToken);
+
+        var retired = 0;
+        foreach (var camera in candidates)
+        {
+            var entry = camera.Sources.FirstOrDefault(s => s.Source == source);
+            if (entry is null || seenSourceIds.Contains(entry.SourceId)) continue;
+
+            camera.MarkSourceMissing(source, retireAfterMisses);
+            if (camera.Status == CameraStatus.Retired) retired++;
+        }
+        return retired;
+    }
 }

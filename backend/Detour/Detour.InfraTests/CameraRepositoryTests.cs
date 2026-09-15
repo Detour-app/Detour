@@ -72,4 +72,44 @@ public class CameraRepositoryTests(PostgresFixture postgres) : IntegrationTestBa
         Assert.Single(found);
         Assert.Equal(inside.Id, found[0].Id);
     }
+
+    [Fact]
+    public async Task RetireMissingAsync_retires_a_camera_whose_only_source_stopped_reporting_it()
+    {
+        var repo = new CameraRepository(Factory);
+        // A source name unique to this test — RetireMissingAsync scans every active camera in
+        // the shared table (no truncation between tests, see BboxAsync_excludes above), so an
+        // unrelated test's "osm" rows must never be touched by this call.
+        const string source = "retire-test-lone-source";
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 51.10, 3.10, 50, "N9",
+            new CameraSource(source, "r1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)).Value;
+        await repo.UpsertAsync(cam, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        for (var i = 0; i < 3; i++)
+        {
+            await repo.RetireMissingAsync(source, new HashSet<string>(), retireAfterMisses: 3, CancellationToken.None);
+            await repo.FlushChangesAsync(CancellationToken.None);
+        }
+
+        var found = await repo.BboxAsync(51.09, 3.09, 51.11, 3.11, CancellationToken.None);
+        Assert.Empty(found); // BboxAsync only returns Active cameras
+    }
+
+    [Fact]
+    public async Task RetireMissingAsync_leaves_a_camera_active_when_its_sourceId_was_seen_this_run()
+    {
+        var repo = new CameraRepository(Factory);
+        const string source = "retire-test-still-seen";
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 51.20, 3.20, 50, "N9",
+            new CameraSource(source, "r2", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)).Value;
+        await repo.UpsertAsync(cam, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        await repo.RetireMissingAsync(source, new HashSet<string> { "r2" }, retireAfterMisses: 1, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        var found = await repo.BboxAsync(51.19, 3.19, 51.21, 3.21, CancellationToken.None);
+        Assert.Single(found);
+    }
 }

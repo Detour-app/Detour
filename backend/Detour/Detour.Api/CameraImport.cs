@@ -16,6 +16,14 @@ public static class CameraImport
 {
     public const string Command = "import-cameras";
 
+    /// <summary>How many consecutive runs of one source may miss a camera it previously
+    /// reported before that source's own entry stops protecting the camera from retirement (see
+    /// <see cref="Camera.MarkSourceMissing"/>). A design decision for issue #369: high enough
+    /// that one bad/partial extract (an OOM'd run, a temporary upstream gap) doesn't retire real
+    /// cameras, low enough that a camera genuinely removed from a source's data doesn't linger
+    /// forever. Revisit once real run cadence for each source is established.</summary>
+    private const int RetireAfterConsecutiveMisses = 3;
+
     public static async Task RunAsync(string jsonPath, IServiceProvider services)
     {
         using var scope = services.CreateScope();
@@ -27,6 +35,7 @@ public static class CameraImport
         var imported = 0;
         var skipped = 0;
         var index = 0;
+        var seenSourceIds = new HashSet<string>();
 
         foreach (var el in doc.RootElement.GetProperty("cameras").EnumerateArray())
         {
@@ -51,6 +60,7 @@ public static class CameraImport
                 var maxSpeed = el.TryGetProperty("maxSpeedKmh", out var ms) && ms.ValueKind != JsonValueKind.Null ? ms.GetInt32() : (int?)null;
                 var roadRef = el.TryGetProperty("roadRef", out var rr) && rr.ValueKind != JsonValueKind.Null ? rr.GetString() : null;
                 var cameraSource = new CameraSource(source, sourceId, now, now);
+                seenSourceIds.Add(sourceId);
 
                 result = el.TryGetProperty("polyline", out var poly) && poly.ValueKind == JsonValueKind.Array
                     ? Camera.CreateSection(kind, poly.EnumerateArray().Select(p => (p[0].GetDouble(), p[1].GetDouble())).ToList(), maxSpeed, roadRef, cameraSource)
@@ -73,6 +83,10 @@ public static class CameraImport
         }
 
         await repo.FlushChangesAsync(CancellationToken.None);
-        Console.WriteLine($"{Path.GetFileName(jsonPath)}: upserted {imported}, skipped {skipped} invalid");
+
+        var retired = await repo.RetireMissingAsync(source, seenSourceIds, RetireAfterConsecutiveMisses, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        Console.WriteLine($"{Path.GetFileName(jsonPath)}: upserted {imported}, skipped {skipped} invalid, retired {retired}");
     }
 }
