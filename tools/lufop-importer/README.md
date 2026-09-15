@@ -39,6 +39,8 @@ python3 lufop_import.py --demo  # self-check against an inline fixture
 python3 lufop_import.py LUXEMBOURG.osm --region luxembourg --out cameras.json
 ```
 
+`sourceId` is derived from the waypoint's rounded coordinates (`<lat>_<lon>`, 6 decimals), since LUFOP's GPX export carries no id field of its own — stable across re-runs on the same file, but not across LUFOP data revisions that nudge a camera's coordinate past the 6th decimal, which produces a second `Sources` entry rather than refreshing the existing one.
+
 Output is JSON with the canonical shape (matches `osm_import.py`'s output):
 
 ```json
@@ -78,9 +80,9 @@ Run the inline self-check:
 python3 lufop_import.py --demo
 ```
 
-Expected output:
+Expected output (the `kinds` set's printed order is not guaranteed — Python's set iteration order is randomized per process; the demo's own assertion checks set *equality*, not order):
 ```
 warning: 1 unrecognised waypoint name(s), skipped:
-  'Something Unexpected'
-OK: 4 cameras, kinds={'MobileHotspot', 'FixedSpeed', 'RedLight'}
+  'Something Unexpected' (1 waypoint(s))
+OK: 4 cameras, kinds={'FixedSpeed', 'RedLight', 'MobileHotspot'}
 ```
