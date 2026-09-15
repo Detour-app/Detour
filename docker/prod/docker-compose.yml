@@ -60,6 +60,11 @@ services:
       # these. The API does not read them yet — #177 adds that.
       Routing__BaseUrl: ${ROUTING_BASE_URL:-}
       Geocoder__BaseUrl: ${GEOCODER_BASE_URL:-}
+      # Public URL of this deployment's own camera dataset, for the API to announce on
+      # /api/capabilities (#303). Blank = not announced = the app falls back to querying the
+      # public Overpass API. Same host as the API itself — /api/cameras is served by Detour.Api
+      # directly, not a separate container — so this is typically your API's own public URL.
+      Camera__BaseUrl: ${CAMERA_BASE_URL:-}
       # Empty is a correct single-instance deployment: Redis is an L2 cache and a
       # miss is a slower request, not a broken one. Set it when you run more than
       # one API container. Enable the service with `--profile cache`.
