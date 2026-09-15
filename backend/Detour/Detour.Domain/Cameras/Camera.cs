@@ -157,6 +157,11 @@ public sealed class Camera : Entity
         if (incomingSource.FirstSeen < FirstSeen) FirstSeen = incomingSource.FirstSeen;
         Status = CameraStatus.Active;
 
+        // A cross-kind match (see Cluster/MergeCompatibleKinds) means this is the same physical
+        // camera enforcing both rules — not a per-source attribute, so it promotes unconditionally,
+        // regardless of source rank.
+        if (incoming.Kind != Kind) Kind = CameraKind.SpeedAndRedLight;
+
         var incomingRank = RankOf(incomingSource.Source);
         var blockingRank = otherSources.Select(s => RankOf(s.Source)).DefaultIfEmpty(0).Max();
         if (incomingRank >= blockingRank)
@@ -191,10 +196,30 @@ public sealed class Camera : Entity
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 
+    /// <summary>Point kinds that can be the same physical device wearing two hats — a device
+    /// tagged as a standalone speed camera by one source and a standalone red-light camera by
+    /// another, or already merged, all describe one gantry (see issue #372). Matching across
+    /// this set — rather than requiring exact kind equality — is what lets <see cref="Cluster"/>
+    /// find that they're the same camera so <see cref="MergeSource"/> can promote it to
+    /// <see cref="CameraKind.SpeedAndRedLight"/>. Every other kind only matches its own: a
+    /// <see cref="CameraKind.Section"/> and an <see cref="CameraKind.AverageSpeedZone"/> 40 m
+    /// apart are not the same thing just because they're close.</summary>
+    private static readonly IReadOnlySet<CameraKind> RedLightFamily =
+        new HashSet<CameraKind> { CameraKind.FixedSpeed, CameraKind.RedLight, CameraKind.SpeedAndRedLight };
+
+    /// <summary>The kinds <paramref name="kind"/> may cluster with — see <see cref="RedLightFamily"/>.
+    /// Exposed so the repository's DB-side candidate query can pre-filter on the same rule
+    /// <see cref="Cluster"/> applies in memory, rather than only fetching exact-kind matches.</summary>
+    public static IReadOnlyCollection<CameraKind> MergeCompatibleKinds(CameraKind kind) =>
+        RedLightFamily.Contains(kind) ? RedLightFamily : [kind];
+
     /// <summary>The existing camera <paramref name="incoming"/> is the same physical camera as,
-    /// or null if it matches none. Same kind and within <paramref name="maxDistanceMeters"/> of
-    /// the anchor point — <see cref="Lat"/>/<see cref="Lon"/> for a point camera, the bbox centre
-    /// for a section, which is adequate at the ~40 m clustering radius sections and zones use.
+    /// or null if it matches none. A compatible kind (<see cref="MergeCompatibleKinds"/>) within
+    /// <paramref name="maxDistanceMeters"/> of the anchor point — <see cref="Lat"/>/<see cref="Lon"/>
+    /// for a point camera, the bbox centre for a section, which is adequate at the ~40 m
+    /// clustering radius sections and zones use. A genuinely separate speed camera and red-light
+    /// camera that happen to sit within the radius on different approaches will still merge —
+    /// there's no direction data to tell them apart; accepted as a rare false-positive per #372.
     /// Pure — no DB access — so the repository (Task 2) can run it over a bbox-scoped candidate
     /// list without this function knowing how that list was fetched.</summary>
     public static Camera? Cluster(IReadOnlyList<Camera> existing, Camera incoming, double maxDistanceMeters)
@@ -204,7 +229,7 @@ public sealed class Camera : Entity
         var bestDistance = maxDistanceMeters;
         foreach (var candidate in existing)
         {
-            if (candidate.Kind != incoming.Kind) continue;
+            if (!MergeCompatibleKinds(incoming.Kind).Contains(candidate.Kind)) continue;
             var (cLat, cLon) = Anchor(candidate);
             var d = HaversineMeters(iLat, iLon, cLat, cLon);
             if (d <= bestDistance) { best = candidate; bestDistance = d; }

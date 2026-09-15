@@ -153,15 +153,54 @@ public class CameraTests
     }
 
     [Fact]
-    public void Cluster_does_not_match_a_different_kind_even_when_coincident()
+    public void Cluster_does_not_match_an_unrelated_kind_even_when_coincident()
     {
         var existing = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9", OsmSource).Value;
-        var incoming = Camera.CreatePoint(CameraKind.RedLight, 50.85, 4.36, null, null,
+        var incoming = Camera.CreatePoint(CameraKind.MobileHotspot, 50.85, 4.36, null, null,
             OsmSource with { SourceId = "n124" }).Value;
 
         var match = Camera.Cluster([existing], incoming, maxDistanceMeters: 40);
 
         Assert.Null(match);
+    }
+
+    [Fact]
+    public void Cluster_matches_a_fixedspeed_and_redlight_pair_within_radius()
+    {
+        var existing = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85000, 4.36000, 50, "N9", OsmSource).Value;
+        // ~9.8 m away — the real LUFOP Belgium pair that surfaced #372.
+        var incoming = Camera.CreatePoint(CameraKind.RedLight, 50.85009, 4.36000, null, null,
+            OsmSource with { SourceId = "n124" }).Value;
+
+        var match = Camera.Cluster([existing], incoming, maxDistanceMeters: 40);
+
+        Assert.Same(existing, match);
+    }
+
+    [Fact]
+    public void MergeSource_promotes_a_fixedspeed_and_redlight_match_to_speedandredlight()
+    {
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9", OsmSource).Value;
+        var redLight = Camera.CreatePoint(CameraKind.RedLight, 50.85, 4.36, null, null,
+            OsmSource with { SourceId = "n124" }).Value;
+
+        cam.MergeSource(redLight);
+
+        Assert.Equal(CameraKind.SpeedAndRedLight, cam.Kind);
+        Assert.Equal(50, cam.MaxSpeedKmh);
+        Assert.Equal(2, cam.Sources.Count);
+    }
+
+    [Fact]
+    public void MergeSource_leaves_an_already_speedandredlight_camera_at_that_kind()
+    {
+        var cam = Camera.CreatePoint(CameraKind.SpeedAndRedLight, 50.85, 4.36, 50, "N9", OsmSource).Value;
+        var incoming = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9",
+            OsmSource with { SourceId = "n124" }).Value;
+
+        cam.MergeSource(incoming);
+
+        Assert.Equal(CameraKind.SpeedAndRedLight, cam.Kind);
     }
 
     [Fact]

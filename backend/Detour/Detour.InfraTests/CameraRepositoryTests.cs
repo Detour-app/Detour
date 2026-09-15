@@ -30,6 +30,29 @@ public class CameraRepositoryTests(PostgresFixture postgres) : IntegrationTestBa
     }
 
     [Fact]
+    public async Task UpsertAsync_of_two_close_same_kind_cameras_merges_even_without_a_flush_between_them()
+    {
+        // Reproduces CameraImport's actual usage — one FlushChangesAsync at the very end of an
+        // import run, not one per entry (#367). Without Set.Local in the candidate query, the
+        // second UpsertAsync can't see the first's not-yet-flushed row and inserts a duplicate.
+        var repo = new CameraRepository(Factory);
+
+        var first = Camera.CreatePoint(CameraKind.FixedSpeed, 50.87000, 4.38000, 50, "N9", OsmSource("n5")).Value;
+        await repo.UpsertAsync(first, CancellationToken.None);
+
+        // ~12 m away — inside the 40 m cluster radius.
+        var second = Camera.CreatePoint(CameraKind.FixedSpeed, 50.87011, 4.38000, 50, "N9", OsmSource("n6")).Value;
+        var stored = await repo.UpsertAsync(second, CancellationToken.None);
+
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        Assert.Equal(first.Id, stored.Id);
+        var all = await repo.BboxAsync(50.86, 4.37, 50.88, 4.39, CancellationToken.None);
+        Assert.Single(all);
+        Assert.Equal(2, all[0].Sources.Count);
+    }
+
+    [Fact]
     public async Task BboxAsync_excludes_cameras_outside_the_box()
     {
         var repo = new CameraRepository(Factory);
