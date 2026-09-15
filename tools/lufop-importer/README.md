@@ -1,6 +1,6 @@
 # LUFOP Camera Importer
 
-A pure-Python GPX-based importer for speed-camera data from LUFOP (Ligue Unifiée pour la Prévention) exportsmade available via lufop.net.
+A pure-Python GPX-based importer for speed-camera data from LUFOP (Ligue Unifiée pour la Prévention) exports made available via lufop.net.
 
 ## Why a separate parser?
 
