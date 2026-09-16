@@ -117,24 +117,6 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # Play refuses any upload whose versionCode isn't higher than every code
-      # it has already seen, so a hand-edited number in build.gradle.kts is one
-      # forgotten bump away from a rejected release. The run number only ever
-      # increases, which is the single property Play cares about. The +1000
-      # floor clears the codes already published as GitHub-release APKs (66 at
-      # the time of writing), so an existing sideloaded install still sees
-      # Play's copy as newer.
-      #
-      # The stride of 2 is vestigial - it used to leave an odd slot for the
-      # watch artifact, which shared the phone's applicationId and so needed a
-      # different code. The watch app is gone (#57), but the stride stays:
-      # halving it would emit codes Play has already accepted, and Play only
-      # ever takes a higher one.
-      - name: Stamp version code
-        if: github.event_name == 'push'
-        run: |
-          echo "VERSION_CODE=$(( 1000 + GITHUB_RUN_NUMBER * 2 ))" >> "$GITHUB_ENV"
-
       # #7 was one missing line on an OutlinedTextField, and nothing in the
       # toolchain noticed: there is no Robolectric, no compose-ui-test and no
       # androidTest source set here, so a credential field that leaks to the
@@ -176,13 +158,20 @@ jobs:
 
       # The APK carries the version in its name, so a downloaded file still says
       # what it is once it's sitting in a Downloads folder next to four others.
+      #
+      # code mirrors the versionCode formula in app/build.gradle.kts
+      # (major*10000 + minor*100 + patch) so the .aab filename below carries the
+      # same code Play actually received, without re-parsing the built artifact.
+      # It is no longer stated in the release body — that preamble was retired
+      # in #360; the name is the tag, and the code is in the bundle's filename.
       - name: Read version
         id: version
         run: |
           name=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
           test -n "$name"
+          IFS='.' read -r major minor patch <<< "$name"
           echo "name=$name" >> "$GITHUB_OUTPUT"
-          echo "code=${VERSION_CODE:-local}" >> "$GITHUB_OUTPUT"
+          echo "code=$(( major * 10000 + minor * 100 + patch ))" >> "$GITHUB_OUTPUT"
 
       # Glob because the artifact name depends on signing: app-release.apk
       # when signed (always, on push — see the decode step), or
@@ -262,27 +251,27 @@ jobs:
             detour-${{ steps.version.outputs.name }}.apk
             app/build/outputs/mapping/githubRelease/mapping.txt
             update.json
-          # generate_release_notes appends a "What's Changed" section, grouped
-          # by .github/release.yml, below the body text — the standing
-          # boilerplate below it is not replaced, only followed (#295). Built
-          # from merged PR titles, which this repo already keys to `type(scope):
-          # summary (#NNN)` (CONTRIBUTING.md's Versioning section), so the list
-          # reads like a developer-facing changelog rather than prose written
-          # for a rider — that's the deliberate, written-down choice for now
-          # (see CONTRIBUTING.md), not an oversight to fix later.
+          # The whole body, and deliberately nothing else. `generate_release_notes`
+          # writes a "What's Changed" list grouped by .github/release.yml, built
+          # from merged PR titles — which this repo already keys to
+          # `type(scope): summary (#NNN)` (CONTRIBUTING.md's Versioning section),
+          # so it reads as a changelog without anyone hand-writing one.
+          #
+          # There is no `body:` here on purpose. It used to carry a standing
+          # preamble — version/versionCode/sha, sideload instructions, and a
+          # "no server configured" paragraph — which #295 required be kept and
+          # #360 retired. Two reasons it went. It is addressed to someone
+          # reading the releases page in a browser, while the same text is what
+          # the app's own "What's new" expander shows a rider who is not there
+          # ("Download the `.apk` below" points at a "below" that does not exist
+          # inside the app); and README.md's own "no account and no server"
+          # paragraph says the setup half better and in the place people look
+          # for it. Measured on v2.31.0 before it was removed: 552 of 805
+          # characters, 15 of 21 lines, sat above the changes.
+          #
+          # Do not reintroduce a body without reading #360 — anything added here
+          # is shown twice, once to a browser and once inside the app.
           generate_release_notes: true
-          body: |
-            Detour v${{ steps.version.outputs.name }} (versionCode
-            ${{ steps.version.outputs.code }}), built from
-            ${{ github.sha }}.${{ steps.play.outputs.enabled == 'true' && ' Also published to the Play internal testing track.' || '' }}
-
-            Download the `.apk` below and install it on your phone (allow
-            installs from unknown sources).
-
-            This build ships with no server configured. Point it at your own
-            under Settings → Routing server and Settings → Backup sync, or
-            import a saved config under Settings → Server config file. See
-            `backend/README.md` to host one.
 
       # GitHub first, Play second — the reverse of what this used to do.
       #
