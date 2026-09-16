@@ -1,5 +1,6 @@
 package com.jellemax.detour.data
 
+import com.jellemax.detour.drive.RoadTypeStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -469,6 +470,7 @@ object Auth {
         RiderTotals.reset()
         SpeedCameraStore.reset()
         SpeedLimitStore.reset()
+        RoadTypeStore.reset()
     }
 
     private suspend fun refresh(): String {

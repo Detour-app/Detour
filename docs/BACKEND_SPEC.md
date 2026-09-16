@@ -548,12 +548,13 @@ answers is which realm mints them.
 ```json
 {
   "schema": 1,
-  "features": ["idp-discovery", "push-android", "routing-discovery", "geocoder-discovery", "cameras-discovery", "speedlimits-discovery"],
+  "features": ["idp-discovery", "push-android", "routing-discovery", "geocoder-discovery", "cameras-discovery", "speedlimits-discovery", "roads-discovery"],
   "idp": { "issuer": "https://idp.example/realms/detour" },
   "routing": { "baseUrl": "https://example.com/gh" },
   "geocoder": { "baseUrl": "https://example.com/photon" },
   "cameras": { "baseUrl": "https://example.com" },
-  "speedLimits": { "baseUrl": "https://example.com" }
+  "speedLimits": { "baseUrl": "https://example.com" },
+  "roads": { "baseUrl": "https://example.com" }
 }
 ```
 
@@ -569,27 +570,30 @@ which is not the same question as what this software supports:
 | `geocoder-discovery` | `Geocoder:BaseUrl` is set. |
 | `cameras-discovery` | `Camera:BaseUrl` is set. |
 | `speedlimits-discovery` | `SpeedLimit:BaseUrl` is set. |
+| `roads-discovery` | `Road:BaseUrl` is set. |
 
 The two push strings are per-platform rather than one `push`, because having
 Firebase credentials and no APNs key is an ordinary state and an iOS client must
-not read Android's answer as its own. `routing`, `geocoder`, `cameras` and
-`speedLimits` are configured the same way — independently, all blank by
-default — because a self-hoster routinely runs some of these and not the
-others.
+not read Android's answer as its own. `routing`, `geocoder`, `cameras`,
+`speedLimits` and `roads` are configured the same way — independently, all
+blank by default — because a self-hoster routinely runs some of these and not
+the others.
 
-`routing`, `geocoder`, `cameras` and `speedLimits` are absent, not present with
-a blank `baseUrl`, when their env keys (`Routing__BaseUrl`, `Geocoder__BaseUrl`,
-`Camera__BaseUrl`, `SpeedLimit__BaseUrl`) are unset — the same "absent means not
-announced" rule `idp` does not get to use only because a realm is mandatory.
-Unlike `idp.issuer`, a client is not free to trust any of them verbatim: each
-is server-supplied and moves rider data (a destination typed into search, an
-origin/destination pair sent for a route) or a network request (the bbox fetch
-for `/api/cameras` or `/api/speedlimits`) to wherever it names, so the client
+`routing`, `geocoder`, `cameras`, `speedLimits` and `roads` are absent, not
+present with a blank `baseUrl`, when their env keys (`Routing__BaseUrl`,
+`Geocoder__BaseUrl`, `Camera__BaseUrl`, `SpeedLimit__BaseUrl`, `Road__BaseUrl`)
+are unset — the same "absent means not announced" rule `idp` does not get to
+use only because a realm is mandatory. Unlike `idp.issuer`, a client is not
+free to trust any of them verbatim: each is server-supplied and moves rider
+data (a destination typed into search, an origin/destination pair sent for a
+route) or a network request (the bbox fetch for `/api/cameras`,
+`/api/speedlimits` or `/api/roads`) to wherever it names, so the client
 validates it — HTTPS only, and a host that differs from the API's own asks the
 rider before it is used. See `RoutingServer.kt`'s discovery pair in `shared/`
 for the mirror of the `idp.issuer` discovery this reuses the shape of, extended
-with that consent step; `SpeedCameras.near` and `RoadRoulette.speedLimitWays`
-(also `shared/`) are `cameras`'s and `speedLimits`'s equivalent callers.
+with that consent step; `SpeedCameras.near`, `RoadRoulette.speedLimitWays` and
+`RoadRoulette.fetchRoads`/`RoadTypeTracker.fetchWays` (also `shared/`) are
+`cameras`'s, `speedLimits`'s and `roads`'s equivalent callers.
 
 They exist because a client cannot work this out for itself. An Android build
 with a `google-services.json` baked in registers a token successfully against a

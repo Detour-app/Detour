@@ -61,6 +61,7 @@ public static class DatabaseInstaller
         services.AddScoped<IDeviceTokenRepository, DeviceTokenRepository>();
         services.AddScoped<ICameraRepository, CameraRepository>();
         services.AddScoped<ISpeedLimitWayRepository, SpeedLimitWayRepository>();
+        services.AddScoped<IRoadWayRepository, RoadWayRepository>();
 
         return services;
     }

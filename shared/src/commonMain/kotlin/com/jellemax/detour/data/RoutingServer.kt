@@ -196,6 +196,21 @@ object RoutingServer {
         baked = "",
     )
 
+    /** Base of the drivable-road endpoint, which serves `/api/roads`. Same precedence as
+     *  [camerasBase]/[speedLimitsBase], for the same reason: no [BuildDefaults] baked value —
+     *  no public drivable-road host exists to fall back to — so an install that announces
+     *  nothing resolves to blank, and [RoadRoulette.fetchRoads]/`RoadTypeTracker.fetchWays` fall
+     *  back to Overpass. */
+    fun roadsBase(custom: ServerConfig?): String = roadsBase(custom, discoveredRoadsBase())
+
+    /** `internal` counterpart of [routingBase]'s, for the same reason. */
+    internal fun roadsBase(custom: ServerConfig?, discoveredRoads: String): String = resolve(
+        typed = "",
+        announced = discoveredRoads,
+        general = custom?.url.orEmpty(),
+        baked = "",
+    )
+
     /**
      * The realm that issues rider tokens.
      *
@@ -545,6 +560,7 @@ object RoutingServer {
             rememberAnnouncedService(GEOCODER_KEYS, fetched.geocoderBaseUrl, api)
             rememberAnnouncedService(CAMERAS_KEYS, fetched.camerasBaseUrl, api)
             rememberAnnouncedService(SPEEDLIMITS_KEYS, fetched.speedLimitsBaseUrl, api)
+            rememberAnnouncedService(ROADS_KEYS, fetched.roadsBaseUrl, api)
         }
     }
 
@@ -598,6 +614,12 @@ object RoutingServer {
         discovered = "speedlimits_discovered_base",
         pending = "speedlimits_pending_base",
         declined = "speedlimits_declined_base",
+    )
+
+    private val ROADS_KEYS = AnnouncedServiceKeys(
+        discovered = "roads_discovered_base",
+        pending = "roads_pending_base",
+        declined = "roads_declined_base",
     )
 
     /** What a probe's freshly-announced value, plus the previous stored state,
@@ -699,6 +721,9 @@ object RoutingServer {
 
     /** Same as [discoveredRoutingBase], for the speed-limit-way endpoint. Feeds [speedLimitsBase]. */
     internal fun discoveredSpeedLimitsBase(): String = vettedAnnounced(SPEEDLIMITS_KEYS)
+
+    /** Same as [discoveredRoutingBase], for the drivable-road endpoint. Feeds [roadsBase]. */
+    internal fun discoveredRoadsBase(): String = vettedAnnounced(ROADS_KEYS)
 
     /** An announced routing base awaiting the rider's decision — differs from
      *  the API's own host, and has been neither accepted nor declined for this
