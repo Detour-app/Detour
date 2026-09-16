@@ -226,6 +226,21 @@ object RoutingServer {
         baked = "",
     )
 
+    /** Base of the point-of-interest endpoint, which serves `/api/pois`. Same precedence as
+     *  [camerasBase]/[speedLimitsBase]/[roadsBase]/[municipalityBase], for the same reason: no
+     *  [BuildDefaults] baked value — no public POI host exists to fall back to — so an install
+     *  that announces nothing resolves to blank, and [PoiRoulette.randomPoi] falls back to
+     *  Overpass. */
+    fun poisBase(custom: ServerConfig?): String = poisBase(custom, discoveredPoisBase())
+
+    /** `internal` counterpart of [routingBase]'s, for the same reason. */
+    internal fun poisBase(custom: ServerConfig?, discoveredPois: String): String = resolve(
+        typed = "",
+        announced = discoveredPois,
+        general = custom?.url.orEmpty(),
+        baked = "",
+    )
+
     /**
      * The realm that issues rider tokens.
      *
@@ -394,6 +409,7 @@ object RoutingServer {
             // list MUNICIPALITY_KEYS is being added to below.
             clearAnnouncedService(ROADS_KEYS)
             clearAnnouncedService(MUNICIPALITY_KEYS)
+            clearAnnouncedService(POIS_KEYS)
         }
 
         prefs(PREFS).apply {
@@ -583,6 +599,7 @@ object RoutingServer {
             rememberAnnouncedService(SPEEDLIMITS_KEYS, fetched.speedLimitsBaseUrl, api)
             rememberAnnouncedService(ROADS_KEYS, fetched.roadsBaseUrl, api)
             rememberAnnouncedService(MUNICIPALITY_KEYS, fetched.municipalityBaseUrl, api)
+            rememberAnnouncedService(POIS_KEYS, fetched.poisBaseUrl, api)
         }
     }
 
@@ -648,6 +665,12 @@ object RoutingServer {
         discovered = "municipality_discovered_base",
         pending = "municipality_pending_base",
         declined = "municipality_declined_base",
+    )
+
+    private val POIS_KEYS = AnnouncedServiceKeys(
+        discovered = "pois_discovered_base",
+        pending = "pois_pending_base",
+        declined = "pois_declined_base",
     )
 
     /** What a probe's freshly-announced value, plus the previous stored state,
@@ -756,6 +779,10 @@ object RoutingServer {
     /** Same as [discoveredRoutingBase], for the municipality-boundary endpoint. Feeds
      *  [municipalityBase]. */
     internal fun discoveredMunicipalityBase(): String = vettedAnnounced(MUNICIPALITY_KEYS)
+
+    /** Same as [discoveredRoutingBase], for the point-of-interest endpoint. Feeds
+     *  [poisBase]. */
+    internal fun discoveredPoisBase(): String = vettedAnnounced(POIS_KEYS)
 
     /** An announced routing base awaiting the rider's decision — differs from
      *  the API's own host, and has been neither accepted nor declined for this

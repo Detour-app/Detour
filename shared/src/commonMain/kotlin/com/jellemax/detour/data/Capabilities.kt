@@ -30,6 +30,9 @@ internal data class ServerCapabilities(
     /** Blank when the server does not announce its own municipality-boundary
      *  endpoint (issue #381). */
     val municipalityBaseUrl: String = "",
+    /** Blank when the server does not announce its own point-of-interest endpoint
+     *  (issue #383). */
+    val poisBaseUrl: String = "",
 )
 
 /**
@@ -105,6 +108,7 @@ internal object Capabilities {
             speedLimitsBaseUrl = normalisedAddress(o.optObject("speedLimits")?.optString("baseUrl").orEmpty()),
             roadsBaseUrl = normalisedAddress(o.optObject("roads")?.optString("baseUrl").orEmpty()),
             municipalityBaseUrl = normalisedAddress(o.optObject("municipality")?.optString("baseUrl").orEmpty()),
+            poisBaseUrl = normalisedAddress(o.optObject("pois")?.optString("baseUrl").orEmpty()),
         )
     }
 

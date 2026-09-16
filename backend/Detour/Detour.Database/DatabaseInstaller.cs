@@ -8,6 +8,7 @@ using Detour.Domain.Friendships;
 using Detour.Domain.Groups;
 using Detour.Domain.Notifications;
 using Detour.Domain.Places;
+using Detour.Domain.Pois;
 using Detour.Domain.Roads;
 using Detour.Domain.Routes;
 using Detour.Domain.Traces;
@@ -64,6 +65,7 @@ public static class DatabaseInstaller
         services.AddScoped<ISpeedLimitWayRepository, SpeedLimitWayRepository>();
         services.AddScoped<IRoadWayRepository, RoadWayRepository>();
         services.AddScoped<IMunicipalityBoundaryRepository, MunicipalityBoundaryRepository>();
+        services.AddScoped<IPoiRepository, PoiRepository>();
 
         return services;
     }

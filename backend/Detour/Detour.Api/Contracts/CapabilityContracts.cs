@@ -29,7 +29,8 @@ public record CapabilitiesResponse(
     CameraCapabilityResponse? Cameras,
     SpeedLimitCapabilityResponse? SpeedLimits,
     RoadCapabilityResponse? Roads,
-    MunicipalityCapabilityResponse? Municipality)
+    MunicipalityCapabilityResponse? Municipality,
+    PoiCapabilityResponse? Pois)
 {
     /// <summary>
     /// Bumped only when an existing field on this response changes meaning —
@@ -69,6 +70,10 @@ public record CapabilitiesResponse(
     /// #381).</summary>
     public const string MunicipalityDiscoveryFeature = "municipality-discovery";
 
+    /// <summary>This deployment announces its own point-of-interest endpoint (issue
+    /// #383).</summary>
+    public const string PoisDiscoveryFeature = "pois-discovery";
+
     /// <summary>
     /// The advertised feature set for a deployment whose push gateways are
     /// <paramref name="pushPlatforms"/>, and whose routing/geocoder/cameras/speed-limits/roads/
@@ -88,7 +93,8 @@ public record CapabilitiesResponse(
         bool camerasAnnounced,
         bool speedLimitsAnnounced,
         bool roadsAnnounced,
-        bool municipalityAnnounced)
+        bool municipalityAnnounced,
+        bool poisAnnounced)
     {
         var platforms = pushPlatforms.ToHashSet();
         var features = new List<string>(AlwaysOnFeatures);
@@ -108,6 +114,8 @@ public record CapabilitiesResponse(
             features.Add(RoadsDiscoveryFeature);
         if (municipalityAnnounced)
             features.Add(MunicipalityDiscoveryFeature);
+        if (poisAnnounced)
+            features.Add(PoisDiscoveryFeature);
         return features;
     }
 
@@ -119,7 +127,8 @@ public record CapabilitiesResponse(
         CameraSettings cameraSettings,
         SpeedLimitSettings speedLimitSettings,
         RoadSettings roadSettings,
-        MunicipalitySettings municipalitySettings)
+        MunicipalitySettings municipalitySettings,
+        PoiSettings poiSettings)
     {
         // Blank means "not configured", and the field itself carries that —
         // absent, not present-but-empty, so a client can test for null rather
@@ -142,18 +151,22 @@ public record CapabilitiesResponse(
         var municipality = string.IsNullOrWhiteSpace(municipalitySettings.BaseUrl)
             ? null
             : new MunicipalityCapabilityResponse(municipalitySettings.BaseUrl);
+        var pois = string.IsNullOrWhiteSpace(poiSettings.BaseUrl)
+            ? null
+            : new PoiCapabilityResponse(poiSettings.BaseUrl);
         return new(
             SchemaVersion,
             FeaturesFor(
                 pushPlatforms, routing is not null, geocoder is not null, cameras is not null,
-                speedLimits is not null, roads is not null, municipality is not null),
+                speedLimits is not null, roads is not null, municipality is not null, pois is not null),
             new IdpCapabilityResponse(idpSettings.Authority),
             routing,
             geocoder,
             cameras,
             speedLimits,
             roads,
-            municipality);
+            municipality,
+            pois);
     }
 }
 
@@ -212,3 +225,10 @@ public record RoadCapabilityResponse([Required] string BaseUrl);
 /// unchanged.
 /// </summary>
 public record MunicipalityCapabilityResponse([Required] string BaseUrl);
+
+/// <summary>
+/// Where this deployment's own point-of-interest endpoint is. See
+/// <see cref="RoutingCapabilityResponse"/> for the reasoning, which applies here
+/// unchanged.
+/// </summary>
+public record PoiCapabilityResponse([Required] string BaseUrl);
