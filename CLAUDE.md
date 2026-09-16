@@ -1,5 +1,16 @@
 # Detour
 
+## Filing issues
+
+Every issue filed via `gh issue create` gets labels at creation, not after:
+
+- One type label: `bug`, `enhancement`, `documentation`, or `chore`.
+- One priority label if you can judge it (`p0-now`/`p1-next`/`p2-soon`/
+  `p3-later`); otherwise `needs-triage`.
+
+Never leave an issue with zero labels or with a type but no priority/
+`needs-triage`.
+
 ## Versioning
 
 Before creating a commit that will land on `main`, check whether `versionName`
@@ -14,8 +25,9 @@ Mixed feature+fix in one PR bumps for the higher of the two. Full rationale
 and the release-tag mechanics this feeds are in `CONTRIBUTING.md`'s
 "Versioning" section — read it if a case doesn't fit the table above.
 
-`versionCode` is separate and CI-stamped from the run number; never bump it
-by hand.
+`versionCode` is derived from `versionName` (`major*10000 + minor*100 +
+patch`) in `app/build.gradle.kts`; never set it by hand — bumping
+`versionName` bumps it for free.
 
 ## Reviewing Kotlin
 

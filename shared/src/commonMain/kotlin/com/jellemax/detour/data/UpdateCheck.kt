@@ -1,5 +1,7 @@
 package com.jellemax.detour.data
 
+import kotlinx.serialization.json.JsonObject
+
 /**
  * The decidable half of the update check: is the published release newer than
  * this build, and which file should be downloaded for it.
@@ -48,10 +50,17 @@ object UpdateCheck {
         val assets: Map<String, String>,
         /** The release body GitHub already hands back with everything else in
          *  this response — null rather than blank, so a caller can `?:` past
-         *  it with one check instead of two (#295). Plain text as GitHub's
-         *  generator writes it: a PR-title list, not markdown to be rendered
-         *  as trusted HTML — see CONTRIBUTING.md's "Release notes" section for
-         *  why that's a decision and not an oversight. */
+         *  it with one check instead of two (#295).
+         *
+         *  Markdown, as GitHub's generator writes it. Carried verbatim: this
+         *  type does no filtering, and the Android surface renders it with a
+         *  Markdown renderer rather than showing the source (#357). What has
+         *  not changed since #295 is that it is never treated as trusted
+         *  **HTML** — no WebView, and no markup path at all. Links are live,
+         *  because the body comes from the repo that built this APK
+         *  (`BuildConfig.UPDATE_REPO`, baked from `github.repository`), which
+         *  is already trusted to hand the app a binary it installs. See
+         *  CONTRIBUTING.md's "Release notes" section. */
         val notes: String? = null,
     ) {
         fun assetUrl(name: String): String? = assets[name]
@@ -65,18 +74,38 @@ object UpdateCheck {
      *  and `RelayProtocol.decode`: a bad payload is "no update", never a throw
      *  reaching a screen. */
     fun parseRelease(text: String): Release? = try {
-        val o = jsonObjectOf(text)
+        releaseFrom(jsonObjectOf(text))
+    } catch (e: Exception) {
+        null
+    }
+
+    /**
+     * The `/releases` list response, which is an array of exactly the objects
+     * [parseRelease] reads one of — same fields, bodies included, so a whole
+     * range of releases costs one request rather than one per version (#358).
+     *
+     * Empty for anything unreadable, and an individually-unreadable entry is
+     * dropped rather than failing the list: same contract as [parseRelease],
+     * and the same shape `Routes.load` already uses for a stored array.
+     */
+    fun parseReleaseList(text: String): List<Release> = try {
+        jsonArrayOf(text).objects().mapNotNull { runCatching { releaseFrom(it) }.getOrNull() }
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    /** One release object, shared by [parseRelease] and [parseReleaseList] so
+     *  the two cannot drift about what a release is. */
+    private fun releaseFrom(o: JsonObject): Release {
         val assets = (o.optArray("assets")?.objects() ?: emptyList()).associate {
             it.optString("name") to it.optString("browser_download_url")
         }
-        Release(
+        return Release(
             version = o.optString("tag_name").removePrefix("v"),
             prerelease = o.optBoolean("prerelease", false),
             assets = assets,
             notes = o.optString("body").trim().ifBlank { null },
         )
-    } catch (e: Exception) {
-        null
     }
 
     fun parseManifest(text: String): UpdateManifest? = try {
