@@ -47,13 +47,96 @@ public class CameraTests
     public void MergeSource_replaces_a_same_source_entry_rather_than_duplicating_it()
     {
         var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9", OsmSource).Value;
-        var refreshed = OsmSource with { LastSeen = OsmSource.LastSeen.AddDays(7) };
+        var refreshedSource = OsmSource with { LastSeen = OsmSource.LastSeen.AddDays(7) };
+        var incoming = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9", refreshedSource).Value;
 
-        cam.MergeSource(refreshed);
+        cam.MergeSource(incoming);
 
         Assert.Single(cam.Sources);
-        Assert.Equal(refreshed.LastSeen, cam.Sources[0].LastSeen);
-        Assert.Equal(refreshed.LastSeen, cam.LastSeen);
+        Assert.Equal(refreshedSource.LastSeen, cam.Sources[0].LastSeen);
+        Assert.Equal(refreshedSource.LastSeen, cam.LastSeen);
+    }
+
+    [Fact]
+    public void MergeSource_lets_a_higher_ranked_source_overwrite_a_lower_ranked_attribute()
+    {
+        var lufopSource = new CameraSource("lufop", "l1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, null, null, lufopSource).Value;
+
+        var osmSource = new CameraSource("osm", "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var incoming = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 70, "N9", osmSource).Value;
+
+        cam.MergeSource(incoming);
+
+        Assert.Equal(70, cam.MaxSpeedKmh);
+        Assert.Equal("N9", cam.RoadRef);
+        Assert.Equal(2, cam.Sources.Count);
+    }
+
+    [Fact]
+    public void MergeSource_does_not_let_a_lower_ranked_source_overwrite_a_higher_ranked_attribute()
+    {
+        var osmSource = new CameraSource("osm", "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 70, "N9", osmSource).Value;
+
+        var lufopSource = new CameraSource("lufop", "l1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var incoming = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 90, "D45", lufopSource).Value;
+
+        cam.MergeSource(incoming);
+
+        Assert.Equal(70, cam.MaxSpeedKmh);
+        Assert.Equal("N9", cam.RoadRef);
+        Assert.Equal(2, cam.Sources.Count);
+    }
+
+    [Fact]
+    public void MergeSource_does_not_let_a_lower_ranked_source_bypass_precedence_via_its_own_self_refresh()
+    {
+        var osmSource = new CameraSource("osm", "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 70, "N9", osmSource).Value;
+
+        var lufopSource = new CameraSource("lufop", "l1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var firstLufop = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 90, "D45", lufopSource).Value;
+        cam.MergeSource(firstLufop);
+
+        var updatedLufop = lufopSource with { LastSeen = lufopSource.LastSeen.AddDays(1) };
+        var incoming = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 130, "D45-bis", updatedLufop).Value;
+
+        cam.MergeSource(incoming);
+
+        Assert.Equal(70, cam.MaxSpeedKmh);
+        Assert.Equal("N9", cam.RoadRef);
+        Assert.Equal(2, cam.Sources.Count);
+    }
+
+    [Fact]
+    public void MergeSource_lets_a_source_refresh_its_own_attribute_when_it_is_the_only_source()
+    {
+        var osmSource = new CameraSource("osm", "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 70, "N9", osmSource).Value;
+
+        var updatedOsm = new CameraSource("osm", "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(1));
+        var incoming = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 90, "N9-bis", updatedOsm).Value;
+
+        cam.MergeSource(incoming);
+
+        Assert.Equal(90, cam.MaxSpeedKmh);
+        Assert.Equal("N9-bis", cam.RoadRef);
+        Assert.Single(cam.Sources);
+    }
+
+    [Fact]
+    public void MergeSource_does_not_let_a_null_incoming_attribute_clear_an_existing_value()
+    {
+        var lufopSource = new CameraSource("lufop", "l1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 90, null, lufopSource).Value;
+
+        var osmSource = new CameraSource("osm", "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var incoming = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, null, null, osmSource).Value;
+
+        cam.MergeSource(incoming);
+
+        Assert.Equal(90, cam.MaxSpeedKmh);
     }
 
     [Fact]
