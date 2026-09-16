@@ -548,13 +548,14 @@ answers is which realm mints them.
 ```json
 {
   "schema": 1,
-  "features": ["idp-discovery", "push-android", "routing-discovery", "geocoder-discovery", "cameras-discovery", "speedlimits-discovery", "roads-discovery"],
+  "features": ["idp-discovery", "push-android", "routing-discovery", "geocoder-discovery", "cameras-discovery", "speedlimits-discovery", "roads-discovery", "municipality-discovery"],
   "idp": { "issuer": "https://idp.example/realms/detour" },
   "routing": { "baseUrl": "https://example.com/gh" },
   "geocoder": { "baseUrl": "https://example.com/photon" },
   "cameras": { "baseUrl": "https://example.com" },
   "speedLimits": { "baseUrl": "https://example.com" },
-  "roads": { "baseUrl": "https://example.com" }
+  "roads": { "baseUrl": "https://example.com" },
+  "municipality": { "baseUrl": "https://example.com" }
 }
 ```
 
@@ -571,29 +572,32 @@ which is not the same question as what this software supports:
 | `cameras-discovery` | `Camera:BaseUrl` is set. |
 | `speedlimits-discovery` | `SpeedLimit:BaseUrl` is set. |
 | `roads-discovery` | `Road:BaseUrl` is set. |
+| `municipality-discovery` | `Municipality:BaseUrl` is set. |
 
 The two push strings are per-platform rather than one `push`, because having
 Firebase credentials and no APNs key is an ordinary state and an iOS client must
 not read Android's answer as its own. `routing`, `geocoder`, `cameras`,
-`speedLimits` and `roads` are configured the same way — independently, all
-blank by default — because a self-hoster routinely runs some of these and not
-the others.
+`speedLimits`, `roads` and `municipality` are configured the same way —
+independently, all blank by default — because a self-hoster routinely runs
+some of these and not the others.
 
-`routing`, `geocoder`, `cameras`, `speedLimits` and `roads` are absent, not
-present with a blank `baseUrl`, when their env keys (`Routing__BaseUrl`,
-`Geocoder__BaseUrl`, `Camera__BaseUrl`, `SpeedLimit__BaseUrl`, `Road__BaseUrl`)
-are unset — the same "absent means not announced" rule `idp` does not get to
-use only because a realm is mandatory. Unlike `idp.issuer`, a client is not
-free to trust any of them verbatim: each is server-supplied and moves rider
-data (a destination typed into search, an origin/destination pair sent for a
-route) or a network request (the bbox fetch for `/api/cameras`,
-`/api/speedlimits` or `/api/roads`) to wherever it names, so the client
-validates it — HTTPS only, and a host that differs from the API's own asks the
-rider before it is used. See `RoutingServer.kt`'s discovery pair in `shared/`
-for the mirror of the `idp.issuer` discovery this reuses the shape of, extended
-with that consent step; `SpeedCameras.near`, `RoadRoulette.speedLimitWays` and
-`RoadRoulette.fetchRoads`/`RoadTypeTracker.fetchWays` (also `shared/`) are
-`cameras`'s, `speedLimits`'s and `roads`'s equivalent callers.
+`routing`, `geocoder`, `cameras`, `speedLimits`, `roads` and `municipality` are
+absent, not present with a blank `baseUrl`, when their env keys
+(`Routing__BaseUrl`, `Geocoder__BaseUrl`, `Camera__BaseUrl`,
+`SpeedLimit__BaseUrl`, `Road__BaseUrl`, `Municipality__BaseUrl`) are unset —
+the same "absent means not announced" rule `idp` does not get to use only
+because a realm is mandatory. Unlike `idp.issuer`, a client is not free to
+trust any of them verbatim: each is server-supplied and moves rider data (a
+destination typed into search, an origin/destination pair sent for a route) or
+a network request (the bbox fetch for `/api/cameras`, `/api/speedlimits` or
+`/api/roads`, or the point lookup for `/api/municipality`) to wherever it
+names, so the client validates it — HTTPS only, and a host that differs from
+the API's own asks the rider before it is used. See `RoutingServer.kt`'s
+discovery pair in `shared/` for the mirror of the `idp.issuer` discovery this
+reuses the shape of, extended with that consent step; `SpeedCameras.near`,
+`RoadRoulette.speedLimitWays`, `RoadRoulette.fetchRoads`/`RoadTypeTracker.fetchWays`
+and `MunicipalityStore.fetch` (also `shared/`) are `cameras`'s, `speedLimits`'s,
+`roads`'s and `municipality`'s equivalent callers.
 
 They exist because a client cannot work this out for itself. An Android build
 with a `google-services.json` baked in registers a token successfully against a
@@ -713,6 +717,38 @@ This endpoint is read-only: data is loaded by an operator running
 [`backend/INSTALL.md`](../backend/INSTALL.md#configuration). Unlike `/api/cameras`, a re-import
 never deletes a way this run didn't see — see `ISpeedLimitWayRepository.UpsertAsync`'s doc in
 `Detour.Domain` for why a per-region import run cannot safely do that yet.
+
+### 15.8 Municipality boundaries
+
+`GET /api/municipality?lat=&lon=` is unauthenticated, for the same reason §15.6 is —
+administrative boundary geometry is public OSM data, not rider data. Unlike §15.6/§15.7's bbox
+endpoints there is no span to cap: a query here is always a single point, so no request can force
+the whole table to materialise, and the endpoint is covered by the global per-IP limiter only.
+
+```json
+{
+  "municipality": {
+    "id": 1234,
+    "name": "Esch-sur-Alzette",
+    "rings": [[[49.6, 6.1], [49.61, 6.11], [49.60, 6.12]]]
+  }
+}
+```
+
+`municipality` is `null` when no `admin_level=8` boundary contains the point — the sea, or
+outside the imported region — rather than a 404, so the client can read the answer the same way
+whether or not one was found. `id` is the bare OSM relation id, not a database row id: it is what
+the client persists as `Municipality.id` (`shared/`), and it has to match the id an
+Overpass-sourced lookup already cached for the same relation, or a boundary already known from
+before this endpoint existed would duplicate rather than merge. `rings` carries outer and inner
+rings alike, each closed implicitly (the first point is not repeated as the last) — an enclave
+subtracts for free under the even-odd ray cast both the backend
+(`MunicipalityBoundary.Contains`) and the client (`Municipality.contains`, `shared/`) run.
+
+This endpoint is read-only: data is loaded by an operator running
+`dotnet Detour.Api.dll import-municipalities <path.json>` on the box that hosts the database —
+see [`backend/INSTALL.md`](../backend/INSTALL.md#configuration). Same no-deletion-on-re-import
+rule as `/api/speedlimits` and `/api/roads`, for the same reason.
 
 ## 16. Limits and defaults
 

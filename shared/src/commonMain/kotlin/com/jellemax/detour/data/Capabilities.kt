@@ -27,6 +27,9 @@ internal data class ServerCapabilities(
     /** Blank when the server does not announce its own drivable-road endpoint
      *  (issue #380). */
     val roadsBaseUrl: String = "",
+    /** Blank when the server does not announce its own municipality-boundary
+     *  endpoint (issue #381). */
+    val municipalityBaseUrl: String = "",
 )
 
 /**
@@ -101,6 +104,7 @@ internal object Capabilities {
             camerasBaseUrl = normalisedAddress(o.optObject("cameras")?.optString("baseUrl").orEmpty()),
             speedLimitsBaseUrl = normalisedAddress(o.optObject("speedLimits")?.optString("baseUrl").orEmpty()),
             roadsBaseUrl = normalisedAddress(o.optObject("roads")?.optString("baseUrl").orEmpty()),
+            municipalityBaseUrl = normalisedAddress(o.optObject("municipality")?.optString("baseUrl").orEmpty()),
         )
     }
 

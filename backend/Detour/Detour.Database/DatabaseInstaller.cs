@@ -1,6 +1,7 @@
 using Detour.Database.Configuration;
 using Detour.Database.Repositories;
 using Detour.Domain.ApiKeys;
+using Detour.Domain.Boundaries;
 using Detour.Domain.Cameras;
 using Detour.Domain.Circles;
 using Detour.Domain.Friendships;
@@ -62,6 +63,7 @@ public static class DatabaseInstaller
         services.AddScoped<ICameraRepository, CameraRepository>();
         services.AddScoped<ISpeedLimitWayRepository, SpeedLimitWayRepository>();
         services.AddScoped<IRoadWayRepository, RoadWayRepository>();
+        services.AddScoped<IMunicipalityBoundaryRepository, MunicipalityBoundaryRepository>();
 
         return services;
     }

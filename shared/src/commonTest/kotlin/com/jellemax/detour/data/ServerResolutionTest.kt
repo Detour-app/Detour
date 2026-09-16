@@ -240,6 +240,31 @@ class ServerResolutionTest {
         assertEquals("", RoutingServer.roadsBase(null, discoveredRoads = ""))
     }
 
+    /** [RoutingServer.municipalityBase] mirrors [RoutingServer.camerasBase] exactly (issue
+     *  #381) — the three tests above, repeated for the municipality-boundary endpoint. */
+    @Test
+    fun municipalityBase_prefers_announced_over_general_and_baked() {
+        val custom = ServerConfig(url = "https://general.example", enabled = true)
+        assertEquals(
+            "https://announced.example",
+            RoutingServer.municipalityBase(custom, discoveredMunicipality = "https://announced.example"),
+        )
+    }
+
+    @Test
+    fun municipalityBase_falls_back_to_general_when_nothing_announced() {
+        val custom = ServerConfig(url = "https://general.example", enabled = true)
+        assertEquals(
+            "https://general.example",
+            RoutingServer.municipalityBase(custom, discoveredMunicipality = ""),
+        )
+    }
+
+    @Test
+    fun municipalityBase_resolves_to_blank_when_nothing_is_configured() {
+        assertEquals("", RoutingServer.municipalityBase(null, discoveredMunicipality = ""))
+    }
+
     @Test
     fun theIssuerNeverFallsBackToTheGeneralServerAddress() {
         // A realm URL is never the API base, so a saved server with no issuer
