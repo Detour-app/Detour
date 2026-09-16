@@ -161,7 +161,8 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
     {
         var features = CapabilitiesResponse.FeaturesFor(
             [], routingAnnounced: false, geocoderAnnounced: false, camerasAnnounced: true,
-            speedLimitsAnnounced: false, roadsAnnounced: false, municipalityAnnounced: false);
+            speedLimitsAnnounced: false, roadsAnnounced: false, municipalityAnnounced: false,
+            poisAnnounced: false);
 
         Assert.Contains(CapabilitiesResponse.CamerasDiscoveryFeature, features);
     }
@@ -171,7 +172,8 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
     {
         var features = CapabilitiesResponse.FeaturesFor(
             [], routingAnnounced: false, geocoderAnnounced: false, camerasAnnounced: false,
-            speedLimitsAnnounced: true, roadsAnnounced: false, municipalityAnnounced: false);
+            speedLimitsAnnounced: true, roadsAnnounced: false, municipalityAnnounced: false,
+            poisAnnounced: false);
 
         Assert.Contains(CapabilitiesResponse.SpeedLimitsDiscoveryFeature, features);
     }
@@ -181,7 +183,8 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
     {
         var features = CapabilitiesResponse.FeaturesFor(
             [], routingAnnounced: false, geocoderAnnounced: false, camerasAnnounced: false,
-            speedLimitsAnnounced: false, roadsAnnounced: true, municipalityAnnounced: false);
+            speedLimitsAnnounced: false, roadsAnnounced: true, municipalityAnnounced: false,
+            poisAnnounced: false);
 
         Assert.Contains(CapabilitiesResponse.RoadsDiscoveryFeature, features);
     }
@@ -191,9 +194,21 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
     {
         var features = CapabilitiesResponse.FeaturesFor(
             [], routingAnnounced: false, geocoderAnnounced: false, camerasAnnounced: false,
-            speedLimitsAnnounced: false, roadsAnnounced: false, municipalityAnnounced: true);
+            speedLimitsAnnounced: false, roadsAnnounced: false, municipalityAnnounced: true,
+            poisAnnounced: false);
 
         Assert.Contains(CapabilitiesResponse.MunicipalityDiscoveryFeature, features);
+    }
+
+    [Fact]
+    public void FeaturesFor_includes_pois_discovery_when_a_pois_base_is_announced()
+    {
+        var features = CapabilitiesResponse.FeaturesFor(
+            [], routingAnnounced: false, geocoderAnnounced: false, camerasAnnounced: false,
+            speedLimitsAnnounced: false, roadsAnnounced: false, municipalityAnnounced: false,
+            poisAnnounced: true);
+
+        Assert.Contains(CapabilitiesResponse.PoisDiscoveryFeature, features);
     }
 
     [Fact]
@@ -202,7 +217,7 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
         var response = CapabilitiesResponse.From(
             new IdpSettings { Authority = "http://x", Audience = "a" },
             [], new RoutingSettings(), new GeocoderSettings(), new CameraSettings(), new SpeedLimitSettings(),
-            new RoadSettings(), new MunicipalitySettings());
+            new RoadSettings(), new MunicipalitySettings(), new PoiSettings());
 
         Assert.Null(response.Cameras);
     }
@@ -213,7 +228,7 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
         var response = CapabilitiesResponse.From(
             new IdpSettings { Authority = "http://x", Audience = "a" },
             [], new RoutingSettings(), new GeocoderSettings(), new CameraSettings(), new SpeedLimitSettings(),
-            new RoadSettings(), new MunicipalitySettings());
+            new RoadSettings(), new MunicipalitySettings(), new PoiSettings());
 
         Assert.Null(response.SpeedLimits);
     }
@@ -224,7 +239,7 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
         var response = CapabilitiesResponse.From(
             new IdpSettings { Authority = "http://x", Audience = "a" },
             [], new RoutingSettings(), new GeocoderSettings(), new CameraSettings(), new SpeedLimitSettings(),
-            new RoadSettings(), new MunicipalitySettings());
+            new RoadSettings(), new MunicipalitySettings(), new PoiSettings());
 
         Assert.Null(response.Roads);
     }
@@ -235,9 +250,20 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
         var response = CapabilitiesResponse.From(
             new IdpSettings { Authority = "http://x", Audience = "a" },
             [], new RoutingSettings(), new GeocoderSettings(), new CameraSettings(), new SpeedLimitSettings(),
-            new RoadSettings(), new MunicipalitySettings());
+            new RoadSettings(), new MunicipalitySettings(), new PoiSettings());
 
         Assert.Null(response.Municipality);
+    }
+
+    [Fact]
+    public void From_omits_the_pois_block_when_unconfigured()
+    {
+        var response = CapabilitiesResponse.From(
+            new IdpSettings { Authority = "http://x", Audience = "a" },
+            [], new RoutingSettings(), new GeocoderSettings(), new CameraSettings(), new SpeedLimitSettings(),
+            new RoadSettings(), new MunicipalitySettings(), new PoiSettings());
+
+        Assert.Null(response.Pois);
     }
 
     [Fact]
@@ -344,6 +370,32 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
         payload.Features.Should().Contain("municipality-discovery");
     }
 
+    [Fact]
+    public async Task Capabilities_do_not_announce_pois_when_unconfigured()
+    {
+        var payload = await _factory.CreateClient()
+            .GetFromJsonAsync<CapabilitiesPayload>("/api/capabilities");
+
+        payload.Should().NotBeNull();
+        payload!.Pois.Should().BeNull();
+        payload.Features.Should().NotContain("pois-discovery");
+    }
+
+    [Fact]
+    public async Task Capabilities_announce_a_configured_pois_base_url()
+    {
+        using var web = _factory.WithWebHostBuilder(builder =>
+            builder.UseSetting("Poi:BaseUrl", "https://pois.example.invalid"));
+
+        var payload = await web.CreateClient()
+            .GetFromJsonAsync<CapabilitiesPayload>("/api/capabilities");
+
+        payload.Should().NotBeNull();
+        payload!.Pois.Should().NotBeNull();
+        payload.Pois!.BaseUrl.Should().Be("https://pois.example.invalid");
+        payload.Features.Should().Contain("pois-discovery");
+    }
+
     private sealed record StubGateway(DevicePlatform Platform, bool Enabled) : IPushGateway
     {
         public Task<PushSendResult> SendWakeAsync(
@@ -360,7 +412,8 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
         CameraPayload? Cameras,
         SpeedLimitPayload? SpeedLimits,
         RoadPayload? Roads,
-        MunicipalityPayload? Municipality);
+        MunicipalityPayload? Municipality,
+        PoiPayload? Pois);
 
     private sealed record IdpPayload(string Issuer);
 
@@ -375,4 +428,6 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
     private sealed record RoadPayload(string BaseUrl);
 
     private sealed record MunicipalityPayload(string BaseUrl);
+
+    private sealed record PoiPayload(string BaseUrl);
 }

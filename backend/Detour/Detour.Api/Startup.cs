@@ -54,6 +54,7 @@ public class Startup(IConfiguration configuration)
         services.Configure<SpeedLimitSettings>(configuration.GetSection(SpeedLimitSettings.SectionName));
         services.Configure<RoadSettings>(configuration.GetSection(RoadSettings.SectionName));
         services.Configure<MunicipalitySettings>(configuration.GetSection(MunicipalitySettings.SectionName));
+        services.Configure<PoiSettings>(configuration.GetSection(PoiSettings.SectionName));
 
         services.AddTrustedProxies(ForwardedHeaders);
 

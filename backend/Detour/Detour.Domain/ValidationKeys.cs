@@ -269,6 +269,17 @@ public static class ValidationKeys
             ValidationKeyDefinition.Create($"{Base}.PolylineTooShort");
     }
 
+    public static class Poi
+    {
+        private const string Base = "Poi";
+
+        public static readonly ValidationKeyDefinition CoordinatesInvalid =
+            ValidationKeyDefinition.Create($"{Base}.CoordinatesInvalid");
+
+        public static readonly ValidationKeyDefinition KindBlank =
+            ValidationKeyDefinition.Create($"{Base}.KindBlank");
+    }
+
     public static class MunicipalityBoundary
     {
         private const string Base = "MunicipalityBoundary";

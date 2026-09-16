@@ -22,6 +22,7 @@ public class ApiConfiguration
     public SpeedLimitSettings SpeedLimit { get; set; } = new();
     public RoadSettings Road { get; set; } = new();
     public MunicipalitySettings Municipality { get; set; } = new();
+    public PoiSettings Poi { get; set; } = new();
 }
 
 /// <summary>
@@ -139,6 +140,18 @@ public class MunicipalitySettings
     public const string SectionName = "Municipality";
 
     /// <summary>Base URL that serves <c>/api/municipality</c>. Blank means "not announced".</summary>
+    public string BaseUrl { get; set; } = "";
+}
+
+/// <summary>
+/// Where this deployment's own point-of-interest endpoint lives, if it announces one via
+/// <c>/api/capabilities</c> (issue #383). See <see cref="RoutingSettings"/> for the reasoning.
+/// </summary>
+public class PoiSettings
+{
+    public const string SectionName = "Poi";
+
+    /// <summary>Base URL that serves <c>/api/pois</c>. Blank means "not announced".</summary>
     public string BaseUrl { get; set; } = "";
 }
 
