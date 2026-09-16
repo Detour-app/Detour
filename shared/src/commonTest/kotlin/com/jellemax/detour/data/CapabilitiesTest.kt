@@ -143,6 +143,24 @@ class CapabilitiesTest {
     }
 
     @Test
+    fun aDocumentAnnouncingMunicipalityYieldsItsBaseUrl() {
+        val caps = Capabilities.parse(
+            """{"schema":1,"features":["municipality-discovery"],
+                "idp":{"issuer":"https://idp.example/realms/detour"},
+                "municipality":{"baseUrl":"https://example.com"}}"""
+        )
+        assertEquals("https://example.com", caps?.municipalityBaseUrl)
+    }
+
+    @Test
+    fun aDocumentWithNoMunicipalityFieldOffersNoBaseUrl() {
+        val caps = Capabilities.parse(
+            """{"schema":1,"features":[],"idp":{"issuer":"https://idp.example/realms/detour"}}"""
+        )
+        assertEquals("", caps?.municipalityBaseUrl)
+    }
+
+    @Test
     fun routingCanBeAnnouncedIndependentlyOfGeocoder() {
         // A self-hoster routinely runs one and not the other.
         val caps = Capabilities.parse(

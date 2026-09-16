@@ -42,6 +42,7 @@ public class CapabilitiesController(
     IOptions<CameraSettings> cameraSettings,
     IOptions<SpeedLimitSettings> speedLimitSettings,
     IOptions<RoadSettings> roadSettings,
+    IOptions<MunicipalitySettings> municipalitySettings,
     IEnumerable<IPushGateway> pushGateways) : ControllerBase
 {
     [HttpGet]
@@ -59,5 +60,6 @@ public class CapabilitiesController(
             geocoderSettings.Value,
             cameraSettings.Value,
             speedLimitSettings.Value,
-            roadSettings.Value));
+            roadSettings.Value,
+            municipalitySettings.Value));
 }

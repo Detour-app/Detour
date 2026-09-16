@@ -21,6 +21,7 @@ public class ApiConfiguration
     public CameraSettings Camera { get; set; } = new();
     public SpeedLimitSettings SpeedLimit { get; set; } = new();
     public RoadSettings Road { get; set; } = new();
+    public MunicipalitySettings Municipality { get; set; } = new();
 }
 
 /// <summary>
@@ -126,6 +127,18 @@ public class RoadSettings
     public const string SectionName = "Road";
 
     /// <summary>Base URL that serves <c>/api/roads</c>. Blank means "not announced".</summary>
+    public string BaseUrl { get; set; } = "";
+}
+
+/// <summary>
+/// Where this deployment's own municipality-boundary endpoint lives, if it announces one via
+/// <c>/api/capabilities</c> (issue #381). See <see cref="RoutingSettings"/> for the reasoning.
+/// </summary>
+public class MunicipalitySettings
+{
+    public const string SectionName = "Municipality";
+
+    /// <summary>Base URL that serves <c>/api/municipality</c>. Blank means "not announced".</summary>
     public string BaseUrl { get; set; } = "";
 }
 
