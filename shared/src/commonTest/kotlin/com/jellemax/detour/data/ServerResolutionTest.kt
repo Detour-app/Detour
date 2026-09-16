@@ -196,6 +196,28 @@ class ServerResolutionTest {
         assertEquals("", RoutingServer.camerasBase(null, discoveredCameras = ""))
     }
 
+    /** [RoutingServer.speedLimitsBase] mirrors [RoutingServer.camerasBase] exactly (issue
+     *  #379) — the three tests above, repeated for the speed-limit-way endpoint. */
+    @Test
+    fun speedLimitsBase_prefers_announced_over_general_and_baked() {
+        val custom = ServerConfig(url = "https://general.example", enabled = true)
+        assertEquals(
+            "https://announced.example",
+            RoutingServer.speedLimitsBase(custom, discoveredSpeedLimits = "https://announced.example"),
+        )
+    }
+
+    @Test
+    fun speedLimitsBase_falls_back_to_general_when_nothing_announced() {
+        val custom = ServerConfig(url = "https://general.example", enabled = true)
+        assertEquals("https://general.example", RoutingServer.speedLimitsBase(custom, discoveredSpeedLimits = ""))
+    }
+
+    @Test
+    fun speedLimitsBase_resolves_to_blank_when_nothing_is_configured() {
+        assertEquals("", RoutingServer.speedLimitsBase(null, discoveredSpeedLimits = ""))
+    }
+
     @Test
     fun theIssuerNeverFallsBackToTheGeneralServerAddress() {
         // A realm URL is never the API base, so a saved server with no issuer

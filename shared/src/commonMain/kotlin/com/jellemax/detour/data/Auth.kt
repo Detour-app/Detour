@@ -468,6 +468,7 @@ object Auth {
         TraceStore.reset()
         RiderTotals.reset()
         SpeedCameraStore.reset()
+        SpeedLimitStore.reset()
     }
 
     private suspend fun refresh(): String {

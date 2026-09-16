@@ -144,10 +144,9 @@ object SpeedCameras {
      *  split out so it is unit-testable without a MockEngine — same reason [Capabilities.parse]
      *  is split from [Capabilities.fetch]. */
     private suspend fun nearViaBackend(base: String, center: LatLon, radiusMeters: Double): Result {
-        val degLat = radiusMeters / 111_320.0
-        val degLon = radiusMeters / (111_320.0 * kotlin.math.cos(center.lat * kotlin.math.PI / 180))
-        val url = "$base/api/cameras?minLat=${center.lat - degLat}&minLon=${center.lon - degLon}" +
-            "&maxLat=${center.lat + degLat}&maxLon=${center.lon + degLon}"
+        val bbox = RoadRoulette.bboxDegrees(center, radiusMeters)
+        val url = "$base/api/cameras?minLat=${bbox.minLat}&minLon=${bbox.minLon}" +
+            "&maxLat=${bbox.maxLat}&maxLon=${bbox.maxLon}"
         val body = jsonObjectOf(RoadRoulette.rawGet(url, headers = RoutingServer.userAgentHeaders()))
         return parseCamerasResponse(body)
     }
