@@ -39,7 +39,7 @@ public class SpeedLimitWayRepositoryTests(PostgresFixture postgres) : Integratio
         Assert.Equal(first.Id, stored.Id);
         Assert.Equal(90, stored.MaxSpeedKmh);
         var found = await repo.BboxAsync(50.89, 4.39, 50.91, 4.41, CancellationToken.None);
-        Assert.Single(found.Where(w => w.Id == first.Id));
+        Assert.Single(found, w => w.Id == first.Id);
     }
 
     [Fact]

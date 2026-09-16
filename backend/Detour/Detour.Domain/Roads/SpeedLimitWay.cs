@@ -52,9 +52,9 @@ public sealed class SpeedLimitWay : Entity
         if (polyline.Count < 2)
             return Result.Error(ValidationKeys.SpeedLimitWay.PolylineTooShort);
 
-        foreach (var point in polyline)
+        foreach (var (lat, lon) in polyline)
         {
-            if (point.Lat is < -90 or > 90 || point.Lon is < -180 or > 180)
+            if (lat is < -90 or > 90 || lon is < -180 or > 180)
                 return Result.Error(ValidationKeys.SpeedLimitWay.CoordinatesInvalid);
         }
 
