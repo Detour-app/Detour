@@ -125,6 +125,24 @@ class CapabilitiesTest {
     }
 
     @Test
+    fun aDocumentAnnouncingRoadsYieldsItsBaseUrl() {
+        val caps = Capabilities.parse(
+            """{"schema":1,"features":["roads-discovery"],
+                "idp":{"issuer":"https://idp.example/realms/detour"},
+                "roads":{"baseUrl":"https://example.com"}}"""
+        )
+        assertEquals("https://example.com", caps?.roadsBaseUrl)
+    }
+
+    @Test
+    fun aDocumentWithNoRoadsFieldOffersNoBaseUrl() {
+        val caps = Capabilities.parse(
+            """{"schema":1,"features":[],"idp":{"issuer":"https://idp.example/realms/detour"}}"""
+        )
+        assertEquals("", caps?.roadsBaseUrl)
+    }
+
+    @Test
     fun routingCanBeAnnouncedIndependentlyOfGeocoder() {
         // A self-hoster routinely runs one and not the other.
         val caps = Capabilities.parse(
