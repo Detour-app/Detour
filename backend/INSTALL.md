@@ -122,6 +122,7 @@ form too (`Idp__Authority`, `ConnectionStrings__DefaultConnection`, and so on).
 | `Idp:RequireHttpsMetadata` | Leave `true`. Off is for a local stack on plain HTTP. |
 | `Routing:BaseUrl` | Base URL of your own GraphHopper instance, if you run one. Optional — blank means not announced, and riders keep typing (or leave at the app's built-in) routing address. Also stated on `/api/capabilities` (issue #177), same reasoning as `Idp:Authority` above. |
 | `Geocoder:BaseUrl` | Base URL of your own Photon instance. Same as `Routing:BaseUrl`, configured independently — you may run one service and not the other. |
+| `Camera:BaseUrl` | Base URL that serves `/api/cameras` — typically your own API's public URL, since cameras are served by Detour.Api itself. Optional — blank means not announced, and the app falls back to querying the public Overpass API. Also stated on `/api/capabilities` (issue #303), same reasoning as `Idp:Authority` above. Load data with `dotnet Detour.Api.dll import-cameras <path.json>`, which upserts an importer JSON file — see `tools/camera-importer/osm_import.py` for what produces one. |
 | `Cors:AllowedOrigins` | Only needed for a browser origin. The app is not one. |
 | `Cache:RedisConnectionString` | Empty means memory-only, which is a correct single-instance deployment. |
 | `ForwardedHeaders:KnownProxies` / `KnownNetworks` | **Set one of these if anything sits in front of the API.** See below. |

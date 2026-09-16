@@ -50,6 +50,7 @@ public class Startup(IConfiguration configuration)
             new OptionsWrapper<IdpSettings>(MappedConfiguration.Idp));
         services.Configure<RoutingSettings>(configuration.GetSection(RoutingSettings.SectionName));
         services.Configure<GeocoderSettings>(configuration.GetSection(GeocoderSettings.SectionName));
+        services.Configure<CameraSettings>(configuration.GetSection(CameraSettings.SectionName));
 
         services.AddTrustedProxies(ForwardedHeaders);
 

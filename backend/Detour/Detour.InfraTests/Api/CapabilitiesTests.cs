@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using Detour.Api.Configuration;
+using Detour.Api.Contracts;
 using Detour.Api.Notifications;
 using Detour.Domain.Notifications;
 using Detour.InfraTests.Database;
@@ -154,6 +156,50 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
         payload.Features.Should().NotContain("geocoder-discovery");
     }
 
+    [Fact]
+    public void FeaturesFor_includes_cameras_discovery_when_a_camera_base_is_announced()
+    {
+        var features = CapabilitiesResponse.FeaturesFor([], routingAnnounced: false, geocoderAnnounced: false, camerasAnnounced: true);
+
+        Assert.Contains(CapabilitiesResponse.CamerasDiscoveryFeature, features);
+    }
+
+    [Fact]
+    public void From_omits_the_cameras_block_when_unconfigured()
+    {
+        var response = CapabilitiesResponse.From(
+            new IdpSettings { Authority = "http://x", Audience = "a" },
+            [], new RoutingSettings(), new GeocoderSettings(), new CameraSettings());
+
+        Assert.Null(response.Cameras);
+    }
+
+    [Fact]
+    public async Task Capabilities_do_not_announce_cameras_when_unconfigured()
+    {
+        var payload = await _factory.CreateClient()
+            .GetFromJsonAsync<CapabilitiesPayload>("/api/capabilities");
+
+        payload.Should().NotBeNull();
+        payload!.Cameras.Should().BeNull();
+        payload.Features.Should().NotContain("cameras-discovery");
+    }
+
+    [Fact]
+    public async Task Capabilities_announce_a_configured_cameras_base_url()
+    {
+        using var web = _factory.WithWebHostBuilder(builder =>
+            builder.UseSetting("Camera:BaseUrl", "https://cameras.example.invalid"));
+
+        var payload = await web.CreateClient()
+            .GetFromJsonAsync<CapabilitiesPayload>("/api/capabilities");
+
+        payload.Should().NotBeNull();
+        payload!.Cameras.Should().NotBeNull();
+        payload.Cameras!.BaseUrl.Should().Be("https://cameras.example.invalid");
+        payload.Features.Should().Contain("cameras-discovery");
+    }
+
     private sealed record StubGateway(DevicePlatform Platform, bool Enabled) : IPushGateway
     {
         public Task<PushSendResult> SendWakeAsync(
@@ -166,11 +212,14 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
         IReadOnlyList<string> Features,
         IdpPayload Idp,
         RoutingPayload? Routing,
-        GeocoderPayload? Geocoder);
+        GeocoderPayload? Geocoder,
+        CameraPayload? Cameras);
 
     private sealed record IdpPayload(string Issuer);
 
     private sealed record RoutingPayload(string BaseUrl);
 
     private sealed record GeocoderPayload(string BaseUrl);
+
+    private sealed record CameraPayload(string BaseUrl);
 }

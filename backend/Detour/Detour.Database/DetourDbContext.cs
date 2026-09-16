@@ -1,4 +1,5 @@
 using Detour.Domain.ApiKeys;
+using Detour.Domain.Cameras;
 using Detour.Domain.Circles;
 using Detour.Domain.Friendships;
 using Detour.Domain.Groups;
@@ -30,6 +31,7 @@ public class DetourDbContext(DbContextOptions<DetourDbContext> options) : DbCont
     public DbSet<PlaceEvent> PlaceEvents => Set<PlaceEvent>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
+    public DbSet<Camera> Cameras => Set<Camera>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
