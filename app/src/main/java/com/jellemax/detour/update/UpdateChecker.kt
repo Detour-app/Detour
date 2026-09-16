@@ -67,6 +67,22 @@ object UpdateChecker {
 
     private val _manual = MutableStateFlow<ManualCheck>(ManualCheck.Idle)
 
+    /** The merged notes for every release between the installed build and the
+     *  one on offer (#358), or null until [loadRangeNotes] has landed one. The
+     *  row falls back to the offered release's own notes, so null is "nothing
+     *  extra yet", never "nothing to read". */
+    private val _rangeNotes = MutableStateFlow<String?>(null)
+    val rangeNotes: StateFlow<String?> = _rangeNotes
+
+    /** Serialises [loadRangeNotes] and guards [rangeLoadedFor] with it — two
+     *  expands in quick succession must make one request, not two. */
+    private val rangeGate = Mutex()
+
+    /** Installed-to-offered pair the current [_rangeNotes] describes. Memoised
+     *  on both halves: a newly offered release invalidates it, and so would an
+     *  install, which is the only way the left half moves. */
+    private var rangeLoadedFor: Pair<String, String>? = null
+
     /**
      * The rider's own check. Held on the object rather than in the composition
      * for the same reason [UpdateState] is, though not for an in-flight check:
@@ -270,4 +286,38 @@ object UpdateChecker {
             if (notify) UpdateNotification.notifyOnce(context, update.version)
             Outcome.Found(update.version)
         }
+
+    /**
+     * Fetches the notes for every release the rider skipped, once.
+     *
+     * Called when the "What's new" expander is opened rather than on the
+     * hourly check, which is the whole point: an update stays available until
+     * it is taken, so fetching this on every check would re-download the
+     * release list for as long as the rider deferred. A deliberate tap is the
+     * one moment the notes are actually wanted.
+     *
+     * Idempotent per installed-to-offered pair, so collapsing and re-expanding
+     * costs nothing. It does not spend the manual-check budget: that budget
+     * exists to bound a rider repeatedly tapping *check*, and this cannot be
+     * repeated — the memo answers the second call.
+     *
+     * Silent on failure, like the automatic check. The row already has the
+     * offered release's own notes to show.
+     */
+    suspend fun loadRangeNotes() {
+        val repo = BuildConfig.UPDATE_REPO
+        if (!isConfigured) return
+        val offered = (UpdateState.status.value as? UpdateStatus.Available)?.update?.version ?: return
+        val key = BuildConfig.VERSION_NAME to offered
+        rangeGate.withLock {
+            if (rangeLoadedFor == key) return
+            val merged = runCatching {
+                withContext(Dispatchers.IO) { UpdateClient.rangeNotes(repo, BuildConfig.VERSION_NAME) }
+            }.getOrNull()
+            // Marked done either way: a failed fetch must not re-request on
+            // every expand, and the next offered version moves the key anyway.
+            rangeLoadedFor = key
+            if (merged != null) _rangeNotes.value = merged
+        }
+    }
 }
