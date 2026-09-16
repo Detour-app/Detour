@@ -159,9 +159,19 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
     [Fact]
     public void FeaturesFor_includes_cameras_discovery_when_a_camera_base_is_announced()
     {
-        var features = CapabilitiesResponse.FeaturesFor([], routingAnnounced: false, geocoderAnnounced: false, camerasAnnounced: true);
+        var features = CapabilitiesResponse.FeaturesFor(
+            [], routingAnnounced: false, geocoderAnnounced: false, camerasAnnounced: true, speedLimitsAnnounced: false);
 
         Assert.Contains(CapabilitiesResponse.CamerasDiscoveryFeature, features);
+    }
+
+    [Fact]
+    public void FeaturesFor_includes_speedlimits_discovery_when_a_speedlimits_base_is_announced()
+    {
+        var features = CapabilitiesResponse.FeaturesFor(
+            [], routingAnnounced: false, geocoderAnnounced: false, camerasAnnounced: false, speedLimitsAnnounced: true);
+
+        Assert.Contains(CapabilitiesResponse.SpeedLimitsDiscoveryFeature, features);
     }
 
     [Fact]
@@ -169,9 +179,19 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
     {
         var response = CapabilitiesResponse.From(
             new IdpSettings { Authority = "http://x", Audience = "a" },
-            [], new RoutingSettings(), new GeocoderSettings(), new CameraSettings());
+            [], new RoutingSettings(), new GeocoderSettings(), new CameraSettings(), new SpeedLimitSettings());
 
         Assert.Null(response.Cameras);
+    }
+
+    [Fact]
+    public void From_omits_the_speedlimits_block_when_unconfigured()
+    {
+        var response = CapabilitiesResponse.From(
+            new IdpSettings { Authority = "http://x", Audience = "a" },
+            [], new RoutingSettings(), new GeocoderSettings(), new CameraSettings(), new SpeedLimitSettings());
+
+        Assert.Null(response.SpeedLimits);
     }
 
     [Fact]
@@ -200,6 +220,32 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
         payload.Features.Should().Contain("cameras-discovery");
     }
 
+    [Fact]
+    public async Task Capabilities_do_not_announce_speedlimits_when_unconfigured()
+    {
+        var payload = await _factory.CreateClient()
+            .GetFromJsonAsync<CapabilitiesPayload>("/api/capabilities");
+
+        payload.Should().NotBeNull();
+        payload!.SpeedLimits.Should().BeNull();
+        payload.Features.Should().NotContain("speedlimits-discovery");
+    }
+
+    [Fact]
+    public async Task Capabilities_announce_a_configured_speedlimits_base_url()
+    {
+        using var web = _factory.WithWebHostBuilder(builder =>
+            builder.UseSetting("SpeedLimit:BaseUrl", "https://speedlimits.example.invalid"));
+
+        var payload = await web.CreateClient()
+            .GetFromJsonAsync<CapabilitiesPayload>("/api/capabilities");
+
+        payload.Should().NotBeNull();
+        payload!.SpeedLimits.Should().NotBeNull();
+        payload.SpeedLimits!.BaseUrl.Should().Be("https://speedlimits.example.invalid");
+        payload.Features.Should().Contain("speedlimits-discovery");
+    }
+
     private sealed record StubGateway(DevicePlatform Platform, bool Enabled) : IPushGateway
     {
         public Task<PushSendResult> SendWakeAsync(
@@ -213,7 +259,8 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
         IdpPayload Idp,
         RoutingPayload? Routing,
         GeocoderPayload? Geocoder,
-        CameraPayload? Cameras);
+        CameraPayload? Cameras,
+        SpeedLimitPayload? SpeedLimits);
 
     private sealed record IdpPayload(string Issuer);
 
@@ -222,4 +269,6 @@ public class CapabilitiesTests(PostgresFixture postgres) : IAsyncLifetime
     private sealed record GeocoderPayload(string BaseUrl);
 
     private sealed record CameraPayload(string BaseUrl);
+
+    private sealed record SpeedLimitPayload(string BaseUrl);
 }

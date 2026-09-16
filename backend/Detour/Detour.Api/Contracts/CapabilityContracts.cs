@@ -26,7 +26,8 @@ public record CapabilitiesResponse(
     [Required] IdpCapabilityResponse Idp,
     RoutingCapabilityResponse? Routing,
     GeocoderCapabilityResponse? Geocoder,
-    CameraCapabilityResponse? Cameras)
+    CameraCapabilityResponse? Cameras,
+    SpeedLimitCapabilityResponse? SpeedLimits)
 {
     /// <summary>
     /// Bumped only when an existing field on this response changes meaning —
@@ -56,10 +57,14 @@ public record CapabilitiesResponse(
     /// <summary>This deployment announces its own camera-data endpoint (issue #303).</summary>
     public const string CamerasDiscoveryFeature = "cameras-discovery";
 
+    /// <summary>This deployment announces its own speed-limit-way endpoint (issue #379).</summary>
+    public const string SpeedLimitsDiscoveryFeature = "speedlimits-discovery";
+
     /// <summary>
     /// The advertised feature set for a deployment whose push gateways are
-    /// <paramref name="pushPlatforms"/>, and whose routing/geocoder/cameras discovery is
-    /// <paramref name="routingAnnounced"/>/<paramref name="geocoderAnnounced"/>/<paramref name="camerasAnnounced"/>.
+    /// <paramref name="pushPlatforms"/>, and whose routing/geocoder/cameras/speed-limits
+    /// discovery is <paramref name="routingAnnounced"/>/<paramref name="geocoderAnnounced"/>/
+    /// <paramref name="camerasAnnounced"/>/<paramref name="speedLimitsAnnounced"/>.
     ///
     /// Split from <see cref="From"/> so the mapping can be asserted without a
     /// host: the controller's job is to read the gateways and settings, and this
@@ -69,7 +74,8 @@ public record CapabilitiesResponse(
         IEnumerable<DevicePlatform> pushPlatforms,
         bool routingAnnounced,
         bool geocoderAnnounced,
-        bool camerasAnnounced)
+        bool camerasAnnounced,
+        bool speedLimitsAnnounced)
     {
         var platforms = pushPlatforms.ToHashSet();
         var features = new List<string>(AlwaysOnFeatures);
@@ -83,6 +89,8 @@ public record CapabilitiesResponse(
             features.Add(GeocoderDiscoveryFeature);
         if (camerasAnnounced)
             features.Add(CamerasDiscoveryFeature);
+        if (speedLimitsAnnounced)
+            features.Add(SpeedLimitsDiscoveryFeature);
         return features;
     }
 
@@ -91,7 +99,8 @@ public record CapabilitiesResponse(
         IEnumerable<DevicePlatform> pushPlatforms,
         RoutingSettings routingSettings,
         GeocoderSettings geocoderSettings,
-        CameraSettings cameraSettings)
+        CameraSettings cameraSettings,
+        SpeedLimitSettings speedLimitSettings)
     {
         // Blank means "not configured", and the field itself carries that —
         // absent, not present-but-empty, so a client can test for null rather
@@ -105,13 +114,17 @@ public record CapabilitiesResponse(
         var cameras = string.IsNullOrWhiteSpace(cameraSettings.BaseUrl)
             ? null
             : new CameraCapabilityResponse(cameraSettings.BaseUrl);
+        var speedLimits = string.IsNullOrWhiteSpace(speedLimitSettings.BaseUrl)
+            ? null
+            : new SpeedLimitCapabilityResponse(speedLimitSettings.BaseUrl);
         return new(
             SchemaVersion,
-            FeaturesFor(pushPlatforms, routing is not null, geocoder is not null, cameras is not null),
+            FeaturesFor(pushPlatforms, routing is not null, geocoder is not null, cameras is not null, speedLimits is not null),
             new IdpCapabilityResponse(idpSettings.Authority),
             routing,
             geocoder,
-            cameras);
+            cameras,
+            speedLimits);
     }
 }
 
@@ -149,3 +162,10 @@ public record GeocoderCapabilityResponse([Required] string BaseUrl);
 /// unchanged.
 /// </summary>
 public record CameraCapabilityResponse([Required] string BaseUrl);
+
+/// <summary>
+/// Where this deployment's own speed-limit-way endpoint is. See
+/// <see cref="RoutingCapabilityResponse"/> for the reasoning, which applies here
+/// unchanged.
+/// </summary>
+public record SpeedLimitCapabilityResponse([Required] string BaseUrl);
