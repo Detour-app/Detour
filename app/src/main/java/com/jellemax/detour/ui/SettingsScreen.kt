@@ -86,6 +86,7 @@ import com.jellemax.detour.data.RouteColors
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.nav.Destination
 import com.jellemax.detour.presentation.formatFixed
+import com.jellemax.detour.ui.settings.LicencesScreen
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.tracking.DormancyBlocker
@@ -113,6 +114,7 @@ internal fun spokeTitle(spoke: Destination.SettingsSpoke): String = when (spoke)
     Destination.SettingsDisplaysMedia -> "Displays & media"
     Destination.SettingsServersSync -> "Servers & sync"
     Destination.SettingsObd2 -> "OBD2 adapter"
+    Destination.SettingsLicences -> "Licences"
 }
 
 /**
@@ -201,6 +203,7 @@ fun SettingsSpokeScreen(spoke: Destination.SettingsSpoke, onBack: () -> Unit) {
                 DiagnosticsSection()
             }
             Destination.SettingsObd2 -> Obd2PairingScreen()
+            Destination.SettingsLicences -> LicencesScreen()
         }
     }
 }

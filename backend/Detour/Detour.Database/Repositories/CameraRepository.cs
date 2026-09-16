@@ -21,12 +21,25 @@ public class CameraRepository(ICustomDbContextFactory<DetourDbContext> factory)
 
     public async Task<Camera> UpsertAsync(Camera incoming, CancellationToken cancellationToken)
     {
-        var candidates = await Set
+        var compatibleKinds = Camera.MergeCompatibleKinds(incoming.Kind);
+        bool InRange(Camera c) =>
+            compatibleKinds.Contains(c.Kind) && c.Status == CameraStatus.Active &&
+            c.BboxMinLat <= incoming.BboxMaxLat + ClusterMarginDeg && c.BboxMaxLat >= incoming.BboxMinLat - ClusterMarginDeg &&
+            c.BboxMinLon <= incoming.BboxMaxLon + ClusterMarginDeg && c.BboxMaxLon >= incoming.BboxMinLon - ClusterMarginDeg;
+
+        var dbCandidates = await Set
             .TagWith(Tag(nameof(UpsertAsync)))
-            .Where(c => c.Kind == incoming.Kind && c.Status == CameraStatus.Active)
+            .Where(c => compatibleKinds.Contains(c.Kind) && c.Status == CameraStatus.Active)
             .Where(c => c.BboxMinLat <= incoming.BboxMaxLat + ClusterMarginDeg && c.BboxMaxLat >= incoming.BboxMinLat - ClusterMarginDeg)
             .Where(c => c.BboxMinLon <= incoming.BboxMaxLon + ClusterMarginDeg && c.BboxMaxLon >= incoming.BboxMinLon - ClusterMarginDeg)
             .ToListAsync(cancellationToken);
+
+        // Set.Local carries entities Save() added earlier in this DbContext's lifetime but not
+        // yet flushed — CameraImport's single end-of-loop flush means a whole import run shares
+        // one context, so without this an entry upserted earlier in the same run is invisible to
+        // a later entry's clustering (the DB query above only sees what's actually in the table).
+        // See issue #367.
+        var candidates = dbCandidates.UnionBy(Set.Local.Where(InRange), c => c.Id).ToList();
 
         var match = Camera.Cluster(candidates, incoming, ClusterRadiusMeters);
         if (match is null)

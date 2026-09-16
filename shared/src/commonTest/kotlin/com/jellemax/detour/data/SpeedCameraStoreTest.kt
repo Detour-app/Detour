@@ -63,16 +63,14 @@ class SpeedCameraStoreTest {
     fun aTileOlderThanTheTtlReadsBackAsAMiss() {
         val nowMs = 1_700_000_000_000L
         val stale = tile("505:435:4000", fetchedAtMs = nowMs - SpeedCameraStore.TTL_MS - 1)
-        val fresh = stale.result.takeIf { nowMs - stale.fetchedAtMs <= SpeedCameraStore.TTL_MS }
-        assertEquals(null, fresh)
+        assertEquals(false, SpeedCameraStore.fresh(stale, nowMs))
     }
 
     @Test
     fun aTileWithinTheTtlStillReadsBack() {
         val nowMs = 1_700_000_000_000L
         val stillFresh = tile("505:435:4000", fetchedAtMs = nowMs - SpeedCameraStore.TTL_MS + 1)
-        val result = stillFresh.result.takeIf { nowMs - stillFresh.fetchedAtMs <= SpeedCameraStore.TTL_MS }
-        assertEquals(stillFresh.result, result)
+        assertEquals(true, SpeedCameraStore.fresh(stillFresh, nowMs))
     }
 
     // --- unbounded disk growth: withTile also prunes every other expired tile ---
