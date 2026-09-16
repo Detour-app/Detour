@@ -3,8 +3,9 @@
 
 Same node/relation-folding rules as tools/belgium-enforcement/build_dataset.py (see that file's
 README for the "why all three OSM encodings" background) — ported from Overpass JSON onto
-pyosmium's streaming pbf reader, which needs two passes: node locations first (ways/relations
-reference node ids, not inline coordinates), then ways/relations resolved against them.
+pyosmium's streaming pbf reader, which needs four passes: node locations first (ways/relations
+reference node ids, not inline coordinates), then a cheap relation-only scan for which way/node
+ids matter, then those ids' real geometry/tags, then relations resolved against all of it.
 
 Usage: python3 osm_import.py <region.osm.pbf> --region <name> --out <out.json>
        python3 osm_import.py --demo   # self-check against the Luxembourg extract
@@ -73,15 +74,75 @@ class NodeLocationPass(osmium.SimpleHandler):
         self.locations.set(n.id, osmium.osm.Location(n.location.lon, n.location.lat))
 
 
+class RelationScanPass(osmium.SimpleHandler):
+    """Pass 2: relations only, no node/way payload — works out what pass 3 needs to fetch:
+    which way ids carry an average_speed section's real road geometry, and which device nodes
+    need their own maxspeed tag as a fallback because the enforcement relation has none. Kept
+    to a want-list instead of indexing every way/node so pass 3 stays cheap at country scale."""
+
+    def __init__(self):
+        super().__init__()
+        self.section_way_ids = set()
+        self.maxspeed_fallback_node_ids = set()
+
+    def relation(self, r):
+        enforcement = r.tags.get("enforcement", "")
+        if enforcement == "average_speed":
+            for m in r.members:
+                if m.type == "w":
+                    self.section_way_ids.add(m.ref)
+        elif enforcement in ("maxspeed", "traffic_signals") and not r.tags.get("maxspeed"):
+            for m in r.members:
+                if m.type == "n" and m.role in ("device", "from", "to"):
+                    self.maxspeed_fallback_node_ids.add(m.ref)
+
+
+class GeometryTagPass(osmium.SimpleHandler):
+    """Pass 3: resolves pass 2's want-lists — way node coordinates for section polylines,
+    maxspeed tags for device nodes an enforcement relation didn't tag itself."""
+
+    def __init__(self, locations, section_way_ids, maxspeed_fallback_node_ids):
+        super().__init__()
+        self.locations = locations
+        self.section_way_ids = section_way_ids
+        self.maxspeed_fallback_node_ids = maxspeed_fallback_node_ids
+        self.way_points = {}  # way id -> ordered [(lat, lon), ...]
+        self.node_maxspeed = {}  # node id -> parsed maxspeed
+
+    def way(self, w):
+        if w.id not in self.section_way_ids:
+            return
+        pts = []
+        for nd in w.nodes:
+            try:
+                loc = self.locations.get(nd.ref)
+            except KeyError:
+                continue
+            pts.append((loc.lat, loc.lon))
+        if pts:
+            self.way_points[w.id] = pts
+
+    def node(self, n):
+        if n.id not in self.maxspeed_fallback_node_ids:
+            return
+        ms = parse_maxspeed(n.tags.get("maxspeed"))
+        if ms is not None:
+            self.node_maxspeed[n.id] = ms
+
+
 class RelationPass(osmium.SimpleHandler):
-    def __init__(self, locations, cameras):
+    def __init__(self, locations, cameras, way_points=None, node_maxspeed=None):
         super().__init__()
         self.locations = locations
         self.cameras = cameras
+        self.way_points = way_points or {}
+        self.node_maxspeed = node_maxspeed or {}
         self.sections = []
 
-    def _member_points(self, relation, role=None):
-        pts = []
+    def _member_nodes(self, relation, role=None):
+        """Member node (id, lat, lon) triples — the id is needed for the maxspeed-tag
+        fallback, not just clustering, so callers that only want points strip it themselves."""
+        nodes = []
         for m in relation.members:
             if m.type != "n":
                 continue
@@ -91,8 +152,8 @@ class RelationPass(osmium.SimpleHandler):
                 loc = self.locations.get(m.ref)
             except KeyError:
                 continue
-            pts.append((loc.lat, loc.lon))
-        return pts
+            nodes.append((m.ref, loc.lat, loc.lon))
+        return nodes
 
     def relation(self, r):
         enforcement = r.tags.get("enforcement", "")
@@ -105,8 +166,13 @@ class RelationPass(osmium.SimpleHandler):
         kind = "RedLight" if enforcement == "traffic_signals" else "FixedSpeed"
         ms = parse_maxspeed(r.tags.get("maxspeed"))
         road = r.tags.get("ref") or r.tags.get("name")
-        devices = self._member_points(r, "device") or self._member_points(r, "from") or self._member_points(r, "to")
-        for lat, lon in devices:
+        devices = self._member_nodes(r, "device") or self._member_nodes(r, "from") or self._member_nodes(r, "to")
+        if ms is None:
+            for node_id, _, _ in devices:
+                if node_id in self.node_maxspeed:
+                    ms = self.node_maxspeed[node_id]
+                    break
+        for node_id, lat, lon in devices:
             hit = None
             for cam in self.cameras.values():
                 if hav((lat, lon), (cam["lat"], cam["lon"])) <= SAME_CAM_M:
@@ -127,29 +193,38 @@ class RelationPass(osmium.SimpleHandler):
                 }
 
     def _add_section(self, r):
-        pts = self._member_points(r)
-        if len(pts) < 2:
-            return
-        a, b, span = pts[0], pts[1], 0.0
-        for i in range(len(pts)):
-            for j in range(i + 1, len(pts)):
-                d = hav(pts[i], pts[j])
-                if d > span:
-                    span, a, b = d, pts[i], pts[j]
-        if span < MIN_SPAN_M:
-            return
-        # a and b are themselves members of pts (distance to self is 0, always <= the cluster
-        # radius), so this filter already includes them — drop them from the middle before
-        # wrapping, or they'd appear twice (a zero-length segment at each end).
-        mid = [p for p in pts
-               if p is not a and p is not b
-               and (hav(p, a) <= END_CLUSTER_M or hav(p, b) <= END_CLUSTER_M)]
+        way_ids = [m.ref for m in r.members if m.type == "w"]
+        way_pts = [pt for wid in way_ids for pt in self.way_points.get(wid, [])]
+        if way_pts:
+            if hav(way_pts[0], way_pts[-1]) < MIN_SPAN_M:
+                return
+            polyline = way_pts
+        else:
+            pts = [(lat, lon) for _, lat, lon in self._member_nodes(r)]
+            if len(pts) < 2:
+                return
+            a, b, span = pts[0], pts[1], 0.0
+            for i in range(len(pts)):
+                for j in range(i + 1, len(pts)):
+                    d = hav(pts[i], pts[j])
+                    if d > span:
+                        span, a, b = d, pts[i], pts[j]
+            if span < MIN_SPAN_M:
+                return
+            # a and b are themselves members of pts (distance to self is 0, always <= the
+            # cluster radius), so this filter already includes them — drop them from the
+            # middle before wrapping, or they'd appear twice (a zero-length segment at each
+            # end).
+            mid = [p for p in pts
+                   if p is not a and p is not b
+                   and (hav(p, a) <= END_CLUSTER_M or hav(p, b) <= END_CLUSTER_M)]
+            polyline = [a] + mid + [b]
         ms = parse_maxspeed(r.tags.get("maxspeed"))
         self.sections.append({
             "sourceId": f"r{r.id}",
             "kind": "Section",
             "lat": None, "lon": None,
-            "polyline": [[p[0], p[1]] for p in ([a] + mid + [b])],
+            "polyline": [[p[0], p[1]] for p in polyline],
             "maxSpeedKmh": ms,
             "roadRef": r.tags.get("ref") or r.tags.get("name"),
         })
@@ -164,7 +239,15 @@ def import_region(pbf_path, region):
     # the same data twice — real memory on a country-scale extract, not just wasted cycles.
     node_pass.apply_file(pbf_path)
 
-    rel_pass = RelationPass(node_pass.locations, node_pass.cameras)
+    scan_pass = RelationScanPass()
+    scan_pass.apply_file(pbf_path)
+
+    geom_pass = GeometryTagPass(
+        node_pass.locations, scan_pass.section_way_ids, scan_pass.maxspeed_fallback_node_ids
+    )
+    geom_pass.apply_file(pbf_path)
+
+    rel_pass = RelationPass(node_pass.locations, node_pass.cameras, geom_pass.way_points, geom_pass.node_maxspeed)
     rel_pass.apply_file(pbf_path)
 
     cameras = [
