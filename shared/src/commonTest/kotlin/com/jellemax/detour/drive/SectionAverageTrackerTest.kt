@@ -20,7 +20,8 @@ import kotlin.test.assertTrue
  * **Mostly characterisation.** maxke24/Detour#22 (the average vanishing a few
  * hundred metres in and never re-arming) was undiagnosed when these were
  * written, and most of them still deliberately encode no cause: the parser
- * theory is refuted (`data/ParsingTest.kt`'s `SpeedCameraSectionTest`), and the
+ * theory was refuted (formerly `data/ParsingTest.kt`'s `SpeedCameraSectionTest`,
+ * removed with the Overpass parse path it tested against), and the
  * shape below is what makes the suppression observable at all - every transition
  * that can null [SectionAverageTracker.Reading] is one step of one fix, so a test
  * can drive the recorded sequence offline and watch which one fires.
@@ -586,11 +587,10 @@ class SectionAverageTrackerTest {
      *
      * **This test is the only coverage of the posted-limit half that exists or
      * can exist from the current fixtures.** Neither E40 relation tags `maxspeed`
-     * on the relation - only the `device` nodes do, and
-     * `SpeedCameras.parseSection` (`SpeedCameras.kt:109`) reads the relation's
-     * tags - so `Section.maxspeedKmh` is null for every replay of every
-     * trajectcontrole fixture, and no replay can exercise the over/under-limit
-     * comparison or the red chip. Relation **16251379** is the tagged alternative
+     * on the section itself in the backend's dataset, only the device nodes do -
+     * so `Section.maxspeedKmh` is null for every replay of every trajectcontrole
+     * fixture, and no replay can exercise the over/under-limit comparison or the
+     * red chip. Relation **16251379** is the tagged alternative
      * (`17-public-trace-datasets.md` §3.3) if a fixture is ever wanted; that is a
      * new fixture *and* a new baseline, and not this stage's work.
      */

@@ -25,7 +25,7 @@ import kotlin.random.Random
 /** What a spin produced. */
 sealed interface SpinOutcome {
     /**
-     * A round-trip loop. [warning] is non-null when the loop is the Overpass
+     * A round-trip loop. [warning] is non-null when the loop is the backend-sampled
      * fallback and the routing server had already failed — the rider gets a
      * usable loop *and* the reason the better one did not happen, which a bare
      * success or a bare error would each lose half of.
@@ -84,7 +84,7 @@ fun loopFailureReason(errors: List<Throwable?>): String =
  *
  * Lifted out of `MapScreen.spin()`, which held all of this inside a composable
  * where nothing could reach it: the loop-vs-candidates split, the roll-and-keep-
- * the-curviest strategy, the Overpass fallback and four different failure
+ * the-curviest strategy, the backend-sampled fallback and four different failure
  * sentences were a hundred lines of decision welded to a `scope.launch` and a
  * dozen `var`s.
  *
@@ -145,7 +145,7 @@ suspend fun runSpin(
  * the caller's try.
  *
  * Returns null when no loop came back, having told [onServerError] why, so the
- * caller can fall back to an Overpass-planned loop and still say what the
+ * caller can fall back to a backend-sampled loop and still say what the
  * server did. A [CancellationException] propagates: a cancelled spin is the
  * rider leaving, not a failure to report.
  */
@@ -192,7 +192,7 @@ private suspend fun rollBestLoop(
 
 /**
  * The round-trip branch of [runSpin]: a server loop if one comes back, an
- * Overpass-planned approximation if none does.
+ * backend-sampled approximation if none does.
  *
  * Its own function so [runSpin] reads as the two outcomes a spin has rather
  * than as four levels of nesting. The fallback is not a failure — a rider on a

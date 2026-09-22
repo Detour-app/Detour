@@ -155,12 +155,11 @@ class CameraPrefetchTest {
      * The acceptance criterion for the whole file, in the units #22 measured.
      *
      * Ten minutes of 1 Hz fixes driving away from a centre that never advances,
-     * with every answer refused — the exact shape of a rate-limited IP, and
-     * about what a 17 km motorway replay is. Flat-throttled that is 38 attempts
-     * — 15 s compared with `>`, so one every 16 — each one trying *every* mirror
-     * in `RoadRoulette.rawQuery`; backed off it is five. The old number is
-     * asserted alongside the new one so this test says what it bought, not just
-     * that it is small.
+     * with every answer refused — the exact shape this file's backoff exists
+     * for, and about what a 17 km motorway replay is. Flat-throttled that is 38
+     * attempts — 15 s compared with `>`, so one every 16 — each one a request to
+     * the backend; backed off it is five. The old number is asserted alongside
+     * the new one so this test says what it bought, not just that it is small.
      */
     @Test
     fun aRunOfRefusalsCostsSingleFiguresOfRequestsNotForty() {

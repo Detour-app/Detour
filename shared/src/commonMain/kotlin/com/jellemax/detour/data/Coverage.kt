@@ -23,13 +23,6 @@ import okio.IOException
 const val CELL_METERS = 250.0
 private const val METERS_PER_DEG = 111_320.0
 
-/** Two boundary points this close are the same OSM node, shared between ways. */
-private const val NODE_EPSILON_DEG = 1e-7
-
-/** Ring points nearer than this to the previous one carry no information at a
- *  250 m grid, and boundaries from OSM are absurdly detailed. */
-private const val RING_DECIMATE_METERS = 100.0
-
 /** Refuse to grid a boundary bigger than this many cells (~12,500 km²). */
 private const val MAX_CELLS = 200_000
 
@@ -122,8 +115,9 @@ data class Municipality(
  *
  * Boundaries are discovered lazily: the tracking service asks [needsLookup] for
  * each new trace point and, when the answer is yes, [discoverQuietly] resolves
- * that point to a boundary over Overpass. Driving through a new gemeente costs
- * exactly one query; every later point lands inside a boundary we already have.
+ * that point to a boundary via this deployment's own `/api/municipality` endpoint. Driving
+ * through a new gemeente costs exactly one query; every later point lands inside a boundary we
+ * already have.
  */
 object MunicipalityStore {
 
@@ -134,7 +128,7 @@ object MunicipalityStore {
     @Volatile internal var cache: List<Municipality>? = null
 
     /**
-     * Points Overpass had no admin_level=8 boundary for (sea, or outside our
+     * Points the backend had no admin_level=8 boundary for (sea, or outside our
      * admin-level assumption). Kept per session so we stop asking.
      *
      * Replaced wholesale rather than mutated: the discovery coroutine writes it
@@ -220,7 +214,7 @@ object MunicipalityStore {
         val found = try {
             fetch(p)
         } catch (e: Exception) {
-            return // offline or Overpass down; the next new cell tries again
+            return // offline or backend down; the next new cell tries again
         }
         if (found == null) {
             if (epoch == Auth.sessionEpoch.value) misses = misses + missKey(p)
@@ -238,38 +232,22 @@ object MunicipalityStore {
     }
 
     /**
-     * Resolves [p] to its municipality, or null when nothing contains it — the same
-     * null-vs-exception contract [fetchViaOverpass] always had: null is a real "not here"
-     * answer, an exception is a failed request.
+     * Resolves [p] to its municipality, or null when nothing contains it (a backend call that
+     * fails outright throws instead).
      *
-     * Same fallback chain as `RoadRoulette.speedLimitWays`/`RoadTypeTracker.fetchWays` (issue
-     * #381, phase 4 of #302): this deployment's own `/api/municipality` first, when announced;
-     * [fetchViaOverpass] when the backend call fails outright. No disk-cache layer of its own,
-     * unlike those two — [MunicipalityStore] already *is* the disk cache
-     * ([needsLookup]/[discoverQuietly] only ever call this once per boundary, not per fix), so
-     * there is nothing this call would fall back to that isn't already one of the two sources
-     * above it.
+     * Backed by this deployment's own `/api/municipality` endpoint (issue #381). No disk-cache
+     * layer of its own — [MunicipalityStore] already *is* the disk cache
+     * ([needsLookup]/[discoverQuietly] only ever call this once per boundary, not per fix). An
+     * install with no announced endpoint returns null.
      */
     private suspend fun fetch(p: LatLon): Municipality? {
         val backendBase = RoutingServer.municipalityBase(RoutingServer.loadCustom())
-        if (backendBase.isBlank()) return fetchViaOverpass(p)
-
-        return try {
-            fetchViaBackend(backendBase, p)
-        } catch (e: IOException) {
-            fetchViaOverpass(p)
-        } catch (e: SerializationException) {
-            fetchViaOverpass(p)
-        } catch (e: IllegalArgumentException) {
-            fetchViaOverpass(p)
-        }
+        if (backendBase.isBlank()) return null
+        return fetchViaBackend(backendBase, p)
     }
 
     /** The point lookup against this deployment's own municipality-boundary endpoint (issue
-     *  #381). Null means the server answered and named no containing boundary — a real
-     *  "not here" answer, so [fetch] does not also ask Overpass for the same point. An
-     *  exception means the request itself failed, which [fetch] catches and falls back to
-     *  [fetchViaOverpass] for. */
+     *  #381). Null means the server answered and named no containing boundary. */
     private suspend fun fetchViaBackend(base: String, p: LatLon): Municipality? {
         val url = "$base/api/municipality?lat=${p.lat}&lon=${p.lon}"
         val body = jsonObjectOf(RoadRoulette.rawGet(url, headers = RoutingServer.userAgentHeaders()))
@@ -288,78 +266,6 @@ object MunicipalityStore {
             .filter { it.size >= 3 }
         if (rings.isEmpty()) return null
         return Municipality(m.optLong("id"), name, rings)
-    }
-
-    /**
-     * Overpass-only. [fetch] is the entry point every caller should use — it tries the
-     * backend's own `/api/municipality` first (when the deployment announces one, issue #381)
-     * and only reaches here once that call fails.
-     */
-    private suspend fun fetchViaOverpass(p: LatLon): Municipality? {
-        val query = "[out:json][timeout:${RoadRoulette.SERVER_TIMEOUT_S}];" +
-            "is_in(${p.lat},${p.lon})->.a;" +
-            "relation(pivot.a)[\"boundary\"=\"administrative\"][\"admin_level\"=\"8\"];" +
-            "out geom;"
-        val elements = jsonObjectOf(RoadRoulette.rawQuery(query)).optArray("elements")
-            ?: return null
-        val el = elements.optObject(0) ?: return null
-        val name = el.optObject("tags")?.optString("name")?.takeIf { it.isNotBlank() }
-            ?: return null
-
-        // Relation members are the boundary's ways, each an open polyline. Only
-        // once chained end-to-end do they form the rings a ray cast needs.
-        // Inner rings (enclaves — a neighbouring town wholly surrounded by this
-        // one) are kept: an even-odd ray cast subtracts them for free, which is
-        // exactly right, and dropping them would inflate the denominator.
-        // Non-geometry members (admin_centre nodes, label nodes) fall out on type.
-        val members = el.optArray("members") ?: return null
-        val ways = ArrayList<List<LatLon>>()
-        for (m in members.objects()) {
-            if (m.optString("type") != "way") continue
-            if (m.optString("role").let { it != "outer" && it != "inner" && it.isNotEmpty() }) continue
-            val geometry = m.optArray("geometry") ?: continue
-            val way = geometry.objects().map { LatLon(it.optDouble("lat"), it.optDouble("lon")) }
-            if (way.size >= 2) ways.add(way)
-        }
-        val rings = assembleRings(ways).map { decimate(it) }.filter { it.size >= 3 }
-        if (rings.isEmpty()) return null
-        return Municipality(el.optLong("id"), name, rings)
-    }
-
-    /** Chains open ways into closed rings by matching their endpoints. */
-    private fun assembleRings(ways: List<List<LatLon>>): List<List<LatLon>> {
-        val remaining = ways.toMutableList()
-        val rings = ArrayList<List<LatLon>>()
-        while (remaining.isNotEmpty()) {
-            val ring = ArrayList(remaining.removeAt(0))
-            while (!same(ring.first(), ring.last())) {
-                val next = remaining.indexOfFirst {
-                    same(it.first(), ring.last()) || same(it.last(), ring.last())
-                }
-                if (next < 0) break // boundary has a gap; the ray cast closes it
-                val way = remaining.removeAt(next)
-                val ordered = if (same(way.first(), ring.last())) way else way.reversed()
-                ring.addAll(ordered.drop(1))
-            }
-            if (same(ring.first(), ring.last())) ring.removeAt(ring.size - 1)
-            if (ring.size >= 3) rings.add(ring)
-        }
-        return rings
-    }
-
-    private fun same(a: LatLon, b: LatLon): Boolean =
-        kotlin.math.abs(a.lat - b.lat) < NODE_EPSILON_DEG &&
-            kotlin.math.abs(a.lon - b.lon) < NODE_EPSILON_DEG
-
-    private fun decimate(ring: List<LatLon>): List<LatLon> {
-        val out = ArrayList<LatLon>(ring.size / 4)
-        for (p in ring) {
-            val last = out.lastOrNull()
-            if (last == null || RoadRoulette.distanceMeters(last, p) >= RING_DECIMATE_METERS) {
-                out.add(p)
-            }
-        }
-        return out
     }
 
     /** ~2 km bucket: one failed lookup shouldn't silence the next town over. */

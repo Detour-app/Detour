@@ -29,9 +29,8 @@ class MunicipalityBackendTest {
     @Test
     fun aNullMunicipalityIsARealNotFoundAnswer() {
         // The server answers 200 with {"municipality": null} when no admin_level=8 boundary
-        // contains the point — sea, or outside the imported region. MunicipalityStore.fetch
-        // treats this the same as fetchViaOverpass's own "not found" null, not as a request
-        // failure that should fall through to Overpass too.
+        // contains the point — sea, or outside the imported region. A real "not here" answer,
+        // distinct from a request failure (which MunicipalityStore.fetch lets propagate).
         val body = jsonObjectOf("""{"municipality":null}""")
         assertNull(MunicipalityStore.parseMunicipalityResponse(body))
     }

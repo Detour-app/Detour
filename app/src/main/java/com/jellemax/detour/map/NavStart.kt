@@ -23,7 +23,7 @@ sealed interface NavStart {
 
     /**
      * A round trip whose loop has no instructions, which happens when the spin
-     * fell back to the Overpass sampler because the routing server was down.
+     * fell back to the backend-sampled loop because the routing server was down.
      * The line is drawable but unguidable, and saying so names the fix.
      */
     data object NoTurnData : NavStart
