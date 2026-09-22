@@ -1,9 +1,12 @@
 package com.jellemax.detour.drive
 
 import com.jellemax.detour.data.HighwayClass
+import com.jellemax.detour.data.JsonArrayEmpty
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.OverpassCache
 import com.jellemax.detour.data.RoadRoulette
+import com.jellemax.detour.data.RoutingServer
+import com.jellemax.detour.data.arrays
 import com.jellemax.detour.data.cacheKey
 import com.jellemax.detour.data.jsonObjectOf
 import com.jellemax.detour.data.objects
@@ -12,6 +15,7 @@ import com.jellemax.detour.data.optDouble
 import com.jellemax.detour.data.optObject
 import com.jellemax.detour.data.optString
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.JsonObject
 import okio.IOException
 
 /**
@@ -57,12 +61,79 @@ object RoadTypeTracker {
 
     fun fetchStarted(state: State, nowMs: Long): State = state.copy(lastFetchMs = nowMs)
 
-    /** Null on any failure, empty only when the area really has no drivable way — same
-     *  null-vs-empty contract `RoadRoulette.speedLimitWays` documents, and for the same
-     *  reason: collapsing the two into one `emptyList()` would make [withWays] treat a
-     *  failed fetch as "confirmed no roads here", which moves [State.waysCenter] and stops
-     *  ever retrying near this position. */
+    /**
+     * Null on any failure, empty only when the area really has no drivable way — same
+     * null-vs-empty contract `RoadRoulette.speedLimitWays` documents, and for the same
+     * reason: collapsing the two into one `emptyList()` would make [withWays] treat a
+     * failed fetch as "confirmed no roads here", which moves [State.waysCenter] and stops
+     * ever retrying near this position.
+     *
+     * Same fallback chain as `RoadRoulette.speedLimitWays` (issue #380, phase 3 of #302): this
+     * deployment's own `/api/roads` first, when announced; [RoadTypeStore]'s disk cache from an
+     * earlier successful fetch when the backend is reachable-in-principle but this call failed;
+     * Overpass only when the backend call fails outright. An *empty* backend answer is trusted
+     * and returned as-is (also cached) rather than falling through — same reasoning as
+     * `RoadRoulette.fetchRoads`'s own backend path: the bbox genuinely having no drivable way is
+     * a real answer, not a reason to reach for a stale disk tile or Overpass, and [withWays]
+     * already reads an empty [ClassifiedWay] list as "confirmed no roads here", not as a miss.
+     */
     suspend fun fetchWays(center: LatLon, radiusMeters: Double = FETCH_RADIUS_M): List<ClassifiedWay>? {
+        val backendBase = RoutingServer.roadsBase(RoutingServer.loadCustom())
+        if (backendBase.isBlank()) return fetchWaysViaOverpass(center, radiusMeters)
+
+        val fromBackend = try {
+            fetchWaysViaBackend(backendBase, center, radiusMeters)
+        } catch (e: IOException) {
+            null
+        } catch (e: SerializationException) {
+            null
+        } catch (e: IllegalArgumentException) {
+            null
+        }
+        if (fromBackend != null) {
+            RoadTypeStore.save(center, radiusMeters, fromBackend)
+            return fromBackend
+        }
+        return RoadTypeStore.load(center, radiusMeters) ?: fetchWaysViaOverpass(center, radiusMeters)
+    }
+
+    /** The bbox fetch against this deployment's own drivable-road endpoint (issue #380) — the
+     *  wire shape is `RoadWayDto`/`RoadsBboxResponse`
+     *  (`backend/Detour/Detour.Api/Contracts/RoadContracts.cs`). [parseRoadsResponse] is the
+     *  pure half, split out for the same reason `RoadRoulette.speedLimitWaysViaBackend`'s is. */
+    private suspend fun fetchWaysViaBackend(base: String, center: LatLon, radiusMeters: Double): List<ClassifiedWay> {
+        val bbox = RoadRoulette.bboxDegrees(center, radiusMeters)
+        val url = "$base/api/roads?minLat=${bbox.minLat}&minLon=${bbox.minLon}" +
+            "&maxLat=${bbox.maxLat}&maxLon=${bbox.maxLon}"
+        val body = jsonObjectOf(RoadRoulette.rawGet(url, headers = RoutingServer.userAgentHeaders()))
+        return parseRoadsResponse(body)
+    }
+
+    /** [fetchWaysViaBackend]'s pure half. internal, not private, so commonTest can feed it
+     *  canned response bodies. Every way the backend returns is kept — unlike
+     *  `RoadRoulette.parseRoadsResponse` (spin's own parse of the same endpoint), this consumer
+     *  wants every drivable class, not a mode-specific subset — and bucketed through
+     *  [HighwayClass.of], same as [fetchWaysViaOverpass]'s own `tags.highway` read. A tag that
+     *  bucket doesn't recognise is dropped, same as an untagged Overpass element already was. */
+    internal fun parseRoadsResponse(body: JsonObject): List<ClassifiedWay> {
+        val ways = ArrayList<ClassifiedWay>()
+        for (el in (body.optArray("ways") ?: JsonArrayEmpty).objects()) {
+            val tag = el.optString("highway").takeIf { it.isNotBlank() } ?: continue
+            val cls = HighwayClass.of(tag) ?: continue
+            val polyline = el.optArray("polyline") ?: continue
+            val pts = polyline.arrays().map { LatLon(it.optDouble(0), it.optDouble(1)) }
+            if (pts.size >= 2) ways.add(ClassifiedWay(cls, pts))
+        }
+        return ways
+    }
+
+    /**
+     * Overpass-only. [fetchWays] is the entry point every caller should use — it tries the
+     * backend's own `/api/roads` first (when the deployment announces one, issue #380) and only
+     * reaches here once that path, and [RoadTypeStore]'s disk cache behind it, both come up
+     * empty.
+     */
+    suspend fun fetchWaysViaOverpass(center: LatLon, radiusMeters: Double = FETCH_RADIUS_M): List<ClassifiedWay>? {
         val query = "[out:json][timeout:${RoadRoulette.SERVER_TIMEOUT_S}];" +
             "way(around:${radiusMeters.toInt()},${center.lat},${center.lon})" +
             "[\"highway\"~\"^(${RoadRoulette.DRIVABLE_HIGHWAYS})$\"];" +

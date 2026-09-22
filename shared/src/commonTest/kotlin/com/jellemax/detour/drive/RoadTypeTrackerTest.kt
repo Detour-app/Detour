@@ -3,6 +3,7 @@ package com.jellemax.detour.drive
 import com.jellemax.detour.data.HighwayClass
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RoadRoulette
+import com.jellemax.detour.data.jsonObjectOf
 import kotlin.math.PI
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -99,5 +100,40 @@ class RoadTypeTrackerTest {
         // working again — resets the count, same as SpeedLimitTracker.
         state = RoadTypeTracker.withWays(state, listOf(motorway), here)
         assertEquals(0, state.failures)
+    }
+
+    /** Covers [RoadTypeTracker.parseRoadsResponse] (issue #380 backend bbox response) — the
+     *  pure half of `fetchWaysViaBackend`, which needs a live backend and cannot be exercised
+     *  here. Every class the backend returns is kept, unlike `RoadRoulette.parseRoadsResponse`
+     *  (spin's own parse of the same endpoint), which filters to a mode-specific regex. */
+    @Test
+    fun aWayWithARecognisedHighwayTagParsesIntoItsBucket() {
+        val body = jsonObjectOf(
+            """{"ways":[{"id":"1","highway":"primary","polyline":[[49.6,6.1],[49.61,6.11]]}]}""",
+        )
+        val ways = RoadTypeTracker.parseRoadsResponse(body)
+        assertEquals(1, ways.size)
+        assertEquals(HighwayClass.ARTERIAL, ways[0].highwayClass)
+    }
+
+    @Test
+    fun aWayWithAnUnrecognisedHighwayTagIsDropped() {
+        val body = jsonObjectOf(
+            """{"ways":[{"id":"1","highway":"footway","polyline":[[49.6,6.1],[49.61,6.11]]}]}""",
+        )
+        assertEquals(emptyList(), RoadTypeTracker.parseRoadsResponse(body))
+    }
+
+    @Test
+    fun aWayWithATooShortPolylineIsDropped() {
+        val body = jsonObjectOf(
+            """{"ways":[{"id":"1","highway":"primary","polyline":[[49.6,6.1]]}]}""",
+        )
+        assertEquals(emptyList(), RoadTypeTracker.parseRoadsResponse(body))
+    }
+
+    @Test
+    fun anEmptyWaysArrayProducesAnEmptyResult() {
+        assertEquals(emptyList(), RoadTypeTracker.parseRoadsResponse(jsonObjectOf("""{"ways":[]}""")))
     }
 }

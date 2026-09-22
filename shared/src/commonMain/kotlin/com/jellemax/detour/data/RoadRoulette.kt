@@ -200,7 +200,86 @@ object RoadRoulette {
         return segments.last().b
     }
 
+    /**
+     * Drivable ways matching [highwayRegex] within [radiusMeters] of [center] — spin's
+     * random-road feature (issue #382, phase 5 of #302) and `RoundTripPlanner`'s sector fetch.
+     *
+     * Same fallback chain as [speedLimitWays]: this deployment's own `/api/roads` first, when
+     * announced, and only Overpass when that fails outright. Unlike [speedLimitWays] there is no
+     * disk cache in front of the backend call — a spin tap is user-initiated, not a background
+     * prefetch loop, so there is nothing to survive a restart for (issue #382's own reasoning).
+     * An *empty* backend answer is returned as-is (not a failure to fall through on): the bbox
+     * genuinely having no matching road is exactly what Overpass would also have said, and
+     * every caller here already handles an empty list by widening the search or trying the next
+     * sector, not by reaching for another data source.
+     */
     suspend fun fetchRoads(
+        center: LatLon,
+        radiusMeters: Double,
+        highwayRegex: String,
+        endpointOffset: Int = 0,
+    ): List<OverpassWay> {
+        val backendBase = RoutingServer.roadsBase(RoutingServer.loadCustom())
+        if (backendBase.isNotBlank()) {
+            val fromBackend = try {
+                fetchRoadsViaBackend(backendBase, center, radiusMeters, highwayRegex)
+            } catch (e: IOException) {
+                null
+            } catch (e: SerializationException) {
+                null
+            } catch (e: IllegalArgumentException) {
+                null
+            }
+            if (fromBackend != null) return fromBackend
+        }
+        return fetchRoadsViaOverpass(center, radiusMeters, highwayRegex, endpointOffset)
+    }
+
+    /** The bbox fetch against this deployment's own drivable-road endpoint (issue #380/#382) —
+     *  the wire shape is `RoadWayDto`/`RoadsBboxResponse`
+     *  (`backend/Detour/Detour.Api/Contracts/RoadContracts.cs`). [parseRoadsResponse] is the
+     *  pure half, split out for the same reason [speedLimitWaysViaBackend]'s is. */
+    private suspend fun fetchRoadsViaBackend(
+        base: String,
+        center: LatLon,
+        radiusMeters: Double,
+        highwayRegex: String,
+    ): List<OverpassWay> {
+        val bbox = bboxDegrees(center, radiusMeters)
+        val url = "$base/api/roads?minLat=${bbox.minLat}&minLon=${bbox.minLon}" +
+            "&maxLat=${bbox.maxLat}&maxLon=${bbox.maxLon}"
+        val body = jsonObjectOf(rawGet(url, headers = RoutingServer.userAgentHeaders()))
+        return parseRoadsResponse(body, highwayRegex)
+    }
+
+    /** [fetchRoadsViaBackend]'s pure half. internal, not private, so commonTest can feed it
+     *  canned response bodies. [highwayRegex] is applied the same way the Overpass query's own
+     *  `["highway"~"$highwayRegex"]` tag filter is — the backend returns every drivable class in
+     *  the bbox, and matching the mode-specific subset stays a client-side judgement call, same
+     *  as it always was. The node ids [OverpassWay] carries are synthetic (`0L`, one per point)
+     *  since this table does not store them — the same "no node info" fallback
+     *  [parseWays] already uses for an Overpass element with no `nodes` array, which
+     *  `RoundTripPlanner`'s junction detection already treats as "no junction here" rather than
+     *  crashing. */
+    internal fun parseRoadsResponse(body: JsonObject, highwayRegex: String): List<OverpassWay> {
+        val regex = Regex(highwayRegex)
+        val ways = ArrayList<OverpassWay>()
+        for (el in (body.optArray("ways") ?: JsonArrayEmpty).objects()) {
+            val tag = el.optString("highway").takeIf { it.isNotBlank() } ?: continue
+            if (!regex.matches(tag)) continue
+            val polyline = el.optArray("polyline") ?: continue
+            val pts = polyline.arrays().map { LatLon(it.optDouble(0), it.optDouble(1)) }
+            if (pts.size >= 2) ways.add(OverpassWay(List(pts.size) { 0L }, pts))
+        }
+        return ways
+    }
+
+    /**
+     * Overpass-only. [fetchRoads] is the entry point every caller should use — it tries the
+     * backend's own `/api/roads` first (when the deployment announces one, issue #380/#382) and
+     * only reaches here once that call fails outright.
+     */
+    suspend fun fetchRoadsViaOverpass(
         center: LatLon,
         radiusMeters: Double,
         highwayRegex: String,

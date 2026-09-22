@@ -34,6 +34,7 @@ public class DetourDbContext(DbContextOptions<DetourDbContext> options) : DbCont
     public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
     public DbSet<Camera> Cameras => Set<Camera>();
     public DbSet<SpeedLimitWay> SpeedLimitWays => Set<SpeedLimitWay>();
+    public DbSet<RoadWay> Roads => Set<RoadWay>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
