@@ -140,6 +140,101 @@ public class CameraTests
     }
 
     [Fact]
+    public void MergeSource_lets_the_original_setter_correct_a_field_even_after_a_higher_ranked_source_attaches_without_an_opinion_on_it()
+    {
+        // Issue #373's exact bug: LUFOP sets maxSpeedKmh, then OSM attaches to the same camera
+        // without ever supplying maxSpeedKmh (its node has no maxspeed tag), then LUFOP
+        // re-scrapes with a genuine correction. Per-source precedence blocked this forever
+        // because OSM outranks LUFOP overall; per-field precedence must not, since OSM never had
+        // an opinion on this particular field.
+        var lufopSource = new CameraSource("lufop", "l1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 90, null, lufopSource).Value;
+
+        var osmSource = new CameraSource("osm", "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var osmAttaches = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, null, null, osmSource).Value;
+        cam.MergeSource(osmAttaches);
+
+        var correctedLufop = lufopSource with { LastSeen = lufopSource.LastSeen.AddDays(1) };
+        var incoming = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 70, null, correctedLufop).Value;
+        cam.MergeSource(incoming);
+
+        Assert.Equal(70, cam.MaxSpeedKmh);
+    }
+
+    [Fact]
+    public void MergeSource_still_blocks_a_lower_ranked_source_from_correcting_a_field_a_higher_ranked_source_actually_set()
+    {
+        // The "correct case" from #373 must keep working under per-field precedence: OSM did set
+        // maxSpeedKmh, so LUFOP still can't override it, even via self-refresh.
+        var osmSource = new CameraSource("osm", "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 70, null, osmSource).Value;
+
+        var lufopSource = new CameraSource("lufop", "l1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var firstLufop = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 90, null, lufopSource).Value;
+        cam.MergeSource(firstLufop);
+
+        var correctedLufop = lufopSource with { LastSeen = lufopSource.LastSeen.AddDays(1) };
+        var incoming = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 130, null, correctedLufop).Value;
+        cam.MergeSource(incoming);
+
+        Assert.Equal(70, cam.MaxSpeedKmh);
+    }
+
+    [Fact]
+    public void MarkSourceMissing_retires_a_camera_once_its_only_source_misses_the_threshold()
+    {
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9", OsmSource).Value;
+
+        cam.MarkSourceMissing("osm", retireAfterMisses: 3);
+        Assert.Equal(CameraStatus.Active, cam.Status);
+        cam.MarkSourceMissing("osm", retireAfterMisses: 3);
+        Assert.Equal(CameraStatus.Active, cam.Status);
+        cam.MarkSourceMissing("osm", retireAfterMisses: 3);
+
+        Assert.Equal(CameraStatus.Retired, cam.Status);
+    }
+
+    [Fact]
+    public void MarkSourceMissing_keeps_a_camera_active_while_a_different_source_still_reports_it()
+    {
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9", OsmSource).Value;
+        var lufopSource = new CameraSource("lufop", "l1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var lufopAttaches = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, null, null, lufopSource).Value;
+        cam.MergeSource(lufopAttaches);
+
+        for (var i = 0; i < 5; i++) cam.MarkSourceMissing("osm", retireAfterMisses: 3);
+
+        Assert.Equal(CameraStatus.Active, cam.Status);
+    }
+
+    [Fact]
+    public void MergeSource_resets_a_sources_miss_streak_when_it_reports_again()
+    {
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9", OsmSource).Value;
+        cam.MarkSourceMissing("osm", retireAfterMisses: 3);
+        cam.MarkSourceMissing("osm", retireAfterMisses: 3);
+
+        var refreshed = OsmSource with { LastSeen = OsmSource.LastSeen.AddDays(1) };
+        var incoming = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9", refreshed).Value;
+        cam.MergeSource(incoming);
+
+        cam.MarkSourceMissing("osm", retireAfterMisses: 3);
+        cam.MarkSourceMissing("osm", retireAfterMisses: 3);
+
+        Assert.Equal(CameraStatus.Active, cam.Status); // would be retired without the reset
+    }
+
+    [Fact]
+    public void MarkSourceMissing_is_a_noop_for_a_source_that_never_reported_this_camera()
+    {
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9", OsmSource).Value;
+
+        cam.MarkSourceMissing("lufop", retireAfterMisses: 1);
+
+        Assert.Equal(CameraStatus.Active, cam.Status);
+    }
+
+    [Fact]
     public void Cluster_matches_same_kind_within_40_metres()
     {
         var existing = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85000, 4.36000, 50, "N9", OsmSource).Value;
