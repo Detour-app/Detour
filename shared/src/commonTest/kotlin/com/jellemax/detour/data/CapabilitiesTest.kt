@@ -161,6 +161,24 @@ class CapabilitiesTest {
     }
 
     @Test
+    fun aDocumentAnnouncingPoisYieldsItsBaseUrl() {
+        val caps = Capabilities.parse(
+            """{"schema":1,"features":["pois-discovery"],
+                "idp":{"issuer":"https://idp.example/realms/detour"},
+                "pois":{"baseUrl":"https://example.com"}}"""
+        )
+        assertEquals("https://example.com", caps?.poisBaseUrl)
+    }
+
+    @Test
+    fun aDocumentWithNoPoisFieldOffersNoBaseUrl() {
+        val caps = Capabilities.parse(
+            """{"schema":1,"features":[],"idp":{"issuer":"https://idp.example/realms/detour"}}"""
+        )
+        assertEquals("", caps?.poisBaseUrl)
+    }
+
+    @Test
     fun routingCanBeAnnouncedIndependentlyOfGeocoder() {
         // A self-hoster routinely runs one and not the other.
         val caps = Capabilities.parse(
