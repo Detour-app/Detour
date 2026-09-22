@@ -6,6 +6,7 @@ using Detour.Domain.Friendships;
 using Detour.Domain.Groups;
 using Detour.Domain.Notifications;
 using Detour.Domain.Places;
+using Detour.Domain.Pois;
 using Detour.Domain.Roads;
 using Detour.Domain.Routes;
 using Detour.Domain.Traces;
@@ -37,6 +38,7 @@ public class DetourDbContext(DbContextOptions<DetourDbContext> options) : DbCont
     public DbSet<SpeedLimitWay> SpeedLimitWays => Set<SpeedLimitWay>();
     public DbSet<RoadWay> Roads => Set<RoadWay>();
     public DbSet<MunicipalityBoundary> MunicipalityBoundaries => Set<MunicipalityBoundary>();
+    public DbSet<Poi> Pois => Set<Poi>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

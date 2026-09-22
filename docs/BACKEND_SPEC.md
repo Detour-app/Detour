@@ -548,14 +548,15 @@ answers is which realm mints them.
 ```json
 {
   "schema": 1,
-  "features": ["idp-discovery", "push-android", "routing-discovery", "geocoder-discovery", "cameras-discovery", "speedlimits-discovery", "roads-discovery", "municipality-discovery"],
+  "features": ["idp-discovery", "push-android", "routing-discovery", "geocoder-discovery", "cameras-discovery", "speedlimits-discovery", "roads-discovery", "municipality-discovery", "pois-discovery"],
   "idp": { "issuer": "https://idp.example/realms/detour" },
   "routing": { "baseUrl": "https://example.com/gh" },
   "geocoder": { "baseUrl": "https://example.com/photon" },
   "cameras": { "baseUrl": "https://example.com" },
   "speedLimits": { "baseUrl": "https://example.com" },
   "roads": { "baseUrl": "https://example.com" },
-  "municipality": { "baseUrl": "https://example.com" }
+  "municipality": { "baseUrl": "https://example.com" },
+  "pois": { "baseUrl": "https://example.com" }
 }
 ```
 
@@ -573,31 +574,33 @@ which is not the same question as what this software supports:
 | `speedlimits-discovery` | `SpeedLimit:BaseUrl` is set. |
 | `roads-discovery` | `Road:BaseUrl` is set. |
 | `municipality-discovery` | `Municipality:BaseUrl` is set. |
+| `pois-discovery` | `Poi:BaseUrl` is set. |
 
 The two push strings are per-platform rather than one `push`, because having
 Firebase credentials and no APNs key is an ordinary state and an iOS client must
 not read Android's answer as its own. `routing`, `geocoder`, `cameras`,
-`speedLimits`, `roads` and `municipality` are configured the same way —
+`speedLimits`, `roads`, `municipality` and `pois` are configured the same way —
 independently, all blank by default — because a self-hoster routinely runs
 some of these and not the others.
 
-`routing`, `geocoder`, `cameras`, `speedLimits`, `roads` and `municipality` are
-absent, not present with a blank `baseUrl`, when their env keys
+`routing`, `geocoder`, `cameras`, `speedLimits`, `roads`, `municipality` and
+`pois` are absent, not present with a blank `baseUrl`, when their env keys
 (`Routing__BaseUrl`, `Geocoder__BaseUrl`, `Camera__BaseUrl`,
-`SpeedLimit__BaseUrl`, `Road__BaseUrl`, `Municipality__BaseUrl`) are unset —
-the same "absent means not announced" rule `idp` does not get to use only
-because a realm is mandatory. Unlike `idp.issuer`, a client is not free to
-trust any of them verbatim: each is server-supplied and moves rider data (a
-destination typed into search, an origin/destination pair sent for a route) or
-a network request (the bbox fetch for `/api/cameras`, `/api/speedlimits` or
-`/api/roads`, or the point lookup for `/api/municipality`) to wherever it
-names, so the client validates it — HTTPS only, and a host that differs from
-the API's own asks the rider before it is used. See `RoutingServer.kt`'s
-discovery pair in `shared/` for the mirror of the `idp.issuer` discovery this
-reuses the shape of, extended with that consent step; `SpeedCameras.near`,
-`RoadRoulette.speedLimitWays`, `RoadRoulette.fetchRoads`/`RoadTypeTracker.fetchWays`
-and `MunicipalityStore.fetch` (also `shared/`) are `cameras`'s, `speedLimits`'s,
-`roads`'s and `municipality`'s equivalent callers.
+`SpeedLimit__BaseUrl`, `Road__BaseUrl`, `Municipality__BaseUrl`, `Poi__BaseUrl`)
+are unset — the same "absent means not announced" rule `idp` does not get to
+use only because a realm is mandatory. Unlike `idp.issuer`, a client is not
+free to trust any of them verbatim: each is server-supplied and moves rider
+data (a destination typed into search, an origin/destination pair sent for a
+route) or a network request (the bbox fetch for `/api/cameras`,
+`/api/speedlimits`, `/api/roads` or `/api/pois`, or the point lookup for
+`/api/municipality`) to wherever it names, so the client validates it — HTTPS
+only, and a host that differs from the API's own asks the rider before it is
+used. See `RoutingServer.kt`'s discovery pair in `shared/` for the mirror of
+the `idp.issuer` discovery this reuses the shape of, extended with that
+consent step; `SpeedCameras.near`, `RoadRoulette.speedLimitWays`,
+`RoadRoulette.fetchRoads`/`RoadTypeTracker.fetchWays`, `MunicipalityStore.fetch`
+and `PoiRoulette.randomPoi` (also `shared/`) are `cameras`'s, `speedLimits`'s,
+`roads`'s, `municipality`'s and `pois`'s equivalent callers.
 
 They exist because a client cannot work this out for itself. An Android build
 with a `google-services.json` baked in registers a token successfully against a
@@ -749,6 +752,40 @@ This endpoint is read-only: data is loaded by an operator running
 `dotnet Detour.Api.dll import-municipalities <path.json>` on the box that hosts the database —
 see [`backend/INSTALL.md`](../backend/INSTALL.md#configuration). Same no-deletion-on-re-import
 rule as `/api/speedlimits` and `/api/roads`, for the same reason.
+
+### 15.9 Point-of-interest data
+
+`GET /api/pois` is unauthenticated, for the same reason §15.6 is — POI locations are public OSM
+data, not rider data. It is covered by the global per-IP limiter only, for the same reason and
+with the same span cap as §15.6's `/api/cameras`.
+
+Query parameters are the same bounding box as §15.6/§15.7 (`minLat`, `minLon`, `maxLat`,
+`maxLon`, validated the same way, capped at the same 2° span), plus an optional `kind`: a
+comma-separated list of `viewpoint`/`food`/`sight` — absent means every kind this table holds,
+the same shape as `/api/roads`'s `classes` parameter. A request that fails a bbox check is a 400.
+
+```json
+{
+  "pois": [
+    {
+      "id": "3e1a2b4c-....-....-....-............",
+      "kind": "viewpoint",
+      "name": "Belvedere",
+      "lat": 49.6,
+      "lon": 6.1
+    }
+  ]
+}
+```
+
+`name` is an empty string, not absent, when the OSM element carried no `name` tag — plenty of
+small cafes don't. `PoiRoulette.randomPoi` (`shared/`) falls back to a kind-specific label for
+those, the same rule it already applies to an Overpass element with no name.
+
+This endpoint is read-only: data is loaded by an operator running
+`dotnet Detour.Api.dll import-pois <path.json>` on the box that hosts the database — see
+[`backend/INSTALL.md`](../backend/INSTALL.md#configuration). Same no-deletion-on-re-import rule
+as `/api/speedlimits`, `/api/roads` and `/api/municipality`, for the same reason.
 
 ## 16. Limits and defaults
 
