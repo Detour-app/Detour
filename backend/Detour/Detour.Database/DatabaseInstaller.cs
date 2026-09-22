@@ -7,6 +7,7 @@ using Detour.Domain.Friendships;
 using Detour.Domain.Groups;
 using Detour.Domain.Notifications;
 using Detour.Domain.Places;
+using Detour.Domain.Roads;
 using Detour.Domain.Routes;
 using Detour.Domain.Traces;
 using Detour.Domain.Trips;
@@ -59,6 +60,7 @@ public static class DatabaseInstaller
         services.AddScoped<IApiKeyRepository, ApiKeyRepository>();
         services.AddScoped<IDeviceTokenRepository, DeviceTokenRepository>();
         services.AddScoped<ICameraRepository, CameraRepository>();
+        services.AddScoped<ISpeedLimitWayRepository, SpeedLimitWayRepository>();
 
         return services;
     }

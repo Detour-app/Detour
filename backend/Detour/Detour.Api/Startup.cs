@@ -51,6 +51,7 @@ public class Startup(IConfiguration configuration)
         services.Configure<RoutingSettings>(configuration.GetSection(RoutingSettings.SectionName));
         services.Configure<GeocoderSettings>(configuration.GetSection(GeocoderSettings.SectionName));
         services.Configure<CameraSettings>(configuration.GetSection(CameraSettings.SectionName));
+        services.Configure<SpeedLimitSettings>(configuration.GetSection(SpeedLimitSettings.SectionName));
 
         services.AddTrustedProxies(ForwardedHeaders);
 
