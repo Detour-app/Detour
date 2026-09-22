@@ -18,6 +18,7 @@ public class ApiConfiguration
     public CorsSettings Cors { get; set; } = new();
     public RoutingSettings Routing { get; set; } = new();
     public GeocoderSettings Geocoder { get; set; } = new();
+    public CameraSettings Camera { get; set; } = new();
 }
 
 /// <summary>
@@ -87,6 +88,18 @@ public class GeocoderSettings
     public const string SectionName = "Geocoder";
 
     /// <summary>Base URL of the Photon instance, which serves <c>/api/?q=</c>.</summary>
+    public string BaseUrl { get; set; } = "";
+}
+
+/// <summary>
+/// Where this deployment's own camera-data endpoint lives, if it announces one via
+/// <c>/api/capabilities</c> (issue #303). See <see cref="RoutingSettings"/> for the reasoning.
+/// </summary>
+public class CameraSettings
+{
+    public const string SectionName = "Camera";
+
+    /// <summary>Base URL that serves <c>/api/cameras</c>. Blank means "not announced".</summary>
     public string BaseUrl { get; set; } = "";
 }
 

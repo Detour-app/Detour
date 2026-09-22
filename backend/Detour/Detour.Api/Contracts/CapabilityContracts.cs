@@ -25,7 +25,8 @@ public record CapabilitiesResponse(
     [Required] IReadOnlyList<string> Features,
     [Required] IdpCapabilityResponse Idp,
     RoutingCapabilityResponse? Routing,
-    GeocoderCapabilityResponse? Geocoder)
+    GeocoderCapabilityResponse? Geocoder,
+    CameraCapabilityResponse? Cameras)
 {
     /// <summary>
     /// Bumped only when an existing field on this response changes meaning —
@@ -52,10 +53,13 @@ public record CapabilitiesResponse(
     /// <summary>This deployment announces its own Photon instance (issue #177).</summary>
     public const string GeocoderDiscoveryFeature = "geocoder-discovery";
 
+    /// <summary>This deployment announces its own camera-data endpoint (issue #303).</summary>
+    public const string CamerasDiscoveryFeature = "cameras-discovery";
+
     /// <summary>
     /// The advertised feature set for a deployment whose push gateways are
-    /// <paramref name="pushPlatforms"/>, and whose routing/geocoder discovery is
-    /// <paramref name="routingAnnounced"/>/<paramref name="geocoderAnnounced"/>.
+    /// <paramref name="pushPlatforms"/>, and whose routing/geocoder/cameras discovery is
+    /// <paramref name="routingAnnounced"/>/<paramref name="geocoderAnnounced"/>/<paramref name="camerasAnnounced"/>.
     ///
     /// Split from <see cref="From"/> so the mapping can be asserted without a
     /// host: the controller's job is to read the gateways and settings, and this
@@ -64,7 +68,8 @@ public record CapabilitiesResponse(
     public static IReadOnlyList<string> FeaturesFor(
         IEnumerable<DevicePlatform> pushPlatforms,
         bool routingAnnounced,
-        bool geocoderAnnounced)
+        bool geocoderAnnounced,
+        bool camerasAnnounced)
     {
         var platforms = pushPlatforms.ToHashSet();
         var features = new List<string>(AlwaysOnFeatures);
@@ -76,6 +81,8 @@ public record CapabilitiesResponse(
             features.Add(RoutingDiscoveryFeature);
         if (geocoderAnnounced)
             features.Add(GeocoderDiscoveryFeature);
+        if (camerasAnnounced)
+            features.Add(CamerasDiscoveryFeature);
         return features;
     }
 
@@ -83,7 +90,8 @@ public record CapabilitiesResponse(
         IdpSettings idpSettings,
         IEnumerable<DevicePlatform> pushPlatforms,
         RoutingSettings routingSettings,
-        GeocoderSettings geocoderSettings)
+        GeocoderSettings geocoderSettings,
+        CameraSettings cameraSettings)
     {
         // Blank means "not configured", and the field itself carries that —
         // absent, not present-but-empty, so a client can test for null rather
@@ -94,12 +102,16 @@ public record CapabilitiesResponse(
         var geocoder = string.IsNullOrWhiteSpace(geocoderSettings.BaseUrl)
             ? null
             : new GeocoderCapabilityResponse(geocoderSettings.BaseUrl);
+        var cameras = string.IsNullOrWhiteSpace(cameraSettings.BaseUrl)
+            ? null
+            : new CameraCapabilityResponse(cameraSettings.BaseUrl);
         return new(
             SchemaVersion,
-            FeaturesFor(pushPlatforms, routing is not null, geocoder is not null),
+            FeaturesFor(pushPlatforms, routing is not null, geocoder is not null, cameras is not null),
             new IdpCapabilityResponse(idpSettings.Authority),
             routing,
-            geocoder);
+            geocoder,
+            cameras);
     }
 }
 
@@ -130,3 +142,10 @@ public record RoutingCapabilityResponse([Required] string BaseUrl);
 /// unchanged.
 /// </summary>
 public record GeocoderCapabilityResponse([Required] string BaseUrl);
+
+/// <summary>
+/// Where this deployment's own camera-data endpoint is. See
+/// <see cref="RoutingCapabilityResponse"/> for the reasoning, which applies here
+/// unchanged.
+/// </summary>
+public record CameraCapabilityResponse([Required] string BaseUrl);

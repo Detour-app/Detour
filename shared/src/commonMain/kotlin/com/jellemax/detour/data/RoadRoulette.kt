@@ -465,6 +465,13 @@ object RoadRoulette {
         throw lastError ?: IOException("All Overpass endpoints failed")
     }
 
+    /** Plain-URL GET, for callers that hit a single backend rather than
+     *  Overpass's rotating mirrors (currently [SpeedCameras]'s backend camera
+     *  fetch). Goes through [Http], the same client [post] uses, rather than
+     *  standing up a second HTTP client configuration. */
+    suspend fun rawGet(url: String, headers: Map<String, String>): String =
+        Http.get(url, headers)
+
     /** The mirrors to try, in order, starting [offset] into the list — so the
      *  parallel sector fetches of a round trip don't all open on the same one. */
     internal fun mirrorOrder(offset: Int): List<String> =

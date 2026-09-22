@@ -1,6 +1,7 @@
 using Detour.Database.Configuration;
 using Detour.Database.Repositories;
 using Detour.Domain.ApiKeys;
+using Detour.Domain.Cameras;
 using Detour.Domain.Circles;
 using Detour.Domain.Friendships;
 using Detour.Domain.Groups;
@@ -57,6 +58,7 @@ public static class DatabaseInstaller
         services.AddScoped<IPlaceEventRepository, PlaceEventRepository>();
         services.AddScoped<IApiKeyRepository, ApiKeyRepository>();
         services.AddScoped<IDeviceTokenRepository, DeviceTokenRepository>();
+        services.AddScoped<ICameraRepository, CameraRepository>();
 
         return services;
     }

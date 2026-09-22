@@ -548,10 +548,11 @@ answers is which realm mints them.
 ```json
 {
   "schema": 1,
-  "features": ["idp-discovery", "push-android", "routing-discovery", "geocoder-discovery"],
+  "features": ["idp-discovery", "push-android", "routing-discovery", "geocoder-discovery", "cameras-discovery"],
   "idp": { "issuer": "https://idp.example/realms/detour" },
   "routing": { "baseUrl": "https://example.com/gh" },
-  "geocoder": { "baseUrl": "https://example.com/photon" }
+  "geocoder": { "baseUrl": "https://example.com/photon" },
+  "cameras": { "baseUrl": "https://example.com" }
 }
 ```
 
@@ -565,23 +566,26 @@ which is not the same question as what this software supports:
 | `push-ios` | An APNs gateway is configured — the four `Notifications:Apns*` keys are set and the `.p8` loaded. |
 | `routing-discovery` | `Routing:BaseUrl` is set. |
 | `geocoder-discovery` | `Geocoder:BaseUrl` is set. |
+| `cameras-discovery` | `Camera:BaseUrl` is set. |
 
 The two push strings are per-platform rather than one `push`, because having
 Firebase credentials and no APNs key is an ordinary state and an iOS client must
-not read Android's answer as its own. `routing` and `geocoder` are configured
-the same way — independently, both blank by default — because a self-hoster
-routinely runs one and not the other.
+not read Android's answer as its own. `routing`, `geocoder` and `cameras` are
+configured the same way — independently, all blank by default — because a
+self-hoster routinely runs some of these and not the others.
 
-`routing` and `geocoder` are absent, not present with a blank `baseUrl`, when
-their env keys (`Routing__BaseUrl`, `Geocoder__BaseUrl`) are unset — the same
-"absent means not announced" rule `idp` does not get to use only because a
-realm is mandatory. Unlike `idp.issuer`, a client is not free to trust either
-verbatim: it is server-supplied and moves rider data (a destination typed into
-search, an origin/destination pair sent for a route) to wherever it names, so
-the client validates it — HTTPS only, and a host that differs from the API's
-own asks the rider before it is used. See `RoutingServer.kt`'s discovery pair
-in `shared/` for the mirror of the `idp.issuer` discovery this reuses the shape
-of, extended with that consent step.
+`routing`, `geocoder` and `cameras` are absent, not present with a blank
+`baseUrl`, when their env keys (`Routing__BaseUrl`, `Geocoder__BaseUrl`,
+`Camera__BaseUrl`) are unset — the same "absent means not announced" rule `idp`
+does not get to use only because a realm is mandatory. Unlike `idp.issuer`, a
+client is not free to trust any of them verbatim: each is server-supplied and
+moves rider data (a destination typed into search, an origin/destination pair
+sent for a route) or a network request (the bbox fetch for `/api/cameras`) to
+wherever it names, so the client validates it — HTTPS only, and a host that
+differs from the API's own asks the rider before it is used. See
+`RoutingServer.kt`'s discovery pair in `shared/` for the mirror of the
+`idp.issuer` discovery this reuses the shape of, extended with that consent
+step; `SpeedCameras.near` (also `shared/`) is `cameras`'s equivalent caller.
 
 They exist because a client cannot work this out for itself. An Android build
 with a `google-services.json` baked in registers a token successfully against a
@@ -625,6 +629,50 @@ document carries feature names and the values a client needs to configure
 itself against, and nothing else. No dependency versions, no build strings,
 no counts, no dependency health. §15.4 is where operational detail lives, and
 it stays there.
+
+### 15.6 Camera data
+
+`GET /api/cameras` is unauthenticated, for the same reason `/api/capabilities` is — camera
+locations are public safety information, not rider data, and gating them behind a token would
+cost every self-hoster a round trip for no privacy gain (issue #303). It is covered by the
+global per-IP limiter only, not the tighter anonymous policy §15.2 lists — which is why the
+bbox span below is capped: an unauthenticated caller must not be able to force the whole table
+to materialise and serialise in one request.
+
+Query parameters are a bounding box: `minLat`, `minLon`, `maxLat`, `maxLon`. Each must be
+within its valid range (-90/90 for latitude, -180/180 for longitude), `minLat` may not exceed
+`maxLat`, `minLon` may not exceed `maxLon`, and the box may not span more than 2° on either
+axis — comfortably larger than the ~0.15° span the client's own prefetch radius
+(`SpeedCameras.PREFETCH_RADIUS_M` in `shared/`) ever requests. A request that fails any of
+these checks is a 400.
+
+```json
+{
+  "cameras": [
+    {
+      "id": "3e1a2b4c-....-....-....-............",
+      "kind": "FixedSpeed",
+      "lat": 50.85,
+      "lon": 4.35,
+      "polyline": null,
+      "maxSpeedKmh": 50,
+      "roadRef": "N9"
+    }
+  ]
+}
+```
+
+`kind` is one of `FixedSpeed`, `MobileHotspot`, `RedLight`, `SpeedAndRedLight`, `Section` or
+`AverageSpeedZone` — a client that doesn't recognise one falls back to treating it as a plain
+speed camera, the "unknown reads as the safe default" rule this document uses elsewhere. A
+point camera (`FixedSpeed`, `MobileHotspot`, `RedLight`, `SpeedAndRedLight`) carries
+`lat`/`lon` and no `polyline`; an enforcement section (`Section`, `AverageSpeedZone`) carries a
+`polyline` (an ordered list of `[lat, lon]` pairs tracing the section, at least two points) and
+no `lat`/`lon`. `maxSpeedKmh` and `roadRef` are optional on either.
+
+This endpoint is read-only: data is loaded by an operator running
+`dotnet Detour.Api.dll import-cameras <path.json>` on the box that hosts the database — see
+[`backend/INSTALL.md`](../backend/INSTALL.md#configuration).
 
 ## 16. Limits and defaults
 

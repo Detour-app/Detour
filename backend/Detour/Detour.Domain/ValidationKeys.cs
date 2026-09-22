@@ -235,4 +235,15 @@ public static class ValidationKeys
             ValidationKeyDefinition.Create($"{Base}.LabelTooLong")
                 .WithIntParameter("maxLength");
     }
+
+    public static class Camera
+    {
+        private const string Base = "Camera";
+
+        public static readonly ValidationKeyDefinition CoordinatesInvalid =
+            ValidationKeyDefinition.Create($"{Base}.CoordinatesInvalid");
+
+        public static readonly ValidationKeyDefinition PolylineTooShort =
+            ValidationKeyDefinition.Create($"{Base}.PolylineTooShort");
+    }
 }

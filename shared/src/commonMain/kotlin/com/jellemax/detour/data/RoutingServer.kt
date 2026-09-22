@@ -168,6 +168,20 @@ object RoutingServer {
         baked = BuildDefaults.geocoderUrl,
     )
 
+    /** Base of the camera-data endpoint, which serves `/api/cameras`. Same precedence as
+     *  [routingBase]/[geocoderBase]. Unlike those, there is no [BuildDefaults] baked value — no
+     *  public camera-data host exists to fall back to, so an install that announces nothing (or
+     *  hasn't been probed yet) resolves to blank, and [SpeedCameras.near] falls back to Overpass. */
+    fun camerasBase(custom: ServerConfig?): String = camerasBase(custom, discoveredCamerasBase())
+
+    /** `internal` counterpart of [routingBase]'s, for the same reason. */
+    internal fun camerasBase(custom: ServerConfig?, discoveredCameras: String): String = resolve(
+        typed = "",
+        announced = discoveredCameras,
+        general = custom?.url.orEmpty(),
+        baked = "",
+    )
+
     /**
      * The realm that issues rider tokens.
      *
@@ -328,6 +342,7 @@ object RoutingServer {
             // never announced.
             clearAnnouncedService(ROUTING_KEYS)
             clearAnnouncedService(GEOCODER_KEYS)
+            clearAnnouncedService(CAMERAS_KEYS)
         }
 
         prefs(PREFS).apply {
@@ -513,6 +528,7 @@ object RoutingServer {
         if (fetched != null) {
             rememberAnnouncedService(ROUTING_KEYS, fetched.routingBaseUrl, api)
             rememberAnnouncedService(GEOCODER_KEYS, fetched.geocoderBaseUrl, api)
+            rememberAnnouncedService(CAMERAS_KEYS, fetched.camerasBaseUrl, api)
         }
     }
 
@@ -554,6 +570,12 @@ object RoutingServer {
         discovered = "geocoder_discovered_base",
         pending = "geocoder_pending_base",
         declined = "geocoder_declined_base",
+    )
+
+    private val CAMERAS_KEYS = AnnouncedServiceKeys(
+        discovered = "cameras_discovered_base",
+        pending = "cameras_pending_base",
+        declined = "cameras_declined_base",
     )
 
     /** What a probe's freshly-announced value, plus the previous stored state,
@@ -649,6 +671,9 @@ object RoutingServer {
 
     /** Same as [discoveredRoutingBase], for Photon. Feeds [geocoderBase]. */
     internal fun discoveredGeocoderBase(): String = vettedAnnounced(GEOCODER_KEYS)
+
+    /** Same as [discoveredRoutingBase], for the camera-data endpoint. Feeds [camerasBase]. */
+    internal fun discoveredCamerasBase(): String = vettedAnnounced(CAMERAS_KEYS)
 
     /** An announced routing base awaiting the rider's decision — differs from
      *  the API's own host, and has been neither accepted nor declined for this
