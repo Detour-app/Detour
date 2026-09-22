@@ -42,6 +42,12 @@ if (args.Length == 2 && args[0] == RoadImport.Command)
     return;
 }
 
+if (args.Length == 2 && args[0] == MunicipalityImport.Command)
+{
+    await MunicipalityImport.RunAsync(args[1], app.Services);
+    return;
+}
+
 // Single service, single database: applying migrations at startup means the schema can never
 // lag the code that expects it. A deployment that migrates out of band sets Database:SkipMigrations.
 {

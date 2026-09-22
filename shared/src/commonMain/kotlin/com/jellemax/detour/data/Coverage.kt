@@ -2,6 +2,7 @@ package com.jellemax.detour.data
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonArray
@@ -13,6 +14,7 @@ import kotlin.concurrent.Volatile
 import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.floor
+import okio.IOException
 
 /** Side of one coverage cell. Matches [ExploredArea]'s grid: a road driven once
  *  reveals the cell around it, so "explored" means the same thing everywhere.
@@ -235,7 +237,65 @@ object MunicipalityStore {
         }
     }
 
+    /**
+     * Resolves [p] to its municipality, or null when nothing contains it — the same
+     * null-vs-exception contract [fetchViaOverpass] always had: null is a real "not here"
+     * answer, an exception is a failed request.
+     *
+     * Same fallback chain as `RoadRoulette.speedLimitWays`/`RoadTypeTracker.fetchWays` (issue
+     * #381, phase 4 of #302): this deployment's own `/api/municipality` first, when announced;
+     * [fetchViaOverpass] when the backend call fails outright. No disk-cache layer of its own,
+     * unlike those two — [MunicipalityStore] already *is* the disk cache
+     * ([needsLookup]/[discoverQuietly] only ever call this once per boundary, not per fix), so
+     * there is nothing this call would fall back to that isn't already one of the two sources
+     * above it.
+     */
     private suspend fun fetch(p: LatLon): Municipality? {
+        val backendBase = RoutingServer.municipalityBase(RoutingServer.loadCustom())
+        if (backendBase.isBlank()) return fetchViaOverpass(p)
+
+        return try {
+            fetchViaBackend(backendBase, p)
+        } catch (e: IOException) {
+            fetchViaOverpass(p)
+        } catch (e: SerializationException) {
+            fetchViaOverpass(p)
+        } catch (e: IllegalArgumentException) {
+            fetchViaOverpass(p)
+        }
+    }
+
+    /** The point lookup against this deployment's own municipality-boundary endpoint (issue
+     *  #381). Null means the server answered and named no containing boundary — a real
+     *  "not here" answer, so [fetch] does not also ask Overpass for the same point. An
+     *  exception means the request itself failed, which [fetch] catches and falls back to
+     *  [fetchViaOverpass] for. */
+    private suspend fun fetchViaBackend(base: String, p: LatLon): Municipality? {
+        val url = "$base/api/municipality?lat=${p.lat}&lon=${p.lon}"
+        val body = jsonObjectOf(RoadRoulette.rawGet(url, headers = RoutingServer.userAgentHeaders()))
+        return parseMunicipalityResponse(body)
+    }
+
+    /** [fetchViaBackend]'s pure half. internal, not private, so commonTest can feed it canned
+     *  response bodies — the wire shape is `MunicipalityBoundaryDto`/`MunicipalityResponse`
+     *  (`backend/Detour/Detour.Api/Contracts/MunicipalityContracts.cs`). */
+    internal fun parseMunicipalityResponse(body: JsonObject): Municipality? {
+        val m = body.optObject("municipality") ?: return null
+        val name = m.optString("name").takeIf { it.isNotBlank() } ?: return null
+        val ringsArray = m.optArray("rings") ?: return null
+        val rings = ringsArray.arrays()
+            .map { ring -> ring.arrays().map { p -> LatLon(p.optDouble(0), p.optDouble(1)) } }
+            .filter { it.size >= 3 }
+        if (rings.isEmpty()) return null
+        return Municipality(m.optLong("id"), name, rings)
+    }
+
+    /**
+     * Overpass-only. [fetch] is the entry point every caller should use — it tries the
+     * backend's own `/api/municipality` first (when the deployment announces one, issue #381)
+     * and only reaches here once that call fails.
+     */
+    private suspend fun fetchViaOverpass(p: LatLon): Municipality? {
         val query = "[out:json][timeout:${RoadRoulette.SERVER_TIMEOUT_S}];" +
             "is_in(${p.lat},${p.lon})->.a;" +
             "relation(pivot.a)[\"boundary\"=\"administrative\"][\"admin_level\"=\"8\"];" +
