@@ -23,8 +23,13 @@ public enum CameraStatus { Active, Retired }
 
 /// <summary>One source's claim about this camera. A camera accumulates one per source that has
 /// ever listed it; see <see cref="Camera.MergeSource"/> for how a source refreshes its own
-/// entry instead of duplicating it.</summary>
-public sealed record CameraSource(string Source, string SourceId, DateTimeOffset FirstSeen, DateTimeOffset LastSeen);
+/// entry instead of duplicating it. <see cref="MissedRuns"/> counts consecutive import runs of
+/// this source that did not see this entry's <see cref="SourceId"/> — reset to 0 whenever
+/// <see cref="Camera.MergeSource"/> next refreshes it, driving <see cref="Camera.MarkSourceMissing"/>
+/// (issue #369). Absent in JSON written before that field existed, in which case it deserializes
+/// to its default (0) — System.Text.Json falls back to a record constructor parameter's declared
+/// default when the JSON property is missing.</summary>
+public sealed record CameraSource(string Source, string SourceId, DateTimeOffset FirstSeen, DateTimeOffset LastSeen, int MissedRuns = 0);
 
 public sealed class Camera : Entity
 {
@@ -52,6 +57,20 @@ public sealed class Camera : Entity
     public IReadOnlyList<CameraSource> Sources =>
         System.Text.Json.JsonSerializer.Deserialize<List<CameraSource>>(SourcesJson) ?? [];
 
+    /// <summary>Which source last set each attribute — `{"maxSpeedKmh":"osm",...}` — so
+    /// <see cref="MergeSource"/> can gate a field's overwrite on that field's own last-setter
+    /// rank instead of the row's highest-ranked attached source. See issue #373: a source merely
+    /// *present* on a row must not block a lower-ranked source from correcting a field that
+    /// source never actually had an opinion on.</summary>
+    public string AttributionJson { get; private set; } = "{}";
+
+    private IReadOnlyDictionary<string, string> Attribution =>
+        System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(AttributionJson) ?? [];
+
+    private const string FieldMaxSpeed = "maxSpeedKmh";
+    private const string FieldRoadRef = "roadRef";
+    private const string FieldPosition = "position";
+
     public CameraStatus Status { get; private set; } = CameraStatus.Active;
     public DateTimeOffset FirstSeen { get; private set; }
     public DateTimeOffset LastSeen { get; private set; }
@@ -75,6 +94,13 @@ public sealed class Camera : Entity
         MaxSpeedKmh = maxSpeedKmh;
         RoadRef = roadRef;
         SourcesJson = System.Text.Json.JsonSerializer.Serialize(new List<CameraSource> { source });
+
+        var attribution = new Dictionary<string, string>();
+        if (maxSpeedKmh is not null) attribution[FieldMaxSpeed] = source.Source;
+        if (roadRef is not null) attribution[FieldRoadRef] = source.Source;
+        attribution[FieldPosition] = source.Source; // every camera has a position from creation
+        AttributionJson = System.Text.Json.JsonSerializer.Serialize(attribution);
+
         FirstSeen = source.FirstSeen;
         LastSeen = source.LastSeen;
         UpdatedAt = DateTimeOffset.UtcNow;
@@ -131,23 +157,17 @@ public sealed class Camera : Entity
     /// the camera <see cref="CameraStatus.Active"/> even while another has stopped reporting.
     /// This <see cref="Sources"/>-list bookkeeping (and <see cref="FirstSeen"/>/<see cref="Status"/>)
     /// always happens for the incoming source, regardless of rank.
-    /// <para>Attribute values (<see cref="MaxSpeedKmh"/>, <see cref="RoadRef"/>, position),
-    /// however, adopt <paramref name="incoming"/>'s values only when its source's <see cref="RankOf"/>
-    /// is at least as high as every *other* source already on this camera — per issue #303's
-    /// cross-source precedence rule. This rank gate applies even when <paramref name="incoming"/>
-    /// is refreshing its own previously-seen entry: a lower-ranked source cannot use a
-    /// self-refresh to bypass a higher-ranked source present on this row — even one that never
-    /// actually supplied this particular attribute itself (this method's precedence is
-    /// per-source, not per-field; see issue #373 for the gap and the planned per-attribute fix).
-    /// A lower-ranked source still always contributes its row to <see cref="Sources"/> — it just
-    /// never gets to downgrade an attribute a higher-ranked source already set.</para></summary>
+    /// <para>Attribute values (<see cref="MaxSpeedKmh"/>, <see cref="RoadRef"/>, position) adopt
+    /// <paramref name="incoming"/>'s value only when its source's <see cref="RankOf"/> is at
+    /// least as high as *that field's own* last-setter, per <see cref="Attribution"/> — not the
+    /// row's highest-ranked attached source. A source merely present on the row, that never
+    /// actually supplied a given field, does not block a lower-ranked source from correcting
+    /// that field (issue #373). This still applies to a source refreshing its own entry: it
+    /// cannot bypass a *different*, higher-ranked field-setter via self-refresh.</para></summary>
     public void MergeSource(Camera incoming)
     {
         var incomingSource = incoming.Sources[0];
         var sources = Sources.ToList();
-        var otherSources = sources
-            .Where(s => !(s.Source == incomingSource.Source && s.SourceId == incomingSource.SourceId))
-            .ToList();
 
         var i = sources.FindIndex(s => s.Source == incomingSource.Source && s.SourceId == incomingSource.SourceId);
         if (i >= 0) sources[i] = incomingSource; else sources.Add(incomingSource);
@@ -163,11 +183,21 @@ public sealed class Camera : Entity
         if (incoming.Kind != Kind) Kind = CameraKind.SpeedAndRedLight;
 
         var incomingRank = RankOf(incomingSource.Source);
-        var blockingRank = otherSources.Select(s => RankOf(s.Source)).DefaultIfEmpty(0).Max();
-        if (incomingRank >= blockingRank)
+        var attribution = Attribution.ToDictionary();
+        int FieldRank(string field) => attribution.TryGetValue(field, out var setter) ? RankOf(setter) : 0;
+
+        if (incoming.MaxSpeedKmh is not null && incomingRank >= FieldRank(FieldMaxSpeed))
         {
-            if (incoming.MaxSpeedKmh is not null) MaxSpeedKmh = incoming.MaxSpeedKmh;
-            if (incoming.RoadRef is not null) RoadRef = incoming.RoadRef;
+            MaxSpeedKmh = incoming.MaxSpeedKmh;
+            attribution[FieldMaxSpeed] = incomingSource.Source;
+        }
+        if (incoming.RoadRef is not null && incomingRank >= FieldRank(FieldRoadRef))
+        {
+            RoadRef = incoming.RoadRef;
+            attribution[FieldRoadRef] = incomingSource.Source;
+        }
+        if ((incoming.Lat is not null || incoming.PolylineJson is not null) && incomingRank >= FieldRank(FieldPosition))
+        {
             if (incoming.Lat is not null && incoming.Lon is not null)
             {
                 Lat = incoming.Lat;
@@ -177,7 +207,7 @@ public sealed class Camera : Entity
                 BboxMinLon = incoming.BboxMinLon;
                 BboxMaxLon = incoming.BboxMaxLon;
             }
-            else if (incoming.PolylineJson is not null)
+            else
             {
                 PolylineJson = incoming.PolylineJson;
                 BboxMinLat = incoming.BboxMinLat;
@@ -185,7 +215,9 @@ public sealed class Camera : Entity
                 BboxMinLon = incoming.BboxMinLon;
                 BboxMaxLon = incoming.BboxMaxLon;
             }
+            attribution[FieldPosition] = incomingSource.Source;
         }
+        AttributionJson = System.Text.Json.JsonSerializer.Serialize(attribution);
 
         UpdatedAt = DateTimeOffset.UtcNow;
     }
@@ -194,6 +226,29 @@ public sealed class Camera : Entity
     {
         Status = CameraStatus.Retired;
         UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
+    /// <summary>Called once per completed import run of <paramref name="source"/>, for every
+    /// active camera that source has ever reported but did not see this run (the repository
+    /// decides which cameras qualify — see <see cref="ICameraRepository"/>). Increments that
+    /// source's own <see cref="CameraSource.MissedRuns"/> streak — reset to 0 the next time
+    /// <see cref="MergeSource"/> refreshes it — and retires the camera only once *every* source
+    /// that has ever reported it has independently missed <paramref name="retireAfterMisses"/>
+    /// consecutive runs of its own: a source still reporting keeps the camera alive even while
+    /// another has gone quiet. Design decision for issue #369 — the threshold is a caller-supplied
+    /// count of runs, not wall-clock time, since sources import on different cadences. A no-op if
+    /// this camera was never reported by <paramref name="source"/> at all.</summary>
+    public void MarkSourceMissing(string source, int retireAfterMisses)
+    {
+        var sources = Sources.ToList();
+        var i = sources.FindIndex(s => s.Source == source);
+        if (i < 0) return;
+
+        sources[i] = sources[i] with { MissedRuns = sources[i].MissedRuns + 1 };
+        SourcesJson = System.Text.Json.JsonSerializer.Serialize(sources);
+        UpdatedAt = DateTimeOffset.UtcNow;
+
+        if (sources.All(s => s.MissedRuns >= retireAfterMisses)) Retire();
     }
 
     /// <summary>Point kinds that can be the same physical device wearing two hats — a device
