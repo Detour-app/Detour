@@ -53,6 +53,7 @@ public class Startup(IConfiguration configuration)
         services.Configure<CameraSettings>(configuration.GetSection(CameraSettings.SectionName));
         services.Configure<SpeedLimitSettings>(configuration.GetSection(SpeedLimitSettings.SectionName));
         services.Configure<RoadSettings>(configuration.GetSection(RoadSettings.SectionName));
+        services.Configure<MunicipalitySettings>(configuration.GetSection(MunicipalitySettings.SectionName));
 
         services.AddTrustedProxies(ForwardedHeaders);
 

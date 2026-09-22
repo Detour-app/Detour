@@ -211,6 +211,21 @@ object RoutingServer {
         baked = "",
     )
 
+    /** Base of the municipality-boundary endpoint, which serves `/api/municipality`. Same
+     *  precedence as [camerasBase]/[speedLimitsBase]/[roadsBase], for the same reason: no
+     *  [BuildDefaults] baked value — no public municipality-boundary host exists to fall back
+     *  to — so an install that announces nothing resolves to blank, and
+     *  `MunicipalityStore.fetch` falls back to Overpass. */
+    fun municipalityBase(custom: ServerConfig?): String = municipalityBase(custom, discoveredMunicipalityBase())
+
+    /** `internal` counterpart of [routingBase]'s, for the same reason. */
+    internal fun municipalityBase(custom: ServerConfig?, discoveredMunicipality: String): String = resolve(
+        typed = "",
+        announced = discoveredMunicipality,
+        general = custom?.url.orEmpty(),
+        baked = "",
+    )
+
     /**
      * The realm that issues rider tokens.
      *
@@ -373,6 +388,12 @@ object RoutingServer {
             clearAnnouncedService(GEOCODER_KEYS)
             clearAnnouncedService(CAMERAS_KEYS)
             clearAnnouncedService(SPEEDLIMITS_KEYS)
+            // ROADS_KEYS was missing here since #380/#382 landed — same leak this whole block
+            // guards against, just for the drivable-road endpoint instead of cameras/speed
+            // limits. Fixed in passing rather than filed separately: it is the same three-line
+            // list MUNICIPALITY_KEYS is being added to below.
+            clearAnnouncedService(ROADS_KEYS)
+            clearAnnouncedService(MUNICIPALITY_KEYS)
         }
 
         prefs(PREFS).apply {
@@ -561,6 +582,7 @@ object RoutingServer {
             rememberAnnouncedService(CAMERAS_KEYS, fetched.camerasBaseUrl, api)
             rememberAnnouncedService(SPEEDLIMITS_KEYS, fetched.speedLimitsBaseUrl, api)
             rememberAnnouncedService(ROADS_KEYS, fetched.roadsBaseUrl, api)
+            rememberAnnouncedService(MUNICIPALITY_KEYS, fetched.municipalityBaseUrl, api)
         }
     }
 
@@ -620,6 +642,12 @@ object RoutingServer {
         discovered = "roads_discovered_base",
         pending = "roads_pending_base",
         declined = "roads_declined_base",
+    )
+
+    private val MUNICIPALITY_KEYS = AnnouncedServiceKeys(
+        discovered = "municipality_discovered_base",
+        pending = "municipality_pending_base",
+        declined = "municipality_declined_base",
     )
 
     /** What a probe's freshly-announced value, plus the previous stored state,
@@ -724,6 +752,10 @@ object RoutingServer {
 
     /** Same as [discoveredRoutingBase], for the drivable-road endpoint. Feeds [roadsBase]. */
     internal fun discoveredRoadsBase(): String = vettedAnnounced(ROADS_KEYS)
+
+    /** Same as [discoveredRoutingBase], for the municipality-boundary endpoint. Feeds
+     *  [municipalityBase]. */
+    internal fun discoveredMunicipalityBase(): String = vettedAnnounced(MUNICIPALITY_KEYS)
 
     /** An announced routing base awaiting the rider's decision — differs from
      *  the API's own host, and has been neither accepted nor declined for this

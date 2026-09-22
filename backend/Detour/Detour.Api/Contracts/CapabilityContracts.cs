@@ -28,7 +28,8 @@ public record CapabilitiesResponse(
     GeocoderCapabilityResponse? Geocoder,
     CameraCapabilityResponse? Cameras,
     SpeedLimitCapabilityResponse? SpeedLimits,
-    RoadCapabilityResponse? Roads)
+    RoadCapabilityResponse? Roads,
+    MunicipalityCapabilityResponse? Municipality)
 {
     /// <summary>
     /// Bumped only when an existing field on this response changes meaning —
@@ -64,12 +65,17 @@ public record CapabilitiesResponse(
     /// <summary>This deployment announces its own drivable-road endpoint (issue #380).</summary>
     public const string RoadsDiscoveryFeature = "roads-discovery";
 
+    /// <summary>This deployment announces its own municipality-boundary endpoint (issue
+    /// #381).</summary>
+    public const string MunicipalityDiscoveryFeature = "municipality-discovery";
+
     /// <summary>
     /// The advertised feature set for a deployment whose push gateways are
-    /// <paramref name="pushPlatforms"/>, and whose routing/geocoder/cameras/speed-limits/roads
-    /// discovery is <paramref name="routingAnnounced"/>/<paramref name="geocoderAnnounced"/>/
-    /// <paramref name="camerasAnnounced"/>/<paramref name="speedLimitsAnnounced"/>/
-    /// <paramref name="roadsAnnounced"/>.
+    /// <paramref name="pushPlatforms"/>, and whose routing/geocoder/cameras/speed-limits/roads/
+    /// municipality discovery is <paramref name="routingAnnounced"/>/<paramref
+    /// name="geocoderAnnounced"/>/<paramref name="camerasAnnounced"/>/<paramref
+    /// name="speedLimitsAnnounced"/>/<paramref name="roadsAnnounced"/>/<paramref
+    /// name="municipalityAnnounced"/>.
     ///
     /// Split from <see cref="From"/> so the mapping can be asserted without a
     /// host: the controller's job is to read the gateways and settings, and this
@@ -81,7 +87,8 @@ public record CapabilitiesResponse(
         bool geocoderAnnounced,
         bool camerasAnnounced,
         bool speedLimitsAnnounced,
-        bool roadsAnnounced)
+        bool roadsAnnounced,
+        bool municipalityAnnounced)
     {
         var platforms = pushPlatforms.ToHashSet();
         var features = new List<string>(AlwaysOnFeatures);
@@ -99,6 +106,8 @@ public record CapabilitiesResponse(
             features.Add(SpeedLimitsDiscoveryFeature);
         if (roadsAnnounced)
             features.Add(RoadsDiscoveryFeature);
+        if (municipalityAnnounced)
+            features.Add(MunicipalityDiscoveryFeature);
         return features;
     }
 
@@ -109,7 +118,8 @@ public record CapabilitiesResponse(
         GeocoderSettings geocoderSettings,
         CameraSettings cameraSettings,
         SpeedLimitSettings speedLimitSettings,
-        RoadSettings roadSettings)
+        RoadSettings roadSettings,
+        MunicipalitySettings municipalitySettings)
     {
         // Blank means "not configured", and the field itself carries that —
         // absent, not present-but-empty, so a client can test for null rather
@@ -129,17 +139,21 @@ public record CapabilitiesResponse(
         var roads = string.IsNullOrWhiteSpace(roadSettings.BaseUrl)
             ? null
             : new RoadCapabilityResponse(roadSettings.BaseUrl);
+        var municipality = string.IsNullOrWhiteSpace(municipalitySettings.BaseUrl)
+            ? null
+            : new MunicipalityCapabilityResponse(municipalitySettings.BaseUrl);
         return new(
             SchemaVersion,
             FeaturesFor(
                 pushPlatforms, routing is not null, geocoder is not null, cameras is not null,
-                speedLimits is not null, roads is not null),
+                speedLimits is not null, roads is not null, municipality is not null),
             new IdpCapabilityResponse(idpSettings.Authority),
             routing,
             geocoder,
             cameras,
             speedLimits,
-            roads);
+            roads,
+            municipality);
     }
 }
 
@@ -191,3 +205,10 @@ public record SpeedLimitCapabilityResponse([Required] string BaseUrl);
 /// unchanged.
 /// </summary>
 public record RoadCapabilityResponse([Required] string BaseUrl);
+
+/// <summary>
+/// Where this deployment's own municipality-boundary endpoint is. See
+/// <see cref="RoutingCapabilityResponse"/> for the reasoning, which applies here
+/// unchanged.
+/// </summary>
+public record MunicipalityCapabilityResponse([Required] string BaseUrl);

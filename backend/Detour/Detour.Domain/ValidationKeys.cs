@@ -268,4 +268,18 @@ public static class ValidationKeys
         public static readonly ValidationKeyDefinition PolylineTooShort =
             ValidationKeyDefinition.Create($"{Base}.PolylineTooShort");
     }
+
+    public static class MunicipalityBoundary
+    {
+        private const string Base = "MunicipalityBoundary";
+
+        public static readonly ValidationKeyDefinition NameBlank =
+            ValidationKeyDefinition.Create($"{Base}.NameBlank");
+
+        public static readonly ValidationKeyDefinition RingsInvalid =
+            ValidationKeyDefinition.Create($"{Base}.RingsInvalid");
+
+        public static readonly ValidationKeyDefinition CoordinatesInvalid =
+            ValidationKeyDefinition.Create($"{Base}.CoordinatesInvalid");
+    }
 }

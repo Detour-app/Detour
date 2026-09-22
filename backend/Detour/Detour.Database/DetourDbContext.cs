@@ -1,4 +1,5 @@
 using Detour.Domain.ApiKeys;
+using Detour.Domain.Boundaries;
 using Detour.Domain.Cameras;
 using Detour.Domain.Circles;
 using Detour.Domain.Friendships;
@@ -35,6 +36,7 @@ public class DetourDbContext(DbContextOptions<DetourDbContext> options) : DbCont
     public DbSet<Camera> Cameras => Set<Camera>();
     public DbSet<SpeedLimitWay> SpeedLimitWays => Set<SpeedLimitWay>();
     public DbSet<RoadWay> Roads => Set<RoadWay>();
+    public DbSet<MunicipalityBoundary> MunicipalityBoundaries => Set<MunicipalityBoundary>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
