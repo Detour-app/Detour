@@ -2,6 +2,7 @@ package com.jellemax.detour.data
 
 import io.ktor.http.encodeURLParameter
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.JsonObject
 import okio.IOException
 import kotlin.math.PI
 import kotlin.math.abs
@@ -299,14 +300,86 @@ object RoadRoulette {
     const val SPEED_PREFETCH_RADIUS_M = 1500.0
 
     /**
-     * Every drivable way with a parseable `maxspeed` within [radiusMeters] of
-     * [center]. Fetched once for an area, then handed to [snapSpeedLimitKmh]
-     * per GPS fix so the posted sign changes the instant you cross onto a new
-     * road — no network round-trip in the loop. Null on any failure, empty only
-     * when the area really has no tagged road — see the null-vs-empty comment
-     * just below.
+     * Every drivable way with a parseable `maxspeed` within [radiusMeters] of [center]. Fetched
+     * once for an area, then handed to [snapSpeedLimitKmh] per GPS fix so the posted sign
+     * changes the instant you cross onto a new road — no network round-trip in the loop.
+     *
+     * Same fallback chain as [SpeedCameras.near] (issue #379, phase 3 of #302): this
+     * deployment's own `/api/speedlimits` first, when announced; a disk cache
+     * ([SpeedLimitStore]) from an earlier successful fetch when the backend is
+     * reachable-in-principle but this call failed; Overpass only once both come up empty. An
+     * install that has announced nothing resolves [RoutingServer.speedLimitsBase] to blank and
+     * goes straight to Overpass, unchanged from before this path existed.
+     *
+     * Null on any failure, empty only when the area really has no tagged road — see
+     * [SpeedCameras.near]'s doc for why an empty *backend* answer is treated as a miss rather
+     * than trusted as "no roads here", and falls through the same way.
      */
     suspend fun speedLimitWays(
+        center: LatLon,
+        radiusMeters: Double = SPEED_PREFETCH_RADIUS_M,
+    ): List<SpeedLimitWay>? {
+        val backendBase = RoutingServer.speedLimitsBase(RoutingServer.loadCustom())
+        if (backendBase.isBlank()) return speedLimitWaysViaOverpass(center, radiusMeters)
+
+        val fromBackend = try {
+            speedLimitWaysViaBackend(backendBase, center, radiusMeters)
+        } catch (e: IOException) {
+            null
+        } catch (e: SerializationException) {
+            null
+        } catch (e: IllegalArgumentException) {
+            null
+        }
+        if (fromBackend != null && fromBackend.isNotEmpty()) {
+            SpeedLimitStore.save(center, radiusMeters, fromBackend)
+            return fromBackend
+        }
+        return SpeedLimitStore.load(center, radiusMeters) ?: speedLimitWaysViaOverpass(center, radiusMeters)
+    }
+
+    /** A bounding box [radiusMeters] around [center], in degrees — shared by every backend bbox
+     *  fetch ([SpeedCameras.nearViaBackend], [speedLimitWaysViaBackend]) so the lat/lon-degree
+     *  conversion has one place to be correct. */
+    internal data class BboxDegrees(val minLat: Double, val minLon: Double, val maxLat: Double, val maxLon: Double)
+
+    internal fun bboxDegrees(center: LatLon, radiusMeters: Double): BboxDegrees {
+        val degLat = radiusMeters / 111_320.0
+        val degLon = radiusMeters / (111_320.0 * cos(center.lat * PI / 180))
+        return BboxDegrees(center.lat - degLat, center.lon - degLon, center.lat + degLat, center.lon + degLon)
+    }
+
+    /** The bbox fetch against this deployment's own speed-limit-way endpoint (issue #379) — the
+     *  wire shape is `SpeedLimitWayDto`/`SpeedLimitsBboxResponse`
+     *  (`backend/Detour/Detour.Api/Contracts/SpeedLimitContracts.cs`). The parse itself is
+     *  [parseSpeedLimitsResponse], split out for the same reason [SpeedCameras.parseCamerasResponse] is. */
+    private suspend fun speedLimitWaysViaBackend(base: String, center: LatLon, radiusMeters: Double): List<SpeedLimitWay> {
+        val bbox = bboxDegrees(center, radiusMeters)
+        val url = "$base/api/speedlimits?minLat=${bbox.minLat}&minLon=${bbox.minLon}" +
+            "&maxLat=${bbox.maxLat}&maxLon=${bbox.maxLon}"
+        val body = jsonObjectOf(rawGet(url, headers = RoutingServer.userAgentHeaders()))
+        return parseSpeedLimitsResponse(body)
+    }
+
+    /** [speedLimitWaysViaBackend]'s pure half. internal, not private, so commonTest can feed it
+     *  canned response bodies — [speedLimitWaysViaBackend] itself needs a live backend. */
+    internal fun parseSpeedLimitsResponse(body: JsonObject): List<SpeedLimitWay> {
+        val ways = ArrayList<SpeedLimitWay>()
+        for (el in (body.optArray("ways") ?: JsonArrayEmpty).objects()) {
+            val kmh = el.optDouble("maxSpeedKmh").takeIf { !it.isNaN() } ?: continue
+            val polyline = el.optArray("polyline") ?: continue
+            val pts = polyline.arrays().map { LatLon(it.optDouble(0), it.optDouble(1)) }
+            if (pts.size >= 2) ways.add(SpeedLimitWay(kmh, pts))
+        }
+        return ways
+    }
+
+    /**
+     * Overpass-only. [speedLimitWays] is the entry point every caller should use — it tries the
+     * backend's own `/api/speedlimits` first (when the deployment announces one, issue #379)
+     * and only reaches here once that path, and the disk cache behind it, both come up empty.
+     */
+    suspend fun speedLimitWaysViaOverpass(
         center: LatLon,
         radiusMeters: Double = SPEED_PREFETCH_RADIUS_M,
     ): List<SpeedLimitWay>? {

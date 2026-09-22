@@ -40,6 +40,7 @@ public class CapabilitiesController(
     IOptions<RoutingSettings> routingSettings,
     IOptions<GeocoderSettings> geocoderSettings,
     IOptions<CameraSettings> cameraSettings,
+    IOptions<SpeedLimitSettings> speedLimitSettings,
     IEnumerable<IPushGateway> pushGateways) : ControllerBase
 {
     [HttpGet]
@@ -55,5 +56,6 @@ public class CapabilitiesController(
             pushGateways.Where(g => g.Enabled).Select(g => g.Platform),
             routingSettings.Value,
             geocoderSettings.Value,
-            cameraSettings.Value));
+            cameraSettings.Value,
+            speedLimitSettings.Value));
 }

@@ -5,6 +5,7 @@ using Detour.Domain.Friendships;
 using Detour.Domain.Groups;
 using Detour.Domain.Notifications;
 using Detour.Domain.Places;
+using Detour.Domain.Roads;
 using Detour.Domain.Routes;
 using Detour.Domain.Traces;
 using Detour.Domain.Trips;
@@ -32,6 +33,7 @@ public class DetourDbContext(DbContextOptions<DetourDbContext> options) : DbCont
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
     public DbSet<Camera> Cameras => Set<Camera>();
+    public DbSet<SpeedLimitWay> SpeedLimitWays => Set<SpeedLimitWay>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

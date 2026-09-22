@@ -246,4 +246,15 @@ public static class ValidationKeys
         public static readonly ValidationKeyDefinition PolylineTooShort =
             ValidationKeyDefinition.Create($"{Base}.PolylineTooShort");
     }
+
+    public static class SpeedLimitWay
+    {
+        private const string Base = "SpeedLimitWay";
+
+        public static readonly ValidationKeyDefinition CoordinatesInvalid =
+            ValidationKeyDefinition.Create($"{Base}.CoordinatesInvalid");
+
+        public static readonly ValidationKeyDefinition PolylineTooShort =
+            ValidationKeyDefinition.Create($"{Base}.PolylineTooShort");
+    }
 }

@@ -107,6 +107,24 @@ class CapabilitiesTest {
     }
 
     @Test
+    fun aDocumentAnnouncingSpeedLimitsYieldsItsBaseUrl() {
+        val caps = Capabilities.parse(
+            """{"schema":1,"features":["speedlimits-discovery"],
+                "idp":{"issuer":"https://idp.example/realms/detour"},
+                "speedLimits":{"baseUrl":"https://example.com"}}"""
+        )
+        assertEquals("https://example.com", caps?.speedLimitsBaseUrl)
+    }
+
+    @Test
+    fun aDocumentWithNoSpeedLimitsFieldOffersNoBaseUrl() {
+        val caps = Capabilities.parse(
+            """{"schema":1,"features":[],"idp":{"issuer":"https://idp.example/realms/detour"}}"""
+        )
+        assertEquals("", caps?.speedLimitsBaseUrl)
+    }
+
+    @Test
     fun routingCanBeAnnouncedIndependentlyOfGeocoder() {
         // A self-hoster routinely runs one and not the other.
         val caps = Capabilities.parse(

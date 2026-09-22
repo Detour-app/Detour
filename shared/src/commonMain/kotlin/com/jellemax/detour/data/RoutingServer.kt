@@ -182,6 +182,20 @@ object RoutingServer {
         baked = "",
     )
 
+    /** Base of the speed-limit-way endpoint, which serves `/api/speedlimits`. Same precedence
+     *  as [camerasBase], for the same reason: no [BuildDefaults] baked value — no public
+     *  speed-limit-way host exists to fall back to — so an install that announces nothing
+     *  resolves to blank, and [RoadRoulette.speedLimitWays] falls back to Overpass. */
+    fun speedLimitsBase(custom: ServerConfig?): String = speedLimitsBase(custom, discoveredSpeedLimitsBase())
+
+    /** `internal` counterpart of [routingBase]'s, for the same reason. */
+    internal fun speedLimitsBase(custom: ServerConfig?, discoveredSpeedLimits: String): String = resolve(
+        typed = "",
+        announced = discoveredSpeedLimits,
+        general = custom?.url.orEmpty(),
+        baked = "",
+    )
+
     /**
      * The realm that issues rider tokens.
      *
@@ -343,6 +357,7 @@ object RoutingServer {
             clearAnnouncedService(ROUTING_KEYS)
             clearAnnouncedService(GEOCODER_KEYS)
             clearAnnouncedService(CAMERAS_KEYS)
+            clearAnnouncedService(SPEEDLIMITS_KEYS)
         }
 
         prefs(PREFS).apply {
@@ -529,6 +544,7 @@ object RoutingServer {
             rememberAnnouncedService(ROUTING_KEYS, fetched.routingBaseUrl, api)
             rememberAnnouncedService(GEOCODER_KEYS, fetched.geocoderBaseUrl, api)
             rememberAnnouncedService(CAMERAS_KEYS, fetched.camerasBaseUrl, api)
+            rememberAnnouncedService(SPEEDLIMITS_KEYS, fetched.speedLimitsBaseUrl, api)
         }
     }
 
@@ -576,6 +592,12 @@ object RoutingServer {
         discovered = "cameras_discovered_base",
         pending = "cameras_pending_base",
         declined = "cameras_declined_base",
+    )
+
+    private val SPEEDLIMITS_KEYS = AnnouncedServiceKeys(
+        discovered = "speedlimits_discovered_base",
+        pending = "speedlimits_pending_base",
+        declined = "speedlimits_declined_base",
     )
 
     /** What a probe's freshly-announced value, plus the previous stored state,
@@ -674,6 +696,9 @@ object RoutingServer {
 
     /** Same as [discoveredRoutingBase], for the camera-data endpoint. Feeds [camerasBase]. */
     internal fun discoveredCamerasBase(): String = vettedAnnounced(CAMERAS_KEYS)
+
+    /** Same as [discoveredRoutingBase], for the speed-limit-way endpoint. Feeds [speedLimitsBase]. */
+    internal fun discoveredSpeedLimitsBase(): String = vettedAnnounced(SPEEDLIMITS_KEYS)
 
     /** An announced routing base awaiting the rider's decision — differs from
      *  the API's own host, and has been neither accepted nor declined for this
