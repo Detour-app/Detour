@@ -20,6 +20,7 @@ public class ApiConfiguration
     public GeocoderSettings Geocoder { get; set; } = new();
     public CameraSettings Camera { get; set; } = new();
     public SpeedLimitSettings SpeedLimit { get; set; } = new();
+    public RoadSettings Road { get; set; } = new();
 }
 
 /// <summary>
@@ -113,6 +114,18 @@ public class SpeedLimitSettings
     public const string SectionName = "SpeedLimit";
 
     /// <summary>Base URL that serves <c>/api/speedlimits</c>. Blank means "not announced".</summary>
+    public string BaseUrl { get; set; } = "";
+}
+
+/// <summary>
+/// Where this deployment's own drivable-road endpoint lives, if it announces one via
+/// <c>/api/capabilities</c> (issue #380). See <see cref="RoutingSettings"/> for the reasoning.
+/// </summary>
+public class RoadSettings
+{
+    public const string SectionName = "Road";
+
+    /// <summary>Base URL that serves <c>/api/roads</c>. Blank means "not announced".</summary>
     public string BaseUrl { get; set; } = "";
 }
 

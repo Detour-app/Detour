@@ -218,6 +218,28 @@ class ServerResolutionTest {
         assertEquals("", RoutingServer.speedLimitsBase(null, discoveredSpeedLimits = ""))
     }
 
+    /** [RoutingServer.roadsBase] mirrors [RoutingServer.camerasBase] exactly (issue #380) — the
+     *  three tests above, repeated for the drivable-road endpoint. */
+    @Test
+    fun roadsBase_prefers_announced_over_general_and_baked() {
+        val custom = ServerConfig(url = "https://general.example", enabled = true)
+        assertEquals(
+            "https://announced.example",
+            RoutingServer.roadsBase(custom, discoveredRoads = "https://announced.example"),
+        )
+    }
+
+    @Test
+    fun roadsBase_falls_back_to_general_when_nothing_announced() {
+        val custom = ServerConfig(url = "https://general.example", enabled = true)
+        assertEquals("https://general.example", RoutingServer.roadsBase(custom, discoveredRoads = ""))
+    }
+
+    @Test
+    fun roadsBase_resolves_to_blank_when_nothing_is_configured() {
+        assertEquals("", RoutingServer.roadsBase(null, discoveredRoads = ""))
+    }
+
     @Test
     fun theIssuerNeverFallsBackToTheGeneralServerAddress() {
         // A realm URL is never the API base, so a saved server with no issuer
