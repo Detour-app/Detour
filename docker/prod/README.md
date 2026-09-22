@@ -56,7 +56,7 @@ do not, and that is expected, not a failure:
 
 - **GraphHopper** downloads the OSM extract for your region, then builds the
   routing graph and the contraction hierarchies for both profiles. That is
-  **a few minutes (`belgium`/`netherlands`/`luxembourg`) to 65 min (`germany`)** and wants `GRAPHHOPPER_HEAP` of
+  **25 min (`benelux`) to 65 min (`germany`)** and wants `GRAPHHOPPER_HEAP` of
   RAM on the machine doing it. `/health` reports down for the whole build and the
   container sits at `health: starting` — `start_period` is sized to outlast it.
   `docker compose logs -f graphhopper` shows progress. The result lands in the
@@ -74,24 +74,21 @@ the stack is usable while they build.
 
 `OSM_REGION` picks a curated extract; `OSM_EXTRACT_URL` overrides it with any
 Geofabrik `.pbf` path for a region we do not curate (you own the RAM budget
-then). Geofabrik has no single combined "benelux" `.pbf` (its `/europe/`
-listing shows benelux only as a directory of the three countries below, not a
-file — see #368), so the curated five are the individual countries:
+then). The curated three, first-boot cost on GraphHopper 11 (graph + CH for
+`car` and `moto`):
 
 | `OSM_REGION` | Heap | Build |
 | --- | --- | --- |
-| `belgium` | not yet measured, well under `france`'s | not yet measured |
-| `netherlands` | not yet measured, well under `france`'s | not yet measured |
-| `luxembourg` | smallest Geofabrik extract | a few minutes |
+| `benelux` | ~10 GB | ~25 min |
 | `france` | ~18 GB | ~50 min |
 | `germany` | ~22 GB | ~65 min |
 
 *Figures are estimates from the extract sizes, not yet measured against a real
 build — watch `docker compose logs -f graphhopper` for your actual numbers.*
 
-`belgium`, `netherlands` and `luxembourg` each run on a modest box. `france`
-and `germany` need a build machine with real RAM until sub-project 2's
-prebuilt graphs land (they drop the serve need to ~4 GB). The list lives in
+`benelux` runs on a modest box. `france` and `germany` need a build machine with
+real RAM until sub-project 2's prebuilt graphs land (they drop the serve need to
+~4 GB). The list lives in
 [`config/regions.env`](config/regions.env), mounted into the init container — a
 new region is a one-line PR, no image rebuild.
 
