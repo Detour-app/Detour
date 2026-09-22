@@ -467,7 +467,7 @@ private fun AppRoot() {
                         onOpenSpoke = { spoke -> backStack.push(spoke) },
                     )
                 }
-                // Six entries rather than one, because entryProvider dispatches on the
+                // Seven entries rather than one, because entryProvider dispatches on the
                 // concrete key type. Each renders through the same SettingsSpokeScreen,
                 // whose `when` is exhaustive over Destination.SettingsSpoke.
                 entry<Destination.SettingsAppearanceMap> { key ->
@@ -489,6 +489,9 @@ private fun AppRoot() {
                     SettingsSpokeScreen(key, onBack = { backStack.pop() })
                 }
                 entry<Destination.SettingsObd2> { key ->
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                }
+                entry<Destination.SettingsLicences> { key ->
                     SettingsSpokeScreen(key, onBack = { backStack.pop() })
                 }
                 entry<Destination.SavedPlaces> { SavedPlacesScreen(onBack = { backStack.pop() }) }
