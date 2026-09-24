@@ -20,6 +20,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.data.AddressSource
+import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.perf.PerfSink
 import kotlinx.coroutines.Dispatchers
@@ -100,7 +102,50 @@ fun DiagnosticsSection() {
                 )
             }
         }
+
+        ServerConfigurationReadout()
     }
+}
+
+/**
+ * The addresses this install actually resolved and which slot supplied each
+ * (#352) — the only place a self-hoster can see whether an announcement
+ * reached the phone and whether it is winning. Read-only on purpose: an
+ * announced value is never promoted into the rider's own typed config (#177).
+ */
+@Composable
+private fun ServerConfigurationReadout() {
+    val services = remember { RoutingServer.resolvedServices() }
+    val features = remember { RoutingServer.knownServerFeatures() }
+    Column {
+        Text("Server configuration (resolved)", style = MaterialTheme.typography.titleSmall)
+        for (s in services) {
+            val line = buildString {
+                append("${s.name} · ${s.address.value.ifBlank { "—" }} · ${sourceLabel(s.address.source)}")
+                if (s.pending.isNotBlank()) append(" · announced ${s.pending}, awaiting consent")
+                if (s.declined.isNotBlank()) append(" · declined ${s.declined}")
+            }
+            Text(line, style = MaterialTheme.typography.bodySmall)
+        }
+        // null and empty are different answers here: "never asked" vs "asked and
+        // the server advertises nothing" — the distinction #352 exists to show.
+        Text(
+            "Features · " + when {
+                features == null -> "never probed, or no probe has answered"
+                features.isEmpty() -> "none advertised"
+                else -> features.joinToString(", ")
+            },
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+private fun sourceLabel(source: AddressSource): String = when (source) {
+    AddressSource.TYPED -> "typed for this service"
+    AddressSource.ANNOUNCED -> "announced by server"
+    AddressSource.GENERAL -> "typed (one address)"
+    AddressSource.BAKED -> "built-in default"
+    AddressSource.NONE -> "not configured"
 }
 
 /** The read grant is what makes the content:// Uri usable on the other side —
