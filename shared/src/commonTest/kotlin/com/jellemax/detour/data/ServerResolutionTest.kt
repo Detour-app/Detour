@@ -551,4 +551,19 @@ class ServerResolutionTest {
             RoutingServer.camerasResolved(null, discoveredCameras = ""),
         )
     }
+
+    @Test
+    fun anAcceptedAnnouncementBeatsTheBakedRoutingHostWhenNothingWasSaved() {
+        // Routing callers pass load(), which is bakedDefaults() on an install
+        // with nothing saved. Its routing host must not sit in the typed slot,
+        // or the announcement the diagnostics readout shows as winning loses.
+        BuildDefaults.configure(routingUrl = "https://baked-route.example")
+        val announced = "https://announced-route.example"
+        assertEquals(announced, RoutingServer.routingBase(RoutingServer.bakedDefaults(), announced))
+        assertEquals(
+            "https://baked-route.example",
+            RoutingServer.routingBase(RoutingServer.bakedDefaults(), discoveredRouting = ""),
+        )
+        assertTrue(RoutingServer.bakedDefaults().usable)
+    }
 }

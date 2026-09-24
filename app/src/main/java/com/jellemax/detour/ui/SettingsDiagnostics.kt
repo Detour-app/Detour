@@ -12,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -115,8 +116,12 @@ fun DiagnosticsSection() {
  */
 @Composable
 private fun ServerConfigurationReadout() {
-    val services = remember { RoutingServer.resolvedServices() }
-    val features = remember { RoutingServer.knownServerFeatures() }
+    // Keyed on a manual refresh: the Servers spoke above this on the same page
+    // accepts, declines and saves through plain prefs, which Compose cannot
+    // observe, so an unkeyed read would keep showing the state before the tap.
+    var refreshes by remember { mutableIntStateOf(0) }
+    val services = remember(refreshes) { RoutingServer.resolvedServices() }
+    val features = remember(refreshes) { RoutingServer.knownServerFeatures() }
     Column {
         Text("Server configuration (resolved)", style = MaterialTheme.typography.titleSmall)
         for (s in services) {
@@ -137,6 +142,7 @@ private fun ServerConfigurationReadout() {
             },
             style = MaterialTheme.typography.bodySmall,
         )
+        TextButton(onClick = { refreshes++ }) { Text("Refresh") }
     }
 }
 

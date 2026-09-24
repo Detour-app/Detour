@@ -101,7 +101,10 @@ object RoutingServer {
     fun bakedDefaults(): ServerConfig = ServerConfig(
         url = BuildDefaults.routingUrl,
         apiUrl = BuildDefaults.apiUrl,
-        routingUrl = BuildDefaults.routingUrl,
+        // Left blank, not BuildDefaults.routingUrl: this config reaches routing
+        // through load(), and a value here sits in the *typed* slot, outranking
+        // an accepted announcement — #355's bug, alive whenever nothing was
+        // saved (#352). The baked routing host still arrives via [url].
         geocoderUrl = BuildDefaults.geocoderUrl,
         idpIssuer = BuildDefaults.idpIssuer,
         enabled = BuildDefaults.routingUrl.isNotBlank(),
