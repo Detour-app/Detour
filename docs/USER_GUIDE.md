@@ -186,8 +186,8 @@ road do. The loop is handed to Google Maps as a multi-waypoint route, or driven
 in-app like any other route.
 
 With a routing server configured, the loop is a single request that comes back
-following real roads. Without one, the app plans an approximate loop from
-Overpass data and says so.
+following real roads. Without one, the app plans an approximate loop from your
+server's own road data and says so.
 
 ## Getting there
 
@@ -561,8 +561,8 @@ Apple Developer account, which no CI trick removes.
 ## What leaves your device
 
 Even without a sync server, a few features talk to the network by design:
-Overpass sees the spin center and radius you choose, OpenFreeMap's tiles see
-your current map viewport, and address/place search sends your query (and an
+your configured Detour server sees the spin center and radius you choose,
+OpenFreeMap's tiles see your current map viewport, and address/place search sends your query (and an
 approximate location, to rank nearby results first) to Photon — your own
 instance if you've set one in Settings, otherwise the public
 `photon.komoot.io`. If you self-host Photon, search falls back to the public

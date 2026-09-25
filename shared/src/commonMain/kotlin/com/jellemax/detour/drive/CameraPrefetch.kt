@@ -5,7 +5,7 @@ import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.SpeedCameras
 
 /**
- * *When* to ask Overpass for the cameras and average-speed sections around you.
+ * *When* to ask the backend for the cameras and average-speed sections around you.
  * One answer carries both, so this is one cadence rather than two.
  *
  * **Cadence only** - the markers and the sections themselves stay on the
@@ -32,12 +32,14 @@ import com.jellemax.detour.data.SpeedCameras
  * cadence inline — the phone with literals, the head unit with named constants —
  * and neither backed off. A failed fetch leaves [State.center] where it was, so
  * the distance trigger stays true forever and a flat throttle becomes a retry
- * timer: one refused request every 15 s, each one trying *every* mirror in
- * `RoadRoulette.rawQuery`, for the whole drive. maxke24/Detour#22 measured
- * roughly 143 requests out of a single 17 km replay, which is enough to get the
- * IP rate-limited — and a rate-limited IP silently takes the camera markers, the
- * sections *and* the ambient speed-limit sign down with it for hours. Doubling
- * the wait per consecutive failure turns that 17 km into single figures, and one
+ * timer: one request every 15 s for the whole drive, unthrottled by any backoff.
+ * maxke24/Detour#22 measured roughly 143 requests out of a single 17 km replay
+ * against the old Overpass-backed path, which was enough to get the IP
+ * rate-limited — and a rate-limited IP silently took the camera markers, the
+ * sections *and* the ambient speed-limit sign down with it for hours. The
+ * backend endpoint (issue #303) removed that specific risk, but the backoff
+ * stays: a self-hosted backend can still blip, and doubling the wait per
+ * consecutive failure turns a bad stretch into single figures, and one
  * success puts the cadence straight back to normal.
  *
  * **No clock**, like every other machine here: [nowMs] is the caller's, so the

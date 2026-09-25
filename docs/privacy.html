@@ -73,10 +73,11 @@ is listed below is sent:</p>
   <li><strong>Map tiles</strong> — the area of the map you are looking at is
       requested from <a href="https://openfreemap.org/">OpenFreeMap</a>.</li>
   <li><strong>Spin destinations, speed cameras and coverage</strong> — the
-      centre point and radius of a spin are sent to the
-      <a href="https://overpass-api.de/">Overpass API</a>
-      (<code>overpass-api.de</code> or <code>overpass.kumi.systems</code>) to
-      find roads in that area from OpenStreetMap data.</li>
+      centre point and radius of a spin, and the area you are driving in, are
+      sent to your configured Detour server's own OpenStreetMap-derived
+      endpoints to find roads, points of interest, speed cameras and
+      municipality boundaries in that area. No routing server is configured
+      by default, so these requests only happen once you set one up.</li>
   <li><strong>Address and place search</strong> — your search text and an
       approximate location (used to rank nearby results first) are sent to a
       <a href="https://photon.komoot.io/">Photon</a> geocoder: your own

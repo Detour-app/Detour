@@ -58,7 +58,7 @@ class NavStartTest {
 
     @Test
     fun aLoopWithNoTurnDataIsUnguidableAndSaysSo() {
-        // The Overpass fallback draws a line but carries no instructions. This
+        // The backend-sampled fallback draws a line but carries no instructions. This
         // is the case that fires when the routing server is unreachable, which
         // is exactly when a rider is most likely to press Go and wonder.
         assertEquals(

@@ -183,14 +183,14 @@ object RoundTripPlanner {
                 // A loop covers all directions; a bearing just anchors where it starts.
                 val startAngle = bearingDeg?.let { toRadians(it) }
                     ?: Random.nextDouble(2 * PI)
-                val overpassLimit = Semaphore(2) // be polite to the public API
+                val fetchLimit = Semaphore(2) // be polite to the backend
                 val waypoints = (0 until SECTORS).map { s ->
                     async {
-                        overpassLimit.withPermit {
+                        fetchLimit.withPermit {
                             // Any single-sector failure just skips that sector.
                             try {
                                 sectorWaypoint(center, radiusMeters,
-                                    startAngle + s * 2 * PI / SECTORS, highwayRegex, s)
+                                    startAngle + s * 2 * PI / SECTORS, highwayRegex)
                             } catch (e: Exception) {
                                 if (e is CancellationException) throw e
                                 null
@@ -210,7 +210,6 @@ object RoundTripPlanner {
         radiusMeters: Double,
         sectorAngle: Double,
         highwayRegex: String,
-        sectorIndex: Int,
     ): LatLon? {
         // Jitter within the sector; aim for a ring at 50–85% of the radius so
         // the loop stays inside the circle.
@@ -220,7 +219,7 @@ object RoundTripPlanner {
 
         for (searchRadius in listOf(2_000.0, 5_000.0)) {
             val ways = try {
-                RoadRoulette.fetchRoads(sample, searchRadius, highwayRegex, sectorIndex)
+                RoadRoulette.fetchRoads(sample, searchRadius, highwayRegex)
             } catch (e: IOException) {
                 continue
             }

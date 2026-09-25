@@ -1,6 +1,5 @@
 package com.jellemax.detour.data
 
-import io.ktor.http.encodeURLParameter
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
 import okio.IOException
@@ -20,8 +19,8 @@ data class LatLon(val lat: Double, val lon: Double)
 data class OverpassWay(val nodes: List<Long>, val points: List<LatLon>)
 
 /**
- * Picks a random point on a road within a radius, using the Overpass API
- * (OpenStreetMap data).
+ * Picks a random point on a road within a radius, using Detour's own
+ * `/api/roads` endpoint (OpenStreetMap data, issue #302).
  *
  * For large radii it does NOT download every road in the circle (which can be
  * tens of MB over a city). Instead it samples a random sub-area (uniform by
@@ -30,48 +29,6 @@ data class OverpassWay(val nodes: List<Long>, val points: List<LatLon>)
  * uniformly by road length.
  */
 object RoadRoulette {
-
-    /** internal, not private, so the mirror-fallthrough test can count them:
-     *  the budget below is a slice per mirror and there is no other way to
-     *  assert that the slices add up to it. */
-    internal val ENDPOINTS = listOf(
-        "https://overpass-api.de/api/interpreter",
-        "https://overpass.kumi.systems/api/interpreter",
-    )
-
-    /**
-     * The window one [rawQuery] gets, and by default what it splits across the
-     * mirrors — see [MIRROR_TIMEOUT_MS].
-     *
-     * **Three callers deliberately spend it all on each mirror instead**, by
-     * passing it as `timeoutMs`: [overpassWays], [PoiRoulette] and
-     * [SpeedCameras.near]. What they have in common is a query heavy enough that
-     * a slice expires while the answer is still coming, and an expired slice is
-     * indistinguishable from an empty area — so the slice does not make them
-     * fail faster, it makes them fail *wrongly*. So this is not a hard ceiling
-     * on a whole call: with two mirrors those three can cost twice this.
-     */
-    internal const val QUERY_BUDGET_MS = 12_000L
-
-    /**
-     * One mirror's share of [QUERY_BUDGET_MS].
-     *
-     * The budget used to be handed to each mirror in turn, so a primary that
-     * accepted the connection and then stalled ate the whole window before the
-     * second mirror was even tried — long enough that the camera and
-     * speed-limit prefetches had given up and backed off, and the rider saw an
-     * empty map rather than an error. A slice each means a dead primary costs a
-     * fraction of the window instead of all of it.
-     */
-    internal val MIRROR_TIMEOUT_MS = QUERY_BUDGET_MS / ENDPOINTS.size
-
-    /**
-     * The `[timeout:]` hint every Overpass query in this module carries, in
-     * seconds. Matched to [MIRROR_TIMEOUT_MS], because a server still grinding
-     * on a query the client has already abandoned only burns the rate-limit
-     * slot the retry needs.
-     */
-    internal val SERVER_TIMEOUT_S = MIRROR_TIMEOUT_MS / 1000
 
     suspend fun randomRoadPoint(
         center: LatLon,
@@ -204,35 +161,29 @@ object RoadRoulette {
      * Drivable ways matching [highwayRegex] within [radiusMeters] of [center] — spin's
      * random-road feature (issue #382, phase 5 of #302) and `RoundTripPlanner`'s sector fetch.
      *
-     * Same fallback chain as [speedLimitWays]: this deployment's own `/api/roads` first, when
-     * announced, and only Overpass when that fails outright. Unlike [speedLimitWays] there is no
-     * disk cache in front of the backend call — a spin tap is user-initiated, not a background
-     * prefetch loop, so there is nothing to survive a restart for (issue #382's own reasoning).
-     * An *empty* backend answer is returned as-is (not a failure to fall through on): the bbox
-     * genuinely having no matching road is exactly what Overpass would also have said, and
-     * every caller here already handles an empty list by widening the search or trying the next
-     * sector, not by reaching for another data source.
+     * Backed by this deployment's own `/api/roads` endpoint (issue #380/#382). No disk cache
+     * in front of it — a spin tap is user-initiated, not a background prefetch loop, so there
+     * is nothing to survive a restart for (issue #382's own reasoning). An empty answer is
+     * returned as-is: the bbox genuinely having no matching road is a real result, and every
+     * caller here already handles an empty list by widening the search or trying the next
+     * sector.
      */
     suspend fun fetchRoads(
         center: LatLon,
         radiusMeters: Double,
         highwayRegex: String,
-        endpointOffset: Int = 0,
     ): List<OverpassWay> {
         val backendBase = RoutingServer.roadsBase(RoutingServer.loadCustom())
-        if (backendBase.isNotBlank()) {
-            val fromBackend = try {
-                fetchRoadsViaBackend(backendBase, center, radiusMeters, highwayRegex)
-            } catch (e: IOException) {
-                null
-            } catch (e: SerializationException) {
-                null
-            } catch (e: IllegalArgumentException) {
-                null
-            }
-            if (fromBackend != null) return fromBackend
+        if (backendBase.isBlank()) return emptyList()
+        return try {
+            fetchRoadsViaBackend(backendBase, center, radiusMeters, highwayRegex)
+        } catch (e: IOException) {
+            emptyList()
+        } catch (e: SerializationException) {
+            emptyList()
+        } catch (e: IllegalArgumentException) {
+            emptyList()
         }
-        return fetchRoadsViaOverpass(center, radiusMeters, highwayRegex, endpointOffset)
     }
 
     /** The bbox fetch against this deployment's own drivable-road endpoint (issue #380/#382) —
@@ -253,14 +204,9 @@ object RoadRoulette {
     }
 
     /** [fetchRoadsViaBackend]'s pure half. internal, not private, so commonTest can feed it
-     *  canned response bodies. [highwayRegex] is applied the same way the Overpass query's own
-     *  `["highway"~"$highwayRegex"]` tag filter is — the backend returns every drivable class in
-     *  the bbox, and matching the mode-specific subset stays a client-side judgement call, same
-     *  as it always was. The node ids [OverpassWay] carries are synthetic (`0L`, one per point)
-     *  since this table does not store them — the same "no node info" fallback
-     *  [parseWays] already uses for an Overpass element with no `nodes` array, which
-     *  `RoundTripPlanner`'s junction detection already treats as "no junction here" rather than
-     *  crashing. */
+     *  canned response bodies. The node ids [OverpassWay] carries are synthetic (`0L`, one per
+     *  point) since this table does not store them — `RoundTripPlanner`'s junction detection
+     *  treats that as "no junction here" rather than crashing. */
     internal fun parseRoadsResponse(body: JsonObject, highwayRegex: String): List<OverpassWay> {
         val regex = Regex(highwayRegex)
         val ways = ArrayList<OverpassWay>()
@@ -274,102 +220,18 @@ object RoadRoulette {
         return ways
     }
 
-    /**
-     * Overpass-only. [fetchRoads] is the entry point every caller should use — it tries the
-     * backend's own `/api/roads` first (when the deployment announces one, issue #380/#382) and
-     * only reaches here once that call fails outright.
-     */
-    suspend fun fetchRoadsViaOverpass(
-        center: LatLon,
-        radiusMeters: Double,
-        highwayRegex: String,
-        endpointOffset: Int = 0,
-    ): List<OverpassWay> {
-        // The whole budget per mirror, not a slice: a spin's fourth attempt
-        // asks for every road within 9.6 km with geometry, which a healthy
-        // mirror answers in seconds rather than the one the slice allows, and
-        // a slice that expires on a mirror mid-answer reads as "no roads here".
-        val query = """
-            [out:json][timeout:${QUERY_BUDGET_MS / 1000}];
-            way(around:${radiusMeters.toInt()},${center.lat},${center.lon})["highway"~"$highwayRegex"];
-            out geom;
-        """.trimIndent()
-
-        val key = cacheKey("roads:$highwayRegex", center, radiusMeters)
-        return parseWays(OverpassCache.fetch(key) { rawQuery(query, endpointOffset, timeoutMs = QUERY_BUDGET_MS) })
-    }
-
     /** Road classes a car/moto can legally be on; excludes the footways,
      *  cycleways, service roads and tracks that used to hijack the badge. */
     internal const val DRIVABLE_HIGHWAYS = "motorway|trunk|primary|secondary|tertiary|" +
         "unclassified|residential|living_street|" +
         "motorway_link|trunk_link|primary_link|secondary_link|tertiary_link"
 
-    /** Beyond this the road is not the one we are on, whatever Overpass returned. */
+    /** Beyond this the road is not the one we are on, whatever the backend returned. */
     internal const val MAX_SNAP_METERS = 25.0
 
     /** A road counts as "the one we're on" when it runs within this many degrees
      *  of our heading, in either direction of travel. */
     internal const val HEADING_TOLERANCE_DEG = 40.0
-
-    /**
-     * Posted speed limit (km/h) of the road [point] is on, via Overpass — for the
-     * speed HUD while driving with no active route (which would otherwise carry
-     * this from GraphHopper's path details). Null when nothing drivable is close
-     * enough, or the tag isn't a value we can trust ("none", "signals", …).
-     *
-     * A plain nearest-way search picks up the parallel frontage road, the side
-     * street you are passing, or the motorway you are driving under, so when
-     * [headingDeg] is known a road must also run roughly along our heading;
-     * only if nothing lines up do we fall back to the closest drivable road.
-     */
-    suspend fun nearestSpeedLimitKmh(
-        point: LatLon,
-        headingDeg: Double? = null,
-        radiusMeters: Double = MAX_SNAP_METERS,
-    ): Double? {
-        val query = "[out:json][timeout:$SERVER_TIMEOUT_S];" +
-            "way(around:${radiusMeters.toInt()},${point.lat},${point.lon})" +
-            "[\"maxspeed\"][\"highway\"~\"^($DRIVABLE_HIGHWAYS)$\"];" +
-            "out tags geom;"
-        val key = cacheKey("speedlimit-point", point, radiusMeters)
-        val json = try {
-            OverpassCache.fetch(key) { rawQuery(query) }
-        } catch (e: IOException) {
-            return null
-        }
-        val elements = jsonObjectOf(json).optArray("elements") ?: return null
-
-        var aligned: Double? = null
-        var alignedDist = Double.MAX_VALUE
-        var nearest: Double? = null
-        var nearestDist = Double.MAX_VALUE
-
-        for (el in elements.objects()) {
-            val raw = el.optObject("tags")?.optString("maxspeed")
-                ?.takeIf { it.isNotBlank() } ?: continue
-            val kmh = parseMaxSpeed(raw) ?: continue
-            val geometry = el.optArray("geometry")?.objects() ?: continue
-            for (j in 0 until geometry.size - 1) {
-                val a = geometry[j].let { LatLon(it.optDouble("lat"), it.optDouble("lon")) }
-                val b = geometry[j + 1].let { LatLon(it.optDouble("lat"), it.optDouble("lon")) }
-                // Distance to the road itself, not to whichever node happened to
-                // be mapped: a straight way can have its nodes hundreds of metres
-                // apart and still pass right under us.
-                val d = distanceToSegmentMeters(point, a, b)
-                if (d > MAX_SNAP_METERS) continue
-                if (d < nearestDist) {
-                    nearestDist = d
-                    nearest = kmh
-                }
-                if (headingDeg != null && d < alignedDist && alignsWith(a, b, headingDeg)) {
-                    alignedDist = d
-                    aligned = kmh
-                }
-            }
-        }
-        return aligned ?: nearest
-    }
 
     /** A drivable way with a known posted limit, for local speed-limit snapping. */
     data class SpeedLimitWay(val kmh: Double, val points: List<LatLon>)
@@ -383,23 +245,16 @@ object RoadRoulette {
      * once for an area, then handed to [snapSpeedLimitKmh] per GPS fix so the posted sign
      * changes the instant you cross onto a new road — no network round-trip in the loop.
      *
-     * Same fallback chain as [SpeedCameras.near] (issue #379, phase 3 of #302): this
-     * deployment's own `/api/speedlimits` first, when announced; a disk cache
-     * ([SpeedLimitStore]) from an earlier successful fetch when the backend is
-     * reachable-in-principle but this call failed; Overpass only once both come up empty. An
-     * install that has announced nothing resolves [RoutingServer.speedLimitsBase] to blank and
-     * goes straight to Overpass, unchanged from before this path existed.
-     *
-     * Null on any failure, empty only when the area really has no tagged road — see
-     * [SpeedCameras.near]'s doc for why an empty *backend* answer is treated as a miss rather
-     * than trusted as "no roads here", and falls through the same way.
+     * Backed by this deployment's own `/api/speedlimits` endpoint (issue #379); a disk cache
+     * ([SpeedLimitStore]) from an earlier successful fetch covers a backend call that fails
+     * outright. Null on any failure, empty only when the area really has no tagged road.
      */
     suspend fun speedLimitWays(
         center: LatLon,
         radiusMeters: Double = SPEED_PREFETCH_RADIUS_M,
     ): List<SpeedLimitWay>? {
         val backendBase = RoutingServer.speedLimitsBase(RoutingServer.loadCustom())
-        if (backendBase.isBlank()) return speedLimitWaysViaOverpass(center, radiusMeters)
+        if (backendBase.isBlank()) return SpeedLimitStore.load(center, radiusMeters)
 
         val fromBackend = try {
             speedLimitWaysViaBackend(backendBase, center, radiusMeters)
@@ -414,7 +269,7 @@ object RoadRoulette {
             SpeedLimitStore.save(center, radiusMeters, fromBackend)
             return fromBackend
         }
-        return SpeedLimitStore.load(center, radiusMeters) ?: speedLimitWaysViaOverpass(center, radiusMeters)
+        return SpeedLimitStore.load(center, radiusMeters)
     }
 
     /** A bounding box [radiusMeters] around [center], in degrees — shared by every backend bbox
@@ -454,54 +309,10 @@ object RoadRoulette {
     }
 
     /**
-     * Overpass-only. [speedLimitWays] is the entry point every caller should use — it tries the
-     * backend's own `/api/speedlimits` first (when the deployment announces one, issue #379)
-     * and only reaches here once that path, and the disk cache behind it, both come up empty.
-     */
-    suspend fun speedLimitWaysViaOverpass(
-        center: LatLon,
-        radiusMeters: Double = SPEED_PREFETCH_RADIUS_M,
-    ): List<SpeedLimitWay>? {
-        val query = "[out:json][timeout:$SERVER_TIMEOUT_S];" +
-            "way(around:${radiusMeters.toInt()},${center.lat},${center.lon})" +
-            "[\"maxspeed\"][\"highway\"~\"^($DRIVABLE_HIGHWAYS)$\"];" +
-            "out tags geom;"
-        // Null on any failure, empty only when the area really has no tagged
-        // road: [SpeedCameras.near]'s contract, and what lets the caller back off
-        // after a refusal instead of retrying on the throttle forever. A busy
-        // Overpass answers 200 with an HTML "runtime error" page, so the parse
-        // fails on a perfectly good HTTP response - the same three catches
-        // SpeedCameras.near documents, which this used to let escape.
-        val key = cacheKey("speedlimit-ways", center, radiusMeters)
-        val json = try {
-            OverpassCache.fetch(key) { rawQuery(query) }
-        } catch (e: IOException) {
-            return null
-        }
-        val elements = try {
-            jsonObjectOf(json).optArray("elements")
-        } catch (e: SerializationException) {
-            return null
-        } catch (e: IllegalArgumentException) {
-            return null
-        } ?: return emptyList()
-        val ways = ArrayList<SpeedLimitWay>(elements.size)
-        for (el in elements.objects()) {
-            val kmh = el.optObject("tags")?.optString("maxspeed")
-                ?.takeIf { it.isNotBlank() }?.let { parseMaxSpeed(it) } ?: continue
-            val geometry = el.optArray("geometry") ?: continue
-            val pts = geometry.objects().map { LatLon(it.optDouble("lat"), it.optDouble("lon")) }
-            if (pts.size >= 2) ways.add(SpeedLimitWay(kmh, pts))
-        }
-        return ways
-    }
-
-    /**
      * Posted limit for [point] snapped locally against a prefetched [ways] set.
-     * Same alignment logic as [nearestSpeedLimitKmh] — a road must run roughly
-     * along [headingDeg] to win, so the cross street and frontage road are
-     * rejected — but with no network call, so it's cheap enough to run on
-     * every fix.
+     * A road must run roughly along [headingDeg] to win, so the cross street
+     * and frontage road are rejected — no network call, so it's cheap enough
+     * to run on every fix.
      */
     fun snapSpeedLimitKmh(
         point: LatLon,
@@ -583,122 +394,9 @@ object RoadRoulette {
         }
     }
 
-    /**
-     * Runs an Overpass query, rotating across mirrors until one actually
-     * answers ([isOverpassAnswer]). Each mirror gets [MIRROR_TIMEOUT_MS] and no
-     * more, so a primary that is down but not *refusing* costs its slice rather
-     * than the whole budget.
-     *
-     * Sequential, not raced: two requests per query would double what this app
-     * asks of a volunteer-run API for the sake of the seconds a slice already
-     * saves, and Overpass's usage policy is the reason [post] identifies us at
-     * all. Ktor would make the race short to write; it is the bill that rules
-     * it out, not the code.
-     */
-    suspend fun rawQuery(
-        query: String,
-        endpointOffset: Int = 0,
-        timeoutMs: Long = MIRROR_TIMEOUT_MS,
-    ): String {
-        var lastError: IOException? = null
-        for (endpoint in mirrorOrder(endpointOffset)) {
-            try {
-                val body = post(endpoint, query, timeoutMs)
-                if (isOverpassAnswer(body)) return body
-                // A refusal the mirror dressed as a 200, so it never reached
-                // the catch below: the next mirror is still worth asking.
-                // Passing it on instead left every caller to read it as "no
-                // data here" with a healthy mirror sitting untried.
-                lastError = IOException("Overpass returned no answer")
-            } catch (e: IOException) {
-                lastError = e
-            }
-        }
-        throw lastError ?: IOException("All Overpass endpoints failed")
-    }
-
-    /** Plain-URL GET, for callers that hit a single backend rather than
-     *  Overpass's rotating mirrors (currently [SpeedCameras]'s backend camera
-     *  fetch). Goes through [Http], the same client [post] uses, rather than
-     *  standing up a second HTTP client configuration. */
+    /** Plain-URL GET against this deployment's own backend endpoints. Goes through [Http]. */
     suspend fun rawGet(url: String, headers: Map<String, String>): String =
         Http.get(url, headers)
-
-    /** The mirrors to try, in order, starting [offset] into the list — so the
-     *  parallel sector fetches of a round trip don't all open on the same one. */
-    internal fun mirrorOrder(offset: Int): List<String> =
-        ENDPOINTS.indices.map { ENDPOINTS[(it + offset).mod(ENDPOINTS.size)] }
-
-    /**
-     * Whether [body] is an answer, rather than one of the two ways a mirror
-     * says no with a 200 on it — see [rawQuery], which tries the next mirror
-     * when this is false.
-     *
-     * The first is the HTML "runtime error" page a busy server sends, which
-     * the caller cannot parse. The second is the dangerous one, and is the way
-     * a server-side timeout comes back to a query carrying `[out:json]` —
-     * which every query here does: a perfectly well-formed envelope with an
-     * empty `elements` and a top-level `remark`
-     * ("runtime error: Query timed out ..."). That one parses, so it reaches
-     * the caller as "this area has nothing in it": the prefetch resets its
-     * backoff, marks the area held and never asks again, which is exactly the
-     * silence this whole file is about. Overpass also uses `remark` for
-     * warnings served alongside partial data, and partial is not an answer for
-     * a prefetch either, so any remark at all sends us to the next mirror.
-     *
-     * Parsed rather than scanned for `"remark"`: `remark` is an OSM tag too,
-     * and `out tags` prints the ones mappers wrote, so a substring test would
-     * throw away good answers. It costs a second parse of a body the caller
-     * parses again — small against the network call that produced it, and
-     * against the alternative of handing every caller a JsonObject it would
-     * have to re-shape.
-     */
-    internal fun isOverpassAnswer(body: String): Boolean {
-        if (!body.trimStart().startsWith('{')) return false
-        val root = try {
-            jsonObjectOf(body)
-        } catch (e: SerializationException) {
-            return false
-        } catch (e: IllegalArgumentException) {
-            return false
-        }
-        return root.optString("remark").isBlank()
-    }
-
-    private suspend fun post(endpoint: String, query: String, timeoutMs: Long): String = try {
-        Http.request(
-            method = "POST",
-            url = endpoint,
-            body = "data=${query.encodeURLParameter()}",
-            headers = mapOf(
-                "Content-Type" to "application/x-www-form-urlencoded",
-                // Overpass usage policy asks for an identifying user agent.
-                "User-Agent" to "Detour/${BuildDefaults.versionName}",
-            ),
-            readTimeoutMs = timeoutMs,
-        )
-    } catch (e: HttpStatusException) {
-        throw IOException("Overpass API error: HTTP ${e.code}")
-    }
-
-    private fun parseWays(json: String): List<OverpassWay> {
-        val elements = jsonObjectOf(json).optArray("elements") ?: return emptyList()
-        val ways = ArrayList<OverpassWay>(elements.size)
-        for (el in elements.objects()) {
-            val geometry = el.optArray("geometry") ?: continue
-            val points = geometry.objects().map {
-                LatLon(it.optDouble("lat"), it.optDouble("lon"))
-            }
-            val nodeArray = el.optArray("nodes")
-            val nodes = if (nodeArray != null && nodeArray.size == points.size) {
-                nodeArray.indices.map { nodeArray.optLong(it) }
-            } else {
-                List(points.size) { 0L } // no node info; 0 is never a junction id
-            }
-            if (points.size >= 2) ways.add(OverpassWay(nodes, points))
-        }
-        return ways
-    }
 
     fun distanceMeters(a: LatLon, b: LatLon): Double {
         val r = 6_371_000.0

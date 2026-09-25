@@ -4,14 +4,13 @@ import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RoadRoulette
 
 /**
- * The ambient speed-limit sign while just driving: one Overpass fetch covers a
+ * The ambient speed-limit sign while just driving: one backend fetch covers a
  * wide circle, then every fix snaps locally against that set, so the sign flips
  * the instant you cross onto a new road instead of lagging a throttled
  * round-trip behind you. The fetch refreshes only as you near the edge of what
  * you hold, throttled on failure too — and *backed off* on a run of failures, so
- * a refused mirror cannot turn the throttle into a retry timer for the rest of
- * the drive. [CameraPrefetch] shares the Overpass budget this one spends and
- * backs off the same way.
+ * an unreachable backend cannot turn the throttle into a retry timer for the
+ * rest of the drive. [CameraPrefetch] backs off the same way.
  *
  * **Split in five, because the fetch cannot come along.** commonMain has no
  * coroutine dispatcher to hand a network call to — that is a verified constraint
@@ -127,7 +126,7 @@ object SpeedLimitTracker {
      * moves to [center], the same way [CameraPrefetch.fetched] moves its center
      * on an empty answer: otherwise the distance trigger in [needsWays] stays
      * true forever over a real untagged stretch, and a *valid* empty answer
-     * re-queries Overpass every [FETCH_THROTTLE_MS] for as long as you're on it.
+     * re-queries the backend every [FETCH_THROTTLE_MS] for as long as you're on it.
      *
      * The two used to be the same value, because `speedLimitWays` returned an
      * empty list for both. Telling them apart is what makes the backoff possible.
