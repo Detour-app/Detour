@@ -520,4 +520,50 @@ class ServerResolutionTest {
             RoutingServer.issuerAfterSave(after, before, "https://discovered.example/realms/detour"),
         )
     }
+
+    @Test
+    fun eachResolvedAddressNamesTheSlotThatSuppliedIt() {
+        // #352: the source tag is what lets a self-hoster tell "the announcement
+        // never arrived" from "a typed address outranks it". Each slot is
+        // exercised by blanking everything above it.
+        BuildDefaults.configure(routingUrl = "https://baked-route.example")
+        val announced = "https://announced-route.example"
+        assertEquals(
+            ResolvedAddress("https://route.example", AddressSource.TYPED),
+            RoutingServer.routingResolved(split(), announced),
+        )
+        assertEquals(
+            ResolvedAddress(announced, AddressSource.ANNOUNCED),
+            RoutingServer.routingResolved(ServerConfig(url = "https://all.example", enabled = true), announced),
+        )
+        assertEquals(
+            ResolvedAddress("https://all.example", AddressSource.GENERAL),
+            RoutingServer.routingResolved(ServerConfig(url = "https://all.example/", enabled = true), ""),
+        )
+        assertEquals(
+            ResolvedAddress("https://baked-route.example", AddressSource.BAKED),
+            RoutingServer.routingResolved(null, ""),
+        )
+        // No baked camera host exists, so nothing configured is a real state
+        // the screen has to name rather than render as an empty string.
+        assertEquals(
+            ResolvedAddress("", AddressSource.NONE),
+            RoutingServer.camerasResolved(null, discoveredCameras = ""),
+        )
+    }
+
+    @Test
+    fun anAcceptedAnnouncementBeatsTheBakedRoutingHostWhenNothingWasSaved() {
+        // Routing callers pass load(), which is bakedDefaults() on an install
+        // with nothing saved. Its routing host must not sit in the typed slot,
+        // or the announcement the diagnostics readout shows as winning loses.
+        BuildDefaults.configure(routingUrl = "https://baked-route.example")
+        val announced = "https://announced-route.example"
+        assertEquals(announced, RoutingServer.routingBase(RoutingServer.bakedDefaults(), announced))
+        assertEquals(
+            "https://baked-route.example",
+            RoutingServer.routingBase(RoutingServer.bakedDefaults(), discoveredRouting = ""),
+        )
+        assertTrue(RoutingServer.bakedDefaults().usable)
+    }
 }

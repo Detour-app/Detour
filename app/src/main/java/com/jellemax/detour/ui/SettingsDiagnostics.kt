@@ -12,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -20,6 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.data.AddressSource
+import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.perf.PerfSink
 import kotlinx.coroutines.Dispatchers
@@ -100,7 +103,55 @@ fun DiagnosticsSection() {
                 )
             }
         }
+
+        ServerConfigurationReadout()
     }
+}
+
+/**
+ * The addresses this install actually resolved and which slot supplied each
+ * (#352) — the only place a self-hoster can see whether an announcement
+ * reached the phone and whether it is winning. Read-only on purpose: an
+ * announced value is never promoted into the rider's own typed config (#177).
+ */
+@Composable
+private fun ServerConfigurationReadout() {
+    // Keyed on a manual refresh: the Servers spoke above this on the same page
+    // accepts, declines and saves through plain prefs, which Compose cannot
+    // observe, so an unkeyed read would keep showing the state before the tap.
+    var refreshes by remember { mutableIntStateOf(0) }
+    val services = remember(refreshes) { RoutingServer.resolvedServices() }
+    val features = remember(refreshes) { RoutingServer.knownServerFeatures() }
+    Column {
+        Text("Server configuration (resolved)", style = MaterialTheme.typography.titleSmall)
+        for (s in services) {
+            val line = buildString {
+                append("${s.name} · ${s.address.value.ifBlank { "—" }} · ${sourceLabel(s.address.source)}")
+                if (s.pending.isNotBlank()) append(" · announced ${s.pending}, awaiting consent")
+                if (s.declined.isNotBlank()) append(" · declined ${s.declined}")
+            }
+            Text(line, style = MaterialTheme.typography.bodySmall)
+        }
+        // null and empty are different answers here: "never asked" vs "asked and
+        // the server advertises nothing" — the distinction #352 exists to show.
+        Text(
+            "Features · " + when {
+                features == null -> "never probed, or no probe has answered"
+                features.isEmpty() -> "none advertised"
+                else -> features.joinToString(", ")
+            },
+            style = MaterialTheme.typography.bodySmall,
+        )
+        TextButton(onClick = { refreshes++ }) { Text("Refresh") }
+    }
+}
+
+private fun sourceLabel(source: AddressSource): String = when (source) {
+    AddressSource.TYPED -> "typed for this service"
+    AddressSource.ANNOUNCED -> "announced by server"
+    AddressSource.GENERAL -> "typed (one address)"
+    AddressSource.BAKED -> "built-in default"
+    AddressSource.NONE -> "not configured"
 }
 
 /** The read grant is what makes the content:// Uri usable on the other side —
