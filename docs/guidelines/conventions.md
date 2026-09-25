@@ -17,7 +17,7 @@
 | Implementations | `Impl` suffix only for the single obvious implementation |
 | Packages | `com.jellemax.detour.{data,drive,presentation}` in `shared`, `com.jellemax.detour.{ui,car,tracking,…}` in `app` |
 
-`:app:detekt` is a CI gate (`config/detekt/detekt.yml`, detekt's defaults
+`:app:detekt` and `:shared:detekt` are a CI gate (`config/detekt/detekt.yml`, detekt's defaults
 plus the `io.nlopez.compose.rules` ruleset). Of the table above it catches only
 the mechanical rows, through detekt's default naming rules: a file named for its
 type (`MatchingDeclarationName`) and `SCREAMING_SNAKE_CASE` for top-level
@@ -26,9 +26,10 @@ companion may still be camelCase (`ObjectPropertyNaming`). What it
 mostly enforces is size and Compose shape — the complexity thresholds
 (`LongParameterList` at 7, the §8.4 gate), `MaxLineLength` at 120, and the
 Compose rules (`ModifierMissing`, `ViewModelForwarding`,
-`CompositionLocalAllowlist`, `ComposableNaming`, …). It runs on `:app` only —
-`:shared` is not analysed — and fails on new violations only; existing ones sit
-in `config/detekt/baseline-app.xml`. There is no ktlint or formatter, and
+`CompositionLocalAllowlist`, `ComposableNaming`, …). It runs on `:app` and on
+`:shared`'s `commonMain`/`androidMain`/`iosMain`, and fails on new violations
+only; existing ones sit in `config/detekt/baseline-{app,shared}.xml`, whose entry
+counts `ArchitectureTest` pins so a baseline can only shrink. There is no ktlint or formatter, and
 `WildcardImport` and `MagicNumber` are off, so formatting and the rest of the
 table are by hand and by review, which is why they are worth stating.
 
