@@ -1,0 +1,63 @@
+name: Version bump
+
+# CLAUDE.md "Versioning": a PR that changes shipped code bumps versionName in
+# app/build.gradle.kts. Merging to main publishes a release, so a missing bump
+# ships a behaviour change under an existing version, and a duplicate one is
+# rejected by Play (versionCode is derived from versionName).
+#
+# Refactors, docs, chore and test-only changes don't bump: label the PR
+# `no-bump`. The labeled/unlabeled triggers re-run this when the label changes.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check versionName was bumped
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          NO_BUMP: ${{ contains(github.event.pull_request.labels.*.name, 'no-bump') }}
+        run: |
+          # Compared against the base branch as it is now, not where the PR
+          # forked, so two PRs can't both claim the same next version unseen.
+          git fetch -q origin "$BASE_REF"
+          base="origin/$BASE_REF"
+          version_at() { git show "$1:app/build.gradle.kts" | sed -n 's/^ *versionName = "\([0-9.]*\)".*/\1/p'; }
+          old=$(version_at "$base")
+          new=$(version_at HEAD)
+          echo "versionName: $base=$old, PR=$new"
+
+          if [ "$old" != "$new" ]; then
+            highest=$(printf '%s\n%s\n' "$old" "$new" | sort -V | tail -1)
+            if [ "$highest" != "$new" ]; then
+              echo "::error::versionName went from $old to $new; it must increase."
+              exit 1
+            fi
+            exit 0
+          fi
+
+          shipped=$(git diff --name-only "$(git merge-base "$base" HEAD)" HEAD -- \
+            app/src/main shared/src/commonMain shared/src/androidMain shared/src/iosMain)
+          if [ -z "$shipped" ]; then
+            echo "No shipped code changed; no bump needed."
+            exit 0
+          fi
+          if [ "$NO_BUMP" = "true" ]; then
+            echo "Shipped code changed, labelled no-bump:"
+            echo "$shipped"
+            exit 0
+          fi
+          echo "::error::Shipped code changed but versionName is still $old. Bump it per CLAUDE.md \"Versioning\" (fix: patch, feature: minor, breaking data/wire format: major), or label the PR no-bump for a refactor."
+          echo "$shipped"
+          exit 1
