@@ -17,8 +17,18 @@
 | Implementations | `Impl` suffix only for the single obvious implementation |
 | Packages | `com.jellemax.detour.{data,drive,presentation}` in `shared`, `com.jellemax.detour.{ui,car,tracking,…}` in `app` |
 
-There is no ktlint or detekt in this build. Formatting is by hand and by
-review, which is why the conventions above are worth stating.
+`:app:detekt` is a CI gate (`config/detekt/detekt.yml`, detekt's defaults
+plus the `io.nlopez.compose.rules` ruleset). Of the table above it catches only
+the mechanical rows, through detekt's default naming rules: a file named for its
+type (`MatchingDeclarationName`) and `SCREAMING_SNAKE_CASE` constants. What it
+mostly enforces is size and Compose shape — the complexity thresholds
+(`LongParameterList` at 7, the §8.4 gate), `MaxLineLength` at 120, and the
+Compose rules (`ModifierMissing`, `ViewModelForwarding`,
+`CompositionLocalAllowlist`, `ComposableNaming`, …). It runs on `:app` only —
+`:shared` is not analysed — and fails on new violations only; existing ones sit
+in `config/detekt/baseline-app.xml`. There is no ktlint or formatter, and
+`WildcardImport` and `MagicNumber` are off, so formatting and the rest of the
+table are by hand and by review, which is why they are worth stating.
 
 ### 7.1 Comments
 
