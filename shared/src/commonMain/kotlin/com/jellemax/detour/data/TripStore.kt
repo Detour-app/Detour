@@ -327,17 +327,24 @@ object TripStore {
         val f = accountFile(DELETED_FILE_NAME)
         if (!f.exists()) return mutableSetOf()
         return try {
-            val array = jsonArrayOf(f.readText())
-            array.indices.map { array.optLong(it) }.toMutableSet()
+            decodeTombstones(f.readText())
         } catch (e: Exception) {
             mutableSetOf()
         }
     }
 
     private fun writeTombstones(ids: Set<Long>) {
-        val array = buildJsonArray { ids.forEach { add(it) } }
-        accountFile(DELETED_FILE_NAME).writeText(array.string())
+        accountFile(DELETED_FILE_NAME).writeText(encodeTombstones(ids))
     }
+
+    /** deleted_trips.json: a JSON array of deleted trips' startTimeMs. */
+    internal fun decodeTombstones(text: String): MutableSet<Long> {
+        val array = jsonArrayOf(text)
+        return array.indices.map { array.optLong(it) }.toMutableSet()
+    }
+
+    internal fun encodeTombstones(ids: Set<Long>): String =
+        buildJsonArray { ids.forEach { add(it) } }.string()
 
     /** Local vehicle-mode corrections, startTimeMs → mode name, pending until
      *  the server echoes them back. */
@@ -345,17 +352,21 @@ object TripStore {
         val f = accountFile(EDITED_FILE_NAME)
         if (!f.exists()) return mutableMapOf()
         return try {
-            jsonObjectOf(f.readText()).entries
-                .associateTo(mutableMapOf()) { (k, v) -> k.toLong() to v.toString().trim('"') }
+            decodeModeOverrides(f.readText())
         } catch (e: Exception) {
             mutableMapOf()
         }
     }
 
     private fun writeModeOverrides(map: Map<Long, String>) {
-        val o = buildJsonObject {
-            map.forEach { (start, mode) -> put(start.toString(), mode) }
-        }
-        accountFile(EDITED_FILE_NAME).writeText(o.string())
+        accountFile(EDITED_FILE_NAME).writeText(encodeModeOverrides(map))
     }
+
+    /** edited_modes.json: an object of startTimeMs (as a string key) → mode name. */
+    internal fun decodeModeOverrides(text: String): MutableMap<Long, String> =
+        jsonObjectOf(text).entries
+            .associateTo(mutableMapOf()) { (k, v) -> k.toLong() to v.toString().trim('"') }
+
+    internal fun encodeModeOverrides(map: Map<Long, String>): String =
+        buildJsonObject { map.forEach { (start, mode) -> put(start.toString(), mode) } }.string()
 }

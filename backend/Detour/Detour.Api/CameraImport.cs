@@ -73,6 +73,9 @@ public static class CameraImport
                 var badSourceId = el.TryGetProperty("sourceId", out var sid) && sid.ValueKind == JsonValueKind.String
                     ? sid.GetString()
                     : "<unreadable>";
+                // The source still reports this camera, just in a shape we can't read — that is
+                // not "stopped reporting", so it must not count as a miss toward retirement.
+                if (badSourceId != "<unreadable>") seenSourceIds.Add(badSourceId!);
                 Console.Error.WriteLine($"skipping cameras[{entryIndex}] (sourceId={badSourceId}): {ex.Message}");
                 continue;
             }
@@ -85,8 +88,21 @@ public static class CameraImport
 
         await repo.FlushChangesAsync(CancellationToken.None);
 
-        var retired = await repo.RetireMissingAsync(source, region, seenSourceIds, RetireAfterConsecutiveMisses, CancellationToken.None);
-        await repo.FlushChangesAsync(CancellationToken.None);
+        // A run that imported nothing (empty `cameras`, every entry invalid) is a broken extract,
+        // not a source that stopped reporting everything — retiring from it would charge every
+        // camera that source ever reported a miss. Issue #390.
+        // ponytail: only catches the all-or-nothing case; a run that is merely much smaller than
+        // the last one still retires normally — add a per-source minimum-count check if that bites.
+        var retired = 0;
+        if (imported == 0)
+        {
+            Console.Error.WriteLine($"{Path.GetFileName(jsonPath)}: imported 0 cameras for source '{source}' — skipping retirement, this run can't tell a missing camera from a broken extract");
+        }
+        else
+        {
+            retired = await repo.RetireMissingAsync(source, region, seenSourceIds, RetireAfterConsecutiveMisses, CancellationToken.None);
+            await repo.FlushChangesAsync(CancellationToken.None);
+        }
 
         Console.WriteLine($"{Path.GetFileName(jsonPath)}: upserted {imported}, skipped {skipped} invalid, retired {retired}");
     }

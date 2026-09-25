@@ -114,11 +114,45 @@ public class CameraRepositoryTests(PostgresFixture postgres) : IntegrationTestBa
     }
 
     [Fact]
+    public async Task UpsertAsync_reactivates_a_retired_camera_instead_of_duplicating_it()
+    {
+        var repo = new CameraRepository(Factory);
+        const string source = "retire-test-reappear";
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 51.30, 3.30, 50, "N9",
+            new CameraSource(source, "r3", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)).Value;
+        var stored = await repo.UpsertAsync(cam, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        await repo.RetireMissingAsync(source, null, new HashSet<string>(), retireAfterMisses: 1, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        // ~12 m away — inside the 40 m cluster radius. Same source reporting again should find
+        // and reactivate the retired row, not create a second one (issue #389).
+        var reappeared = Camera.CreatePoint(CameraKind.FixedSpeed, 51.30011, 3.30, 50, "N9",
+            new CameraSource(source, "r3", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)).Value;
+        var restored = await repo.UpsertAsync(reappeared, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        Assert.Equal(stored.Id, restored.Id);
+        Assert.Equal(CameraStatus.Active, restored.Status);
+        Assert.Equal(0, restored.Sources.Single().MissedRuns);
+
+        // The real invariant: exactly one row total for this source, retired or not — a
+        // duplicate-row regression would still pass Assert.Single(BboxAsync(...)) below, since
+        // BboxAsync only returns Active rows and would just return the new duplicate.
+        var allRows = await repo.GetAllNonTrackingAsync(CancellationToken.None);
+        Assert.Single(allRows, c => c.Sources.Any(s => s.Source == source));
+
+        var found = await repo.BboxAsync(51.29, 3.29, 51.31, 3.31, CancellationToken.None);
+        Assert.Single(found);
+    }
+
+    [Fact]
     public async Task RetireMissingAsync_does_not_charge_a_camera_from_another_region()
     {
         var repo = new CameraRepository(Factory);
         const string source = "retire-test-region";
-        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 51.30, 3.30, 50, "N9",
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 51.40, 3.40, 50, "N9",
             new CameraSource(source, "r3", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, Region: "benelux")).Value;
         await repo.UpsertAsync(cam, CancellationToken.None);
         await repo.FlushChangesAsync(CancellationToken.None);
@@ -129,7 +163,7 @@ public class CameraRepositoryTests(PostgresFixture postgres) : IntegrationTestBa
             await repo.FlushChangesAsync(CancellationToken.None);
         }
 
-        var found = await repo.BboxAsync(51.29, 3.29, 51.31, 3.31, CancellationToken.None);
+        var found = await repo.BboxAsync(51.39, 3.39, 51.41, 3.41, CancellationToken.None);
         Assert.Single(found);
         Assert.Equal(0, found[0].Sources[0].MissedRuns);
     }
