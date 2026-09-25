@@ -21,15 +21,19 @@ public class CameraRepository(ICustomDbContextFactory<DetourDbContext> factory)
 
     public async Task<Camera> UpsertAsync(Camera incoming, CancellationToken cancellationToken)
     {
+        // Retired cameras stay in the candidate set (not just Active) so a source that stops
+        // reporting and later comes back finds its old row via Cluster/MergeSource instead of
+        // creating a duplicate that orphans the retired row's Sources/AttributionJson history.
+        // See issue #389.
         var compatibleKinds = Camera.MergeCompatibleKinds(incoming.Kind);
         bool InRange(Camera c) =>
-            compatibleKinds.Contains(c.Kind) && c.Status == CameraStatus.Active &&
+            compatibleKinds.Contains(c.Kind) &&
             c.BboxMinLat <= incoming.BboxMaxLat + ClusterMarginDeg && c.BboxMaxLat >= incoming.BboxMinLat - ClusterMarginDeg &&
             c.BboxMinLon <= incoming.BboxMaxLon + ClusterMarginDeg && c.BboxMaxLon >= incoming.BboxMinLon - ClusterMarginDeg;
 
         var dbCandidates = await Set
             .TagWith(Tag(nameof(UpsertAsync)))
-            .Where(c => compatibleKinds.Contains(c.Kind) && c.Status == CameraStatus.Active)
+            .Where(c => compatibleKinds.Contains(c.Kind))
             .Where(c => c.BboxMinLat <= incoming.BboxMaxLat + ClusterMarginDeg && c.BboxMaxLat >= incoming.BboxMinLat - ClusterMarginDeg)
             .Where(c => c.BboxMinLon <= incoming.BboxMaxLon + ClusterMarginDeg && c.BboxMaxLon >= incoming.BboxMinLon - ClusterMarginDeg)
             .ToListAsync(cancellationToken);
@@ -57,7 +61,7 @@ public class CameraRepository(ICustomDbContextFactory<DetourDbContext> factory)
     // Western-Europe row count (~15k) for a one-shot admin import run (see CameraImport), not
     // fine at continent scale. Upgrade: a Postgres jsonb containment query/index on SourcesJson,
     // or a proper sources join table, once the row count actually hurts.
-    public async Task<int> RetireMissingAsync(string source, IReadOnlySet<string> seenSourceIds, int retireAfterMisses, CancellationToken cancellationToken)
+    public async Task<int> RetireMissingAsync(string source, string? region, IReadOnlySet<string> seenSourceIds, int retireAfterMisses, CancellationToken cancellationToken)
     {
         var candidates = await Set
             .TagWith(Tag(nameof(RetireMissingAsync)))
@@ -69,6 +73,7 @@ public class CameraRepository(ICustomDbContextFactory<DetourDbContext> factory)
         {
             var entry = camera.Sources.FirstOrDefault(s => s.Source == source);
             if (entry is null || seenSourceIds.Contains(entry.SourceId)) continue;
+            if (region is not null && entry.Region is not null && entry.Region != region) continue;
 
             camera.MarkSourceMissing(source, retireAfterMisses);
             if (camera.Status == CameraStatus.Retired) retired++;

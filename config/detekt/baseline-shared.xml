@@ -1,0 +1,69 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>ComplexCondition:NavEngine.kt$NavEngine$windowed &amp;&amp; last &lt; line.size - 1 &amp;&amp; best.index == last - 1 &amp;&amp; bestT &gt;= 1.0</ID>
+    <ID>CyclomaticComplexMethod:CirclePresence.kt$CirclePresence$@Throws(Exception::class) suspend fun tick( lat: Double, lon: Double, accuracyM: Double, fixTimeMs: Long, fixAgeMs: Long, nowMs: Long, ): Long</ID>
+    <ID>CyclomaticComplexMethod:ConvoyRelay.kt$ConvoyRelay$private suspend fun attempt(socket: RelaySocket, bearer: BearerSource): Boolean</ID>
+    <ID>CyclomaticComplexMethod:Coverage.kt$MunicipalityStore$private suspend fun fetchViaOverpass(p: LatLon): Municipality?</ID>
+    <ID>CyclomaticComplexMethod:CredentialMigration.kt$CredentialMigration$fun step(plain: Prefs, secure: Prefs, group: SecretGroup): Outcome</ID>
+    <ID>CyclomaticComplexMethod:NavEngine.kt$NavEngine$fun progress(route: RouteResult, pos: LatLon): Progress?</ID>
+    <ID>CyclomaticComplexMethod:NavState.kt$internal fun navStateFrom( progress: NavEngine.Progress?, navigating: Boolean, rerouting: Boolean, ambientSpeedLimitKmh: Double?, nowMs: Long, offRouteThresholdMeters: Double = 60.0, sep: Char = '.', zone: TimeZone, ): NavState</ID>
+    <ID>CyclomaticComplexMethod:RelayProtocol.kt$RelayProtocol$fun decode(text: String, nowMs: Long): RelayEvent?</ID>
+    <ID>CyclomaticComplexMethod:RoadRoulette.kt$RoadRoulette$suspend fun nearestSpeedLimitKmh( point: LatLon, headingDeg: Double? = null, radiusMeters: Double = MAX_SNAP_METERS, ): Double?</ID>
+    <ID>FunctionOnlyReturningConstant:NavAnnouncer.kt$NavAnnouncer$fun rerouting(): String</ID>
+    <ID>InstanceOfCheckForException:RoundTripPlanner.kt$RoundTripPlanner$e is CancellationException</ID>
+    <ID>LongParameterList:Http.kt$Http$( method: String, url: String, body: String? = null, headers: Map&lt;String, String&gt; = emptyMap(), // Bounds both the whole call (requestTimeoutMillis) and the gap between // bytes (socketTimeoutMillis) — without it the engine keeps its own ~10s // read default. Applied per-request, not on the client, so /sync (a // multi-MB upload the self-hosted server answers only after a long silent // decompress-and-merge) can ask for 120s while every small social call // keeps the 30s default. readTimeoutMs: Long = 30_000, gzipBody: Boolean = false, contentType: String = ContentType.Application.Json.toString(), )</ID>
+    <ID>LongParameterList:NavState.kt$( progress: NavEngine.Progress?, navigating: Boolean, rerouting: Boolean, ambientSpeedLimitKmh: Double?, nowMs: Long, offRouteThresholdMeters: Double = 60.0, sep: Char = '.', )</ID>
+    <ID>LongParameterList:NavState.kt$( progress: NavEngine.Progress?, navigating: Boolean, rerouting: Boolean, ambientSpeedLimitKmh: Double?, nowMs: Long, offRouteThresholdMeters: Double = 60.0, sep: Char = '.', zone: TimeZone, )</ID>
+    <ID>LongParameterList:Obd2Pids.kt$Obd2Pids$( directLph: Double?, mafGramsPerSec: Double?, throttleClosed: Boolean?, rpm: Double?, speedKmh: Double?, fuelType: FuelType = FuelType.PETROL, lambda: Double = 1.0, calibrationPct: Int = 100, )</ID>
+    <ID>LongParameterList:RiderCardState.kt$( handle: String, riderLocation: LatLon, headingDeg: Double?, speedKmh: Double?, fixTsMs: Long, expiresAtMs: Long?, ownLocation: LatLon?, nowMs: Long, sep: Char = '.', vehicleName: String? = null, )</ID>
+    <ID>LongParameterList:RoutingClient.kt$RoutingClient$( config: ServerConfig, center: LatLon, radiusMeters: Double, bearingDeg: Double? = null, explored: ExploredArea? = null, profile: String = "moto", minRadiusMeters: Double = 0.0, )</ID>
+    <ID>LongParameterList:RoutingClient.kt$RoutingClient$( config: ServerConfig, from: LatLon, to: LatLon, profile: String, avoidHighways: Boolean = false, avoidSmallRoads: Boolean = false, /** Set by a reroute so the fresh line continues in the rider's * direction of travel instead of turning them around; see [HeadingHint]. */ heading: HeadingHint? = null, )</ID>
+    <ID>LongParameterList:SpinPicker.kt$( config: ServerConfig, loc: LatLon, radiusMeters: Double, minRadiusMeters: Double, mode: TravelMode, poiKind: PoiKind, bearing: Double?, explored: ExploredArea, )</ID>
+    <ID>LongParameterList:TravelMode.kt$TravelMode$( val label: String, val minKm: Float, val maxKm: Float, val defaultKm: Float, val highwayRegex: String, /** Google Maps navigation mode: d=drive. Both remaining modes route by * car; kept as a field rather than inlined because `navigateGoogleMaps` * reads it per-mode. */ val gmapsMode: String, /** Profile name on the self-hosted GraphHopper server. */ val ghProfile: String, /** Spin produces a loop of waypoints instead of a single destination. */ val roundTrip: Boolean = false, /** Roll angle from a rigid mount. Only a leaning vehicle has one worth * recording; in a car the number is the phone sliding in its cradle. */ val tracksLean: Boolean = false, /** Cornering and braking g. Meaningful under an engine, noise on a bicycle. */ val tracksGForce: Boolean = false, )</ID>
+    <ID>LongParameterList:TripFixMath.kt$TripFixMath$( rawHopMeters: Double, lastFixMs: Long?, fixMs: Long, accuracyM: Float, maxAccuracyM: Float, minGapMs: Long, maxGapMs: Long, )</ID>
+    <ID>LongParameterList:TripHudState.kt$( startTimeMs: Long, nowMs: Long, distanceMeters: Double, topSpeedKmh: Double, leanDeg: Double, maxLeanDeg: Double, maxGForce: Double, hardEvents: Int, stopCount: Int, currentlyOverLimit: Boolean, sep: Char = '.', )</ID>
+    <ID>LongParameterList:YouState.kt$( username: String, signedIn: Boolean, totalDistanceMeters: Double, tripCount: Int, placesCount: Int, badgesEarned: Int, badgesTotal: Int, )</ID>
+    <ID>LoopWithTooManyJumpStatements:AccountFiles.kt$AccountFiles$for</ID>
+    <ID>LoopWithTooManyJumpStatements:CirclePresence.kt$for</ID>
+    <ID>LoopWithTooManyJumpStatements:Coverage.kt$MunicipalityStore$for</ID>
+    <ID>LoopWithTooManyJumpStatements:CredentialMigration.kt$CredentialMigration$for</ID>
+    <ID>LoopWithTooManyJumpStatements:Geocoder.kt$Geocoder$for</ID>
+    <ID>LoopWithTooManyJumpStatements:RoadRoulette.kt$RoadRoulette$for</ID>
+    <ID>LoopWithTooManyJumpStatements:RoadTypeTracker.kt$RoadTypeTracker$for</ID>
+    <ID>LoopWithTooManyJumpStatements:RoundTripPlanner.kt$RoundTripPlanner$for</ID>
+    <ID>LoopWithTooManyJumpStatements:SpeedCameras.kt$SpeedCameras$for</ID>
+    <ID>MatchingDeclarationName:HomeState.kt$HomeBottomCard</ID>
+    <ID>MaxLineLength:ConvoysStore.kt$internal</ID>
+    <ID>MaxLineLength:RoadRoulette.kt$RoadRoulette$private suspend</ID>
+    <ID>MaxLineLength:RoadTypeStore.kt$RoadTypeStore$internal</ID>
+    <ID>MaxLineLength:RoadTypeStore.kt$RoadTypeStore$suspend</ID>
+    <ID>MaxLineLength:RoadTypeStore.kt$RoadTypeStore$val points = (it.optArray("points") ?: return@mapNotNull null).arrays().map { p -&gt; LatLon(p.optDouble(0), p.optDouble(1)) }</ID>
+    <ID>MaxLineLength:SpeedCameras.kt$SpeedCameras$"RedLight" -&gt; if (!lat.isNaN()) cameras.add(Camera(LatLon(lat, el.optDouble("lon")), maxspeed, CameraKind.RED_LIGHT))</ID>
+    <ID>MaxLineLength:SpeedCameras.kt$SpeedCameras$"SpeedAndRedLight" -&gt; if (!lat.isNaN()) cameras.add(Camera(LatLon(lat, el.optDouble("lon")), maxspeed, CameraKind.COMBINED))</ID>
+    <ID>MaxLineLength:SpeedCameras.kt$SpeedCameras$else -&gt; if (!lat.isNaN()) cameras.add(Camera(LatLon(lat, el.optDouble("lon")), maxspeed, CameraKind.SPEED))</ID>
+    <ID>MaxLineLength:SpeedLimitStore.kt$CachedSpeedLimitTile$internal data</ID>
+    <ID>MaxLineLength:SpeedLimitStore.kt$SpeedLimitStore$internal</ID>
+    <ID>MaxLineLength:SpeedLimitStore.kt$SpeedLimitStore$suspend</ID>
+    <ID>MaxLineLength:SpeedLimitStore.kt$SpeedLimitStore$val points = (it.optArray("points") ?: JsonArrayEmpty).arrays().map { p -&gt; LatLon(p.optDouble(0), p.optDouble(1)) }</ID>
+    <ID>MayBeConst:Capabilities.kt$ServerFeature$/** This deployment has APNs credentials and can send iOS wake-pings. */ val PUSH_IOS = "push-ios"</ID>
+    <ID>MayBeConst:Capabilities.kt$ServerFeature$/** This deployment has Firebase credentials and can send Android wake-pings. */ val PUSH_ANDROID = "push-android"</ID>
+    <ID>MayBeConst:Features.kt$Features$/** * Convoy live location, the shared destination vote and live arrival * notifications. All three ride one WebSocket, per rider rather than per * group. * * Push-to-talk is deliberately *not* covered by this flag: the relay drops * voice frames rather than relaying them, so it needs its own decision and * its own codec before it comes back. See [pushToTalk]. * * Plain vals rather than `const`: a const in a Kotlin object is exported to * Swift as a class member, an ordinary val as a property on `Features.shared` * — and the second is what reads the same on both sides of the boundary. */ val liveRelay = true</ID>
+    <ID>MayBeConst:Features.kt$Features$/** * Push-to-talk. Off until the relay carries voice again — raw 16 kHz PCM * base64'd over JSON cost roughly 40 KB/s per talker per listener, so what * comes back will be Opus over binary frames, not what this used to send. */ val pushToTalk = false</ID>
+    <ID>MayBeConst:Features.kt$Features$/** Shown wherever one of those controls used to be. */ val liveRelayNotice = "Feature is temporarily disabled"</ID>
+    <ID>MayBeConst:Features.kt$Features$/** The sentence under it, for the one screen that has room to explain. */ val liveRelayReason = "Live location, push-to-talk and arrival alerts need the relay, which is " + "being rebuilt along with the rest of the server. Everything else — " + "sync, friends, circles, shared places — works."</ID>
+    <ID>NestedBlockDepth:AccountFiles.kt$AccountFiles$fun migrate(fs: FileSystem, root: Path)</ID>
+    <ID>NestedBlockDepth:ConvoyRelay.kt$ConvoyRelay$private suspend fun attempt(socket: RelaySocket, bearer: BearerSource): Boolean</ID>
+    <ID>NestedBlockDepth:Coverage.kt$Municipality$fun contains(p: LatLon): Boolean</ID>
+    <ID>NestedBlockDepth:CredentialMigration.kt$CredentialMigration$fun step(plain: Prefs, secure: Prefs, group: SecretGroup): Outcome</ID>
+    <ID>NestedBlockDepth:NavEngine.kt$NavEngine$fun cut(line: List&lt;LatLon&gt;, fraction: Double): Cut</ID>
+    <ID>NestedBlockDepth:RoadRoulette.kt$RoadRoulette$private fun pickPoint( ways: List&lt;OverpassWay&gt;, center: LatLon, radiusMeters: Double, bearingDeg: Double? = null, explored: ExploredArea? = null, minRadiusMeters: Double = 0.0, ): LatLon?</ID>
+    <ID>NestedBlockDepth:SpeedCameras.kt$SpeedCameras$internal fun withRedLightKind( cameras: List&lt;Camera&gt;, redLightRelations: List&lt;JsonObject&gt;, ): List&lt;Camera&gt;</ID>
+    <ID>ObjectPropertyNaming:Routes.kt$RouteStore$// internal, not private, for the same reason `loaded` below is — see // SavedPlaces._places for the full why: asserting on `loaded` alone leaves // the line that actually drops the previous rider's routes deletable with // the suite still green. internal val _routes = MutableStateFlow&lt;List&lt;SavedRoute&gt;&gt;(emptyList())</ID>
+    <ID>ObjectPropertyNaming:SavedPlaces.kt$SavedPlaces$// internal, not private, for the same reason `loaded` below is: the // session-switch test has to seed a non-empty list and watch // Auth.resetAccountScopedStores empty it. Asserting on `loaded` alone // would leave the line that actually drops the previous rider's places // deletable with the suite still green. internal val _places = MutableStateFlow&lt;List&lt;SavedPlace&gt;&gt;(emptyList())</ID>
+    <ID>ThrowsCount:Api.kt$Api$suspend fun request( method: String, path: String, body: JsonObject? = null, auth: Boolean = true, // The default suits the small social calls. /sync resends the whole // trace history and merges it server-side, which on a self-hosted box // runs well past 30s — SyncClient passes its own. readTimeoutMs: Long = 30_000, ): String</ID>
+    <ID>ThrowsCount:ConvoyRelay.kt$ConvoyRelay$private suspend fun attempt(socket: RelaySocket, bearer: BearerSource): Boolean</ID>
+    <ID>ThrowsCount:Oidc.kt$Oidc$internal fun spend(url: String): SpentCallback</ID>
+  </CurrentIssues>
+</SmellBaseline>

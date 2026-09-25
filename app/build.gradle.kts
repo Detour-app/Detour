@@ -291,4 +291,7 @@ dependencies {
     // the fake rather than the protocol. Same OkHttp version as the
     // implementation dependency above, so one upgrade moves both.
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    // Parses the Kotlin sources of both modules so ArchitectureTest can hold
+    // docs/guidelines rules that detekt has no rule for (§4, §5, §8).
+    testImplementation("com.lemonappdev:konsist:0.17.3")
 }

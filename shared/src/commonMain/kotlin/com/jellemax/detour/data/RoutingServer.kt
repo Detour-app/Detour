@@ -26,12 +26,30 @@ data class ServerConfig(
     val usable: Boolean get() = enabled && (routingUrl.isNotBlank() || url.isNotBlank())
 }
 
+/** Which of [RoutingServer]'s precedence slots an address came from (#352). */
+enum class AddressSource { TYPED, ANNOUNCED, GENERAL, BAKED, NONE }
+
+/** A resolved base address and the slot that supplied it — what Settings →
+ *  Diagnostics shows, so a self-hoster can see *why* an address is winning. */
+data class ResolvedAddress(val value: String, val source: AddressSource)
+
+/**
+ * One service as this install resolves it right now. [pending] and [declined]
+ * are the announcement consent states, blank for a service nothing announces.
+ */
+data class ResolvedService(
+    val name: String,
+    val address: ResolvedAddress,
+    val pending: String = "",
+    val declined: String = "",
+)
+
 /**
  * Where this install's server addresses come from, and where they are kept.
  *
  * Resolution is the whole subject: a rider's typed address, the realm a
  * server stated on its last probe, and the values baked into the build are
- * three sources for the same field, and every [pick]-based accessor below is
+ * three sources for the same field, and every [resolve]-based accessor below is
  * one precedence order over them. The requests those addresses are used for
  * live in [RoutingClient].
  *
@@ -83,7 +101,10 @@ object RoutingServer {
     fun bakedDefaults(): ServerConfig = ServerConfig(
         url = BuildDefaults.routingUrl,
         apiUrl = BuildDefaults.apiUrl,
-        routingUrl = BuildDefaults.routingUrl,
+        // Left blank, not BuildDefaults.routingUrl: this config reaches routing
+        // through load(), and a value here sits in the *typed* slot, outranking
+        // an accepted announcement — #355's bug, alive whenever nothing was
+        // saved (#352). The baked routing host still arrives via [url].
         geocoderUrl = BuildDefaults.geocoderUrl,
         idpIssuer = BuildDefaults.idpIssuer,
         enabled = BuildDefaults.routingUrl.isNotBlank(),
@@ -91,16 +112,6 @@ object RoutingServer {
 
     /** Effective config: user's custom server if set, else baked defaults. */
     fun load(): ServerConfig = loadCustom() ?: bakedDefaults()
-
-    /**
-     * First non-blank candidate, trimmed and without its trailing slash.
-     *
-     * Every caller appends a path that already begins with `/`, and Photon's
-     * begins `/api/?q=` — a base left as `https://x/` builds `https://x//api/?q=`,
-     * which answers 404 rather than a search result.
-     */
-    private fun pick(vararg candidates: String): String =
-        normalisedAddress(candidates.firstOrNull { it.isNotBlank() } ?: "")
 
     /**
      * The precedence every address in this file resolves by, stated once and
@@ -126,12 +137,26 @@ object RoutingServer {
      * about the order, which was invisible while each wrote its own argument
      * list. Pass `""` for a slot that does not apply and the reason belongs in a
      * comment at that call site.
+     *
+     * The winner is trimmed and loses its trailing slash: every caller appends
+     * a path that already begins with `/`, and Photon's begins `/api/?q=` — a
+     * base left as `https://x/` builds `https://x//api/?q=`, which answers 404
+     * rather than a search result.
      */
-    private fun resolve(typed: String, announced: String, general: String, baked: String): String =
-        pick(typed, announced, general, baked)
+    private fun resolve(typed: String, announced: String, general: String, baked: String): ResolvedAddress {
+        val (value, source) = listOf(
+            typed to AddressSource.TYPED,
+            announced to AddressSource.ANNOUNCED,
+            general to AddressSource.GENERAL,
+            baked to AddressSource.BAKED,
+        ).firstOrNull { it.first.isNotBlank() } ?: ("" to AddressSource.NONE)
+        return ResolvedAddress(normalisedAddress(value), source)
+    }
 
     /** Base of the sync + social API, which serves everything under `/api`. */
-    fun apiBase(custom: ServerConfig?): String = resolve(
+    fun apiBase(custom: ServerConfig?): String = apiResolved(custom).value
+
+    internal fun apiResolved(custom: ServerConfig?): ResolvedAddress = resolve(
         typed = custom?.apiUrl.orEmpty(),
         // Nothing announces the API: it is the address the rider points at, and
         // the document that would announce it is the one served from it.
@@ -149,7 +174,10 @@ object RoutingServer {
     /** `internal` with the discovered value passed in, for the same reason the
      *  [issuer] overload exists: reading it means touching `prefs`, which
      *  reaches a Context that does not exist in a unit test. */
-    internal fun routingBase(custom: ServerConfig?, discoveredRouting: String): String = resolve(
+    internal fun routingBase(custom: ServerConfig?, discoveredRouting: String): String =
+        routingResolved(custom, discoveredRouting).value
+
+    internal fun routingResolved(custom: ServerConfig?, discoveredRouting: String): ResolvedAddress = resolve(
         typed = custom?.routingUrl.orEmpty(),
         announced = discoveredRouting,
         general = custom?.url.orEmpty(),
@@ -161,7 +189,10 @@ object RoutingServer {
     fun geocoderBase(custom: ServerConfig?): String = geocoderBase(custom, discoveredGeocoderBase())
 
     /** `internal` counterpart of [routingBase]'s, for the same reason. */
-    internal fun geocoderBase(custom: ServerConfig?, discoveredGeocoder: String): String = resolve(
+    internal fun geocoderBase(custom: ServerConfig?, discoveredGeocoder: String): String =
+        geocoderResolved(custom, discoveredGeocoder).value
+
+    internal fun geocoderResolved(custom: ServerConfig?, discoveredGeocoder: String): ResolvedAddress = resolve(
         typed = custom?.geocoderUrl.orEmpty(),
         announced = discoveredGeocoder,
         general = custom?.url.orEmpty(),
@@ -175,7 +206,10 @@ object RoutingServer {
     fun camerasBase(custom: ServerConfig?): String = camerasBase(custom, discoveredCamerasBase())
 
     /** `internal` counterpart of [routingBase]'s, for the same reason. */
-    internal fun camerasBase(custom: ServerConfig?, discoveredCameras: String): String = resolve(
+    internal fun camerasBase(custom: ServerConfig?, discoveredCameras: String): String =
+        camerasResolved(custom, discoveredCameras).value
+
+    internal fun camerasResolved(custom: ServerConfig?, discoveredCameras: String): ResolvedAddress = resolve(
         typed = "",
         announced = discoveredCameras,
         general = custom?.url.orEmpty(),
@@ -189,7 +223,10 @@ object RoutingServer {
     fun speedLimitsBase(custom: ServerConfig?): String = speedLimitsBase(custom, discoveredSpeedLimitsBase())
 
     /** `internal` counterpart of [routingBase]'s, for the same reason. */
-    internal fun speedLimitsBase(custom: ServerConfig?, discoveredSpeedLimits: String): String = resolve(
+    internal fun speedLimitsBase(custom: ServerConfig?, discoveredSpeedLimits: String): String =
+        speedLimitsResolved(custom, discoveredSpeedLimits).value
+
+    internal fun speedLimitsResolved(custom: ServerConfig?, discoveredSpeedLimits: String): ResolvedAddress = resolve(
         typed = "",
         announced = discoveredSpeedLimits,
         general = custom?.url.orEmpty(),
@@ -204,7 +241,10 @@ object RoutingServer {
     fun roadsBase(custom: ServerConfig?): String = roadsBase(custom, discoveredRoadsBase())
 
     /** `internal` counterpart of [routingBase]'s, for the same reason. */
-    internal fun roadsBase(custom: ServerConfig?, discoveredRoads: String): String = resolve(
+    internal fun roadsBase(custom: ServerConfig?, discoveredRoads: String): String =
+        roadsResolved(custom, discoveredRoads).value
+
+    internal fun roadsResolved(custom: ServerConfig?, discoveredRoads: String): ResolvedAddress = resolve(
         typed = "",
         announced = discoveredRoads,
         general = custom?.url.orEmpty(),
@@ -219,7 +259,10 @@ object RoutingServer {
     fun municipalityBase(custom: ServerConfig?): String = municipalityBase(custom, discoveredMunicipalityBase())
 
     /** `internal` counterpart of [routingBase]'s, for the same reason. */
-    internal fun municipalityBase(custom: ServerConfig?, discoveredMunicipality: String): String = resolve(
+    internal fun municipalityBase(custom: ServerConfig?, discoveredMunicipality: String): String =
+        municipalityResolved(custom, discoveredMunicipality).value
+
+    internal fun municipalityResolved(custom: ServerConfig?, discoveredMunicipality: String): ResolvedAddress = resolve(
         typed = "",
         announced = discoveredMunicipality,
         general = custom?.url.orEmpty(),
@@ -234,7 +277,10 @@ object RoutingServer {
     fun poisBase(custom: ServerConfig?): String = poisBase(custom, discoveredPoisBase())
 
     /** `internal` counterpart of [routingBase]'s, for the same reason. */
-    internal fun poisBase(custom: ServerConfig?, discoveredPois: String): String = resolve(
+    internal fun poisBase(custom: ServerConfig?, discoveredPois: String): String =
+        poisResolved(custom, discoveredPois).value
+
+    internal fun poisResolved(custom: ServerConfig?, discoveredPois: String): ResolvedAddress = resolve(
         typed = "",
         announced = discoveredPois,
         general = custom?.url.orEmpty(),
@@ -260,7 +306,10 @@ object RoutingServer {
      * pointed at their own server should reach their own realm rather than
      * whichever one this build was compiled against.
      */
-    internal fun issuer(custom: ServerConfig?, discovered: String): String = resolve(
+    internal fun issuer(custom: ServerConfig?, discovered: String): String =
+        issuerResolved(custom, discovered).value
+
+    internal fun issuerResolved(custom: ServerConfig?, discovered: String): ResolvedAddress = resolve(
         typed = custom?.idpIssuer.orEmpty(),
         announced = discovered,
         // See this function's own KDoc: the general address is never a realm.
@@ -783,6 +832,31 @@ object RoutingServer {
     /** Same as [discoveredRoutingBase], for the point-of-interest endpoint. Feeds
      *  [poisBase]. */
     internal fun discoveredPoisBase(): String = vettedAnnounced(POIS_KEYS)
+
+    /**
+     * Every service's resolved address, which slot supplied it, and any
+     * announcement awaiting or refused consent — the read-only picture #352
+     * asks for. Reads the same inputs the requests themselves read, through the
+     * same `*Resolved` functions, so it cannot disagree with them.
+     */
+    fun resolvedServices(): List<ResolvedService> {
+        val custom = loadCustom()
+        fun announced(name: String, keys: AnnouncedServiceKeys, address: ResolvedAddress): ResolvedService {
+            val state = readAnnouncedServiceState(keys)
+            return ResolvedService(name, address, state.pending, state.declined)
+        }
+        return listOf(
+            ResolvedService("API", apiResolved(custom)),
+            announced("Routing", ROUTING_KEYS, routingResolved(custom, discoveredRoutingBase())),
+            announced("Search", GEOCODER_KEYS, geocoderResolved(custom, discoveredGeocoderBase())),
+            ResolvedService("Sign-in", issuerResolved(custom, discoveredIssuer())),
+            announced("Cameras", CAMERAS_KEYS, camerasResolved(custom, discoveredCamerasBase())),
+            announced("Speed limits", SPEEDLIMITS_KEYS, speedLimitsResolved(custom, discoveredSpeedLimitsBase())),
+            announced("Roads", ROADS_KEYS, roadsResolved(custom, discoveredRoadsBase())),
+            announced("Municipalities", MUNICIPALITY_KEYS, municipalityResolved(custom, discoveredMunicipalityBase())),
+            announced("Points of interest", POIS_KEYS, poisResolved(custom, discoveredPoisBase())),
+        )
+    }
 
     /** An announced routing base awaiting the rider's decision — differs from
      *  the API's own host, and has been neither accepted nor declined for this
