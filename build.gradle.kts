@@ -13,14 +13,14 @@ plugins {
     id("io.gitlab.arturbosch.detekt") version "1.23.7" apply false
 }
 
-// Static analysis, applied to :app only. The rules that matter here are the
-// Compose ones (KOTLIN_GUIDE.md §14 — state holders over parameter drilling),
-// and Compose lives entirely in :app. :shared can be added later, but detekt
-// 1.23 needs its KMP source sets pointed at explicitly, which is its own change.
+// Static analysis for both modules. The Compose rules (KOTLIN_GUIDE.md §14 —
+// state holders over parameter drilling) only find anything in :app; the rest
+// applies to both. detekt 1.23 doesn't discover KMP source sets on its own, so
+// :shared's are listed explicitly — a new source set has to be added here.
 //
-// Not in app/build.gradle.kts because the config and baseline paths are
+// Not in the module build files because the config and baseline paths are
 // rootProject-relative and this keeps them next to the plugin version.
-project(":app") {
+listOf(":app", ":shared").forEach { path -> project(path) {
     apply(plugin = "io.gitlab.arturbosch.detekt")
 
     extensions.configure<io.gitlab.arturbosch.detekt.extensions.DetektExtension> {
@@ -29,7 +29,10 @@ project(":app") {
         buildUponDefaultConfig = true
         // Pre-existing violations are recorded, not fixed. Deleting an entry is
         // how a fix gets locked in; adding one by hand defeats the point.
-        baseline = rootProject.file("config/detekt/baseline-app.xml")
+        baseline = rootProject.file("config/detekt/baseline-${project.name}.xml")
+        if (path == ":shared") {
+            source.setFrom(listOf("commonMain", "androidMain", "iosMain").map { "src/$it/kotlin" })
+        }
     }
 
     dependencies {
@@ -45,4 +48,4 @@ project(":app") {
             md.required.set(false)
         }
     }
-}
+} }

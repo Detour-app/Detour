@@ -21,7 +21,9 @@ in `app/build.gradle.kts` needs a semver bump — don't wait to be asked.
 - Breaking change (data format, wire protocol, min OS) -> bump major
 - Docs, refactor, chore, test-only -> no bump
 
-Mixed feature+fix in one PR bumps for the higher of the two. Full rationale
+Mixed feature+fix in one PR bumps for the higher of the two. CI's `version`
+check fails a PR that changes `app/src/main` or `shared/src/*Main` without a
+bump; a refactor there gets the `no-bump` label instead. Full rationale
 and the release-tag mechanics this feeds are in `CONTRIBUTING.md`'s
 "Versioning" section — read it if a case doesn't fit the table above.
 

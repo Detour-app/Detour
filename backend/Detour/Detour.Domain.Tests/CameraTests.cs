@@ -110,6 +110,19 @@ public class CameraTests
     }
 
     [Fact]
+    public void MergeSource_stamps_the_region_on_an_entry_written_before_regions_were_recorded()
+    {
+        var legacy = new CameraSource("osm", "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, MissedRuns: 2);
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 70, "N9", legacy).Value;
+
+        var refreshed = new CameraSource("osm", "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, Region: "benelux");
+        cam.MergeSource(Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 70, "N9", refreshed).Value);
+
+        Assert.Equal("benelux", cam.Sources[0].Region);
+        Assert.Equal(0, cam.Sources[0].MissedRuns);
+    }
+
+    [Fact]
     public void MergeSource_lets_a_source_refresh_its_own_attribute_when_it_is_the_only_source()
     {
         var osmSource = new CameraSource("osm", "n1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);

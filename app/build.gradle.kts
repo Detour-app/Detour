@@ -81,7 +81,7 @@ android {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
         targetSdk = 36
-        versionName = "2.41.1"
+        versionName = "2.41.3"
         // Derived from versionName instead of a CI run counter, so the code
         // Play sees always matches the name shown to riders and a workflow
         // rename/reset can't drop it back below an already-published code
@@ -291,4 +291,7 @@ dependencies {
     // the fake rather than the protocol. Same OkHttp version as the
     // implementation dependency above, so one upgrade moves both.
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    // Parses the Kotlin sources of both modules so ArchitectureTest can hold
+    // docs/guidelines rules that detekt has no rule for (§4, §5, §8).
+    testImplementation("com.lemonappdev:konsist:0.17.3")
 }

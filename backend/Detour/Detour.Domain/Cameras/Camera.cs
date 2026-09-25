@@ -28,8 +28,11 @@ public enum CameraStatus { Active, Retired }
 /// <see cref="Camera.MergeSource"/> next refreshes it, driving <see cref="Camera.MarkSourceMissing"/>
 /// (issue #369). Absent in JSON written before that field existed, in which case it deserializes
 /// to its default (0) — System.Text.Json falls back to a record constructor parameter's declared
-/// default when the JSON property is missing.</summary>
-public sealed record CameraSource(string Source, string SourceId, DateTimeOffset FirstSeen, DateTimeOffset LastSeen, int MissedRuns = 0);
+/// default when the JSON property is missing. <see cref="Region"/> is the importer run's region
+/// (e.g. `benelux`) that last reported this entry, so a run of one region only charges misses to
+/// its own region's cameras (issue #395); null for a source that isn't imported per region, and
+/// for entries written before that field existed until their region's next run refreshes them.</summary>
+public sealed record CameraSource(string Source, string SourceId, DateTimeOffset FirstSeen, DateTimeOffset LastSeen, int MissedRuns = 0, string? Region = null);
 
 public sealed class Camera : Entity
 {
