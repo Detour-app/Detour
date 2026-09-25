@@ -20,7 +20,9 @@
 `:app:detekt` is a CI gate (`config/detekt/detekt.yml`, detekt's defaults
 plus the `io.nlopez.compose.rules` ruleset). Of the table above it catches only
 the mechanical rows, through detekt's default naming rules: a file named for its
-type (`MatchingDeclarationName`) and `SCREAMING_SNAKE_CASE` constants. What it
+type (`MatchingDeclarationName`) and `SCREAMING_SNAKE_CASE` for top-level
+`const val`s (`TopLevelPropertyNaming`) — a constant inside an `object` or
+companion may still be camelCase (`ObjectPropertyNaming`). What it
 mostly enforces is size and Compose shape — the complexity thresholds
 (`LongParameterList` at 7, the §8.4 gate), `MaxLineLength` at 120, and the
 Compose rules (`ModifierMissing`, `ViewModelForwarding`,
