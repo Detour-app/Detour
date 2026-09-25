@@ -82,18 +82,21 @@ object TraceStore {
 
     fun append(trace: List<TracePoint>) {
         if (trace.size < 2) return
-        val line = buildJsonArray {
-            for (p in trace) addJsonArray {
-                add(p.at.lat)
-                add(p.at.lon)
-                add(p.timeMs)
-                add(round(p.speedKmh, 1))
-                add(p.leanDeg?.let { JsonPrimitive(round(it, 1)) } ?: JsonNull)
-            }
-        }
-        accountFile(FILE_NAME).appendText(line.string() + "\n")
+        accountFile(FILE_NAME).appendText(encodeLine(trace) + "\n")
         _version.value++
     }
+
+    /** One stored line: `[lat, lon, timeMs, speedKmh, leanDeg|null]` per point.
+     *  The format [parsePoints] reads, pinned by PersistedFormatTest. */
+    internal fun encodeLine(trace: List<TracePoint>): String = buildJsonArray {
+        for (p in trace) addJsonArray {
+            add(p.at.lat)
+            add(p.at.lon)
+            add(p.timeMs)
+            add(round(p.speedKmh, 1))
+            add(p.leanDeg?.let { JsonPrimitive(round(it, 1)) } ?: JsonNull)
+        }
+    }.string()
 
     /** Trace files are synced whole and grow with every ride; a tenth of a km/h
      *  or a degree is all the precision these are read at. */

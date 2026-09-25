@@ -4,6 +4,10 @@
 
 Anything here that fails is a finding, not a preference.
 
+The items CI enforces — public `MutableStateFlow`, `Dispatchers` in `commonMain`,
+data/drive → presentation imports, unregistered `commonMain` interfaces, and
+the §8 size limits — live in `app/src/test/.../arch/ArchitectureTest.kt`.
+
 **Placement**
 - [ ] New non-UI logic is in `commonMain`, or a comment names what blocks it.
 - [ ] Nothing was extracted into `shared/` from the *worse* of two copies — diff
