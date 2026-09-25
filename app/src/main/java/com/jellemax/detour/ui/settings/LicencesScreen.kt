@@ -1,11 +1,16 @@
 package com.jellemax.detour.ui.settings
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.jellemax.detour.ui.SettingsSection
 
@@ -22,25 +27,34 @@ import com.jellemax.detour.ui.SettingsSection
  */
 @Composable
 fun LicencesScreen() {
-    val context = LocalContext.current
     LicenceSection(
         name = "OpenStreetMap",
         text = "Speed cameras, enforcement sections and road data — " +
             "© OpenStreetMap contributors, Open Database License (ODbL).",
         url = "https://www.openstreetmap.org/copyright",
-    ) { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) }
+    )
     LicenceSection(
         name = "lufop.net",
         text = "Additional speed cameras — data from lufop.net, " +
             "Open Database License (ODbL).",
         url = "https://lufop.net/mentions-legales/",
-    ) { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(it))) }
+    )
 }
 
 @Composable
-private fun LicenceSection(name: String, text: String, url: String, onOpen: (String) -> Unit) {
+private fun LicenceSection(name: String, text: String, url: String) {
+    val context = LocalContext.current
+    var error by remember { mutableStateOf<String?>(null) }
     SettingsSection(name) {
         Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        TextButton(onClick = { onOpen(url) }) { Text("View licence") }
+        TextButton(onClick = {
+            error = try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                null
+            } catch (e: ActivityNotFoundException) {
+                "No app to open $url"
+            }
+        }) { Text("View licence") }
+        error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
     }
 }

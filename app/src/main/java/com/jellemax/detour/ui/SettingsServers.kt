@@ -349,6 +349,15 @@ private fun ServerSection(
             placeholder = "https://…",
             modifier = Modifier.fillMaxWidth(),
         )
+        TextButton(onClick = { showAdvanced = !showAdvanced }) {
+            Text(if (showAdvanced) "Hide advanced" else "Advanced")
+        }
+        if (showAdvanced) {
+            ServerAdvanced(draft = draft, onDraftChange = { draft = it; saved = false })
+        }
+        // Save sits after Advanced, not before it, so it reads as the commit for
+        // everything above rather than just the URL field — see #353. It is
+        // already saving all five addresses; only its position was wrong.
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = {
                 val addresses = listOf(
@@ -369,12 +378,6 @@ private fun ServerSection(
                     },
                 )
             }
-        }
-        TextButton(onClick = { showAdvanced = !showAdvanced }) {
-            Text(if (showAdvanced) "Hide advanced" else "Advanced")
-        }
-        if (showAdvanced) {
-            ServerAdvanced(draft = draft, onDraftChange = { draft = it; saved = false })
         }
     }
 }

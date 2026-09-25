@@ -467,8 +467,9 @@ private fun AppRoot() {
                         onOpenSpoke = { spoke -> backStack.push(spoke) },
                     )
                 }
-                // Six entries rather than one, because entryProvider dispatches on the
-                // concrete key type. Each renders through the same SettingsSpokeScreen,
+                // One entry per spoke rather than one, because entryProvider dispatches on the
+                // concrete key type — a spoke with no entry here crashes the app when its
+                // hub row is tapped (Licences did). Each renders through the same SettingsSpokeScreen,
                 // whose `when` is exhaustive over Destination.SettingsSpoke.
                 entry<Destination.SettingsAppearanceMap> { key ->
                     SettingsSpokeScreen(key, onBack = { backStack.pop() })
@@ -489,6 +490,9 @@ private fun AppRoot() {
                     SettingsSpokeScreen(key, onBack = { backStack.pop() })
                 }
                 entry<Destination.SettingsObd2> { key ->
+                    SettingsSpokeScreen(key, onBack = { backStack.pop() })
+                }
+                entry<Destination.SettingsLicences> { key ->
                     SettingsSpokeScreen(key, onBack = { backStack.pop() })
                 }
                 entry<Destination.SavedPlaces> { SavedPlacesScreen(onBack = { backStack.pop() }) }
