@@ -32,7 +32,7 @@ public class CameraImportTests : IDisposable
     {
         await RunAsync("""{ "source": "osm", "cameras": [] }""");
 
-        _repo.Verify(r => r.RetireMissingAsync(It.IsAny<string>(), It.IsAny<IReadOnlySet<string>>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+        _repo.Verify(r => r.RetireMissingAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<IReadOnlySet<string>>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -40,7 +40,7 @@ public class CameraImportTests : IDisposable
     {
         await RunAsync("""{ "source": "osm", "cameras": [ { "kind": "NotAKind", "sourceId": "n1", "lat": 50.8, "lon": 4.3 } ] }""");
 
-        _repo.Verify(r => r.RetireMissingAsync(It.IsAny<string>(), It.IsAny<IReadOnlySet<string>>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+        _repo.Verify(r => r.RetireMissingAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<IReadOnlySet<string>>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -53,7 +53,7 @@ public class CameraImportTests : IDisposable
             ] }
             """);
 
-        _repo.Verify(r => r.RetireMissingAsync("osm",
+        _repo.Verify(r => r.RetireMissingAsync("osm", It.IsAny<string?>(),
             It.Is<IReadOnlySet<string>>(s => s.SetEquals(new[] { "n1", "n2" })),
             It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Once);
     }

@@ -88,7 +88,7 @@ public class CameraRepositoryTests(PostgresFixture postgres) : IntegrationTestBa
 
         for (var i = 0; i < 3; i++)
         {
-            await repo.RetireMissingAsync(source, new HashSet<string>(), retireAfterMisses: 3, CancellationToken.None);
+            await repo.RetireMissingAsync(source, null, new HashSet<string>(), retireAfterMisses: 3, CancellationToken.None);
             await repo.FlushChangesAsync(CancellationToken.None);
         }
 
@@ -106,7 +106,7 @@ public class CameraRepositoryTests(PostgresFixture postgres) : IntegrationTestBa
         await repo.UpsertAsync(cam, CancellationToken.None);
         await repo.FlushChangesAsync(CancellationToken.None);
 
-        await repo.RetireMissingAsync(source, new HashSet<string> { "r2" }, retireAfterMisses: 1, CancellationToken.None);
+        await repo.RetireMissingAsync(source, null, new HashSet<string> { "r2" }, retireAfterMisses: 1, CancellationToken.None);
         await repo.FlushChangesAsync(CancellationToken.None);
 
         var found = await repo.BboxAsync(51.19, 3.19, 51.21, 3.21, CancellationToken.None);
@@ -123,7 +123,7 @@ public class CameraRepositoryTests(PostgresFixture postgres) : IntegrationTestBa
         var stored = await repo.UpsertAsync(cam, CancellationToken.None);
         await repo.FlushChangesAsync(CancellationToken.None);
 
-        await repo.RetireMissingAsync(source, new HashSet<string>(), retireAfterMisses: 1, CancellationToken.None);
+        await repo.RetireMissingAsync(source, null, new HashSet<string>(), retireAfterMisses: 1, CancellationToken.None);
         await repo.FlushChangesAsync(CancellationToken.None);
 
         // ~12 m away — inside the 40 m cluster radius. Same source reporting again should find
@@ -145,5 +145,26 @@ public class CameraRepositoryTests(PostgresFixture postgres) : IntegrationTestBa
 
         var found = await repo.BboxAsync(51.29, 3.29, 51.31, 3.31, CancellationToken.None);
         Assert.Single(found);
+    }
+
+    [Fact]
+    public async Task RetireMissingAsync_does_not_charge_a_camera_from_another_region()
+    {
+        var repo = new CameraRepository(Factory);
+        const string source = "retire-test-region";
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 51.40, 3.40, 50, "N9",
+            new CameraSource(source, "r3", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, Region: "benelux")).Value;
+        await repo.UpsertAsync(cam, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        for (var i = 0; i < 3; i++)
+        {
+            await repo.RetireMissingAsync(source, "france", new HashSet<string>(), retireAfterMisses: 1, CancellationToken.None);
+            await repo.FlushChangesAsync(CancellationToken.None);
+        }
+
+        var found = await repo.BboxAsync(51.39, 3.39, 51.41, 3.41, CancellationToken.None);
+        Assert.Single(found);
+        Assert.Equal(0, found[0].Sources[0].MissedRuns);
     }
 }

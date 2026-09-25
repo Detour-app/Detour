@@ -61,7 +61,7 @@ public class CameraRepository(ICustomDbContextFactory<DetourDbContext> factory)
     // Western-Europe row count (~15k) for a one-shot admin import run (see CameraImport), not
     // fine at continent scale. Upgrade: a Postgres jsonb containment query/index on SourcesJson,
     // or a proper sources join table, once the row count actually hurts.
-    public async Task<int> RetireMissingAsync(string source, IReadOnlySet<string> seenSourceIds, int retireAfterMisses, CancellationToken cancellationToken)
+    public async Task<int> RetireMissingAsync(string source, string? region, IReadOnlySet<string> seenSourceIds, int retireAfterMisses, CancellationToken cancellationToken)
     {
         var candidates = await Set
             .TagWith(Tag(nameof(RetireMissingAsync)))
@@ -73,6 +73,7 @@ public class CameraRepository(ICustomDbContextFactory<DetourDbContext> factory)
         {
             var entry = camera.Sources.FirstOrDefault(s => s.Source == source);
             if (entry is null || seenSourceIds.Contains(entry.SourceId)) continue;
+            if (region is not null && entry.Region is not null && entry.Region != region) continue;
 
             camera.MarkSourceMissing(source, retireAfterMisses);
             if (camera.Status == CameraStatus.Retired) retired++;

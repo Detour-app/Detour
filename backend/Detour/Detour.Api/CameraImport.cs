@@ -31,6 +31,7 @@ public static class CameraImport
 
         var doc = JsonDocument.Parse(await File.ReadAllTextAsync(jsonPath));
         var source = doc.RootElement.GetProperty("source").GetString()!;
+        var region = doc.RootElement.TryGetProperty("region", out var rg) && rg.ValueKind == JsonValueKind.String ? rg.GetString() : null;
         var now = DateTimeOffset.UtcNow;
         var imported = 0;
         var skipped = 0;
@@ -59,7 +60,7 @@ public static class CameraImport
                 var sourceId = el.GetProperty("sourceId").GetString()!;
                 var maxSpeed = el.TryGetProperty("maxSpeedKmh", out var ms) && ms.ValueKind != JsonValueKind.Null ? ms.GetInt32() : (int?)null;
                 var roadRef = el.TryGetProperty("roadRef", out var rr) && rr.ValueKind != JsonValueKind.Null ? rr.GetString() : null;
-                var cameraSource = new CameraSource(source, sourceId, now, now);
+                var cameraSource = new CameraSource(source, sourceId, now, now, Region: region);
                 seenSourceIds.Add(sourceId);
 
                 result = el.TryGetProperty("polyline", out var poly) && poly.ValueKind == JsonValueKind.Array
@@ -99,7 +100,7 @@ public static class CameraImport
         }
         else
         {
-            retired = await repo.RetireMissingAsync(source, seenSourceIds, RetireAfterConsecutiveMisses, CancellationToken.None);
+            retired = await repo.RetireMissingAsync(source, region, seenSourceIds, RetireAfterConsecutiveMisses, CancellationToken.None);
             await repo.FlushChangesAsync(CancellationToken.None);
         }
 
