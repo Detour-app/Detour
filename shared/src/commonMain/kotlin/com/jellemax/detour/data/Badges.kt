@@ -167,16 +167,22 @@ object BadgeStore {
         val f = accountFile(FILE_NAME)
         if (!f.exists()) return emptyMap()
         return try {
-            jsonObjectOf(f.readText()).mapValues { (_, v) -> v.toString().trim('"').toLong() }
+            decodeEarned(f.readText())
         } catch (e: Exception) {
             emptyMap()
         }
     }
 
     private fun save(earned: Map<String, Long>) {
-        val o = buildJsonObject { for ((id, at) in earned) put(id, at) }
-        accountFile(FILE_NAME).writeText(o.string())
+        accountFile(FILE_NAME).writeText(encodeEarned(earned))
     }
+
+    /** badges.json: an object of badge id → earnedAtMs. */
+    internal fun decodeEarned(text: String): Map<String, Long> =
+        jsonObjectOf(text).mapValues { (_, v) -> v.toString().trim('"').toLong() }
+
+    internal fun encodeEarned(earned: Map<String, Long>): String =
+        buildJsonObject { for ((id, at) in earned) put(id, at) }.string()
 
     /** Raw stored JSON, for server sync. */
     fun rawJson(): String {
