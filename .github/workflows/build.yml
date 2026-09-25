@@ -15,6 +15,9 @@ permissions:
 
 jobs:
   build:
+    # The check name main's branch protection requires. backend.yml and ios.yml
+    # also have a job called `build`, so the default name is ambiguous there.
+    name: android
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
