@@ -6,8 +6,8 @@ import kotlin.test.assertTrue
 
 /**
  * Pins the bytes of the per-account files that can't be rebuilt — trips,
- * traces, saved places, routes — plus the enum names and badge ids those
- * files store as strings.
+ * traces, saved places, routes, tombstones, mode edits, badges — plus the
+ * enum names and badge ids those files store as strings.
  *
  * A round-trip test can't catch a renamed key: encode and decode change
  * together and still agree, while every file already on a phone (and on the
@@ -156,6 +156,38 @@ class PersistedFormatTest {
     @Test
     fun routeWriterMatchesV1() {
         assertEquals(jsonObjectOf(routeV1), route.toJson())
+    }
+
+    // --- deleted_trips.json / edited_modes.json -------------------------------
+    // Both ride along with sync: tombstones that stop reading resurrect every
+    // deleted trip on the next merge, and a lost override reverts a mode edit.
+
+    private val tombstonesV1 = """[1726000000000,1726100000000]"""
+    private val modeOverridesV1 = """{"1726000000000":"MOTO","1726100000000":"CAR"}"""
+
+    @Test
+    fun tombstonesV1ReadsAndWrites() {
+        val ids = setOf(1_726_000_000_000L, 1_726_100_000_000L)
+        assertEquals(ids, TripStore.decodeTombstones(tombstonesV1))
+        assertEquals(jsonArrayOf(tombstonesV1), jsonArrayOf(TripStore.encodeTombstones(ids)))
+    }
+
+    @Test
+    fun modeOverridesV1ReadsAndWrites() {
+        val overrides = mapOf(1_726_000_000_000L to "MOTO", 1_726_100_000_000L to "CAR")
+        assertEquals(overrides, TripStore.decodeModeOverrides(modeOverridesV1))
+        assertEquals(jsonObjectOf(modeOverridesV1), jsonObjectOf(TripStore.encodeModeOverrides(overrides)))
+    }
+
+    // --- badges.json ---------------------------------------------------------
+
+    private val earnedV1 = """{"dist_100000":1726000000000,"speed_130":1726100000000}"""
+
+    @Test
+    fun earnedBadgesV1ReadsAndWrites() {
+        val earned = mapOf("dist_100000" to 1_726_000_000_000L, "speed_130" to 1_726_100_000_000L)
+        assertEquals(earned, BadgeStore.decodeEarned(earnedV1))
+        assertEquals(jsonObjectOf(earnedV1), jsonObjectOf(BadgeStore.encodeEarned(earned)))
     }
 
     // --- names stored as strings ---------------------------------------------
