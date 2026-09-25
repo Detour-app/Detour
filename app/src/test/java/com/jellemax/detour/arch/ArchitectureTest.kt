@@ -133,6 +133,29 @@ class ArchitectureTest {
         assertUnderLimit(100, pinned, sizes)
     }
 
+    /**
+     * detekt's baselines record findings that predate it. Running
+     * `detektBaseline` again would quietly absorb new ones, so each baseline's
+     * size is pinned: fix a new finding rather than baselining it, and lower
+     * the pin when a fix deletes entries.
+     */
+    @Test
+    fun `detekt baselines only shrink`() {
+        val pinned = mapOf(
+            "config/detekt/baseline-app.xml" to 129,
+            "config/detekt/baseline-shared.xml" to 63,
+        )
+        val errors = pinned.mapNotNull { (path, ceiling) ->
+            val entries = Regex("<ID>").findAll(File(root + path).readText()).count()
+            when {
+                entries > ceiling -> "$path: grew to $entries entries, pinned at $ceiling — fix the finding instead"
+                entries < ceiling -> "$path: shrank to $entries, lower its pin from $ceiling"
+                else -> null
+            }
+        }
+        assertTrue(errors.joinToString("\n"), errors.isEmpty())
+    }
+
     private fun assertUnderLimit(limit: Int, pinned: Map<String, Int>, sizes: Map<String, Int>) {
         val errors = sizes.mapNotNull { (key, size) ->
             val ceiling = pinned[key]
