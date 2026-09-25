@@ -119,6 +119,12 @@ internal fun headingDegInt(deg: Double): Int = ((deg % 360.0 + 360.0) % 360.0).t
  */
 object RoutingClient {
 
+    /** [routingBase], or a distinguishable error when no routing server is
+     *  configured — same shape as [routeVia]'s point-count guard, and what
+     *  keeps a blank base from being concatenated into a bare "/route" URL. */
+    private fun requireRoutingBase(config: ServerConfig): String =
+        routingBase(config).ifBlank { throw IOException("No routing server configured") }
+
     suspend fun roundTrip(
         config: ServerConfig,
         start: LatLon,
@@ -155,7 +161,7 @@ object RoutingClient {
     ): RouteResult {
         if (!avoidSmallRoads) {
             return fetchRoute(
-                routingBase(config) +
+                requireRoutingBase(config) +
                     "/route?profile=moto" +
                     "&point=${start.lat},${start.lon}" +
                     "&algorithm=round_trip" +
@@ -186,7 +192,7 @@ object RoutingClient {
             }
             headingDeg?.let { h -> putJsonArray("heading") { add(h.toInt()) } }
         }
-        return fetchRoute(routingBase(config) + "/route", body.string())
+        return fetchRoute(requireRoutingBase(config) + "/route", body.string())
     }
 
     /**
@@ -276,7 +282,7 @@ object RoutingClient {
         val rules = preferenceRules(avoidHighways, avoidSmallRoads)
         if (rules.isEmpty()) {
             val query = buildString {
-                append(routingBase(config))
+                append(requireRoutingBase(config))
                 append("/route?profile=").append(profile)
                 for (p in points) append("&point=${p.lat},${p.lon}")
                 append("&points_encoded=false&details=max_speed&details=roundabout")
@@ -301,7 +307,7 @@ object RoutingClient {
             }
             putJsonObject("custom_model") { put("priority", rules) }
         }
-        return fetchRoute(routingBase(config) + "/route", body.string())
+        return fetchRoute(requireRoutingBase(config) + "/route", body.string())
     }
 
     private suspend fun fetchRoute(
@@ -425,7 +431,7 @@ object RoutingClient {
         to: LatLon,
         profile: String,
     ): LatLon? {
-        val url = routingBase(config) +
+        val url = requireRoutingBase(config) +
             "/route?profile=$profile" +
             "&point=${from.lat},${from.lon}" +
             "&point=${to.lat},${to.lon}" +
