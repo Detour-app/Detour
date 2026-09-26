@@ -3,6 +3,7 @@ package com.jellemax.detour.data
 import kotlin.math.PI
 import kotlin.math.sqrt
 import kotlin.random.Random
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -157,11 +158,12 @@ object RouteFill {
     }
 
     /** The rider's stops without any earlier fill; a lone stop becomes a loop
-     *  from and back to it. */
+     *  from and back to it. The closing copy is itself fill, so *Remove fill*
+     *  gives back the one stop the rider placed rather than `[A, A]`. */
     private fun ownStops(stops: List<RouteStop>): List<RouteStop> {
         val own = mandatory(stops)
         if (own.isEmpty()) throw IOException("Add a stop to fill a route from")
-        return if (own.size == 1) own + own else own
+        return if (own.size == 1) own + own[0].copy(name = FILL_NAME) else own
     }
 
     /** The base route's own average speed, or the 50 km/h guess when there is
@@ -209,7 +211,11 @@ object RouteFill {
             val stops = insertFill(own, extra, layout)
             val result = try {
                 route(stops.map { it.at })
-            } catch (e: IOException) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Any failure, not only I/O: an escaping parse error would
+                // cancel the sibling layouts through their coroutineScope.
                 return out
             }
             out.add(Filled(stops, result))

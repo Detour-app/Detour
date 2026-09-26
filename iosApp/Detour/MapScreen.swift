@@ -9,6 +9,9 @@ struct MapScreen: View {
     @StateObject private var spin = SpinModel()
     @StateObject private var modes = TripModeModel()
     @StateObject private var loopSize = LoopSizeModel()
+    /// The minutes slider's value while its thumb moves; written to Settings
+    /// once, on release, and cleared when the saved value comes back.
+    @State private var draggedLoopMinutes: Double?
     /// The trajectcontrole average. Here and not in `NavScreen`, which is a
     /// `fullScreenCover`: the phone shows this chip on its map screen whether
     /// or not navigation is running, and a section is most likely to catch
@@ -213,18 +216,25 @@ struct MapScreen: View {
             }
 
             if timedLoopMinutes != nil {
+                let shownMinutes = draggedLoopMinutes ?? Double(loopSize.minutes)
                 HStack {
-                    Text(formatDurationHistory(LoopDuration.shared.targetMs(minutes: loopSize.minutes)))
+                    Text(formatDurationHistory(LoopDuration.shared.targetMs(minutes: Float(shownMinutes))))
                         .monospacedDigit()
                         .frame(width: 64, alignment: .leading)
                     Slider(
                         value: Binding(
-                            get: { Double(loopSize.minutes) },
-                            set: { Settings.shared.setLoopMinutes(value: Float($0)) }
+                            get: { shownMinutes },
+                            set: { draggedLoopMinutes = $0 }
                         ),
                         in: Double(LoopDuration.shared.MIN_MINUTES)...Double(LoopDuration.shared.MAX_MINUTES),
-                        step: Double(LoopDuration.shared.STEP_MINUTES))
+                        step: Double(LoopDuration.shared.STEP_MINUTES),
+                        onEditingChanged: { editing in
+                            if !editing, let minutes = draggedLoopMinutes {
+                                Settings.shared.setLoopMinutes(value: Float(minutes))
+                            }
+                        })
                 }
+                .onChange(of: loopSize.minutes) { _, _ in draggedLoopMinutes = nil }
             } else {
                 HStack {
                     Text("\(Int(spin.radiusMeters / 1000)) km")

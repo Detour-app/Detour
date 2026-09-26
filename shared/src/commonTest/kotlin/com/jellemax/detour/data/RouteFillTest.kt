@@ -48,7 +48,7 @@ class RouteFillTest {
     @Test
     fun aLegWithNoLengthRidesATriangleOfAThirdTheExtra() {
         assertEquals(1_000.0, RouteFill.apexOffsetMeters(0.0, 3_000.0), 1e-9)
-        assertEquals(0.0, RouteFill.apexOffsetMeters(5_000.0, 0.0))
+        assertEquals(0.0, RouteFill.apexOffsetMeters(5_000.0, 0.0), 1e-9)
     }
 
     @Test
@@ -84,6 +84,9 @@ class RouteFillTest {
         assertTrue(LoopDuration.fits(result.route, 30f), "got ${result.route.timeMs}")
         assertEquals(home, result.stops.first().at)
         assertEquals(home, result.stops.last().at)
+        // The closing copy of the stop is fill too, so removing the fill gives
+        // back the one stop that was placed, not [home, home].
+        assertEquals(listOf(RouteStop(home, "Home")), RouteFill.mandatory(result.stops))
     }
 
     @Test

@@ -33,8 +33,10 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -110,10 +112,6 @@ internal fun ResultCallout(
     }
 }
 
-/** The spin sheet: everything the home sheet's Spin chip expands into. Same
- *  glass card the home sheet uses, just taller — a drag-handle bar stands in
- *  for an actual drag gesture, tap it (or the chevron) to fold back to the
- *  home sheet. */
 /**
  * Minutes a spin sizes its loop to, or null when the loop is sized by length —
  * or [mode] spins no loop at all. MapScreen reads it for the spin and the reach
@@ -134,6 +132,10 @@ internal fun loopMinutesSetting(mode: TravelMode): Float? {
 internal fun loopLengthKm(timedMinutes: Float?, radiusKm: Float): Double =
     timedMinutes?.let { LoopDuration.guessMeters(it) / 1000.0 } ?: radiusKm.toDouble()
 
+/** The spin sheet: everything the home sheet's Spin chip expands into. Same
+ *  glass card the home sheet uses, just taller — a drag-handle bar stands in
+ *  for an actual drag gesture, tap it (or the chevron) to fold back to the
+ *  home sheet. */
 @Composable
 internal fun SpinSheet(
     mode: TravelMode,
@@ -317,6 +319,13 @@ internal fun SpinSheet(
             // outlives the screen, and MapBottomSlot is past §8.4's gate already.
             val loopByTime by Settings.loopByTime.collectAsStateWithLifecycle()
             val loopMinutes by Settings.loopMinutes.collectAsStateWithLifecycle()
+            // Held here while the thumb moves and written to Settings (and its
+            // prefs) once, on release, rather than on every drag frame. Cleared
+            // when the saved value arrives back, not on release: the flow
+            // lands a frame later, and clearing first would flash the old value.
+            var draggedMinutes by remember { mutableStateOf<Float?>(null) }
+            LaunchedEffect(loopMinutes) { draggedMinutes = null }
+            val shownMinutes = draggedMinutes ?: loopMinutes
             val timed = mode.roundTrip && loopByTime
             if (mode.roundTrip) {
                 ChoiceRow(
@@ -342,7 +351,7 @@ internal fun SpinSheet(
                     style = MaterialTheme.typography.labelLarge,
                 )
                 Text(
-                    if (timed) formatDurationHistory(LoopDuration.targetMs(loopMinutes))
+                    if (timed) formatDurationHistory(LoopDuration.targetMs(shownMinutes))
                     else radiusState.radiusText,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
@@ -351,8 +360,9 @@ internal fun SpinSheet(
 
             if (timed) {
                 Slider(
-                    value = loopMinutes,
-                    onValueChange = { Settings.setLoopMinutes(it) },
+                    value = shownMinutes,
+                    onValueChange = { draggedMinutes = it },
+                    onValueChangeFinished = { draggedMinutes?.let { Settings.setLoopMinutes(it) } },
                     valueRange = LoopDuration.MIN_MINUTES..LoopDuration.MAX_MINUTES,
                     // Whole 5-minute stops; `steps` counts the ones between the ends.
                     steps = ((LoopDuration.MAX_MINUTES - LoopDuration.MIN_MINUTES) /
