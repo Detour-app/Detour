@@ -125,8 +125,7 @@ object RouteFill {
         route: suspend (List<LatLon>) -> RouteResult,
         random: Random = Random,
     ): Filled {
-        val own = mandatory(stops).let { if (it.size == 1) it + it else it }
-        if (own.isEmpty()) throw IOException("Add a stop to fill a route from")
+        val own = ownStops(stops)
         val targetMs = LoopDuration.targetMs(minutes)
 
         val moves = own.zipWithNext().any { (a, b) ->
@@ -136,13 +135,7 @@ object RouteFill {
         if (base != null && LoopDuration.fits(base, minutes)) return Filled(own, base)
         val baseMs = base?.timeMs ?: 0L
         if (baseMs > targetMs) throw StopsTooLong(baseMs)
-        val metersPerMs = base?.let { b ->
-            val d = b.distanceMeters
-            val t = b.timeMs
-            if (d != null && t != null && t > 0) d / t else null
-        } ?: GUESS_METERS_PER_MS
-        val spareMs = targetMs - baseMs
-        val firstGuess = spareMs * metersPerMs / ROAD_FACTOR
+        val firstGuess = (targetMs - baseMs) * metersPerMs(base) / ROAD_FACTOR
 
         val layouts = List(VARIANTS) {
             Layout(
@@ -161,6 +154,22 @@ object RouteFill {
         val scored = tried.map { it.route to Curviness.routeScore(it.route.polyline, it.route.instructions) }
         val chosen = LoopDuration.pick(scored, minutes)!!.first
         return tried.first { it.route === chosen }
+    }
+
+    /** The rider's stops without any earlier fill; a lone stop becomes a loop
+     *  from and back to it. */
+    private fun ownStops(stops: List<RouteStop>): List<RouteStop> {
+        val own = mandatory(stops)
+        if (own.isEmpty()) throw IOException("Add a stop to fill a route from")
+        return if (own.size == 1) own + own else own
+    }
+
+    /** The base route's own average speed, or the 50 km/h guess when there is
+     *  no base route (a lone stop) or it came back without distance or time. */
+    private fun metersPerMs(base: RouteResult?): Double {
+        val d = base?.distanceMeters
+        val t = base?.timeMs
+        return if (d != null && t != null && t > 0) d / t else GUESS_METERS_PER_MS
     }
 
     /** One layout's rounds: route, compare the spare time gained with the

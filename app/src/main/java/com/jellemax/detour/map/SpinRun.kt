@@ -223,7 +223,7 @@ private suspend fun runLoopSpin(
         result = if (minutes == null) {
             loops?.maxBy { it.second }?.first
         } else if (loops != null) {
-            pickTimedLoop(serverConfig, from, tripMeters, minutes, loops, params, reportError)
+            pickTimedLoop(serverConfig, from, minutes, loops, params, reportError)
         } else {
             null
         }
@@ -244,9 +244,10 @@ private suspend fun runLoopSpin(
 }
 
 /**
- * The time-sized half of [runLoopSpin]: keep a loop from [firstRolls] if one
- * lands near [minutes], otherwise re-roll once at the length the first rolls'
- * reported times suggest, and take the best of both rounds.
+ * The time-sized half of [runLoopSpin]: keep a loop from [firstRolls] (rolled
+ * at [LoopDuration.guessMeters]) if one lands near [minutes], otherwise re-roll
+ * once at the length the first rolls' reported times suggest, and take the
+ * best of both rounds.
  *
  * One retry, not a search: the rescale is proportional to the router's own
  * estimate, so a second round nearly always fits, and a third would put the
@@ -257,7 +258,6 @@ private suspend fun runLoopSpin(
 private suspend fun pickTimedLoop(
     serverConfig: ServerConfig,
     from: LatLon,
-    requestedMeters: Double,
     minutes: Float,
     firstRolls: List<Pair<RouteResult, Double>>,
     params: SpinParams,
@@ -265,7 +265,9 @@ private suspend fun pickTimedLoop(
 ): RouteResult? {
     val first = LoopDuration.pick(firstRolls, minutes)
     if (first != null && LoopDuration.fits(first.first, minutes)) return first.first
-    val retryMeters = LoopDuration.rescaledMeters(minutes, requestedMeters, firstRolls.map { it.first })
+    val retryMeters = LoopDuration.rescaledMeters(
+        minutes, LoopDuration.guessMeters(minutes), firstRolls.map { it.first },
+    )
         ?: return first?.first
     val retry = rollLoops(serverConfig, from, retryMeters, params, onServerError).orEmpty()
     return LoopDuration.pick(firstRolls + retry, minutes)?.first

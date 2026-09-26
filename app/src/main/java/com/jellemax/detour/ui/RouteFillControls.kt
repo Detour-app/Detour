@@ -27,16 +27,16 @@ import com.jellemax.detour.data.LoopDuration
  * button that asks [onFill] to stretch the route to it. The minutes are this
  * row's own screen state, since nothing else reads them. The fill itself (the
  * routing calls and what they write) stays with the editor, which owns the
- * stops being filled.
+ * stops being filled. [onClearFill] is null when the route has no fill to
+ * remove, which is also what hides that button.
  */
 @Composable
 internal fun RouteFillControls(
     canFill: Boolean,
-    hasFill: Boolean,
     filling: Boolean,
     error: String?,
     onFill: (minutes: Float) -> Unit,
-    onClearFill: () -> Unit,
+    onClearFill: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     var minutes by remember { mutableFloatStateOf(DEFAULT_FILL_MINUTES) }
@@ -74,9 +74,9 @@ internal fun RouteFillControls(
                 modifier = Modifier.weight(1f),
             ) {
                 if (filling) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                else Text(if (hasFill) "Fill again" else "Fill route")
+                else Text(if (onClearFill != null) "Fill again" else "Fill route")
             }
-            if (hasFill) {
+            if (onClearFill != null) {
                 TextButton(onClick = onClearFill, enabled = !filling) { Text("Remove fill") }
             }
         }

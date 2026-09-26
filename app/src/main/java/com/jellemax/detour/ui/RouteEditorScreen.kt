@@ -493,13 +493,14 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                 item {
                     RouteFillControls(
                         canFill = RouteFill.mandatory(stops).isNotEmpty() && serverConfig.usable,
-                        hasFill = stops.any(RouteFill::isFill),
                         filling = filling,
                         error = fillError,
                         onFill = { fill(it) },
-                        onClearFill = {
-                            stops = RouteFill.mandatory(stops)
-                            fillError = null
+                        onClearFill = if (stops.none(RouteFill::isFill)) null else {
+                            {
+                                stops = RouteFill.mandatory(stops)
+                                fillError = null
+                            }
                         },
                     )
                 }
