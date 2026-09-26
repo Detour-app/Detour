@@ -294,10 +294,8 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
             val from = stops
             try {
                 val filled = withContext(Dispatchers.IO) {
-                    RouteFill.fill(from, minutes, route = { points ->
-                        RoutingClient.routeVia(
-                            serverConfig, points, mode.ghProfile, avoidHighways, avoidSmallRoads)
-                    })
+                    RouteFill.fillRouted(
+                        serverConfig, from, minutes, mode.ghProfile, avoidHighways, avoidSmallRoads)
                 }
                 if (stops == from) stops = filled.stops
             } catch (e: StopsTooLong) {

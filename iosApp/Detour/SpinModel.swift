@@ -20,6 +20,10 @@ final class SpinModel: ObservableObject {
         /// Three rolls are on the map, none picked yet.
         case choosing
         case found(lat: Double, lon: Double, distanceMeters: Double?)
+        /// A round trip is on the map: `routeResult` holds it and there is no
+        /// destination. `warning` is set when it is the approximate fallback
+        /// loop and the routing server had already failed.
+        case loop(distanceMeters: Double?, timeMs: Int64?, warning: String?)
         case failed(String)
     }
 
@@ -114,7 +118,11 @@ final class SpinModel: ObservableObject {
     /// GraphHopper profile and which roads a draw may land on. This used to be
     /// hardcoded to moto here, which meant the vehicle picker above the map
     /// changed the radius range and nothing else.
-    func spin(from here: CLLocationCoordinate2D, mode: TravelMode) async {
+    ///
+    /// A mode that spins round trips (Moto) gets one loop instead — see
+    /// `spinLoop`. `loopMinutes` sizes that loop by riding time; nil sizes it
+    /// by `radiusMeters`, which for a loop means its length.
+    func spin(from here: CLLocationCoordinate2D, mode: TravelMode, loopMinutes: Float? = nil) async {
         state = .spinning
         route = []
         routeResult = nil
@@ -122,6 +130,10 @@ final class SpinModel: ObservableObject {
         candidates = []
 
         let center = LatLon(lat: here.latitude, lon: here.longitude)
+        if mode.roundTrip {
+            await spinLoop(from: center, mode: mode, loopMinutes: loopMinutes)
+            return
+        }
 
         do {
             // Prefer roads the fog of war has not uncovered yet, exactly as the
@@ -141,6 +153,36 @@ final class SpinModel: ObservableObject {
         } catch {
             // The core throws IOException for "no roads here" and "server said
             // no" alike; its message is already written for a person to read.
+            state = .failed(error.localizedDescription)
+        }
+    }
+
+    /// One round trip from `center`, through the shared `LoopSpin` — the same
+    /// rolls, curviest/timed pick and Overpass fallback the Android spin runs,
+    /// so the two cannot drift. Its failures arrive as a sentence already.
+    private func spinLoop(from center: LatLon, mode: TravelMode, loopMinutes: Float?) async {
+        do {
+            let loop = try await LoopSpin.shared.spin(
+                config: RoutingServer.shared.load(),
+                request: LoopRequest(
+                    from: center,
+                    lengthMeters: radiusMeters,
+                    minutes: loopMinutes.map { KotlinFloat(value: $0) },
+                    headingDeg: nil,
+                    avoidSmallRoads: SettingsValues.shared.avoidSmallRoads,
+                    highwayRegex: mode.highwayRegex
+                )
+            )
+            routeResult = loop.route
+            route = loop.route.polyline.map {
+                CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
+            }
+            state = .loop(
+                distanceMeters: loop.route.distanceMeters?.doubleValue,
+                timeMs: loop.route.timeMs?.int64Value,
+                warning: loop.warning
+            )
+        } catch {
             state = .failed(error.localizedDescription)
         }
     }

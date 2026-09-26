@@ -172,6 +172,25 @@ object RouteFill {
         return if (d != null && t != null && t > 0) d / t else GUESS_METERS_PER_MS
     }
 
+    /**
+     * [fill] routed through [RoutingClient.routeVia] with the given profile and
+     * preferences — the call both apps make. Swift cannot supply [fill]'s
+     * `suspend` function parameter (it lowers to `KotlinSuspendFunction1`),
+     * which is why this entry point exists rather than each app passing its
+     * own lambda.
+     */
+    @Throws(Exception::class)
+    suspend fun fillRouted(
+        config: ServerConfig,
+        stops: List<RouteStop>,
+        minutes: Float,
+        profile: String,
+        avoidHighways: Boolean,
+        avoidSmallRoads: Boolean,
+    ): Filled = fill(stops, minutes, route = { points ->
+        RoutingClient.routeVia(config, points, profile, avoidHighways, avoidSmallRoads)
+    })
+
     /** One layout's rounds: route, compare the spare time gained with the
      *  spare time wanted, rescale, stop once it fits. A routing failure ends
      *  this layout with whatever it already has; the others still count. */

@@ -1,20 +1,19 @@
-package com.jellemax.detour.map
+package com.jellemax.detour.data
 
-import java.io.IOException
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import okio.IOException
+import kotlin.test.Test
+import kotlin.test.assertEquals
 
 /**
- * The two decisions that used to be unreachable inside `MapScreen.spin()`.
+ * The two decisions inside a loop spin that do no I/O: which sentence a
+ * timeout gets, and which roll's failure is reported.
  *
- * Neither does I/O; both were welded to a `scope.launch` inside a composable,
- * which is why four distinct failure sentences shipped with no test between
- * them. The one that matters most is the first case below: a fallback timeout
- * must not hide that the rider's own routing server was the thing that failed,
- * because that is the message that tells them where to look.
+ * Moved here from the Android app's `SpinRunTest` with [LoopSpin], so iOS's
+ * spin is held to the same wording. The case that matters most is the first:
+ * a fallback timeout must not hide that the rider's own routing server was the
+ * thing that failed, because that is the message that tells them where to look.
  */
-class SpinRunTest {
+class LoopSpinTest {
 
     @Test
     fun aServerFailureSurvivesTheFallbackTimingOutToo() {
