@@ -14,7 +14,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,7 +40,7 @@ internal fun RouteFillControls(
     onClearFill: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    var minutes by remember { mutableFloatStateOf(RouteFill.DEFAULT_MINUTES) }
+    var minutes by rememberSaveable { mutableFloatStateOf(RouteFill.DEFAULT_MINUTES) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Fill to riding time", style = MaterialTheme.typography.labelLarge)

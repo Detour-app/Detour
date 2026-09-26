@@ -488,7 +488,10 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                         }
                     }
                 }
-                item {
+                // Keyed: it sits after the stops, so an unkeyed item shifts index
+                // (and drops the rider's chosen minutes) whenever a fill adds or
+                // removes stops.
+                item(key = "fill") {
                     RouteFillControls(
                         canFill = RouteFill.mandatory(stops).isNotEmpty() && serverConfig.usable,
                         filling = filling,
