@@ -36,8 +36,7 @@ object RouteFill {
 
     const val FILL_NAME = "Auto fill"
 
-    /** The fill slider's starting point on both apps: an hour, the ride a
-     *  route with a couple of fixed stops is usually built around. */
+    /** An hour: the ride a route with a couple of fixed stops is usually built around. */
     const val DEFAULT_MINUTES = 60f
 
     /** Below this a leg has no usable direction to bend away from. */
