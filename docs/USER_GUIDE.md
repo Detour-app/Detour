@@ -570,6 +570,21 @@ instance only when yours is unreachable, and only if you leave "Fall back to
 public search" turned on; turn it off to keep search on your own hardware even
 when your instance is down.
 
+**Android backup copies your trips to Google Drive.** Detour opts in to
+Android's automatic backup, so if backup is on for your phone, your trips and
+their full GPS traces (which show where rides start and end — usually home and
+work), explored area, badges, saved places and routes go to your Google
+account's backup storage. Sign-in tokens, server credentials and recent
+searches are left out. There is no in-app switch; turn off backup for the phone,
+or for Detour where your phone allows it, to keep trips out of Google Drive.
+
+**A dashboard key in a URL is readable by whoever sees that URL.** A dashboard
+key ([Home Assistant](../server/homeassistant/README.md)) is read-only, but it
+reads your rides and full traces. The server accepts it as `?key=` because an
+iframe cannot send a header, and a query string lands in proxy and CDN logs,
+browser history and the dashboard's config. Send it as the `X-Api-Key` header
+wherever you can, and revoke a key that has been in a URL you no longer control.
+
 **Circles are the one feature where the server keeps a position.** Everything
 else is either never uploaded or uploaded as a record only you can read — a
 convoy's live feed is relayed between open sockets and never written down. A
