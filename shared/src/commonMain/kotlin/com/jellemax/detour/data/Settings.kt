@@ -332,10 +332,7 @@ object Settings {
         _avoidHighways.value = prefs.bool("avoid_highways", false)
         _avoidSmallRoads.value = prefs.bool("avoid_small_roads", false)
         _externalDisplayEnabled.value = prefs.bool("external_display_enabled", false)
-        _tripMode.value = TravelMode.of(prefs.string("trip_mode").takeIf { it.isNotEmpty() })
-        _loopByTime.value = prefs.bool("loop_by_time", false)
-        _loopMinutes.value = prefs.float("loop_minutes", LoopDuration.DEFAULT_MINUTES)
-            .coerceIn(LoopDuration.MIN_MINUTES, LoopDuration.MAX_MINUTES)
+        loadSpinPrefs()
         _shareFog.value = prefs.bool("share_fog", false)
         _perfTracing.value = prefs.bool(PERF_TRACING_KEY, false)
         _fogEnabled.value = prefs.bool("fog_enabled", true)
@@ -551,6 +548,15 @@ object Settings {
     fun setTripMode(value: TravelMode) {
         _tripMode.value = value
         prefs.put("trip_mode", value.name)
+    }
+
+    /** The spin sheet's persisted choices: the mode and how its loop is sized.
+     *  Out of [init] only so that function stays inside §8's size pin. */
+    private fun loadSpinPrefs() {
+        _tripMode.value = TravelMode.of(prefs.string("trip_mode").takeIf { it.isNotEmpty() })
+        _loopByTime.value = prefs.bool("loop_by_time", false)
+        _loopMinutes.value = prefs.float("loop_minutes", LoopDuration.DEFAULT_MINUTES)
+            .coerceIn(LoopDuration.MIN_MINUTES, LoopDuration.MAX_MINUTES)
     }
 
     fun setLoopByTime(value: Boolean) {

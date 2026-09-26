@@ -114,6 +114,26 @@ internal fun ResultCallout(
  *  glass card the home sheet uses, just taller — a drag-handle bar stands in
  *  for an actual drag gesture, tap it (or the chevron) to fold back to the
  *  home sheet. */
+/**
+ * Minutes a spin sizes its loop to, or null when the loop is sized by length —
+ * or [mode] spins no loop at all. MapScreen reads it for the spin and the reach
+ * circle; the sheet collects the same two settings itself to draw its toggle.
+ */
+@Composable
+internal fun loopMinutesSetting(mode: TravelMode): Float? {
+    val byTime by Settings.loopByTime.collectAsStateWithLifecycle()
+    val minutes by Settings.loopMinutes.collectAsStateWithLifecycle()
+    return minutes.takeIf { mode.roundTrip && byTime }
+}
+
+/**
+ * The loop length, in km, the reach circle is drawn from: the slider for a
+ * length-sized loop, and for a time-sized one the same first guess
+ * ([LoopDuration.guessMeters]) the spin asks the router for.
+ */
+internal fun loopLengthKm(timedMinutes: Float?, radiusKm: Float): Double =
+    timedMinutes?.let { LoopDuration.guessMeters(it) / 1000.0 } ?: radiusKm.toDouble()
+
 @Composable
 internal fun SpinSheet(
     mode: TravelMode,

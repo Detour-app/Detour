@@ -71,7 +71,6 @@ import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.FriendFog
 import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.LatLon
-import com.jellemax.detour.data.LoopDuration
 import com.jellemax.detour.data.NamedMemberFix
 import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.RiderId
@@ -139,7 +138,6 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import kotlin.math.abs
-import kotlin.math.exp
 
 /** How long a rider-focus request (#294) waits for a position before giving
  *  up. Circle fixes poll on the order of [CIRCLE_FIX_POLL_MS]; a convoy peer
@@ -176,10 +174,7 @@ fun MapScreen(
     val mode by Settings.tripMode.collectAsStateWithLifecycle()
     var radiusKm by rememberSaveable { mutableFloatStateOf(Settings.tripMode.value.defaultKm) }
     var minRadiusKm by rememberSaveable { mutableFloatStateOf(0f) }
-    val loopByTime by Settings.loopByTime.collectAsStateWithLifecycle()
-    val loopMinutes by Settings.loopMinutes.collectAsStateWithLifecycle()
-    // Non-null exactly when a spin should size its loop by riding time.
-    val timedLoopMinutes = loopMinutes.takeIf { mode.roundTrip && loopByTime }
+    val timedLoopMinutes = loopMinutesSetting(mode)
     // Seeded from SpinResultHolder so a spin result survives activity
     // recreation instead of resetting to defaults; see its declaration above.
     // One owner for the screen's own state. `remember`, so its lifetime is
@@ -611,10 +606,7 @@ fun MapScreen(
                 navigating = s.navigating,
                 hasDestination = s.destination != null,
                 roundTrip = mode.roundTrip,
-                // A time-sized loop has no slider length; its reach is drawn
-                // from the same first guess the spin asks the router for.
-                radiusKm = timedLoopMinutes?.let { LoopDuration.guessMeters(it) / 1000.0 }
-                    ?: radiusKm.toDouble(),
+                radiusKm = loopLengthKm(timedLoopMinutes, radiusKm),
             ),
             directionDeg = directionDeg?.toInt(),
             candidates = visibleCandidates.mapIndexed { i, c ->
