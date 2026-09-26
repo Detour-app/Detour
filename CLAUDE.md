@@ -9,7 +9,8 @@ Every issue filed via `gh issue create` gets labels at creation, not after:
   `p3-later`); otherwise `needs-triage`.
 
 Never leave an issue with zero labels or with a type but no priority/
-`needs-triage`.
+`needs-triage`. What each priority means, and the first-match-wins ladder for
+picking one, is `CONTRIBUTING.md`'s "Triage" section.
 
 ## Versioning
 
