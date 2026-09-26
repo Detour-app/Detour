@@ -27,6 +27,7 @@ object LoopDuration {
     /** Opening guess at a loop's average speed. Only sets the first request;
      *  the second is scaled off what the router actually reported. */
     private const val GUESS_KMH = 50.0
+    internal const val GUESS_METERS_PER_MS = GUESS_KMH / 3600.0
 
     /** How far off the target a loop's time may be and still count as "the
      *  half hour" asked for. */
@@ -35,8 +36,8 @@ object LoopDuration {
     /** Bounds on one rescale: a single wild estimate (a loop that hit a ferry,
      *  a server that shrank the request after an unroutable roll) must not
      *  swing the next request to a tenth or ten times the length. */
-    private const val MIN_SCALE = 0.4
-    private const val MAX_SCALE = 2.5
+    internal const val MIN_SCALE = 0.4
+    internal const val MAX_SCALE = 2.5
 
     fun targetMs(minutes: Float): Long = (minutes * 60_000.0).toLong()
 

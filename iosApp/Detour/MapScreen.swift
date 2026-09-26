@@ -640,7 +640,7 @@ final class CircleFixRiderIdModel: ObservableObject {
 @MainActor
 final class LoopSizeModel: ObservableObject {
     @Published var byTime = false
-    @Published var minutes: Float = 30
+    @Published var minutes: Float = LoopDuration.shared.DEFAULT_MINUTES
 
     private let byTimeWatcher = SettingsFlows.shared.loopByTime()
     private let minutesWatcher = SettingsFlows.shared.loopMinutes()

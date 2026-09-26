@@ -35,6 +35,9 @@ object RouteFill {
 
     const val FILL_NAME = "Auto fill"
 
+    /** An hour: the ride a route with a couple of fixed stops is usually built around. */
+    const val DEFAULT_MINUTES = 60f
+
     /** Below this a leg has no usable direction to bend away from. */
     private const val DEGENERATE_LEG_METERS = 300.0
     private const val MAX_ROUNDS = 3
@@ -42,9 +45,6 @@ object RouteFill {
     /** Road distance over straight-line distance, as a first guess only:
      *  the rounds after the first are scaled off what the router reported. */
     private const val ROAD_FACTOR = 1.3
-    private const val GUESS_METERS_PER_MS = 50.0 / 3600.0 // 50 km/h
-    private const val MIN_SCALE = 0.4
-    private const val MAX_SCALE = 2.5
 
     data class Filled(val stops: List<RouteStop>, val route: RouteResult)
 
@@ -169,7 +169,7 @@ object RouteFill {
     private fun metersPerMs(base: RouteResult?): Double {
         val d = base?.distanceMeters
         val t = base?.timeMs
-        return if (d != null && t != null && t > 0) d / t else GUESS_METERS_PER_MS
+        return if (d != null && t != null && t > 0) d / t else LoopDuration.GUESS_METERS_PER_MS
     }
 
     /**
@@ -215,8 +215,8 @@ object RouteFill {
             out.add(Filled(stops, result))
             if (LoopDuration.fits(result, minutes)) return out
             val gained = (result.timeMs ?: return out) - baseMs
-            extra *= if (gained <= 0) MAX_SCALE
-            else (spareMs.toDouble() / gained).coerceIn(MIN_SCALE, MAX_SCALE)
+            extra *= if (gained <= 0) LoopDuration.MAX_SCALE
+            else (spareMs.toDouble() / gained).coerceIn(LoopDuration.MIN_SCALE, LoopDuration.MAX_SCALE)
         }
         return out
     }
