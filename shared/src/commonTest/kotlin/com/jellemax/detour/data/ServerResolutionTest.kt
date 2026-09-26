@@ -566,4 +566,13 @@ class ServerResolutionTest {
         )
         assertTrue(RoutingServer.bakedDefaults().usable)
     }
+
+    @Test
+    fun saveRefusesAnAddressThatIsNotAnHttpUrlWithAHost() {
+        assertEquals(null, split().invalidAddress)
+        assertEquals(null, ServerConfig(url = " https://detour.example/ ", apiUrl = "").invalidAddress)
+        assertEquals("not a url", ServerConfig(url = "not a url").invalidAddress)
+        assertEquals("ftp://x.example", ServerConfig(url = "https://ok.example", routingUrl = "ftp://x.example").invalidAddress)
+        assertEquals("https://", ServerConfig(idpIssuer = "https://").invalidAddress)
+    }
 }

@@ -24,6 +24,13 @@ data class ServerConfig(
     /** Whether routing can be attempted — which is the only thing every caller
      *  of this ever meant by it. */
     val usable: Boolean get() = enabled && (routingUrl.isNotBlank() || url.isNotBlank())
+
+    /** The first filled-in address that is not `http(s)://` with a host, or null when every
+     *  one is — checked before Save, so `not a url` is refused instead of saved (#425). */
+    val invalidAddress: String?
+        get() = listOf(url, apiUrl, routingUrl, geocoderUrl, idpIssuer)
+            .map { it.trim() }
+            .firstOrNull { it.isNotEmpty() && Capabilities.hostOf(it) == null }
 }
 
 /** Which of [RoutingServer]'s precedence slots an address came from (#352). */

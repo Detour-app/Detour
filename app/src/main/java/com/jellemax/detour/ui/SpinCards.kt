@@ -215,7 +215,7 @@ internal fun SpinSheet(
                         fontWeight = FontWeight.Bold,
                     )
                 }
-                IconButton(onClick = onCollapse, modifier = Modifier.size(28.dp)) {
+                IconButton(onClick = onCollapse) {
                     Icon(Icons.Rounded.ExpandMore, contentDescription = "Collapse")
                 }
             }
