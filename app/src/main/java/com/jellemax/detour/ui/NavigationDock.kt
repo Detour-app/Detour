@@ -96,13 +96,13 @@ internal fun NavigationDock(
                     )
                 }
                 Row {
-                    IconButton(onClick = onSavePin, modifier = Modifier.size(28.dp)) {
+                    IconButton(onClick = onSavePin) {
                         Icon(
                             Icons.Outlined.Add,
                             contentDescription = "Save pin",
                         )
                     }
-                    IconButton(onClick = onClear, modifier = Modifier.size(28.dp)) {
+                    IconButton(onClick = onClear) {
                         Icon(
                             Icons.Rounded.Close,
                             contentDescription = "Clear destination",

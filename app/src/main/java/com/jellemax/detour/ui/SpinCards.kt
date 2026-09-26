@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Casino
@@ -141,7 +143,15 @@ internal fun SpinSheet(
         colors = glassCardColors(),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // Scrolls so a short viewport (landscape in a bar mount) still
+        // reaches Spin and Go; unscrolled, the capped height squeezed the
+        // sliders into each other and cut the buttons off (#421).
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             val density = LocalDensity.current
             // See HomeSheet.kt's DragHandle for why this reads the current
             // onCollapse through rememberUpdatedState rather than keying the
@@ -205,7 +215,7 @@ internal fun SpinSheet(
                         fontWeight = FontWeight.Bold,
                     )
                 }
-                IconButton(onClick = onCollapse, modifier = Modifier.size(28.dp)) {
+                IconButton(onClick = onCollapse) {
                     Icon(Icons.Rounded.ExpandMore, contentDescription = "Collapse")
                 }
             }
