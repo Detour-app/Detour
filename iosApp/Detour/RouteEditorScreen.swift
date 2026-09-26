@@ -27,6 +27,10 @@ struct RouteEditorScreen: View {
     @State private var routing = false
     @State private var routeError: String?
 
+    @State private var fillMinutes = Double(RouteFill.shared.DEFAULT_MINUTES)
+    @State private var filling = false
+    @State private var fillError: String?
+
     init(existing: SavedRoute?) {
         self.existing = existing
         _routeId = State(initialValue: existing?.id ?? nowMs())
@@ -83,6 +87,8 @@ struct RouteEditorScreen: View {
             Section {
                 routingStatus
             }
+
+            fillSection
         }
         .navigationTitle(existing == nil ? "New route" : "Edit route")
         .navigationBarTitleDisplayMode(.inline)
@@ -130,7 +136,90 @@ struct RouteEditorScreen: View {
         }
     }
 
+    /// Stretch the route to a riding time: the rider's stops stay, the
+    /// shared `RouteFill` inserts detours between them — the same engine the
+    /// Android editor calls.
+    private var fillSection: some View {
+        Section {
+            HStack {
+                Text("Riding time")
+                Spacer()
+                Text(formatDurationHistory(LoopDuration.shared.targetMs(minutes: Float(fillMinutes))))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            Slider(
+                value: $fillMinutes,
+                in: Double(LoopDuration.shared.MIN_MINUTES)...Double(LoopDuration.shared.MAX_MINUTES),
+                step: Double(LoopDuration.shared.STEP_MINUTES))
+            HStack {
+                Button {
+                    Task { await fill() }
+                } label: {
+                    if filling {
+                        ProgressView()
+                    } else {
+                        Text(hasFill ? "Fill again" : "Fill route")
+                    }
+                }
+                .disabled(stops.isEmpty || filling)
+                if hasFill {
+                    Spacer()
+                    Button("Remove fill", role: .destructive) {
+                        stops.removeAll { RouteFill.shared.isFill(stop: $0.stop) }
+                        fillError = nil
+                    }
+                    .disabled(filling)
+                }
+            }
+            // Two buttons in one List row: without this, a tap anywhere in the
+            // row fires both.
+            .buttonStyle(.borderless)
+            if let fillError {
+                Text(fillError).foregroundStyle(.red)
+            }
+        } header: {
+            Text("Fill to riding time")
+        } footer: {
+            Text("Your stops stay put; the rest of the time is filled with detours between them. "
+                 + "One stop fills a loop from it and back.")
+        }
+    }
+
+    private var hasFill: Bool {
+        stops.contains { RouteFill.shared.isFill(stop: $0.stop) }
+    }
+
     // MARK: Actions
+
+    private func fill() async {
+        filling = true
+        fillError = nil
+        // A fill takes a few round trips to the server; if the rider edits the
+        // stops meanwhile, their edit wins.
+        let key = routeKey
+        do {
+            let filled = try await RouteFill.shared.fillRouted(
+                config: RoutingServer.shared.load(),
+                stops: stops.map(\.stop),
+                minutes: Float(fillMinutes),
+                profile: mode.ghProfile,
+                avoidHighways: SettingsValues.shared.avoidHighways,
+                avoidSmallRoads: SettingsValues.shared.avoidSmallRoads
+            )
+            if routeKey == key {
+                stops = filled.stops.map { EditorStop(stop: $0) }
+            }
+        } catch {
+            // Kotlin/Native hands the thrown Kotlin object over under this key.
+            if let tooLong = (error as NSError).userInfo["KotlinException"] as? StopsTooLong {
+                fillError = "Your stops alone take \(formatDurationHistory(tooLong.stopsMs)) — pick a longer time"
+            } else {
+                fillError = "Could not fill the route: \(error.localizedDescription)"
+            }
+        }
+        filling = false
+    }
 
     private func appendStop(at coordinate: CLLocationCoordinate2D) {
         let stop = RouteStop(at: LatLon(lat: coordinate.latitude, lon: coordinate.longitude), name: "")

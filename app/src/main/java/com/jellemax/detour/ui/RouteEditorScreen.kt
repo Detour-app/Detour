@@ -38,6 +38,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,17 +55,20 @@ import com.google.android.gms.location.Priority
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.RouteFill
 import com.jellemax.detour.data.RouteStop
 import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.data.StopsTooLong
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.presentation.formatCoordinatePair
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.maplibre.android.maps.MapLibreMap
@@ -103,6 +107,9 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
     var routing by remember { mutableStateOf(false) }
     var routingError by remember { mutableStateOf<String?>(null) }
     var saveError by remember { mutableStateOf("") }
+    var filling by remember { mutableStateOf(false) }
+    var fillError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }
@@ -271,6 +278,38 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
 
     fun removeStop(index: Int) {
         stops = stops.toMutableList().apply { removeAt(index) }
+    }
+
+    /**
+     * Stretch the route to [minutes] of riding: the rider's own stops stay,
+     * [RouteFill] inserts the rest. The result lands in `stops` like any
+     * other edit, so the re-route effect above draws it and Save keeps it.
+     */
+    fun fill(minutes: Float) {
+        scope.launch {
+            filling = true
+            fillError = null
+            // A fill takes a few round trips to the server; if the rider has
+            // tapped in another stop or switched vehicle meanwhile, their edit
+            // wins - a fill routed for the old profile is not this route's.
+            val from = stops
+            val fromMode = mode
+            try {
+                val filled = withContext(Dispatchers.IO) {
+                    RouteFill.fillRouted(
+                        serverConfig, from, minutes, mode.ghProfile, avoidHighways, avoidSmallRoads)
+                }
+                if (stops == from && mode == fromMode) stops = filled.stops
+            } catch (e: StopsTooLong) {
+                fillError = "Your stops alone take ${formatDurationHistory(e.stopsMs)} — pick a longer time"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                fillError = "Could not fill the route: ${e.message}"
+            } finally {
+                filling = false
+            }
+        }
     }
 
     fun save() {
@@ -450,6 +489,23 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                             )
                         }
                     }
+                }
+                // Keyed: it sits after the stops, so an unkeyed item shifts index
+                // (and drops the rider's chosen minutes) whenever a fill adds or
+                // removes stops.
+                item(key = "fill") {
+                    RouteFillControls(
+                        canFill = RouteFill.mandatory(stops).isNotEmpty() && serverConfig.usable,
+                        filling = filling,
+                        error = fillError,
+                        onFill = { fill(it) },
+                        onClearFill = if (stops.none(RouteFill::isFill)) null else {
+                            {
+                                stops = RouteFill.mandatory(stops)
+                                fillError = null
+                            }
+                        },
+                    )
                 }
                 item {
                     Button(

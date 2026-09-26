@@ -33,8 +33,10 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -49,7 +51,9 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.LoopDuration
 import com.jellemax.detour.data.PoiKind
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.Settings
@@ -107,6 +111,26 @@ internal fun ResultCallout(
         }
     }
 }
+
+/**
+ * Minutes a spin sizes its loop to, or null when the loop is sized by length —
+ * or [mode] spins no loop at all. MapScreen reads it for the spin and the reach
+ * circle; the sheet collects the same two settings itself to draw its toggle.
+ */
+@Composable
+internal fun loopMinutesSetting(mode: TravelMode): Float? {
+    val byTime by Settings.loopByTime.collectAsStateWithLifecycle()
+    val minutes by Settings.loopMinutes.collectAsStateWithLifecycle()
+    return minutes.takeIf { mode.roundTrip && byTime }
+}
+
+/**
+ * The loop length, in km, the reach circle is drawn from: the slider for a
+ * length-sized loop, and for a time-sized one the same first guess
+ * ([LoopDuration.guessMeters]) the spin asks the router for.
+ */
+internal fun loopLengthKm(timedMinutes: Float?, radiusKm: Float): Double =
+    timedMinutes?.let { LoopDuration.guessMeters(it) / 1000.0 } ?: radiusKm.toDouble()
 
 /** The spin sheet: everything the home sheet's Spin chip expands into. Same
  *  glass card the home sheet uses, just taller — a drag-handle bar stands in
@@ -290,26 +314,67 @@ internal fun SpinSheet(
             // to this readout, so an empty roll is enough to reuse the mapper.
             val radiusState =
                 spinStateFrom(mode, radiusKm, emptyList(), Settings.decimalSeparatorChar())
+            // A loop can be sized by riding time instead ("half an hour for a
+            // test ride"). Read from Settings rather than hoisted: the choice
+            // outlives the screen, and MapBottomSlot is past §8.4's gate already.
+            val loopByTime by Settings.loopByTime.collectAsStateWithLifecycle()
+            val loopMinutes by Settings.loopMinutes.collectAsStateWithLifecycle()
+            // Held here while the thumb moves and written to Settings (and its
+            // prefs) once, on release, rather than on every drag frame. Cleared
+            // when the saved value arrives back, not on release: the flow
+            // lands a frame later, and clearing first would flash the old value.
+            var draggedMinutes by remember { mutableStateOf<Float?>(null) }
+            LaunchedEffect(loopMinutes) { draggedMinutes = null }
+            val shownMinutes = draggedMinutes ?: loopMinutes
+            val timed = mode.roundTrip && loopByTime
+            if (mode.roundTrip) {
+                ChoiceRow(
+                    options = listOf("Distance", "Time"),
+                    selectedIndex = if (loopByTime) 1 else 0,
+                    onSelect = { Settings.setLoopByTime(it == 1) },
+                    modifier = Modifier.semantics {
+                        contentDescription =
+                            "Size the loop by ${if (loopByTime) "time" else "distance"}"
+                    },
+                )
+            }
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    if (mode.roundTrip) "Trip length" else "Radius",
+                    when {
+                        timed -> "Trip time"
+                        mode.roundTrip -> "Trip length"
+                        else -> "Radius"
+                    },
                     style = MaterialTheme.typography.labelLarge,
                 )
                 Text(
-                    radiusState.radiusText,
+                    if (timed) formatDurationHistory(LoopDuration.targetMs(shownMinutes))
+                    else radiusState.radiusText,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                 )
             }
 
-            Slider(
-                value = radiusKm,
-                onValueChange = onRadiusChange,
-                valueRange = mode.minKm..mode.maxKm,
-            )
+            if (timed) {
+                Slider(
+                    value = shownMinutes,
+                    onValueChange = { draggedMinutes = it },
+                    onValueChangeFinished = { draggedMinutes?.let { Settings.setLoopMinutes(it) } },
+                    valueRange = LoopDuration.MIN_MINUTES..LoopDuration.MAX_MINUTES,
+                    // Whole 5-minute stops; `steps` counts the ones between the ends.
+                    steps = ((LoopDuration.MAX_MINUTES - LoopDuration.MIN_MINUTES) /
+                        LoopDuration.STEP_MINUTES).toInt() - 1,
+                )
+            } else {
+                Slider(
+                    value = radiusKm,
+                    onValueChange = onRadiusChange,
+                    valueRange = mode.minKm..mode.maxKm,
+                )
+            }
 
             if (!mode.roundTrip) {
                 Row(
@@ -355,7 +420,14 @@ internal fun SpinSheet(
             // were the pending one - and its Re-spin shares onSpin with the
             // button below, which toggles to Cancel while spinning. With the
             // gate, Re-spin only renders when onSpin still rolls.
-            val resultDistance = route?.distanceMeters?.let { formatDistanceKm(it) }
+            // A loop also says how long it rides — the number a time-sized
+            // spin was asked for, and worth knowing for a distance-sized one.
+            val resultDistance = route?.let { r ->
+                r.distanceMeters?.let { formatDistanceKm(it) }?.let { km ->
+                    val t = r.timeMs?.takeIf { mode.roundTrip && destinationName == null }
+                    if (t != null) "$km · ${formatDurationHistory(t)}" else km
+                }
+            }
             if (!spinning && (destinationName != null || resultDistance != null)) {
                 ResultCallout(
                     title = destinationName ?: "Loop found",
