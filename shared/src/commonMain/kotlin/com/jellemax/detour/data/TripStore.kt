@@ -20,6 +20,8 @@ data class Trip(
     /** Which vehicle this was. Trips saved before modes existed read as CAR. */
     val mode: TravelMode = TravelMode.CAR,
     val drivingStats: DrivingStats = DrivingStats(),
+    /** Where the peaks, hard events and stops above happened (#444). */
+    val moments: TripMoments = TripMoments(),
 ) {
     val durationMs: Long get() = endTimeMs - startTimeMs
     val avgSpeedMps: Double
@@ -157,6 +159,7 @@ object TripStore {
         put("destinationLon", t.destinationLon?.let { JsonPrimitive(it) } ?: JsonNull)
         put("mode", t.mode.name)
         put("drivingStats", encodeDrivingStats(t.drivingStats))
+        put("moments", encodeTripMoments(t.moments))
     }
 
     private fun encodeDrivingStats(d: DrivingStats): JsonObject = buildJsonObject {
@@ -258,6 +261,7 @@ object TripStore {
             else o.optDouble("destinationLon").takeIf { !it.isNaN() },
         mode = TravelMode.of(o.optString("mode")),
         drivingStats = decodeDrivingStats(o.optObject("drivingStats")),
+        moments = decodeTripMoments(o.optObject("moments")),
     )
 
     /** Raw stored JSON array, for server sync. */

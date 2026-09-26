@@ -81,10 +81,59 @@ class PersistedFormatTest {
         assertEquals(listOf(trip, tripNoDestination), TripStore.decodeAll(tripsV1))
     }
 
+    // V2 (#444): each trip gains "moments" — where its peaks, hard events and
+    // stops happened. V1 above still reads, every moment empty.
+    private val tripWithMoments = trip.copy(
+        moments = TripMoments(
+            topSpeed = TripPeak(LatLon(50.61, 5.02), 1_726_001_200_000L, 38.9),
+            maxLean = TripPeak(LatLon(50.42, 5.61), 1_726_002_000_000L, -41.2),
+            maxG = null,
+            events = listOf(
+                RidingEvent(RidingEventKind.HARD_BRAKE, LatLon(50.7, 4.8), 1_726_000_900_000L, -4.2),
+                RidingEvent(RidingEventKind.HARD_CORNER_LEAN, LatLon(50.42, 5.61), 1_726_001_999_000L, -41.2),
+            ),
+            stops = listOf(TripStop(LatLon(50.5, 5.3), 1_726_001_500_000L, 1_726_001_680_000L)),
+        ),
+    )
+
+    private val tripsV2 = """
+        [{"startTimeMs":1726000000000,"endTimeMs":1726003600000,"distanceMeters":84250.5,
+          "topSpeedMps":38.9,"maxLeanAngleDeg":41.2,"maxGForce":0.87,
+          "destinationLat":50.8503,"destinationLon":4.3517,"mode":"MOTO",
+          "drivingStats":{"hardBrakeCount":3,"hardAccelCount":2,"hardCornerCount":5,
+            "secondsOverLimit":120,"pctOverLimit":4.5,
+            "roadTypeMeters":{"MOTORWAY":40000.0,"ARTERIAL":30000.5,"LOCAL":14250.0},
+            "twistinessScore":0.63,"stopCount":4,"idleMs":180000,"obd2SpeedPct":91.5,
+            "maxRpm":8200.0,"maxThrottlePct":97.5,"pctWideOpenThrottle":6.5,"avgRpm":4100.0,
+            "fuelMilliliters":5200,"fuelSampledMeters":80000,"fuelEstimated":true},
+          "moments":{
+            "topSpeed":{"lat":50.61,"lon":5.02,"timeMs":1726001200000,"value":38.9},
+            "maxLean":{"lat":50.42,"lon":5.61,"timeMs":1726002000000,"value":-41.2},
+            "maxG":null,
+            "events":[
+              {"kind":"HARD_BRAKE","lat":50.7,"lon":4.8,"timeMs":1726000900000,"magnitude":-4.2},
+              {"kind":"HARD_CORNER_LEAN","lat":50.42,"lon":5.61,"timeMs":1726001999000,"magnitude":-41.2}],
+            "stops":[{"lat":50.5,"lon":5.3,"startMs":1726001500000,"endMs":1726001680000}]}},
+         {"startTimeMs":1726100000000,"endTimeMs":1726101800000,"distanceMeters":84250.5,
+          "topSpeedMps":38.9,"maxLeanAngleDeg":41.2,"maxGForce":0.87,
+          "destinationLat":null,"destinationLon":null,"mode":"CAR",
+          "drivingStats":{"hardBrakeCount":0,"hardAccelCount":0,"hardCornerCount":0,
+            "secondsOverLimit":0,"pctOverLimit":0.0,"roadTypeMeters":{},
+            "twistinessScore":0.0,"stopCount":0,"idleMs":0,"obd2SpeedPct":0.0,
+            "maxRpm":0.0,"maxThrottlePct":0.0,"pctWideOpenThrottle":0.0,"avgRpm":0.0,
+            "fuelMilliliters":0,"fuelSampledMeters":0,"fuelEstimated":false},
+          "moments":{"topSpeed":null,"maxLean":null,"maxG":null,"events":[],"stops":[]}}]
+    """
+
     @Test
-    fun tripsWriterMatchesV1() {
-        val written = listOf(trip, tripNoDestination).map { TripStore.encode(it) }
-        assertEquals(jsonArrayOf(tripsV1).toList(), written)
+    fun tripsV2Reads() {
+        assertEquals(listOf(tripWithMoments, tripNoDestination), TripStore.decodeAll(tripsV2))
+    }
+
+    @Test
+    fun tripsWriterMatchesV2() {
+        val written = listOf(tripWithMoments, tripNoDestination).map { TripStore.encode(it) }
+        assertEquals(jsonArrayOf(tripsV2).toList(), written)
     }
 
     // --- traces.jsonl (one line per recorded segment) ------------------------
@@ -194,12 +243,16 @@ class PersistedFormatTest {
 
     /** Every enum constant name that has been written to a file. Renaming one
      *  doesn't fail to parse: `TravelMode.of` falls back to CAR, an unknown
-     *  place kind to NONE, an unknown road class is dropped. */
+     *  place kind to NONE, an unknown road class or riding event is dropped. */
     @Test
     fun storedEnumNamesStillExist() {
         assertStillPresent(listOf("MOTO", "CAR"), TravelMode.entries.map { it.name })
         assertStillPresent(listOf("MOTORWAY", "ARTERIAL", "LOCAL"), HighwayClass.entries.map { it.name })
         assertStillPresent(listOf("HOME", "WORK", "FAVOURITE", "NONE"), SavedPlaceKind.entries.map { it.name })
+        assertStillPresent(
+            listOf("HARD_BRAKE", "HARD_ACCEL", "HARD_CORNER_LEAN", "HARD_CORNER_TURN"),
+            RidingEventKind.entries.map { it.name },
+        )
     }
 
     /** badges.json maps these ids to the time they were earned. An id is built

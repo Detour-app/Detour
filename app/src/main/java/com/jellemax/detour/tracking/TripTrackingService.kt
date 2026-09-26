@@ -39,7 +39,6 @@ import com.jellemax.detour.data.TripStore
 import com.jellemax.detour.drive.HardEventDetector
 import com.jellemax.detour.drive.RoadTypeTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
-import com.jellemax.detour.drive.StopDetector
 import com.jellemax.detour.drive.TripFixMath
 import com.jellemax.detour.obd2.Obd2Connection
 import com.jellemax.detour.obd2.ObdTelemetry
@@ -687,11 +686,9 @@ class TripTrackingService : Service() {
             if (abs(deg) < HardEventDetector.HARD_CORNER_LEAN_DEG) session.leanCorneringNow = false
             return
         }
-        session.maxLeanDeg = maxOf(session.maxLeanDeg, abs(deg))
+        // The max, its position and the lean-corner latch live on the session.
         motionSensors.notePeak(deg)
-        val (cornering, newEvent) = HardEventDetector.onLeanSample(session.leanCorneringNow, deg)
-        session.leanCorneringNow = cornering
-        if (newEvent) session.hardCornerCount++
+        session.recordLean(deg)
     }
 
     /**
@@ -712,7 +709,7 @@ class TripTrackingService : Service() {
                 session.currentG += G_EMA_ALPHA * (rawG - session.currentG)
                 // MAX_PLAUSIBLE_G still guards the recorded max even
                 // once a shock has been smoothed into currentG.
-                if (session.currentG <= MAX_PLAUSIBLE_G) session.maxG = maxOf(session.maxG, session.currentG)
+                if (session.currentG <= MAX_PLAUSIBLE_G) session.recordG(session.currentG)
             }
             // Peaks are folded in on every event above; publishing them at 5 Hz
             // keeps the trip card live without recomposing it 100x a second.
@@ -1396,17 +1393,15 @@ class TripTrackingService : Service() {
             if (fix.isReal) {
                 val speedResult =
                     HardEventDetector.onSpeedFix(session.speedEventState, fix.effectiveMps, fix.recordedFixMs)
-                session.speedEventState = speedResult.state
-                if (speedResult.hardBrake) session.hardBrakeCount++
-                if (speedResult.hardAccel) session.hardAccelCount++
+                // Counts the event and pins it where this fix was.
+                session.onSpeedFix(speedResult, fix.recordedFixMs)
             }
             // No speedIsReal guard needed: a fabricated 0.0 here just fails the
             // MIN_CORNER_SPEED_MPS gate harmlessly inside onHeadingFix.
             if (stats.mode == TravelMode.CAR && location.bearingDeg != null) {
                 val (nextHeadingState, cornerEvent) = HardEventDetector.onHeadingFix(
                     session.headingEventState, location.bearingDeg.toDouble(), fix.effectiveMps, location.timeMs)
-                session.headingEventState = nextHeadingState
-                if (cornerEvent) session.hardCornerCount++
+                session.onHeadingFix(nextHeadingState, cornerEvent)
             }
         }
         // Stops/speeding are meaningful for every mode, so no tracksGForce gate
@@ -1415,7 +1410,7 @@ class TripTrackingService : Service() {
         // than feeding the sentinel) lets the state's stale lastFixMs carry
         // forward, so the next real fix's own Δt naturally spans the gap.
         if (fix.isReal) {
-            session.stopState = StopDetector.onFix(session.stopState, fix.effectiveMps, fix.recordedFixMs)
+            session.onStopFix(fix.effectiveMps, fix.recordedFixMs)
         }
     }
 
@@ -1516,6 +1511,7 @@ class TripTrackingService : Service() {
         if (checkVehicleExit(speed, now)) return
 
         val fix = resolveSpeed(location, speed, stats)
+        session.onFix(LatLon(location.lat, location.lon), location.timeMs, fix.effectiveMps)
 
         foldEngineSummary(fix.obd, stats, hopMeters)
         detectHardEvents(location, stats, fix)
