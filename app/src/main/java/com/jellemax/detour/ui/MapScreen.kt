@@ -823,8 +823,9 @@ fun MapScreen(
         // drive.
         s.tappedRider = null
         s.pendingRiderFrame = null
-        if (stats == null) {
-            TripTrackingService.start(context, s.destination?.lat, s.destination?.lon)
+        fun beginGuidance(to: LatLon?) { // #422: no trip until there is a route to guide
+            if (stats == null) TripTrackingService.start(context, to?.lat, to?.lon)
+            s.navigating = true
         }
         s.error = null
         // A fresh session hears its first turn immediately, whatever the
@@ -834,15 +835,14 @@ fun MapScreen(
         announcer.routeChanged()
         // Which of the three cases this is lives in map/NavStart, with tests.
         when (val start = navStart(s.destination, s.route)) {
-            NavStart.UseExistingRoute -> s.navigating = true
-            NavStart.NoTurnData ->
-                s.error = "No turn data for this loop — spin again with the routing server reachable"
+            NavStart.UseExistingRoute -> beginGuidance(null)
+            NavStart.NoTurnData -> s.error = "No turn data for this loop — spin again with the routing server reachable"
             is NavStart.FetchTo -> {
                 s.rerouting = true
                 scope.launch {
                     try {
                         s.route = fetchNavRoute(serverConfig, loc, start.destination, mode)
-                        s.navigating = true
+                        beginGuidance(start.destination)
                     } catch (e: Exception) {
                         s.error = "Navigation failed: ${e.message}"
                     } finally {
