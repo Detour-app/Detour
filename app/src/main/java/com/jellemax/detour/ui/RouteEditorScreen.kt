@@ -290,14 +290,16 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
             filling = true
             fillError = null
             // A fill takes a few round trips to the server; if the rider has
-            // tapped in another stop meanwhile, their edit wins.
+            // tapped in another stop or switched vehicle meanwhile, their edit
+            // wins - a fill routed for the old profile is not this route's.
             val from = stops
+            val fromMode = mode
             try {
                 val filled = withContext(Dispatchers.IO) {
                     RouteFill.fillRouted(
                         serverConfig, from, minutes, mode.ghProfile, avoidHighways, avoidSmallRoads)
                 }
-                if (stops == from) stops = filled.stops
+                if (stops == from && mode == fromMode) stops = filled.stops
             } catch (e: StopsTooLong) {
                 fillError = "Your stops alone take ${formatDurationHistory(e.stopsMs)} — pick a longer time"
             } catch (e: CancellationException) {

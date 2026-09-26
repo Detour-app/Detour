@@ -28,12 +28,16 @@ data class LoopRequest(
  * A round-trip spin, start to finish: roll a few server loops and keep the
  * curviest (or, sized by time, the curviest that fits the time, re-rolling
  * once at a calibrated length), and fall back to [RoundTripPlanner]'s
- * Overpass-sampled loop when the server gives nothing.
+ * backend-sampled loop when the server gives nothing.
  *
  * Lifted out of the Android app's `map/SpinRun.kt` so iOS spins the same loop
  * through the same rules instead of a Swift copy of them. Owns no dispatcher —
  * commonMain has none — so the Android caller wraps it in `Dispatchers.IO` and
  * Swift calls it as `async throws`.
+ *
+ * The router and the fallback are functions handed to an internal overload of
+ * [spin], so the choosing rules run in `commonTest` against fakes; the public
+ * [spin] is the one that wires in [RoutingClient] and [RoundTripPlanner].
  */
 object LoopSpin {
 
@@ -49,7 +53,7 @@ object LoopSpin {
     private const val ROLLS = 3
 
     /**
-     * A spun loop. [warning] is non-null when the loop is the Overpass-sampled
+     * A spun loop. [warning] is non-null when the loop is the backend-sampled
      * fallback and the routing server had already failed — the rider gets a
      * usable loop *and* the reason the better one did not happen, which a bare
      * success or a bare error would each lose half of.
@@ -63,30 +67,55 @@ object LoopSpin {
      * leaving, not a failure to report.
      */
     @Throws(Exception::class)
-    suspend fun spin(config: ServerConfig, request: LoopRequest): Result {
+    suspend fun spin(config: ServerConfig, request: LoopRequest): Result = spin(
+        request,
+        serverUsable = config.usable,
+        roll = { meters ->
+            RoutingClient.roundTrip(
+                config, request.from, meters, Random.nextLong(),
+                headingDeg = request.headingDeg,
+                avoidSmallRoads = request.avoidSmallRoads,
+            )
+        },
+        fallback = { meters ->
+            RoundTripPlanner.plan(
+                request.from, meters / 4.0, request.highwayRegex,
+                bearingDeg = request.headingDeg,
+            )
+        },
+    )
+
+    /**
+     * [spin] with its I/O passed in: [roll] asks the server for one loop of the
+     * given length (its own seed each call), [fallback] samples waypoints for a
+     * loop of the given length when the server gives nothing.
+     */
+    internal suspend fun spin(
+        request: LoopRequest,
+        serverUsable: Boolean,
+        roll: suspend (lengthMeters: Double) -> RouteResult,
+        fallback: suspend (lengthMeters: Double) -> List<LatLon>,
+    ): Result {
         val minutes = request.minutes
         val tripMeters = minutes?.let { LoopDuration.guessMeters(it) } ?: request.lengthMeters
         var serverError: String? = null
-        if (config.usable) {
+        if (serverUsable) {
             val report: (String) -> Unit = { serverError = it }
-            val loops = rollLoops(config, request, tripMeters, report)
+            val loops = rollLoops(tripMeters, roll, report)
             val best = when {
                 loops == null -> null
                 minutes == null -> loops.maxBy { it.second }.first
-                else -> pickTimed(config, request, minutes, loops, report)
+                else -> pickTimed(minutes, loops, roll, report)
             }
             if (best != null) return Result(best, warning = null)
         }
 
         val wps = try {
-            RoundTripPlanner.plan(
-                request.from, tripMeters / 4.0, request.highwayRegex,
-                bearingDeg = request.headingDeg,
-            )
+            fallback(tripMeters)
         } catch (e: TimeoutCancellationException) {
             // Caught here, just outside the planner's own withTimeout, so it is
             // the fallback's timeout and not the rider cancelling the spin.
-            throw IOException(spinTimeoutMessage(serverError, roundTrip = true, serverUsable = config.usable))
+            throw IOException(spinTimeoutMessage(serverError, roundTrip = true, serverUsable = serverUsable))
         }
         val approximate = RouteResult(
             polyline = listOf(request.from) + wps + request.from,
@@ -102,9 +131,8 @@ object LoopSpin {
      * back, having told [onServerError] why.
      */
     private suspend fun rollLoops(
-        config: ServerConfig,
-        request: LoopRequest,
         tripMeters: Double,
+        roll: suspend (Double) -> RouteResult,
         onServerError: (String) -> Unit,
     ): List<Pair<RouteResult, Double>>? {
         val rolls = try {
@@ -112,11 +140,7 @@ object LoopSpin {
                 (1..ROLLS).map {
                     async {
                         runCatching {
-                            val loop = RoutingClient.roundTrip(
-                                config, request.from, tripMeters, Random.nextLong(),
-                                headingDeg = request.headingDeg,
-                                avoidSmallRoads = request.avoidSmallRoads,
-                            )
+                            val loop = roll(tripMeters)
                             loop to Curviness.routeScore(loop.polyline, loop.instructions)
                         }
                     }
@@ -152,10 +176,9 @@ object LoopSpin {
      * loops.
      */
     private suspend fun pickTimed(
-        config: ServerConfig,
-        request: LoopRequest,
         minutes: Float,
         firstRolls: List<Pair<RouteResult, Double>>,
+        roll: suspend (Double) -> RouteResult,
         onServerError: (String) -> Unit,
     ): RouteResult? {
         val first = LoopDuration.pick(firstRolls, minutes)
@@ -163,7 +186,7 @@ object LoopSpin {
         val retryMeters = LoopDuration.rescaledMeters(
             minutes, LoopDuration.guessMeters(minutes), firstRolls.map { it.first },
         ) ?: return first?.first
-        val retry = rollLoops(config, request, retryMeters, onServerError).orEmpty()
+        val retry = rollLoops(retryMeters, roll, onServerError).orEmpty()
         return LoopDuration.pick(firstRolls + retry, minutes)?.first
     }
 }

@@ -27,7 +27,7 @@ struct RouteEditorScreen: View {
     @State private var routing = false
     @State private var routeError: String?
 
-    @State private var fillMinutes: Double = 60
+    @State private var fillMinutes = Double(RouteFill.shared.DEFAULT_MINUTES)
     @State private var filling = false
     @State private var fillError: String?
 

@@ -158,7 +158,7 @@ final class SpinModel: ObservableObject {
     }
 
     /// One round trip from `center`, through the shared `LoopSpin` — the same
-    /// rolls, curviest/timed pick and Overpass fallback the Android spin runs,
+    /// rolls, curviest/timed pick and backend fallback the Android spin runs,
     /// so the two cannot drift. Its failures arrive as a sentence already.
     private func spinLoop(from center: LatLon, mode: TravelMode, loopMinutes: Float?) async {
         do {

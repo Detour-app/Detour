@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.data.LoopDuration
+import com.jellemax.detour.data.RouteFill
 
 /**
  * The route editor's "fill to a riding time" row: a minutes slider and the
@@ -39,7 +40,7 @@ internal fun RouteFillControls(
     onClearFill: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    var minutes by remember { mutableFloatStateOf(DEFAULT_FILL_MINUTES) }
+    var minutes by remember { mutableFloatStateOf(RouteFill.DEFAULT_MINUTES) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Fill to riding time", style = MaterialTheme.typography.labelLarge)
@@ -85,6 +86,3 @@ internal fun RouteFillControls(
         }
     }
 }
-
-/** An hour: the ride a route with a couple of fixed stops is usually built around. */
-private const val DEFAULT_FILL_MINUTES = 60f

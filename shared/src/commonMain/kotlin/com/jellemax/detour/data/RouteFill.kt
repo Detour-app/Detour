@@ -3,6 +3,7 @@ package com.jellemax.detour.data
 import kotlin.math.PI
 import kotlin.math.sqrt
 import kotlin.random.Random
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -35,6 +36,10 @@ object RouteFill {
 
     const val FILL_NAME = "Auto fill"
 
+    /** The fill slider's starting point on both apps: an hour, the ride a
+     *  route with a couple of fixed stops is usually built around. */
+    const val DEFAULT_MINUTES = 60f
+
     /** Below this a leg has no usable direction to bend away from. */
     private const val DEGENERATE_LEG_METERS = 300.0
     private const val MAX_ROUNDS = 3
@@ -42,9 +47,6 @@ object RouteFill {
     /** Road distance over straight-line distance, as a first guess only:
      *  the rounds after the first are scaled off what the router reported. */
     private const val ROAD_FACTOR = 1.3
-    private const val GUESS_METERS_PER_MS = 50.0 / 3600.0 // 50 km/h
-    private const val MIN_SCALE = 0.4
-    private const val MAX_SCALE = 2.5
 
     data class Filled(val stops: List<RouteStop>, val route: RouteResult)
 
@@ -157,11 +159,12 @@ object RouteFill {
     }
 
     /** The rider's stops without any earlier fill; a lone stop becomes a loop
-     *  from and back to it. */
+     *  from and back to it. The closing copy is itself fill, so *Remove fill*
+     *  gives back the one stop the rider placed rather than `[A, A]`. */
     private fun ownStops(stops: List<RouteStop>): List<RouteStop> {
         val own = mandatory(stops)
         if (own.isEmpty()) throw IOException("Add a stop to fill a route from")
-        return if (own.size == 1) own + own else own
+        return if (own.size == 1) own + own[0].copy(name = FILL_NAME) else own
     }
 
     /** The base route's own average speed, or the 50 km/h guess when there is
@@ -169,7 +172,7 @@ object RouteFill {
     private fun metersPerMs(base: RouteResult?): Double {
         val d = base?.distanceMeters
         val t = base?.timeMs
-        return if (d != null && t != null && t > 0) d / t else GUESS_METERS_PER_MS
+        return if (d != null && t != null && t > 0) d / t else LoopDuration.GUESS_METERS_PER_MS
     }
 
     /**
@@ -209,14 +212,18 @@ object RouteFill {
             val stops = insertFill(own, extra, layout)
             val result = try {
                 route(stops.map { it.at })
-            } catch (e: IOException) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Any failure, not only I/O: an escaping parse error would
+                // cancel the sibling layouts through their coroutineScope.
                 return out
             }
             out.add(Filled(stops, result))
             if (LoopDuration.fits(result, minutes)) return out
             val gained = (result.timeMs ?: return out) - baseMs
-            extra *= if (gained <= 0) MAX_SCALE
-            else (spareMs.toDouble() / gained).coerceIn(MIN_SCALE, MAX_SCALE)
+            extra *= if (gained <= 0) LoopDuration.MAX_SCALE
+            else (spareMs.toDouble() / gained).coerceIn(LoopDuration.MIN_SCALE, LoopDuration.MAX_SCALE)
         }
         return out
     }

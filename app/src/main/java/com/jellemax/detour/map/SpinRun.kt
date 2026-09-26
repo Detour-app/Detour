@@ -74,7 +74,7 @@ suspend fun runSpin(
         // Bias destinations toward territory the fog has not uncovered.
         val explored = withContext(Dispatchers.IO) { ExploredArea.load() }
         if (params.mode.roundTrip) {
-            // The loop itself - rolls, curviest/timed pick, Overpass fallback,
+            // The loop itself - rolls, curviest/timed pick, backend fallback,
             // its own timeout sentence - is shared LoopSpin, the same code iOS
             // spins; commonMain has no dispatcher, so IO is chosen here.
             val loop = withContext(Dispatchers.IO) {
