@@ -3,6 +3,7 @@ package com.jellemax.detour.map
 import com.jellemax.detour.data.Curviness
 import com.jellemax.detour.data.ExploredArea
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.LoopDuration
 import com.jellemax.detour.data.PoiKind
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
@@ -46,6 +47,9 @@ data class SpinParams(
     val minRadiusKm: Float,
     val poiKind: PoiKind,
     val directionDeg: Float?,
+    /** Round trips only: size the loop to this many minutes of riding instead
+     *  of [radiusKm] of length. Null means by length. */
+    val loopMinutes: Float? = null,
 )
 
 /**
@@ -137,7 +141,8 @@ suspend fun runSpin(
 }
 
 /**
- * Rolls [CURVY_CANDIDATES] independent round trips and keeps the curviest.
+ * Rolls [CURVY_CANDIDATES] independent round trips, each paired with its
+ * curviness score; which one to ride is the caller's choice.
  *
  * Split out of [runSpin] so the loop branch does not nest four levels deep
  * inside it, and so the two ways a roll can end — every attempt failed, or the
@@ -149,13 +154,13 @@ suspend fun runSpin(
  * server did. A [CancellationException] propagates: a cancelled spin is the
  * rider leaving, not a failure to report.
  */
-private suspend fun rollBestLoop(
+private suspend fun rollLoops(
     serverConfig: ServerConfig,
     from: LatLon,
     tripMeters: Double,
     params: SpinParams,
     onServerError: (String) -> Unit,
-): RouteResult? {
+): List<Pair<RouteResult, Double>>? {
     val rolls = try {
         coroutineScope {
             (1..CURVY_CANDIDATES).map {
@@ -181,7 +186,7 @@ private suspend fun rollBestLoop(
     }
 
     val loops = rolls.mapNotNull { it.getOrNull() }
-    if (loops.isNotEmpty()) return loops.maxBy { it.second }.first
+    if (loops.isNotEmpty()) return loops
 
     // Every roll failed. One of them cancelling is the rider, not the server.
     val first = rolls.firstNotNullOfOrNull { it.exceptionOrNull() }
@@ -205,13 +210,22 @@ private suspend fun runLoopSpin(
     params: SpinParams,
     onServerError: (String) -> Unit,
 ): SpinOutcome {
-    val tripMeters = params.radiusKm * 1000.0
+    val minutes = params.loopMinutes
+    val tripMeters = minutes?.let { LoopDuration.guessMeters(it) } ?: (params.radiusKm * 1000.0)
     var serverError: String? = null
     var result: RouteResult? = null
     if (serverConfig.usable) {
-        result = rollBestLoop(serverConfig, from, tripMeters, params) {
+        val reportError: (String) -> Unit = {
             serverError = it
             onServerError(it)
+        }
+        val loops = rollLoops(serverConfig, from, tripMeters, params, reportError)
+        result = if (minutes == null) {
+            loops?.maxBy { it.second }?.first
+        } else if (loops != null) {
+            pickTimedLoop(serverConfig, from, tripMeters, minutes, loops, params, reportError)
+        } else {
+            null
         }
     }
     if (result != null) return SpinOutcome.Loop(result, warning = null)
@@ -227,4 +241,32 @@ private suspend fun runLoopSpin(
     )
     val warning = serverError?.let { "Server route failed ($it) — approximate loop instead" }
     return SpinOutcome.Loop(approximate, warning)
+}
+
+/**
+ * The time-sized half of [runLoopSpin]: keep a loop from [firstRolls] if one
+ * lands near [minutes], otherwise re-roll once at the length the first rolls'
+ * reported times suggest, and take the best of both rounds.
+ *
+ * One retry, not a search: the rescale is proportional to the router's own
+ * estimate, so a second round nearly always fits, and a third would put the
+ * rider's wait past the spin timeout for a few minutes' difference. The
+ * second round failing is not an error — the first round's loops are still
+ * loops.
+ */
+private suspend fun pickTimedLoop(
+    serverConfig: ServerConfig,
+    from: LatLon,
+    requestedMeters: Double,
+    minutes: Float,
+    firstRolls: List<Pair<RouteResult, Double>>,
+    params: SpinParams,
+    onServerError: (String) -> Unit,
+): RouteResult? {
+    val first = LoopDuration.pick(firstRolls, minutes)
+    if (first != null && LoopDuration.fits(first.first, minutes)) return first.first
+    val retryMeters = LoopDuration.rescaledMeters(minutes, requestedMeters, firstRolls.map { it.first })
+        ?: return first?.first
+    val retry = rollLoops(serverConfig, from, retryMeters, params, onServerError).orEmpty()
+    return LoopDuration.pick(firstRolls + retry, minutes)?.first
 }

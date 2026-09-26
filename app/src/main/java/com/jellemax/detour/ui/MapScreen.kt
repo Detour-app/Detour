@@ -71,6 +71,7 @@ import com.jellemax.detour.data.ConvoysStore
 import com.jellemax.detour.data.FriendFog
 import com.jellemax.detour.data.Groups
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.LoopDuration
 import com.jellemax.detour.data.NamedMemberFix
 import com.jellemax.detour.data.NavAnnouncer
 import com.jellemax.detour.data.RiderId
@@ -175,6 +176,10 @@ fun MapScreen(
     val mode by Settings.tripMode.collectAsStateWithLifecycle()
     var radiusKm by rememberSaveable { mutableFloatStateOf(Settings.tripMode.value.defaultKm) }
     var minRadiusKm by rememberSaveable { mutableFloatStateOf(0f) }
+    val loopByTime by Settings.loopByTime.collectAsStateWithLifecycle()
+    val loopMinutes by Settings.loopMinutes.collectAsStateWithLifecycle()
+    // Non-null exactly when a spin should size its loop by riding time.
+    val timedLoopMinutes = loopMinutes.takeIf { mode.roundTrip && loopByTime }
     // Seeded from SpinResultHolder so a spin result survives activity
     // recreation instead of resetting to defaults; see its declaration above.
     // One owner for the screen's own state. `remember`, so its lifetime is
@@ -595,7 +600,7 @@ fun MapScreen(
     // Push overlay state to the map whenever anything drawable changes. The
     // layers are created once per style; here we only swap their GeoJSON data.
     LaunchedEffect(mapOverlays, s.myLocation, s.destination, s.route, radiusKm, mode,
-        directionDeg, s.navigating, visibleCandidates) {
+        directionDeg, s.navigating, visibleCandidates, timedLoopMinutes) {
         val overlays = mapOverlays ?: return@LaunchedEffect
         overlays.render(
             myLocation = s.myLocation,
@@ -606,7 +611,10 @@ fun MapScreen(
                 navigating = s.navigating,
                 hasDestination = s.destination != null,
                 roundTrip = mode.roundTrip,
-                radiusKm = radiusKm.toDouble(),
+                // A time-sized loop has no slider length; its reach is drawn
+                // from the same first guess the spin asks the router for.
+                radiusKm = timedLoopMinutes?.let { LoopDuration.guessMeters(it) / 1000.0 }
+                    ?: radiusKm.toDouble(),
             ),
             directionDeg = directionDeg?.toInt(),
             candidates = visibleCandidates.mapIndexed { i, c ->
@@ -976,7 +984,7 @@ fun MapScreen(
                 // the framing, and which var it lands in.
                 val outcome = runSpin(
                     serverConfig, loc,
-                    SpinParams(mode, radiusKm, minRadiusKm, poiKind, directionDeg),
+                    SpinParams(mode, radiusKm, minRadiusKm, poiKind, directionDeg, timedLoopMinutes),
                 )
                 when (outcome) {
                     is SpinOutcome.Loop -> {

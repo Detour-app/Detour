@@ -125,6 +125,16 @@ object Settings {
     private val _tripMode = MutableStateFlow(TravelMode.CAR)
     val tripMode: StateFlow<TravelMode> = _tripMode
 
+    /** Round trips sized by riding time ([loopMinutes]) instead of by length.
+     *  Persisted, like the mode: a rider who tests by the half hour does so
+     *  every time, and the spin sheet reads it straight from here rather than
+     *  through MapBottomSlot's already-46 parameters (§8.4). */
+    private val _loopByTime = MutableStateFlow(false)
+    val loopByTime: StateFlow<Boolean> = _loopByTime
+
+    private val _loopMinutes = MutableStateFlow(LoopDuration.DEFAULT_MINUTES)
+    val loopMinutes: StateFlow<Float> = _loopMinutes
+
     /** A Bluetooth device the user assigned to a vehicle. [name] is kept so the
      *  Settings list can show it even when the device isn't currently reachable.
      *  [obd2Address] is a *separate* paired device — the OBD2 dongle plugged into
@@ -323,6 +333,9 @@ object Settings {
         _avoidSmallRoads.value = prefs.bool("avoid_small_roads", false)
         _externalDisplayEnabled.value = prefs.bool("external_display_enabled", false)
         _tripMode.value = TravelMode.of(prefs.string("trip_mode").takeIf { it.isNotEmpty() })
+        _loopByTime.value = prefs.bool("loop_by_time", false)
+        _loopMinutes.value = prefs.float("loop_minutes", LoopDuration.DEFAULT_MINUTES)
+            .coerceIn(LoopDuration.MIN_MINUTES, LoopDuration.MAX_MINUTES)
         _shareFog.value = prefs.bool("share_fog", false)
         _perfTracing.value = prefs.bool(PERF_TRACING_KEY, false)
         _fogEnabled.value = prefs.bool("fog_enabled", true)
@@ -538,6 +551,16 @@ object Settings {
     fun setTripMode(value: TravelMode) {
         _tripMode.value = value
         prefs.put("trip_mode", value.name)
+    }
+
+    fun setLoopByTime(value: Boolean) {
+        _loopByTime.value = value
+        prefs.put("loop_by_time", value)
+    }
+
+    fun setLoopMinutes(value: Float) {
+        _loopMinutes.value = value
+        prefs.put("loop_minutes", value)
     }
 
     fun setShareFog(value: Boolean) {

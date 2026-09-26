@@ -49,7 +49,9 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.LoopDuration
 import com.jellemax.detour.data.PoiKind
 import com.jellemax.detour.data.RouteResult
 import com.jellemax.detour.data.Settings
@@ -290,26 +292,59 @@ internal fun SpinSheet(
             // to this readout, so an empty roll is enough to reuse the mapper.
             val radiusState =
                 spinStateFrom(mode, radiusKm, emptyList(), Settings.decimalSeparatorChar())
+            // A loop can be sized by riding time instead ("half an hour for a
+            // test ride"). Read from Settings rather than hoisted: the choice
+            // outlives the screen, and MapBottomSlot is past §8.4's gate already.
+            val loopByTime by Settings.loopByTime.collectAsStateWithLifecycle()
+            val loopMinutes by Settings.loopMinutes.collectAsStateWithLifecycle()
+            val timed = mode.roundTrip && loopByTime
+            if (mode.roundTrip) {
+                ChoiceRow(
+                    options = listOf("Distance", "Time"),
+                    selectedIndex = if (loopByTime) 1 else 0,
+                    onSelect = { Settings.setLoopByTime(it == 1) },
+                    modifier = Modifier.semantics {
+                        contentDescription =
+                            "Size the loop by ${if (loopByTime) "time" else "distance"}"
+                    },
+                )
+            }
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    if (mode.roundTrip) "Trip length" else "Radius",
+                    when {
+                        timed -> "Trip time"
+                        mode.roundTrip -> "Trip length"
+                        else -> "Radius"
+                    },
                     style = MaterialTheme.typography.labelLarge,
                 )
                 Text(
-                    radiusState.radiusText,
+                    if (timed) formatDurationHistory(LoopDuration.targetMs(loopMinutes))
+                    else radiusState.radiusText,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                 )
             }
 
-            Slider(
-                value = radiusKm,
-                onValueChange = onRadiusChange,
-                valueRange = mode.minKm..mode.maxKm,
-            )
+            if (timed) {
+                Slider(
+                    value = loopMinutes,
+                    onValueChange = { Settings.setLoopMinutes(it) },
+                    valueRange = LoopDuration.MIN_MINUTES..LoopDuration.MAX_MINUTES,
+                    // Whole 5-minute stops; `steps` counts the ones between the ends.
+                    steps = ((LoopDuration.MAX_MINUTES - LoopDuration.MIN_MINUTES) /
+                        LoopDuration.STEP_MINUTES).toInt() - 1,
+                )
+            } else {
+                Slider(
+                    value = radiusKm,
+                    onValueChange = onRadiusChange,
+                    valueRange = mode.minKm..mode.maxKm,
+                )
+            }
 
             if (!mode.roundTrip) {
                 Row(
@@ -355,7 +390,14 @@ internal fun SpinSheet(
             // were the pending one - and its Re-spin shares onSpin with the
             // button below, which toggles to Cancel while spinning. With the
             // gate, Re-spin only renders when onSpin still rolls.
-            val resultDistance = route?.distanceMeters?.let { formatDistanceKm(it) }
+            // A loop also says how long it rides — the number a time-sized
+            // spin was asked for, and worth knowing for a distance-sized one.
+            val resultDistance = route?.let { r ->
+                r.distanceMeters?.let { formatDistanceKm(it) }?.let { km ->
+                    val t = r.timeMs?.takeIf { mode.roundTrip && destinationName == null }
+                    if (t != null) "$km · ${formatDurationHistory(t)}" else km
+                }
+            }
             if (!spinning && (destinationName != null || resultDistance != null)) {
                 ResultCallout(
                     title = destinationName ?: "Loop found",
