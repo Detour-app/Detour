@@ -103,7 +103,7 @@ class ArchitectureTest {
         val pinned = mapOf(
             "app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt" to 1806,
             "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1431,
-            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1246,
+            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1240,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1211,
             "app/src/main/java/com/jellemax/detour/car/CarMapRenderer.kt" to 1006,
         )

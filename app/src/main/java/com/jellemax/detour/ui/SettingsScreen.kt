@@ -981,17 +981,11 @@ private fun VehicleSection() {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        IconButton(
-                            onClick = { renaming = d.address },
-                            modifier = Modifier.size(28.dp),
-                        ) {
+                        IconButton(onClick = { renaming = d.address }) {
                             Icon(Icons.Outlined.Edit, contentDescription = "Rename $display",
                                 Modifier.size(18.dp))
                         }
-                        IconButton(
-                            onClick = { removing = d.address },
-                            modifier = Modifier.size(28.dp),
-                        ) {
+                        IconButton(onClick = { removing = d.address }) {
                             Icon(Icons.Outlined.Close, contentDescription = "Remove $display",
                                 Modifier.size(18.dp))
                         }

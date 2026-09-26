@@ -416,7 +416,7 @@ private fun TripCard(
                     )
                 }
                 Box {
-                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(28.dp)) {
+                    IconButton(onClick = { menuOpen = true }) {
                         Icon(Icons.Outlined.MoreVert, contentDescription = "Trip options",
                             Modifier.size(18.dp))
                     }
