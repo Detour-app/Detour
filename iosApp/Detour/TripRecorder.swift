@@ -214,7 +214,10 @@ final class TripRecorder: NSObject, ObservableObject {
                 fuelMilliliters: 0,
                 fuelSampledMeters: 0,
                 fuelEstimated: false
-            )
+            ),
+            // Where peaks, hard events and stops happened (#444) is recorded on
+            // Android only; empty here, same as a trip saved before it existed.
+            moments: TripMoments(topSpeed: nil, maxLean: nil, maxG: nil, events: [], stops: [])
         )
         TripStore.shared.save(trip: trip)
 

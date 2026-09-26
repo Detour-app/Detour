@@ -1,6 +1,7 @@
 package com.jellemax.detour.drive
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -128,5 +129,24 @@ class HardEventDetectorTest {
         assertFalse(cornering3) // upright again
         val (_, fired4) = HardEventDetector.onLeanSample(cornering3, 42.0)
         assertTrue(fired4) // a second, distinct corner
+    }
+
+    @Test
+    fun aHardBrakeCarriesTheDecelerationItWasJudgedOn() {
+        // The recorded event's magnitude (#444) — the same Δv/Δt that fired it.
+        val state = HardEventDetector.onSpeedFix(HardEventDetector.SpeedState(), 20.0, t0).state
+        val result = HardEventDetector.onSpeedFix(state, 15.0, t0 + 1000)
+        assertEquals(-5.0, result.accelMps2, absoluteTolerance = 1e-9)
+    }
+
+    @Test
+    fun theHeadingRateSurvivesAnUnmeasurableFixLikeTheLatchDoes() {
+        var state = HardEventDetector.onHeadingFix(HardEventDetector.HeadingState(), 0.0, 10.0, t0).first
+        state = HardEventDetector.onHeadingFix(state, 40.0, 10.0, t0 + 1000).first
+        assertEquals(40.0, state.rateDegPerSec, absoluteTolerance = 1e-9)
+        // Below MIN_CORNER_SPEED_MPS: nothing measured, so nothing to overwrite
+        // the rate the corner is being deepened with.
+        state = HardEventDetector.onHeadingFix(state, 45.0, 2.0, t0 + 2000).first
+        assertEquals(40.0, state.rateDegPerSec, absoluteTolerance = 1e-9)
     }
 }

@@ -189,6 +189,13 @@ Two readers, and picking the wrong one is a common error:
   decode (`:99-100`), so **`0.0` is indistinguishable from "this build/vehicle did not record
   it"**. Do not report a 0.0 lean as a flat ride.
 - `mode` defaults to `CAR`: *"Trips saved before modes existed read as CAR"* (`:20`).
+- **`moments`** (`TripMoments.kt`, #444) pins where the top speed, deepest lean and max g were
+  set, and each hard brake/accel/corner and mid-trip stop, recorded live from the full-rate
+  stream — the only place these positions exist, since the peak fix is usually not in the
+  decimated trace. Empty for trips saved before it and for iOS trips. Lean and g pins use the
+  latest fix's position (up to one fix interval behind); events and stops are capped per trip
+  (`MomentRecorder.MAX_EVENTS` / `MAX_STOPS`), so compare the list against the `DrivingStats`
+  counts before calling a trip calm.
 - **`distanceMeters` and `topSpeedMps` come from the live fix stream, not from the trace.**
   They are accumulated in `onTripLocation` (`TripTrackingService.kt:1042-1049`) over accurate,
   recent fixes. **They are therefore not reproducible from `traces.jsonl`** — a distance you

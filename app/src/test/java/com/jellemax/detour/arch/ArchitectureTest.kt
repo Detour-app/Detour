@@ -101,7 +101,7 @@ class ArchitectureTest {
     @Test
     fun `files stay under 1000 lines - section 8`() {
         val pinned = mapOf(
-            "app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt" to 1806,
+            "app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt" to 1802,
             "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1431,
             "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1240,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1211,

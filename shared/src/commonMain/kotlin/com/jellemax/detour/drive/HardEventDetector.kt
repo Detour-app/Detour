@@ -28,7 +28,14 @@ object HardEventDetector {
     private const val MAX_DT_SEC = 15.0 // a batched/stale fix pair, not a real delta
 
     data class SpeedState(val lastSpeedMps: Double? = null, val lastFixMs: Long = 0L)
-    data class SpeedResult(val state: SpeedState, val hardBrake: Boolean, val hardAccel: Boolean)
+    /** [accelMps2] is the Δv/Δt that was tested, 0.0 when the pair was not
+     *  measurable — the magnitude a recorded event carries. */
+    data class SpeedResult(
+        val state: SpeedState,
+        val hardBrake: Boolean,
+        val hardAccel: Boolean,
+        val accelMps2: Double = 0.0,
+    )
 
     /** GPS Δv/Δt between consecutive fixes. */
     fun onSpeedFix(state: SpeedState, speedMps: Double, fixMs: Long): SpeedResult {
@@ -38,13 +45,16 @@ object HardEventDetector {
         val dtSec = (fixMs - state.lastFixMs) / 1000.0
         if (dtSec < MIN_DT_SEC || dtSec > MAX_DT_SEC) return SpeedResult(next, false, false)
         val accelMps2 = (speedMps - prevSpeed) / dtSec
-        return SpeedResult(next, accelMps2 <= HARD_BRAKE_MPS2, accelMps2 >= HARD_ACCEL_MPS2)
+        return SpeedResult(next, accelMps2 <= HARD_BRAKE_MPS2, accelMps2 >= HARD_ACCEL_MPS2, accelMps2)
     }
 
     data class HeadingState(
         val lastHeadingDeg: Double? = null,
         val lastFixMs: Long = 0L,
         val corneringNow: Boolean = false,
+        /** The heading rate the last measurable fix produced, in °/s. Kept
+         *  through an unmeasurable fix, same as [corneringNow]. */
+        val rateDegPerSec: Double = 0.0,
     )
 
     /** Heading-rate corner detection (car). [corneringNow] gives hysteresis so a
@@ -70,9 +80,10 @@ object HardEventDetector {
         }
         var diff = abs(headingDeg - prevHeading) % 360.0
         if (diff > 180.0) diff = 360.0 - diff
-        val above = (diff / dtSec) >= HARD_CORNER_DEG_PER_SEC
+        val rate = diff / dtSec
+        val above = rate >= HARD_CORNER_DEG_PER_SEC
         val newEvent = above && !state.corneringNow
-        return HeadingState(headingDeg, fixMs, above) to newEvent
+        return HeadingState(headingDeg, fixMs, above, rate) to newEvent
     }
 
     /** Moto: bands the existing per-sample lean stream
