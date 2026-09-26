@@ -122,4 +122,17 @@ class ServersSyncStateTest {
             failureText("Import", IllegalStateException("boom")),
         )
     }
+
+    @Test
+    fun `a file that will not open is not blamed on the connection`() {
+        // #448: the picker's file refusing to open used to read "Check your connection".
+        assertEquals(
+            "Import failed: the file could not be opened. Pick it again or choose another.",
+            fileFailureText("Import", IOException("Could not open content://x for reading")),
+        )
+        assertEquals(
+            "Export failed: the contents were not what this app expected.",
+            fileFailureText("Export", IllegalStateException("boom")),
+        )
+    }
 }
