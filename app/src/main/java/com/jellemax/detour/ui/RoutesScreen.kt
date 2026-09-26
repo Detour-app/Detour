@@ -77,6 +77,7 @@ import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.presentation.RouteCard
 import com.jellemax.detour.presentation.RoutesPresenter
+import com.jellemax.detour.presentation.fileFailureText
 import com.jellemax.detour.presentation.gmapsTravelMode
 import com.jellemax.detour.presentation.routeOpensExternally
 import com.jellemax.detour.presentation.routesStateFrom
@@ -186,7 +187,7 @@ fun RoutesScreen(
                 withContext(Dispatchers.IO) { RouteFiles.export(context, uri, target) }
                 "Exported ${target.name}"
             } catch (e: Exception) {
-                "Export failed: ${e.message}"
+                fileFailureText("Export", e)
             }
         }
     }
@@ -203,7 +204,7 @@ fun RoutesScreen(
                 if (imported != null) "Imported ${imported.name}"
                 else "That file isn't a route Detour can read"
             } catch (e: Exception) {
-                "Import failed: ${e.message}"
+                fileFailureText("Import", e)
             }
         }
     }

@@ -1,6 +1,9 @@
 package com.jellemax.detour.data
 
 import io.ktor.client.HttpClient
+import io.ktor.client.network.sockets.ConnectTimeoutException
+import io.ktor.client.network.sockets.SocketTimeoutException
+import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.plugins.timeout
@@ -31,6 +34,28 @@ import okio.buffer
 
 /** A non-2xx response, carrying the body so callers can dig an error out. */
 class HttpStatusException(val code: Int, val body: String) : IOException("HTTP $code")
+
+/**
+ * What the rider reads when the request never got an answer.
+ *
+ * The engine's own text ("Unable to resolve host "photon.komoot.io": No
+ * address associated with hostname") reached search, spin, routing and
+ * navigation errors verbatim, because every caller shows `e.message`. Mapping
+ * it here, where every request passes, fixes all of them at once; the original
+ * stays as [cause] for logs. Still an [IOException], so every `catch` that
+ * falls back to the next server behaves as before.
+ *
+ * A DNS failure cannot tell "offline" from "wrong address", so both get the
+ * one sentence that is true for either.
+ */
+internal fun networkFailure(e: Throwable): IOException = IOException(
+    when (e) {
+        is HttpRequestTimeoutException, is ConnectTimeoutException, is SocketTimeoutException ->
+            "The server took too long to answer — try again"
+        else -> "Can't reach the server — check your connection"
+    },
+    e,
+)
 
 internal object Http {
 
@@ -67,26 +92,31 @@ internal object Http {
         gzipBody: Boolean = false,
         contentType: String = ContentType.Application.Json.toString(),
     ): String {
-        val response = client.request(url) {
-            this.method = HttpMethod.parse(method)
-            headers.forEach { (k, v) -> header(k, v) }
-            timeout {
-                requestTimeoutMillis = readTimeoutMs
-                socketTimeoutMillis = readTimeoutMs
-            }
-            if (body != null) {
-                contentType(ContentType.parse(contentType))
-                if (gzipBody) {
-                    header("Content-Encoding", "gzip")
-                    setBody(gzip(body))
-                } else {
-                    setBody(body)
+        // The body read is inside the try too: a connection can drop mid-body.
+        val (status, text) = try {
+            val response = client.request(url) {
+                this.method = HttpMethod.parse(method)
+                headers.forEach { (k, v) -> header(k, v) }
+                timeout {
+                    requestTimeoutMillis = readTimeoutMs
+                    socketTimeoutMillis = readTimeoutMs
+                }
+                if (body != null) {
+                    contentType(ContentType.parse(contentType))
+                    if (gzipBody) {
+                        header("Content-Encoding", "gzip")
+                        setBody(gzip(body))
+                    } else {
+                        setBody(body)
+                    }
                 }
             }
+            response.status.value to response.bodyAsText()
+        } catch (e: IOException) {
+            throw networkFailure(e)
         }
-        val text = response.bodyAsText()
-        if (response.status.value !in 200..299) {
-            throw HttpStatusException(response.status.value, text)
+        if (status !in 200..299) {
+            throw HttpStatusException(status, text)
         }
         return text
     }

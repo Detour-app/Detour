@@ -105,3 +105,12 @@ fun failureText(action: String, e: Throwable): String {
     }
     return "$action failed: $reason"
 }
+
+/**
+ * [failureText] for an export or import through the file picker, where there
+ * is no network: an [IOException] there is the picked file refusing to open,
+ * not the connection, so it must not send the rider to check their signal.
+ */
+fun fileFailureText(action: String, e: Throwable): String =
+    if (e is IOException) "$action failed: the file could not be opened. Pick it again or choose another."
+    else failureText(action, e)
