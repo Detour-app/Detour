@@ -301,6 +301,7 @@ private fun ServerSection(
     // is never thrown away.
     var draft by remember(custom) { mutableStateOf(custom ?: ServerConfig()) }
     var saved by remember { mutableStateOf(false) }
+    var invalid by remember { mutableStateOf<String?>(null) }
     // Read once and cleared locally on a tap, rather than re-read from prefs:
     // the whole point of the accept/decline pair (#177) is a one-time prompt,
     // and re-reading after a state-changing tap would just show it again for
@@ -343,7 +344,7 @@ private fun ServerSection(
         }
         CredentialTextField(
             value = draft.url,
-            onValueChange = { draft = draft.copy(url = it); saved = false },
+            onValueChange = { draft = draft.copy(url = it); saved = false; invalid = null },
             label = "Server URL",
             keyboardType = KeyboardType.Uri,
             placeholder = "https://…",
@@ -353,13 +354,22 @@ private fun ServerSection(
             Text(if (showAdvanced) "Hide advanced" else "Advanced")
         }
         if (showAdvanced) {
-            ServerAdvanced(draft = draft, onDraftChange = { draft = it; saved = false })
+            ServerAdvanced(draft = draft, onDraftChange = { draft = it; saved = false; invalid = null })
+        }
+        invalid?.let {
+            Text(
+                "“$it” is not a server address — use http:// or https:// and a host name.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
         // Save sits after Advanced, not before it, so it reads as the commit for
         // everything above rather than just the URL field — see #353. It is
         // already saving all five addresses; only its position was wrong.
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = {
+                invalid = draft.invalidAddress
+                if (invalid != null) return@TextButton
                 val addresses = listOf(
                     draft.url, draft.apiUrl, draft.routingUrl, draft.geocoderUrl, draft.idpIssuer,
                 )
