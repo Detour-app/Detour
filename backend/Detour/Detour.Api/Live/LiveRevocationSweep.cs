@@ -48,22 +48,29 @@ internal sealed class LiveRevocationSweep(
         if (userIds.Count == 0)
             return;
 
+        // Snapshot what the relay holds before querying, so a group joined after the query ran
+        // is never judged against a result that predates it.
+        var held = userIds
+            .SelectMany(userId => relay.GroupsFor(userId).Select(groupId => (userId, groupId)))
+            .ToList();
+
         await using var scope = scopeFactory.CreateAsyncScope();
         var groups = scope.ServiceProvider.GetRequiredService<IGroupRepository>();
 
-        foreach (var userId in userIds)
-        {
-            foreach (var groupId in relay.GroupsFor(userId))
-            {
-                var membership = await groups.GetAcceptedMembershipAsync(groupId, userId, cancellationToken);
-                if (membership is not null)
-                    continue;
+        // One query for every connected rider rather than one per rider × group.
+        var accepted = (await groups.GetAcceptedMembershipsAsync(userIds, cancellationToken))
+            .Select(m => (m.UserId, m.GroupId))
+            .ToHashSet();
 
-                // Each pairing is judged on its own: a connection can go stale in one group and
-                // stay perfectly valid in another, and only losing the last one closes the socket.
-                logger.LogDebug("Evicting {UserId} from {GroupId}: membership no longer valid", userId, groupId);
-                await relay.EvictAsync(userId, groupId, cancellationToken);
-            }
+        foreach (var (userId, groupId) in held)
+        {
+            if (accepted.Contains((userId, groupId)))
+                continue;
+
+            // Each pairing is judged on its own: a connection can go stale in one group and
+            // stay perfectly valid in another, and only losing the last one closes the socket.
+            logger.LogDebug("Evicting {UserId} from {GroupId}: membership no longer valid", userId, groupId);
+            await relay.EvictAsync(userId, groupId, cancellationToken);
         }
     }
 

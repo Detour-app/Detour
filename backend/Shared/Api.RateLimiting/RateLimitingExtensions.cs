@@ -49,21 +49,23 @@ public static class RateLimitingExtensions
     /// authentication middleware.
     ///
     /// Tier budgets are read from <see cref="RateLimitSettings"/> (bound from the <c>RateLimit</c>
-    /// configuration section) and captured once at registration time — runtime config changes take
-    /// effect on the next restart.
+    /// configuration section) and captured once, when the limiter options are first built — runtime
+    /// config changes take effect on the next restart.
     /// </summary>
     public static IServiceCollection AddDefaultRateLimit(
         this IServiceCollection services,
         string apiKeyScheme = DefaultApiKeyScheme)
     {
-        services.AddRateLimiter(options =>
+        services.AddRateLimiter(_ => { });
+
+        // Configure<TDep> resolves the settings from the app's own container when the options
+        // are first built — calling BuildServiceProvider() here would build a second container
+        // with its own copy of every singleton (ASP0000).
+        services.AddOptions<RateLimiterOptions>().Configure<IOptions<RateLimitSettings>>((options, settingsOptions) =>
         {
             options.AddDefaultOptions();
 
-            var settings = services
-                .BuildServiceProvider()
-                .GetService<IOptions<RateLimitSettings>>()?.Value
-                ?? new RateLimitSettings();
+            var settings = settingsOptions.Value;
 
             options.GlobalLimiter = PartitionedRateLimiter.CreateChained(
                 BuildIpPartition(settings.Ip),
