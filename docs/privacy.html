@@ -32,7 +32,7 @@
 <body>
 
 <h1>Privacy Policy — Detour</h1>
-<p class="updated">Last updated: 13 August 2026</p>
+<p class="updated">Last updated: 26 September 2026</p>
 
 <p>Detour is an Android app that picks a random road destination within a radius
 you choose, routes you to it, and records the ride. This policy explains what
@@ -42,7 +42,9 @@ the app does with your data.</p>
 analytics, no advertising, no crash reporting and no third-party trackers. Your
 trips, traces and explored area are stored in the app's private storage on your
 device. Nothing is uploaded anywhere unless you deliberately configure a sync
-server, and that server is one you run or choose.</p>
+server, and that server is one you run or choose — with one exception: if
+Android's own backup is on for your phone, it copies your trips and traces to
+your Google account (see <a href="#backup">Android backup</a>).</p>
 
 <h2>Who is responsible</h2>
 <p>Detour is developed by an individual developer. For any question about this
@@ -64,7 +66,25 @@ policy or your data, write to
       vehicle a trip belongs to. This uses existing Bluetooth bonds; the app
       does not scan for nearby devices.</li>
 </ul>
-<p>All of this lives in app-private storage. Uninstalling the app deletes it.</p>
+<p>All of this lives in app-private storage. Uninstalling the app deletes it
+from the phone, but not from an Android backup (below).</p>
+
+<h2 id="backup">Android backup (Google Drive)</h2>
+<p>Detour opts in to Android's automatic backup, so a reinstall or a new phone
+gets your history back without a sync server. If backup is switched on for your
+phone (Settings &rarr; Google &rarr; Backup, or your phone maker's equivalent),
+Android copies the following to your Google account's backup storage:</p>
+<ul>
+  <li>Your trips and their full GPS traces — which show where your rides start
+      and end, and so usually where you live and work.</li>
+  <li>Your explored area, badges, saved places and routes.</li>
+</ul>
+<p>Your server sign-in token and server credentials are deliberately left out
+of the cloud backup, as are your recent searches. The backup is held by Google
+under Google's privacy policy, not by the developer of Detour, who cannot read
+it. Detour has no setting of its own to exclude trips from it; to keep them out
+of Google Drive, turn off backup for your phone (or for Detour, where your phone
+offers per-app control) in Android's settings.</p>
 
 <h2>What leaves your device, and when</h2>
 <p>Even with no account, some features need the network. In each case only what
@@ -118,6 +138,15 @@ governed by that operator rather than by this app.</p>
       reciprocal. Friends otherwise see only totals and badges — never your
       trips or your map.</li>
 </ul>
+<p>A sync server may also let you create a <strong>dashboard key</strong> — a
+read-only key for a home-automation dashboard such as Home Assistant. A key
+reads only your own data, but that includes your rides and full GPS traces.
+The server accepts the key in the address of a request (<code>?key=</code>) as
+well as in a header, because an embedded dashboard frame cannot send a header.
+A key put in an address ends up in that server's and any proxy's access logs,
+in browser history, and in the dashboard's own configuration, so anyone who can
+read those can read your traces until you revoke the key. Prefer the header
+form wherever your dashboard supports it.</p>
 <p>The developer of Detour does not operate a sync server for you and has no
 access to any server you run. Data on a self-hosted server is under your
 control.</p>
