@@ -20,7 +20,8 @@ data class UpdateRowState(
      *  "What's new" under the row (#295). Null everywhere else — a download
      *  in progress or already finished isn't the moment to ask whether to
      *  read about it, and [UpdateClient.PendingUpdate.notes] itself is null
-     *  for a release published with no body. */
+     *  for a release published with no body. With nothing on offer it is the
+     *  running version's own notes, if it was installed in-app (#359). */
     val notes: String? = null,
 )
 
@@ -32,7 +33,11 @@ data class UpdateRowState(
  * The check-only wordings are the ones the row already showed before #277 —
  * they are check outcomes, and only this row ever rendered them.
  */
-fun updateRowStateFrom(manual: ManualCheck, status: UpdateStatus): UpdateRowState = when (status) {
+fun updateRowStateFrom(
+    manual: ManualCheck,
+    status: UpdateStatus,
+    installedNotes: String? = null,
+): UpdateRowState = when (status) {
     is UpdateStatus.Available -> UpdateRowState(
         title = "Detour ${status.update.version} is available",
         subtitle = null,
@@ -81,5 +86,6 @@ fun updateRowStateFrom(manual: ManualCheck, status: UpdateStatus): UpdateRowStat
         action = if (manual is ManualCheck.Running) null else UpdateAction.CHECK,
         actionLabel = null,
         fraction = null,
+        notes = installedNotes,
     )
 }

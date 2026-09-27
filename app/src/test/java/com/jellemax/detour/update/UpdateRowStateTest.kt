@@ -96,4 +96,10 @@ class UpdateRowStateTest {
         val row = updateRowStateFrom(ManualCheck.Failed, UpdateStatus.Downloading(update(), 0.1f))
         assertEquals("Downloading 2.14.0", row.title)
     }
+
+    /** With nothing on offer, the row carries the running version's own notes (#359). */
+    @Test fun idleCarriesInstalledNotes() {
+        assertEquals("* feat: x", updateRowStateFrom(ManualCheck.Idle, UpdateStatus.None, "* feat: x").notes)
+        assertNull(updateRowStateFrom(ManualCheck.Idle, UpdateStatus.Downloading(update(), 0.5f), "* feat: x").notes)
+    }
 }
