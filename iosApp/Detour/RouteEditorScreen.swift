@@ -30,6 +30,8 @@ struct RouteEditorScreen: View {
     @State private var fillMinutes = Double(RouteFill.shared.DEFAULT_MINUTES)
     @State private var filling = false
     @State private var fillError: String?
+    /// Read once: the server can't change while this screen is open.
+    @State private var serverUsable = RoutingServer.shared.load().usable
 
     init(existing: SavedRoute?) {
         self.existing = existing
@@ -162,7 +164,9 @@ struct RouteEditorScreen: View {
                         Text(hasFill ? "Fill again" : "Fill route")
                     }
                 }
-                .disabled(stops.isEmpty || filling)
+                // Same gate as Android's canFill: without a routing server a
+                // fill can only end in an error, so don't offer it.
+                .disabled(stops.isEmpty || filling || !serverUsable)
                 if hasFill {
                     Spacer()
                     Button("Remove fill", role: .destructive) {

@@ -973,9 +973,10 @@ val results = picks.mapNotNull { it.getOrNull() }
 if (results.isEmpty()) { … }
 ```
 
-iOS calls the shared one — `iosApp/Detour/SpinModel.swift:129`
-(`candidates = try await SpinPickerKt.pickThreeCandidates(`), and its comment at `:109` says the
-rules *"all live in `pickThreeCandidates` in `:shared`"*. Android Auto calls the
+iOS calls the shared one — `iosApp/Detour/SpinModel.swift:142`
+(`candidates = try await SpinPickerKt.pickThreeCandidates(`), and its comment at `:114` says the
+rules *"all live in `pickThreeCandidates` in `:shared`"*. Since #454 that path is iOS Car only:
+a round-trip mode (Moto) returns early into `spinLoop`, which calls the shared `LoopSpin`. Android Auto calls the
 single-candidate `pickCandidate` once (`app/…/car/SpinScreen.kt:332`) and so has no
 three-candidate feature at all.
 
