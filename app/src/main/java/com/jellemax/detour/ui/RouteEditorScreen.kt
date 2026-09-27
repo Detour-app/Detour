@@ -61,6 +61,7 @@ import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.presentation.failureText
 import com.jellemax.detour.presentation.formatCoordinatePair
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -169,7 +170,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
             distanceMeters = result.distanceMeters
             timeMs = result.timeMs
         } catch (e: Exception) {
-            routingError = "Routing failed: ${e.message}"
+            routingError = failureText("Routing", e)
         } finally {
             routing = false
         }

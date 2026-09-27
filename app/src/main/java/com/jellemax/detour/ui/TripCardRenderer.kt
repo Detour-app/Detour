@@ -348,7 +348,12 @@ fun TripCardShareDialog(trip: Trip, points: List<LatLon>?, onDismiss: () -> Unit
                         } catch (e: ActivityNotFoundException) {
                             error = "No app to receive an image"
                         } catch (e: IOException) {
-                            error = "Card export failed: ${e.message}"
+                            // A write to our own cache, not a picked file: the
+                            // likely cause is a full disk, and e.message carries the path.
+                            error = CARD_NOT_SAVED
+                        } catch (e: IllegalArgumentException) {
+                            // FileProvider.getUriForFile refusing the path.
+                            error = CARD_NOT_SAVED
                         }
                     }
                 },
@@ -769,3 +774,6 @@ private fun secondaryStat(label: String, value: String, mutedColor: Color) {
         Text(value, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
     }
 }
+
+private const val CARD_NOT_SAVED =
+    "Card export failed: the image could not be saved. Free up some storage and try again."
