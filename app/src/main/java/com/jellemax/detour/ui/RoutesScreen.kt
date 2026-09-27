@@ -77,6 +77,7 @@ import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.presentation.RouteCard
 import com.jellemax.detour.presentation.RoutesPresenter
+import com.jellemax.detour.presentation.failureText
 import com.jellemax.detour.presentation.fileFailureText
 import com.jellemax.detour.presentation.gmapsTravelMode
 import com.jellemax.detour.presentation.routeOpensExternally
@@ -231,7 +232,9 @@ fun RoutesScreen(
         } catch (e: ActivityNotFoundException) {
             "No app to receive a GPX file"
         } catch (e: Exception) {
-            "Share failed: ${e.message}"
+            // A write to our own cache (or FileProvider refusing the path), not
+            // a picked file — e.message would only hand the rider a path.
+            "Share failed: the GPX file could not be saved. Free up some storage and try again."
         }
     }
 
@@ -246,7 +249,7 @@ fun RoutesScreen(
                 val pulled = withContext(Dispatchers.IO) { RouteShare.pullInbox() }
                 if (pulled == 0) "No new shared routes" else "Pulled $pulled shared route(s)"
             } catch (e: Exception) {
-                "Refresh failed: ${e.message}"
+                failureText("Refresh", e)
             }
             refreshing = false
         }
@@ -393,7 +396,7 @@ fun RoutesScreen(
                         withContext(Dispatchers.IO) { RouteShare.share(username, route) }
                         "Sent \"${route.name}\" to $username"
                     } catch (e: Exception) {
-                        "Send failed: ${e.message}"
+                        failureText("Send", e)
                     }
                     sharingTo = null
                 }
