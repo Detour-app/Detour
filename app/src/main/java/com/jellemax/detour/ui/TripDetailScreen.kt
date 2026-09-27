@@ -457,7 +457,10 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                             } catch (e: ActivityNotFoundException) {
                                 "No app to receive a GPX file"
                             } catch (e: IOException) {
-                                "Export failed: ${e.message}"
+                                // Not fileFailureText: nothing was picked — the
+                                // write is to our own cache, so the likely cause
+                                // is a full disk, and e.message carries the path.
+                                "Export failed: the GPX file could not be saved. Free up some storage and try again."
                             }
                         }
                     },
