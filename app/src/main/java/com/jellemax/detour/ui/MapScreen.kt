@@ -94,6 +94,7 @@ import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.drive.SpinRoundOutcome
 import com.jellemax.detour.presentation.HomeBottomCard
 import com.jellemax.detour.presentation.displayCandidates
+import com.jellemax.detour.presentation.failureText
 import com.jellemax.detour.presentation.homeBottomCard
 import com.jellemax.detour.presentation.navStateFrom
 import com.jellemax.detour.presentation.obd2FedThisTrip
@@ -841,10 +842,12 @@ fun MapScreen(
                 s.rerouting = true
                 scope.launch {
                     try {
-                        s.route = fetchNavRoute(serverConfig, loc, start.destination, mode)
+                        val route = fetchNavRoute(serverConfig, loc, start.destination, mode)
+                        if (s.destination != start.destination) return@launch // #456: ✕'d or re-picked mid-fetch
+                        s.route = route
                         beginGuidance(start.destination)
                     } catch (e: Exception) {
-                        s.error = com.jellemax.detour.presentation.failureText("Navigation", e)
+                        if (s.destination == start.destination) s.error = failureText("Navigation", e)
                     } finally {
                         s.rerouting = false
                     }
