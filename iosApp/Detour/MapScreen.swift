@@ -8,6 +8,10 @@ struct MapScreen: View {
     @EnvironmentObject private var recorder: TripRecorder
     @StateObject private var spin = SpinModel()
     @StateObject private var modes = TripModeModel()
+    @StateObject private var loopSize = LoopSizeModel()
+    /// The minutes slider's value while its thumb moves; written to Settings
+    /// once, on release, and cleared when the saved value comes back.
+    @State private var draggedLoopMinutes: Double?
     /// The trajectcontrole average. Here and not in `NavScreen`, which is a
     /// `fullScreenCover`: the phone shows this chip on its map screen whether
     /// or not navigation is running, and a section is most likely to catch
@@ -197,17 +201,53 @@ struct MapScreen: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            HStack {
-                Text("\(Int(spin.radiusMeters / 1000)) km")
-                    .monospacedDigit()
-                    .frame(width: 64, alignment: .leading)
-                Slider(
-                    value: $spin.radiusMeters,
-                    // Each mode has its own sensible range — 3 km on foot,
-                    // 400 km for a moto round trip — and the shared enum is
-                    // where those live.
-                    in: Double(modes.mode.minKm * 1000)...Double(modes.mode.maxKm * 1000),
-                    step: 1_000)
+            // A round trip can be sized by riding time instead of length
+            // ("half an hour for a test ride"); the choice and the minutes
+            // live in shared Settings, so they match the Android sheet.
+            if modes.mode.roundTrip {
+                Picker("Size the loop by", selection: Binding(
+                    get: { loopSize.byTime },
+                    set: { Settings.shared.setLoopByTime(value: $0) }
+                )) {
+                    Text("Distance").tag(false)
+                    Text("Time").tag(true)
+                }
+                .pickerStyle(.segmented)
+            }
+
+            if timedLoopMinutes != nil {
+                let shownMinutes = draggedLoopMinutes ?? Double(loopSize.minutes)
+                HStack {
+                    Text(formatDurationHistory(LoopDuration.shared.targetMs(minutes: Float(shownMinutes))))
+                        .monospacedDigit()
+                        .frame(width: 64, alignment: .leading)
+                    Slider(
+                        value: Binding(
+                            get: { shownMinutes },
+                            set: { draggedLoopMinutes = $0 }
+                        ),
+                        in: Double(LoopDuration.shared.MIN_MINUTES)...Double(LoopDuration.shared.MAX_MINUTES),
+                        step: Double(LoopDuration.shared.STEP_MINUTES),
+                        onEditingChanged: { editing in
+                            if !editing, let minutes = draggedLoopMinutes {
+                                Settings.shared.setLoopMinutes(value: Float(minutes))
+                            }
+                        })
+                }
+                .onChange(of: loopSize.minutes) { _, _ in draggedLoopMinutes = nil }
+            } else {
+                HStack {
+                    Text("\(Int(spin.radiusMeters / 1000)) km")
+                        .monospacedDigit()
+                        .frame(width: 64, alignment: .leading)
+                    Slider(
+                        value: $spin.radiusMeters,
+                        // Each mode has its own sensible range — 3 km on foot,
+                        // 400 km for a moto round trip — and the shared enum is
+                        // where those live.
+                        in: Double(modes.mode.minKm * 1000)...Double(modes.mode.maxKm * 1000),
+                        step: 1_000)
+                }
             }
 
             HStack(spacing: 10) {
@@ -220,7 +260,8 @@ struct MapScreen: View {
 
                 Button {
                     guard let here = recorder.lastFix?.coordinate else { return }
-                    Task { await spin.spin(from: here, mode: modes.mode) }
+                    let minutes = timedLoopMinutes
+                    Task { await spin.spin(from: here, mode: modes.mode, loopMinutes: minutes) }
                 } label: {
                     Text(spin.state == .spinning ? "Spinning…" : "Spin")
                         .font(.headline)
@@ -446,6 +487,12 @@ struct MapScreen: View {
         return "\(names.count) vote\(names.count == 1 ? "" : "s") · \(names.joined(separator: ", "))"
     }
 
+    /// Minutes to size the loop to, or nil when it is sized by length — or
+    /// the mode spins no loop at all.
+    private var timedLoopMinutes: Float? {
+        modes.mode.roundTrip && loopSize.byTime ? loopSize.minutes : nil
+    }
+
     private var destinationCoordinate: CLLocationCoordinate2D? {
         spin.destination.map {
             CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
@@ -465,6 +512,11 @@ struct MapScreen: View {
         case let .found(_, _, distance):
             guard let distance else { return "Found a road." }
             return String(format: "%.1f km by road", distance / 1000)
+        case let .loop(distance, timeMs, warning):
+            if let warning { return warning }
+            let parts = [distance.map(formatDistanceKm), timeMs.map(formatDurationHistory)]
+                .compactMap { $0 }
+            return parts.isEmpty ? "Loop found." : "Loop · " + parts.joined(separator: " · ")
         case let .failed(message):
             return message
         }
@@ -590,6 +642,34 @@ final class CircleFixRiderIdModel: ObservableObject {
     }
 
     deinit { watcher.cancel() }
+}
+
+/// How a round trip is sized: by length (the radius slider) or by riding
+/// time. Both live in shared `Settings`, persisted under the same keys the
+/// Android spin sheet uses.
+@MainActor
+final class LoopSizeModel: ObservableObject {
+    @Published var byTime = false
+    @Published var minutes: Float = LoopDuration.shared.DEFAULT_MINUTES
+
+    private let byTimeWatcher = SettingsFlows.shared.loopByTime()
+    private let minutesWatcher = SettingsFlows.shared.loopMinutes()
+
+    init() {
+        byTimeWatcher.watch { [weak self] in
+            guard let self else { return }
+            self.byTime = self.byTimeWatcher.value
+        }
+        minutesWatcher.watch { [weak self] in
+            guard let self else { return }
+            self.minutes = self.minutesWatcher.value
+        }
+    }
+
+    deinit {
+        byTimeWatcher.cancel()
+        minutesWatcher.cancel()
+    }
 }
 
 /// The selected vehicle, which is persisted because the trip recorder reads it
