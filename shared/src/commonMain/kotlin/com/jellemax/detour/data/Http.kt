@@ -32,8 +32,18 @@ import okio.buffer
  * the call sites.
  */
 
-/** A non-2xx response, carrying the body so callers can dig an error out. */
-class HttpStatusException(val code: Int, val body: String) : IOException("HTTP $code")
+/**
+ * A non-2xx response, carrying the body so callers can dig an error out.
+ *
+ * [message] lets a caller that rewords the error keep the status: rethrowing a
+ * plain `IOException` instead left `failureText` reading every server refusal
+ * as a connection problem (#461).
+ */
+class HttpStatusException(
+    val code: Int,
+    val body: String,
+    message: String = "HTTP $code",
+) : IOException(message)
 
 /**
  * What the rider reads when the request never got an answer.
