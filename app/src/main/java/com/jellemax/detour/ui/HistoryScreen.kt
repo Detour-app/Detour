@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -31,6 +33,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -213,10 +217,15 @@ fun loadTripPoints(trip: Trip): List<TraceStore.TracePoint> =
 
 private val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
 private val rideDateFormat = SimpleDateFormat("EEE d MMM · HH:mm", Locale.getDefault())
+private val weekFormat = SimpleDateFormat("d MMM", Locale.getDefault())
 
 /** Height of a ride's route thumbnail, and of the current month's overlay. */
 private val RIDE_THUMB_HEIGHT = 132.dp
 private val MONTH_MAP_HEIGHT = 180.dp
+private val COMPACT_THUMB_SIZE = 64.dp
+
+/** A month needs this many rides before it is split into weeks. */
+private const val WEEK_HEADERS_MIN_RIDES = 8
 
 /** What the ⋮ menu on a ride asks for. One callback instead of three keeps
  *  [RideCard] under the seven-parameter gate (§8.4). */
@@ -306,7 +315,8 @@ private fun LogbookList(
     var filter by rememberSaveable { mutableStateOf(LogbookFilter.ALL) }
     // Chapters the rider opened by hand; the current month is always open.
     val openMonths = remember { mutableStateListOf<Int>() }
-    val thisMonth = remember { Logbook.monthOf(System.currentTimeMillis()) }
+    val now = remember { System.currentTimeMillis() }
+    val thisMonth = remember { Logbook.monthOf(now) }
     val months = remember(loaded, filter) {
         Logbook.build(loaded.trips, filter, loaded.places, loaded.titles, loaded.milestones)
     }
@@ -345,23 +355,45 @@ private fun LogbookList(
                     MonthHeader(
                         month, open, current,
                         overlay = if (!current) null
-                        else month.rides.mapNotNull { loaded.thumbnails[it.trip.startTimeMs] },
+                        else Logbook.mapFocus(month.rides.mapNotNull { loaded.thumbnails[it.trip.startTimeMs] }),
                         onToggle = { if (!openMonths.remove(ym)) openMonths.add(ym) },
                     )
                 }
                 if (!open) continue
-                items(month.items, key = { it.key() }) { item ->
-                    when (item) {
-                        is LogbookItem.Milestone -> MilestoneRow(item, Modifier.animateItem())
-                        is LogbookItem.Ride -> RideCard(
-                            modifier = Modifier.animateItem(),
-                            ride = item,
-                            thumbnail = loaded.thumbnails[item.trip.startTimeMs],
-                            onOpen = { onOpenTrip(item.trip) },
-                            onEdit = { onEdit(item.trip, it) },
-                        )
-                    }
-                }
+                monthItems(month, now, loaded, onOpenTrip, onEdit)
+            }
+        }
+    }
+}
+
+/** One open month's rides and badges, with week headers when it's busy
+ *  enough to need somewhere to land. */
+private fun LazyListScope.monthItems(
+    month: LogbookMonth,
+    now: Long,
+    loaded: LogbookData,
+    onOpenTrip: (Trip) -> Unit,
+    onEdit: (Trip, RideEdit) -> Unit,
+) {
+    val ym = month.year * 100 + month.month
+    val weekly = month.rides.size >= WEEK_HEADERS_MIN_RIDES
+    var lastWeek: Long? = null
+    for (entry in month.items) {
+        val week = Logbook.weekStartMs(entry.atMs)
+        if (weekly && week != lastWeek) {
+            lastWeek = week
+            item(key = "w$ym-$week") { WeekHeader(week, now, Modifier.animateItem()) }
+        }
+        item(key = entry.key()) {
+            when (entry) {
+                is LogbookItem.Milestone -> MilestoneRow(entry, Modifier.animateItem())
+                is LogbookItem.Ride -> RideCard(
+                    modifier = Modifier.animateItem(),
+                    ride = entry,
+                    thumbnail = loaded.thumbnails[entry.trip.startTimeMs],
+                    onOpen = { onOpenTrip(entry.trip) },
+                    onEdit = { onEdit(entry.trip, it) },
+                )
             }
         }
     }
@@ -467,26 +499,62 @@ private fun MonthHeader(
     }
 }
 
+/** "This week", "Last week", then "Week of 7 Sept". */
+@Composable
+private fun WeekHeader(weekStartMs: Long, nowMs: Long, modifier: Modifier = Modifier) {
+    val label = when (Logbook.weeksAgo(weekStartMs, nowMs)) {
+        0 -> "This week"
+        1 -> "Last week"
+        else -> "Week of ${weekFormat.format(weekStartMs)}"
+    }
+    Text(
+        label,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.padding(start = 4.dp, top = 12.dp),
+    )
+}
+
+/** A badge earned, as a card worth stopping on rather than a line of text. */
 @Composable
 private fun MilestoneRow(m: LogbookItem.Milestone, modifier: Modifier = Modifier) {
-    Row(
-        modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    Surface(
+        modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
     ) {
-        Icon(Icons.Outlined.EmojiEvents, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
-        Text("Badge earned: ${m.title}", style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.tertiary)
+        Row(
+            Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.onPrimary),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Outlined.EmojiEvents, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            }
+            Column {
+                Text("BADGE UNLOCKED", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                Text(m.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+            }
+        }
     }
 }
 
 /** The dialogs the ⋮ menu opens; at most one at a time. */
 private enum class RideDialog { RENAME, VEHICLE, DELETE, CARD }
 
-/** One ride: its route large, its title, when and how far, and at most one
- *  highlight chip. Everything else is on the trip screen. Tapping opens it,
- *  but only when there's a trace to show — a trip with no matched trace has
- *  nothing to draw on a map either. */
+/** One ride. A [LogbookItem.Ride.standout] ride gets the full card — its
+ *  route large, a highlight sticker, town stamps; the everyday rest a compact
+ *  row, so the rides worth remembering aren't lost among forty identical
+ *  commutes. Everything else is on the trip screen. Tapping opens it, but only
+ *  when there's a trace to show — a trip with no matched trace has nothing to
+ *  draw on a map either. */
 @Composable
 private fun RideCard(
     ride: LogbookItem.Ride,
@@ -495,18 +563,24 @@ private fun RideCard(
     onEdit: (RideEdit) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val trip = ride.trip
-    var menuOpen by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf<RideDialog?>(null) }
-    fun open(d: RideDialog) {
-        menuOpen = false
-        dialog = d
-    }
-    Card(
-        // The overflow IconButton below has its own clickable, so a tap on it
-        // is consumed there and never reaches this one.
-        modifier = if (thumbnail != null) modifier.clickable(onClick = onOpen) else modifier,
-    ) {
+    val menu: @Composable () -> Unit = { RideMenu(onPick = { dialog = it }) }
+    // The overflow IconButton has its own clickable, so a tap on it is
+    // consumed there and never reaches the card's.
+    val cardModifier = if (thumbnail != null) modifier.clickable(onClick = onOpen) else modifier
+    if (ride.standout) FullRideCard(ride, thumbnail, menu, cardModifier)
+    else CompactRideRow(ride, thumbnail, menu, cardModifier)
+    dialog?.let { RideDialogs(ride, it, onDismiss = { dialog = null }, onEdit = onEdit) }
+}
+
+@Composable
+private fun FullRideCard(
+    ride: LogbookItem.Ride,
+    thumbnail: List<LatLon>?,
+    menu: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(modifier) {
         Column {
             if (thumbnail != null) {
                 Box(Modifier.fillMaxWidth().height(RIDE_THUMB_HEIGHT)) {
@@ -523,39 +597,88 @@ private fun RideCard(
             ) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(ride.title, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        "${rideDateFormat.format(trip.startTimeMs)} · ${formatDistanceKm(trip.distanceMeters)} · " +
-                            formatDurationHistory(trip.durationMs),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    RideMeta(ride.trip)
                     // No map to stick it on: the sticker sits with the text instead.
                     if (thumbnail == null) ride.chip?.let { Sticker(it, Modifier.padding(top = 2.dp)) }
-                    if (ride.places.isNotEmpty()) PlaceStamps(ride.places, Modifier.padding(top = 4.dp))
+                    if (ride.stampsWorthShowing) PlaceStamps(ride.places, Modifier.padding(top = 4.dp))
                 }
-                Box {
-                    IconButton(onClick = { menuOpen = true }) {
-                        Icon(Icons.Outlined.MoreVert, contentDescription = "Trip options", Modifier.size(18.dp))
-                    }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(text = { Text("Rename") }, onClick = { open(RideDialog.RENAME) })
-                        DropdownMenuItem(text = { Text("Change vehicle") }, onClick = { open(RideDialog.VEHICLE) })
-                        DropdownMenuItem(text = { Text("Share trip card") }, onClick = { open(RideDialog.CARD) })
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                            leadingIcon = {
-                                Icon(Icons.Outlined.Delete, contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error)
-                            },
-                            onClick = { open(RideDialog.DELETE) },
-                        )
-                    }
-                }
+                menu()
             }
         }
     }
-    dialog?.let { RideDialogs(ride, it, onDismiss = { dialog = null }, onEdit = onEdit) }
+}
+
+/** An everyday trip: a small map, its title and the numbers, one row. */
+@Composable
+private fun CompactRideRow(
+    ride: LogbookItem.Ride,
+    thumbnail: List<LatLon>?,
+    menu: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 8.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (thumbnail != null) {
+                RouteMapThumbnail(
+                    listOf(thumbnail),
+                    Modifier
+                        .size(COMPACT_THUMB_SIZE)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                )
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(ride.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
+                RideMeta(ride.trip)
+            }
+            menu()
+        }
+    }
+}
+
+@Composable
+private fun RideMeta(trip: Trip) {
+    Text(
+        "${rideDateFormat.format(trip.startTimeMs)} · ${formatDistanceKm(trip.distanceMeters)} · " +
+            formatDurationHistory(trip.durationMs),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/** The ⋮ menu on a ride; [onPick] opens the chosen dialog. */
+@Composable
+private fun RideMenu(onPick: (RideDialog) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    fun pick(d: RideDialog) {
+        open = false
+        onPick(d)
+    }
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(Icons.Outlined.MoreVert, contentDescription = "Trip options", Modifier.size(18.dp))
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text("Rename") }, onClick = { pick(RideDialog.RENAME) })
+            DropdownMenuItem(text = { Text("Change vehicle") }, onClick = { pick(RideDialog.VEHICLE) })
+            DropdownMenuItem(text = { Text("Share trip card") }, onClick = { pick(RideDialog.CARD) })
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                leadingIcon = {
+                    Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                },
+                onClick = { pick(RideDialog.DELETE) },
+            )
+        }
+    }
 }
 
 @Composable
