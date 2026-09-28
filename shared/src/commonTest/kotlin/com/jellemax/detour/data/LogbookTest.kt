@@ -5,6 +5,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -39,10 +40,47 @@ class LogbookTest {
     }
 
     @Test
-    fun aCarTripIsPlainAToB() {
+    fun aCarTripLeadsWithTheTimeOfDayThenAToB() {
         val car = trip(at(27, 8), TravelMode.CAR)
-        assertEquals("Gent to Aalst", Logbook.autoTitle(car, listOf(place("Gent"), place("Merelbeke"), place("Aalst")), utc))
-        assertEquals("Around Gent", Logbook.autoTitle(car, listOf(place("Gent")), utc))
+        assertEquals(
+            "Morning drive from Gent to Aalst",
+            Logbook.autoTitle(car, listOf(place("Gent"), place("Merelbeke"), place("Aalst")), utc),
+        )
+        assertEquals("Evening drive around Gent", Logbook.autoTitle(trip(at(27, 19), TravelMode.CAR), listOf(place("Gent")), utc))
+    }
+
+    @Test
+    fun onlyAHighlightOrANewTownMakesARideStandOut() {
+        fun ride(chip: String?, places: List<PlaceVisit>) = LogbookItem.Ride(trip(at(27, 8)), "t", false, chip, places)
+        assertTrue(ride("Longest yet", emptyList()).standout)
+        assertTrue(ride(null, listOf(place("Ronse", new = true))).standout)
+        assertFalse(ride(null, listOf(place("Gent"), place("Aalst"))).standout)
+        // One familiar town is the commute case: no stamps.
+        assertFalse(ride(null, listOf(place("Gent"))).stampsWorthShowing)
+        assertTrue(ride(null, listOf(place("Gent"), place("Aalst"))).stampsWorthShowing)
+        assertTrue(ride(null, listOf(place("Ronse", new = true))).stampsWorthShowing)
+    }
+
+    @Test
+    fun theMonthMapLeavesOutARideFarFromTheRest() {
+        fun line(lat: Double, lon: Double) = listOf(LatLon(lat, lon), LatLon(lat + 0.01, lon + 0.01), LatLon(lat + 0.02, lon))
+        val coast = listOf(line(51.20, 2.90), line(51.21, 2.95), line(51.19, 3.10), line(51.22, 2.92))
+        val luxembourg = line(49.61, 6.13)
+        assertEquals(coast, Logbook.mapFocus(coast + listOf(luxembourg)))
+        // Too few lines to call any of them an outlier.
+        assertEquals(listOf(coast[0], luxembourg), Logbook.mapFocus(listOf(coast[0], luxembourg)))
+    }
+
+    @Test
+    fun weeksCountFromMondayAndSurviveADstSwitch() {
+        val sunday = at(27, 14) // 2026-09-27
+        assertEquals(0, Logbook.weeksAgo(at(21, 9), sunday, utc)) // Monday of the same week
+        assertEquals(1, Logbook.weeksAgo(at(20, 23), sunday, utc)) // the Sunday before
+        val brussels = TimeZone.of("Europe/Brussels")
+        // 2026-03-29 is the spring-forward Sunday: the week before it is 167 h.
+        val after = LocalDateTime(2026, 3, 31, 12, 0).toInstant(brussels).toEpochMilliseconds()
+        val before = LocalDateTime(2026, 3, 24, 12, 0).toInstant(brussels).toEpochMilliseconds()
+        assertEquals(1, Logbook.weeksAgo(before, after, brussels))
     }
 
     @Test
