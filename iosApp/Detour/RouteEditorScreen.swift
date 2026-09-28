@@ -216,10 +216,15 @@ struct RouteEditorScreen: View {
             }
         } catch {
             // Kotlin/Native hands the thrown Kotlin object over under this key.
-            if let tooLong = (error as NSError).userInfo["KotlinException"] as? StopsTooLong {
+            let kotlin = (error as NSError).userInfo["KotlinException"]
+            if let tooLong = kotlin as? StopsTooLong {
                 fillError = "Your stops alone take \(formatDurationHistory(tooLong.stopsMs)) — pick a longer time"
+            } else if let throwable = kotlin as? KotlinThrowable {
+                // The same rider-facing wording Android uses (#458): never the
+                // exception's own text.
+                fillError = ServersSyncStateKt.failureText(action: "Fill", e: throwable)
             } else {
-                fillError = "Could not fill the route: \(error.localizedDescription)"
+                fillError = "Fill failed. Try again."
             }
         }
         filling = false

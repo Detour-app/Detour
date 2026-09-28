@@ -844,7 +844,7 @@ fun MapScreen(
                         s.route = fetchNavRoute(serverConfig, loc, start.destination, mode)
                         beginGuidance(start.destination)
                     } catch (e: Exception) {
-                        s.error = "Navigation failed: ${e.message}"
+                        s.error = com.jellemax.detour.presentation.failureText("Navigation", e)
                     } finally {
                         s.rerouting = false
                     }
