@@ -343,8 +343,16 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
         }
     }
 
-    val highlights = remember(trace) {
-        trace?.let { tripHighlights(trip, it, TripInsights.bestStretch(it)) }.orEmpty()
+    // Off the main thread: bestStretch scores a 5 km window every few points,
+    // ~100 ms on a 300 km ride — a first-frame stall if run in composition.
+    // Empty until computed, which renders the same as "nothing stood out":
+    // the section just appears once there is something to list.
+    var highlights by remember { mutableStateOf<List<TripHighlight>>(emptyList()) }
+    LaunchedEffect(trace) {
+        val loaded = trace ?: return@LaunchedEffect
+        highlights = withContext(Dispatchers.Default) {
+            tripHighlights(trip, loaded, TripInsights.bestStretch(loaded))
+        }
     }
     var selectedHighlight by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(highlights, selectedHighlight, mapStyle) {

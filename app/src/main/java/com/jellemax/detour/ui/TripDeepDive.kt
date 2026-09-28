@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -24,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,6 +48,8 @@ import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripInsights
 import kotlin.math.abs
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 /** One thing worth pinning on the trip map (#444): a point, or for the best
@@ -165,9 +169,16 @@ fun TripDeepDive(
                 contentDescription = if (open) "Collapse deep dive" else "Expand deep dive")
         }
         AnimatedVisibility(open) {
-            // Derived once per open, not per recomposition: splits and the
-            // lean summary each walk the whole trace.
-            val sections = remember(points) { DeepDiveNumbers.of(points) }
+            // Off the main thread, like the highlights: splits score every
+            // split's curviness and the lean summary walks the whole trace.
+            val numbers by produceState<DeepDiveNumbers?>(null, points) {
+                value = withContext(Dispatchers.Default) { DeepDiveNumbers.of(points) }
+            }
+            val sections = numbers
+            if (sections == null) {
+                CircularProgressIndicator(Modifier.padding(16.dp))
+                return@AnimatedVisibility
+            }
             Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 OverviewSection(trip, sections)
                 SpeedSection(trip, sections)
@@ -245,7 +256,9 @@ private fun OverviewSection(trip: Trip, n: DeepDiveNumbers) {
         SectionTitle("Overview")
         Stat("Distance", formatDistanceKm(trip.distanceMeters))
         Stat("Total time", formatDurationHistory(trip.durationMs))
-        Stat("Moving time", formatDurationHistory(n.movingMs))
+        // A trace written before points carried a time has none to measure;
+        // "0 min" would read as a measurement.
+        if (n.movingMs > 0) Stat("Moving time", formatDurationHistory(n.movingMs))
         val ds = trip.drivingStats
         Stat("Stops", if (ds.stopCount == 0) "none" else "${ds.stopCount} · ${formatDurationHistory(ds.idleMs)}")
         Stat("Average speed", formatSpeedKmh(trip.avgSpeedMps))
@@ -271,7 +284,12 @@ private fun SpeedSection(trip: Trip, n: DeepDiveNumbers) {
             )
         }
         Stat("Top speed", formatSpeedKmh(trip.topSpeedMps))
-        val source = if (ds.obd2SpeedPct > 0.0) "OBD2 ${ds.obd2SpeedPct.roundToInt()}% · GPS the rest" else "GPS"
+        val obd2Pct = ds.obd2SpeedPct.roundToInt()
+        val source = when {
+            ds.obd2SpeedPct <= 0.0 -> "GPS"
+            obd2Pct == 0 -> "OBD2 <1% · GPS the rest"
+            else -> "OBD2 $obd2Pct% · GPS the rest"
+        }
         Stat("Speed source", source)
     }
 }
@@ -334,7 +352,8 @@ private const val MAX_EVENT_ROWS = 30
 
 @Composable
 private fun SplitsSection(n: DeepDiveNumbers) {
-    if (n.splits.size < 2) return
+    // Untimed legacy traces give every split "0 min · 0 km/h" — skip them.
+    if (n.splits.size < 2 || n.splits.all { it.durationMs == 0L }) return
     Column {
         SectionTitle("Splits · every ${formatDistanceKm(TripInsights.SPLIT_METERS)}")
         for (s in n.splits) {
