@@ -94,7 +94,9 @@ private fun eventLabel(k: RidingEventKind): String = when (k) {
 
 /** Deepest lean, top speed, hardest corner, hardest braking and the best
  *  stretch — whichever of them this trip actually recorded. Places lead the
- *  story view, so top speed is listed, never headlined (#428, #431). */
+ *  story view, so top speed is listed, never headlined (#428, #431).
+ *  In app/, not commonMain, because every value is built with app-side
+ *  formatters; moving it to shared goes with iOS parity (#470). */
 fun tripHighlights(trip: Trip, points: List<TraceStore.TracePoint>, bestStretch: IntRange?): List<TripHighlight> {
     val m = trip.moments
     val out = mutableListOf<TripHighlight>()
@@ -172,7 +174,7 @@ fun TripDeepDive(
             // Off the main thread, like the highlights: splits score every
             // split's curviness and the lean summary walks the whole trace.
             val numbers by produceState<DeepDiveNumbers?>(null, points) {
-                value = withContext(Dispatchers.Default) { DeepDiveNumbers.of(points) }
+                value = withContext(Dispatchers.Default) { DeepDiveNumbers(points, trip.moments.events) }
             }
             val sections = numbers
             if (sections == null) {
@@ -183,40 +185,34 @@ fun TripDeepDive(
                 OverviewSection(trip, sections)
                 SpeedSection(trip, sections)
                 if (trip.mode.tracksLean || trip.mode.tracksGForce) CorneringSection(trip, sections, leanOffsetDeg)
-                EventsSection(trip, points, extras)
+                EventsSection(trip, sections, extras)
                 SplitsSection(sections)
                 RoadsSection(trip)
                 StopsSection(trip, extras)
                 EngineSection(trip)
-                RecordingSection(trip, points)
+                RecordingSection(trip, points.size, sections)
             }
         }
     }
 }
 
-/** The trace-derived figures, computed together so opening the dive walks the
+/** The trace-derived figures, computed together — and only ever constructed on
+ *  Dispatchers.Default — so opening the dive walks the
  *  trace a fixed number of times. */
-private class DeepDiveNumbers(
-    val movingMs: Long,
-    val profile: List<DistanceSample>,
-    val splits: List<com.jellemax.detour.data.TripSplit>,
-    val bestSplitIndex: Int?,
-    val speedBands: List<com.jellemax.detour.data.SpeedBand>,
-    val lean: com.jellemax.detour.data.LeanSummary?,
-) {
-    companion object {
-        fun of(points: List<TraceStore.TracePoint>): DeepDiveNumbers {
-            val splits = TripInsights.splits(points)
-            return DeepDiveNumbers(
-                movingMs = TripInsights.movingMs(points),
-                profile = TripInsights.profile(points),
-                splits = splits,
-                bestSplitIndex = TripInsights.bestSplit(splits)?.index,
-                speedBands = TripInsights.speedBands(points),
-                lean = TripInsights.lean(points),
-            )
-        }
-    }
+private class DeepDiveNumbers(points: List<TraceStore.TracePoint>, events: List<RidingEvent>) {
+    private val line = points.map { it.at }
+    val movingMs = TripInsights.movingMs(points)
+    val profile = TripInsights.profile(points)
+    val splits = TripInsights.splits(points)
+    val bestSplitIndex = TripInsights.bestSplit(splits)?.index
+    val speedBands = TripInsights.speedBands(points)
+    val lean = TripInsights.lean(points)
+
+    /** Metres along the ride for each of the first [MAX_EVENT_ROWS] events,
+     *  parallel to them. Each is a walk of the trace, so it's here with the
+     *  other trace walks rather than in composition. */
+    val eventMeters = events.take(MAX_EVENT_ROWS).map { TripInsights.metersAlong(line, it.at) }
+    val signalGaps = TripInsights.signalGaps(line)
 }
 
 @Composable
@@ -318,7 +314,7 @@ private fun CorneringSection(trip: Trip, n: DeepDiveNumbers, leanOffsetDeg: Floa
 }
 
 @Composable
-private fun EventsSection(trip: Trip, points: List<TraceStore.TracePoint>, extras: TripDetailExtras?) {
+private fun EventsSection(trip: Trip, n: DeepDiveNumbers, extras: TripDetailExtras?) {
     val ds = trip.drivingStats
     val counted = ds.hardBrakeCount + ds.hardAccelCount + ds.hardCornerCount
     if (counted == 0) return
@@ -329,17 +325,18 @@ private fun EventsSection(trip: Trip, points: List<TraceStore.TracePoint>, extra
         Stat("Hard braking", "${ds.hardBrakeCount}")
         Stat("Hard acceleration", "${ds.hardAccelCount}")
         Stat("Hard corners", "${ds.hardCornerCount}")
-        val line = remember(points) { points.map { it.at } }
         val shown = trip.moments.events.take(MAX_EVENT_ROWS)
-        for (e in shown) {
-            val km = TripInsights.metersAlong(line, e.at)?.let { formatDistanceKm(it) }
+        shown.forEachIndexed { i, e ->
+            val km = n.eventMeters.getOrNull(i)?.let { formatDistanceKm(it) }
             val place = extras?.let { TripInsights.placeAt(e.at, it.municipalities) }
             Stat(
                 listOfNotNull(eventLabel(e.kind), place, km?.let { "at $it" }).joinToString(" · "),
                 eventValue(e),
             )
         }
-        val unlisted = counted - shown.size
+        // Pinned events not listed. Not counted minus shown: a trip saved
+        // before pins existed has counts and no events to list at all.
+        val unlisted = trip.moments.events.size - shown.size
         if (unlisted > 0) {
             Text("$unlisted more not listed", style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -432,13 +429,12 @@ private fun EngineSection(trip: Trip) {
 }
 
 @Composable
-private fun RecordingSection(trip: Trip, points: List<TraceStore.TracePoint>) {
+private fun RecordingSection(trip: Trip, storedPoints: Int, n: DeepDiveNumbers) {
     Column {
         SectionTitle("Recording")
         Stat("Vehicle", trip.mode.label)
-        Stat("Stored points (every 25 m)", "${points.size}")
-        val gaps = remember(points) { TripInsights.signalGaps(points.map { it.at }) }
-        Stat("Signal gaps", if (gaps == 0) "none" else "$gaps")
+        Stat("Stored points (every 25 m)", "$storedPoints")
+        Stat("Signal gaps", if (n.signalGaps == 0) "none" else "${n.signalGaps}")
         HorizontalDivider(Modifier.padding(top = 8.dp))
         Text("Export GPX and the share card from the buttons at the top.",
             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
