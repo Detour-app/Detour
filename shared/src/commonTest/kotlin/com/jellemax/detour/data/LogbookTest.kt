@@ -47,6 +47,7 @@ class LogbookTest {
             Logbook.autoTitle(car, listOf(place("Gent"), place("Merelbeke"), place("Aalst")), utc),
         )
         assertEquals("Evening drive around Gent", Logbook.autoTitle(trip(at(27, 19), TravelMode.CAR), listOf(place("Gent")), utc))
+        assertEquals("Sunday morning drive", Logbook.autoTitle(car, emptyList(), utc))
     }
 
     @Test

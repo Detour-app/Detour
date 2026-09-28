@@ -106,7 +106,7 @@ object Logbook {
             return when {
                 names.size >= 2 -> "$lead from ${names.first()} to ${names.last()}"
                 names.size == 1 -> "$lead around ${names.single()}"
-                else -> "${weekday(dt.dayOfWeek)} ${timeOfDay(dt.hour)} ${trip.mode.label.lowercase()} trip"
+                else -> "${weekday(dt.dayOfWeek)} ${timeOfDay(dt.hour)} $noun"
             }
         }
         val base = "${weekday(dt.dayOfWeek)} ${timeOfDay(dt.hour)} ride"
