@@ -3,19 +3,15 @@ package com.jellemax.detour.ui
 import android.util.Log
 import android.util.LruCache
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -29,7 +25,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.Settings
@@ -119,17 +114,9 @@ fun RouteMapThumbnail(lines: List<List<LatLon>>, modifier: Modifier = Modifier) 
         if (s == null) {
             TraceThumbnail(lines, Modifier.fillMaxSize())
         } else {
+            // No credit of our own: the snapshotter already draws the style's
+            // "© OpenFreeMap / OpenMapTiles / OpenStreetMap" into the bitmap.
             RouteOnMap(s, Modifier.fillMaxSize())
-            // OpenStreetMap's licence asks for credit wherever its map is shown.
-            Text(
-                "© OpenStreetMap",
-                fontSize = 9.sp,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
-                    .padding(horizontal = 4.dp, vertical = 1.dp),
-            )
         }
     }
 }
