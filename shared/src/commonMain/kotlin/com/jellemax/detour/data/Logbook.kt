@@ -221,7 +221,9 @@ object Logbook {
         val mids = lines.filter { it.isNotEmpty() }.map { it[it.size / 2] }
         if (mids.size < 3) return lines
         val centre = LatLon(mids.map { it.lat }.sorted()[mids.size / 2], mids.map { it.lon }.sorted()[mids.size / 2])
-        return lines.filter { it.isNotEmpty() && RoadRoulette.distanceMeters(it[it.size / 2], centre) <= MONTH_MAP_FOCUS_METERS }
+        return lines.filter {
+            it.isNotEmpty() && RoadRoulette.distanceMeters(it[it.size / 2], centre) <= MONTH_MAP_FOCUS_METERS
+        }
     }
 
     /** Whole weeks (Monday-based) between [ms] and [nowMs]: 0 this week, 1 last. */
