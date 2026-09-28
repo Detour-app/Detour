@@ -176,6 +176,11 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
             polyline = result.polyline
             distanceMeters = result.distanceMeters
             timeMs = result.timeMs
+        } catch (e: CancellationException) {
+            // A stop or mode change superseded us. Falling into the catch below
+            // would set routingError after the new run cleared it, and nothing
+            // on its success path clears it again.
+            throw e
         } catch (e: Exception) {
             routingError = failureText("Routing", e)
         } finally {
