@@ -42,7 +42,7 @@ struct HistoryScreen: View {
                     }
                 }
             }
-            .navigationTitle("History")
+            .navigationTitle("Logbook")
             .task { reload() }
             .confirmationDialog(
                 "Which vehicle was this?",

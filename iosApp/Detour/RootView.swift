@@ -47,7 +47,7 @@ struct RootView: View {
                 .tag(Tab.map)
 
             HistoryScreen()
-                .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
+                .tabItem { Label("Logbook", systemImage: "book") }
                 .tag(Tab.history)
 
             BadgesScreen()

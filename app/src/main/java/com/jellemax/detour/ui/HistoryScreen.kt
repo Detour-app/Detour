@@ -50,7 +50,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.data.syncQuietly
 import com.jellemax.detour.data.LatLon
@@ -60,16 +61,34 @@ import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
-import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.layout.height
+import androidx.compose.material.icons.outlined.EmojiEvents
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.jellemax.detour.data.BadgeStore
+import com.jellemax.detour.data.Logbook
+import com.jellemax.detour.data.LogbookFilter
+import com.jellemax.detour.data.LogbookItem
+import com.jellemax.detour.data.LogbookMonth
+import com.jellemax.detour.data.Municipality
+import com.jellemax.detour.data.MunicipalityStore
+import com.jellemax.detour.data.PlaceVisit
+import com.jellemax.detour.data.TripInsights
+import com.jellemax.detour.data.TripTitleStore
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-/** A trip alongside the trace polyline it was recorded with, if one still
- *  exists — thumbnails need points, not just the trip's summary numbers. */
-private data class HistoryEntry(val trip: Trip, val thumbnail: List<LatLon>?)
+/** Every trip's trace, thumbnail-sized, plus the towns it entered — one walk of
+ *  the trace store for the whole Logbook. */
+private data class TripTraces(val thumbnails: Map<Long, List<LatLon>>, val visits: List<Pair<Trip, List<Municipality>>>)
 
 /** One decoded trace line: its points plus the timestamp window they span. */
 internal data class TraceSegment(
@@ -146,21 +165,43 @@ internal fun matchTripPoints(segments: List<TraceSegment>, trip: Trip): List<Tra
     return result
 }
 
-private fun matchThumbnails(trips: List<Trip>): Map<Long, List<LatLon>> {
+private fun matchTraces(trips: List<Trip>, municipalities: List<Municipality>): TripTraces {
     val segments = readTraceSegments()
-    val result = HashMap<Long, List<LatLon>>()
+    val thumbnails = HashMap<Long, List<LatLon>>()
+    val visits = ArrayList<Pair<Trip, List<Municipality>>>(trips.size)
     for (trip in trips) {
-        val points = matchTripPoints(segments, trip)
+        val points = matchTripPoints(segments, trip).map { it.at }
         if (points.isEmpty()) continue
+        visits += trip to TripInsights.visitedInOrder(points, municipalities)
         // Cap the point count a thumbnail actually needs — a multi-hour ride
-        // can carry thousands of points, all wasted on a 52dp canvas.
-        val pts = if (points.size > 200) {
+        // can carry thousands of points, all wasted on a thumbnail canvas.
+        thumbnails[trip.startTimeMs] = if (points.size > 200) {
             val step = points.size / 200
             points.filterIndexed { i, _ -> i % step == 0 }
         } else points
-        result[trip.startTimeMs] = pts.map { it.at }
     }
-    return result
+    return TripTraces(thumbnails, visits)
+}
+
+/** Everything the Logbook renders from, loaded together off the main thread. */
+private data class LogbookData(
+    val trips: List<Trip>,
+    val thumbnails: Map<Long, List<LatLon>>,
+    val places: Map<Long, List<PlaceVisit>>,
+    val titles: Map<Long, String>,
+    val milestones: List<LogbookItem.Milestone>,
+)
+
+private fun loadLogbook(): LogbookData {
+    val trips = TripStore.loadStrict()
+    val traces = matchTraces(trips, MunicipalityStore.load())
+    return LogbookData(
+        trips = trips,
+        thumbnails = traces.thumbnails,
+        places = Logbook.placesByTrip(traces.visits),
+        titles = TripTitleStore.load(),
+        milestones = BadgeStore.earned().map { (def, at) -> LogbookItem.Milestone(def.title, at) },
+    )
 }
 
 /** The full (undecimated) polyline driven during [trip], for [TripDetailScreen]
@@ -178,18 +219,29 @@ fun loadTripPoints(trip: Trip): List<TraceStore.TracePoint> =
     matchTripPoints(readTraceSegments(), trip)
 
 private val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
-private fun monthKey(timeMs: Long) = SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(timeMs)
+private val rideDateFormat = SimpleDateFormat("EEE d MMM · HH:mm", Locale.getDefault())
+
+/** Height of a ride's route thumbnail, and of the current month's overlay. */
+private val RIDE_THUMB_HEIGHT = 132.dp
+private val MONTH_MAP_HEIGHT = 180.dp
+
+/** What the ⋮ menu on a ride asks for. One callback instead of three keeps
+ *  [RideCard] under the seven-parameter gate (§8.4). */
+private sealed interface RideEdit {
+    data class Rename(val title: String) : RideEdit
+    data class ChangeMode(val mode: TravelMode) : RideEdit
+    data object Delete : RideEdit
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
     val scope = rememberCoroutineScope()
-    // Loaded off the main thread: reading + JSON-parsing the store inside a
-    // remember{} ran during composition and stalled the first frame (~125 ms on a
-    // large history), which is what made opening and scrolling feel stuck. Null
-    // means the first load hasn't landed — still running, or failed, which the
-    // message below tells apart; the reloads after an edit go through IO too.
-    var entries by remember { mutableStateOf<List<HistoryEntry>?>(null) }
+    // Loaded off the main thread: parsing trips, traces and boundaries during
+    // composition would stall the first frame. Null means the first load
+    // hasn't landed — still running, or failed, which the message below tells
+    // apart; the reloads after an edit go through IO too.
+    var data by remember { mutableStateOf<LogbookData?>(null) }
     // One message for both failures: a failed load has no list to sit above and
     // a failed delete has a list but no other place to say so, and the two can't
     // be pending at once. Clearing it as a load starts stops a stale message
@@ -197,108 +249,126 @@ fun HistoryScreen(onBack: () -> Unit, onOpenTrip: (Trip) -> Unit) {
     var error by remember { mutableStateOf("") }
     fun reload() = scope.launch {
         error = ""
-        // Both reads parse files on the device, and either can throw on a
-        // truncated or unreadable one. Uncaught, that left entries null forever
-        // — which rendered as the "no trips yet" blank, on a full history.
-        // loadStrict, not load: load() reads a corrupt file as an empty list,
-        // and this is the one screen that can tell the rider the difference.
-        val result = withContext(Dispatchers.IO) {
-            runCatching {
-                val trips = TripStore.loadStrict()
-                val thumbnails = matchThumbnails(trips)
-                trips.map { HistoryEntry(it, thumbnails[it.startTimeMs]) }
-            }
-        }
-        result.onSuccess { entries = it }.onFailure {
-            Log.w("DetourHistory", "trip history load failed", it)
-            error = "Could not read your trip history from this device."
+        // loadStrict (inside loadLogbook), not load: load() reads a corrupt
+        // file as an empty list, and this is the one screen that can tell the
+        // rider the difference.
+        val result = withContext(Dispatchers.IO) { runCatching { loadLogbook() } }
+        result.onSuccess { data = it }.onFailure {
+            Log.w("DetourHistory", "logbook load failed", it)
+            error = "Could not read your logbook from this device."
         }
     }
     LaunchedEffect(Unit) { reload() }
 
+    fun edit(trip: Trip, edit: RideEdit) = scope.launch {
+        when (edit) {
+            is RideEdit.Rename -> withContext(Dispatchers.IO) { TripTitleStore.set(trip.startTimeMs, edit.title) }
+            is RideEdit.ChangeMode -> {
+                withContext(Dispatchers.IO) { TripStore.updateMode(trip.startTimeMs, edit.mode) }
+                // Push the correction so it survives a reinstall / other devices.
+                SyncClient.syncQuietly()
+            }
+            RideEdit.Delete -> {
+                // TripStore.delete rewrites trips.json and the tombstone file;
+                // either write can fail. Reloading anyway would redraw the row
+                // with no hint that the delete never happened.
+                val deleted = withContext(Dispatchers.IO) { runCatching { TripStore.delete(trip.startTimeMs) } }
+                if (deleted.isFailure) {
+                    error = "Could not delete that trip — it is still in your logbook. Try again."
+                    return@launch
+                }
+            }
+        }
+        reload() // clears any message on its way in
+    }
+
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = { SubScreenTopBar("Trip history", onBack, scrollBehavior) },
+        topBar = { SubScreenTopBar("Logbook", onBack, scrollBehavior) },
     ) { padding ->
-        val loaded = entries
+        val loaded = data
         val slot = Modifier.fillMaxSize().padding(padding)
-        if (loaded == null && error.isNotEmpty()) {
-            HistoryLoadFailed(error, onRetry = { reload() }, modifier = slot)
-        } else if (loaded == null) {
-            Box(slot, contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-        } else if (loaded.isEmpty()) {
-            NoTripsYet(slot)
-        } else {
-            // Trips are stored newest-first (TripStore.save prepends), so a
-            // plain groupBy keeps that order and each month lands as one
-            // contiguous run — no explicit sort needed.
-            val byMonth = loaded.groupBy { monthKey(it.trip.startTimeMs) }
-            Column(Modifier.fillMaxSize().padding(padding)) {
-                // Above the list, not an item in it: a delete fails on the row the
-                // rider is looking at, which is rarely the first one, and a message
-                // inserted at the top of a scrolled list lands off screen.
-                if (error.isNotEmpty()) {
-                    Text(
-                        error,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        when {
+            loaded == null && error.isNotEmpty() -> HistoryLoadFailed(error, onRetry = { reload() }, modifier = slot)
+            loaded == null -> Box(slot, contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            loaded.trips.isEmpty() -> NoTripsYet(slot)
+            else -> LogbookList(loaded, error, onOpenTrip, ::edit, slot)
+        }
+    }
+}
+
+/** The filter chips over the month chapters. [error] sits above the list, not
+ *  in it: a delete fails on the row the rider is looking at, which is rarely
+ *  the first one, and a message inserted at the top of a scrolled list lands
+ *  off screen. */
+@Composable
+private fun LogbookList(
+    loaded: LogbookData,
+    error: String,
+    onOpenTrip: (Trip) -> Unit,
+    onEdit: (Trip, RideEdit) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var filter by rememberSaveable { mutableStateOf(LogbookFilter.ALL) }
+    // Chapters the rider opened by hand; the current month is always open.
+    val openMonths = remember { mutableStateListOf<Int>() }
+    val thisMonth = remember { Logbook.monthOf(System.currentTimeMillis()) }
+    val months = remember(loaded, filter) {
+        Logbook.build(loaded.trips, filter, loaded.places, loaded.titles, loaded.milestones)
+    }
+    Column(modifier) {
+        if (error.isNotEmpty()) {
+            Text(
+                error,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (f in LogbookFilter.entries) {
+                FilterChip(selected = f == filter, onClick = { filter = f }, label = { Text(f.label) })
+            }
+        }
+        if (months.isEmpty()) {
+            Text(
+                "No ${filter.label.lowercase()} rides yet.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(16.dp),
+            )
+        }
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            for (month in months) {
+                val ym = month.year * 100 + month.month
+                val current = ym == thisMonth
+                val open = current || ym in openMonths
+                item(key = "m$ym") {
+                    MonthHeader(
+                        month, open, current,
+                        overlay = if (!current) null
+                        else month.rides.mapNotNull { loaded.thumbnails[it.trip.startTimeMs] },
+                        onToggle = { if (!openMonths.remove(ym)) openMonths.add(ym) },
                     )
                 }
-                LazyColumn(
-                    Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    for ((_, monthEntries) in byMonth) {
-                        val totalKm = monthEntries.sumOf { it.trip.distanceMeters } / 1000.0
-                        item {
-                            Text(
-                                "${monthFormat.format(monthEntries.first().trip.startTimeMs)} · " +
-                                    "${monthEntries.size} trips · ${"%,.0f".format(totalKm)} km",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 8.dp, bottom = 2.dp, start = 4.dp),
-                            )
-                        }
-                        items(monthEntries, key = { it.trip.startTimeMs }) { entry ->
-                            TripCard(
-                                // Deleting a trip slides the rest up instead of snapping.
-                                modifier = Modifier.animateItem(),
-                                entry = entry,
-                                onOpen = { onOpenTrip(entry.trip) },
-                                onChangeMode = { newMode ->
-                                    scope.launch {
-                                        withContext(Dispatchers.IO) {
-                                            TripStore.updateMode(entry.trip.startTimeMs, newMode)
-                                        }
-                                        reload()
-                                        // Push the correction so it survives a reinstall / other devices.
-                                        SyncClient.syncQuietly()
-                                    }
-                                },
-                                onDelete = {
-                                    scope.launch {
-                                        // TripStore.delete rewrites trips.json and
-                                        // the tombstone file; either write can fail.
-                                        // Reloading anyway would redraw the row with
-                                        // no hint that the delete never happened.
-                                        val deleted = withContext(Dispatchers.IO) {
-                                            runCatching { TripStore.delete(entry.trip.startTimeMs) }
-                                        }
-                                        if (deleted.isFailure) {
-                                            error = "Could not delete that trip — " +
-                                                "it is still in your history. Try again."
-                                        } else {
-                                            reload() // clears the message on its way in
-                                        }
-                                    }
-                                },
-                            )
-                        }
+                if (!open) continue
+                items(month.items, key = { it.key() }) { item ->
+                    when (item) {
+                        is LogbookItem.Milestone -> MilestoneRow(item, Modifier.animateItem())
+                        is LogbookItem.Ride -> RideCard(
+                            modifier = Modifier.animateItem(),
+                            ride = item,
+                            thumbnail = loaded.thumbnails[item.trip.startTimeMs],
+                            onOpen = { onOpenTrip(item.trip) },
+                            onEdit = { onEdit(item.trip, it) },
+                        )
                     }
-            }
+                }
             }
         }
     }
@@ -321,7 +391,7 @@ private fun NoTripsYet(modifier: Modifier = Modifier) {
         )
         Text("No trips yet", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Track a drive or spin a destination — trips land here.",
+            "Track a drive or spin a destination — your rides land here.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -347,88 +417,143 @@ private fun HistoryLoadFailed(message: String, onRetry: () -> Unit, modifier: Mo
     }
 }
 
-/** One trip: a thumbnail of its trace (or the mode icon when none was kept), a
- *  title and one stat line, and a single overflow menu for the two edit actions
- *  that used to be their own icon buttons. Tapping the card opens the route
- *  detail screen, but only when there's a trace to show — a trip with no
- *  matched thumbnail has nothing to draw on a map either. */
+private fun LogbookItem.key(): String = when (this) {
+    is LogbookItem.Ride -> "r${trip.startTimeMs}"
+    is LogbookItem.Milestone -> "b$atMs$title"
+}
+
+/** "September 2026" and its one-line summary. The current month also draws
+ *  all its routes on one canvas; older months collapse to the line alone. */
 @Composable
-private fun TripCard(
-    entry: HistoryEntry,
+private fun MonthHeader(
+    month: LogbookMonth,
+    open: Boolean,
+    current: Boolean,
+    overlay: List<List<LatLon>>?,
+    onToggle: () -> Unit,
+) {
+    val rides = month.rides.size
+    val summary = listOfNotNull(
+        if (rides == 1) "1 ride" else "$rides rides",
+        formatDistanceKm(month.meters),
+        month.newPlaces.takeIf { it > 0 }?.let { if (it == 1) "1 new place" else "$it new places" },
+    ).joinToString(" · ")
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .clickable(enabled = !current, onClick = onToggle)
+            .padding(top = 8.dp, bottom = 2.dp, start = 4.dp, end = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    monthFormat.format(month.items.first().atMs),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(summary, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (!current) {
+                Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = if (open) "Collapse month" else "Expand month")
+            }
+        }
+        if (!overlay.isNullOrEmpty()) {
+            TraceThumbnail(
+                overlay,
+                Modifier
+                    .fillMaxWidth()
+                    .height(MONTH_MAP_HEIGHT)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            )
+        }
+    }
+}
+
+@Composable
+private fun MilestoneRow(m: LogbookItem.Milestone, modifier: Modifier = Modifier) {
+    Row(
+        modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(Icons.Outlined.EmojiEvents, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+        Text("Badge earned: ${m.title}", style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.tertiary)
+    }
+}
+
+/** The dialogs the ⋮ menu opens; at most one at a time. */
+private enum class RideDialog { RENAME, VEHICLE, DELETE, CARD }
+
+/** One ride: its route large, its title, when and how far, and at most one
+ *  highlight chip. Everything else is on the trip screen. Tapping opens it,
+ *  but only when there's a trace to show — a trip with no matched trace has
+ *  nothing to draw on a map either. */
+@Composable
+private fun RideCard(
+    ride: LogbookItem.Ride,
+    thumbnail: List<LatLon>?,
     onOpen: () -> Unit,
-    onChangeMode: (TravelMode) -> Unit,
-    onDelete: () -> Unit,
+    onEdit: (RideEdit) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val trip = entry.trip
+    val trip = ride.trip
     var menuOpen by remember { mutableStateOf(false) }
-    var vehicleMenuOpen by remember { mutableStateOf(false) }
-    var confirmDelete by remember { mutableStateOf(false) }
-    var cardDialogOpen by remember { mutableStateOf(false) }
-    var cardPoints by remember { mutableStateOf<List<LatLon>?>(null) }
+    var dialog by remember { mutableStateOf<RideDialog?>(null) }
+    fun open(d: RideDialog) {
+        menuOpen = false
+        dialog = d
+    }
     Card(
         // The overflow IconButton below has its own clickable, so a tap on it
         // is consumed there and never reaches this one.
-        modifier = if (entry.thumbnail != null) modifier.clickable(onClick = onOpen) else modifier,
+        modifier = if (thumbnail != null) modifier.clickable(onClick = onOpen) else modifier,
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column {
+            if (thumbnail != null) {
+                TraceThumbnail(
+                    thumbnail,
+                    Modifier
+                        .fillMaxWidth()
+                        .height(RIDE_THUMB_HEIGHT)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                )
+            }
             Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                val thumb = entry.thumbnail
-                if (thumb != null) {
-                    TraceThumbnail(
-                        thumb,
-                        Modifier
-                            .size(52.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                    )
-                } else {
-                    Box(
-                        Modifier
-                            .size(52.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            trip.mode.icon, contentDescription = null,
-                            Modifier.size(24.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                Column(Modifier.weight(1f)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(ride.title, style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "${trip.mode.label} · ${formatDate(trip.startTimeMs)} – " +
-                            formatTimeOfDay(trip.endTimeMs),
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    Text(
-                        tripStatLine(trip),
+                        "${rideDateFormat.format(trip.startTimeMs)} · ${formatDistanceKm(trip.distanceMeters)} · " +
+                            formatDurationHistory(trip.durationMs),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
+                    ride.chip?.let {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                        ) {
+                            Text(it, style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                        }
+                    }
                 }
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
-                        Icon(Icons.Outlined.MoreVert, contentDescription = "Trip options",
-                            Modifier.size(18.dp))
+                        Icon(Icons.Outlined.MoreVert, contentDescription = "Trip options", Modifier.size(18.dp))
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Change vehicle") },
-                            onClick = { menuOpen = false; vehicleMenuOpen = true },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Share trip card") },
-                            onClick = { menuOpen = false; cardDialogOpen = true },
-                        )
+                        DropdownMenuItem(text = { Text("Rename") }, onClick = { open(RideDialog.RENAME) })
+                        DropdownMenuItem(text = { Text("Change vehicle") }, onClick = { open(RideDialog.VEHICLE) })
+                        DropdownMenuItem(text = { Text("Share trip card") }, onClick = { open(RideDialog.CARD) })
                         HorizontalDivider()
                         DropdownMenuItem(
                             text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
@@ -436,17 +561,43 @@ private fun TripCard(
                                 Icon(Icons.Outlined.Delete, contentDescription = null,
                                     tint = MaterialTheme.colorScheme.error)
                             },
-                            onClick = { menuOpen = false; confirmDelete = true },
+                            onClick = { open(RideDialog.DELETE) },
                         )
                     }
                 }
             }
         }
     }
+    dialog?.let { RideDialogs(ride, it, onDismiss = { dialog = null }, onEdit = onEdit) }
+}
 
-    if (vehicleMenuOpen) {
-        AlertDialog(
-            onDismissRequest = { vehicleMenuOpen = false },
+@Composable
+private fun RideDialogs(ride: LogbookItem.Ride, dialog: RideDialog, onDismiss: () -> Unit, onEdit: (RideEdit) -> Unit) {
+    val trip = ride.trip
+    when (dialog) {
+        RideDialog.RENAME -> {
+            // Opens with the title selected: typing replaces it, which is what
+            // a rename almost always wants; a tap places the cursor to edit.
+            var text by remember { mutableStateOf(TextFieldValue(ride.title, TextRange(0, ride.title.length))) }
+            AlertDialog(
+                onDismissRequest = onDismiss,
+                title = { Text("Rename ride") },
+                text = { OutlinedTextField(text, { text = it }, singleLine = true) },
+                confirmButton = {
+                    TextButton(onClick = { onDismiss(); onEdit(RideEdit.Rename(text.text)) }) { Text("Save") }
+                },
+                dismissButton = {
+                    // Blank goes back to the generated title (TripTitleStore.set).
+                    if (ride.titleEdited) {
+                        TextButton(onClick = { onDismiss(); onEdit(RideEdit.Rename("")) }) { Text("Use generated") }
+                    } else {
+                        TextButton(onClick = onDismiss) { Text("Cancel") }
+                    }
+                },
+            )
+        }
+        RideDialog.VEHICLE -> AlertDialog(
+            onDismissRequest = onDismiss,
             title = { Text("Change vehicle") },
             text = {
                 Column {
@@ -457,79 +608,29 @@ private fun TripCard(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    vehicleMenuOpen = false
-                                    if (m != trip.mode) onChangeMode(m)
+                                    onDismiss()
+                                    if (m != trip.mode) onEdit(RideEdit.ChangeMode(m))
                                 }
                                 .padding(vertical = 12.dp),
                         )
                     }
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { vehicleMenuOpen = false }) { Text("Close") }
-            },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
         )
-    }
-
-    if (confirmDelete) {
-        ConfirmDialog(
+        RideDialog.DELETE -> ConfirmDialog(
             title = "Delete this trip?",
-            text = "${trip.mode.label} · ${formatDate(trip.startTimeMs)} — " +
-                "${formatDistanceKm(trip.distanceMeters)}. This can't be undone.",
+            text = "${ride.title} — ${formatDistanceKm(trip.distanceMeters)}. This can't be undone.",
             confirmLabel = "Delete",
-            onConfirm = onDelete,
-            onDismiss = { confirmDelete = false },
+            onConfirm = { onEdit(RideEdit.Delete) },
+            onDismiss = onDismiss,
         )
-    }
-
-    if (cardDialogOpen) {
-        LaunchedEffect(Unit) {
-            if (cardPoints == null) {
-                cardPoints = withContext(Dispatchers.IO) { loadTripTrace(trip) }
-            }
+        RideDialog.CARD -> {
+            var cardPoints by remember { mutableStateOf<List<LatLon>?>(null) }
+            LaunchedEffect(Unit) { cardPoints = withContext(Dispatchers.IO) { loadTripTrace(trip) } }
+            TripCardShareDialog(trip, cardPoints, onDismiss = onDismiss)
         }
-        TripCardShareDialog(
-            trip, cardPoints,
-            onDismiss = { cardDialogOpen = false; cardPoints = null },
-        )
     }
-}
-
-/** "duration · distance · avg X · top Y" plus lean/G when the vehicle tracks
- *  them — the core numbers, the one line a history row (maxLines = 1) has room
- *  for without ellipsing half of them away. The driving-behaviour counts moved
- *  to [tripBehaviorLine], which only the trip-detail card renders. */
-fun tripStatLine(trip: Trip): String {
-    val parts = mutableListOf(
-        formatDurationHistory(trip.durationMs),
-        formatDistanceKm(trip.distanceMeters),
-        "avg " + formatSpeedKmh(trip.avgSpeedMps),
-        "top " + formatSpeedKmh(trip.topSpeedMps),
-    )
-    if (trip.mode.tracksLean) parts += "lean " + formatLeanAngle(trip.maxLeanAngleDeg)
-    if (trip.mode.tracksGForce) parts += "max " + formatGForce(trip.maxGForce)
-    return parts.joinToString(" · ")
-}
-
-/** Hard-event counts, stops, OBD2 coverage and fuel economy — the
- *  driving-behaviour extras that used to trail [tripStatLine] and get ellipsed
- *  off a history row. Null when the trip recorded none of them, so the caller
- *  can skip the row. */
-fun tripBehaviorLine(trip: Trip): String? {
-    val ds = trip.drivingStats
-    val parts = mutableListOf<String>()
-    if (ds.hardBrakeCount > 0) parts += "${ds.hardBrakeCount} hard brake" + if (ds.hardBrakeCount == 1) "" else "s"
-    if (ds.hardAccelCount > 0) parts += "${ds.hardAccelCount} hard accel" + if (ds.hardAccelCount == 1) "" else "s"
-    if (ds.hardCornerCount > 0) parts += "${ds.hardCornerCount} hard corner" + if (ds.hardCornerCount == 1) "" else "s"
-    if (ds.stopCount > 0) parts += "${ds.stopCount} stop" + if (ds.stopCount == 1) "" else "s"
-    if (ds.obd2SpeedPct > 0.0) {
-        val pct = ds.obd2SpeedPct.roundToInt()
-        parts += if (pct == 0) "OBD2 <1%" else "OBD2 $pct%"
-    }
-    tripFuelEconomyLper100Km(trip)?.let {
-        parts += (if (ds.fuelEstimated) "~" else "") + formatFuelPer100Km(it)
-    }
-    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
 
 /** Litres per 100 km over the distance a fuel reading was actually live, or null
@@ -547,40 +648,50 @@ fun tripFuelEconomyLper100Km(trip: Trip): Double? {
  *  trip's distance before the economy figure is shown. */
 private const val FUEL_COVERAGE_MIN = 0.8
 
-/** Draws the trip's trace as a simple normalized polyline — not a map, just a
- *  recognizable shape at a glance. Lat/lon are scaled independently to fill
- *  the thumbnail; at this size the distortion from true distance doesn't
- *  matter and equirectangular projection math would be wasted precision. */
+/** Draws one or more traces as simple normalized polylines on a shared
+ *  scale — not a map, just a recognizable shape at a glance. Lat/lon are scaled
+ *  independently to fill the canvas; at this size the distortion from true
+ *  distance doesn't matter and equirectangular projection math would be wasted
+ *  precision. */
 @Composable
-private fun TraceThumbnail(points: List<LatLon>, modifier: Modifier = Modifier) {
+private fun TraceThumbnail(points: List<LatLon>, modifier: Modifier = Modifier) =
+    TraceThumbnail(listOf(points), modifier)
+
+@Composable
+@JvmName("TraceThumbnailMany")
+private fun TraceThumbnail(lines: List<List<LatLon>>, modifier: Modifier = Modifier) {
     val color = MaterialTheme.colorScheme.primary
     Canvas(modifier) {
-        if (points.size < 2) return@Canvas
-        val lats = points.map { it.lat }
-        val lons = points.map { it.lon }
-        val latSpan = ((lats.max() - lats.min())).let { if (it > 1e-9) it else 1.0 }
-        val lonSpan = ((lons.max() - lons.min())).let { if (it > 1e-9) it else 1.0 }
-        val minLat = lats.min()
-        val minLon = lons.min()
-        val pad = size.minDimension * 0.18f
-        val w = size.width - pad * 2
-        val h = size.height - pad * 2
-        fun offsetOf(p: LatLon): Offset {
-            val x = pad + ((p.lon - minLon) / lonSpan).toFloat() * w
+        val all = lines.flatten()
+        if (all.size < 2) return@Canvas
+        val latSpan = (all.maxOf { it.lat } - all.minOf { it.lat }).let { if (it > 1e-9) it else 1.0 }
+        val lonSpan = (all.maxOf { it.lon } - all.minOf { it.lon }).let { if (it > 1e-9) it else 1.0 }
+        val minLat = all.minOf { it.lat }
+        val minLon = all.minOf { it.lon }
+        val pad = size.minDimension * 0.12f
+        // Keep the shape's own aspect: a wide canvas would otherwise stretch
+        // a north-south ride into a flat line.
+        val scale = minOf((size.width - pad * 2) / lonSpan.toFloat(), (size.height - pad * 2) / latSpan.toFloat())
+        val offX = (size.width - lonSpan.toFloat() * scale) / 2
+        val offY = (size.height - latSpan.toFloat() * scale) / 2
+        fun offsetOf(p: LatLon) = Offset(
+            offX + ((p.lon - minLon).toFloat() * scale),
             // Screen y grows downward; north (higher lat) should sit higher.
-            val y = pad + (1f - ((p.lat - minLat) / latSpan).toFloat()) * h
-            return Offset(x, y)
-        }
-        val path = Path()
-        val start = offsetOf(points.first())
-        path.moveTo(start.x, start.y)
-        for (p in points.drop(1)) {
-            val o = offsetOf(p)
-            path.lineTo(o.x, o.y)
-        }
-        drawPath(
-            path, color,
-            style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
+            offY + ((latSpan - (p.lat - minLat)).toFloat() * scale),
         )
+        for (points in lines) {
+            if (points.size < 2) continue
+            val path = Path()
+            val start = offsetOf(points.first())
+            path.moveTo(start.x, start.y)
+            for (p in points.drop(1)) {
+                val o = offsetOf(p)
+                path.lineTo(o.x, o.y)
+            }
+            drawPath(
+                path, color,
+                style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
+            )
+        }
     }
 }
