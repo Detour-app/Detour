@@ -1,10 +1,14 @@
 package com.jellemax.detour.data
 
+import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.atStartOfDayIn
+import kotlinx.datetime.minus
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.json.JsonPrimitive
+import kotlin.math.roundToInt
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -22,6 +26,15 @@ sealed interface LogbookItem {
         val places: List<PlaceVisit>,
     ) : LogbookItem {
         override val atMs get() = trip.startTimeMs
+
+        /** A ride worth a full card: it earned a highlight or found a new
+         *  town. The rest — commutes, errands — collapse to a compact row, or
+         *  a Logbook of daily drives is forty screens of identical maps. */
+        val standout: Boolean get() = chip != null || places.any { it.isNew }
+
+        /** Stamps earn their space when one is new, or there's a route to
+         *  tell; one familiar town repeats on every commute and says nothing. */
+        val stampsWorthShowing: Boolean get() = places.any { it.isNew } || places.size >= 2
     }
 
     /** A badge earned, shown between the rides it was earned among. */
@@ -64,6 +77,11 @@ object Logbook {
     /** Places named in a ride title before it would stop reading as a title. */
     private const val TITLE_PLACES = 2
 
+    /** A ride whose middle lies further than this from where the month's rides
+     *  cluster is left off the month map, or one trip abroad zooms the whole
+     *  month out to country scale. */
+    const val MONTH_MAP_FOCUS_METERS = 50_000.0
+
     fun timeOfDay(hour: Int): String = when (hour) {
         in 5..11 -> "morning"
         in 12..16 -> "afternoon"
@@ -75,17 +93,20 @@ object Logbook {
 
     /**
      * A ride: "Sunday afternoon ride through Ronse and Kluisbergen", naming the
-     * new places first because those are the story. Any other vehicle: plain
-     * "Gent to Aalst", or "Around Gent" for a trip that never left one town.
+     * new places first because those are the story. Any other vehicle leads with
+     * the time of day, so the same commute doesn't read identically every day:
+     * "Evening drive from Gent to Aalst", "Morning drive around Gent".
      */
     internal fun autoTitle(trip: Trip, places: List<PlaceVisit>, zone: TimeZone): String {
         val dt = Instant.fromEpochMilliseconds(trip.startTimeMs).toLocalDateTime(zone)
         val names = places.map { it.name }
         if (trip.mode != TravelMode.MOTO) {
+            val noun = if (trip.mode == TravelMode.CAR) "drive" else "${trip.mode.label.lowercase()} trip"
+            val lead = "${timeOfDay(dt.hour).replaceFirstChar { it.uppercase() }} $noun"
             return when {
-                names.size >= 2 -> "${names.first()} to ${names.last()}"
-                names.size == 1 -> "Around ${names.single()}"
-                else -> "${weekday(dt.dayOfWeek)} ${timeOfDay(dt.hour)} ${trip.mode.label.lowercase()} trip"
+                names.size >= 2 -> "$lead from ${names.first()} to ${names.last()}"
+                names.size == 1 -> "$lead around ${names.single()}"
+                else -> "${weekday(dt.dayOfWeek)} ${timeOfDay(dt.hour)} $noun"
             }
         }
         val base = "${weekday(dt.dayOfWeek)} ${timeOfDay(dt.hour)} ride"
@@ -184,6 +205,44 @@ object Logbook {
             .map { (ym, items) -> LogbookMonth(ym / 100, ym % 100, items) }
             .filter { it.rides.isNotEmpty() }
     }
+
+    /** The title a ride shows everywhere: the rider's own edit, else the
+     *  generated one, in the device's zone. */
+    fun title(trip: Trip, places: List<PlaceVisit>, edited: String?): String =
+        edited ?: autoTitle(trip, places, TimeZone.currentSystemDefault())
+
+    /**
+     * The month map's lines minus far-off outliers: kept are the lines whose
+     * middle point lies within [MONTH_MAP_FOCUS_METERS] of the median of all
+     * the middles — the median, not the mean, so the outliers don't drag the
+     * centre towards themselves.
+     */
+    fun mapFocus(lines: List<List<LatLon>>): List<List<LatLon>> {
+        val mids = lines.filter { it.isNotEmpty() }.map { it[it.size / 2] }
+        if (mids.size < 3) return lines
+        val centre = LatLon(mids.map { it.lat }.sorted()[mids.size / 2], mids.map { it.lon }.sorted()[mids.size / 2])
+        return lines.filter {
+            it.isNotEmpty() && RoadRoulette.distanceMeters(it[it.size / 2], centre) <= MONTH_MAP_FOCUS_METERS
+        }
+    }
+
+    /** Whole weeks (Monday-based) between [ms] and [nowMs]: 0 this week, 1 last. */
+    fun weeksAgo(ms: Long, nowMs: Long): Int = weeksAgo(ms, nowMs, TimeZone.currentSystemDefault())
+
+    internal fun weeksAgo(ms: Long, nowMs: Long, zone: TimeZone): Int =
+        // Rounded, not floored: a week holding a DST switch is an hour short.
+        ((weekStartMs(nowMs, zone) - weekStartMs(ms, zone)).toDouble() / WEEK_MS).roundToInt()
+
+    /** Midnight on the Monday of [ms]'s week. */
+    fun weekStartMs(ms: Long): Long = weekStartMs(ms, TimeZone.currentSystemDefault())
+
+    internal fun weekStartMs(ms: Long, zone: TimeZone): Long {
+        val date = Instant.fromEpochMilliseconds(ms).toLocalDateTime(zone).date
+        val monday = date.minus(date.dayOfWeek.ordinal, DateTimeUnit.DAY)
+        return monday.atStartOfDayIn(zone).toEpochMilliseconds()
+    }
+
+    private const val WEEK_MS = 7 * 24 * 3_600_000L
 
     /** yyyymm, so it sorts and groups as one number. */
     fun monthOf(ms: Long): Int = monthOf(ms, TimeZone.currentSystemDefault())
