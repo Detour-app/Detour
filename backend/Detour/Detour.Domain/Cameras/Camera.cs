@@ -233,18 +233,21 @@ public sealed class Camera : Entity
 
     /// <summary>Called once per completed import run of <paramref name="source"/>, for every
     /// active camera that source has ever reported but did not see this run (the repository
-    /// decides which cameras qualify — see <see cref="ICameraRepository"/>). Increments that
-    /// source's own <see cref="CameraSource.MissedRuns"/> streak — reset to 0 the next time
+    /// decides which cameras qualify — see <see cref="ICameraRepository"/>). Increments the
+    /// <see cref="CameraSource.MissedRuns"/> streak of the entry keyed on
+    /// (<paramref name="source"/>, <paramref name="sourceId"/>) — not merely the source's first
+    /// entry, since clustering can merge two nodes of one source into one camera (issue #406) —
+    /// reset to 0 the next time
     /// <see cref="MergeSource"/> refreshes it — and retires the camera only once *every* source
     /// that has ever reported it has independently missed <paramref name="retireAfterMisses"/>
     /// consecutive runs of its own: a source still reporting keeps the camera alive even while
     /// another has gone quiet. Design decision for issue #369 — the threshold is a caller-supplied
     /// count of runs, not wall-clock time, since sources import on different cadences. A no-op if
-    /// this camera was never reported by <paramref name="source"/> at all.</summary>
-    public void MarkSourceMissing(string source, int retireAfterMisses)
+    /// this camera carries no such entry.</summary>
+    public void MarkSourceMissing(string source, string sourceId, int retireAfterMisses)
     {
         var sources = Sources.ToList();
-        var i = sources.FindIndex(s => s.Source == source);
+        var i = sources.FindIndex(s => s.Source == source && s.SourceId == sourceId);
         if (i < 0) return;
 
         sources[i] = sources[i] with { MissedRuns = sources[i].MissedRuns + 1 };
