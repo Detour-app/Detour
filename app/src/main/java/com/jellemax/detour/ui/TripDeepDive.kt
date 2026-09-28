@@ -126,7 +126,7 @@ fun tripHighlights(trip: Trip, points: List<TraceStore.TracePoint>, bestStretch:
         out += TripHighlight("corner", "Sharpest corner", eventValue(it), COLOR_CORNER, it.at)
     }
     m.events.filter { it.kind == RidingEventKind.HARD_BRAKE }.minByOrNull { it.magnitude }?.let {
-        out += TripHighlight("brake", "Hardest stop", eventValue(it), COLOR_BRAKE, it.at)
+        out += TripHighlight("brake", "Hardest braking", eventValue(it), COLOR_BRAKE, it.at)
     }
     m.topSpeed?.let { out += TripHighlight("speed", "Top speed", formatSpeedKmh(it.value), COLOR_TOP_SPEED, it.at) }
     return out
@@ -187,13 +187,13 @@ fun TripDeepDive(
             Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 OverviewSection(trip, sections)
                 SpeedSection(trip, sections)
-                if (trip.mode.tracksLean || trip.mode.tracksGForce) CorneringSection(trip, sections, leanOffsetDeg)
+                if (trip.mode.tracksLean) CorneringSection(trip, sections)
                 EventsSection(trip)
                 SplitsSection(sections)
                 RoadsSection(trip)
                 StopsSection(trip, extras)
                 EngineSection(trip)
-                RecordingSection(trip, points.size, sections)
+                RecordingSection(trip, points.size, sections, leanOffsetDeg)
             }
         }
     }
@@ -235,7 +235,10 @@ private fun ShareRow(label: String, ms: Long, totalMs: Long) {
     Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
         Row(Modifier.fillMaxWidth()) {
             Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-            Text(formatDurationHistory(ms), style = MaterialTheme.typography.bodySmall)
+            // formatDurationHistory floors to whole minutes; "0 min" next to a
+            // bar reads as nothing, when it was seconds.
+            Text(if (ms in 1 until 60_000) "<1 min" else formatDurationHistory(ms),
+                style = MaterialTheme.typography.bodySmall)
         }
         LinearProgressIndicator(
             progress = { if (totalMs > 0) (ms.toFloat() / totalMs).coerceIn(0f, 1f) else 0f },
@@ -279,18 +282,11 @@ private fun SpeedSection(trip: Trip, n: DeepDiveNumbers) {
             )
         }
         Stat("Top speed", formatSpeedKmh(trip.topSpeedMps))
-        val obd2Pct = ds.obd2SpeedPct.roundToInt()
-        val source = when {
-            ds.obd2SpeedPct <= 0.0 -> "GPS"
-            obd2Pct == 0 -> "OBD2 <1% · GPS the rest"
-            else -> "OBD2 $obd2Pct% · GPS the rest"
-        }
-        Stat("Speed source", source)
     }
 }
 
 @Composable
-private fun CorneringSection(trip: Trip, n: DeepDiveNumbers, leanOffsetDeg: Float) {
+private fun CorneringSection(trip: Trip, n: DeepDiveNumbers) {
     Column {
         SectionTitle("Cornering")
         val lean = n.lean
@@ -306,9 +302,9 @@ private fun CorneringSection(trip: Trip, n: DeepDiveNumbers, leanOffsetDeg: Floa
             for (b in lean.bands) if (b.ms > 0) {
                 ShareRow(if (b.toDeg == null) "${b.fromDeg}°+" else "${b.fromDeg}–${b.toDeg}°", b.ms, leaned)
             }
-            Stat("Mount offset (current calibration)", formatLeanAngle(leanOffsetDeg.toDouble()))
         }
-        if (trip.mode.tracksGForce && trip.maxGForce > 0.0) Stat("Max g", formatGForce(trip.maxGForce))
+        // No "Max g": the recorded figure still counts gravity, so every car
+        // trip reads 1-2 g. Back when it measures the ride alone (#478).
     }
 }
 
@@ -319,8 +315,8 @@ private fun EventsSection(trip: Trip) {
     val ds = trip.drivingStats
     fun count(n: Int, one: String, many: String) = if (n == 0) null else "$n ${if (n == 1) one else many}"
     val parts = listOfNotNull(
-        count(ds.hardBrakeCount, "hard stop", "hard stops"),
-        count(ds.hardAccelCount, "fast take-off", "fast take-offs"),
+        count(ds.hardBrakeCount, "hard brake", "hard brakes"),
+        count(ds.hardAccelCount, "fast start", "fast starts"),
         count(ds.hardCornerCount, "sharp corner", "sharp corners"),
     )
     if (parts.isEmpty()) return
@@ -414,17 +410,43 @@ private fun EngineSection(trip: Trip) {
     }
 }
 
+/** How the trip was recorded — for the curious or for a bug report, so
+ *  it stays folded. */
 @Composable
-private fun RecordingSection(trip: Trip, storedPoints: Int, n: DeepDiveNumbers) {
+private fun RecordingSection(trip: Trip, storedPoints: Int, n: DeepDiveNumbers, leanOffsetDeg: Float) {
+    var open by remember { mutableStateOf(false) }
     Column {
-        SectionTitle("Recording")
-        Stat("Vehicle", trip.mode.label)
-        Stat("Stored points (every 25 m)", "$storedPoints")
-        Stat("Signal gaps", if (n.signalGaps == 0) "none" else "${n.signalGaps}")
-        HorizontalDivider(Modifier.padding(top = 8.dp))
-        Text("Export GPX and the share card from the buttons at the top.",
-            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 4.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.small)
+                .clickable { open = !open }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Recording details", style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            Icon(if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = if (open) "Hide recording details" else "Show recording details",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        AnimatedVisibility(open) {
+            Column {
+                val ds = trip.drivingStats
+                val obd2Pct = ds.obd2SpeedPct.roundToInt()
+                Stat("Vehicle", trip.mode.label)
+                Stat("Speed source", when {
+                    ds.obd2SpeedPct <= 0.0 -> "GPS"
+                    obd2Pct == 0 -> "OBD2 <1% · GPS the rest"
+                    else -> "OBD2 $obd2Pct% · GPS the rest"
+                })
+                if (trip.mode.tracksLean) {
+                    Stat("Mount offset (current calibration)", formatLeanAngle(leanOffsetDeg.toDouble()))
+                }
+                Stat("Stored points (every 25 m)", "$storedPoints")
+                Stat("Signal gaps", if (n.signalGaps == 0) "none" else "${n.signalGaps}")
+            }
+        }
     }
 }
 
