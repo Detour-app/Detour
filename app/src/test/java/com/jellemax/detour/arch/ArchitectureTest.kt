@@ -142,7 +142,7 @@ class ArchitectureTest {
     @Test
     fun `detekt baselines only shrink`() {
         val pinned = mapOf(
-            "config/detekt/baseline-app.xml" to 129,
+            "config/detekt/baseline-app.xml" to 128,
             "config/detekt/baseline-shared.xml" to 63,
         )
         val errors = pinned.mapNotNull { (path, ceiling) ->

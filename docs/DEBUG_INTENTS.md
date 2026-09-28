@@ -25,7 +25,7 @@ than replacing it. Every component name below therefore starts
 
 ## Trip ended — `DebugTripEndedReceiver`
 
-Raises the real "Trip ended — saved to history." notification, the one
+Raises the real "Trip ended — saved to your logbook." notification, the one
 auto-detection posts when it ends a trip you did not end yourself. Reaching it
 honestly means driving past `MIN_AUTO_TRIP_METERS` and then standing still long
 enough for auto-detection to give up, which is a slow loop for behaviour that is
