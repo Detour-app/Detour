@@ -138,7 +138,6 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import kotlin.math.abs
-import kotlin.math.exp
 
 /** How long a rider-focus request (#294) waits for a position before giving
  *  up. Circle fixes poll on the order of [CIRCLE_FIX_POLL_MS]; a convoy peer
@@ -175,6 +174,7 @@ fun MapScreen(
     val mode by Settings.tripMode.collectAsStateWithLifecycle()
     var radiusKm by rememberSaveable { mutableFloatStateOf(Settings.tripMode.value.defaultKm) }
     var minRadiusKm by rememberSaveable { mutableFloatStateOf(0f) }
+    val timedLoopMinutes = loopMinutesSetting(mode)
     // Seeded from SpinResultHolder so a spin result survives activity
     // recreation instead of resetting to defaults; see its declaration above.
     // One owner for the screen's own state. `remember`, so its lifetime is
@@ -595,7 +595,7 @@ fun MapScreen(
     // Push overlay state to the map whenever anything drawable changes. The
     // layers are created once per style; here we only swap their GeoJSON data.
     LaunchedEffect(mapOverlays, s.myLocation, s.destination, s.route, radiusKm, mode,
-        directionDeg, s.navigating, visibleCandidates) {
+        directionDeg, s.navigating, visibleCandidates, timedLoopMinutes) {
         val overlays = mapOverlays ?: return@LaunchedEffect
         overlays.render(
             myLocation = s.myLocation,
@@ -606,7 +606,7 @@ fun MapScreen(
                 navigating = s.navigating,
                 hasDestination = s.destination != null,
                 roundTrip = mode.roundTrip,
-                radiusKm = radiusKm.toDouble(),
+                radiusKm = loopLengthKm(timedLoopMinutes, radiusKm),
             ),
             directionDeg = directionDeg?.toInt(),
             candidates = visibleCandidates.mapIndexed { i, c ->
@@ -976,7 +976,7 @@ fun MapScreen(
                 // the framing, and which var it lands in.
                 val outcome = runSpin(
                     serverConfig, loc,
-                    SpinParams(mode, radiusKm, minRadiusKm, poiKind, directionDeg),
+                    SpinParams(mode, radiusKm, minRadiusKm, poiKind, directionDeg, timedLoopMinutes),
                 )
                 when (outcome) {
                     is SpinOutcome.Loop -> {

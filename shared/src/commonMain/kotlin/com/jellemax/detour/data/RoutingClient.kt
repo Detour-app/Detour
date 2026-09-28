@@ -11,6 +11,17 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import okio.IOException
 
+/** No routing server is configured, so there is nothing to ask. */
+class NoRoutingServerException : IOException("No routing server configured")
+
+/**
+ * The routing server answered but has no route to give: no path between the
+ * points, or a point off its map. An `IOException` like every other routing
+ * failure, so the retry loops that catch those still do, but its own type so
+ * `failureText` doesn't send the rider to check a connection that worked.
+ */
+class NoRouteException(message: String) : IOException(message)
+
 data class RouteResult(
     /** Full route geometry (road-following when from GraphHopper). */
     val polyline: List<LatLon>,
@@ -123,7 +134,7 @@ object RoutingClient {
      *  configured — same shape as [routeVia]'s point-count guard, and what
      *  keeps a blank base from being concatenated into a bare "/route" URL. */
     private fun requireRoutingBase(config: ServerConfig): String =
-        routingBase(config).ifBlank { throw IOException("No routing server configured") }
+        routingBase(config).ifBlank { throw NoRoutingServerException() }
 
     suspend fun roundTrip(
         config: ServerConfig,
@@ -323,20 +334,23 @@ object RoutingClient {
                 readTimeoutMs = 20_000,
             )
         } catch (e: HttpStatusException) {
-            throw IOException("Routing server error: HTTP ${e.code}")
+            // GraphHopper answers "no path" and "point not on the map" with a 400.
+            val message = "Routing server error: HTTP ${e.code}"
+            if (e.code == 400) throw NoRouteException(message)
+            throw HttpStatusException(e.code, e.body, message)
         }
         return parseRoute(text)
     }
 
     internal fun parseRoute(text: String): RouteResult {
         val path = jsonObjectOf(text).optArray("paths")?.optObject(0)
-            ?: throw IOException("Routing server returned no route")
+            ?: throw NoRouteException("Routing server returned no route")
         val coords = path.optObject("points")?.optArray("coordinates") ?: JsonArrayEmpty
         val polyline = ArrayList<LatLon>(coords.size)
         for (c in coords.arrays()) { // GeoJSON order: [lon, lat]
             polyline.add(LatLon(c.optDouble(1), c.optDouble(0)))
         }
-        if (polyline.size < 2) throw IOException("Routing server returned an empty route")
+        if (polyline.size < 2) throw NoRouteException("Routing server returned an empty route")
 
         // `[from, to]` spans of the polyline that run on a roundabout, from the
         // `roundabout` path detail. A roundabout instruction's own `interval`
@@ -422,7 +436,7 @@ object RoutingClient {
             }
         }
         return exploredHit ?: best
-            ?: throw IOException("Routing server could not find a road")
+            ?: throw NoRouteException("Routing server could not find a road")
     }
 
     private suspend fun snapToRoad(

@@ -2,6 +2,7 @@ package com.jellemax.detour.data
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -579,6 +580,12 @@ class RoundaboutParseTest {
         val route = RoutingClient.parseRoute(json("[0,9,false]"))
         val turn = route.instructions.first { it.sign == 6 }.roundaboutTurnDeg!!
         assertTrue(turn < 30.0, "fallback reads the bend, not the exit: got $turn")
+    }
+
+    @Test
+    fun anAnswerWithNoPathIsNoRouteNotAConnectionError() {
+        // #461: failureText tells these apart by type.
+        assertFailsWith<NoRouteException> { RoutingClient.parseRoute("""{"paths":[]}""") }
     }
 }
 
