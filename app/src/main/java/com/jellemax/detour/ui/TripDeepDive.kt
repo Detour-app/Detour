@@ -65,7 +65,9 @@ data class TripHighlight(
     val stretch: List<LatLon>? = null,
 )
 
-private const val COLOR_TOP_SPEED = "#E53935"
+// Teal, not red: the end pin and the replay marker are already red, and
+// top speed sat among them reading as one of those.
+private const val COLOR_TOP_SPEED = "#00897B"
 private const val COLOR_LEAN = "#FB8C00"
 private const val COLOR_CORNER = "#8E24AA"
 private const val COLOR_BRAKE = "#1E88E5"
@@ -146,14 +148,6 @@ fun HighlightRow(h: TripHighlight, selected: Boolean, onClick: () -> Unit, modif
         Text(h.label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
         Text(h.value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
     }
-}
-
-/** "Oudenaarde, Kluisbergen (new) and Ronse" — new places marked, the rest
- *  plain. Null when no boundary was learned along the route. */
-fun placesLine(places: List<PlaceVisit>): String? {
-    if (places.isEmpty()) return null
-    val names = places.map { if (it.isNew) "${it.name} (new)" else it.name }
-    return if (names.size == 1) names[0] else names.dropLast(1).joinToString(", ") + " and " + names.last()
 }
 
 /** The collapsed "Deep dive" (#444): every number the trip recorded, grouped. */

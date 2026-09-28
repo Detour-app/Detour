@@ -58,12 +58,12 @@ internal fun Sticker(text: String, modifier: Modifier = Modifier) {
 
 /** The towns a ride passed through, as passport stamps: towns never ridden
  *  before first, dashed and in [newPlaceColor], then the familiar ones, up to
- *  [MAX_STAMPS] with the rest counted. */
+ *  [max] with the rest counted. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun PlaceStamps(places: List<PlaceVisit>, modifier: Modifier = Modifier) {
+internal fun PlaceStamps(places: List<PlaceVisit>, modifier: Modifier = Modifier, max: Int = MAX_STAMPS) {
     val ordered = places.filter { it.isNew } + places.filterNot { it.isNew }
-    val shown = ordered.take(MAX_STAMPS)
+    val shown = ordered.take(max)
     val newColor = newPlaceColor()
     FlowRow(
         modifier,
