@@ -2,6 +2,8 @@ package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.AuthException
 import com.jellemax.detour.data.HttpStatusException
+import com.jellemax.detour.data.NoRouteException
+import com.jellemax.detour.data.NoRoutingServerException
 import com.jellemax.detour.data.ServerConfig
 import okio.IOException
 import kotlin.test.Test
@@ -120,6 +122,24 @@ class ServersSyncStateTest {
         assertEquals(
             "Import failed: the contents were not what this app expected.",
             failureText("Import", IllegalStateException("boom")),
+        )
+    }
+
+    @Test
+    fun `a server that answered is not blamed on the connection`() {
+        // #461: routing and API callers used to rewrap these as plain
+        // IOExceptions, which all read "Check your connection".
+        assertEquals(
+            "Routing failed: no routing server is set up. Add one in Settings → Servers & sync.",
+            failureText("Routing", NoRoutingServerException()),
+        )
+        assertEquals(
+            "Navigation failed: no road connects those points. Try moving them.",
+            failureText("Navigation", NoRouteException("Routing server error: HTTP 400")),
+        )
+        assertEquals(
+            "Send failed: the server has nothing at that address.",
+            failureText("Send", HttpStatusException(404, "", "Unknown recipient")),
         )
     }
 
