@@ -114,6 +114,26 @@ public class CameraRepositoryTests(PostgresFixture postgres) : IntegrationTestBa
     }
 
     [Fact]
+    public async Task RetireMissingAsync_charges_every_entry_of_the_source_on_a_merged_camera()
+    {
+        var repo = new CameraRepository(Factory);
+        const string source = "retire-test-merged";
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 51.50, 3.50, 50, "N9",
+            new CameraSource(source, "r4", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)).Value;
+        cam.MergeSource(Camera.CreatePoint(CameraKind.FixedSpeed, 51.50, 3.50, 50, "N9",
+            new CameraSource(source, "r5", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)).Value);
+        await repo.UpsertAsync(cam, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        // Both nodes gone: before issue #406 only r4 was charged, so the camera never retired.
+        var retired = await repo.RetireMissingAsync(source, null, new HashSet<string>(), retireAfterMisses: 1, CancellationToken.None);
+        await repo.FlushChangesAsync(CancellationToken.None);
+
+        Assert.Equal(1, retired);
+        Assert.Empty(await repo.BboxAsync(51.49, 3.49, 51.51, 3.51, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task UpsertAsync_reactivates_a_retired_camera_instead_of_duplicating_it()
     {
         var repo = new CameraRepository(Factory);

@@ -71,12 +71,14 @@ public class CameraRepository(ICustomDbContextFactory<DetourDbContext> factory)
         var retired = 0;
         foreach (var camera in candidates)
         {
-            var entry = camera.Sources.FirstOrDefault(s => s.Source == source);
-            if (entry is null || seenSourceIds.Contains(entry.SourceId)) continue;
-            if (region is not null && entry.Region is not null && entry.Region != region) continue;
-
-            camera.MarkSourceMissing(source, retireAfterMisses);
-            if (camera.Status == CameraStatus.Retired) retired++;
+            // Every entry of this source, not just the first: a camera clustered from two nodes of
+            // one source must charge both, or it never retires once both disappear (issue #406).
+            var missing = camera.Sources
+                .Where(s => s.Source == source && !seenSourceIds.Contains(s.SourceId))
+                .Where(s => region is null || s.Region is null || s.Region == region)
+                .ToList();
+            foreach (var entry in missing) camera.MarkSourceMissing(source, entry.SourceId, retireAfterMisses);
+            if (missing.Count > 0 && camera.Status == CameraStatus.Retired) retired++;
         }
         return retired;
     }
