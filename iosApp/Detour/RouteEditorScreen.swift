@@ -27,6 +27,12 @@ struct RouteEditorScreen: View {
     @State private var routing = false
     @State private var routeError: String?
 
+    @State private var fillMinutes = Double(RouteFill.shared.DEFAULT_MINUTES)
+    @State private var filling = false
+    @State private var fillError: String?
+    /// Read once: the server can't change while this screen is open.
+    @State private var serverUsable = RoutingServer.shared.load().usable
+
     init(existing: SavedRoute?) {
         self.existing = existing
         _routeId = State(initialValue: existing?.id ?? nowMs())
@@ -83,6 +89,8 @@ struct RouteEditorScreen: View {
             Section {
                 routingStatus
             }
+
+            fillSection
         }
         .navigationTitle(existing == nil ? "New route" : "Edit route")
         .navigationBarTitleDisplayMode(.inline)
@@ -130,7 +138,97 @@ struct RouteEditorScreen: View {
         }
     }
 
+    /// Stretch the route to a riding time: the rider's stops stay, the
+    /// shared `RouteFill` inserts detours between them — the same engine the
+    /// Android editor calls.
+    private var fillSection: some View {
+        Section {
+            HStack {
+                Text("Riding time")
+                Spacer()
+                Text(formatDurationHistory(LoopDuration.shared.targetMs(minutes: Float(fillMinutes))))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            Slider(
+                value: $fillMinutes,
+                in: Double(LoopDuration.shared.MIN_MINUTES)...Double(LoopDuration.shared.MAX_MINUTES),
+                step: Double(LoopDuration.shared.STEP_MINUTES))
+            HStack {
+                Button {
+                    Task { await fill() }
+                } label: {
+                    if filling {
+                        ProgressView()
+                    } else {
+                        Text(hasFill ? "Fill again" : "Fill route")
+                    }
+                }
+                // Same gate as Android's canFill: without a routing server a
+                // fill can only end in an error, so don't offer it.
+                .disabled(stops.isEmpty || filling || !serverUsable)
+                if hasFill {
+                    Spacer()
+                    Button("Remove fill", role: .destructive) {
+                        stops.removeAll { RouteFill.shared.isFill(stop: $0.stop) }
+                        fillError = nil
+                    }
+                    .disabled(filling)
+                }
+            }
+            // Two buttons in one List row: without this, a tap anywhere in the
+            // row fires both.
+            .buttonStyle(.borderless)
+            if let fillError {
+                Text(fillError).foregroundStyle(.red)
+            }
+        } header: {
+            Text("Fill to riding time")
+        } footer: {
+            Text("Your stops stay put; the rest of the time is filled with detours between them. "
+                 + "One stop fills a loop from it and back.")
+        }
+    }
+
+    private var hasFill: Bool {
+        stops.contains { RouteFill.shared.isFill(stop: $0.stop) }
+    }
+
     // MARK: Actions
+
+    private func fill() async {
+        filling = true
+        fillError = nil
+        // A fill takes a few round trips to the server; if the rider edits the
+        // stops meanwhile, their edit wins.
+        let key = routeKey
+        do {
+            let filled = try await RouteFill.shared.fillRouted(
+                config: RoutingServer.shared.load(),
+                stops: stops.map(\.stop),
+                minutes: Float(fillMinutes),
+                profile: mode.ghProfile,
+                avoidHighways: SettingsValues.shared.avoidHighways,
+                avoidSmallRoads: SettingsValues.shared.avoidSmallRoads
+            )
+            if routeKey == key {
+                stops = filled.stops.map { EditorStop(stop: $0) }
+            }
+        } catch {
+            // Kotlin/Native hands the thrown Kotlin object over under this key.
+            let kotlin = (error as NSError).userInfo["KotlinException"]
+            if let tooLong = kotlin as? StopsTooLong {
+                fillError = "Your stops alone take \(formatDurationHistory(tooLong.stopsMs)) — pick a longer time"
+            } else if let throwable = kotlin as? KotlinThrowable {
+                // The same rider-facing wording Android uses (#458): never the
+                // exception's own text.
+                fillError = ServersSyncStateKt.failureText(action: "Fill", e: throwable)
+            } else {
+                fillError = "Fill failed. Try again."
+            }
+        }
+        filling = false
+    }
 
     private func appendStop(at coordinate: CLLocationCoordinate2D) {
         let stop = RouteStop(at: LatLon(lat: coordinate.latitude, lon: coordinate.longitude), name: "")

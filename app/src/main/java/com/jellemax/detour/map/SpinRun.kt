@@ -1,26 +1,21 @@
 package com.jellemax.detour.map
 
-import com.jellemax.detour.data.Curviness
 import com.jellemax.detour.data.ExploredArea
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.LoopRequest
+import com.jellemax.detour.data.LoopSpin
 import com.jellemax.detour.data.PoiKind
 import com.jellemax.detour.data.RouteCandidate
 import com.jellemax.detour.data.RouteResult
-import com.jellemax.detour.data.RoundTripPlanner
-import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.ServerConfig
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.pickThreeCandidates
-import com.jellemax.detour.ui.CURVY_CANDIDATES
+import com.jellemax.detour.data.spinTimeoutMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import kotlin.random.Random
 
 /** What a spin produced. */
 sealed interface SpinOutcome {
@@ -46,38 +41,10 @@ data class SpinParams(
     val minRadiusKm: Float,
     val poiKind: PoiKind,
     val directionDeg: Float?,
+    /** Round trips only: size the loop to this many minutes of riding instead
+     *  of [radiusKm] of length. Null means by length. */
+    val loopMinutes: Float? = null,
 )
-
-/**
- * What to tell the rider when the fallback timed out too.
- *
- * Pure, and separate from [runSpin], because it is the one part of a spin
- * failure that is a *decision* rather than an I/O result: three different
- * situations produce three different sentences, and the branch that matters
- * most is the first — a fallback timeout must not hide that the rider's own
- * routing server was the thing that actually failed.
- */
-fun spinTimeoutMessage(
-    serverError: String?,
-    roundTrip: Boolean,
-    serverUsable: Boolean,
-): String = when {
-    serverError != null -> "Server route failed ($serverError); fallback timed out too"
-    roundTrip && !serverUsable -> "No routing server configured — public servers timed out"
-    else -> "Road servers are slow right now — try again"
-}
-
-/**
- * Why every roll of a round trip failed, as one sentence.
- *
- * The rolls are independent requests against the same server, so when they all
- * fail they have almost always failed the same way; reporting the first is
- * both accurate and shorter than reporting three copies of it.
- */
-fun loopFailureReason(errors: List<Throwable?>): String =
-    errors.firstNotNullOfOrNull { it }
-        ?.let { it.message ?: it::class.simpleName }
-        ?: "no route"
 
 /**
  * Runs one spin and reports what came back.
@@ -103,12 +70,27 @@ suspend fun runSpin(
     from: LatLon,
     params: SpinParams,
 ): SpinOutcome {
-    var serverError: String? = null
     return try {
         // Bias destinations toward territory the fog has not uncovered.
         val explored = withContext(Dispatchers.IO) { ExploredArea.load() }
         if (params.mode.roundTrip) {
-            runLoopSpin(serverConfig, from, params) { serverError = it }
+            // The loop itself - rolls, curviest/timed pick, backend fallback,
+            // its own timeout sentence - is shared LoopSpin, the same code iOS
+            // spins; commonMain has no dispatcher, so IO is chosen here.
+            val loop = withContext(Dispatchers.IO) {
+                LoopSpin.spin(
+                    serverConfig,
+                    LoopRequest(
+                        from = from,
+                        lengthMeters = params.radiusKm * 1000.0,
+                        minutes = params.loopMinutes,
+                        headingDeg = params.directionDeg?.toDouble(),
+                        avoidSmallRoads = Settings.avoidSmallRoads.value,
+                        highwayRegex = params.mode.highwayRegex,
+                    ),
+                )
+            }
+            SpinOutcome.Loop(loop.route, loop.warning)
         } else {
             // pickThreeCandidates has no Dispatchers.IO of its own (commonMain
             // has none by design — iOS calls it the same way); withContext here
@@ -126,105 +108,14 @@ suspend fun runSpin(
         // Before the generic CancellationException branch: a timeout is a
         // TimeoutCancellationException, and catching cancellation first would
         // rethrow it and lose the message.
+        // Only the candidates branch gets here: LoopSpin turns its own
+        // fallback timeout into a sentence before returning.
         SpinOutcome.Failed(
-            spinTimeoutMessage(serverError, params.mode.roundTrip, serverConfig.usable)
+            spinTimeoutMessage(serverError = null, params.mode.roundTrip, serverConfig.usable)
         )
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
         SpinOutcome.Failed(e.message ?: "Failed to find a road")
     }
-}
-
-/**
- * Rolls [CURVY_CANDIDATES] independent round trips and keeps the curviest.
- *
- * Split out of [runSpin] so the loop branch does not nest four levels deep
- * inside it, and so the two ways a roll can end — every attempt failed, or the
- * rider cancelled — are answered here rather than by throws threaded up through
- * the caller's try.
- *
- * Returns null when no loop came back, having told [onServerError] why, so the
- * caller can fall back to a backend-sampled loop and still say what the
- * server did. A [CancellationException] propagates: a cancelled spin is the
- * rider leaving, not a failure to report.
- */
-private suspend fun rollBestLoop(
-    serverConfig: ServerConfig,
-    from: LatLon,
-    tripMeters: Double,
-    params: SpinParams,
-    onServerError: (String) -> Unit,
-): RouteResult? {
-    val rolls = try {
-        coroutineScope {
-            (1..CURVY_CANDIDATES).map {
-                async(Dispatchers.IO) {
-                    runCatching {
-                        val loop = RoutingClient.roundTrip(
-                            serverConfig, from, tripMeters, Random.nextLong(),
-                            headingDeg = params.directionDeg?.toDouble(),
-                            avoidSmallRoads = Settings.avoidSmallRoads.value,
-                        )
-                        // Scored here so it stays off the main thread with the
-                        // request that produced it.
-                        loop to Curviness.routeScore(loop.polyline, loop.instructions)
-                    }
-                }
-            }.awaitAll()
-        }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        onServerError(e.message ?: e::class.simpleName ?: "unknown")
-        return null
-    }
-
-    val loops = rolls.mapNotNull { it.getOrNull() }
-    if (loops.isNotEmpty()) return loops.maxBy { it.second }.first
-
-    // Every roll failed. One of them cancelling is the rider, not the server.
-    val first = rolls.firstNotNullOfOrNull { it.exceptionOrNull() }
-    if (first is CancellationException) throw first
-    onServerError(loopFailureReason(rolls.map { it.exceptionOrNull() }))
-    return null
-}
-
-/**
- * The round-trip branch of [runSpin]: a server loop if one comes back, an
- * backend-sampled approximation if none does.
- *
- * Its own function so [runSpin] reads as the two outcomes a spin has rather
- * than as four levels of nesting. The fallback is not a failure — a rider on a
- * dead server still gets a loop — so the server's reason travels as a warning
- * on the result instead of replacing it.
- */
-private suspend fun runLoopSpin(
-    serverConfig: ServerConfig,
-    from: LatLon,
-    params: SpinParams,
-    onServerError: (String) -> Unit,
-): SpinOutcome {
-    val tripMeters = params.radiusKm * 1000.0
-    var serverError: String? = null
-    var result: RouteResult? = null
-    if (serverConfig.usable) {
-        result = rollBestLoop(serverConfig, from, tripMeters, params) {
-            serverError = it
-            onServerError(it)
-        }
-    }
-    if (result != null) return SpinOutcome.Loop(result, warning = null)
-
-    val wps = RoundTripPlanner.plan(
-        from, tripMeters / 4.0, params.mode.highwayRegex,
-        bearingDeg = params.directionDeg?.toDouble(),
-    )
-    val approximate = RouteResult(
-        polyline = listOf(from) + wps + from,
-        waypoints = wps,
-        distanceMeters = null,
-    )
-    val warning = serverError?.let { "Server route failed ($it) — approximate loop instead" }
-    return SpinOutcome.Loop(approximate, warning)
 }
