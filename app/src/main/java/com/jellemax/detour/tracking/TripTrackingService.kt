@@ -36,6 +36,7 @@ import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.TripStore
+import com.jellemax.detour.drive.GravityFrame
 import com.jellemax.detour.drive.HardEventDetector
 import com.jellemax.detour.drive.RoadTypeTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
@@ -52,7 +53,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlin.math.abs
-import kotlin.math.sqrt
 
 data class TripStats(
     val startTimeMs: Long,
@@ -264,8 +264,8 @@ class TripTrackingService : Service() {
          *  — a road bike or car doesn't sustain real cornering/braking loads
          *  above roughly this envelope. One ride recorded a max of 6.7 g, which
          *  is physically impossible on two wheels; this caps what can become
-         *  the recorded max the same way MAX_PLAUSIBLE_LEAN_DEG caps lean. */
-        private const val MAX_PLAUSIBLE_G = 2.0
+         *  the recorded max the same way MAX_PLAUSIBLE_LEAN_DEG caps lean. #478: 1.5, gravity-free. */
+        private const val MAX_PLAUSIBLE_G = 1.5
         /** The board pushes telemetry every 250ms (see moto_hud's ble_central.cpp);
          *  a few missed writes are a hiccup, not a disconnect, so this stays a
          *  multiple of that rather than matching it 1:1. Past this, fall back to
@@ -692,17 +692,17 @@ class TripTrackingService : Service() {
     }
 
     /**
-     * G-force (accelerometer magnitude) only makes sense while a trip is
-     * running, so this sensor is only registered between [beginTrip] and
-     * [endTrip]. Lean now comes from [motionSensors] — [recordLean] above is
+     * G-force ([GravityFrame], #478) is only registered between [beginTrip]
+     * and [endTrip]. Lean comes from [motionSensors]; [recordLean] above is
      * where its readings rejoin this trip's own state.
      */
     private val gForceListener = object : SensorEventListener {
+        private val gravity = GravityFrame()
         override fun onSensorChanged(event: SensorEvent) {
             if (_stats.value == null) return
             val (x, y, z) = event.values
-            val rawG = sqrt((x * x + y * y + z * z).toDouble()) /
-                SensorManager.GRAVITY_EARTH
+            if (event.sensor.type == Sensor.TYPE_GRAVITY) return gravity.set(x, y, z)
+            val rawG = gravity.horizontalG(x, y, z)
             // Drop single-sample shocks before they ever reach the EMA —
             // see MAX_G_SLEW.
             if (abs(rawG - session.currentG) <= MAX_G_SLEW) {
@@ -736,9 +736,9 @@ class TripTrackingService : Service() {
         // SENSOR_DELAY_UI (~60ms) resolves a braking spike just as well as
         // SENSOR_DELAY_GAME (~20ms) and wakes the CPU a third as often.
         if (mode.tracksGForce) {
-            sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)?.let {
-                sensorManager.registerListener(gForceListener, it, SensorManager.SENSOR_DELAY_UI)
-            }
+            listOf(Sensor.TYPE_GRAVITY, Sensor.TYPE_LINEAR_ACCELERATION)
+                .mapNotNull { sensorManager.getDefaultSensor(it) }
+                .forEach { sensorManager.registerListener(gForceListener, it, SensorManager.SENSOR_DELAY_UI) }
         }
     }
 

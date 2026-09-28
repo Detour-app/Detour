@@ -309,7 +309,10 @@ private fun CorneringSection(trip: Trip, n: DeepDiveNumbers, leanOffsetDeg: Floa
             }
             Stat("Mount offset (current calibration)", formatLeanAngle(leanOffsetDeg.toDouble()))
         }
-        if (trip.mode.tracksGForce && trip.maxGForce > 0.0) Stat("Max g", formatGForce(trip.maxGForce))
+        // Before #478 the figure counted gravity (1-2 g for any drive): not shown.
+        if (trip.mode.tracksGForce && trip.gForceGravityFree && trip.maxGForce > 0.0) {
+            Stat("Max g", formatGForce(trip.maxGForce))
+        }
     }
 }
 
