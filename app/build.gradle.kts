@@ -81,7 +81,7 @@ android {
         applicationId = "io.github.maxke24.detour"
         minSdk = 26
         targetSdk = 36
-        versionName = "3.1.1"
+        versionName = "3.1.2"
         // Derived from versionName instead of a CI run counter, so the code
         // Play sees always matches the name shown to riders and a workflow
         // rename/reset can't drop it back below an already-published code
@@ -102,13 +102,11 @@ android {
         // needs its own scheme and path rather than the plain base URL. Nothing
         // serves it at the moment — see Features.liveRelay in shared/.
         buildConfigField("String", "LIVE_URL", "\"${liveUrl()}\"")
-        // The repository whose releases this build updates itself from, passed
-        // by CI as github.repository so a fork's build points at the fork.
-        // Blank everywhere else, which makes the whole feature inert — a local
-        // build is signed with a different key and could never install a CI
-        // APK anyway.
-        buildConfigField("String", "UPDATE_REPO",
-            "\"${System.getenv("UPDATE_REPO") ?: ""}\"")
+        // The repository whose releases this build updates itself from. Blank
+        // here, which makes the whole feature inert; only githubRelease below
+        // fills it in. A local build is signed with a different key and could
+        // never install a CI APK anyway.
+        buildConfigField("String", "UPDATE_REPO", "\"\"")
     }
 
     // Release signing reads from the environment rather than local.properties:
@@ -163,6 +161,11 @@ android {
         create("githubRelease") {
             initWith(getByName("release"))
             matchingFallbacks += listOf("release")
+            // Passed by CI as github.repository, so a fork's build points at
+            // the fork. Only this build type: the Play bundle must not offer
+            // an update from GitHub, and its manifest has no service to run one.
+            buildConfigField("String", "UPDATE_REPO",
+                "\"${System.getenv("UPDATE_REPO") ?: ""}\"")
         }
         // A test harness for the car/ screens, never shipped. On a phone the
         // CarAppService is driven by the Android Auto host on the head unit, so
