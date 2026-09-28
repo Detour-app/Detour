@@ -77,14 +77,6 @@ internal const val FIT_PADDING_PX = 140
 // TripDetailScreen's own FIT_BOTTOM_PADDING_DP.
 internal const val MAP_FIT_BOTTOM_PADDING_DP = 390
 
-// How many round trips to roll before picking one. GraphHopper's round_trip is
-// seed-driven and its curvature weighting only biases the search, so seeds
-// differ a lot in how much of the loop is actually bends — rolling a few and
-// keeping the curviest is what turns "avoids motorways" into a ride worth
-// taking. Three: the requests run in parallel, so this costs latency only when
-// the server is already saturated, and the gain flattens out after ~3 rolls.
-internal const val CURVY_CANDIDATES = 3
-
 // Panning or pinching parks the camera instead of forcing you to hunt for the
 // follow button. Driving off takes it back: above this speed, this long after
 // you last touched the map. The quiet period is what stops a two-finger zoom at

@@ -305,6 +305,8 @@ object SettingsFlows {
     fun defaultZoom() = FloatWatcher(Settings.defaultZoom)
     fun avoidHighways() = BoolWatcher(Settings.avoidHighways)
     fun avoidSmallRoads() = BoolWatcher(Settings.avoidSmallRoads)
+    fun loopByTime() = BoolWatcher(Settings.loopByTime)
+    fun loopMinutes() = FloatWatcher(Settings.loopMinutes)
     fun shareFog() = BoolWatcher(Settings.shareFog)
     fun geocoderPublicFallback() = BoolWatcher(Settings.geocoderPublicFallback)
     fun voiceGuidance() = BoolWatcher(Settings.voiceGuidance)
