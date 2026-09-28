@@ -1,7 +1,6 @@
 package com.jellemax.detour.ui
 
 import android.util.Log
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,14 +44,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import com.jellemax.detour.data.syncQuietly
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.SyncClient
@@ -224,6 +231,13 @@ private val rideDateFormat = SimpleDateFormat("EEE d MMM · HH:mm", Locale.getDe
 /** Height of a ride's route thumbnail, and of the current month's overlay. */
 private val RIDE_THUMB_HEIGHT = 132.dp
 private val MONTH_MAP_HEIGHT = 180.dp
+
+/** How many towns a ride card stamps before counting the rest. */
+private const val MAX_STAMPS = 4
+private const val STICKER_TILT_DEG = 3f
+private const val STAMP_TILT_DEG = 1.5f
+private val NEW_PLACE_DARK = Color(0xFF6CC4A8)
+private val NEW_PLACE_LIGHT = Color(0xFF1B7A62)
 
 /** What the ⋮ menu on a ride asks for. One callback instead of three keeps
  *  [RideCard] under the seven-parameter gate (§8.4). */
@@ -462,7 +476,7 @@ private fun MonthHeader(
             }
         }
         if (!overlay.isNullOrEmpty()) {
-            TraceThumbnail(
+            RouteMapThumbnail(
                 overlay,
                 Modifier
                     .fillMaxWidth()
@@ -486,6 +500,88 @@ private fun MilestoneRow(m: LogbookItem.Milestone, modifier: Modifier = Modifier
             color = MaterialTheme.colorScheme.tertiary)
     }
 }
+
+/** A ride's one highlight ([LogbookItem.Ride.chip]), as a tilted sticker slapped
+ *  on its map: the Logbook should read like a scrapbook, not a report. */
+@Composable
+private fun Sticker(text: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.rotate(STICKER_TILT_DEG),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        shadowElevation = 3.dp,
+    ) {
+        Text(
+            text.uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.8.sp,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+        )
+    }
+}
+
+/** The towns a ride passed through, as passport stamps: towns never ridden
+ *  before first, dashed and in [newPlaceColor], then the familiar ones, up to
+ *  [MAX_STAMPS] with the rest counted. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PlaceStamps(places: List<PlaceVisit>, modifier: Modifier = Modifier) {
+    val ordered = places.filter { it.isNew } + places.filterNot { it.isNew }
+    val shown = ordered.take(MAX_STAMPS)
+    val newColor = newPlaceColor()
+    FlowRow(
+        modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        shown.forEachIndexed { i, place ->
+            // Alternating tilt: stamps pressed by hand, not typeset.
+            val tilt = if (i % 2 == 0) -STAMP_TILT_DEG else STAMP_TILT_DEG
+            if (place.isNew) {
+                Stamp(place.name, newColor, dashed = true, Modifier.rotate(tilt))
+            } else {
+                Stamp(place.name, MaterialTheme.colorScheme.onSurfaceVariant, dashed = false)
+            }
+        }
+        if (ordered.size > shown.size) {
+            Stamp("+${ordered.size - shown.size}", MaterialTheme.colorScheme.onSurfaceVariant, dashed = false)
+        }
+    }
+}
+
+@Composable
+private fun Stamp(text: String, color: Color, dashed: Boolean, modifier: Modifier = Modifier) {
+    val outline = if (dashed) color else MaterialTheme.colorScheme.outlineVariant
+    Text(
+        text.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.6.sp,
+        color = color,
+        modifier = modifier
+            .drawBehind {
+                val w = 1.5.dp.toPx()
+                val dash = if (dashed) PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())) else null
+                drawRoundRect(
+                    outline,
+                    topLeft = Offset(w / 2, w / 2),
+                    size = Size(size.width - w, size.height - w),
+                    cornerRadius = CornerRadius(8.dp.toPx()),
+                    style = Stroke(width = w, pathEffect = dash),
+                )
+            }
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    )
+}
+
+/** Teal for a town ridden for the first time — apart from the amber/blue
+ *  primary, so "new" never reads as just another highlight. Darker on a
+ *  light surface to keep the stamp text readable. */
+@Composable
+private fun newPlaceColor(): Color =
+    if (MaterialTheme.colorScheme.surface.luminance() < 0.5f) NEW_PLACE_DARK else NEW_PLACE_LIGHT
 
 /** The dialogs the ⋮ menu opens; at most one at a time. */
 private enum class RideDialog { RENAME, VEHICLE, DELETE, CARD }
@@ -516,13 +612,13 @@ private fun RideCard(
     ) {
         Column {
             if (thumbnail != null) {
-                TraceThumbnail(
-                    thumbnail,
-                    Modifier
-                        .fillMaxWidth()
-                        .height(RIDE_THUMB_HEIGHT)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                )
+                Box(Modifier.fillMaxWidth().height(RIDE_THUMB_HEIGHT)) {
+                    RouteMapThumbnail(
+                        listOf(thumbnail),
+                        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    )
+                    ride.chip?.let { Sticker(it, Modifier.align(Alignment.TopEnd).padding(10.dp)) }
+                }
             }
             Row(
                 Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, bottom = 12.dp),
@@ -536,15 +632,9 @@ private fun RideCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    ride.chip?.let {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                        ) {
-                            Text(it, style = MaterialTheme.typography.labelMedium,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
-                        }
-                    }
+                    // No map to stick it on: the sticker sits with the text instead.
+                    if (thumbnail == null) ride.chip?.let { Sticker(it, Modifier.padding(top = 2.dp)) }
+                    if (ride.places.isNotEmpty()) PlaceStamps(ride.places, Modifier.padding(top = 4.dp))
                 }
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
@@ -647,51 +737,3 @@ fun tripFuelEconomyLper100Km(trip: Trip): Double? {
 /** The adapter has to have fed a fuel reading over at least this fraction of the
  *  trip's distance before the economy figure is shown. */
 private const val FUEL_COVERAGE_MIN = 0.8
-
-/** Draws one or more traces as simple normalized polylines on a shared
- *  scale — not a map, just a recognizable shape at a glance. Lat/lon are scaled
- *  independently to fill the canvas; at this size the distortion from true
- *  distance doesn't matter and equirectangular projection math would be wasted
- *  precision. */
-@Composable
-private fun TraceThumbnail(points: List<LatLon>, modifier: Modifier = Modifier) =
-    TraceThumbnail(listOf(points), modifier)
-
-@Composable
-@JvmName("TraceThumbnailMany")
-private fun TraceThumbnail(lines: List<List<LatLon>>, modifier: Modifier = Modifier) {
-    val color = MaterialTheme.colorScheme.primary
-    Canvas(modifier) {
-        val all = lines.flatten()
-        if (all.size < 2) return@Canvas
-        val latSpan = (all.maxOf { it.lat } - all.minOf { it.lat }).let { if (it > 1e-9) it else 1.0 }
-        val lonSpan = (all.maxOf { it.lon } - all.minOf { it.lon }).let { if (it > 1e-9) it else 1.0 }
-        val minLat = all.minOf { it.lat }
-        val minLon = all.minOf { it.lon }
-        val pad = size.minDimension * 0.12f
-        // Keep the shape's own aspect: a wide canvas would otherwise stretch
-        // a north-south ride into a flat line.
-        val scale = minOf((size.width - pad * 2) / lonSpan.toFloat(), (size.height - pad * 2) / latSpan.toFloat())
-        val offX = (size.width - lonSpan.toFloat() * scale) / 2
-        val offY = (size.height - latSpan.toFloat() * scale) / 2
-        fun offsetOf(p: LatLon) = Offset(
-            offX + ((p.lon - minLon).toFloat() * scale),
-            // Screen y grows downward; north (higher lat) should sit higher.
-            offY + ((latSpan - (p.lat - minLat)).toFloat() * scale),
-        )
-        for (points in lines) {
-            if (points.size < 2) continue
-            val path = Path()
-            val start = offsetOf(points.first())
-            path.moveTo(start.x, start.y)
-            for (p in points.drop(1)) {
-                val o = offsetOf(p)
-                path.lineTo(o.x, o.y)
-            }
-            drawPath(
-                path, color,
-                style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
-            )
-        }
-    }
-}
