@@ -198,11 +198,11 @@ public class CameraTests
     {
         var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9", OsmSource).Value;
 
-        cam.MarkSourceMissing("osm", retireAfterMisses: 3);
+        cam.MarkSourceMissing("osm", "n123", retireAfterMisses: 3);
         Assert.Equal(CameraStatus.Active, cam.Status);
-        cam.MarkSourceMissing("osm", retireAfterMisses: 3);
+        cam.MarkSourceMissing("osm", "n123", retireAfterMisses: 3);
         Assert.Equal(CameraStatus.Active, cam.Status);
-        cam.MarkSourceMissing("osm", retireAfterMisses: 3);
+        cam.MarkSourceMissing("osm", "n123", retireAfterMisses: 3);
 
         Assert.Equal(CameraStatus.Retired, cam.Status);
     }
@@ -215,7 +215,7 @@ public class CameraTests
         var lufopAttaches = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, null, null, lufopSource).Value;
         cam.MergeSource(lufopAttaches);
 
-        for (var i = 0; i < 5; i++) cam.MarkSourceMissing("osm", retireAfterMisses: 3);
+        for (var i = 0; i < 5; i++) cam.MarkSourceMissing("osm", "n123", retireAfterMisses: 3);
 
         Assert.Equal(CameraStatus.Active, cam.Status);
     }
@@ -224,17 +224,32 @@ public class CameraTests
     public void MergeSource_resets_a_sources_miss_streak_when_it_reports_again()
     {
         var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9", OsmSource).Value;
-        cam.MarkSourceMissing("osm", retireAfterMisses: 3);
-        cam.MarkSourceMissing("osm", retireAfterMisses: 3);
+        cam.MarkSourceMissing("osm", "n123", retireAfterMisses: 3);
+        cam.MarkSourceMissing("osm", "n123", retireAfterMisses: 3);
 
         var refreshed = OsmSource with { LastSeen = OsmSource.LastSeen.AddDays(1) };
         var incoming = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9", refreshed).Value;
         cam.MergeSource(incoming);
 
-        cam.MarkSourceMissing("osm", retireAfterMisses: 3);
-        cam.MarkSourceMissing("osm", retireAfterMisses: 3);
+        cam.MarkSourceMissing("osm", "n123", retireAfterMisses: 3);
+        cam.MarkSourceMissing("osm", "n123", retireAfterMisses: 3);
 
         Assert.Equal(CameraStatus.Active, cam.Status); // would be retired without the reset
+    }
+
+    [Fact]
+    public void MarkSourceMissing_charges_each_entry_of_a_source_separately()
+    {
+        // Two OSM nodes clustered into one camera (issue #406).
+        var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9", OsmSource).Value;
+        var secondNode = OsmSource with { SourceId = "n456" };
+        cam.MergeSource(Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9", secondNode).Value);
+
+        cam.MarkSourceMissing("osm", "n123", retireAfterMisses: 1);
+        Assert.Equal(CameraStatus.Active, cam.Status); // n456 hasn't missed a run yet
+
+        cam.MarkSourceMissing("osm", "n456", retireAfterMisses: 1);
+        Assert.Equal(CameraStatus.Retired, cam.Status);
     }
 
     [Fact]
@@ -242,7 +257,7 @@ public class CameraTests
     {
         var cam = Camera.CreatePoint(CameraKind.FixedSpeed, 50.85, 4.36, 50, "N9", OsmSource).Value;
 
-        cam.MarkSourceMissing("lufop", retireAfterMisses: 1);
+        cam.MarkSourceMissing("lufop", "l1", retireAfterMisses: 1);
 
         Assert.Equal(CameraStatus.Active, cam.Status);
     }
