@@ -73,6 +73,40 @@ class TripInsightsTest {
         assertNull(TripInsights.bestSplit(TripInsights.splits(straight(2401))))
     }
 
+    /** 5 km straight, 5 km of 50 m-amplitude wiggles every 300 m (bend radius
+     *  ~45 m, inside Curviness's 25-300 m band), 5 km straight. */
+    private fun straightWigglyStraight(): List<TraceStore.TracePoint> {
+        val m = 1 / 111_195.0
+        return List(601) { i ->
+            val north = i * 25.0
+            val east = if (north in 5_000.0..10_000.0) 50 * kotlin.math.sin(2 * kotlin.math.PI * north / 300) else 0.0
+            TraceStore.TracePoint(LatLon(50.0 + north * m, 4.0 + east * m / 0.6428), i * 1000L, 90.0, null)
+        }
+    }
+
+    @Test
+    fun theBestStretchIsTheWigglyMiddle() {
+        val points = straightWigglyStraight()
+        val best = TripInsights.bestStretch(points)!!
+        // Points 200..400 are the bends. Every bend is alike, so the window can
+        // sit anywhere among them; it must not reach into either straight
+        // (window starts step by 4 points, hence the slack).
+        assertTrue(best.first >= 196 && best.last <= 404, "best stretch $best")
+    }
+
+    @Test
+    fun theBestSplitIsTheTwistiestOne() {
+        val splits = TripInsights.splits(straightWigglyStraight(), splitMeters = 5_000.0)
+        assertEquals(1, TripInsights.bestSplit(splits)!!.index)
+    }
+
+    @Test
+    fun untimedPointsGiveDistanceButNoTime() {
+        val untimed = straight(11).map { it.copy(timeMs = -1) }
+        assertEquals(0L, TripInsights.movingMs(untimed))
+        assertTrue(TripInsights.speedBands(untimed).all { it.ms == 0L })
+    }
+
     @Test
     fun roadMixNamesTheDominantClassOrTheTopTwo() {
         assertEquals("mostly back roads", TripInsights.roadMixWords(mapOf(HighwayClass.LOCAL to 700.0, HighwayClass.MOTORWAY to 300.0)))
