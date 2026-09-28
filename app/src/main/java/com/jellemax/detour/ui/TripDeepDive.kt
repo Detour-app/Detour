@@ -1,5 +1,6 @@
 package com.jellemax.detour.ui
 
+import com.jellemax.detour.drive.HardEventDetector
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -80,17 +81,25 @@ data class TripDetailExtras(
 private fun isCorner(e: RidingEvent) =
     e.kind == RidingEventKind.HARD_CORNER_LEAN || e.kind == RidingEventKind.HARD_CORNER_TURN
 
-private fun eventValue(e: RidingEvent): String = when (e.kind) {
-    RidingEventKind.HARD_BRAKE, RidingEventKind.HARD_ACCEL -> "%.1f m/s²".format(abs(e.magnitude))
-    RidingEventKind.HARD_CORNER_LEAN -> formatLeanAngle(abs(e.magnitude)) + if (e.magnitude < 0) " left" else " right"
-    RidingEventKind.HARD_CORNER_TURN -> "%.0f°/s".format(abs(e.magnitude))
+/** An event's strength in words: m/s² and °/s mean nothing to most riders.
+ *  A lean angle is the one figure riders already read, so it stays a number. */
+private fun eventValue(e: RidingEvent): String {
+    val threshold = when (e.kind) {
+        RidingEventKind.HARD_BRAKE -> HardEventDetector.HARD_BRAKE_MPS2
+        RidingEventKind.HARD_ACCEL -> HardEventDetector.HARD_ACCEL_MPS2
+        RidingEventKind.HARD_CORNER_TURN -> HardEventDetector.HARD_CORNER_DEG_PER_SEC
+        RidingEventKind.HARD_CORNER_LEAN ->
+            return formatLeanAngle(abs(e.magnitude)) + if (e.magnitude < 0) " left" else " right"
+    }
+    val very = abs(e.magnitude) >= abs(threshold) * VERY_HARD_FACTOR
+    return when (e.kind) {
+        RidingEventKind.HARD_CORNER_TURN -> if (very) "very sharp" else "sharp"
+        else -> if (very) "very hard" else "hard"
+    }
 }
 
-private fun eventLabel(k: RidingEventKind): String = when (k) {
-    RidingEventKind.HARD_BRAKE -> "Hard braking"
-    RidingEventKind.HARD_ACCEL -> "Hard acceleration"
-    RidingEventKind.HARD_CORNER_LEAN, RidingEventKind.HARD_CORNER_TURN -> "Hard corner"
-}
+/** How far past its detection threshold an event has to go to read as "very". */
+private const val VERY_HARD_FACTOR = 1.5
 
 /** Deepest lean, top speed, hardest corner, hardest braking and the best
  *  stretch — whichever of them this trip actually recorded. Places lead the
@@ -112,10 +121,10 @@ fun tripHighlights(trip: Trip, points: List<TraceStore.TracePoint>, bestStretch:
             formatLeanAngle(abs(it.value)) + if (it.value < 0) " left" else " right", COLOR_LEAN, it.at)
     }
     m.events.filter(::isCorner).maxByOrNull { abs(it.magnitude) }?.let {
-        out += TripHighlight("corner", "Hardest corner", eventValue(it), COLOR_CORNER, it.at)
+        out += TripHighlight("corner", "Sharpest corner", eventValue(it), COLOR_CORNER, it.at)
     }
     m.events.filter { it.kind == RidingEventKind.HARD_BRAKE }.minByOrNull { it.magnitude }?.let {
-        out += TripHighlight("brake", "Hardest braking", eventValue(it), COLOR_BRAKE, it.at)
+        out += TripHighlight("brake", "Hardest stop", eventValue(it), COLOR_BRAKE, it.at)
     }
     m.topSpeed?.let { out += TripHighlight("speed", "Top speed", formatSpeedKmh(it.value), COLOR_TOP_SPEED, it.at) }
     return out
@@ -174,7 +183,7 @@ fun TripDeepDive(
             // Off the main thread, like the highlights: splits score every
             // split's curviness and the lean summary walks the whole trace.
             val numbers by produceState<DeepDiveNumbers?>(null, points) {
-                value = withContext(Dispatchers.Default) { DeepDiveNumbers(points, trip.moments.events) }
+                value = withContext(Dispatchers.Default) { DeepDiveNumbers(points) }
             }
             val sections = numbers
             if (sections == null) {
@@ -185,7 +194,7 @@ fun TripDeepDive(
                 OverviewSection(trip, sections)
                 SpeedSection(trip, sections)
                 if (trip.mode.tracksLean || trip.mode.tracksGForce) CorneringSection(trip, sections, leanOffsetDeg)
-                EventsSection(trip, sections, extras)
+                EventsSection(trip)
                 SplitsSection(sections)
                 RoadsSection(trip)
                 StopsSection(trip, extras)
@@ -199,7 +208,7 @@ fun TripDeepDive(
 /** The trace-derived figures, computed together — and only ever constructed on
  *  Dispatchers.Default — so opening the dive walks the
  *  trace a fixed number of times. */
-private class DeepDiveNumbers(points: List<TraceStore.TracePoint>, events: List<RidingEvent>) {
+private class DeepDiveNumbers(points: List<TraceStore.TracePoint>) {
     private val line = points.map { it.at }
     val movingMs = TripInsights.movingMs(points)
     val profile = TripInsights.profile(points)
@@ -208,10 +217,6 @@ private class DeepDiveNumbers(points: List<TraceStore.TracePoint>, events: List<
     val speedBands = TripInsights.speedBands(points)
     val lean = TripInsights.lean(points)
 
-    /** Metres along the ride for each of the first [MAX_EVENT_ROWS] events,
-     *  parallel to them. Each is a walk of the trace, so it's here with the
-     *  other trace walks rather than in composition. */
-    val eventMeters = events.take(MAX_EVENT_ROWS).map { TripInsights.metersAlong(line, it.at) }
     val signalGaps = TripInsights.signalGaps(line)
 }
 
@@ -313,39 +318,26 @@ private fun CorneringSection(trip: Trip, n: DeepDiveNumbers, leanOffsetDeg: Floa
     }
 }
 
+/** One sentence, not a table: where each one happened is already pinned on
+ *  the map, and a per-event log of sensor values read as a report card. */
 @Composable
-private fun EventsSection(trip: Trip, n: DeepDiveNumbers, extras: TripDetailExtras?) {
+private fun EventsSection(trip: Trip) {
     val ds = trip.drivingStats
-    val counted = ds.hardBrakeCount + ds.hardAccelCount + ds.hardCornerCount
-    if (counted == 0) return
+    fun count(n: Int, one: String, many: String) = if (n == 0) null else "$n ${if (n == 1) one else many}"
+    val parts = listOfNotNull(
+        count(ds.hardBrakeCount, "hard stop", "hard stops"),
+        count(ds.hardAccelCount, "fast take-off", "fast take-offs"),
+        count(ds.hardCornerCount, "sharp corner", "sharp corners"),
+    )
+    if (parts.isEmpty()) return
     Column {
-        SectionTitle("Riding events")
-        Text("Not a score to chase — informational only.", style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Stat("Hard braking", "${ds.hardBrakeCount}")
-        Stat("Hard acceleration", "${ds.hardAccelCount}")
-        Stat("Hard corners", "${ds.hardCornerCount}")
-        val shown = trip.moments.events.take(MAX_EVENT_ROWS)
-        shown.forEachIndexed { i, e ->
-            val km = n.eventMeters.getOrNull(i)?.let { formatDistanceKm(it) }
-            val place = extras?.let { TripInsights.placeAt(e.at, it.municipalities) }
-            Stat(
-                listOfNotNull(eventLabel(e.kind), place, km?.let { "at $it" }).joinToString(" · "),
-                eventValue(e),
-            )
-        }
-        // Pinned events not listed. Not counted minus shown: a trip saved
-        // before pins existed has counts and no events to list at all.
-        val unlisted = trip.moments.events.size - shown.size
-        if (unlisted > 0) {
-            Text("$unlisted more not listed", style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        SectionTitle("Stops, starts & corners")
+        val sentence = if (parts.size == 1) parts[0] else parts.dropLast(1).joinToString(", ") + " and " + parts.last()
+        Text(sentence.replaceFirstChar { it.uppercase() } + ".", style = MaterialTheme.typography.bodyMedium)
+        Text("Picked up by the phone's sensors — just for your curiosity, not a score.",
+            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
-
-/** The dive is a list, not a log: past this many a rider scrolls a wall. */
-private const val MAX_EVENT_ROWS = 30
 
 @Composable
 private fun SplitsSection(n: DeepDiveNumbers) {
