@@ -204,6 +204,9 @@ private fun replayMarkerBitmap(density: Float): Bitmap {
     return bmp
 }
 
+private const val GPX_NOT_SAVED =
+    "Export failed: the GPX file could not be saved. Free up some storage and try again."
+
 /** Hands one exported track to whichever app the user picks. The read grant is
  *  what makes the content:// Uri usable on the other side — the provider is
  *  not exported, so without it the receiver sees nothing. */
@@ -545,7 +548,10 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                                 // Not fileFailureText: nothing was picked — the
                                 // write is to our own cache, so the likely cause
                                 // is a full disk, and e.message carries the path.
-                                "Export failed: the GPX file could not be saved. Free up some storage and try again."
+                                GPX_NOT_SAVED
+                            } catch (e: IllegalArgumentException) {
+                                // FileProvider.getUriForFile refusing the path.
+                                GPX_NOT_SAVED
                             }
                         }
                     },
