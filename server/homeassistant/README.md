@@ -19,12 +19,13 @@ curl -X POST https://your-server.example/api/me/api-keys \
 It comes back once — only its hash is stored. `GET /api/me/api-keys` lists what
 you have issued, and `DELETE /api/me/api-keys/{id}` revokes one that leaks.
 
-A key is read-only, but it reads your full GPS traces (`/api/dashboard/traces`,
-`/api/dashboard/rides/track`), which show where your rides start and end. Keep
-it in `secrets.yaml` and send it as the `X-Api-Key` header, as `detour.yaml`
-does. The server also accepts `?key=` for iframes, but a key in a URL is written
-to proxy and CDN access logs and browser history — treat any key that has been
-in one as exposed, and revoke it when you stop using it.
+A key is read-only, but it reads your GPS traces — in full from
+`/api/dashboard/traces`, thinned (400 points by default, up to 5000) from
+`/api/dashboard/rides/track` — which show where your rides start and end. Keep
+it in `secrets.yaml` and send it as the `X-Api-Key` header, as the sensor package
+(`packages/detour.yaml`) does. The server also accepts `?key=` for iframes, but a
+key in a URL is written to proxy and CDN access logs and browser history — revoke
+a key that has been in a URL you no longer control.
 
 ## 2. Add secrets
 
