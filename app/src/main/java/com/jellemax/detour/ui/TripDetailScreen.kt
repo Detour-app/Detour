@@ -10,6 +10,16 @@ import android.graphics.Path
 import android.net.Uri
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.platform.LocalConfiguration
+import com.jellemax.detour.data.Logbook
+import com.jellemax.detour.data.TripTitleStore
+import java.text.SimpleDateFormat
+import java.util.Locale
+import kotlin.math.cos
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +31,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
@@ -88,9 +97,11 @@ import org.maplibre.geojson.Point
 // nothing drawn over its foot, so one value serves all four sides.
 private const val FIT_PADDING_DP = 32
 
-// Share of the screen the map hero takes; the story and the Deep dive scroll
-// in the rest.
-private const val MAP_HERO_FRACTION = 0.45f
+// Share of the screen the map hero takes, sized to the route's own shape
+// between these two: a long east-west ride doesn't need a tall map with empty
+// bands above and below it. The story and the Deep dive scroll in the rest.
+private const val MAP_HERO_MIN_FRACTION = 0.28f
+private const val MAP_HERO_MAX_FRACTION = 0.45f
 
 // Replay source/layer/image ids — a second, screen-local pair of sources on
 // top of whatever MapOverlays already drew, same "one GeoJSON source per
@@ -526,49 +537,49 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
         else setCamera(map, h.at.lat, h.at.lon, HIGHLIGHT_FOCUS_ZOOM, map.cameraPosition.bearing.toFloat())
     }
 
+    // The rider's own title if they renamed the ride in the Logbook.
+    val editedTitle by produceState<String?>(null, trip.startTimeMs) {
+        value = withContext(Dispatchers.IO) { runCatching { TripTitleStore.load()[trip.startTimeMs] }.getOrNull() }
+    }
+    val configuration = LocalConfiguration.current
+    val heroFraction = remember(trace, configuration) {
+        heroFraction(trace?.map { it.at }, configuration.screenWidthDp, configuration.screenHeightDp)
+    }
+
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            SubScreenTopBar(formatDate(trip.startTimeMs), onBack, scrollBehavior) {
-                IconButton(
-                    enabled = points.isNotEmpty(),
-                    onClick = {
-                        scope.launch {
-                            exportError = try {
-                                val uri = withContext(Dispatchers.IO) {
-                                    Gpx.writeForShare(context, trip, points)
-                                }
-                                context.startActivity(Intent.createChooser(
-                                    shareGpxIntent(uri), "Export GPX"))
-                                null
-                            } catch (e: ActivityNotFoundException) {
-                                "No app to receive a GPX file"
-                            } catch (e: IOException) {
-                                // Not fileFailureText: nothing was picked — the
-                                // write is to our own cache, so the likely cause
-                                // is a full disk, and e.message carries the path.
-                                GPX_NOT_SAVED
-                            } catch (e: IllegalArgumentException) {
-                                // FileProvider.getUriForFile refusing the path.
-                                GPX_NOT_SAVED
-                            }
+            // No title up here: the ride's own title leads the story under
+            // the map, where it has room to wrap.
+            SubScreenTopBar("", onBack, scrollBehavior) {
+                IconButton(enabled = points.isNotEmpty(), onClick = { cardDialogOpen = true }) {
+                    Icon(Icons.Filled.Share, contentDescription = "Share trip card")
+                }
+                TripOverflowMenu(enabled = points.isNotEmpty(), onExportGpx = {
+                    scope.launch {
+                        exportError = try {
+                            val uri = withContext(Dispatchers.IO) { Gpx.writeForShare(context, trip, points) }
+                            context.startActivity(Intent.createChooser(shareGpxIntent(uri), "Export GPX"))
+                            null
+                        } catch (e: ActivityNotFoundException) {
+                            "No app to receive a GPX file"
+                        } catch (e: IOException) {
+                            // Not fileFailureText: nothing was picked — the
+                            // write is to our own cache, so the likely cause
+                            // is a full disk, and e.message carries the path.
+                            GPX_NOT_SAVED
+                        } catch (e: IllegalArgumentException) {
+                            // FileProvider.getUriForFile refusing the path.
+                            GPX_NOT_SAVED
                         }
-                    },
-                ) {
-                    Icon(Icons.Filled.Share, contentDescription = "Export GPX")
-                }
-                IconButton(
-                    enabled = points.isNotEmpty(),
-                    onClick = { cardDialogOpen = true },
-                ) {
-                    Icon(Icons.Filled.Image, contentDescription = "Share trip card")
-                }
+                    }
+                })
             }
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            Box(Modifier.fillMaxWidth().fillMaxHeight(MAP_HERO_FRACTION)) {
+            Box(Modifier.fillMaxWidth().fillMaxHeight(heroFraction)) {
                 AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
                 val loaded = trace
                 when {
@@ -590,24 +601,7 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    "${trip.mode.label} · ${formatDate(trip.startTimeMs)} – ${formatTimeOfDay(trip.endTimeMs)}",
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                // Places lead, never top speed (#428, #431): where you went
-                // first, the numbers under it.
-                extras?.places?.let(::placesLine)?.let {
-                    Text(it, style = MaterialTheme.typography.bodyLarge)
-                }
-                Text(
-                    listOfNotNull(
-                        formatDistanceKm(trip.distanceMeters),
-                        formatDurationHistory(trip.durationMs),
-                        TripInsights.roadMixWords(trip.drivingStats.roadTypeMeters),
-                    ).joinToString(" · "),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                TripStoryHeader(trip, editedTitle, extras)
                 exportError?.let {
                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
                 }
@@ -689,4 +683,65 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
     if (cardDialogOpen) {
         TripCardShareDialog(trip, points.map { it.at }, onDismiss = { cardDialogOpen = false })
     }
+}
+
+/** The ride's title — the same one the Logbook shows — then one line of
+ *  when, how far and on what roads, then the towns it passed as stamps.
+ *  The generated title names places, so it waits for them rather than
+ *  flashing a placeless one first. */
+@Composable
+private fun TripStoryHeader(trip: Trip, editedTitle: String?, extras: TripDetailExtras?) {
+    val title = editedTitle ?: extras?.let { Logbook.title(trip, it.places, null) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (title != null) Text(title, style = MaterialTheme.typography.headlineSmall)
+        Text(
+            listOfNotNull(
+                trip.mode.label,
+                "${storyDateFormat.format(trip.startTimeMs)}–${formatTimeOfDay(trip.endTimeMs)}",
+                formatDistanceKm(trip.distanceMeters),
+                formatDurationHistory(trip.durationMs),
+                TripInsights.roadMixWords(trip.drivingStats.roadTypeMeters),
+            ).joinToString(" · "),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        extras?.places?.takeIf { it.isNotEmpty() }?.let { PlaceStamps(it, max = Int.MAX_VALUE) }
+    }
+}
+
+private val storyDateFormat = SimpleDateFormat("EEE d MMM · HH:mm", Locale.getDefault())
+
+/** GPX export lives here: it's for the rider moving a track into another
+ *  app, not the everyday share, which is the card. */
+@Composable
+private fun TripOverflowMenu(enabled: Boolean, onExportGpx: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(enabled = enabled, onClick = { open = true }) {
+            Icon(Icons.Filled.MoreVert, contentDescription = "More trip options")
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text("Export GPX") }, onClick = {
+                open = false
+                onExportGpx()
+            })
+        }
+    }
+}
+
+/**
+ * How much of the screen the map should take for [points]: the route's own
+ * height-to-width on the map (Mercator shrinks a degree of longitude by
+ * cos(latitude)), at the screen's width, plus the fit padding — clamped so a
+ * north-south ride doesn't take the whole screen and a flat one keeps a map.
+ * The maximum while the trace is still loading.
+ */
+private fun heroFraction(points: List<LatLon>?, widthDp: Int, heightDp: Int): Float {
+    if (points.isNullOrEmpty() || heightDp <= 0) return MAP_HERO_MAX_FRACTION
+    val latSpan = points.maxOf { it.lat } - points.minOf { it.lat }
+    val midLat = Math.toRadians((points.maxOf { it.lat } + points.minOf { it.lat }) / 2)
+    val lonSpan = (points.maxOf { it.lon } - points.minOf { it.lon }) * cos(midLat)
+    val aspect = if (lonSpan > 1e-9) latSpan / lonSpan else 1.0
+    val wanted = (widthDp - 2 * FIT_PADDING_DP) * aspect + 2 * FIT_PADDING_DP
+    return (wanted / heightDp).toFloat().coerceIn(MAP_HERO_MIN_FRACTION, MAP_HERO_MAX_FRACTION)
 }

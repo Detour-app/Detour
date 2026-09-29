@@ -69,6 +69,7 @@ import com.jellemax.detour.presentation.formatCoordinatePair
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -146,6 +147,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
         } catch (e: Exception) {
             // A geocoder that could not be reached is not an address that does
             // not exist, and the rider was being told the second thing.
+            ensureActive()
             searchResults = emptyList()
             searchStatus = "Search failed — check your connection"
         }
@@ -160,9 +162,12 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
     // distance/duration inline is that it always matches what's on screen.
     LaunchedEffect(stops, mode, avoidHighways, avoidSmallRoads) {
         if (stops.size < 2) {
+            // Removing a stop while a request is in flight cancels this effect
+            // mid-call, so the early return has to drop the spinner too.
             polyline = emptyList()
             distanceMeters = null
             timeMs = null
+            routing = false
             routingError = null
             return@LaunchedEffect
         }
@@ -182,10 +187,14 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
             // on its success path clears it again.
             throw e
         } catch (e: Exception) {
+            // An IOException can surface in place of the cancellation when the
+            // blocking call fails after we were superseded.
+            ensureActive()
             routingError = failureText("Routing", e)
-        } finally {
-            routing = false
         }
+        // Not in a finally: a cancelled run's finally can land after the run
+        // that replaced it set routing = true, hiding its spinner.
+        routing = false
     }
 
     val themePref by Settings.theme.collectAsStateWithLifecycle()
