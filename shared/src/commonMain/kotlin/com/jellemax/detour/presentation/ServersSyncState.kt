@@ -2,6 +2,8 @@ package com.jellemax.detour.presentation
 
 import com.jellemax.detour.data.AuthException
 import com.jellemax.detour.data.HttpStatusException
+import com.jellemax.detour.data.NoRouteException
+import com.jellemax.detour.data.NoRoutingServerException
 import com.jellemax.detour.data.ServerConfig
 import okio.IOException
 
@@ -96,6 +98,8 @@ fun failureText(action: String, e: Throwable): String {
         // Before HttpStatusException: AuthException is one too, and it is the
         // only status the rider fixes by signing in rather than by retrying.
         e is AuthException -> "the sign-in has expired. Sign in again."
+        e is NoRoutingServerException -> "no routing server is set up. Add one in Settings → Servers & sync."
+        e is NoRouteException -> "no road connects those points. Try moving them."
         e is HttpStatusException && e.code in 401..403 -> "the server refused the sign-in."
         e is HttpStatusException && e.code == 404 -> "the server has nothing at that address."
         e is HttpStatusException && e.code >= 500 -> "the server hit a problem. Try again later."
@@ -105,3 +109,12 @@ fun failureText(action: String, e: Throwable): String {
     }
     return "$action failed: $reason"
 }
+
+/**
+ * [failureText] for an export or import through the file picker, where there
+ * is no network: an [IOException] there is the picked file refusing to open,
+ * not the connection, so it must not send the rider to check their signal.
+ */
+fun fileFailureText(action: String, e: Throwable): String =
+    if (e is IOException) "$action failed: the file could not be opened. Pick it again or choose another."
+    else failureText(action, e)

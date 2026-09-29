@@ -17,6 +17,9 @@ public interface IGroupRepository : IBaseRepository<Group>
     /// </summary>
     Task<GroupMember?> GetAcceptedMembershipAsync(Guid groupId, Guid userId, CancellationToken cancellationToken);
 
+    /// <summary>Every accepted membership held by any of these riders — one query for many riders.</summary>
+    Task<List<GroupMember>> GetAcceptedMembershipsAsync(IReadOnlyCollection<Guid> userIds, CancellationToken cancellationToken);
+
     /// <summary>Ids of every accepted member — the live relay's fan-out list.</summary>
     Task<List<Guid>> GetAcceptedMemberIdsAsync(Guid groupId, CancellationToken cancellationToken);
 }

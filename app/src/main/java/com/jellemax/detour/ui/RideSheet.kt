@@ -419,8 +419,8 @@ internal fun TripStatsRows(stats: TripStats, state: ActiveTripCardState) {
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 if (stats.hardBrakeCount > 0) StatItem("Hard brakes", "${stats.hardBrakeCount}")
-                if (stats.hardAccelCount > 0) StatItem("Hard accel", "${stats.hardAccelCount}")
-                if (stats.hardCornerCount > 0) StatItem("Hard corners", "${stats.hardCornerCount}")
+                if (stats.hardAccelCount > 0) StatItem("Fast starts", "${stats.hardAccelCount}")
+                if (stats.hardCornerCount > 0) StatItem("Sharp corners", "${stats.hardCornerCount}")
                 if (stats.stopCount > 0) StatItem("Stops", "${stats.stopCount}")
                 if (stats.currentlyOverLimit) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -437,7 +437,7 @@ internal fun TripStatsRows(stats: TripStats, state: ActiveTripCardState) {
                 }
             }
             Text(
-                "Not a score to chase — these numbers are informational only.",
+                "Just for your curiosity — not a score.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),

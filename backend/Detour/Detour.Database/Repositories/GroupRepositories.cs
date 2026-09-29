@@ -34,6 +34,14 @@ public class GroupRepository(ICustomDbContextFactory<DetourDbContext> factory)
                      && m.Status == GroupMemberStatus.Accepted,
                 cancellationToken);
 
+    public Task<List<GroupMember>> GetAcceptedMembershipsAsync(
+        IReadOnlyCollection<Guid> userIds,
+        CancellationToken cancellationToken) =>
+        Context.GroupMembers.AsNoTracking()
+            .TagWith(Tag(nameof(GetAcceptedMembershipsAsync)))
+            .Where(m => userIds.Contains(m.UserId) && m.Status == GroupMemberStatus.Accepted)
+            .ToListAsync(cancellationToken);
+
     public Task<List<Guid>> GetAcceptedMemberIdsAsync(Guid groupId, CancellationToken cancellationToken) =>
         Context.GroupMembers.AsNoTracking()
             .TagWith(Tag(nameof(GetAcceptedMemberIdsAsync)))

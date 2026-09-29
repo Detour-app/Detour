@@ -120,9 +120,10 @@ object UpdateChecker {
     }
 
     /**
-     * Whether this build knows a repository to check. False in any build made
-     * without `UPDATE_REPO` in the environment (`app/build.gradle.kts:107-108`
-     * defaults it to blank), where every entry point here is a no-op — so the
+     * Whether this build knows a repository to check. False in every build
+     * but `githubRelease` made with `UPDATE_REPO` in the environment
+     * (`app/build.gradle.kts`) — the Play bundle included, which must not
+     * update itself from GitHub. Every entry point here is then a no-op, so the
      * Settings row is not rendered at all rather than sitting there dead.
      */
     val isConfigured: Boolean get() = BuildConfig.UPDATE_REPO.isNotBlank()

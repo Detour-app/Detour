@@ -135,10 +135,10 @@ public class Startup(IConfiguration configuration)
     public void Configure(WebApplication app)
     {
         // First, because everything below reads either the client address or the scheme.
-        // UseRateLimiter's per-IP partitions need the rewritten address, and
-        // UseHttpsRedirection needs the forwarded scheme — without it, a request that reached
-        // the proxy over https is answered with a redirect to http. Adds nothing at all
-        // unless a proxy is configured; see ForwardedHeadersSettings.
+        // UseRateLimiter's per-IP partitions need the rewritten address, and anything that
+        // builds an absolute URL needs the forwarded scheme — without it, a request that
+        // reached the proxy over https reads as http. Adds nothing at all unless a proxy is
+        // configured; see ForwardedHeadersSettings.
         app.UseTrustedProxies(ForwardedHeaders);
 
         app.UseCors();
@@ -181,10 +181,10 @@ public class Startup(IConfiguration configuration)
         // able to open a transaction, which is otherwise a cheap way to exhaust the pool.
         app.UseCustomTransactionMiddleware<Database.DetourDbContext>();
 
+        // No UseHttpsRedirection: TLS terminates at the proxy and no https port is configured,
+        // so it could never redirect anything. Enforcing https is the proxy's job.
         if (app.Environment.IsLocalDevelopment())
             app.MapOpenApi();
-        else
-            app.UseHttpsRedirection();
 
         app.MapControllers();
     }

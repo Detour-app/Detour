@@ -36,7 +36,8 @@ object ConfigFile {
     }
 
     /** Applies every field the file carries. Blank routing URL clears the
-     *  custom server rather than saving an unusable one. */
+     *  custom server rather than saving an unusable one; one that is not an
+     *  address is refused, the same rule Settings → Save applies (#437). */
     fun import(context: Context, uri: Uri) {
         val text = context.contentResolver.openInputStream(uri)?.use {
             it.bufferedReader().readText()
@@ -47,10 +48,10 @@ object ConfigFile {
         if (routingUrl.isBlank()) {
             RoutingServer.clearCustom()
         } else {
-            RoutingServer.save(ServerConfig(
-                url = routingUrl,
-                enabled = true,
-            ))
+            val config = ServerConfig(url = routingUrl, enabled = true)
+            // Not IOException: failureText reads that as "check your connection".
+            require(config.invalidAddress == null) { "routingUrl is not an address: $routingUrl" }
+            RoutingServer.save(config)
         }
     }
 }

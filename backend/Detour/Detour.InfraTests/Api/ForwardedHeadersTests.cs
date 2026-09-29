@@ -149,9 +149,8 @@ public class ForwardedHeadersTests
     [Fact]
     public async Task A_trusted_proxy_can_forward_the_scheme()
     {
-        // UseHttpsRedirection reads this. Without XForwardedProto a request that reached the
-        // proxy over https is answered with a redirect to http, which the proxy then resolves
-        // over http again.
+        // Request.Scheme reads this. Without XForwardedProto a request that reached the proxy
+        // over https reads as http, and any absolute URL built from it points at http.
         var scheme = await ResolvedScheme(
             new ForwardedHeadersSettings { KnownProxies = ["10.0.0.9"] },
             peer: "10.0.0.9",

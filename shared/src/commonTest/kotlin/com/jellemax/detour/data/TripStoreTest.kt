@@ -63,4 +63,26 @@ class TripStoreTest {
         assertEquals(mapOf(HighwayClass.ARTERIAL to 1_000.0), decoded.drivingStats.roadTypeMeters)
         assertTrue(HighwayClass.MOTORWAY !in decoded.drivingStats.roadTypeMeters)
     }
+
+    @Test
+    fun anEventKindThisBuildDoesNotKnowIsDroppedWithoutLosingTheTrip() {
+        // A newer build may add a kind; an older one reading the synced file
+        // must keep the trip and every event it can name.
+        val moments = decodeTripMoments(jsonObjectOf("""
+            {"events":[
+              {"kind":"HARD_WHEELIE","lat":50.8,"lon":3.2,"timeMs":1,"magnitude":9.0},
+              {"kind":"HARD_ACCEL","lat":50.8,"lon":3.2,"timeMs":2,"magnitude":3.1}]}
+        """.trimIndent()))
+        assertEquals(listOf(RidingEventKind.HARD_ACCEL), moments.events.map { it.kind })
+        assertEquals(null, moments.topSpeed)
+    }
+
+    @Test
+    fun aTripSavedBeforeMomentsExistedDecodesWithNoPins() {
+        val oldTripJson = """
+            {"startTimeMs":1700000000000,"endTimeMs":1700000060000,
+             "distanceMeters":1200.0,"topSpeedMps":30.0,"mode":"CAR"}
+        """.trimIndent()
+        assertEquals(TripMoments(), TripStore.decodeTrip(jsonObjectOf(oldTripJson)).moments)
+    }
 }

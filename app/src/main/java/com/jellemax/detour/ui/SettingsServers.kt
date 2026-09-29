@@ -39,6 +39,7 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.presentation.ServersSyncState
 import com.jellemax.detour.presentation.failureText
+import com.jellemax.detour.presentation.fileFailureText
 import com.jellemax.detour.presentation.serversSyncStateFrom
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -220,7 +221,7 @@ private fun ConfigFileButtons(
                 ConfigFile.export(context, uri)
                 "Config exported"
             } catch (e: Exception) {
-                failureText("Export", e)
+                fileFailureText("Export", e)
             },
         )
     }
@@ -247,7 +248,7 @@ private fun ConfigFileButtons(
                 onServerChange()
                 "Config imported — restart the app to use the new servers"
             } catch (e: Exception) {
-                failureText("Import", e)
+                fileFailureText("Import", e)
             },
         )
     }

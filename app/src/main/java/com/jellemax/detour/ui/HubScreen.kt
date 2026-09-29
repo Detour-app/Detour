@@ -25,7 +25,7 @@ import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Diversity3
-import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.MilitaryTech
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Route
@@ -145,8 +145,8 @@ fun HubScreen(
 
             ListCard {
                 HubRow(
-                    icon = Icons.Rounded.History,
-                    title = "Trip history",
+                    icon = Icons.Rounded.MenuBook,
+                    title = "Logbook",
                     onClick = onOpenHistory,
                     paintCard = false,
                 )

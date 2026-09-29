@@ -3,12 +3,16 @@ package com.jellemax.detour.tracking
 import android.content.Context
 import com.jellemax.detour.data.Curviness
 import com.jellemax.detour.data.DrivingStats
+import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.RidingEvent
+import com.jellemax.detour.data.RidingEventKind
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.Trip
 import com.jellemax.detour.data.TripStore
 import com.jellemax.detour.data.syncQuietly
 import com.jellemax.detour.drive.HardEventDetector
+import com.jellemax.detour.drive.MomentRecorder
 import com.jellemax.detour.drive.RoadTypeTracker
 import com.jellemax.detour.drive.SpeedLimitTracker
 import com.jellemax.detour.drive.StopDetector
@@ -16,6 +20,7 @@ import com.jellemax.detour.notif.TripEndedNotification
 import com.jellemax.detour.ui.loadTripPoints
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.roundToLong
 
 /**
@@ -23,7 +28,10 @@ import kotlin.math.roundToLong
  * fresh set of accumulators, [end] turns them into the [Trip] that is written
  * to disk. What sits between the two — the per-fix pipeline that folds each
  * location fix into these accumulators — stays on [TripTrackingService], which
- * is why every field here is `internal` rather than `private`.
+ * is why every field here is `internal` rather than `private`. The exception is
+ * the trip's moments (#444): the counters, peaks and events that must agree
+ * with each other are advanced together by the `on*`/`record*` methods here,
+ * which the service calls once its own gates have passed.
  *
  * That `internal` is Kotlin's minimum for "another file in this module can see
  * it", not an invitation: the only instance of this class is held in a private
@@ -99,6 +107,21 @@ internal class TripSession(
     @Volatile internal var roadTypeState = RoadTypeTracker.State()
     @Volatile internal var roadTypeFetchJob: kotlinx.coroutines.Job? = null
 
+    /** The latest trip fix's position — where a sensor-driven peak (lean, g),
+     *  which has no position of its own, gets pinned. Null until the trip's
+     *  first fix, and nothing is pinned before it. */
+    @Volatile private var here: LatLon? = null
+    // Folded from the sensor thread (lean, g) and the location thread (speed,
+    // events, stops) alike, so every fold holds this lock: two unguarded
+    // read-modify-writes of one immutable state would each drop the other's.
+    private val momentsLock = Any()
+    private var moments = MomentRecorder.State()
+
+    private inline fun foldMoments(f: (MomentRecorder.State, LatLon) -> MomentRecorder.State) {
+        val at = here ?: return
+        synchronized(momentsLock) { moments = f(moments, at) }
+    }
+
     /** The last trip-save [end] kicked off. Since #90 that save can start
      *  from a path that then stops the service (dormancy → stopSelf) before
      *  [TripTrackingService.onDestroy]'s own endTrip call runs, so onDestroy
@@ -142,6 +165,62 @@ internal class TripSession(
         roadTypeState = RoadTypeTracker.State()
         roadTypeFetchJob?.cancel()
         roadTypeFetchJob = null
+        here = null
+        synchronized(momentsLock) { moments = MomentRecorder.State() }
+    }
+
+    /** One trip fix, before any detector sees it: sets the position the rest
+     *  of this fix's moments are pinned to, and follows the top speed with
+     *  the same number the service folds into `TripStats.topSpeedMps`. */
+    fun onFix(at: LatLon, timeMs: Long, speedMps: Double) {
+        here = at
+        foldMoments { m, p -> MomentRecorder.onSpeed(m, p, timeMs, speedMps) }
+    }
+
+    /** A lean sample that cleared the service's plausibility and speed gates. */
+    fun recordLean(deg: Double) {
+        maxLeanDeg = maxOf(maxLeanDeg, abs(deg))
+        val now = clock.nowMs()
+        foldMoments { m, p -> MomentRecorder.onLean(m, p, now, deg) }
+        val (cornering, newEvent) = HardEventDetector.onLeanSample(leanCorneringNow, deg)
+        leanCorneringNow = cornering
+        if (newEvent) hardCornerCount++
+        foldMoments { m, p ->
+            MomentRecorder.onCorner(m, cornering, newEvent, RidingEvent(RidingEventKind.HARD_CORNER_LEAN, p, now, deg))
+        }
+    }
+
+    /** A smoothed g reading under the service's plausibility ceiling. */
+    fun recordG(g: Double) {
+        if (g <= maxG) return
+        maxG = g
+        foldMoments { m, p -> MomentRecorder.onG(m, p, clock.nowMs(), g) }
+    }
+
+    fun onSpeedFix(result: HardEventDetector.SpeedResult, fixMs: Long) {
+        speedEventState = result.state
+        val kind = when {
+            result.hardBrake -> RidingEventKind.HARD_BRAKE.also { hardBrakeCount++ }
+            result.hardAccel -> RidingEventKind.HARD_ACCEL.also { hardAccelCount++ }
+            else -> return
+        }
+        foldMoments { m, p -> MomentRecorder.onEvent(m, kind, p, fixMs, result.accelMps2) }
+    }
+
+    fun onHeadingFix(next: HardEventDetector.HeadingState, newEvent: Boolean) {
+        headingEventState = next
+        if (newEvent) hardCornerCount++
+        foldMoments { m, p ->
+            val sample = RidingEvent(RidingEventKind.HARD_CORNER_TURN, p, next.lastFixMs, next.rateDegPerSec)
+            MomentRecorder.onCorner(m, next.corneringNow, newEvent, sample)
+        }
+    }
+
+    fun onStopFix(speedMps: Double, fixMs: Long) {
+        val before = stopState
+        val after = StopDetector.onFix(before, speedMps, fixMs)
+        stopState = after
+        foldMoments { m, p -> MomentRecorder.onStopFix(m, before, after, p, fixMs) }
     }
 
     /** Stops the two in-flight Overpass lookups. Separate from [end] because it
@@ -218,6 +297,7 @@ internal class TripSession(
                 fuelSampledMeters = fuelSampledMeters.roundToLong(),
                 fuelEstimated = fuelWasEstimated,
             ),
+            moments = synchronized(momentsLock) { moments.moments },
         )
         // Two separate coroutines, not one: onDestroy's runBlocking joins
         // saveJob to guarantee the trip survives process death, and that join
