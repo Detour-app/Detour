@@ -10,7 +10,7 @@ import com.jellemax.detour.MainActivity
 import com.jellemax.detour.R
 
 /**
- * The "Trip ended - saved to history." notification, raised by
+ * The "Trip ended — saved to your logbook." notification, raised by
  * TripTrackingService when auto-detection ends a trip the user did not end
  * themselves. Lives here rather than in the service so the debug trigger in
  * app/src/debug can raise the *same* notification: a debug hook that rebuilt
@@ -52,7 +52,7 @@ object TripEndedNotification {
             .setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(context.getString(R.string.app_name))
-            .setContentText("Trip ended — saved to history.")
+            .setContentText("Trip ended — saved to your logbook.")
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             // UPDATE_CURRENT is not cosmetic: the extra differs per trip, and a
             // PendingIntent reused under one request code keeps its *original*

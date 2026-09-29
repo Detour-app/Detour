@@ -38,6 +38,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,17 +55,22 @@ import com.google.android.gms.location.Priority
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.Geocoder
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.RouteFill
 import com.jellemax.detour.data.RouteStop
 import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.SavedRoute
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.data.StopsTooLong
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.presentation.failureText
 import com.jellemax.detour.presentation.formatCoordinatePair
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.maplibre.android.maps.MapLibreMap
@@ -103,6 +109,9 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
     var routing by remember { mutableStateOf(false) }
     var routingError by remember { mutableStateOf<String?>(null) }
     var saveError by remember { mutableStateOf("") }
+    var filling by remember { mutableStateOf(false) }
+    var fillError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<GeocodeResult>>(emptyList()) }
@@ -138,6 +147,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
         } catch (e: Exception) {
             // A geocoder that could not be reached is not an address that does
             // not exist, and the rider was being told the second thing.
+            ensureActive()
             searchResults = emptyList()
             searchStatus = "Search failed — check your connection"
         }
@@ -152,9 +162,12 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
     // distance/duration inline is that it always matches what's on screen.
     LaunchedEffect(stops, mode, avoidHighways, avoidSmallRoads) {
         if (stops.size < 2) {
+            // Removing a stop while a request is in flight cancels this effect
+            // mid-call, so the early return has to drop the spinner too.
             polyline = emptyList()
             distanceMeters = null
             timeMs = null
+            routing = false
             routingError = null
             return@LaunchedEffect
         }
@@ -168,11 +181,20 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
             polyline = result.polyline
             distanceMeters = result.distanceMeters
             timeMs = result.timeMs
+        } catch (e: CancellationException) {
+            // A stop or mode change superseded us. Falling into the catch below
+            // would set routingError after the new run cleared it, and nothing
+            // on its success path clears it again.
+            throw e
         } catch (e: Exception) {
-            routingError = "Routing failed: ${e.message}"
-        } finally {
-            routing = false
+            // An IOException can surface in place of the cancellation when the
+            // blocking call fails after we were superseded.
+            ensureActive()
+            routingError = failureText("Routing", e)
         }
+        // Not in a finally: a cancelled run's finally can land after the run
+        // that replaced it set routing = true, hiding its spinner.
+        routing = false
     }
 
     val themePref by Settings.theme.collectAsStateWithLifecycle()
@@ -271,6 +293,38 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
 
     fun removeStop(index: Int) {
         stops = stops.toMutableList().apply { removeAt(index) }
+    }
+
+    /**
+     * Stretch the route to [minutes] of riding: the rider's own stops stay,
+     * [RouteFill] inserts the rest. The result lands in `stops` like any
+     * other edit, so the re-route effect above draws it and Save keeps it.
+     */
+    fun fill(minutes: Float) {
+        scope.launch {
+            filling = true
+            fillError = null
+            // A fill takes a few round trips to the server; if the rider has
+            // tapped in another stop or switched vehicle meanwhile, their edit
+            // wins - a fill routed for the old profile is not this route's.
+            val from = stops
+            val fromMode = mode
+            try {
+                val filled = withContext(Dispatchers.IO) {
+                    RouteFill.fillRouted(
+                        serverConfig, from, minutes, mode.ghProfile, avoidHighways, avoidSmallRoads)
+                }
+                if (stops == from && mode == fromMode) stops = filled.stops
+            } catch (e: StopsTooLong) {
+                fillError = "Your stops alone take ${formatDurationHistory(e.stopsMs)} — pick a longer time"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                fillError = failureText("Fill", e)
+            } finally {
+                filling = false
+            }
+        }
     }
 
     fun save() {
@@ -450,6 +504,23 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                             )
                         }
                     }
+                }
+                // Keyed: it sits after the stops, so an unkeyed item shifts index
+                // (and drops the rider's chosen minutes) whenever a fill adds or
+                // removes stops.
+                item(key = "fill") {
+                    RouteFillControls(
+                        canFill = RouteFill.mandatory(stops).isNotEmpty() && serverConfig.usable,
+                        filling = filling,
+                        error = fillError,
+                        onFill = { fill(it) },
+                        onClearFill = if (stops.none(RouteFill::isFill)) null else {
+                            {
+                                stops = RouteFill.mandatory(stops)
+                                fillError = null
+                            }
+                        },
+                    )
                 }
                 item {
                     Button(

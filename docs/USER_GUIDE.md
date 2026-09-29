@@ -322,12 +322,12 @@ Unlike trips and fog, routes are **not** part of sync: they live on the phone,
 and a shared one only leaves it when you send it to someone. Export the ones you
 want to keep before a reinstall.
 
-## You: history, badges, friends
+## You: logbook, badges, friends
 
 <table>
   <tr>
     <td align="center"><img src="screenshots/you.png" width="240" alt="You screen"><br><sub>You</sub></td>
-    <td align="center"><img src="screenshots/history.png" width="240" alt="Trip history"><br><sub>History</sub></td>
+    <td align="center"><img src="screenshots/history.png" width="240" alt="Logbook"><br><sub>Logbook</sub></td>
     <td align="center"><img src="screenshots/badges.png" width="240" alt="Badges"><br><sub>Badges</sub></td>
   </tr>
 </table>
@@ -335,15 +335,31 @@ want to keep before a reinstall.
 The avatar in the search field opens **You**. At the top: your name, a
 **Profile & account** link, and four lifetime totals — kilometres, rides,
 places (municipalities entered) and badges earned. Under them, everything else
-hangs off one list: **Trip history**, **Routes**, **Saved places**,
+hangs off one list: **Logbook**, **Routes**, **Saved places**,
 **Badges & coverage** (with your count, e.g. `8 / 22`) and **Social**. Settings
 is the gear in the top right.
 
-**Trip history** lists every ride, newest first, grouped by month with a monthly
-total. Each row has a thumbnail of the route's shape, duration, distance,
-average and top speed, plus peak lean and g where the mode records them. The ⋮
-menu on a row lets you **change vehicle** (for a misclassified trip) or
-**delete** it.
+**Logbook** tells your rides as a story, newest first. Each month is a
+chapter: the current one draws all its routes on one map with a one-line
+summary (rides, kilometres, new places), and older months fold to that one line
+until you tap them. A ride shows its route large and a title built from the
+towns it passed, the weekday and the time of day ("Sunday afternoon ride through
+Ronse and Kluisbergen"); a car trip gets a plain "Gent to Aalst". At most one
+chip marks what stood out: a first, new places, the longest ride yet, or the
+twistiest of the month. Badges appear between the rides they were earned among.
+Filter by **All**, **Moto** or **Car** at the top. The ⋮ menu on a ride lets you
+**rename** it, **change vehicle** (for a misclassified trip), share its card or
+**delete** it. Renamed titles stay on this phone; they don't sync.
+
+Tapping a ride opens it: the route as a map with its highlights pinned (deepest
+lean, top speed, hardest corner, hardest braking, and the twistiest 5 km drawn
+in green) — tap a highlight to fly to it — then the places passed, new ones
+marked, and the road mix in plain words. **Replay** plays the ride back on the
+map. **Deep dive** folds out every number: overview, speed over distance and
+time in each speed band, cornering (lean left vs right, time per lean band),
+each hard event with its place and kilometre, 25 km splits with the twistiest
+highlighted, road classes, stops, engine data from an OBD2 adapter, and how the
+ride was recorded.
 
 **Badges** track five categories — Distance, Top speed, Single ride, Places and
 Coverage — with progress shown on the ones you haven't earned yet. Coverage is

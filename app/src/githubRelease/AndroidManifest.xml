@@ -1,11 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- This variant only. The Play bundle is built from `release` and must not
-     carry REQUEST_INSTALL_PACKAGES: a store-installed copy updating itself
-     from GitHub is against Play policy, and the permission is restricted.
+<!-- This variant only. The Play bundle is built from `release` and must carry
+     none of the self-update machinery: a store-installed copy updating itself
+     from GitHub is against Play policy, REQUEST_INSTALL_PACKAGES is restricted,
+     and a dataSync foreground service would need a Play Console declaration
+     for a feature Play builds must not have. `release` also bakes a blank
+     BuildConfig.UPDATE_REPO (app/build.gradle.kts), so nothing in that build
+     ever tries to start the service declared here.
 
-     Install-time, so it never prompts. The rider-facing consent is the
-     separate per-app "Install unknown apps" toggle, read with
-     canRequestPackageInstalls() — see UpdateInstaller. -->
+     REQUEST_INSTALL_PACKAGES is install-time, so it never prompts. The
+     rider-facing consent is the separate per-app "Install unknown apps"
+     toggle, read with canRequestPackageInstalls() - see UpdateInstaller. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- UpdateDownloadService streams a release APK to disk - dataSync, the
+         type for a bounded transfer that ends of its own accord. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <application>
+        <!-- Carries an update download for as long as it takes: it starts when
+             the rider taps Download in Settings and stops itself the moment
+             the APK lands, fails or is cancelled. It used to run in
+             HubScreen's composition, which is why leaving the Hub for the map
+             cancelled it mid-stream (#277). -->
+        <service
+            android:name=".update.UpdateDownloadService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+    </application>
 </manifest>

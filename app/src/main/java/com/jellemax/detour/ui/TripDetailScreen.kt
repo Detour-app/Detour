@@ -10,22 +10,34 @@ import android.graphics.Path
 import android.net.Uri
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.platform.LocalConfiguration
+import com.jellemax.detour.data.Logbook
+import com.jellemax.detour.data.TripTitleStore
+import java.text.SimpleDateFormat
+import java.util.Locale
+import kotlin.math.cos
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,14 +66,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.Gpx
-import com.jellemax.detour.data.HighwayClass
 import com.jellemax.detour.data.LatLon
+import com.jellemax.detour.data.MunicipalityStore
 import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.Trip
+import com.jellemax.detour.data.TripInsights
 import kotlin.math.abs
-import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -70,6 +82,7 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
@@ -80,12 +93,15 @@ import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 
-// Left/top/right padding around the fitted route, and extra bottom padding so
-// the stats card at the foot of the screen doesn't sit over the route it's
-// describing — a fixed estimate of the card's height rather than measuring
-// it, same spirit as the paddings MapScreen fits its own camera to.
+// Padding around the fitted route. The map is its own hero pane now, with
+// nothing drawn over its foot, so one value serves all four sides.
 private const val FIT_PADDING_DP = 32
-private const val FIT_BOTTOM_PADDING_DP = 170
+
+// Share of the screen the map hero takes, sized to the route's own shape
+// between these two: a long east-west ride doesn't need a tall map with empty
+// bands above and below it. The story and the Deep dive scroll in the rest.
+private const val MAP_HERO_MIN_FRACTION = 0.28f
+private const val MAP_HERO_MAX_FRACTION = 0.45f
 
 // Replay source/layer/image ids — a second, screen-local pair of sources on
 // top of whatever MapOverlays already drew, same "one GeoJSON source per
@@ -93,6 +109,11 @@ private const val FIT_BOTTOM_PADDING_DP = 170
 private const val SRC_REPLAY_TRAVELLED = "mr-replay-travelled"
 private const val SRC_REPLAY_MARKER = "mr-replay-marker"
 private const val IMG_REPLAY_MARKER = "mr-img-replay-marker"
+private const val SRC_HIGHLIGHTS = "mr-highlights"
+private const val SRC_BEST_STRETCH = "mr-best-stretch"
+
+// Zoom a tapped highlight is shown at: close enough to see which bend it was.
+private const val HIGHLIGHT_FOCUS_ZOOM = 15.0
 
 // Every ride, however long, is normalized to about this many milliseconds of
 // playback — a 5-minute trip and a 90-minute trip scrub over roughly the same
@@ -204,8 +225,9 @@ private fun shareGpxIntent(uri: Uri): Intent = Intent(Intent.ACTION_SEND).apply 
 }
 
 /**
- * Trip history detail: the full driven route on a real map, with the trip's
- * stats in a glass card over the bottom. [HistoryScreen] only opens this for
+ * Logbook trip detail (#444): the driven route as a map hero with its
+ * highlights pinned, the places passed and road mix under it, replay behind a
+ * button, and every number in a collapsed Deep dive. [HistoryScreen] only opens this for
  * trips a trace was matched to, so [loadTripTrace] coming back empty is not
  * expected in practice — handled anyway rather than assumed away.
  */
@@ -266,6 +288,20 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
                 IMG_REPLAY_MARKER,
                 replayMarkerBitmap(context.resources.displayMetrics.density),
             )
+            // Highlights sit under the replay layers, so the moving marker is
+            // never hidden behind a pin it drives past.
+            style.addSource(GeoJsonSource(SRC_BEST_STRETCH))
+            style.addSource(GeoJsonSource(SRC_HIGHLIGHTS))
+            style.addLayer(LineLayer("mr-best-stretch-line", SRC_BEST_STRETCH).withProperties(
+                PropertyFactory.lineColor(COLOR_BEST_STRETCH), PropertyFactory.lineWidth(8f),
+                PropertyFactory.lineOpacity(0.85f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)))
+            style.addLayer(CircleLayer("mr-highlight-pins", SRC_HIGHLIGHTS).withProperties(
+                PropertyFactory.circleColor(Expression.get("color")),
+                PropertyFactory.circleRadius(Expression.get("radius")),
+                PropertyFactory.circleStrokeColor("#FFFFFF"),
+                PropertyFactory.circleStrokeWidth(2f)))
             style.addSource(GeoJsonSource(SRC_REPLAY_TRAVELLED))
             style.addSource(GeoJsonSource(SRC_REPLAY_MARKER))
             style.addLayer(LineLayer("mr-replay-travelled-line", SRC_REPLAY_TRAVELLED).withProperties(
@@ -285,7 +321,6 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
     // are ready — the trace load and the style load race, so either one
     // arriving last is what should trigger this.
     val fitPaddingPx = with(LocalDensity.current) { FIT_PADDING_DP.dp.roundToPx() }
-    val fitBottomPaddingPx = with(LocalDensity.current) { FIT_BOTTOM_PADDING_DP.dp.roundToPx() }
     LaunchedEffect(trace, mapOverlays) {
         val points = trace?.map { it.at } ?: return@LaunchedEffect
         val overlays = mapOverlays ?: return@LaunchedEffect
@@ -299,7 +334,52 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
             candidates = emptyList(),
             positionMarker = PositionMarker.Hide,
         )
-        if (points.isNotEmpty()) cameraForPoints(map, points, fitPaddingPx, fitBottomPaddingPx)
+        if (points.isNotEmpty()) cameraForPoints(map, points, fitPaddingPx)
+    }
+
+    // Places and boundaries, for the story's "places passed" and the Deep
+    // dive's per-event place names. Null until loaded; the story renders
+    // without them meanwhile rather than waiting on a walk of every earlier
+    // trace point.
+    var extras by remember { mutableStateOf<TripDetailExtras?>(null) }
+    LaunchedEffect(trace) {
+        val loaded = trace ?: return@LaunchedEffect
+        extras = withContext(Dispatchers.IO) {
+            runCatching {
+                val municipalities = MunicipalityStore.load()
+                val earlier = TraceStore.loadAllPoints().asSequence().flatten()
+                    .filter { it.timeMs in 0 until trip.startTimeMs }.map { it.at }
+                TripDetailExtras(municipalities, TripInsights.places(loaded.map { it.at }, municipalities, earlier))
+            }.getOrNull()
+        }
+    }
+
+    // Off the main thread: bestStretch scores a 5 km window every few points,
+    // ~100 ms on a 300 km ride — a first-frame stall if run in composition.
+    // Empty until computed, which renders the same as "nothing stood out":
+    // the section just appears once there is something to list.
+    var highlights by remember { mutableStateOf<List<TripHighlight>>(emptyList()) }
+    LaunchedEffect(trace) {
+        val loaded = trace ?: return@LaunchedEffect
+        highlights = withContext(Dispatchers.Default) {
+            tripHighlights(trip, loaded, TripInsights.bestStretch(loaded))
+        }
+    }
+    var selectedHighlight by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(highlights, selectedHighlight, mapStyle) {
+        val style = mapStyle ?: return@LaunchedEffect
+        (style.getSource(SRC_HIGHLIGHTS) as? GeoJsonSource)?.setGeoJson(FeatureCollection.fromFeatures(
+            highlights.filter { it.stretch == null }.map { h ->
+                Feature.fromGeometry(Point.fromLngLat(h.at.lon, h.at.lat)).apply {
+                    addStringProperty("color", h.color)
+                    addNumberProperty("radius", if (h.id == selectedHighlight) 10 else 6)
+                }
+            }))
+        val stretch = highlights.firstOrNull { it.stretch != null }?.stretch
+        (style.getSource(SRC_BEST_STRETCH) as? GeoJsonSource)?.setGeoJson(
+            if (stretch == null) FeatureCollection.fromFeatures(emptyList())
+            else FeatureCollection.fromFeature(Feature.fromGeometry(
+                LineString.fromLngLats(stretch.map { Point.fromLngLat(it.lon, it.lat) }))))
     }
 
     // Timeline is derived once per trace load; sampling it every frame during
@@ -438,226 +518,157 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
     val points = trace.orEmpty()
     var cardDialogOpen by remember { mutableStateOf(false) }
 
+    // Replay sits behind a button (#444): the screen leads with where the ride
+    // went, and the scrubber is for the rider who asks for it.
+    var replayOpen by remember { mutableStateOf(false) }
+    val leanOffset by Settings.leanOffsetDeg.collectAsStateWithLifecycle()
+
+    fun focusHighlight(h: TripHighlight) {
+        selectedHighlight = h.id
+        // Same rule as a drag: once the rider has asked to look somewhere,
+        // replay stops steering the camera.
+        followCamera = false
+        val map = mapLibreMap ?: return
+        val stretch = h.stretch
+        if (stretch != null) cameraForPoints(map, stretch, fitPaddingPx)
+        else setCamera(map, h.at.lat, h.at.lon, HIGHLIGHT_FOCUS_ZOOM, map.cameraPosition.bearing.toFloat())
+    }
+
+    // The rider's own title if they renamed the ride in the Logbook.
+    val editedTitle by produceState<String?>(null, trip.startTimeMs) {
+        value = withContext(Dispatchers.IO) { runCatching { TripTitleStore.load()[trip.startTimeMs] }.getOrNull() }
+    }
+    val configuration = LocalConfiguration.current
+    val heroFraction = remember(trace, configuration) {
+        heroFraction(trace?.map { it.at }, configuration.screenWidthDp, configuration.screenHeightDp)
+    }
+
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            SubScreenTopBar(formatDate(trip.startTimeMs), onBack, scrollBehavior) {
-                IconButton(
-                    enabled = points.isNotEmpty(),
-                    onClick = {
-                        scope.launch {
-                            exportError = try {
-                                val uri = withContext(Dispatchers.IO) {
-                                    Gpx.writeForShare(context, trip, points)
-                                }
-                                context.startActivity(Intent.createChooser(
-                                    shareGpxIntent(uri), "Export GPX"))
-                                null
-                            } catch (e: ActivityNotFoundException) {
-                                "No app to receive a GPX file"
-                            } catch (e: IOException) {
-                                "Export failed: ${e.message}"
-                            }
+            // No title up here: the ride's own title leads the story under
+            // the map, where it has room to wrap.
+            SubScreenTopBar("", onBack, scrollBehavior) {
+                IconButton(enabled = points.isNotEmpty(), onClick = { cardDialogOpen = true }) {
+                    Icon(Icons.Filled.Share, contentDescription = "Share trip card")
+                }
+                TripOverflowMenu(enabled = points.isNotEmpty(), onExportGpx = {
+                    scope.launch {
+                        exportError = try {
+                            val uri = withContext(Dispatchers.IO) { Gpx.writeForShare(context, trip, points) }
+                            context.startActivity(Intent.createChooser(shareGpxIntent(uri), "Export GPX"))
+                            null
+                        } catch (e: ActivityNotFoundException) {
+                            "No app to receive a GPX file"
+                        } catch (e: IOException) {
+                            // Not fileFailureText: nothing was picked — the
+                            // write is to our own cache, so the likely cause
+                            // is a full disk, and e.message carries the path.
+                            "Export failed: the GPX file could not be saved. Free up some storage and try again."
                         }
-                    },
-                ) {
-                    Icon(Icons.Filled.Share, contentDescription = "Export GPX")
-                }
-                IconButton(
-                    enabled = points.isNotEmpty(),
-                    onClick = { cardDialogOpen = true },
-                ) {
-                    Icon(Icons.Filled.Image, contentDescription = "Share trip card")
-                }
+                    }
+                })
             }
         },
     ) { padding ->
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(padding),
-        ) {
-            AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
-
-            val loaded = trace
-            when {
-                loaded == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                loaded.isEmpty() -> Text(
-                    "No route recorded",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.align(Alignment.Center),
-                )
-                else -> {}
-            }
-
-            Card(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(16.dp)
-                    .glassBorder(MaterialTheme.shapes.extraLarge),
-                shape = MaterialTheme.shapes.extraLarge,
-                colors = glassCardColors(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            ) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(
-                        "${trip.mode.label} · ${formatDate(trip.startTimeMs)}",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    // Anywhere past the start of replay (playing, paused
-                    // mid-way, or scrubbed there manually) this line reports
-                    // the moment being shown instead of the whole trip's
-                    // stats; back at rideElapsedMs == 0 it's exactly what the
-                    // card showed before replay existed.
-                    val replaySample = if (canReplay && rideElapsedMs > 0.0)
-                        sampleReplay(trace!!, replayTimeline!!, rideElapsedMs) else null
-                    Text(
-                        if (replaySample != null)
-                            "${formatSpeedKmh(replaySample.speedMps)} · " +
-                                "${formatDuration(rideElapsedMs.toLong())} elapsed"
-                        else tripStatLine(trip),
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            Box(Modifier.fillMaxWidth().fillMaxHeight(heroFraction)) {
+                AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
+                val loaded = trace
+                when {
+                    loaded == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    loaded.isEmpty() -> Text(
+                        "No route recorded",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.align(Alignment.Center),
                     )
-                    // Hard events / stops / OBD2 — trimmed off the history row
-                    // (see tripStatLine), shown here where the card can wrap.
-                    // Hidden during replay for the same reason the line above
-                    // swaps to the replay moment: whole-trip totals next to a
-                    // scrubbed-to instant read as if they belonged together.
-                    if (replaySample == null) {
-                        tripBehaviorLine(trip)?.let {
+                    else -> {}
+                }
+            }
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TripStoryHeader(trip, editedTitle, extras)
+                exportError?.let {
+                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                }
+                if (canReplay) {
+                    if (!replayOpen) {
+                        FilledTonalButton(onClick = {
+                            replayOpen = true
+                            replaying = true
+                        }) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                            Text("Replay", Modifier.padding(start = 8.dp))
+                        }
+                    } else {
+                        Column {
+                            val replaySample = if (rideElapsedMs <= 0.0) null
+                            else sampleReplay(trace!!, replayTimeline!!, rideElapsedMs)
                             Text(
-                                it,
-                                style = MaterialTheme.typography.labelSmall,
+                                replaySample?.let {
+                                    "${formatSpeedKmh(it.speedMps)} · ${formatDuration(rideElapsedMs.toLong())} elapsed"
+                                } ?: "Start of the ride",
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                        }
-                    }
-                    // Road-type mix: share of the *classified* distance on each
-                    // highway class, skipping classes with nothing recorded.
-                    // Normalised against the sum of what was matched to a way, not
-                    // trip.distanceMeters — road-type accrual only starts once the
-                    // first Overpass fetch resolves and skips any fix that snaps to
-                    // no way, so dividing by the full trip distance makes the
-                    // shares silently sum to well under 100%. Empty entirely for an
-                    // old trip, or one where the fetch never resolved.
-                    val classifiedMeters = trip.drivingStats.roadTypeMeters.values.sum()
-                    if (trip.drivingStats.roadTypeMeters.isNotEmpty() && classifiedMeters > 0) {
-                        Text(
-                            HighwayClass.entries.mapNotNull { cls ->
-                                val meters = trip.drivingStats.roadTypeMeters[cls] ?: return@mapNotNull null
-                                val pct = (meters / classifiedMeters * 100.0).roundToInt()
-                                "${cls.name.lowercase().replaceFirstChar { it.uppercase() }}: $pct%"
-                            }.joinToString(" · "),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    // 0.0 is indistinguishable from "not measured" — same
-                    // convention as maxGForce/maxLeanAngleDeg elsewhere on this
-                    // screen — so only show a nonzero score.
-                    if (trip.drivingStats.twistinessScore > 0.0) {
-                        Text(
-                            "Twistiness: ${(trip.drivingStats.twistinessScore * 100).roundToInt()}%",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (trip.drivingStats.pctOverLimit > 0.0) {
-                        Text(
-                            "${trip.drivingStats.pctOverLimit.roundToInt()}% over the limit",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (trip.drivingStats.obd2SpeedPct > 0.0) {
-                        val obd2Pct = trip.drivingStats.obd2SpeedPct.roundToInt()
-                        Text(
-                            if (obd2Pct == 0) "OBD2 speed: <1% of the drive"
-                            else "OBD2 speed: $obd2Pct% of the drive",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (trip.drivingStats.maxRpm > 0.0) {
-                        val d = trip.drivingStats
-                        Text(
-                            "Engine: peak ${d.maxRpm.roundToInt()} rpm · " +
-                                "avg ${d.avgRpm.roundToInt()} rpm · " +
-                                "throttle max ${d.maxThrottlePct.roundToInt()}% · " +
-                                "WOT ${d.pctWideOpenThrottle.roundToInt()}%",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (trip.drivingStats.hardBrakeCount + trip.drivingStats.hardAccelCount +
-                        trip.drivingStats.hardCornerCount > 0
-                    ) {
-                        Text(
-                            "Not a score to chase — informational only.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (replaySample == null && trip.drivingStats.fuelEstimated &&
-                        tripFuelEconomyLper100Km(trip) != null
-                    ) {
-                        Text(
-                            "Fuel is a MAF-based estimate — this vehicle has no direct " +
-                                "fuel-rate PID, so it tracks engine load, not the injectors, " +
-                                "and can drift. Tune it per vehicle under the OBD2 adapter settings.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    exportError?.let {
-                        Text(
-                            it,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                    if (canReplay) {
-                        Slider(
-                            value = (rideElapsedMs / rideDurationMs.toDouble()).toFloat().coerceIn(0f, 1f),
-                            onValueChange = { frac ->
-                                // A drag on the scrubber is the user placing the
-                                // marker themselves — let go of playback rather
-                                // than fight it for the same rideElapsedMs value.
-                                replaying = false
-                                rideElapsedMs = (frac.toDouble() * rideDurationMs).coerceIn(0.0, rideDurationMs.toDouble())
-                            },
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            IconButton(onClick = {
-                                // Replaying again after it ran to the end starts
-                                // over rather than doing nothing at 100%.
-                                if (!replaying && rideElapsedMs >= rideDurationMs) rideElapsedMs = 0.0
-                                replaying = !replaying
-                            }) {
-                                Icon(
-                                    if (replaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                    contentDescription = if (replaying) "Pause replay" else "Play replay",
+                            Slider(
+                                value = (rideElapsedMs / rideDurationMs.toDouble()).toFloat().coerceIn(0f, 1f),
+                                onValueChange = { frac ->
+                                    // A drag on the scrubber is the user placing the marker
+                                    // themselves — let go of playback rather than fight it for
+                                    // the same rideElapsedMs value.
+                                    replaying = false
+                                    rideElapsedMs = (frac.toDouble() * rideDurationMs)
+                                        .coerceIn(0.0, rideDurationMs.toDouble())
+                                },
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                IconButton(onClick = {
+                                    // Replaying again after it ran to the end starts over
+                                    // rather than doing nothing at 100%.
+                                    if (!replaying && rideElapsedMs >= rideDurationMs) rideElapsedMs = 0.0
+                                    replaying = !replaying
+                                }) {
+                                    Icon(
+                                        if (replaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                        contentDescription = if (replaying) "Pause replay" else "Play replay",
+                                    )
+                                }
+                                Text(
+                                    "${formatDuration(rideElapsedMs.toLong())} / ${formatDuration(rideDurationMs)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f),
                                 )
-                            }
-                            Text(
-                                "${formatDuration(rideElapsedMs.toLong())} / ${formatDuration(rideDurationMs)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(onClick = { speedIndex = (speedIndex + 1) % REPLAY_SPEEDS.size }) {
-                                Text("${REPLAY_SPEEDS[speedIndex]}×")
+                                TextButton(onClick = { speedIndex = (speedIndex + 1) % REPLAY_SPEEDS.size }) {
+                                    Text("${REPLAY_SPEEDS[speedIndex]}×")
+                                }
                             }
                         }
                     }
+                }
+                if (highlights.isNotEmpty()) {
+                    Text("Highlights", style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp))
+                    for (h in highlights) {
+                        HighlightRow(h, selected = h.id == selectedHighlight, onClick = { focusHighlight(h) })
+                    }
+                }
+                if (points.isNotEmpty()) {
+                    HorizontalDivider(Modifier.padding(top = 8.dp))
+                    TripDeepDive(trip, points, extras, leanOffset)
                 }
             }
         }
@@ -666,4 +677,65 @@ fun TripDetailScreen(trip: Trip, onBack: () -> Unit) {
     if (cardDialogOpen) {
         TripCardShareDialog(trip, points.map { it.at }, onDismiss = { cardDialogOpen = false })
     }
+}
+
+/** The ride's title — the same one the Logbook shows — then one line of
+ *  when, how far and on what roads, then the towns it passed as stamps.
+ *  The generated title names places, so it waits for them rather than
+ *  flashing a placeless one first. */
+@Composable
+private fun TripStoryHeader(trip: Trip, editedTitle: String?, extras: TripDetailExtras?) {
+    val title = editedTitle ?: extras?.let { Logbook.title(trip, it.places, null) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (title != null) Text(title, style = MaterialTheme.typography.headlineSmall)
+        Text(
+            listOfNotNull(
+                trip.mode.label,
+                "${storyDateFormat.format(trip.startTimeMs)}–${formatTimeOfDay(trip.endTimeMs)}",
+                formatDistanceKm(trip.distanceMeters),
+                formatDurationHistory(trip.durationMs),
+                TripInsights.roadMixWords(trip.drivingStats.roadTypeMeters),
+            ).joinToString(" · "),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        extras?.places?.takeIf { it.isNotEmpty() }?.let { PlaceStamps(it, max = Int.MAX_VALUE) }
+    }
+}
+
+private val storyDateFormat = SimpleDateFormat("EEE d MMM · HH:mm", Locale.getDefault())
+
+/** GPX export lives here: it's for the rider moving a track into another
+ *  app, not the everyday share, which is the card. */
+@Composable
+private fun TripOverflowMenu(enabled: Boolean, onExportGpx: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(enabled = enabled, onClick = { open = true }) {
+            Icon(Icons.Filled.MoreVert, contentDescription = "More trip options")
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text("Export GPX") }, onClick = {
+                open = false
+                onExportGpx()
+            })
+        }
+    }
+}
+
+/**
+ * How much of the screen the map should take for [points]: the route's own
+ * height-to-width on the map (Mercator shrinks a degree of longitude by
+ * cos(latitude)), at the screen's width, plus the fit padding — clamped so a
+ * north-south ride doesn't take the whole screen and a flat one keeps a map.
+ * The maximum while the trace is still loading.
+ */
+private fun heroFraction(points: List<LatLon>?, widthDp: Int, heightDp: Int): Float {
+    if (points.isNullOrEmpty() || heightDp <= 0) return MAP_HERO_MAX_FRACTION
+    val latSpan = points.maxOf { it.lat } - points.minOf { it.lat }
+    val midLat = Math.toRadians((points.maxOf { it.lat } + points.minOf { it.lat }) / 2)
+    val lonSpan = (points.maxOf { it.lon } - points.minOf { it.lon }) * cos(midLat)
+    val aspect = if (lonSpan > 1e-9) latSpan / lonSpan else 1.0
+    val wanted = (widthDp - 2 * FIT_PADDING_DP) * aspect + 2 * FIT_PADDING_DP
+    return (wanted / heightDp).toFloat().coerceIn(MAP_HERO_MIN_FRACTION, MAP_HERO_MAX_FRACTION)
 }

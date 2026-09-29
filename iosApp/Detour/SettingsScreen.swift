@@ -17,6 +17,8 @@ struct SettingsScreen: View {
     @State private var routingURL = ""
     @State private var geocoderURL = ""
     @State private var idpIssuer = ""
+    // The address Save refused, shown under the button (#437).
+    @State private var invalidAddress: String?
 
     var body: some View {
         NavigationStack {
@@ -135,6 +137,11 @@ struct SettingsScreen: View {
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
             Button("Save server") { saveServer() }
+            if let invalidAddress {
+                Text("“\(invalidAddress)” is not a server address — use http:// or https:// and a host name.")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
             if RoutingServer.shared.loadCustom() != nil {
                 Button("Use built-in server", role: .destructive) {
                     RoutingServer.shared.clearCustom()
@@ -194,14 +201,18 @@ struct SettingsScreen: View {
     }
 
     private func saveServer() {
-        RoutingServer.shared.save(config: ServerConfig(
+        let config = ServerConfig(
             url: serverURL,
             apiUrl: apiURL,
             routingUrl: routingURL,
             geocoderUrl: geocoderURL,
             idpIssuer: idpIssuer,
             enabled: true
-        ))
+        )
+        // Same shared rule Android's Save applies, so "not a url" is refused, not stored.
+        invalidAddress = config.invalidAddress
+        if invalidAddress != nil { return }
+        RoutingServer.shared.save(config: config)
     }
 }
 

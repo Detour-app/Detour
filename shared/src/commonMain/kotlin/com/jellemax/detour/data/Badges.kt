@@ -163,6 +163,13 @@ object BadgeStore {
         return Result(states, newlyEarned)
     }
 
+    /** Every badge earned so far and when, for the Logbook's inline
+     *  milestones. Read-only: unlike [refresh], this never stamps a badge. */
+    fun earned(): List<Pair<BadgeDef, Long>> {
+        val at = load()
+        return ALL.mapNotNull { def -> at[def.id]?.let { def to it } }
+    }
+
     private fun load(): Map<String, Long> {
         val f = accountFile(FILE_NAME)
         if (!f.exists()) return emptyMap()
