@@ -79,6 +79,17 @@ data class TripStats(
     val currentlyOverLimit: Boolean = false,
 )
 
+/** A screen that draws a live map off [TripTrackingService.lastFix]. */
+enum class MapSurface { PHONE, CAR }
+
+/** [visible] with [surface] shown or hidden. Hiding one surface never hides
+ *  another — see [TripTrackingService.setUiVisible]. */
+internal fun withMapVisible(
+    visible: Set<MapSurface>,
+    surface: MapSurface,
+    shown: Boolean,
+): Set<MapSurface> = if (shown) visible + surface else visible - surface
+
 /** Latest location fix, published live for the map (fog, navigation) and the
  *  HUD. `speedMps` is the best available source — fresh OBD2, else board
  *  telemetry, else the phone's GPS — not necessarily GPS. Auto-start/stop and
@@ -317,15 +328,24 @@ class TripTrackingService : Service() {
         private val _liveTrace = MutableStateFlow<List<LatLon>>(emptyList())
         val liveTrace: StateFlow<List<LatLon>> = _liveTrace
 
-        /** True while the map is on screen. The batched idle fixes are fine for
-         *  a fog trace but far too slow for a speed readout someone is looking
-         *  at, so a visible map buys navigation-grade updates for as long as it
-         *  is visible — and gives them straight back when it isn't. */
-        private var uiVisible = false
+        /** Which maps are on screen right now. The batched idle fixes are fine
+         *  for a fog trace but far too slow for a speed readout someone is
+         *  looking at, so a visible map buys navigation-grade updates for as
+         *  long as it is visible — and gives them straight back when it isn't.
+         *
+         *  A set, not one flag: the phone map and the car map come and go
+         *  independently. With a single boolean, locking a phone that had
+         *  Detour open cleared the flag the car had set — the tracker fell back
+         *  to batched idle fixes (or, with auto-detect off, stopped outright)
+         *  and the head unit's free-drive map froze until the phone was
+         *  unlocked again. */
+        private var visibleMaps: Set<MapSurface> = emptySet()
+        private val uiVisible: Boolean get() = visibleMaps.isNotEmpty()
 
-        fun setUiVisible(context: Context, visible: Boolean) {
-            if (uiVisible == visible) return
-            uiVisible = visible
+        fun setUiVisible(context: Context, surface: MapSurface, visible: Boolean) {
+            val before = uiVisible
+            visibleMaps = withMapVisible(visibleMaps, surface, visible)
+            if (uiVisible == before) return
             refresh(context)
         }
 
