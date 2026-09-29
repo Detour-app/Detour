@@ -564,7 +564,7 @@ private fun ShareRouteToFriendDialog(onDismiss: () -> Unit, onShare: (String) ->
         try {
             friends = withContext(Dispatchers.IO) { Friends.lists().friends }
         } catch (e: Exception) {
-            error = e.message ?: "Could not reach the server"
+            error = failureText("Loading friends", e)
             friends = emptyList()
         }
     }
