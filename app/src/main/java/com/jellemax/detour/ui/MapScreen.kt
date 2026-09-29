@@ -1385,7 +1385,6 @@ fun MapScreen(
                 onCollapse = { settingsCollapsed = true },
                 // #432: no second, parallel fetch from a repeat tap — the drive sheet's Go too.
                 onNavigateInApp = { if (!s.rerouting) startNavigation() },
-                routeFetching = s.rerouting,
                 onNavigate = {
                     if (stats == null) TripTrackingService.start(context, s.destination?.lat, s.destination?.lon)
                 },

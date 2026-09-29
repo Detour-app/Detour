@@ -54,6 +54,9 @@ data class NavState(
      *  the ambient sign otherwise. Valid regardless of [thenPill]/[offRoute],
      *  since the HUD that reads this is on screen outside navigation too. */
     val speedLimitKmh: Double?,
+    /** A route request is in flight — the first fetch after Start or a
+     *  reroute. The drive sheet's Start shows busy while it is (#432). */
+    val rerouting: Boolean,
 )
 
 /**
@@ -157,5 +160,6 @@ internal fun navStateFrom(
         offRoute = offRoute,
         progressFraction = (progress?.drivenFraction ?: 0.0).toFloat(),
         speedLimitKmh = if (navigating) progress?.speedLimitKmh else ambientSpeedLimitKmh,
+        rerouting = rerouting,
     )
 }
