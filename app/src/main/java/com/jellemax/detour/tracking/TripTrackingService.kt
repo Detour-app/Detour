@@ -317,16 +317,16 @@ class TripTrackingService : Service() {
         private val _liveTrace = MutableStateFlow<List<LatLon>>(emptyList())
         val liveTrace: StateFlow<List<LatLon>> = _liveTrace
 
-        /** True while the map is on screen. The batched idle fixes are fine for
-         *  a fog trace but far too slow for a speed readout someone is looking
-         *  at, so a visible map buys navigation-grade updates for as long as it
-         *  is visible — and gives them straight back when it isn't. */
-        private var uiVisible = false
+        /** Which maps are on screen: batched idle fixes are too slow for a map
+         *  someone is watching, so any visible one buys navigation-grade
+         *  updates. Per surface, not one flag — see [MapSurface]. */
+        private var visibleMaps: Set<MapSurface> = emptySet()
+        private val uiVisible: Boolean get() = visibleMaps.isNotEmpty()
 
-        fun setUiVisible(context: Context, visible: Boolean) {
-            if (uiVisible == visible) return
-            uiVisible = visible
-            refresh(context)
+        fun setUiVisible(context: Context, surface: MapSurface, visible: Boolean) {
+            val before = uiVisible
+            visibleMaps = withMapVisible(visibleMaps, surface, visible)
+            if (uiVisible != before) refresh(context)
         }
 
         /** True when [Obd2Connection] should be held open for something other

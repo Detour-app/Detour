@@ -125,6 +125,7 @@ import com.jellemax.detour.map.smoothBearing
 import com.jellemax.detour.obd2.Obd2Connection
 import com.jellemax.detour.obd2.Obd2ConnectionState
 import com.jellemax.detour.tracking.LocationSources
+import com.jellemax.detour.tracking.MapSurface
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ble.BleNavServer
 import kotlinx.coroutines.CancellationException
@@ -354,7 +355,7 @@ fun MapScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> TripTrackingService.setUiVisible(context, true)
+                Lifecycle.Event.ON_START -> TripTrackingService.setUiVisible(context, MapSurface.PHONE, true)
                 // Belt-and-braces for push-to-talk: the button's own
                 // awaitRelease() releases the mic on a normal press-and-let-go,
                 // but backgrounding mid-press (e.g. an incoming call taking
@@ -362,7 +363,7 @@ fun MapScreen(
                 // is the worst failure mode here, so this stops it regardless
                 // of whether the gesture ever saw a release.
                 Lifecycle.Event.ON_STOP -> {
-                    TripTrackingService.setUiVisible(context, false)
+                    TripTrackingService.setUiVisible(context, MapSurface.PHONE, false)
                     PushToTalk.stopTalking()
                 }
                 else -> {}
@@ -371,7 +372,7 @@ fun MapScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            TripTrackingService.setUiVisible(context, false)
+            TripTrackingService.setUiVisible(context, MapSurface.PHONE, false)
             PushToTalk.stopTalking()
         }
     }

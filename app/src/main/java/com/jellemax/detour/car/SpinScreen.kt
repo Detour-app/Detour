@@ -36,6 +36,7 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.pickCandidate
 import com.jellemax.detour.drive.SpeedLimitTracker
+import com.jellemax.detour.tracking.MapSurface
 import com.jellemax.detour.tracking.TripTrackingService
 import com.jellemax.detour.ui.formatDistanceKm
 import kotlinx.coroutines.CancellationException
@@ -96,7 +97,7 @@ class SpinScreen(
                 // app mid-drive.
                 runCatching {
                     TripTrackingService.startMonitoring(carContext)
-                    TripTrackingService.setUiVisible(carContext, true)
+                    TripTrackingService.setUiVisible(carContext, MapSurface.CAR, true)
                 }.onFailure { Log.w(TAG, "could not start location updates", it) }
                 // Coming back from a drive: the last ambient sign is from
                 // wherever you set off, so show nothing until the next fix
@@ -106,7 +107,7 @@ class SpinScreen(
                 limitState = SpeedLimitTracker.reset(limitState)
             }
             override fun onStop(owner: LifecycleOwner) {
-                runCatching { TripTrackingService.setUiVisible(carContext, false) }
+                runCatching { TripTrackingService.setUiVisible(carContext, MapSurface.CAR, false) }
             }
         })
         lifecycleScope.launch {
