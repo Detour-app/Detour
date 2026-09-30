@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -151,15 +152,19 @@ internal fun NavigationDock(
                 // The common case: one tap starts the trip recording and
                 // in-app turn-by-turn together (startNavigation() does both),
                 // and s.navigating flipping true hands the slot to NavSheet.
+                // Busy while the route fetches (#432): the trip starts only once it's back.
                 Button(
                     onClick = go.onNavigateInApp,
+                    enabled = !go.routeFetching,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
                 ) {
-                    Icon(Icons.Outlined.Navigation, contentDescription = null, Modifier.size(20.dp))
+                    if (go.routeFetching) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Outlined.Navigation, contentDescription = null, Modifier.size(20.dp))
                     Spacer(Modifier.width(10.dp))
-                    Text("Start", style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                    Text(if (go.routeFetching) "Routing…" else "Start",
+                        style = MaterialTheme.typography.titleMedium, maxLines = 1)
                 }
             } else {
                 // No usable routing server: fall back to the external nav app,

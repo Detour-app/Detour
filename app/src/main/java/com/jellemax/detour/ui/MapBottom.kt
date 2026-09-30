@@ -135,6 +135,7 @@ internal fun BoxScope.MapBottomSlot(
             inAppAvailable = inAppAvailable,
             onNavigateInApp = onNavigateInApp,
             onNavigate = onNavigate,
+            routeFetching = navState.rerouting,
         )
         // The exiting sheet still composes for a few frames after `stats`
         // goes null; keep the last value so it animates out with content.

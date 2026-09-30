@@ -55,6 +55,20 @@ class NavStateTest {
         assertEquals("Rerouting…", state.headlineText)
     }
 
+    // #432: the drive sheet's Start reads this before navigation has begun.
+    @Test fun routeFetchBeforeNavigatingIsCarried() {
+        val fetching = navStateFrom(
+            progress = null, navigating = false, rerouting = true,
+            ambientSpeedLimitKmh = null, nowMs = 0L,
+        )
+        val idle = navStateFrom(
+            progress = null, navigating = false, rerouting = false,
+            ambientSpeedLimitKmh = null, nowMs = 0L,
+        )
+        assertEquals(true, fetching.rerouting)
+        assertEquals(false, idle.rerouting)
+    }
+
     @Test fun nullProgressWaitsForGps() {
         val state = navStateFrom(
             progress = null, navigating = true, rerouting = false,
