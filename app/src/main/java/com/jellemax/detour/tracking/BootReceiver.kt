@@ -8,8 +8,10 @@ import com.jellemax.detour.notif.CircleNotifyService
 import com.jellemax.detour.notif.CircleSyncWorker
 
 /** Restarts trip tracking, circle arrival notifications and the parked circle
- *  sync after a reboot - an arrival at 3pm on a Tuesday has to work whether or
- *  not the app has been opened since the phone restarted.
+ *  sync after a reboot or an app update - an arrival at 3pm on a Tuesday has to
+ *  work whether or not the app has been opened since the phone restarted or the
+ *  app updated. Without the update case, drive detection stayed off after an
+ *  in-app update until the next app open (#489).
  *
  *  Since #90 the tracker is no longer always-on, and this still starts it
  *  unconditionally: the dormancy decision lives in one place, at the tail of
@@ -19,7 +21,9 @@ import com.jellemax.detour.notif.CircleSyncWorker
  *  notification on screen only for the length of the pass. */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        if (intent.action != Intent.ACTION_BOOT_COMPLETED &&
+            intent.action != Intent.ACTION_MY_PACKAGE_REPLACED
+        ) return
         // Every background entry point does this first (see
         // `CircleSyncWorker.doWork`, `CircleNotifyService.onCreate`):
         // `Application.onCreate` doesn't, so anything touching `Settings`
@@ -28,7 +32,7 @@ class BootReceiver : BroadcastReceiver() {
         // notifications and the sync worker get a chance to start.
         Settings.init()
         // The OS drops every registered geofence on reboot without telling
-        // the app (issue #91) — forget what PlaceGeofenceGate thinks is
+        // the app (issue #91), and an update can drop them too — forget what PlaceGeofenceGate thinks is
         // registered so the next tick's sync rebuilds from scratch instead
         // of a stale "already registered" record blocking re-add.
         PlaceGeofenceGate.forgetAllRegistered()
