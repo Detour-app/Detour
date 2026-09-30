@@ -43,7 +43,7 @@ object RoadRoulette {
             return pickPoint(
                 fetchRoads(center, radiusMeters, highwayRegex),
                 center, radiusMeters, bearingDeg, explored, minRadiusMeters,
-            ) ?: throw IOException("No roads found within radius")
+            ) ?: throw SpinFailure("No roads found within radius")
         }
 
         var lastError: IOException? = null
@@ -63,7 +63,7 @@ object RoadRoulette {
                 lastError = e
             }
         }
-        throw lastError ?: IOException("No roads found within radius")
+        throw lastError ?: SpinFailure("No roads found within radius")
     }
 
     /**

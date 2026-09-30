@@ -7,6 +7,7 @@ import okio.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -28,9 +29,9 @@ class LoopSpinTest {
     @Test
     fun aServerFailureSurvivesTheFallbackTimingOutToo() {
         assertEquals(
-            "Server route failed (503 Service Unavailable); fallback timed out too",
+            "Server route failed: the server hit a problem. Try again later. The fallback timed out too.",
             spinTimeoutMessage(
-                serverError = "503 Service Unavailable",
+                serverError = "the server hit a problem. Try again later.",
                 roundTrip = true,
                 serverUsable = true,
             ),
@@ -64,19 +65,22 @@ class LoopSpinTest {
         // Independent requests against the same server almost always fail the
         // same way; three copies of one sentence helps nobody.
         val reason = loopFailureReason(
-            listOf(IOException("connect timed out"), IOException("connect timed out"), null),
+            listOf(HttpStatusException(503, ""), IOException("connect timed out"), null),
         )
-        assertEquals("connect timed out", reason)
+        assertEquals("the server hit a problem. Try again later.", reason)
     }
 
     @Test
-    fun anExceptionWithNoMessageFallsBackToItsTypeThenToAPlainSentence() {
-        // A bare IOException has a null message, and "null" is not a reason.
-        assertEquals("IOException", loopFailureReason(listOf(IOException())))
+    fun aRollsReasonNeverCarriesTheExceptionsOwnText() {
+        // #487: this lands in the rider's warning, and the raw text can be a
+        // URL or a parser's internals.
+        val raw = "Unable to resolve host nas.local: No address associated with hostname"
+        val reason = loopFailureReason(listOf(IOException(raw)))
+        assertFalse(reason.contains(raw), reason)
         // Nothing failed at all: the caller only asks when the list is empty of
         // successes, so this is the "we have no idea" wording.
-        assertEquals("no route", loopFailureReason(listOf(null, null)))
-        assertEquals("no route", loopFailureReason(emptyList()))
+        assertEquals("no route came back.", loopFailureReason(listOf(null, null)))
+        assertEquals("no route came back.", loopFailureReason(emptyList()))
     }
 
     private val home = LatLon(50.85, 5.69)
@@ -143,21 +147,30 @@ class LoopSpinTest {
     fun rollsThatAllFailFallBackAndSayWhatTheServerDid() = runBlocking {
         val result = LoopSpin.spin(
             request(30f), serverUsable = true,
-            roll = { throw IOException("HTTP 503") },
+            roll = { throw HttpStatusException(503, "") },
             fallback = { listOf(LatLon(50.9, 5.7)) },
         )
-        assertEquals("Server route failed (HTTP 503) — approximate loop instead", result.warning)
+        assertEquals(
+            "Server route failed: the server hit a problem. Try again later. " +
+                "Showing an approximate loop instead.",
+            result.warning,
+        )
     }
 
     @Test
     fun aFallbackTimeoutAfterAServerFailureNamesTheServer() = runBlocking {
-        val e = assertFailsWith<IOException> {
+        // A SpinFailure, so the phone shows it verbatim rather than as
+        // "check your connection" (#487).
+        val e = assertFailsWith<SpinFailure> {
             LoopSpin.spin(
                 request(null), serverUsable = true,
-                roll = { throw IOException("HTTP 503") },
+                roll = { throw HttpStatusException(503, "") },
                 fallback = { withTimeout(1) { delay(1_000) }; emptyList() },
             )
         }
-        assertEquals("Server route failed (HTTP 503); fallback timed out too", e.message)
+        assertEquals(
+            "Server route failed: the server hit a problem. Try again later. The fallback timed out too.",
+            e.message,
+        )
     }
 }

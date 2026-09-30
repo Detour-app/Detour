@@ -6,7 +6,6 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import okio.IOException
 
 /**
  * What a loop spin is asked for. [minutes] non-null sizes the loop by riding
@@ -61,8 +60,9 @@ object LoopSpin {
     data class Result(val route: RouteResult, val warning: String?)
 
     /**
-     * Throws [IOException] with a sentence for the rider when there is no loop
-     * at all, including when the fallback times out ([spinTimeoutMessage]).
+     * Throws [SpinFailure] with a sentence for the rider when there is no loop
+     * at all, including when the fallback times out ([spinTimeoutMessage]); a
+     * network failure on the way throws as it came.
      * A [CancellationException] propagates: a cancelled spin is the rider
      * leaving, not a failure to report.
      */
@@ -115,14 +115,14 @@ object LoopSpin {
         } catch (e: TimeoutCancellationException) {
             // Caught here, just outside the planner's own withTimeout, so it is
             // the fallback's timeout and not the rider cancelling the spin.
-            throw IOException(spinTimeoutMessage(serverError, roundTrip = true, serverUsable = serverUsable))
+            throw SpinFailure(spinTimeoutMessage(serverError, roundTrip = true, serverUsable = serverUsable))
         }
         val approximate = RouteResult(
             polyline = listOf(request.from) + wps + request.from,
             waypoints = wps,
             distanceMeters = null,
         )
-        return Result(approximate, serverError?.let { "Server route failed ($it) — approximate loop instead" })
+        return Result(approximate, serverError?.let { "Server route failed: $it Showing an approximate loop instead." })
     }
 
     /**
@@ -149,7 +149,7 @@ object LoopSpin {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            onServerError(e.message ?: e::class.simpleName ?: "unknown")
+            onServerError(failureReason(e))
             return null
         }
 
@@ -205,7 +205,7 @@ fun spinTimeoutMessage(
     roundTrip: Boolean,
     serverUsable: Boolean,
 ): String = when {
-    serverError != null -> "Server route failed ($serverError); fallback timed out too"
+    serverError != null -> "Server route failed: $serverError The fallback timed out too."
     roundTrip && !serverUsable -> "No routing server configured — public servers timed out"
     else -> "Road servers are slow right now — try again"
 }
@@ -215,9 +215,9 @@ fun spinTimeoutMessage(
  *
  * The rolls are independent requests against the same server, so when they all
  * fail they have almost always failed the same way; reporting the first is
- * both accurate and shorter than reporting three copies of it.
+ * both accurate and shorter than reporting three copies of it. Worded by
+ * [failureReason], never the exception's own text, which could be a URL or a
+ * parser's internals (#487).
  */
 fun loopFailureReason(errors: List<Throwable?>): String =
-    errors.firstNotNullOfOrNull { it }
-        ?.let { it.message ?: it::class.simpleName }
-        ?: "no route"
+    errors.firstNotNullOfOrNull { it }?.let(::failureReason) ?: "no route came back."
