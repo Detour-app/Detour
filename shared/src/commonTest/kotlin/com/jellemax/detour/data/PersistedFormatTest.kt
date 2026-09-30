@@ -130,10 +130,33 @@ class PersistedFormatTest {
         assertEquals(listOf(tripWithMoments, tripNoDestination), TripStore.decodeAll(tripsV2))
     }
 
+    // V3 (#478): each trip gains "gForceGravityFree", true once maxGForce is
+    // the horizontal load without gravity. V1 and V2 still read, the flag false.
+    private val tripsV3 = tripsV2
+        .replace(
+            """"stops":[{"lat":50.5,"lon":5.3,"startMs":1726001500000,"endMs":1726001680000}]}}""",
+            """"stops":[{"lat":50.5,"lon":5.3,"startMs":1726001500000,"endMs":1726001680000}]},
+          "gForceGravityFree":true}""",
+        )
+        .replace(
+            """"moments":{"topSpeed":null,"maxLean":null,"maxG":null,"events":[],"stops":[]}}]""",
+            """"moments":{"topSpeed":null,"maxLean":null,"maxG":null,"events":[],"stops":[]},
+          "gForceGravityFree":false}]""",
+        )
+
     @Test
-    fun tripsWriterMatchesV2() {
-        val written = listOf(tripWithMoments, tripNoDestination).map { TripStore.encode(it) }
-        assertEquals(jsonArrayOf(tripsV2).toList(), written)
+    fun tripsV3Reads() {
+        assertEquals(
+            listOf(tripWithMoments.copy(gForceGravityFree = true), tripNoDestination),
+            TripStore.decodeAll(tripsV3),
+        )
+    }
+
+    @Test
+    fun tripsWriterMatchesV3() {
+        val written = listOf(tripWithMoments.copy(gForceGravityFree = true), tripNoDestination)
+            .map { TripStore.encode(it) }
+        assertEquals(jsonArrayOf(tripsV3).toList(), written)
     }
 
     // --- traces.jsonl (one line per recorded segment) ------------------------

@@ -303,8 +303,10 @@ private fun CorneringSection(trip: Trip, n: DeepDiveNumbers) {
                 ShareRow(if (b.toDeg == null) "${b.fromDeg}°+" else "${b.fromDeg}–${b.toDeg}°", b.ms, leaned)
             }
         }
-        // No "Max g": the recorded figure still counts gravity, so every car
-        // trip reads 1-2 g. Back when it measures the ride alone (#478).
+        // Before #478 the figure counted gravity (1-2 g for any drive): not shown.
+        if (trip.mode.tracksGForce && trip.gForceGravityFree && trip.maxGForce > 0.0) {
+            Stat("Max g", formatGForce(trip.maxGForce))
+        }
     }
 }
 

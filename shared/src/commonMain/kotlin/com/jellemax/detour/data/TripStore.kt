@@ -22,6 +22,11 @@ data class Trip(
     val drivingStats: DrivingStats = DrivingStats(),
     /** Where the peaks, hard events and stops above happened (#444). */
     val moments: TripMoments = TripMoments(),
+    /** Whether [maxGForce] (and [TripMoments.maxG]) is the vehicle's own
+     *  horizontal load (#478). False for every trip recorded before: those
+     *  read the raw accelerometer, gravity included, so 1-2 g for any drive —
+     *  kept as stored, but not a number to show. */
+    val gForceGravityFree: Boolean = false,
 ) {
     val durationMs: Long get() = endTimeMs - startTimeMs
     val avgSpeedMps: Double
@@ -160,6 +165,7 @@ object TripStore {
         put("mode", t.mode.name)
         put("drivingStats", encodeDrivingStats(t.drivingStats))
         put("moments", encodeTripMoments(t.moments))
+        put("gForceGravityFree", t.gForceGravityFree)
     }
 
     private fun encodeDrivingStats(d: DrivingStats): JsonObject = buildJsonObject {
@@ -262,6 +268,7 @@ object TripStore {
         mode = TravelMode.of(o.optString("mode")),
         drivingStats = decodeDrivingStats(o.optObject("drivingStats")),
         moments = decodeTripMoments(o.optObject("moments")),
+        gForceGravityFree = o.optBoolean("gForceGravityFree"),
     )
 
     /** Raw stored JSON array, for server sync. */
