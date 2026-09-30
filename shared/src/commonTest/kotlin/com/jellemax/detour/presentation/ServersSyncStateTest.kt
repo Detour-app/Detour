@@ -5,6 +5,7 @@ import com.jellemax.detour.data.HttpStatusException
 import com.jellemax.detour.data.NoRouteException
 import com.jellemax.detour.data.NoRoutingServerException
 import com.jellemax.detour.data.ServerConfig
+import com.jellemax.detour.data.SpinFailure
 import okio.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -153,6 +154,24 @@ class ServersSyncStateTest {
         assertEquals(
             "Export failed: the contents were not what this app expected.",
             fileFailureText("Export", IllegalStateException("boom")),
+        )
+    }
+
+    @Test
+    fun `a spin keeps its own sentence and maps everything else`() {
+        // #487: the curated dead ends are IOExceptions too, so plain
+        // failureText would flatten them to "check your connection".
+        assertEquals(
+            "Not enough roads for a round trip — try a larger radius",
+            spinFailureText(SpinFailure("Not enough roads for a round trip — try a larger radius")),
+        )
+        assertEquals(
+            "Spin failed: it could not be opened. Check your connection and try again.",
+            spinFailureText(IOException("Unable to resolve host photon.komoot.io")),
+        )
+        assertEquals(
+            "Spin failed: the contents were not what this app expected.",
+            spinFailureText(IllegalArgumentException("Unexpected JSON token at offset 41")),
         )
     }
 }

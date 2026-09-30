@@ -199,7 +199,7 @@ object RoundTripPlanner {
                     }
                 }.awaitAll().filterNotNull()
                 if (waypoints.size < MIN_WAYPOINTS) {
-                    throw IOException("Not enough roads for a round trip — try a larger radius")
+                    throw SpinFailure("Not enough roads for a round trip — try a larger radius")
                 }
                 waypoints
             }

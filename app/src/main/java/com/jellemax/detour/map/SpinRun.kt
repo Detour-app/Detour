@@ -12,6 +12,7 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
 import com.jellemax.detour.data.pickThreeCandidates
 import com.jellemax.detour.data.spinTimeoutMessage
+import com.jellemax.detour.presentation.spinFailureText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -116,6 +117,6 @@ suspend fun runSpin(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        SpinOutcome.Failed(e.message ?: "Failed to find a road")
+        SpinOutcome.Failed(spinFailureText(e))
     }
 }

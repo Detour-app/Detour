@@ -67,6 +67,30 @@ internal fun networkFailure(e: Throwable): IOException = IOException(
     e,
 )
 
+/**
+ * Why a request failed, as the second half of a rider-facing sentence —
+ * `failureText` puts "Sync failed: " in front of it.
+ *
+ * Every branch is a thing the rider can act on; nothing carries the
+ * exception's own text, which is also why this is worth a test — the mapping
+ * is the whole feature. Lives in data/ rather than presentation/ because
+ * [LoopSpin] words its own warning with it (#487), and data/ may not read
+ * presentation/ (architecture.md §3).
+ */
+fun failureReason(e: Throwable): String = when {
+    // Before HttpStatusException: AuthException is one too, and it is the
+    // only status the rider fixes by signing in rather than by retrying.
+    e is AuthException -> "the sign-in has expired. Sign in again."
+    e is NoRoutingServerException -> "no routing server is set up. Add one in Settings → Servers & sync."
+    e is NoRouteException -> "no road connects those points. Try moving them."
+    e is HttpStatusException && e.code in 401..403 -> "the server refused the sign-in."
+    e is HttpStatusException && e.code == 404 -> "the server has nothing at that address."
+    e is HttpStatusException && e.code >= 500 -> "the server hit a problem. Try again later."
+    e is HttpStatusException -> "the server answered ${e.code}."
+    e is IOException -> "it could not be opened. Check your connection and try again."
+    else -> "the contents were not what this app expected."
+}
+
 internal object Http {
 
     /** What an OAuth token endpoint takes. Everything else here posts JSON. */
