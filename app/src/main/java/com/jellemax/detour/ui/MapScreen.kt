@@ -1387,11 +1387,10 @@ fun MapScreen(
                 onSpin = { if (s.spinning) s.spinJob?.cancel() else spin() },
                 onExpand = { settingsCollapsed = false },
                 onCollapse = { settingsCollapsed = true },
-                onNavigateInApp = { startNavigation() },
+                // #432: no second, parallel fetch from a repeat tap — the drive sheet's Go too.
+                onNavigateInApp = { if (!s.rerouting) startNavigation() },
                 onNavigate = {
-                    if (stats == null) {
-                        TripTrackingService.start(context, s.destination?.lat, s.destination?.lon)
-                    }
+                    if (stats == null) TripTrackingService.start(context, s.destination?.lat, s.destination?.lon)
                 },
                 // The navigation dock's ✕: drop the destination and everything
                 // derived from it. `settingsCollapsed` is left untouched, so

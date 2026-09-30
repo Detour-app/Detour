@@ -91,6 +91,8 @@ internal data class GoTarget(
     val inAppAvailable: Boolean,
     val onNavigateInApp: () -> Unit,
     val onNavigate: () -> Unit,
+    /** startNavigation()'s route request is in flight (#432). */
+    val routeFetching: Boolean,
 )
 
 /** A trip being recorded with nothing to navigate to. Closed: elapsed time
