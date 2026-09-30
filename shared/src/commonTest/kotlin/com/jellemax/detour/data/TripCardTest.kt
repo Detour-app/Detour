@@ -137,14 +137,20 @@ class TripCardTest {
 
     @Test
     fun motoTripExposesBothPeakLeanAndPeakG() {
-        val card = TripCardGeometry.build(trip(TravelMode.MOTO), straightLinePoints())
+        val card = TripCardGeometry.build(trip(TravelMode.MOTO).copy(gForceGravityFree = true), straightLinePoints())
         assertEquals(42.0, card.peakLeanDeg)
         assertEquals(0.8, card.peakGForce)
     }
 
     @Test
+    fun aTripRecordedBeforeTheGravityFixShowsNoPeakG() {
+        // #478: its maxGForce counts gravity, so any drive reads 1-2 g.
+        assertNull(TripCardGeometry.build(trip(TravelMode.CAR), straightLinePoints()).peakGForce)
+    }
+
+    @Test
     fun carTripExposesOnlyPeakG() {
-        val card = TripCardGeometry.build(trip(TravelMode.CAR), straightLinePoints())
+        val card = TripCardGeometry.build(trip(TravelMode.CAR).copy(gForceGravityFree = true), straightLinePoints())
         assertNull(card.peakLeanDeg)
         assertEquals(0.8, card.peakGForce)
     }

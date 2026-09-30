@@ -24,7 +24,8 @@ data class CardData(
     /** Non-null only for a mode that actually records lean — a car's number
      *  would be the phone sliding in its cradle, not the vehicle. */
     val peakLeanDeg: Double? get() = if (trip.mode.tracksLean) trip.maxLeanAngleDeg else null
-    val peakGForce: Double? get() = if (trip.mode.tracksGForce) trip.maxGForce else null
+    /** Null too for a trip recorded before #478, whose figure counts gravity. */
+    val peakGForce: Double? get() = if (trip.mode.tracksGForce && trip.gForceGravityFree) trip.maxGForce else null
 }
 
 /**

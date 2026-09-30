@@ -67,11 +67,11 @@ internal class TripSession(
      *  what decides whether the same value also becomes part of the recorded trip. */
     @Volatile internal var lastLeanDeg = 0.0
     @Volatile internal var maxLeanDeg = 0.0
-    // Seeded at 1.0, not 0: a stationary accelerometer reads gravity, so the
-    // magnitude idles at 1 g. Starting the EMA from 0 would put the first real
-    // sample a full 1 g away — past MAX_G_SLEW — and the slew gate would then
-    // reject every sample for the rest of the trip.
-    @Volatile internal var currentG = 1.0
+    // Seeded at 0: the reading is gravity-free since #478, so it idles at 0 g.
+    // A seed a full 1 g from the first real sample would put it past
+    // MAX_G_SLEW, and the slew gate would then reject every sample for the
+    // rest of the trip.
+    @Volatile internal var currentG = 0.0
     @Volatile internal var maxG = 0.0
 
     @Volatile internal var speedEventState = HardEventDetector.SpeedState()
@@ -136,8 +136,8 @@ internal class TripSession(
      */
     fun begin(startTimeMs: Long) {
         lastLeanDeg = 0.0; maxLeanDeg = 0.0
-        // 1.0, not 0: the resting magnitude is 1 g — see the field declaration.
-        currentG = 1.0; maxG = 0.0
+        // 0: the resting reading is 0 g — see the field declaration.
+        currentG = 0.0; maxG = 0.0
         speedEventState = HardEventDetector.SpeedState()
         headingEventState = HardEventDetector.HeadingState()
         leanCorneringNow = false
@@ -271,6 +271,7 @@ internal class TripSession(
             topSpeedMps = stats.topSpeedMps,
             maxLeanAngleDeg = maxLeanDeg,
             maxGForce = maxG,
+            gForceGravityFree = true,
             destinationLat = destLat,
             destinationLon = destLon,
             mode = stats.mode,
