@@ -23,6 +23,7 @@ import com.jellemax.detour.data.RoutingClient
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.presentation.failureText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -145,7 +146,7 @@ class SearchScreen(
                 }
             } catch (e: Exception) {
                 results = emptyList()
-                errorText = e.message ?: "Search failed"
+                errorText = failureText("Search", e)
             } finally {
                 searching = false
                 invalidate()
@@ -188,7 +189,7 @@ class SearchScreen(
                 }
             } catch (e: Exception) {
                 searching = false
-                errorText = e.message ?: "Could not build a route"
+                errorText = failureText("Routing", e)
                 invalidate()
             }
         }

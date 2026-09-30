@@ -49,6 +49,7 @@ import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.ble.BleNavServer
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.Auth
+import com.jellemax.detour.data.AuthException
 import com.jellemax.detour.data.RouteStore
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.SyncClient
@@ -63,6 +64,7 @@ import com.jellemax.detour.notif.PendingTripOpen
 import com.jellemax.detour.notif.PendingUpdateOpen
 import com.jellemax.detour.notif.PlaceNotifications
 import com.jellemax.detour.notif.Push
+import com.jellemax.detour.presentation.failureText
 import com.jellemax.detour.update.ReopenNotification
 import com.jellemax.detour.update.UpdateChecker
 import com.jellemax.detour.ui.BadgesScreen
@@ -188,7 +190,11 @@ class MainActivity : ComponentActivity() {
                 // Now that there is a session, register this install for push.
                 Push.refresh(this@MainActivity)
             } catch (e: Exception) {
-                val reason = e.message ?: "Sign-in failed"
+                // Oidc.complete's own AuthExceptions carry a sentence written
+                // for the rider; anything else (network, token endpoint) is
+                // raw text and goes through failureText. Not failureText for
+                // both: it reads an AuthException as an expired session.
+                val reason = (e as? AuthException)?.message ?: failureText("Sign-in", e)
                 // A failed sign-in leaves no other trace: there is no crash, the
                 // browser has closed, and the screen it used to report to may not
                 // be composed (see PendingSignIn). Logged so `adb logcat -s

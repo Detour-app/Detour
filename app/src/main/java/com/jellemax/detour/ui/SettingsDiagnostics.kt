@@ -25,6 +25,7 @@ import com.jellemax.detour.data.AddressSource
 import com.jellemax.detour.data.RoutingServer
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.perf.PerfSink
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -76,7 +77,18 @@ fun DiagnosticsSection() {
         }
         TextButton(onClick = {
             scope.launch {
-                val uri = withContext(Dispatchers.IO) { PerfSink.writeForShare(context) }
+                // Uncaught, either throw would crash the app out of scope.launch:
+                // IOException from the copy into cache (full disk),
+                // IllegalArgumentException from FileProvider refusing the path.
+                val uri = try {
+                    withContext(Dispatchers.IO) { PerfSink.writeForShare(context) }
+                } catch (e: IOException) {
+                    status = TIMINGS_NOT_SAVED
+                    return@launch
+                } catch (e: IllegalArgumentException) {
+                    status = TIMINGS_NOT_SAVED
+                    return@launch
+                }
                 status = if (uri == null) "Nothing recorded yet" else null
                 if (uri != null) context.startActivity(shareTimingsIntent(uri))
             }
@@ -153,6 +165,9 @@ private fun sourceLabel(source: AddressSource): String = when (source) {
     AddressSource.BAKED -> "built-in default"
     AddressSource.NONE -> "not configured"
 }
+
+private const val TIMINGS_NOT_SAVED =
+    "Export failed: the timings file could not be saved. Free up some storage and try again."
 
 /** The read grant is what makes the content:// Uri usable on the other side —
  *  the provider is not exported, so without it the receiver sees nothing. Same
