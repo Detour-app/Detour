@@ -13,6 +13,13 @@ import okio.IOException
  *  bailed out after 30s with a specific message. */
 private const val SPIN_TIMEOUT_MS = 30_000L
 
+/** A spin's own dead end, worded for the rider ("No roads found within
+ *  radius"), as opposed to a network or parser failure on the way. An
+ *  [IOException] so every catch that moves on to the next server or sector
+ *  still does; its own type so `spinFailureText` shows it verbatim instead of
+ *  flattening it to "check your connection" (#487). */
+class SpinFailure(message: String) : IOException(message)
+
 /** One spin result awaiting a pick; [route] is null when the routing server
  *  couldn't be reached — the card then shows straight-line distance only. */
 data class RouteCandidate(
@@ -75,7 +82,7 @@ internal fun collectRolls(rolls: List<Result<RouteCandidate>>): List<RouteCandid
     val found = rolls.mapNotNull { it.getOrNull() }
     if (found.isEmpty()) {
         throw rolls.firstNotNullOfOrNull { it.exceptionOrNull() }
-            ?: IOException("Failed to find a destination")
+            ?: SpinFailure("Failed to find a destination")
     }
     return found
 }

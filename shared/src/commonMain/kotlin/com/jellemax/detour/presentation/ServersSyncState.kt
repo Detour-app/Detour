@@ -1,10 +1,8 @@
 package com.jellemax.detour.presentation
 
-import com.jellemax.detour.data.AuthException
-import com.jellemax.detour.data.HttpStatusException
-import com.jellemax.detour.data.NoRouteException
-import com.jellemax.detour.data.NoRoutingServerException
 import com.jellemax.detour.data.ServerConfig
+import com.jellemax.detour.data.SpinFailure
+import com.jellemax.detour.data.failureReason
 import okio.IOException
 
 /**
@@ -86,29 +84,13 @@ fun serversSyncStateFrom(
  *
  * Replaces `"… failed: ${e.message}"`, which handed the rider "HTTP 502",
  * "Unable to resolve host …" or a kotlinx-serialization parse error and asked
- * them to work out which of their five addresses caused it. Every branch here
- * is a thing the rider can act on; nothing carries the exception's own text,
- * which is also why this is worth a test — the mapping is the whole feature.
+ * them to work out which of their five addresses caused it. The reasons are
+ * [failureReason], in data/ so a loop spin's warning can use them too.
  *
  * [action] is the verb ("Sync", "Export", "Import") rather than three
  * functions: the reasons do not differ by action, only the subject does.
  */
-fun failureText(action: String, e: Throwable): String {
-    val reason = when {
-        // Before HttpStatusException: AuthException is one too, and it is the
-        // only status the rider fixes by signing in rather than by retrying.
-        e is AuthException -> "the sign-in has expired. Sign in again."
-        e is NoRoutingServerException -> "no routing server is set up. Add one in Settings → Servers & sync."
-        e is NoRouteException -> "no road connects those points. Try moving them."
-        e is HttpStatusException && e.code in 401..403 -> "the server refused the sign-in."
-        e is HttpStatusException && e.code == 404 -> "the server has nothing at that address."
-        e is HttpStatusException && e.code >= 500 -> "the server hit a problem. Try again later."
-        e is HttpStatusException -> "the server answered ${e.code}."
-        e is IOException -> "it could not be opened. Check your connection and try again."
-        else -> "the contents were not what this app expected."
-    }
-    return "$action failed: $reason"
-}
+fun failureText(action: String, e: Throwable): String = "$action failed: ${failureReason(e)}"
 
 /**
  * [failureText] for an export or import through the file picker, where there
@@ -118,3 +100,12 @@ fun failureText(action: String, e: Throwable): String {
 fun fileFailureText(action: String, e: Throwable): String =
     if (e is IOException) "$action failed: the file could not be opened. Pick it again or choose another."
     else failureText(action, e)
+
+/**
+ * [failureText] for a spin, whose own dead ends ("No roads found within
+ * radius", a fallback timeout) are rider-facing sentences thrown as
+ * [SpinFailure]: those keep their words, and only everything else — a network
+ * or parser failure — is mapped (#487).
+ */
+fun spinFailureText(e: Throwable): String =
+    if (e is SpinFailure) e.message.orEmpty() else failureText("Spin", e)

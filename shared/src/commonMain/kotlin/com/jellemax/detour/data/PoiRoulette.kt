@@ -30,12 +30,12 @@ object PoiRoulette {
         val allPois = if (bearingDeg == null) candidates
             else candidates.filter { RoadRoulette.withinWedge(center, it.location, bearingDeg, 50.0) }
         if (allPois.isEmpty()) {
-            throw IOException("No ${kind.label.lowercase()} found here — try a larger radius")
+            throw SpinFailure("No ${kind.label.lowercase()} found here — try a larger radius")
         }
         val pois = if (minRadiusMeters <= 0.0) allPois
             else allPois.filter { RoadRoulette.distanceMeters(center, it.location) >= minRadiusMeters }
         if (pois.isEmpty()) {
-            throw IOException(
+            throw SpinFailure(
                 "No ${kind.label.lowercase()} found past the minimum distance — " +
                     "try a larger radius or a smaller minimum")
         }
