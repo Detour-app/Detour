@@ -152,11 +152,29 @@ class PersistedFormatTest {
         )
     }
 
+    // V4 (#472): each trip gains "startedBy", what began the recording — null
+    // when it wasn't recorded. V1-V3 still read, startedBy null.
+    private val tripsV4 = tripsV3
+        .replace(""""gForceGravityFree":true}""", """"gForceGravityFree":true, "startedBy":"ANDROID_AUTO"}""")
+        .replace(""""gForceGravityFree":false}]""", """"gForceGravityFree":false, "startedBy":null}]""")
+
+    private val tripWithStart = tripWithMoments.copy(gForceGravityFree = true, startedBy = TripStart.ANDROID_AUTO)
+
     @Test
-    fun tripsWriterMatchesV3() {
-        val written = listOf(tripWithMoments.copy(gForceGravityFree = true), tripNoDestination)
-            .map { TripStore.encode(it) }
-        assertEquals(jsonArrayOf(tripsV3).toList(), written)
+    fun tripsV4Reads() {
+        assertEquals(listOf(tripWithStart, tripNoDestination), TripStore.decodeAll(tripsV4))
+    }
+
+    @Test
+    fun unknownStartedByReadsAsNull() {
+        val future = tripsV4.replace("ANDROID_AUTO", "VOICE_ASSISTANT")
+        assertEquals(null, TripStore.decodeAll(future).first().startedBy)
+    }
+
+    @Test
+    fun tripsWriterMatchesV4() {
+        val written = listOf(tripWithStart, tripNoDestination).map { TripStore.encode(it) }
+        assertEquals(jsonArrayOf(tripsV4).toList(), written)
     }
 
     // --- traces.jsonl (one line per recorded segment) ------------------------
