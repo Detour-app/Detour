@@ -1524,7 +1524,7 @@ class TripTrackingService : Service() {
                 durationMs = now - it.startTimeMs,
                 distanceMeters = distance,
                 currentSpeedMps = fix.effectiveMps,
-                topSpeedMps = maxOf(it.topSpeedMps, fix.effectiveMps),
+                topSpeedMps = session.topSpeedMps,
                 hardBrakeCount = session.hardBrakeCount,
                 hardAccelCount = session.hardAccelCount,
                 hardCornerCount = session.hardCornerCount,

@@ -26,6 +26,13 @@ object MomentRecorder {
     /** Per trip, for the same reason as [MAX_EVENTS]. */
     const val MAX_STOPS = 100
 
+    /** A speed has to hold for this many consecutive fixes before it can set
+     *  the top speed (#428). Real phones throw one- and two-fix position
+     *  spikes that read as 190 km/h in a town; a vehicle actually doing a
+     *  speed is still doing it three fixes later. Costs a true peak the
+     *  fraction it held for less than this. */
+    const val TOP_SPEED_SUSTAIN_FIXES = 3
+
     data class State(
         val moments: TripMoments = TripMoments(),
         /** Where the vehicle came to rest, while [StopDetector] holds a
@@ -34,13 +41,21 @@ object MomentRecorder {
         /** Index in [TripMoments.events] of the corner still being taken, so
          *  its magnitude can deepen until the detector's latch drops. */
         val openCorner: Int? = null,
+        /** The last [TOP_SPEED_SUSTAIN_FIXES] fix speeds, oldest first. */
+        val recentSpeeds: List<Double> = emptyList(),
     )
 
+    /** The top speed is the fastest speed held across [TOP_SPEED_SUSTAIN_FIXES]
+     *  fixes — the slowest of the window — pinned at the fix that completed it. */
     fun onSpeed(state: State, at: LatLon, timeMs: Long, speedMps: Double): State {
-        val peak = state.moments.topSpeed
-        if (peak != null && speedMps <= peak.value) return state
-        if (peak == null && speedMps <= 0.0) return state
-        return state.withMoments { it.copy(topSpeed = TripPeak(at, timeMs, speedMps)) }
+        val window = (state.recentSpeeds + speedMps).takeLast(TOP_SPEED_SUSTAIN_FIXES)
+        val next = state.copy(recentSpeeds = window)
+        if (window.size < TOP_SPEED_SUSTAIN_FIXES) return next
+        val sustained = window.min()
+        val peak = next.moments.topSpeed
+        if (peak != null && sustained <= peak.value) return next
+        if (peak == null && sustained <= 0.0) return next
+        return next.withMoments { it.copy(topSpeed = TripPeak(at, timeMs, sustained)) }
     }
 
     /** [leanDeg] signed; the peak is the deepest either way. */
