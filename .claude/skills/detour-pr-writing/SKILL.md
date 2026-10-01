@@ -118,8 +118,11 @@ That last kind is worth its weight. It is the difference between a comment and a
 
 ## Reference the issues you filed while working
 
-Work turns up problems that are out of scope. File them, then point at them from the PR with
-one line each saying *why they are not in this PR*:
+Work turns up problems that are out of scope. Most of them are not issues: a review nit, an
+unconfirmed suspicion, a "could be `internal`" or a test that would be nice belongs in *Known
+limits*, not in the tracker. File only what passes the bar in `CLAUDE.md`'s "Filing issues"
+(a defect someone can hit, a dependency, a decision), after searching for an existing issue.
+Then point at what you filed with one line each saying *why it is not in this PR*:
 
 ```markdown
 - #37 — `CarMapRenderer` has the same four defects; needs a head unit to verify.

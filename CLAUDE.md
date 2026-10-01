@@ -2,6 +2,13 @@
 
 ## Filing issues
 
+File an issue only for something that needs its own change: a defect a rider
+or self-hoster can hit, a missing piece other work depends on, or a decision
+someone has to make. Review nits, "could be `internal`", a test that would be
+nice, and suspicions nobody has confirmed go in the PR's *Known limits*, not in
+a new issue. Before filing, search the open issues (`gh issue list --search`)
+and comment on a match instead of opening a duplicate.
+
 Every issue filed via `gh issue create` gets labels at creation, not after:
 
 - One type label: `bug`, `enhancement`, `documentation`, or `chore`.
