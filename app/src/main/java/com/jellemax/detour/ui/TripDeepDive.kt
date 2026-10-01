@@ -437,6 +437,7 @@ private fun RecordingSection(trip: Trip, storedPoints: Int, n: DeepDiveNumbers, 
                 val ds = trip.drivingStats
                 val obd2Pct = ds.obd2SpeedPct.roundToInt()
                 Stat("Vehicle", trip.mode.label)
+                trip.startedBy?.let { Stat("Started by", it.label) }
                 Stat("Speed source", when {
                     ds.obd2SpeedPct <= 0.0 -> "GPS"
                     obd2Pct == 0 -> "OBD2 <1% · GPS the rest"

@@ -101,7 +101,8 @@ class ArchitectureTest {
     @Test
     fun `files stay under 1000 lines - section 8`() {
         val pinned = mapOf(
-            "app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt" to 1802,
+            // +4: #472 car-started flag on the nav start intent
+            "app/src/main/java/com/jellemax/detour/tracking/TripTrackingService.kt" to 1806,
             // +3: #456 stale-destination guard; +1: #485 MapSurface import; -1: #432 route-fetch guard
             "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1434,
             "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1240,

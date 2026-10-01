@@ -9,6 +9,7 @@ import com.jellemax.detour.data.RidingEventKind
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.Trip
+import com.jellemax.detour.data.TripStart
 import com.jellemax.detour.data.TripStore
 import com.jellemax.detour.data.syncQuietly
 import com.jellemax.detour.drive.HardEventDetector
@@ -128,13 +129,18 @@ internal class TripSession(
      *  needs a handle to it to join before cancelling the service scope. */
     @Volatile internal var lastSaveJob: kotlinx.coroutines.Job? = null
 
+    /** What began this trip (#472); kept through a nav-to-auto handoff. */
+    private var startedBy = TripStart.AUTO_DETECT
+
     /**
-     * Arms a fresh set of accumulators for a trip starting at [startTimeMs].
+     * Arms a fresh set of accumulators for a trip starting at [startTimeMs],
+     * begun by [startedBy].
      * Every field above that carries over from one trip to the next is reset
      * here; the service's own trip machinery (auto/manual, origin, the exit
      * grace, the notification) is reset alongside this call in `beginTrip`.
      */
-    fun begin(startTimeMs: Long) {
+    fun begin(startTimeMs: Long, startedBy: TripStart) {
+        this.startedBy = startedBy
         lastLeanDeg = 0.0; maxLeanDeg = 0.0
         // 0: the resting reading is 0 g — see the field declaration.
         currentG = 0.0; maxG = 0.0
@@ -272,6 +278,7 @@ internal class TripSession(
             maxLeanAngleDeg = maxLeanDeg,
             maxGForce = maxG,
             gForceGravityFree = true,
+            startedBy = startedBy,
             destinationLat = destLat,
             destinationLon = destLon,
             mode = stats.mode,
