@@ -375,7 +375,7 @@ private fun YouStatsRow(state: YouState) {
 }
 
 @Composable
-private fun StatCell(value: String, label: String, modifier: Modifier = Modifier) {
+internal fun StatCell(value: String, label: String, modifier: Modifier = Modifier) {
     Column(
         modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
