@@ -439,7 +439,12 @@ private fun AppRoot() {
                         onSignedOut = { backStack.returnToMap() },
                     )
                 }
-                entry<Destination.Friends> { FriendsScreen(onBack = { backStack.pop() }) }
+                entry<Destination.Friends> {
+                    FriendsScreen(
+                        onBack = { backStack.pop() },
+                        onOpenServerSettings = { backStack.push(Destination.SettingsServersSync) },
+                    )
+                }
                 entry<Destination.Circles> {
                     CirclesScreen(
                         onBack = { backStack.pop() },
