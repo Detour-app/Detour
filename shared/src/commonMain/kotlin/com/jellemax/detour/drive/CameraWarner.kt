@@ -4,6 +4,7 @@ import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RoadRoulette
 import com.jellemax.detour.data.SpeedCameras
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 
 /**
@@ -50,6 +51,17 @@ object CameraWarner {
      *  for. Under it you are not the driver the camera is about to photograph. */
     const val OVER_LIMIT_KMH = 3.0
 
+    /** Seconds of notice a warning aims for (#497). A fixed 400 m gave 12 s at
+     *  120 km/h and 29 s at 50; this scales the reach with speed instead, and
+     *  [SpeedCameras.WARN_METERS] floors it so slow roads keep today's reach. */
+    const val WARN_LEAD_S = 15.0
+
+    /** How far ahead a camera counts at [speedKmh]: [WARN_LEAD_S] of travel at
+     *  the current speed, never under [SpeedCameras.WARN_METERS]. Distance from
+     *  speed, not a timer - the class still holds no clock. */
+    fun warnMeters(speedKmh: Double): Double =
+        max(SpeedCameras.WARN_METERS, speedKmh / 3.6 * WARN_LEAD_S)
+
     /** [warnedAt] is the camera last sounded for, or null when nothing is in
      *  range. A position, not a timestamp - see the class KDoc. */
     data class State(val warnedAt: LatLon? = null)
@@ -78,8 +90,9 @@ object CameraWarner {
         speedKmh: Double,
         limitKmh: Double?,
     ): Step {
+        val reachMeters = warnMeters(speedKmh)
         val ahead = cameras.filter { cam ->
-            RoadRoulette.distanceMeters(at, cam.at) <= SpeedCameras.WARN_METERS &&
+            RoadRoulette.distanceMeters(at, cam.at) <= reachMeters &&
                 (headingDeg == null ||
                     RoadRoulette.withinWedge(at, cam.at, headingDeg, AHEAD_WEDGE_DEG)) &&
                 (cam.facingDeg == null || headingDeg == null || facesYou(cam.facingDeg, headingDeg))
