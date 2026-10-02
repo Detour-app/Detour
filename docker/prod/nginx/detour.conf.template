@@ -26,7 +26,10 @@
 # through untouched; PHOTON_UPSTREAM / GRAPHHOPPER_UPSTREAM matter only if you
 # uncomment the commented proxy_pass lines below and set the vars in .env.
 server {
-    listen 80;
+    # default_server: the image ships its own default.conf, also on port 80,
+    # and it sorts first. Without this every request whose Host isn't
+    # `localhost` — every rider on the public hostname — lands there and 404s.
+    listen 80 default_server;
     server_name _;
 
     # Photon: exact "/api/" only (its query-string search endpoint).
