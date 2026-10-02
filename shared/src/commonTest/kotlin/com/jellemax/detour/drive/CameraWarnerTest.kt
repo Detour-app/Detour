@@ -52,7 +52,7 @@ class CameraWarnerTest {
         SpeedCameras.Camera(RoadRoulette.offset(here, meters, bearingDeg * PI / 180.0))
 
     /** Due north, comfortably inside `SpeedCameras.WARN_METERS`
-     *  (400.0, `SpeedCameras.kt:53`) - it measures 199.775 m. */
+     *  (400.0, the floor of `CameraWarner.warnMeters`) - it measures 199.775 m. */
     private val ahead = cam(200.0, 0.0)
 
     private fun step(
@@ -190,20 +190,47 @@ class CameraWarnerTest {
 
     // ---- what counts as a candidate ---------------------------------------
 
-    /** Beyond `SpeedCameras.WARN_METERS` (400.0, `SpeedCameras.kt:53`) nothing is
-     *  a candidate, and the comparison itself is `<=`. 405 m of `offset` measures
-     *  404.545 m and 395 m measures 394.556 m - see [cam] for the sign of that
-     *  mismatch - so both fixtures clear the threshold by ~5 m rather than
-     *  riding it. */
+    /** Beyond `SpeedCameras.WARN_METERS` (400.0) nothing is a candidate at a
+     *  speed whose 15 s reach falls under that floor - 60 km/h covers 250 m - and
+     *  the comparison itself is `<=`. 405 m of `offset` measures 404.545 m and
+     *  395 m measures 394.556 m - see [cam] for the sign of that mismatch - so
+     *  both fixtures clear the threshold by ~5 m rather than riding it. */
     @Test
     fun beyondTheWarnRadiusNothingIsACandidate() {
         assertEquals(
             CameraWarner.Outcome.Silent,
-            step(cameras = listOf(cam(405.0, 0.0))).outcome,
+            step(cameras = listOf(cam(405.0, 0.0)), speedKmh = 60.0, limitKmh = 50.0).outcome,
         )
         assertEquals(
             CameraWarner.Outcome.Warn(cam(395.0, 0.0).at, "Speed camera ahead"),
-            step(cameras = listOf(cam(395.0, 0.0))).outcome,
+            step(cameras = listOf(cam(395.0, 0.0)), speedKmh = 60.0, limitKmh = 50.0).outcome,
+        )
+    }
+
+    /** 15 s of travel, floored at 400 m (#497): 50 km/h would reach 208 m and
+     *  90 km/h 375 m, so both sit on the floor; 130 km/h reaches 541.7 m. */
+    @Test
+    fun theWarnDistanceIsFifteenSecondsOfTravelFlooredAt400m() {
+        assertEquals(400.0, CameraWarner.warnMeters(50.0))
+        assertEquals(400.0, CameraWarner.warnMeters(90.0))
+        assertEquals(130.0 / 3.6 * 15.0, CameraWarner.warnMeters(130.0))
+        assertEquals(400.0, CameraWarner.warnMeters(0.0))
+    }
+
+    /** At 130 km/h a camera 520 m out (measures ~519.4 m) is inside the
+     *  541.7 m reach and warns; at 100 km/h over a 90 limit the reach is
+     *  416.7 m and the same camera stays silent - so the scaled distance, not
+     *  the floor, is what `onFix` filters on. */
+    @Test
+    fun onFixFiltersOnTheSpeedScaledDistance() {
+        val far = cam(520.0, 0.0)
+        assertEquals(
+            CameraWarner.Outcome.Warn(far.at, "Speed camera ahead"),
+            step(cameras = listOf(far), speedKmh = 130.0).outcome,
+        )
+        assertEquals(
+            CameraWarner.Outcome.Silent,
+            step(cameras = listOf(far), speedKmh = 100.0, limitKmh = 90.0).outcome,
         )
     }
 
