@@ -247,7 +247,7 @@ private fun SignInSection(onOpenServerSettings: () -> Unit) {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    // Every sign-in failure above points at Servers & sync, so the way there
+    // The config failures above point at Servers & sync, so the way there
     // stays on screen while signed out, not only when nothing is configured.
     ServerSettingsButton(onOpenServerSettings)
 }
