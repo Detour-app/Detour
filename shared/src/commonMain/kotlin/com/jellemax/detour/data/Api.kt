@@ -82,8 +82,9 @@ internal object Api {
             // Auth.refresh() calls clear() when the token endpoint rejects the
             // refresh token, and the AuthException it throws is not an
             // HttpStatusException, so it passes straight through this catch.
-            val detail = errorMessage(e.body) ?: "HTTP ${e.code}"
-            if (e.code != 401) throw HttpStatusException(e.code, e.body, detail)
+            val problem = errorMessage(e.body)
+            val detail = problem ?: "HTTP ${e.code}"
+            if (e.code != 401) throw HttpStatusException(e.code, e.body, detail, problem)
             // Which of the two 401s this was, named so a rider can report it.
             // Reaching here at all means the session survived: the provider
             // either vouched for it (SERVER_REFUSED) or was never asked
