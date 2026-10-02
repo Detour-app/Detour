@@ -220,7 +220,9 @@ final class TripRecorder: NSObject, ObservableObject {
             moments: TripMoments(topSpeed: nil, maxLean: nil, maxG: nil, events: [], stops: []),
             // This recorder still reads raw acceleration, gravity included
             // (#478 fixed Android only), so its max g isn't one to show.
-            gForceGravityFree: false
+            gForceGravityFree: false,
+            // What started the trip (#472) is recorded on Android only.
+            startedBy: nil
         )
         TripStore.shared.save(trip: trip)
 

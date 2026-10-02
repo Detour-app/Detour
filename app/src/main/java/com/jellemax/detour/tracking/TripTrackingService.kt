@@ -35,6 +35,7 @@ import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SyncClient
 import com.jellemax.detour.data.TraceStore
 import com.jellemax.detour.data.TravelMode
+import com.jellemax.detour.data.TripStart
 import com.jellemax.detour.data.TripStore
 import com.jellemax.detour.drive.GravityFrame
 import com.jellemax.detour.drive.HardEventDetector
@@ -132,6 +133,7 @@ class TripTrackingService : Service() {
         const val EXTRA_DEST_LAT = "dest_lat"
         const val EXTRA_DEST_LON = "dest_lon"
         private const val EXTRA_END_NOW = "end_now"
+        private const val EXTRA_FROM_CAR = "from_car"
         private const val ACTION_START_TRIP = "com.jellemax.detour.START_TRIP"
         private const val ACTION_END_TRIP = "com.jellemax.detour.END_TRIP"
         private const val ACTION_NAV_ENDED = "com.jellemax.detour.NAV_ENDED"
@@ -416,11 +418,12 @@ class TripTrackingService : Service() {
         /** Start a trip for a navigation session (in-app, or a handoff to
          *  Google Maps / Waze). Navigating is driving, so a drive is recorded
          *  either way; [navigationEnded] ends it when the session does. */
-        fun start(context: Context, destLat: Double?, destLon: Double?) {
+        fun start(context: Context, destLat: Double?, destLon: Double?, fromCar: Boolean = false) {
             val intent = Intent(context, TripTrackingService::class.java).apply {
                 action = ACTION_START_TRIP
                 destLat?.let { putExtra(EXTRA_DEST_LAT, it) }
                 destLon?.let { putExtra(EXTRA_DEST_LON, it) }
+                putExtra(EXTRA_FROM_CAR, fromCar)
             }
             if (!canStart(context)) return
             ContextCompat.startForegroundService(context, intent)
@@ -850,7 +853,8 @@ class TripTrackingService : Service() {
                         ?.getDoubleExtra(EXTRA_DEST_LAT, 0.0)
                     destLon = intent.takeIf { it.hasExtra(EXTRA_DEST_LON) }
                         ?.getDoubleExtra(EXTRA_DEST_LON, 0.0)
-                    beginTrip(auto = false)
+                    val car = intent.getBooleanExtra(EXTRA_FROM_CAR, false)
+                    beginTrip(if (car) TripStart.ANDROID_AUTO else TripStart.NAVIGATION)
                     navStarted = true
                 }
             }
@@ -876,11 +880,11 @@ class TripTrackingService : Service() {
     /** [startTimeMs] backdates an auto-started trip to when the drive really
      *  began, rather than to the fix that finally proved it. */
     private fun beginTrip(
-        auto: Boolean,
+        startedBy: TripStart,
         startTimeMs: Long = clock.nowMs(),
         initialDistanceMeters: Double = 0.0,
     ) {
-        autoStarted = auto
+        autoStarted = startedBy == TripStart.AUTO_DETECT
         // Set true by the ACTION_START_TRIP caller, which is the only nav path.
         navStarted = false
         origin = null
@@ -888,7 +892,7 @@ class TripTrackingService : Service() {
         driveTransitions.reset()
         resetStartDetector()
         motionSensors.resetLean()
-        session.begin(startTimeMs)
+        session.begin(startTimeMs, startedBy)
         endDetector.onTripBegan()
         // Re-check what's actually linked: the set may have gone stale since the
         // last trip. Answers async, retagging through VehicleLinks.refreshTripMode.
@@ -1203,7 +1207,7 @@ class TripTrackingService : Service() {
 
         if (decision is TripStartDetector.Decision.Start) {
             beginTrip(
-                auto = true,
+                TripStart.AUTO_DETECT,
                 startTimeMs = decision.startTimeMs,
                 initialDistanceMeters = decision.distanceMeters,
             )

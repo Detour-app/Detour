@@ -169,7 +169,7 @@ class NavScreen(
                 // sitting locked in a cradle is exactly that. Losing the trip
                 // recording is survivable; taking the car app down mid-drive
                 // with it is not.
-                runCatching { TripTrackingService.start(carContext, destination.lat, destination.lon) }
+                runCatching { TripTrackingService.start(carContext, destination.lat, destination.lon, fromCar = true) }
                     .onFailure { Log.w(TAG, "could not start trip tracking", it) }
                 // navigationStarted() throws unless a callback is registered
                 // first. onStopNavigation fires when the host hands navigation

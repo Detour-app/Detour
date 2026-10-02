@@ -27,10 +27,26 @@ data class Trip(
      *  read the raw accelerometer, gravity included, so 1-2 g for any drive —
      *  kept as stored, but not a number to show. */
     val gForceGravityFree: Boolean = false,
+    /** What began the recording (#472). Null for every trip saved before it
+     *  was recorded, and for iOS, which doesn't record it. */
+    val startedBy: TripStart? = null,
 ) {
     val durationMs: Long get() = endTimeMs - startTimeMs
     val avgSpeedMps: Double
         get() = if (durationMs > 0) distanceMeters / (durationMs / 1000.0) else 0.0
+}
+
+/** What began a trip's recording (#472). A navigation trip handed to
+ *  auto-detection when navigation ended still reads as navigation. */
+enum class TripStart(val label: String) {
+    AUTO_DETECT("Auto-detected"),
+    NAVIGATION("Navigation"),
+    ANDROID_AUTO("Android Auto navigation"),
+    ;
+
+    companion object {
+        fun of(name: String): TripStart? = entries.firstOrNull { it.name == name }
+    }
 }
 
 /** Per-trip driving-behavior stats (maxke24/Detour#61). All thresholds that feed
@@ -166,6 +182,7 @@ object TripStore {
         put("drivingStats", encodeDrivingStats(t.drivingStats))
         put("moments", encodeTripMoments(t.moments))
         put("gForceGravityFree", t.gForceGravityFree)
+        put("startedBy", t.startedBy?.name)
     }
 
     private fun encodeDrivingStats(d: DrivingStats): JsonObject = buildJsonObject {
@@ -269,6 +286,7 @@ object TripStore {
         drivingStats = decodeDrivingStats(o.optObject("drivingStats")),
         moments = decodeTripMoments(o.optObject("moments")),
         gForceGravityFree = o.optBoolean("gForceGravityFree"),
+        startedBy = TripStart.of(o.optString("startedBy")),
     )
 
     /** Raw stored JSON array, for server sync. */
