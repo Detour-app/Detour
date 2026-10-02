@@ -176,12 +176,17 @@ internal class TripSession(
     }
 
     /** One trip fix, before any detector sees it: sets the position the rest
-     *  of this fix's moments are pinned to, and follows the top speed with
-     *  the same number the service folds into `TripStats.topSpeedMps`. */
+     *  of this fix's moments are pinned to, and follows the top speed that
+     *  [topSpeedMps] hands the service for `TripStats.topSpeedMps`. */
     fun onFix(at: LatLon, timeMs: Long, speedMps: Double) {
         here = at
         foldMoments { m, p -> MomentRecorder.onSpeed(m, p, timeMs, speedMps) }
     }
+
+    /** The trip's top speed so far, spike-filtered by [MomentRecorder.onSpeed]
+     *  (#428) — the one number both the stats and the pin report. */
+    val topSpeedMps: Double
+        get() = synchronized(momentsLock) { moments.moments.topSpeed?.value ?: 0.0 }
 
     /** A lean sample that cleared the service's plausibility and speed gates. */
     fun recordLean(deg: Double) {
