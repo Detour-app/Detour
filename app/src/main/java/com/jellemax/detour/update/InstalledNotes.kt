@@ -23,10 +23,18 @@ object InstalledNotes {
         installedNotes(BuildConfig.VERSION_NAME, Settings.pendingNotesVersion(), Settings.pendingNotes())
 
     /** [current], but only until [markSeen]. For the one-shot on first launch. */
-    fun unseen(): String? = current()?.takeIf { Settings.seenNotesVersion() != BuildConfig.VERSION_NAME }
+    fun unseen(): String? = unseenNotes(
+        BuildConfig.VERSION_NAME,
+        Settings.pendingNotesVersion(),
+        Settings.pendingNotes(),
+        Settings.seenNotesVersion(),
+    )
 
     fun markSeen() = Settings.setSeenNotesVersion(BuildConfig.VERSION_NAME)
 }
 
 internal fun installedNotes(running: String, savedVersion: String, savedNotes: String): String? =
     savedNotes.takeIf { savedVersion == running && it.isNotBlank() }
+
+internal fun unseenNotes(running: String, savedVersion: String, savedNotes: String, seenVersion: String): String? =
+    installedNotes(running, savedVersion, savedNotes)?.takeIf { seenVersion != running }
