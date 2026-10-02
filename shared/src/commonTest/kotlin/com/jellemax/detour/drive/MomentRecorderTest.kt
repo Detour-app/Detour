@@ -20,21 +20,40 @@ class MomentRecorderTest {
     private val b = LatLon(50.81, 3.21)
     private val c = LatLon(50.82, 3.22)
 
+    private fun speeds(vararg mps: Double): MomentRecorder.State =
+        mps.foldIndexed(MomentRecorder.State()) { i, s, v -> MomentRecorder.onSpeed(s, a, t0 + i * 1000L, v) }
+
     @Test
     fun theTopSpeedIsPinnedWhereItWasReachedNotWhereItWasLastMatched() {
-        var s = MomentRecorder.State()
-        s = MomentRecorder.onSpeed(s, a, t0, 20.0)
-        s = MomentRecorder.onSpeed(s, b, t0 + 1000, 35.0)
+        var s = speeds(35.0, 35.0)
+        s = MomentRecorder.onSpeed(s, b, t0 + 2000, 35.0)
         // Equal to the peak, later: the first place it was reached keeps the pin.
-        s = MomentRecorder.onSpeed(s, c, t0 + 2000, 35.0)
+        s = MomentRecorder.onSpeed(s, c, t0 + 3000, 35.0)
         assertEquals(b, s.moments.topSpeed?.at)
-        assertEquals(t0 + 1000, s.moments.topSpeed?.timeMs)
+        assertEquals(t0 + 2000, s.moments.topSpeed?.timeMs)
     }
 
     @Test
     fun aStandingTripHasNoTopSpeedPinRatherThanOneAtZero() {
-        val s = MomentRecorder.onSpeed(MomentRecorder.State(), a, t0, 0.0)
-        assertNull(s.moments.topSpeed)
+        assertNull(speeds(0.0, 0.0, 0.0).moments.topSpeed)
+    }
+
+    @Test
+    fun aTwoFixGpsSpikeCannotSetTheTopSpeed() {
+        // public-stop-start.txt's real spike: two fixes implying ~193 km/h in town.
+        val s = speeds(12.0, 13.0, 53.6, 53.6, 14.0, 12.0)
+        assertEquals(14.0, s.moments.topSpeed!!.value, absoluteTolerance = 1e-9)
+    }
+
+    @Test
+    fun aSpeedHeldForThreeFixesSetsTheTopSpeedAtItsSlowestFix() {
+        val s = speeds(30.0, 38.0, 40.0, 39.0, 20.0)
+        assertEquals(38.0, s.moments.topSpeed!!.value, absoluteTolerance = 1e-9)
+    }
+
+    @Test
+    fun fewerFixesThanTheWindowRecordNoTopSpeed() {
+        assertNull(speeds(30.0, 30.0).moments.topSpeed)
     }
 
     @Test
