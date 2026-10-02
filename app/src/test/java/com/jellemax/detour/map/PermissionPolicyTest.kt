@@ -83,4 +83,13 @@ class PermissionPolicyTest {
         assertFalse(shouldRequestMic(true, convoyConnected = true, hasActiveConvoy = true, micGranted = true))
         assertFalse(shouldRequestMic(true, convoyConnected = false, hasActiveConvoy = true, micGranted = false))
     }
+
+    @Test
+    fun aDeniedLocationIsAskedAgainWhileTheSystemWillStillShowTheDialog() {
+        // One denial: the dialog still appears, so Allow re-requests.
+        assertEquals(LocationRecovery.ASK_AGAIN, locationRecovery(canAskAgain = true))
+        // Second denial: launching the request returns denied with no dialog,
+        // so only app settings can grant it (#499).
+        assertEquals(LocationRecovery.OPEN_SETTINGS, locationRecovery(canAskAgain = false))
+    }
 }

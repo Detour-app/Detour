@@ -61,3 +61,18 @@ fun shouldRequestMic(
     hasActiveConvoy: Boolean,
     micGranted: Boolean,
 ): Boolean = pushToTalkEnabled && convoyConnected && hasActiveConvoy && !micGranted
+
+/** What the denied-location error's action does (#499). */
+enum class LocationRecovery { ASK_AGAIN, OPEN_SETTINGS }
+
+/**
+ * Which [LocationRecovery] to offer once location has been denied.
+ *
+ * [canAskAgain] is Android's `shouldShowRequestPermissionRationale`: true after
+ * one denial, false once the system has stopped showing the dialog (a second
+ * denial, or "Don't ask again") — then only app settings can grant it. It is
+ * also false before the first ask, which this never sees: the action only
+ * exists after a denial.
+ */
+fun locationRecovery(canAskAgain: Boolean): LocationRecovery =
+    if (canAskAgain) LocationRecovery.ASK_AGAIN else LocationRecovery.OPEN_SETTINGS
