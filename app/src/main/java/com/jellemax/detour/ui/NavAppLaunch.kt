@@ -81,9 +81,26 @@ private fun navAppUsableDirectly(
     Settings.NavApp.WAZE, Settings.NavApp.OTHER -> !(route != null && origin != null)
 }
 
+private const val WAZE_PACKAGE = "com.waze"
+
+/** Whether [app] is on this device — false only for Waze once it's not
+ *  installed (or was uninstalled after being remembered). The others are
+ *  this app, a browser fallback, or the system chooser. */
+internal fun navAppInstalled(context: Context, app: Settings.NavApp): Boolean =
+    app != Settings.NavApp.WAZE ||
+        context.packageManager.getLaunchIntentForPackage(WAZE_PACKAGE) != null
+
+/** The remembered nav app as Go will treat it — ASK when it's an
+ *  uninstalled Waze, so Settings doesn't claim Go launches it. */
+@Composable
+internal fun goNavApp(): Settings.NavApp {
+    val stored by Settings.preferredNavApp.collectAsStateWithLifecycle()
+    return stored.takeIf { navAppInstalled(LocalContext.current, it) } ?: Settings.NavApp.ASK
+}
+
 /** A tap on [NavButton]: go straight to the remembered app
- *  when it's usable here, otherwise fall back to opening the menu — the
- *  same fallback a long-press always takes. */
+ *  when it's installed and usable here, otherwise fall back to opening the
+ *  menu — the same fallback a long-press always takes. */
 private fun handleGoTap(
     context: Context,
     preferred: Settings.NavApp,
@@ -96,7 +113,9 @@ private fun handleGoTap(
     onNavigate: () -> Unit,
     openMenu: () -> Unit,
 ) {
-    if (navAppUsableDirectly(preferred, inAppAvailable, route, origin)) {
+    if (navAppInstalled(context, preferred) &&
+        navAppUsableDirectly(preferred, inAppAvailable, route, origin)
+    ) {
         launchNav(context, preferred, destination, route, origin, mode, onNavigateInApp, onNavigate)
     } else {
         openMenu()
@@ -138,10 +157,12 @@ private fun NavMenuItems(
             text = { Text("Google Maps") },
             onClick = { pick(Settings.NavApp.GOOGLE_MAPS) },
         )
-        DropdownMenuItem(
-            text = { Text("Waze") },
-            onClick = { pick(Settings.NavApp.WAZE) },
-        )
+        if (navAppInstalled(context, Settings.NavApp.WAZE)) {
+            DropdownMenuItem(
+                text = { Text("Waze") },
+                onClick = { pick(Settings.NavApp.WAZE) },
+            )
+        }
         DropdownMenuItem(
             text = { Text("Other app") },
             onClick = { pick(Settings.NavApp.OTHER) },
