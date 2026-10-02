@@ -12,6 +12,7 @@ import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
@@ -222,6 +223,9 @@ private suspend fun showLocationDenied(
             LocationRecovery.ASK_AGAIN -> "Allow"
             LocationRecovery.OPEN_SETTINGS -> "Open settings"
         },
+        // An action makes the default Indefinite: it would never leave, and
+        // every later s.error snackbar would queue behind it.
+        duration = SnackbarDuration.Long,
     )
     return recovery.takeIf { result == SnackbarResult.ActionPerformed }
 }
