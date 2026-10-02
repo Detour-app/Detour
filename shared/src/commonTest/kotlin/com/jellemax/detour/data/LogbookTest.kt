@@ -191,4 +191,16 @@ class LogbookTest {
         val titles = mapOf(1L to "Say \"hi\"", 2L to "Plain")
         assertEquals(titles, TripTitleStore.decode(TripTitleStore.encode(titles)))
     }
+
+    @Test
+    fun aMonthIsComparedToTheFurthestCityItReaches() {
+        assertEquals("Gent to Paris, with 30 km left over", Logbook.distanceComparison(320_000.0))
+        assertEquals("Gent to London, with 80 km left over", Logbook.distanceComparison(410_000.0))
+        assertEquals("Gent to Paris", Logbook.distanceComparison(290_000.0))
+        // Rounded to the km before comparing: 289.6 km reaches Paris.
+        assertEquals("Gent to Paris", Logbook.distanceComparison(289_600.0))
+        assertEquals("Gent to Brugge", Logbook.distanceComparison(50_000.0))
+        assertNull(Logbook.distanceComparison(49_000.0))
+        assertEquals("Gent to Nordkapp, with 2000 km left over", Logbook.distanceComparison(5_000_000.0))
+    }
 }

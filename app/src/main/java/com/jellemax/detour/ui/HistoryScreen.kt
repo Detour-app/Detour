@@ -63,6 +63,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -470,8 +474,10 @@ private fun YearStrip(year: LogbookYear) {
     }
 }
 
-/** "September 2026" and its one-line summary. The current month also draws
- *  all its routes on one canvas; older months collapse to the line alone. */
+/** "September 2026" and its summary as pills, the month's distance held up
+ *  against a trip from Gent (#517). The current month also draws all its
+ *  routes on one canvas; older months collapse to the pills alone. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MonthHeader(
     month: LogbookMonth,
@@ -485,7 +491,8 @@ private fun MonthHeader(
         if (rides == 1) "1 ride" else "$rides rides",
         formatDistanceKm(month.meters),
         month.newPlaces.takeIf { it > 0 }?.let { if (it == 1) "1 new place" else "$it new places" },
-    ).joinToString(" · ")
+    )
+    val comparison = Logbook.distanceComparison(month.meters)
     Column(
         Modifier
             .fillMaxWidth()
@@ -501,8 +508,15 @@ private fun MonthHeader(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
-                Text(summary, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FlowRow(
+                    Modifier.padding(top = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    val colors = MaterialTheme.colorScheme
+                    for (s in summary) MonthPill(s, colors.surfaceContainerHigh, colors.onSurfaceVariant)
+                    comparison?.let { MonthPill(it, colors.secondaryContainer, colors.onSecondaryContainer) }
+                }
             }
             if (!current) {
                 Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
@@ -519,6 +533,17 @@ private fun MonthHeader(
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest),
             )
         }
+    }
+}
+
+@Composable
+private fun MonthPill(text: String, color: Color, contentColor: Color) {
+    Surface(shape = CircleShape, color = color, contentColor = contentColor) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+        )
     }
 }
 

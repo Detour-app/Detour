@@ -237,6 +237,38 @@ object Logbook {
         }
     }
 
+    /**
+     * Rough road distances from Gent, shortest first, that a month's distance
+     * is held up against (#517). Fixed, not routed: the comparison is a smile,
+     * not a measurement.
+     */
+    private val COMPARISON_KM = listOf(
+        "Brugge" to 50,
+        "Lille" to 75,
+        "Amsterdam" to 210,
+        "Paris" to 290,
+        "London" to 330,
+        "Frankfurt" to 460,
+        "Berlin" to 790,
+        "Munich" to 850,
+        "Barcelona" to 1_300,
+        "Rome" to 1_600,
+        "Lisbon" to 2_050,
+        "Nordkapp" to 3_000,
+    )
+
+    /**
+     * "Gent to Paris, with 120 km left over": the furthest city in
+     * [COMPARISON_KM] the month's [meters] would reach, and what's left. Null
+     * when the month doesn't reach the nearest one.
+     */
+    fun distanceComparison(meters: Double): String? {
+        val km = (meters / 1000).roundToInt()
+        val (city, cityKm) = COMPARISON_KM.lastOrNull { it.second <= km } ?: return null
+        val left = km - cityKm
+        return if (left == 0) "Gent to $city" else "Gent to $city, with $left km left over"
+    }
+
     /** [year] in the device's own zone. */
     fun year(
         trips: List<Trip>,
