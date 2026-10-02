@@ -423,7 +423,7 @@ private fun navAppLabel(app: Settings.NavApp): String = when (app) {
 private fun NavigationSection() {
     val avoidHighways by Settings.avoidHighways.collectAsStateWithLifecycle()
     val avoidSmallRoads by Settings.avoidSmallRoads.collectAsStateWithLifecycle()
-    val preferredNavApp by Settings.preferredNavApp.collectAsStateWithLifecycle()
+    val preferredNavApp = goNavApp()
     val voiceGuidance by Settings.voiceGuidance.collectAsStateWithLifecycle()
     SettingsSection("Navigation") {
         Row(
