@@ -14,6 +14,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpMethod
 import io.ktor.http.contentType
 import io.ktor.http.ContentType
+import io.ktor.utils.io.errors.IOException as KtorIOException
 import okio.Buffer
 import okio.BufferedSink
 import okio.GzipSink
@@ -147,6 +148,12 @@ internal object Http {
             }
             response.status.value to response.bodyAsText()
         } catch (e: IOException) {
+            throw networkFailure(e)
+        } catch (e: KtorIOException) {
+            // The same class as okio's on JVM, a different one on Kotlin/Native:
+            // the Darwin engine's transport errors and ktor's timeouts extend
+            // this one, so without it iOS shows raw NSError text and every
+            // next-server fallback catching okio's IOException never fires (#446).
             throw networkFailure(e)
         }
         if (status !in 200..299) {
