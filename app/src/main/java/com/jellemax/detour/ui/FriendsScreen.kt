@@ -84,7 +84,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FriendsScreen(onBack: () -> Unit) {
+fun FriendsScreen(onBack: () -> Unit, onOpenServerSettings: () -> Unit) {
     val username by Account.username.collectAsStateWithLifecycle()
     var addOpen by remember { mutableStateOf(false) }
 
@@ -134,12 +134,15 @@ fun FriendsScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             when {
-                !SyncClient.configured() -> Text(
-                    "No sync server configured. Set one in Settings first — " +
-                        "friends live on your own server.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                username.isBlank() -> SignInSection()
+                !SyncClient.configured() -> {
+                    Text(
+                        "No sync server configured. Set one in Settings first — " +
+                            "friends live on your own server.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    ServerSettingsButton(onOpenServerSettings)
+                }
+                username.isBlank() -> SignInSection(onOpenServerSettings)
                 else -> {
                     FriendsSection(username)
                     // Convoys: deliberately untouched. Out of scope for this
@@ -168,7 +171,7 @@ fun FriendsScreen(onBack: () -> Unit) {
  * on the realm's own pages, which is why they are no longer offered here.
  */
 @Composable
-private fun SignInSection() {
+private fun SignInSection(onOpenServerSettings: () -> Unit) {
     val context = LocalContext.current
     // Sign-in is a suspending call now: the realm may have to be asked for.
     // This scope is the composition's, so the launched body runs on the main
@@ -193,6 +196,7 @@ private fun SignInSection() {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        ServerSettingsButton(onOpenServerSettings)
         return
     }
     error?.let {
@@ -243,6 +247,18 @@ private fun SignInSection() {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+    // The config failures above point at Servers & sync, so the way there
+    // stays on screen while signed out, not only when nothing is configured.
+    ServerSettingsButton(onOpenServerSettings)
+}
+
+/** #505: the signed-out texts all say "set it under Settings → Servers & sync";
+ * this is the way there. */
+@Composable
+private fun ServerSettingsButton(onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Text("Server settings")
+    }
 }
 
 /**
