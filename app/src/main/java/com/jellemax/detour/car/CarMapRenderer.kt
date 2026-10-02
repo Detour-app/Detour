@@ -18,6 +18,7 @@ import androidx.car.app.CarContext
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
 import com.jellemax.detour.data.Account
+import com.jellemax.detour.data.catchingCancellable
 import com.jellemax.detour.data.CircleFixes
 import com.jellemax.detour.data.CirclePresence
 import com.jellemax.detour.data.ConvoysStore
@@ -186,9 +187,8 @@ class CarMapRenderer(
             while (true) {
                 val me = Account.riderId.value
                 if (me.value.isNotBlank()) {
-                    // Offline or server down: keep the last known positions
-                    // rather than blanking the map on one failed poll.
-                    runCatching { withContext(Dispatchers.IO) { CircleFixes.othersFixes(me) } }
+                    // Offline or server down: keep the last known positions, don't blank the map on one failed poll.
+                    catchingCancellable { withContext(Dispatchers.IO) { CircleFixes.othersFixes(me) } }
                         .onSuccess { setCircleMembers(it) }
                 } else {
                     // Signed out: nothing to ask the server for, and nothing
