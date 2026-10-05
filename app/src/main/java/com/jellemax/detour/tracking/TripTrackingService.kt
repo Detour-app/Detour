@@ -1328,16 +1328,14 @@ class TripTrackingService : Service() {
                 modeTracksGForce = stats.mode.tracksGForce,
                 obdHasSpeed = obd != null && obd.hasSpeed,
             ),
-            // The hard-brake/accel and stop detectors derive Δt from this
-            // timestamp. When the speed reading came from the OBD adapter, use
-            // that reading's own arrival clock so PID 0D's ~1 Hz jitter lands in
-            // the Δt rather than being flattened to a nominal second (#98). A GPS
-            // speed keeps the GPS clock. Heading-rate cornering stays on
-            // location.time — its signal is the GPS bearing.
+            // The hard-brake/accel and stop detectors derive Δt from this. An
+            // OBD-driven speed keeps the adapter's own arrival clock so PID 0D's
+            // ~1 Hz jitter lands in the Δt (#98); a GPS speed takes the drive
+            // clock's fix time, so a compressed replay's Δt is drive time (#473).
             recordedFixMs = TripFixMath.recordedFixMs(
                 obdDroveSpeed = obdSpeedMps != null,
                 obdReceivedAtMs = obd?.receivedAtMs,
-                locationTimeMs = location.timeMs,
+                locationTimeMs = clock.fixTimeMs(location.timeMs),
             ),
         )
     }
@@ -1404,7 +1402,8 @@ class TripTrackingService : Service() {
             // MIN_CORNER_SPEED_MPS gate harmlessly inside onHeadingFix.
             if (stats.mode == TravelMode.CAR && location.bearingDeg != null) {
                 val (nextHeadingState, cornerEvent) = HardEventDetector.onHeadingFix(
-                    session.headingEventState, location.bearingDeg.toDouble(), fix.effectiveMps, location.timeMs)
+                    session.headingEventState, location.bearingDeg.toDouble(), fix.effectiveMps,
+                    clock.fixTimeMs(location.timeMs))
                 session.onHeadingFix(nextHeadingState, cornerEvent)
             }
         }
@@ -1445,8 +1444,9 @@ class TripTrackingService : Service() {
         // left stale on a skipped fix so the next real fix's Δt spans the gap.
         if (!fix.isReal) return null
         val over = SpeedLimitTracker.isOverLimit(fix.effectiveMps * 3.6, limitKmh)
-        if (over) cappedFixDtSec(location.timeMs, session.lastLimitFixMs)?.let { session.secondsOverLimit += it }
-        session.lastLimitFixMs = location.timeMs
+        val fixMs = clock.fixTimeMs(location.timeMs)
+        if (over) cappedFixDtSec(fixMs, session.lastLimitFixMs)?.let { session.secondsOverLimit += it }
+        session.lastLimitFixMs = fixMs
         return over
     }
 
@@ -1515,7 +1515,7 @@ class TripTrackingService : Service() {
         if (checkVehicleExit(speed, now)) return
 
         val fix = resolveSpeed(location, speed, stats)
-        session.onFix(LatLon(location.lat, location.lon), location.timeMs, fix.effectiveMps)
+        session.onFix(LatLon(location.lat, location.lon), clock.fixTimeMs(location.timeMs), fix.effectiveMps)
 
         foldEngineSummary(fix.obd, stats, hopMeters)
         detectHardEvents(location, stats, fix)
