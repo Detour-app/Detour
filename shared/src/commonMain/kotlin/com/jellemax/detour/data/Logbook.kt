@@ -53,6 +53,17 @@ data class LogbookMonth(
     val newPlaces: Int get() = rides.sumOf { r -> r.places.count { it.isNew } }
 }
 
+/** The year strip over the Logbook (#516): this calendar year so far, plus
+ *  the weekly streak, which doesn't stop at New Year. */
+data class LogbookYear(
+    val year: Int,
+    val meters: Double,
+    /** Distinct towns stamped by this year's rides, new or not. */
+    val towns: Int,
+    val rides: Int,
+    val weekStreak: Int,
+)
+
 /** The Logbook's filter chips. [ALL] includes the modes that are neither. */
 enum class LogbookFilter(val label: String) {
     ALL("All"), MOTO("Moto"), CAR("Car");
@@ -224,6 +235,82 @@ object Logbook {
         return lines.filter {
             it.isNotEmpty() && RoadRoulette.distanceMeters(it[it.size / 2], centre) <= MONTH_MAP_FOCUS_METERS
         }
+    }
+
+    /**
+     * Rough road distances from Gent, shortest first, that a month's distance
+     * is held up against (#517). Fixed, not routed: the comparison is a smile,
+     * not a measurement.
+     */
+    private val COMPARISON_KM = listOf(
+        "Brugge" to 50,
+        "Lille" to 75,
+        "Amsterdam" to 210,
+        "Paris" to 290,
+        "London" to 330,
+        "Frankfurt" to 460,
+        "Berlin" to 790,
+        "Munich" to 850,
+        "Barcelona" to 1_300,
+        "Rome" to 1_600,
+        "Lisbon" to 2_050,
+        "Nordkapp" to 3_000,
+    )
+
+    /**
+     * "Gent to Paris, with 120 km left over": the furthest city in
+     * [COMPARISON_KM] the month's [meters] would reach, and what's left. Null
+     * when the month doesn't reach the nearest one.
+     */
+    fun distanceComparison(meters: Double): String? {
+        val km = (meters / 1000).roundToInt()
+        val (city, cityKm) = COMPARISON_KM.lastOrNull { it.second <= km } ?: return null
+        val left = km - cityKm
+        return if (left == 0) "Gent to $city" else "Gent to $city, with $left km left over"
+    }
+
+    /** [year] in the device's own zone. */
+    fun year(
+        trips: List<Trip>,
+        filter: LogbookFilter,
+        places: Map<Long, List<PlaceVisit>>,
+        nowMs: Long,
+    ): LogbookYear = year(trips, filter, places, nowMs, TimeZone.currentSystemDefault())
+
+    /** The year strip for the rides [filter] shows, so it agrees with the list under it. */
+    internal fun year(
+        trips: List<Trip>,
+        filter: LogbookFilter,
+        places: Map<Long, List<PlaceVisit>>,
+        nowMs: Long,
+        zone: TimeZone,
+    ): LogbookYear {
+        val shown = trips.filter { filter.matches(it.mode) }
+        val year = monthOf(nowMs, zone) / 100
+        val thisYear = shown.filter { monthOf(it.startTimeMs, zone) / 100 == year }
+        return LogbookYear(
+            year = year,
+            meters = thisYear.sumOf { it.distanceMeters },
+            towns = thisYear.flatMap { t -> places[t.startTimeMs].orEmpty().map { it.name } }.toSet().size,
+            rides = thisYear.size,
+            weekStreak = weekStreak(shown.map { it.startTimeMs }, nowMs, zone),
+        )
+    }
+
+    /**
+     * Consecutive Monday-based weeks with at least one ride, counted back from
+     * this week — or from last week, so a streak isn't broken on Monday
+     * morning before the week's first ride. 0 when neither has one.
+     */
+    internal fun weekStreak(startTimesMs: List<Long>, nowMs: Long, zone: TimeZone): Int {
+        val weeks = startTimesMs.map { weeksAgo(it, nowMs, zone) }.toSet()
+        var week = if (0 in weeks) 0 else 1
+        var streak = 0
+        while (week in weeks) {
+            streak++
+            week++
+        }
+        return streak
     }
 
     /** Whole weeks (Monday-based) between [ms] and [nowMs]: 0 this week, 1 last. */

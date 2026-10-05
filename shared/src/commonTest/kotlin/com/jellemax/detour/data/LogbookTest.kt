@@ -84,6 +84,51 @@ class LogbookTest {
         assertEquals(1, Logbook.weeksAgo(before, after, brussels))
     }
 
+    private fun on(year: Int, month: Int, day: Int, hour: Int = 10) =
+        LocalDateTime(year, month, day, hour, 0).toInstant(utc).toEpochMilliseconds()
+
+    @Test
+    fun theWeekStreakCrossesNewYearAndStopsAtAGapWeek() {
+        val wednesday = on(2027, 1, 6) // 2027-01-04 is a Monday
+        val rides = listOf(
+            on(2027, 1, 5), // this week
+            on(2026, 12, 30), // last week, which spans New Year
+            on(2026, 12, 22),
+            // nothing in the week of 14 Dec
+            on(2026, 12, 10),
+        )
+        assertEquals(3, Logbook.weekStreak(rides, wednesday, utc))
+    }
+
+    @Test
+    fun theWeekStreakSurvivesARideFreeStartToTheWeek() {
+        val mondayMorning = on(2027, 1, 4, hour = 8)
+        assertEquals(2, Logbook.weekStreak(listOf(on(2026, 12, 30), on(2026, 12, 22)), mondayMorning, utc))
+        // Neither this week nor last: the streak is over.
+        assertEquals(0, Logbook.weekStreak(listOf(on(2026, 12, 22)), mondayMorning, utc))
+        assertEquals(0, Logbook.weekStreak(emptyList(), mondayMorning, utc))
+    }
+
+    @Test
+    fun theYearStripCountsThisYearsRidesUnderTheFilter() {
+        val a = trip(on(2027, 1, 5), km = 60.0)
+        val b = trip(on(2027, 1, 2), km = 40.0)
+        val car = trip(on(2027, 1, 3), TravelMode.CAR)
+        val lastYear = trip(on(2026, 12, 30))
+        val places = mapOf(
+            a.startTimeMs to listOf(place("Gent"), place("Ronse", new = true)),
+            b.startTimeMs to listOf(place("Gent")),
+            car.startTimeMs to listOf(place("Aalst")),
+            lastYear.startTimeMs to listOf(place("Oudenaarde")),
+        )
+        val trips = listOf(a, car, b, lastYear)
+        assertEquals(
+            LogbookYear(year = 2027, meters = 100_000.0, towns = 2, rides = 2, weekStreak = 2),
+            Logbook.year(trips, LogbookFilter.MOTO, places, on(2027, 1, 6), utc),
+        )
+        assertEquals(3, Logbook.year(trips, LogbookFilter.ALL, places, on(2027, 1, 6), utc).towns)
+    }
+
     @Test
     fun chipsTakeTheFirstMatchInOrder() {
         val t1 = trip(at(1, 10), km = 40.0)
@@ -145,5 +190,17 @@ class LogbookTest {
     fun titlesRoundTripThroughTheirFileFormat() {
         val titles = mapOf(1L to "Say \"hi\"", 2L to "Plain")
         assertEquals(titles, TripTitleStore.decode(TripTitleStore.encode(titles)))
+    }
+
+    @Test
+    fun aMonthIsComparedToTheFurthestCityItReaches() {
+        assertEquals("Gent to Paris, with 30 km left over", Logbook.distanceComparison(320_000.0))
+        assertEquals("Gent to London, with 80 km left over", Logbook.distanceComparison(410_000.0))
+        assertEquals("Gent to Paris", Logbook.distanceComparison(290_000.0))
+        // Rounded to the km before comparing: 289.6 km reaches Paris.
+        assertEquals("Gent to Paris", Logbook.distanceComparison(289_600.0))
+        assertEquals("Gent to Brugge", Logbook.distanceComparison(50_000.0))
+        assertNull(Logbook.distanceComparison(49_000.0))
+        assertEquals("Gent to Nordkapp, with 2000 km left over", Logbook.distanceComparison(5_000_000.0))
     }
 }
