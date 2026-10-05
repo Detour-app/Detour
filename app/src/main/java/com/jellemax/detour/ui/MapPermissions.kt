@@ -149,7 +149,12 @@ private fun rememberLocationRecovery(
     val settingsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
-        if (fineLocationGranted(context)) ready()
+        if (fineLocationGranted(context)) {
+            // The Allow path clears it before asking; this one must clear it
+            // after, or the sheet keeps saying location is required.
+            if (s.error == LOCATION_DENIED_ERROR) s.error = null
+            ready()
+        }
     }
 
     suspend fun offerLocationRecovery() {
