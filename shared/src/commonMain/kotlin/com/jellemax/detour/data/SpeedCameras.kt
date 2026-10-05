@@ -83,7 +83,8 @@ object SpeedCameras {
      *  minutes of driving before the edge-of-area refetch kicks in. */
     const val PREFETCH_RADIUS_M = 4000.0
 
-    /** Beyond this a camera isn't worth warning about yet. */
+    /** Beyond this a camera isn't worth warning about yet - the floor; faster
+     *  than ~96 km/h `CameraWarner.warnMeters` reaches further. */
     const val WARN_METERS = 400.0
 
     /**
