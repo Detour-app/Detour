@@ -33,9 +33,11 @@ services:
   # ---------------------------------------------------------------------------
   # The API. Image published by .github/workflows/backend.yml on every push to
   # main; pin DETOUR_IMAGE_TAG to a commit sha for a deployment you can roll back.
+  # No default: an unset tag would silently pull `latest`, and migrations run on
+  # startup, so that pull crosses schema changes nobody chose.
   # ---------------------------------------------------------------------------
   api:
-    image: ${DETOUR_IMAGE:-ghcr.io/detour-app/detour-api}:${DETOUR_IMAGE_TAG:-latest}
+    image: ${DETOUR_IMAGE:-ghcr.io/detour-app/detour-api}:${DETOUR_IMAGE_TAG:?Set DETOUR_IMAGE_TAG in docker/prod/.env to a commit sha, or latest to follow main}
     restart: unless-stopped
     networks:
       - detour-int
