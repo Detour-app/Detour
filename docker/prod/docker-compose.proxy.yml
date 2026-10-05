@@ -12,9 +12,10 @@
 # and this one nginx container is only needed by riders who want the
 # single-address Settings field instead of "Different address per service".
 #
-# Published on the LAN, not loopback: cloudflared lives in a different LXC
-# (see docker-compose.lan.yml) and reaches this container across the LAN the
-# same way it already reaches the api and keycloak ports.
+# Published on the LAN, not loopback: cloudflared lives in a different LXC and
+# reaches this container across the LAN the same way it already reaches the api
+# and keycloak ports. Set PROXY_REAL_IP_FROM to that host so nginx forwards the
+# rider's address rather than cloudflared's (see nginx/detour.conf.template).
 #
 # This overlay assumes +routing and +search are also in COMPOSE_FILE: the API,
 # GraphHopper and Photon are then all in this compose project and on `edge`, so
@@ -36,5 +37,6 @@ services:
     environment:
       PHOTON_UPSTREAM: ${PHOTON_UPSTREAM:-}
       GRAPHHOPPER_UPSTREAM: ${GRAPHHOPPER_UPSTREAM:-}
+      PROXY_REAL_IP_FROM: ${PROXY_REAL_IP_FROM:-127.0.0.1}
     volumes:
       - ./nginx/detour.conf.template:/etc/nginx/templates/detour.conf.template:ro
