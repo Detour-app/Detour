@@ -181,14 +181,9 @@ fun MapScreen(
     // exactly what the twenty loose vars had; the five rememberSaveable ones
     // below are deliberately NOT in here (see MapScreenState's KDoc).
     val s = remember { MapScreenState(SpinResultHolder.state.value, RiderFocusHolder.state.value) }
-    // `error` has a dozen writers and, until now, one reader — inside SpinSheet,
-    // which is collapsed by default. A denied location permission therefore
-    // reported itself to nobody. The snackbar shows it whatever the bottom card
-    // is doing; the sheet keeps its own copy for when it is open.
+    // Shows s.error; rememberMapPermissions owns the effect, because the one
+    // error with an action is its denied location (#499).
     val snackbarHostState = remember { SnackbarHostState() }
-    LaunchedEffect(s.error) {
-        s.error?.let { snackbarHostState.showSnackbar(it) }
-    }
     val serverConfig = remember { RoutingServer.load() }
     var poiKind by rememberSaveable { mutableStateOf(PoiKind.ROAD) }
     var directionDeg by rememberSaveable { mutableStateOf<Float?>(null) }
@@ -490,7 +485,7 @@ fun MapScreen(
                     s.error = "Could not get location; is GPS on?"
                 }
             } catch (e: SecurityException) {
-                s.error = "Location permission missing"
+                s.error = LOCATION_DENIED_ERROR
             }
         }
     }
@@ -509,10 +504,11 @@ fun MapScreen(
         }
     }
 
-    // Three launchers and two effects, in MapPermissions.kt; every decision
+    // Four launchers and three effects, in MapPermissions.kt; every decision
     // they make is in map/PermissionPolicy.kt, with tests.
-    val bgLocationLauncher = rememberMapPermissions(
+    val permissions = rememberMapPermissions(
         s = s,
+        snackbarHostState = snackbarHostState,
         convoyConnected = convoyConnected,
         activeConvoyId = activeConvoyId,
         onLocationReady = { onLocationGranted() },
@@ -960,6 +956,7 @@ fun MapScreen(
 
     fun spin() {
         val loc = s.myLocation ?: run {
+            if (permissions.offerLocationIfDenied()) return // #499: "waiting" would wait forever
             s.error = "Waiting for your location…"
             fetchLocation()
             return
@@ -1415,6 +1412,6 @@ fun MapScreen(
 
     // The two dialogs and the state they read live together in MapDialogs.kt;
     // this screen just says when they are up.
-    MapScreenDialogs(s = s, bgLocationLauncher = bgLocationLauncher)
+    MapScreenDialogs(s = s, bgLocationLauncher = permissions.bgLocationLauncher)
 
 }
