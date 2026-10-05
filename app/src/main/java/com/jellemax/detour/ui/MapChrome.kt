@@ -17,7 +17,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Groups
-import androidx.compose.material.icons.outlined.Layers
 import androidx.compose.material.icons.outlined.LocationSearching
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Visibility
@@ -26,7 +25,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -36,7 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /** Map top chrome: a right-aligned rail of the controls worth reaching for
- *  while driving (follow toggle, layers, and a compass while the map is free to
+ *  while driving (follow toggle, fog of war, and a compass while the map is free to
  *  hold a rotation), headed by the convoy pill.
  *  Everything else moved to the Hub or, with the redesign, to the home sheet —
  *  the "Where to?" bar and the avatar included.
@@ -61,9 +59,9 @@ internal fun MapTopChrome(
     modifier: Modifier = Modifier,
 ) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        // End-aligned because the layers panel below is wider than the
-        // 40.dp buttons: without this the column widens to the card and
-        // centres the buttons in it, shifting them off the rail.
+        // End-aligned because the convoy pill is wider than the 40.dp
+        // buttons: without this the column widens to the pill and centres
+        // the buttons in it, shifting them off the rail.
         Column(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.End,
@@ -95,43 +93,17 @@ internal fun MapTopChrome(
                     onClick = { onFaceNorth?.invoke() },
                 )
             }
+            // A straight toggle rather than a "Layers" button opening a panel
+            // with one switch in it: the fog is the only layer there is, so
+            // the panel was a second tap and a card over the map for nothing.
             GlassRailButton(
-                icon = Icons.Outlined.Layers,
-                contentDescription = "Map layers",
-                tinted = layers.open,
-                onClick = { layers.onOpenChange(!layers.open) },
+                icon = if (layers.fogEnabled) Icons.Outlined.Visibility
+                    else Icons.Outlined.VisibilityOff,
+                contentDescription = if (layers.fogEnabled) "Hide fog of war"
+                    else "Show fog of war",
+                tinted = layers.fogEnabled,
+                onClick = layers.onToggleFog,
             )
-            // Inline rather than a Popup on purpose. A Popup is its own
-            // window, so the button sitting outside it counted as an
-            // outside-click *and* still ran its own onClick: the panel
-            // closed and reopened on the same tap, and the button could
-            // never close it. One window, one handler, and the toggle is
-            // correct by construction.
-            AnimatedVisibility(visible = layers.open, enter = fadeIn(), exit = fadeOut()) {
-                Card(
-                    modifier = Modifier.glassBorder(MaterialTheme.shapes.large),
-                    shape = MaterialTheme.shapes.large,
-                    colors = glassCardColors(),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-                ) {
-                    Row(
-                        Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            if (layers.fogEnabled) Icons.Outlined.Visibility
-                                else Icons.Outlined.VisibilityOff,
-                            contentDescription = null,
-                        )
-                        Text("Fog of war", modifier = Modifier.weight(1f))
-                        Switch(
-                            checked = layers.fogEnabled,
-                            onCheckedChange = { layers.onToggleFog() },
-                        )
-                    }
-                }
-            }
         }
     }
 }

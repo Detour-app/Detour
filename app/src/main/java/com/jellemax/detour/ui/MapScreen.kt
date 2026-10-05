@@ -686,11 +686,9 @@ fun MapScreen(
         // while the follow loop is running.
         val onCameraMove = MapLibreMap.OnCameraMoveListener { fogView.invalidate() }
         val onCameraIdle = MapLibreMap.OnCameraIdleListener { fogView.invalidate() }
-        // Touching the map dismisses the layers panel and the search island,
-        // which is what the Popup's dismissOnClickOutside used to do before the
-        // panel moved inline — and the island's outside-tap dismissal.
+        // Touching the map dismisses the search island — its outside-tap
+        // dismissal.
         val onLongClick = MapLibreMap.OnMapLongClickListener { ll ->
-            s.layersOpen = false
             s.searchOpen = false
             if (navigatingRef.value) return@OnMapLongClickListener false
             s.destination = LatLon(ll.latitude, ll.longitude)
@@ -699,7 +697,6 @@ fun MapScreen(
             true
         }
         val onClick = MapLibreMap.OnMapClickListener { ll ->
-            s.layersOpen = false
             s.searchOpen = false
             val p = map.projection.toScreenLocation(ll)
             // A tap on a convoy peer or circle member opens its rider card
@@ -1217,8 +1214,6 @@ fun MapScreen(
                     followMe = camFollowing,
                     convoyName = if (convoyConnected) s.convoyName else null,
                     layers = MapLayers(
-                        open = s.layersOpen,
-                        onOpenChange = { s.layersOpen = it },
                         fogEnabled = fogEnabled,
                         onToggleFog = { Settings.setFogEnabled(!fogEnabled) },
                     ),
