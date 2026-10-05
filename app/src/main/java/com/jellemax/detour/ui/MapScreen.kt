@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.outlined.Navigation
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -52,7 +53,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -157,12 +157,10 @@ fun MapScreen(
     retained: RetainedMap,
 ) {
     val context = LocalContext.current
-    // Extra bottom padding for a fitted route/candidate spread, so whatever is
-    // in the bottom slot doesn't cover most of it. See the constant for what
-    // it is measured against and why it stopped being a fraction of the screen.
-    val fitBottomPaddingPx = with(LocalDensity.current) {
-        MAP_FIT_BOTTOM_PADDING_DP.dp.roundToPx()
-    }
+    // Fit padding clear of the bottom slot, in either orientation.
+    val landscape = isLandscape()
+    val fitBottomPaddingPx = mapFitBottomPaddingPx(landscape)
+    val fitLeftPaddingPx = mapFitLeftPaddingPx(landscape)
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
     val savedPlaces by SavedPlaces.places.collectAsStateWithLifecycle()
@@ -345,6 +343,9 @@ fun MapScreen(
     val mapView = retained.mapView
     val fogView = retained.fogView
     val mapLibreMap = retained.map
+    // Every fit on this screen keeps clear of the bottom slot the same way.
+    fun fitTo(points: List<LatLon>) =
+        mapLibreMap?.let { cameraForPoints(it, points, FIT_PADDING_PX, fitBottomPaddingPx, fitLeftPaddingPx) }
     val mapOverlays = retained.overlays
 
     // Tell the tracker the map is being looked at, so it drops its battery-saving
@@ -529,7 +530,7 @@ fun MapScreen(
             s.camAuthority,
             CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
         )
-        mapLibreMap?.let { cameraForPoints(it, listOf(loc, c.destination), FIT_PADDING_PX, fitBottomPaddingPx) }
+        fitTo(listOf(loc, c.destination))
     }
 
     // What's actually shown on the map/card - see the shared rule for why a
@@ -576,7 +577,7 @@ fun MapScreen(
             s.camAuthority,
             CameraAuthority.Action.DestinationFramed(System.currentTimeMillis()),
         )
-        mapLibreMap?.let { cameraForPoints(it, listOf(loc, LatLon(c.lat, c.lon)), FIT_PADDING_PX, fitBottomPaddingPx) }
+        fitTo(listOf(loc, LatLon(c.lat, c.lon)))
     }
 
     // How a vote round ends: the rule and its correctness argument are
@@ -991,22 +992,12 @@ fun MapScreen(
                         // A spin result landing is the app's payoff moment; a
                         // small buzz marks it without needing eyes on the screen.
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        mapLibreMap?.let {
-                            cameraForPoints(
-                                it, outcome.route.polyline + loc,
-                                FIT_PADDING_PX, fitBottomPaddingPx,
-                            )
-                        }
+                        fitTo(outcome.route.polyline + loc)
                     }
                     is SpinOutcome.Candidates -> {
                         s.candidates = outcome.candidates
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        mapLibreMap?.let {
-                            cameraForPoints(
-                                it, outcome.candidates.map { c -> c.destination } + loc,
-                                FIT_PADDING_PX, fitBottomPaddingPx,
-                            )
-                        }
+                        fitTo(outcome.candidates.map { c -> c.destination } + loc)
                     }
                     is SpinOutcome.Failed -> s.error = outcome.message
                 }
@@ -1152,6 +1143,14 @@ fun MapScreen(
                 modifier = Modifier.fillMaxSize(),
             )
 
+            val speedHud = speedHudStateFrom(
+                speedKmh = retained.displaySpeedKmh,
+                limitKmh = navState.speedLimitKmh,
+                averageKmh = retained.sectionState.reading.averageKmh,
+                averageLimitKmh = retained.sectionState.reading.limitKmh,
+            )
+            val obd2Lost = obd2FedThisTrip(stats?.startTimeMs, obd2LastDataAtMs) &&
+                obd2State != Obd2ConnectionState.CONNECTED
             // The banner drops in from the top edge when navigation starts; the
             // toolbar fades back once it ends. The speed island rides in the
             // same column, under the banner rather than beside it, so the two
@@ -1159,7 +1158,11 @@ fun MapScreen(
             // arrives instead of being drawn through by it.
             Column(
                 Modifier
-                    .align(Alignment.TopCenter)
+                    // Landscape: the banner keeps to the same start-edge column
+                    // as the bottom slot, so the map beside it keeps its height.
+                    .align(if (landscape) Alignment.TopStart else Alignment.TopCenter)
+                    .windowInsetsPadding(horizontalSafeDrawing)
+                    .then(if (landscape) Modifier.widthIn(max = LANDSCAPE_SLOT_WIDTH) else Modifier)
                     .fillMaxWidth()
                     .statusBarsPadding()
                     .padding(12.dp),
@@ -1188,33 +1191,20 @@ fun MapScreen(
                 // light fades the dial out" — is deliberately gone: a parked map
                 // now keeps its instruments, as the head unit always has. See
                 // the divergence register's entry 18.
-                Column(
-                    Modifier.padding(top = if (s.navigating) 10.dp else 0.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    SpeedHud(
-                        state = speedHudStateFrom(
-                            speedKmh = retained.displaySpeedKmh,
-                            limitKmh = navState.speedLimitKmh,
-                            averageKmh = retained.sectionState.reading.averageKmh,
-                            averageLimitKmh = retained.sectionState.reading.limitKmh,
-                            // Threshold left at its default: it is
-                            // SpeedLimitTracker.OVER_LIMIT_TOLERANCE_KMH, the
-                            // one the car dial and the trip recorder compare
-                            // against too, so naming it here would only be a
-                            // second place for it to drift.
-                        ),
-                    )
-                    // Diagnostics: an adapter that fed this trip and has since
-                    // dropped. Obd2Connection never resets lastDataAtMs, hence
-                    // the shared after-the-start test rather than a per-trip
-                    // accumulator.
-                    Obd2SignalLostLabel(
-                        lost = obd2FedThisTrip(stats?.startTimeMs, obd2LastDataAtMs) &&
-                            obd2State != Obd2ConnectionState.CONNECTED,
-                    )
-                }
+                if (!landscape) SpeedIsland(
+                    speedHud, obd2Lost, Modifier.padding(top = if (s.navigating) 10.dp else 0.dp),
+                )
             }
+            // Landscape: a tall occupant of the start-edge column (the
+            // destination dock) would run into the island, so it moves out.
+            if (landscape) SpeedIsland(
+                speedHud, obd2Lost,
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .windowInsetsPadding(horizontalSafeDrawing)
+                    .navigationBarsPadding()
+                    .padding(12.dp),
+            )
             AnimatedVisibility(
                 visible = !s.navigating,
                 enter = fadeIn(),
@@ -1256,6 +1246,7 @@ fun MapScreen(
                         { mapLibreMap?.let { levelToNorthUp(it) } }
                     } else null,
                     modifier = Modifier
+                        .windowInsetsPadding(horizontalSafeDrawing)
                         .statusBarsPadding()
                         .padding(12.dp),
                 )
