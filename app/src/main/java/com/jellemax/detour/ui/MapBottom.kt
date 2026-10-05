@@ -1,5 +1,6 @@
 package com.jellemax.detour.ui
 
+import android.content.res.Configuration
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -10,14 +11,23 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.GroupMember
@@ -35,6 +45,45 @@ import com.jellemax.detour.presentation.NavState
 import com.jellemax.detour.presentation.inAppNavAvailable
 import com.jellemax.detour.presentation.spinStateFrom
 import com.jellemax.detour.tracking.TripStats
+
+/** How wide the bottom slot — and the navigation banner above it — may be in
+ *  landscape. Full width there, a sheet covers half of a ~390 dp tall map;
+ *  pinned to the start edge at this width, the map keeps its whole height
+ *  beside it. Wide enough for the home sheet's search bar and chip row. */
+internal val LANDSCAPE_SLOT_WIDTH = 400.dp
+
+/** The resting home sheet's landscape width: only a search bar and one chip
+ *  row, so the full [LANDSCAPE_SLOT_WIDTH] left it mostly empty and took more
+ *  map than it needed. Spin, the two glyph chips and their gaps take 196 dp of
+ *  the 288 inside its padding; the saved places scroll in the rest. */
+private val LANDSCAPE_HOME_SHEET_WIDTH = 320.dp
+
+/** Bottom padding for a fitted route/candidate spread, so whatever is in the
+ *  bottom slot doesn't cover most of it — see [MAP_FIT_BOTTOM_PADDING_DP] for
+ *  what it is measured against. In landscape the slot is a start-edge column
+ *  and 390 dp would be the map's whole height, so the extra moves to
+ *  [mapFitLeftPaddingPx] instead. */
+@Composable
+internal fun mapFitBottomPaddingPx(landscape: Boolean): Int = with(LocalDensity.current) {
+    if (landscape) FIT_PADDING_PX else MAP_FIT_BOTTOM_PADDING_DP.dp.roundToPx()
+}
+
+/** Left padding for the same fits: clear of the landscape column. */
+@Composable
+internal fun mapFitLeftPaddingPx(landscape: Boolean): Int = with(LocalDensity.current) {
+    if (landscape) LANDSCAPE_SLOT_WIDTH.roundToPx() + FIT_PADDING_PX else FIT_PADDING_PX
+}
+
+/** The horizontal safe-drawing inset: a side-mounted nav bar or a cutout sits
+ *  on a long edge in landscape, and this is zero in portrait. */
+internal val horizontalSafeDrawing: WindowInsets
+    @Composable get() = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)
+
+/** Whether the map lays its sheets out as a start-edge column rather than
+ *  along the full bottom edge. */
+@Composable
+internal fun isLandscape(): Boolean =
+    LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
 /**
  * The single slot along the bottom edge of the map that the nav sheet, the
@@ -104,12 +153,22 @@ internal fun BoxScope.MapBottomSlot(
 ) {
     Column(
         Modifier
+            // A side-mounted nav bar or a cutout sits on a long edge in
+            // landscape; zero in portrait. Consumed here, so the occupants'
+            // own navigationBarsPadding below only adds the bottom inset.
+            .windowInsetsPadding(horizontalSafeDrawing)
             // Full height with its content stacked at the bottom, rather than a
             // wrap-height Column pinned there. That is what gives the home sheet
             // a bounded height to take a weight against — without it the search
             // results, which now grow *upward* out of the sheet's bar, have
             // nothing to be clipped by and run off the top of the screen.
-            .fillMaxSize()
+            .then(
+                if (isLandscape()) Modifier.fillMaxHeight().width(
+                    if (bottomCard == HomeBottomCard.COLLAPSED) LANDSCAPE_HOME_SHEET_WIDTH
+                    else LANDSCAPE_SLOT_WIDTH,
+                )
+                else Modifier.fillMaxSize(),
+            )
             // Consumed here so the same results can never reach under the
             // status bar either. The gesture inset is not consumed here: see
             // the AnimatedContent below, where it differs per occupant.

@@ -185,13 +185,20 @@ internal fun ColumnScope.HomeSheet(
             // room, and neither a shortcut nor a card is worth reaching for
             // with a half-typed query on screen.
             if (!searchOpen) {
+                // Landscape: the two cards below would
+                // stand the sheet ~70 dp taller on a screen ~390 dp high, into
+                // the speed island above it, so they shrink to glyph chips at
+                // the end of this row instead.
+                val landscape = isLandscape()
                 ShortcutChipRow(
                     places = shortcuts,
                     onPick = onPickPlace,
                     mode = mode,
                     onSpinSettings = onSpinSettings,
+                    onOpenRoutes = onOpenRoutes.takeIf { landscape },
+                    onOpenSocial = onOpenSocial.takeIf { landscape },
                 )
-                Row(
+                if (!landscape) Row(
                     Modifier.fillMaxWidth().padding(top = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
@@ -307,6 +314,8 @@ private fun ShortcutChipRow(
     onPick: (SavedPlace) -> Unit,
     mode: TravelMode,
     onSpinSettings: () -> Unit,
+    onOpenRoutes: (() -> Unit)?,
+    onOpenSocial: (() -> Unit)?,
 ) {
     Row(
         Modifier.fillMaxWidth().padding(top = 12.dp),
@@ -349,7 +358,21 @@ private fun ShortcutChipRow(
                 MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
             ),
         )
+        onOpenRoutes?.let { GlyphChip(Icons.Outlined.Route, "Routes", it) }
+        onOpenSocial?.let { GlyphChip(Icons.Outlined.Diversity3, "Social", it) }
     }
+}
+
+/** A [DestinationCard] squeezed to a glyph-only chip, for the landscape row. */
+@Composable
+private fun GlyphChip(icon: ImageVector, label: String, onClick: () -> Unit) {
+    AssistChip(
+        onClick = onClick,
+        label = { Icon(icon, contentDescription = label, Modifier.size(18.dp)) },
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ),
+    )
 }
 
 /**

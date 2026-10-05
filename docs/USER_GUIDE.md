@@ -85,7 +85,7 @@ buttons at the top, and a sheet along the bottom.
   your heading; tap it off, or pan the map, to look around freely, then tap
   again to snap back. With follow off, a **compass** button appears below it to
   put north back at the top.
-- **Layers** — the fog-of-war toggle.
+- **Eye** — turns the fog of war on and off; tinted while it is on.
 - **ⓘ** (bottom left) — map data attribution.
 
 **The bottom sheet**
@@ -264,14 +264,14 @@ list; false-positive detections can be deleted outright.
 <table>
   <tr>
     <td align="center"><img src="screenshots/fog.png" width="240" alt="Fogged map"><br><sub>Unexplored ground stays covered</sub></td>
-    <td align="center"><img src="screenshots/fog-toggle.png" width="240" alt="Fog of war toggle"><br><sub>Layers → Fog of war</sub></td>
+    <td align="center"><img src="screenshots/fog-toggle.png" width="240" alt="Fog of war toggle"><br><sub>The eye button turns it off</sub></td>
   </tr>
 </table>
 
 Everywhere you have been is uncovered on the map, permanently. Everywhere else
 is under a scrim. The reveal radius around your track is configurable (200 m by
 default) under Settings → Fog of war, and the whole overlay can be switched off
-from the layers button when you just want to read the map.
+with the eye button when you just want to read the map.
 
 *Reset explored area* wipes it and starts you back at nothing.
 

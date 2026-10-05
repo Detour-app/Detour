@@ -6,6 +6,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -201,6 +202,21 @@ internal fun SpeedHud(state: SpeedHudState, modifier: Modifier = Modifier) {
                 SpeedLimitSign(it, size = ISLAND_WIDTH)
             }
         }
+    }
+}
+
+/** The speed island as the map draws it: [SpeedHud] over the OBD2 signal-lost
+ *  label. [state]'s over-limit threshold is left at its default on purpose: it
+ *  is SpeedLimitTracker.OVER_LIMIT_TOLERANCE_KMH, the one the car dial and the
+ *  trip recorder compare against too, so naming it at the call site would only
+ *  be a second place for it to drift. [obd2Lost] is an adapter that fed this
+ *  trip and has since dropped — `obd2FedThisTrip`, because Obd2Connection never
+ *  resets lastDataAtMs. */
+@Composable
+internal fun SpeedIsland(state: SpeedHudState, obd2Lost: Boolean, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        SpeedHud(state)
+        Obd2SignalLostLabel(lost = obd2Lost)
     }
 }
 

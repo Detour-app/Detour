@@ -97,7 +97,7 @@ private val ISLAND_MAX_HEIGHT = 360.dp
  *   holds this must consume `WindowInsets.ime`. `HomeSheet` does.
  *
  * @param open whether the island is showing. Hoisted so a tap on the map can
- *   close it, the same way `layersOpen` is.
+ *   close it.
  */
 @Composable
 fun SearchIsland(
