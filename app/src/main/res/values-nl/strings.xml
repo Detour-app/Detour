@@ -78,14 +78,14 @@
     <string name="circles_share_my_location">Mijn locatie delen</string>
     <string name="circles_sharing_on">Je positie wordt om de paar minuten naar deze kring gestuurd</string>
     <string name="circles_sharing_paused">Gepauzeerd — er wordt niets gedeeld</string>
-    <string name="circles_notify">Meld me aankomsten</string>
+    <string name="circles_notify">Meldingen bij aankomsten</string>
     <string name="circles_notify_on">Een melding wanneer iemand aankomt op of vertrekt van een gedeelde plaats</string>
     <string name="circles_notify_off">Uit</string>
     <string name="circles_leave">Verlaten</string>
     <string name="circles_shared_places">Gedeelde plaatsen</string>
     <string name="circles_refresh">Vernieuwen</string>
     <string name="circles_share">Delen</string>
-    <string name="circles_places_empty">Nog geen plaatsen gedeeld. Deel er een en de kring ziet daar aankomsten en vertrekken — de plaats blijft van jou en wordt pas ingetrokken als je vertrekt.</string>
+    <string name="circles_places_empty">Nog geen plaatsen gedeeld. Deel er een en de kring ziet daar aankomsten en vertrekken — de plaats blijft van jou en wordt pas ingetrokken als je de kring verlaat.</string>
     <string name="circles_remove_named">%1$s verwijderen</string>
     <string name="circles_activity">Recente activiteit</string>
     <string name="circles_activity_empty">Nog geen aankomsten of vertrekken.</string>
@@ -95,7 +95,7 @@
     <string name="circles_unshare_text">De kring ziet daar geen aankomsten en vertrekken meer, en de al geregistreerde verliezen de naam van de plaats. Je kunt hem later opnieuw delen.</string>
     <string name="circles_unshare">Niet meer delen</string>
     <string name="circles_battery_title">Hou aankomstmeldingen betrouwbaar</string>
-    <string name="circles_battery_text">Sommige telefoons pauzeren achtergrondverbindingen om batterij te sparen, waardoor deze meldingen te laat of niet aankomen. Zet Detour uit batterijoptimalisatie om ze op tijd te krijgen.</string>
+    <string name="circles_battery_text">Sommige telefoons pauzeren achtergrondverbindingen om batterij te sparen, waardoor deze meldingen te laat of niet aankomen. Haal Detour uit de batterijoptimalisatie om ze op tijd te krijgen.</string>
     <string name="circles_open_settings">Instellingen openen</string>
     <string name="circles_not_now">Niet nu</string>
     <string name="circles_not_sharing_with_you">Deelt niet met jou</string>
