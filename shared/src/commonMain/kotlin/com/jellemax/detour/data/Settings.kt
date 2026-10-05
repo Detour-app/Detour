@@ -242,6 +242,21 @@ object Settings {
     private val _voiceGuidance = MutableStateFlow(true)
     val voiceGuidance: StateFlow<Boolean> = _voiceGuidance
 
+    /** Camera warnings on or off (#496); every `CameraWarner` caller passes
+     *  this and the two below as its `Options`. A red-light camera shares it. */
+    private val _cameraWarnings = MutableStateFlow(true)
+    val cameraWarnings: StateFlow<Boolean> = _cameraWarnings
+
+    /** Warn for a speed camera even when not over its limit. Off by default:
+     *  a camera you are not speeding past is not worth interrupting for. */
+    private val _cameraWarnNotSpeeding = MutableStateFlow(false)
+    val cameraWarnNotSpeeding: StateFlow<Boolean> = _cameraWarnNotSpeeding
+
+    /** Warn for a speed camera where no limit is known. Off by default: with no
+     *  limit there is no "too fast" to judge. */
+    private val _cameraWarnLimitUnknown = MutableStateFlow(false)
+    val cameraWarnLimitUnknown: StateFlow<Boolean> = _cameraWarnLimitUnknown
+
     /** The marker drawn at your own position. DOT until the user picks a
      *  vehicle from Settings. */
     private val _mapIcon = MutableStateFlow(MapIcon.DOT)
@@ -345,7 +360,7 @@ object Settings {
         _authUsername.value = secure.string("auth_username")
         _authRiderId.value = RiderId(secure.string("auth_rider_id"))
         _leanOffsetDeg.value = prefs.float("lean_offset_deg", 0f)
-        _voiceGuidance.value = prefs.bool("voice_guidance", true)
+        loadNavPrefs()
         _mapIcon.value = runCatching {
             MapIcon.valueOf(prefs.string("map_icon", MapIcon.DOT.name))
         }.getOrDefault(MapIcon.DOT)
@@ -559,6 +574,15 @@ object Settings {
             .coerceIn(LoopDuration.MIN_MINUTES, LoopDuration.MAX_MINUTES)
     }
 
+    /** Spoken guidance and camera warnings. Out of [init] for the same §8
+     *  reason as [loadSpinPrefs]. */
+    private fun loadNavPrefs() {
+        _voiceGuidance.value = prefs.bool("voice_guidance", true)
+        _cameraWarnings.value = prefs.bool("camera_warnings", true)
+        _cameraWarnNotSpeeding.value = prefs.bool("camera_warn_not_speeding", false)
+        _cameraWarnLimitUnknown.value = prefs.bool("camera_warn_limit_unknown", false)
+    }
+
     fun setLoopByTime(value: Boolean) {
         _loopByTime.value = value
         prefs.put("loop_by_time", value)
@@ -597,6 +621,21 @@ object Settings {
     fun setVoiceGuidance(value: Boolean) {
         _voiceGuidance.value = value
         prefs.put("voice_guidance", value)
+    }
+
+    fun setCameraWarnings(value: Boolean) {
+        _cameraWarnings.value = value
+        prefs.put("camera_warnings", value)
+    }
+
+    fun setCameraWarnNotSpeeding(value: Boolean) {
+        _cameraWarnNotSpeeding.value = value
+        prefs.put("camera_warn_not_speeding", value)
+    }
+
+    fun setCameraWarnLimitUnknown(value: Boolean) {
+        _cameraWarnLimitUnknown.value = value
+        prefs.put("camera_warn_limit_unknown", value)
     }
 
     fun setGeocoderPublicFallback(value: Boolean) {

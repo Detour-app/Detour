@@ -470,6 +470,11 @@ class NavScreen(
             // speed-limit tracker of its own, so an untagged route segment judges
             // you against nothing. The phone falls back to its ambient sign.
             limitKmh = progress?.speedLimitKmh,
+            options = CameraWarner.Options(
+                enabled = Settings.cameraWarnings.value,
+                whenNotSpeeding = Settings.cameraWarnNotSpeeding.value,
+                whenLimitUnknown = Settings.cameraWarnLimitUnknown.value,
+            ),
         )
         warnerState = step.state
         when (val outcome = step.outcome) {

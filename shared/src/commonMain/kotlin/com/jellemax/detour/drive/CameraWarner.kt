@@ -12,7 +12,8 @@ import kotlin.math.min
  * is. Chime when one lies ahead, close, and we're over the posted limit - the one
  * case worth interrupting for. One chime per camera: [State.warnedAt] holds the
  * camera last sounded for and clears once nothing is in range, re-arming for the
- * next. Silent when the limit is unknown: we can't judge "too fast".
+ * next. Silent when the limit is unknown: we can't judge "too fast". The rider
+ * can widen or mute this from Settings - see [Options] (#496).
  *
  * **Decision and wording here, delivery per platform** - the `CircleEvents.kt`
  * shape. This machine knows nothing about tones, speech or toasts, which is why
@@ -78,12 +79,25 @@ object CameraWarner {
 
     data class Step(val state: State, val outcome: Outcome)
 
+    /** The rider's camera-warning settings (#496), read by the caller from
+     *  `Settings` so this machine stays free of storage. The defaults are the
+     *  behaviour before the settings existed. [enabled] mutes every kind - a
+     *  red-light camera shares the speed-camera switch. [whenNotSpeeding] warns
+     *  for a speed camera at or under a known limit; [whenLimitUnknown] warns
+     *  for one where no limit is known. */
+    data class Options(
+        val enabled: Boolean = true,
+        val whenNotSpeeding: Boolean = false,
+        val whenLimitUnknown: Boolean = false,
+    )
+
     /**
      * One GPS fix. [cameras] is whatever the caller's prefetch holds - this
      * machine never fetches. [speedKmh] and [limitKmh] are both km/h, and a null
      * [limitKmh] means the limit here is unknown, so nothing is worth
      * interrupting for. A null [headingDeg] skips the wedge and judges on
-     * distance alone: with no bearing there is no "behind".
+     * distance alone: with no bearing there is no "behind". [options] are the
+     * rider's settings; the default is the rule as it stood before them.
      */
     fun onFix(
         state: State,
@@ -92,7 +106,11 @@ object CameraWarner {
         headingDeg: Double?,
         speedKmh: Double,
         limitKmh: Double?,
+        options: Options = Options(),
     ): Step {
+        // Off clears the latch too, so switching back on mid-approach warns
+        // for the camera ahead rather than treating it as already sounded.
+        if (!options.enabled) return Step(State(), Outcome.Silent)
         val reachMeters = warnMeters(speedKmh)
         val ahead = cameras.filter { cam ->
             val reach = if (cam.at == state.warnedAt) max(reachMeters, state.warnedReachMeters) else reachMeters
@@ -114,8 +132,11 @@ object CameraWarner {
         // silent (maxke24/Detour#317). Combined inherits the same rule: a device
         // that's also a red-light camera is worth announcing even at the limit.
         val worthWarning = when (ahead.kind) {
-            SpeedCameras.CameraKind.SPEED ->
-                effectiveLimitKmh != null && speedKmh > effectiveLimitKmh + OVER_LIMIT_KMH
+            SpeedCameras.CameraKind.SPEED -> if (effectiveLimitKmh == null) {
+                options.whenLimitUnknown
+            } else {
+                options.whenNotSpeeding || speedKmh > effectiveLimitKmh + OVER_LIMIT_KMH
+            }
             SpeedCameras.CameraKind.RED_LIGHT, SpeedCameras.CameraKind.COMBINED -> true
         }
         if (!worthWarning || ahead.at == state.warnedAt) return Step(state, Outcome.Silent)
