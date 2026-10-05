@@ -36,7 +36,10 @@ map $http_x_forwarded_proto $forwarded_proto {
 }
 
 server {
-    listen 80;
+    # default_server: the image ships its own default.conf, also on port 80,
+    # and it sorts first. Without this every request whose Host isn't
+    # `localhost` — every rider on the public hostname — lands there and 404s.
+    listen 80 default_server;
     server_name _;
 
     # The rider's address, not the hop in front of this one. cloudflared (or
