@@ -8,11 +8,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -44,12 +49,21 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jellemax.detour.data.GeocodeResult
 import com.jellemax.detour.data.Geocoder
@@ -66,6 +80,19 @@ import kotlinx.coroutines.withContext
  *  eight entries — which unbounded would bury the map the island floats over.
  *  Past this the card scrolls instead of growing. */
 private val ISLAND_MAX_HEIGHT = 360.dp
+
+/** The landscape results card's width: place names, not a sheet's controls,
+ *  and narrow enough that beside the drive sheet's wider column it still
+ *  clears the map chrome on the far edge of a large phone. */
+private val LANDSCAPE_RESULTS_WIDTH = 320.dp
+
+/** Space between the landscape results card and the sheet, the status bar and
+ *  the keyboard. The sheets pad their content 16 dp from their own edge, so
+ *  the card sits that much plus this past the island's end. */
+private val LANDSCAPE_RESULTS_GAP = 8.dp
+
+/** The horizontal padding `HomeSheet` and `DriveSheet` give the island. */
+private val SHEET_CONTENT_PADDING = 16.dp
 
 /**
  * Destination search: the home sheet's "Where to?" bar *is* the text field, and
@@ -95,6 +122,9 @@ private val ISLAND_MAX_HEIGHT = 360.dp
  *   unbounded Column measures to nothing at all — with no compiler signal.
  * - the keyboard covers exactly the region the results grow into, so whatever
  *   holds this must consume `WindowInsets.ime`. `HomeSheet` does.
+ *
+ * Portrait only. In landscape the keyboard leaves no room above the bar, so
+ * the results move beside the sheet instead — see [LandscapeResults].
  *
  * @param open whether the island is showing. Hoisted so a tap on the map can
  *   close it.
@@ -197,58 +227,62 @@ fun SearchIsland(
         searching = false
     }
 
+    val showResults = open && (results.isNotEmpty() || error != null)
+    // Glass, not the default opaque ListCard surface: the bar this hangs off
+    // is frosted and so is the map chrome across from it, and an opaque slab
+    // between them reads as a different app.
+    val resultsCard: @Composable (Modifier) -> Unit = { cardModifier ->
+        ListCard(
+            modifier = cardModifier,
+            colors = glassCardColors(),
+            borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+        ) {
+            Column(
+                Modifier
+                    .heightIn(max = ISLAND_MAX_HEIGHT)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                error?.let {
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    )
+                    if (results.isNotEmpty()) CardDivider()
+                }
+                results.forEachIndexed { index, r ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { pick(r) }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            if (r.name in recentNames) Icons.Rounded.History
+                                else Icons.Rounded.Place,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Text(r.name, style = MaterialTheme.typography.bodyLarge)
+                    }
+                    if (index != results.lastIndex) CardDivider()
+                }
+            }
+        }
+    }
+
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (open && (results.isNotEmpty() || error != null)) {
-            // Glass, not the default opaque ListCard surface: the bar this
-            // hangs off is frosted and so is the map chrome across from it, and
-            // an opaque slab between them reads as a different app.
-            //
+        if (showResults && !isLandscape()) {
             // Weighted, and that is what makes the upward growth safe: the bar
             // below is measured first at its intrinsic height, and this takes
             // whatever the sheet has left over the keyboard. Unweighted it
             // would claim ISLAND_MAX_HEIGHT off the top and push the bar — the
             // thing being typed into — off the screen on a short phone.
-            ListCard(
-                modifier = Modifier.weight(1f, fill = false),
-                colors = glassCardColors(),
-                borderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
-            ) {
-                Column(
-                    Modifier
-                        .heightIn(max = ISLAND_MAX_HEIGHT)
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    error?.let {
-                        Text(
-                            it,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                        )
-                        if (results.isNotEmpty()) CardDivider()
-                    }
-                    results.forEachIndexed { index, r ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { pick(r) }
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                if (r.name in recentNames) Icons.Rounded.History
-                                    else Icons.Rounded.Place,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Spacer(Modifier.width(16.dp))
-                            Text(r.name, style = MaterialTheme.typography.bodyLarge)
-                        }
-                        if (index != results.lastIndex) CardDivider()
-                    }
-                }
-            }
+            resultsCard(Modifier.weight(1f, fill = false))
         }
         Card(
             modifier = Modifier.fillMaxWidth().glassBorder(CircleShape),
@@ -315,6 +349,12 @@ fun SearchIsland(
                 // frame put a spinner or a Clear button in the closed pill
                 // where the avatar belongs.
                 Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                    // Landscape results, see [LandscapeResults]. Hosted here
+                    // because a popup is placed against its parent, and this
+                    // slot's end edge is the island's — while a zero-size
+                    // child of the spaced Column above would still open an
+                    // 8 dp gap in it.
+                    if (showResults && isLandscape()) LandscapeResults(resultsCard)
                     when {
                         open && searching -> CircularProgressIndicator(
                             Modifier.size(20.dp),
@@ -366,5 +406,48 @@ fun SearchIsland(
                 }
             }
         }
+    }
+}
+
+/**
+ * [card] in a non-focusable popup beside the island, from the status bar down
+ * to the keyboard (#530). In landscape the keyboard takes ~60% of a ~390 dp
+ * tall screen and the sheet's handle, bar and padding most of the rest, so
+ * results growing up out of the bar got a few dp; the map side is free.
+ *
+ * A popup because the sheets clip their content to their own
+ * shape, so nothing composed inside one can reach the map; non-focusable so
+ * the text field keeps the keyboard and Back still reaches [SearchIsland]'s
+ * handler, and so a tap on the map outside the card still reaches the map.
+ *
+ * Must be composed inside a layout whose end edge is the island's.
+ */
+@Composable
+private fun LandscapeResults(card: @Composable (Modifier) -> Unit) {
+    val density = LocalDensity.current
+    val windowHeightPx = LocalWindowInfo.current.containerSize.height
+    val topPx = WindowInsets.statusBars.getTop(density)
+    val bottomPx = WindowInsets.ime.union(WindowInsets.navigationBars).getBottom(density)
+    val gapPx = with(density) { LANDSCAPE_RESULTS_GAP.roundToPx() }
+    val sidePx = gapPx + with(density) { SHEET_CONTENT_PADDING.roundToPx() }
+    val maxHeight = with(density) {
+        (windowHeightPx - topPx - bottomPx - 2 * gapPx).coerceAtLeast(0).toDp()
+    }
+    val position = remember(topPx, gapPx, sidePx) {
+        object : PopupPositionProvider {
+            override fun calculatePosition(
+                anchorBounds: IntRect,
+                windowSize: IntSize,
+                layoutDirection: LayoutDirection,
+                popupContentSize: IntSize,
+            ) = IntOffset(
+                if (layoutDirection == LayoutDirection.Ltr) anchorBounds.right + sidePx
+                else anchorBounds.left - sidePx - popupContentSize.width,
+                topPx + gapPx,
+            )
+        }
+    }
+    Popup(popupPositionProvider = position, properties = PopupProperties(focusable = false)) {
+        card(Modifier.width(LANDSCAPE_RESULTS_WIDTH).heightIn(max = maxHeight))
     }
 }
