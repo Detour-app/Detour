@@ -21,16 +21,37 @@
 # A .template: the official nginx image's entrypoint runs envsubst over
 # every file here and writes the result to /etc/nginx/conf.d before nginx
 # starts (see docker-compose.proxy.yml). envsubst only touches names that
-# are actually set as container env vars — $host, $remote_addr and $scheme
-# below are nginx's own request variables, never exported, so they pass
-# through untouched; PHOTON_UPSTREAM / GRAPHHOPPER_UPSTREAM matter only if you
-# uncomment the commented proxy_pass lines below and set the vars in .env.
+# are actually set as container env vars — $host, $remote_addr, $scheme and
+# $http_x_forwarded_proto below are nginx's own request variables, never
+# exported, so they pass through untouched; PHOTON_UPSTREAM /
+# GRAPHHOPPER_UPSTREAM matter only if you uncomment the commented proxy_pass
+# lines below and set the vars in .env.
+
+# The scheme the rider actually used. cloudflared terminates TLS and reaches
+# this container over plain http, so $scheme alone is always `http`; keep the
+# hop in front's X-Forwarded-Proto when it sent one.
+map $http_x_forwarded_proto $forwarded_proto {
+    default $http_x_forwarded_proto;
+    ""      $scheme;
+}
+
 server {
     # default_server: the image ships its own default.conf, also on port 80,
     # and it sorts first. Without this every request whose Host isn't
     # `localhost` — every rider on the public hostname — lands there and 404s.
     listen 80 default_server;
     server_name _;
+
+    # The rider's address, not the hop in front of this one. cloudflared (or
+    # whatever terminates the public hostname) connects from another host, so
+    # without this $remote_addr is that host for every request — and the API,
+    # which trusts exactly one hop (ForwardLimit 1, backend/INSTALL.md), would
+    # rate-limit all riders as one. PROXY_REAL_IP_FROM names that host (address
+    # or CIDR, docker/prod/.env); only its X-Forwarded-For is believed, so a LAN
+    # client can't pick its own bucket. Unset, it is loopback: nothing is
+    # trusted and $remote_addr stays the connecting peer.
+    set_real_ip_from ${PROXY_REAL_IP_FROM};
+    real_ip_header X-Forwarded-For;
 
     # Photon: exact "/api/" only (its query-string search endpoint).
     location = /api/ {
@@ -40,7 +61,7 @@ server {
         # proxy_pass ${PHOTON_UPSTREAM}/api/;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
     }
 
     # The sync + social API: everything else under /api, including the
@@ -52,7 +73,7 @@ server {
         proxy_pass http://api:7500/api/;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -68,6 +89,6 @@ server {
         # proxy_pass ${GRAPHHOPPER_UPSTREAM}/route;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
     }
 }
