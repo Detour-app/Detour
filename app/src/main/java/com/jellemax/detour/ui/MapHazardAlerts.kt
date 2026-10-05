@@ -10,9 +10,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import com.jellemax.detour.data.LatLon
-import com.jellemax.detour.data.Settings
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.drive.cameraWarnerOptions
 import com.jellemax.detour.tracking.SectionAverageLog
 import com.jellemax.detour.tracking.TripTrackingService
 
@@ -74,11 +74,7 @@ internal fun MapHazardAlerts(
                 headingDeg = fix.bearingDeg?.toDouble(),
                 speedKmh = fix.speedMps * 3.6,
                 limitKmh = navProgressRef.value?.speedLimitKmh ?: ambientLimitRef.value,
-                options = CameraWarner.Options(
-                    enabled = Settings.cameraWarnings.value,
-                    whenNotSpeeding = Settings.cameraWarnNotSpeeding.value,
-                    whenLimitUnknown = Settings.cameraWarnLimitUnknown.value,
-                ),
+                options = cameraWarnerOptions(),
             )
             warnerState = step.state
             retained.warnerState = warnerState

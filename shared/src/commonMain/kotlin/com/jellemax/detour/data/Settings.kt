@@ -242,8 +242,8 @@ object Settings {
     private val _voiceGuidance = MutableStateFlow(true)
     val voiceGuidance: StateFlow<Boolean> = _voiceGuidance
 
-    /** Camera warnings on or off (#496); every `CameraWarner` caller passes
-     *  this and the two below as its `Options`. A red-light camera shares it. */
+    /** Camera warnings on or off (#496); `cameraWarnerOptions` reads this and
+     *  the two below for every `CameraWarner` caller. A red-light camera shares it. */
     private val _cameraWarnings = MutableStateFlow(true)
     val cameraWarnings: StateFlow<Boolean> = _cameraWarnings
 

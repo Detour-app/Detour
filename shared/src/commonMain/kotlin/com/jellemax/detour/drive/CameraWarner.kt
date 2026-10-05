@@ -2,6 +2,7 @@ package com.jellemax.detour.drive
 
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RoadRoulette
+import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 import kotlin.math.abs
 import kotlin.math.max
@@ -79,8 +80,8 @@ object CameraWarner {
 
     data class Step(val state: State, val outcome: Outcome)
 
-    /** The rider's camera-warning settings (#496), read by the caller from
-     *  `Settings` so this machine stays free of storage. The defaults are the
+    /** The rider's camera-warning settings (#496). Callers build them with
+     *  [cameraWarnerOptions] so this machine stays free of storage. The defaults are the
      *  behaviour before the settings existed. [enabled] mutes every kind - a
      *  red-light camera shares the speed-camera switch. [whenNotSpeeding] warns
      *  for a speed camera at or under a known limit; [whenLimitUnknown] warns
@@ -160,3 +161,11 @@ object CameraWarner {
         return min(diff, 360.0 - diff) <= CAMERA_FACING_TOLERANCE_DEG
     }
 }
+
+/** The rider's [CameraWarner.Options] as `Settings` holds them right now - the
+ *  one mapping the phone, the car and iOS all pass to [CameraWarner.onFix]. */
+fun cameraWarnerOptions(): CameraWarner.Options = CameraWarner.Options(
+    enabled = Settings.cameraWarnings.value,
+    whenNotSpeeding = Settings.cameraWarnNotSpeeding.value,
+    whenLimitUnknown = Settings.cameraWarnLimitUnknown.value,
+)

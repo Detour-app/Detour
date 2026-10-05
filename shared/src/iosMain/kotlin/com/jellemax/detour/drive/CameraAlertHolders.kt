@@ -1,7 +1,6 @@
 package com.jellemax.detour.drive
 
 import com.jellemax.detour.data.LatLon
-import com.jellemax.detour.data.Settings
 import com.jellemax.detour.data.SpeedCameras
 
 /**
@@ -32,12 +31,7 @@ class CameraWarnerHolder {
         speedKmh: Double,
         limitKmh: Double?,
     ): CameraWarning? {
-        val options = CameraWarner.Options(
-            enabled = Settings.cameraWarnings.value,
-            whenNotSpeeding = Settings.cameraWarnNotSpeeding.value,
-            whenLimitUnknown = Settings.cameraWarnLimitUnknown.value,
-        )
-        val step = CameraWarner.onFix(state, cameras, at, headingDeg, speedKmh, limitKmh, options)
+        val step = CameraWarner.onFix(state, cameras, at, headingDeg, speedKmh, limitKmh, cameraWarnerOptions())
         state = step.state
         val outcome = step.outcome
         return if (outcome is CameraWarner.Outcome.Warn) CameraWarning(outcome.at, outcome.text) else null
