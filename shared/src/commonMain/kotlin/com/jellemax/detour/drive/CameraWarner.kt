@@ -59,12 +59,15 @@ object CameraWarner {
     /** How far ahead a camera counts at [speedKmh]: [WARN_LEAD_S] of travel at
      *  the current speed, never under [SpeedCameras.WARN_METERS]. Distance from
      *  speed, not a timer - the class still holds no clock. */
-    fun warnMeters(speedKmh: Double): Double =
+    internal fun warnMeters(speedKmh: Double): Double =
         max(SpeedCameras.WARN_METERS, speedKmh / 3.6 * WARN_LEAD_S)
 
     /** [warnedAt] is the camera last sounded for, or null when nothing is in
-     *  range. A position, not a timestamp - see the class KDoc. */
-    data class State(val warnedAt: LatLon? = null)
+     *  range. A position, not a timestamp - see the class KDoc. [warnedReachMeters]
+     *  is the reach it was warned at: braking shrinks [warnMeters] faster than
+     *  the distance, and without it the camera would leave range, clear the
+     *  latch and chime again on re-entry. */
+    data class State(val warnedAt: LatLon? = null, val warnedReachMeters: Double = 0.0)
 
     sealed interface Outcome {
         data object Silent : Outcome
@@ -92,7 +95,8 @@ object CameraWarner {
     ): Step {
         val reachMeters = warnMeters(speedKmh)
         val ahead = cameras.filter { cam ->
-            RoadRoulette.distanceMeters(at, cam.at) <= reachMeters &&
+            val reach = if (cam.at == state.warnedAt) max(reachMeters, state.warnedReachMeters) else reachMeters
+            RoadRoulette.distanceMeters(at, cam.at) <= reach &&
                 (headingDeg == null ||
                     RoadRoulette.withinWedge(at, cam.at, headingDeg, AHEAD_WEDGE_DEG)) &&
                 (cam.facingDeg == null || headingDeg == null || facesYou(cam.facingDeg, headingDeg))
@@ -115,7 +119,7 @@ object CameraWarner {
             SpeedCameras.CameraKind.RED_LIGHT, SpeedCameras.CameraKind.COMBINED -> true
         }
         if (!worthWarning || ahead.at == state.warnedAt) return Step(state, Outcome.Silent)
-        return Step(State(warnedAt = ahead.at), Outcome.Warn(ahead.at, warningTextFor(ahead.kind)))
+        return Step(State(ahead.at, reachMeters), Outcome.Warn(ahead.at, warningTextFor(ahead.kind)))
     }
 
     /** The wording, declared once for every surface. The phone's own comment said

@@ -213,7 +213,7 @@ class CameraWarnerTest {
     fun theWarnDistanceIsFifteenSecondsOfTravelFlooredAt400m() {
         assertEquals(400.0, CameraWarner.warnMeters(50.0))
         assertEquals(400.0, CameraWarner.warnMeters(90.0))
-        assertEquals(130.0 / 3.6 * 15.0, CameraWarner.warnMeters(130.0))
+        assertEquals(541.667, CameraWarner.warnMeters(130.0), 0.001)
         assertEquals(400.0, CameraWarner.warnMeters(0.0))
     }
 
@@ -232,6 +232,28 @@ class CameraWarnerTest {
             CameraWarner.Outcome.Silent,
             step(cameras = listOf(far), speedKmh = 100.0, limitKmh = 90.0).outcome,
         )
+    }
+
+    /** Braking after the warning shrinks the reach faster than the distance:
+     *  warned at ~529 m doing 130 km/h, then 120 m on at 58 km/h the camera is
+     *  ~410 m out against a 400 m reach. It must stay latched - a red-light
+     *  camera chimes at any speed, so clearing here would chime it twice. */
+    @Test
+    fun brakingAfterTheWarningDoesNotChimeTheSameCameraAgain() {
+        val redLight = cam(530.0, 0.0).copy(kind = SpeedCameras.CameraKind.RED_LIGHT)
+        fun fix(state: CameraWarner.State, northM: Double, speedKmh: Double) = CameraWarner.onFix(
+            state = state, cameras = listOf(redLight), at = RoadRoulette.offset(here, northM, 0.0),
+            headingDeg = 0.0, speedKmh = speedKmh, limitKmh = 120.0,
+        )
+        val warned = fix(CameraWarner.State(), 0.0, 130.0)
+        assertEquals(CameraWarner.Outcome.Warn(redLight.at, "Red light camera ahead"), warned.outcome)
+
+        val braking = fix(warned.state, 120.0, 58.0)
+        assertEquals(CameraWarner.Outcome.Silent, braking.outcome)
+        assertEquals(redLight.at, braking.state.warnedAt)
+
+        val closer = fix(braking.state, 140.0, 55.0)
+        assertEquals(CameraWarner.Outcome.Silent, closer.outcome)
     }
 
     /** A camera behind you is not ahead of you. The boundary, stated: exactly
