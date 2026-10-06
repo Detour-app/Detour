@@ -56,10 +56,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.R
 import com.jellemax.detour.data.Account
 import com.jellemax.detour.data.CirclesState
 import com.jellemax.detour.data.CirclesStore
@@ -143,22 +145,21 @@ private fun CirclesScaffold(
         ) {
             if (!SyncClient.configured()) {
                 Text(
-                    "No sync server configured. Set one in Settings first — " +
-                        "circles live on your own server.",
+                    stringResource(R.string.circles_no_server),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 return@Column
             }
             if (username.isBlank()) {
                 Text(
-                    "Sign in under Friends first — circles share that same friends list.",
+                    stringResource(R.string.circles_sign_in_first),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 return@Column
             }
             if (riderId.value.isBlank()) {
                 Text(
-                    "Setting up your account — check back in a moment.",
+                    stringResource(R.string.circles_setting_up),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 return@Column
@@ -208,7 +209,7 @@ fun CirclesScreen(onBack: () -> Unit, onOpenCircle: (String) -> Unit) {
     val listState = remember(state.circles, riderId) { circlesListStateFrom(state.circles, riderId) }
 
     CirclesScaffold(
-        title = "Circles",
+        title = stringResource(R.string.circles_title),
         onBack = onBack,
         error = state.error,
         actions = {
@@ -220,7 +221,7 @@ fun CirclesScreen(onBack: () -> Unit, onOpenCircle: (String) -> Unit) {
                         .background(MaterialTheme.colorScheme.surfaceContainer),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Rounded.AddIcon, contentDescription = "New circle")
+                    Icon(Icons.Rounded.AddIcon, contentDescription = stringResource(R.string.circles_new))
                 }
             }
         },
@@ -299,7 +300,7 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit, onFocusRider: (Ride
     // scopes places and events, which is what it was always for.
 
     CirclesScaffold(
-        title = circle?.name ?: "Circle",
+        title = circle?.name ?: stringResource(R.string.circles_circle),
         onBack = onBack,
         error = state.error,
         actions = {
@@ -319,7 +320,7 @@ fun CircleDetailScreen(circleId: String, onBack: () -> Unit, onFocusRider: (Ride
                             .background(MaterialTheme.colorScheme.surfaceContainer),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Rounded.PersonAdd, contentDescription = "Invite")
+                        Icon(Icons.Rounded.PersonAdd, contentDescription = stringResource(R.string.circles_invite))
                     }
                 }
             }
@@ -377,7 +378,7 @@ private fun CircleListSection(
     // one from the circle brings it back — so it asks first.
     var declining by remember { mutableStateOf<CircleRow?>(null) }
     if (listState.invited.isNotEmpty()) {
-        Text("Invites", style = MaterialTheme.typography.titleSmall,
+        Text(stringResource(R.string.circles_invites), style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary)
         ListCard {
             listState.invited.forEachIndexed { i, row ->
@@ -393,22 +394,20 @@ private fun CircleListSection(
     }
     declining?.let { row ->
         ConfirmDialog(
-            title = "Decline ${row.name}?",
-            text = "The invite disappears. Joining later needs a new invite from the circle.",
-            confirmLabel = "Decline",
+            title = stringResource(R.string.circles_decline_title, row.name),
+            text = stringResource(R.string.circles_decline_text),
+            confirmLabel = stringResource(R.string.circles_decline),
             onConfirm = { onDecline(row.id) },
             onDismiss = { declining = null },
         )
     }
 
-    Text("Your circles", style = MaterialTheme.typography.titleSmall,
+    Text(stringResource(R.string.circles_yours), style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary)
     if (listState.accepted.isEmpty()) {
         if (loaded) {
             Text(
-                "No circles yet. A circle is always-on, low-cadence location sharing with " +
-                    "family or roommates — unlike a convoy it doesn't end when a ride does, " +
-                    "and there's no push-to-talk.",
+                stringResource(R.string.circles_empty),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -423,7 +422,8 @@ private fun CircleListSection(
                 icon = Icons.Rounded.ShareLocation,
                 title = row.name,
                 subtitle = row.memberLine,
-                trailingText = if (row.sharing) "Sharing" else "Not sharing",
+                trailingText = if (row.sharing) stringResource(R.string.circles_sharing)
+                    else stringResource(R.string.circles_not_sharing),
                 onClick = { onOpen(row.id) },
                 paintCard = false,
             )
@@ -458,9 +458,19 @@ private fun CircleInviteRow(row: CircleRow, busy: Boolean, onAccept: () -> Unit,
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 ),
-            ) { Icon(Icons.Rounded.AcceptIcon, contentDescription = "Accept ${row.name}", Modifier.size(16.dp)) }
+            ) {
+                Icon(
+                    Icons.Rounded.AcceptIcon,
+                    contentDescription = stringResource(R.string.circles_accept_named, row.name),
+                    Modifier.size(16.dp),
+                )
+            }
             IconButton(enabled = !busy, onClick = onDecline) {
-                Icon(Icons.Rounded.DeclineIcon, contentDescription = "Decline ${row.name}", Modifier.size(16.dp))
+                Icon(
+                    Icons.Rounded.DeclineIcon,
+                    contentDescription = stringResource(R.string.circles_decline_named, row.name),
+                    Modifier.size(16.dp),
+                )
             }
         }
     }
@@ -560,7 +570,11 @@ private fun CircleDetailSection(
     val nowMs = System.currentTimeMillis()
     val detail = circleDetailStateFrom(circle, riderId, state.places, state.events.take(20), nowMs)
 
-    Text("Members", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+    Text(
+        stringResource(R.string.circles_members),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
     ListCard {
         detail.members.forEachIndexed { i, row ->
             if (i > 0) CardDivider()
@@ -585,10 +599,14 @@ private fun CircleDetailSection(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("Share my location", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        if (mySharing) "Posting your position to this circle every couple of minutes"
-                        else "Paused — nothing is being shared",
+                        stringResource(R.string.circles_share_my_location),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        if (mySharing) stringResource(R.string.circles_sharing_on)
+                        else stringResource(R.string.circles_sharing_paused),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -604,12 +622,16 @@ private fun CircleDetailSection(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("Notify me about arrivals", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        stringResource(R.string.circles_notify),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
                     Text(
                         when {
                             !Features.liveRelay -> Features.liveRelayNotice
-                            notifyEnabled -> "A notification when someone arrives at or leaves a shared place"
-                            else -> "Off"
+                            notifyEnabled -> stringResource(R.string.circles_notify_on)
+                            else -> stringResource(R.string.circles_notify_off)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -626,21 +648,27 @@ private fun CircleDetailSection(
 
     // Invite moved to the top bar (person_add, see CircleDetailScreen) —
     // Leave stays here, the one action left with no natural home in chrome.
-    TextButton(enabled = !state.busy, onClick = { confirmLeave = true }) { Text("Leave") }
+    TextButton(enabled = !state.busy, onClick = { confirmLeave = true }) {
+        Text(stringResource(R.string.circles_leave))
+    }
 
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Shared places", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        Text(
+            stringResource(R.string.circles_shared_places),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { scope.launch { CirclesStore.select(circle.id) } }) {
-                Icon(Icons.Rounded.Refresh, contentDescription = "Refresh")
+                Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.circles_refresh))
             }
             TextButton(enabled = savedPlaces.isNotEmpty(), onClick = { shareOpen = true }) {
                 Icon(Icons.Rounded.AddIcon, contentDescription = null, Modifier.size(18.dp))
-                Text("Share")
+                Text(stringResource(R.string.circles_share))
             }
         }
     }
@@ -655,8 +683,7 @@ private fun CircleDetailSection(
         // flashes "none" for the length of that first load.
         if (!state.detailBusy) {
             Text(
-                "No places shared yet. Sharing one lets the circle see arrivals and " +
-                    "departures there — the place stays yours, only revoked when you leave.",
+                stringResource(R.string.circles_places_empty),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -685,7 +712,9 @@ private fun CircleDetailSection(
                             enabled = !state.detailBusy,
                             onClick = { unsharing = row },
                         ) {
-                            Icon(Icons.Rounded.DeleteOutline, contentDescription = "Remove ${row.name}",
+                            Icon(
+                                Icons.Rounded.DeleteOutline,
+                                contentDescription = stringResource(R.string.circles_remove_named, row.name),
                                 tint = MaterialTheme.colorScheme.error)
                         }
                     }
@@ -694,10 +723,14 @@ private fun CircleDetailSection(
         }
     }
 
-    Text("Recent activity", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+    Text(
+        stringResource(R.string.circles_activity),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
     if (detail.events.isEmpty()) {
         Text(
-            "No arrivals or departures yet.",
+            stringResource(R.string.circles_activity_empty),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -727,10 +760,9 @@ private fun CircleDetailSection(
 
     if (confirmLeave) {
         ConfirmDialog(
-            title = "Leave ${circle.name}?",
-            text = "You stop sharing your location with this circle and the places you " +
-                "shared into it are revoked. Getting back in needs a new invite.",
-            confirmLabel = "Leave",
+            title = stringResource(R.string.circles_leave_title, circle.name),
+            text = stringResource(R.string.circles_leave_text),
+            confirmLabel = stringResource(R.string.circles_leave),
             onConfirm = onLeave,
             onDismiss = { confirmLeave = false },
         )
@@ -738,10 +770,9 @@ private fun CircleDetailSection(
 
     unsharing?.let { row ->
         ConfirmDialog(
-            title = "Stop sharing ${row.name}?",
-            text = "The circle stops seeing arrivals and departures there, and the ones " +
-                "already recorded lose the place's name. You can share it again later.",
-            confirmLabel = "Stop sharing",
+            title = stringResource(R.string.circles_unshare_title, row.name),
+            text = stringResource(R.string.circles_unshare_text),
+            confirmLabel = stringResource(R.string.circles_unshare),
             onConfirm = { scope.launch { CirclesStore.unsharePlace(row.serverId) } },
             onDismiss = { unsharing = null },
         )
@@ -764,21 +795,17 @@ private fun BatteryOptimizationDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Keep arrivals reliable") },
+        title = { Text(stringResource(R.string.circles_battery_title)) },
         text = {
-            Text(
-                "Some phones pause background connections to save battery, which can " +
-                    "delay or drop these notifications. Exempting Detour from battery " +
-                    "optimization keeps them arriving on time.",
-            )
+            Text(stringResource(R.string.circles_battery_text))
         },
         confirmButton = {
             TextButton(onClick = {
                 onDismiss()
                 context.startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-            }) { Text("Open settings") }
+            }) { Text(stringResource(R.string.circles_open_settings)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Not now") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.circles_not_now)) } },
     )
 }
 
@@ -808,7 +835,7 @@ private fun CircleMemberListRow(row: CircleMemberRow, onFocusOnMap: (() -> Unit)
             Text(row.displayName, style = MaterialTheme.typography.bodyMedium)
             if (onFocusOnMap == null && !row.sharing) {
                 Text(
-                    "Not sharing with you",
+                    stringResource(R.string.circles_not_sharing_with_you),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -816,7 +843,8 @@ private fun CircleMemberListRow(row: CircleMemberRow, onFocusOnMap: (() -> Unit)
         }
         Icon(
             if (row.sharing) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
-            contentDescription = if (row.sharing) "Sharing location" else "Not sharing",
+            contentDescription = if (row.sharing) stringResource(R.string.circles_sharing_location)
+                else stringResource(R.string.circles_not_sharing),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(18.dp),
         )
@@ -828,19 +856,21 @@ private fun CreateCircleDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit
     var name by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New circle") },
+        title = { Text(stringResource(R.string.circles_new)) },
         text = {
             OutlinedTextField(
                 value = name, onValueChange = { name = it },
-                label = { Text("Circle name (Family, Roommates…)") },
+                label = { Text(stringResource(R.string.circles_name_hint)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
         },
         confirmButton = {
-            TextButton(enabled = name.isNotBlank(), onClick = { onCreate(name.trim()) }) { Text("Create") }
+            TextButton(enabled = name.isNotBlank(), onClick = { onCreate(name.trim()) }) {
+                Text(stringResource(R.string.circles_create))
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.circles_cancel)) } },
     )
 }
 
@@ -851,19 +881,21 @@ private fun InviteToCircleDialog(circle: Group, onDismiss: () -> Unit, onInvite:
     var name by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Invite to ${circle.name}") },
+        title = { Text(stringResource(R.string.circles_invite_title, circle.name)) },
         text = {
             OutlinedTextField(
                 value = name, onValueChange = { name = it },
-                label = { Text("Friend's username") },
+                label = { Text(stringResource(R.string.circles_friend_username)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
         },
         confirmButton = {
-            TextButton(enabled = name.isNotBlank(), onClick = { onInvite(name.trim()) }) { Text("Invite") }
+            TextButton(enabled = name.isNotBlank(), onClick = { onInvite(name.trim()) }) {
+                Text(stringResource(R.string.circles_invite))
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.circles_cancel)) } },
     )
 }
 
@@ -882,11 +914,11 @@ private fun SharePlaceDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Share a place") },
+        title = { Text(stringResource(R.string.circles_share_place_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "The circle sees arrivals and departures here, not your live position.",
+                    stringResource(R.string.circles_share_place_text),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 for (place in places) {
@@ -904,7 +936,7 @@ private fun SharePlaceDialog(
                 OutlinedTextField(
                     value = radiusText,
                     onValueChange = { radiusText = it },
-                    label = { Text("Radius (metres)") },
+                    label = { Text(stringResource(R.string.circles_radius_m)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -915,9 +947,9 @@ private fun SharePlaceDialog(
             TextButton(
                 enabled = picked != null && r != null && r > 0,
                 onClick = { onShare(picked!!, r!!) },
-            ) { Text("Share") }
+            ) { Text(stringResource(R.string.circles_share)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.circles_cancel)) } },
     )
 }
 
