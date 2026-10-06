@@ -57,10 +57,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.R
 import com.jellemax.detour.auth.AuthBrowser
 import com.jellemax.detour.auth.PendingSignIn
 import com.jellemax.detour.convoy.ConvoyLiveService
@@ -101,7 +103,8 @@ fun FriendsScreen(onBack: () -> Unit, onOpenServerSettings: () -> Unit) {
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             SubScreenTopBar(
-                if (username.isBlank()) "Account" else "Friends",
+                if (username.isBlank()) stringResource(R.string.friends_title_account)
+                else stringResource(R.string.friends_title),
                 onBack, scrollBehavior,
             ) {
                 // Only offered once signed in — the dialog it opens calls
@@ -118,7 +121,10 @@ fun FriendsScreen(onBack: () -> Unit, onOpenServerSettings: () -> Unit) {
                                 .background(MaterialTheme.colorScheme.surfaceContainer),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.Rounded.PersonAdd, contentDescription = "Add a friend")
+                            Icon(
+                                Icons.Rounded.PersonAdd,
+                                contentDescription = stringResource(R.string.friends_add_friend),
+                            )
                         }
                     }
                 }
@@ -136,8 +142,7 @@ fun FriendsScreen(onBack: () -> Unit, onOpenServerSettings: () -> Unit) {
             when {
                 !SyncClient.configured() -> {
                     Text(
-                        "No sync server configured. Set one in Settings first — " +
-                            "friends live on your own server.",
+                        stringResource(R.string.friends_no_server),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     ServerSettingsButton(onOpenServerSettings)
@@ -184,15 +189,12 @@ private fun SignInSection(onOpenServerSettings: () -> Unit) {
     val busy by PendingSignIn.busy.collectAsStateWithLifecycle()
 
     Text(
-        "Sign in to sync your rides and compare stats with friends. " +
-            "Your trips and explored map stay private — friends only ever see " +
-            "totals and badges.",
+        stringResource(R.string.friends_signin_intro),
         style = MaterialTheme.typography.bodyMedium,
     )
     if (!AuthBrowser.configured) {
         Text(
-            "No server or sign-in realm is configured, so there is nobody to " +
-                "sign in to. Set your server address under Settings → Servers & sync.",
+            stringResource(R.string.friends_signin_unconfigured),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -217,21 +219,17 @@ private fun SignInSection(onOpenServerSettings: () -> Unit) {
                     // the rest, including clearing busy.
                     null -> {}
                     AuthBrowser.StartFailure.InvalidRealmUrl -> PendingSignIn.fail(
-                        "The sign-in realm address is not a valid URL. Check it " +
-                            "under Settings → Servers & sync."
+                        context.getString(R.string.friends_signin_invalid_realm)
                     )
                     AuthBrowser.StartFailure.NoBrowserAvailable ->
-                        PendingSignIn.fail("No browser available to sign in with.")
+                        PendingSignIn.fail(context.getString(R.string.friends_signin_no_browser))
                     AuthBrowser.StartFailure.NoRealmAdvertised ->
                         PendingSignIn.fail(
-                            "Your server did not say which realm to sign in to. " +
-                                "Update the server, or set the sign-in realm URL " +
-                                "under Settings → Servers & sync."
+                            context.getString(R.string.friends_signin_no_realm_advertised)
                         )
                     AuthBrowser.StartFailure.NotConfigured ->
                         PendingSignIn.fail(
-                            "No identity provider is configured. Set the sign-in " +
-                                "realm URL under Settings → Servers & sync."
+                            context.getString(R.string.friends_signin_no_idp)
                         )
                 }
             }
@@ -240,10 +238,10 @@ private fun SignInSection(onOpenServerSettings: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-        else Text("Sign in")
+        else Text(stringResource(R.string.friends_signin))
     }
     Text(
-        "Opens your browser. New accounts and password changes happen there too.",
+        stringResource(R.string.friends_signin_hint),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -257,7 +255,7 @@ private fun SignInSection(onOpenServerSettings: () -> Unit) {
 @Composable
 private fun ServerSettingsButton(onClick: () -> Unit) {
     OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-        Text("Server settings")
+        Text(stringResource(R.string.friends_server_settings))
     }
 }
 
@@ -317,7 +315,7 @@ private fun FriendsSection(username: String) {
     // Requests first — answering them is the one thing here that's actually
     // time-sensitive; the leaderboard just sits and waits to be looked at.
     if (board.incoming.isNotEmpty()) {
-        Text("Requests", style = MaterialTheme.typography.titleSmall,
+        Text(stringResource(R.string.friends_requests), style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary)
         ListCard {
             board.incoming.forEachIndexed { i, rider ->
@@ -333,10 +331,9 @@ private fun FriendsSection(username: String) {
     }
     declining?.let { rider ->
         ConfirmDialog(
-            title = "Decline ${rider.username}?",
-            text = "The request goes away and they can't ask again. It moves to Declined " +
-                "below — undo there to let their requests through once more.",
-            confirmLabel = "Decline",
+            title = stringResource(R.string.friends_decline_title, rider.username),
+            text = stringResource(R.string.friends_decline_text),
+            confirmLabel = stringResource(R.string.friends_decline),
             onConfirm = { scope.launch { FriendsStore.respond(rider.id, false) } },
             onDismiss = { declining = null },
         )
@@ -354,7 +351,7 @@ private fun FriendsSection(username: String) {
     // A repeat request from the other side is refused silently, so this is the only
     // place either of them sees this pair again until it's undone.
     if (loaded.declined.isNotEmpty()) {
-        Text("Declined", style = MaterialTheme.typography.titleSmall,
+        Text(stringResource(R.string.friends_declined), style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         for (rider in loaded.declined) {
             DeclinedRow(
@@ -365,7 +362,7 @@ private fun FriendsSection(username: String) {
         }
     }
 
-    Text("Leaderboard", style = MaterialTheme.typography.titleSmall,
+    Text(stringResource(R.string.friends_leaderboard), style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary)
     // Gated on "no friends", not "no rows" — `own` keeps `rows` non-empty for
     // any signed-in rider regardless of whether they have friends, so
@@ -373,7 +370,7 @@ private fun FriendsSection(username: String) {
     // FriendsStateTest.rowsHoldOnlyTheOwnRowWhenThereAreNoFriends).
     if (board.rows.none { !it.isMe }) {
         Text(
-            "No friends yet. Add one — you'll see their totals, never their routes.",
+            stringResource(R.string.friends_no_friends),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -398,10 +395,9 @@ private fun FriendsSection(username: String) {
 
     removing?.let { row ->
         ConfirmDialog(
-            title = "Remove ${row.username}?",
-            text = "You'll stop seeing each other's totals and badges, and any routes " +
-                "the two of you shared are deleted for both of you.",
-            confirmLabel = "Remove",
+            title = stringResource(R.string.friends_remove_title, row.username),
+            text = stringResource(R.string.friends_remove_text),
+            confirmLabel = stringResource(R.string.friends_remove),
             onConfirm = { scope.launch { FriendsStore.remove(row.riderId) } },
             onDismiss = { removing = null },
         )
@@ -431,11 +427,23 @@ private fun RequestRow(name: String, busy: Boolean, onAccept: () -> Unit, onDecl
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 ),
-            ) { Icon(Icons.Rounded.AcceptIcon, contentDescription = "Accept $name", Modifier.size(16.dp)) }
+            ) {
+                Icon(
+                    Icons.Rounded.AcceptIcon,
+                    contentDescription = stringResource(R.string.friends_accept_named, name),
+                    Modifier.size(16.dp),
+                )
+            }
             IconButton(
                 enabled = !busy,
                 onClick = onDecline,
-            ) { Icon(Icons.Rounded.DeclineIcon, contentDescription = "Decline $name", Modifier.size(16.dp)) }
+            ) {
+                Icon(
+                    Icons.Rounded.DeclineIcon,
+                    contentDescription = stringResource(R.string.friends_decline_named, name),
+                    Modifier.size(16.dp),
+                )
+            }
         }
     }
 }
@@ -451,7 +459,7 @@ private fun DeclinedRow(name: String, busy: Boolean, onUndo: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(name, style = MaterialTheme.typography.bodyLarge)
-            TextButton(enabled = !busy, onClick = onUndo) { Text("Undo") }
+            TextButton(enabled = !busy, onClick = onUndo) { Text(stringResource(R.string.friends_undo)) }
         }
     }
 }
@@ -522,7 +530,7 @@ private fun LeaderboardRowItem(
         }
         Column(Modifier.weight(1f)) {
             Text(
-                row.username + if (row.isMe) " (you)" else "",
+                if (row.isMe) stringResource(R.string.friends_row_you, row.username) else row.username,
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = if (row.isMe) FontWeight.Bold else FontWeight.Medium,
             )
@@ -545,7 +553,7 @@ private fun LeaderboardRowItem(
             IconButton(enabled = !busy, onClick = onRemove) {
                 Icon(
                     Icons.Rounded.DeleteOutline,
-                    contentDescription = "Remove ${row.username}",
+                    contentDescription = stringResource(R.string.friends_remove_named, row.username),
                     tint = MaterialTheme.colorScheme.error,
                 )
             }
@@ -559,10 +567,10 @@ private fun LeaderboardRowItem(
 @Composable
 private fun FamilyButton(family: String, username: String, busy: Boolean, onClick: () -> Unit) {
     val label = when (family) {
-        "family" -> "Remove $username from family"
-        "outgoing" -> "Cancel family request to $username"
-        "incoming" -> "Accept $username's family request"
-        else -> "Mark $username as family"
+        "family" -> stringResource(R.string.friends_family_remove, username)
+        "outgoing" -> stringResource(R.string.friends_family_cancel, username)
+        "incoming" -> stringResource(R.string.friends_family_accept, username)
+        else -> stringResource(R.string.friends_family_mark, username)
     }
     val tint = when (family) {
         "family" -> MaterialTheme.colorScheme.primary
@@ -587,6 +595,7 @@ private suspend fun toggleFamily(row: LeaderboardRow) {
 /** "Add a friend" moved behind the top bar's + — this dialog is the whole form. */
 @Composable
 private fun AddFriendDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -595,12 +604,12 @@ private fun AddFriendDialog(onDismiss: () -> Unit) {
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add a friend") },
+        title = { Text(stringResource(R.string.friends_add_friend)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = name, onValueChange = { name = it },
-                    label = { Text("Their username") },
+                    label = { Text(stringResource(R.string.friends_their_username)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -621,17 +630,23 @@ private fun AddFriendDialog(onDismiss: () -> Unit) {
                     scope.launch {
                         try {
                             val result = withContext(Dispatchers.IO) { Friends.request(target) }
-                            status = if (result == "accepted") "You are now friends with $target"
-                                else "Request sent to $target"
+                            status = if (result == "accepted") {
+                                context.getString(R.string.friends_now_friends, target)
+                            } else {
+                                context.getString(R.string.friends_request_sent, target)
+                            }
                         } catch (e: Exception) {
-                            error = e.message ?: "Failed"
+                            error = e.message ?: context.getString(R.string.friends_failed)
                         }
                         busy = false
                     }
                 },
-            ) { if (busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp) else Text("Send") }
+            ) {
+                if (busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                else Text(stringResource(R.string.friends_send))
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.friends_close)) } },
     )
 }
 
@@ -702,11 +717,11 @@ private fun ConvoysSection() {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Convoys", style = MaterialTheme.typography.titleSmall,
+        Text(stringResource(R.string.friends_convoys), style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.primary)
         TextButton(onClick = { createOpen = true }) {
             Icon(Icons.Outlined.Add, contentDescription = null, Modifier.size(18.dp))
-            Text("New convoy")
+            Text(stringResource(R.string.friends_convoy_new))
         }
     }
 
@@ -720,8 +735,7 @@ private fun ConvoysSection() {
 
     if (state.convoys.isEmpty()) {
         Text(
-            "No convoys yet. Start one to share live location and push-to-talk " +
-                "with friends who join it — nothing is shared until they accept.",
+            stringResource(R.string.friends_convoy_empty),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -735,10 +749,12 @@ private fun ConvoysSection() {
                 liveStatus = when {
                     !Features.liveRelay -> Features.liveRelayNotice
                     liveConvoyId != convoy.id -> null
-                    !liveConnected -> liveError ?: "Connecting…"
-                    livePeers.isEmpty() -> "Connected — nobody else live yet"
-                    else -> "Connected — " +
-                        livePeers.keys.map { convoy.members.handleFor(it) }.sorted().joinToString(", ")
+                    !liveConnected -> liveError ?: stringResource(R.string.friends_convoy_connecting)
+                    livePeers.isEmpty() -> stringResource(R.string.friends_convoy_nobody_live)
+                    else -> stringResource(
+                        R.string.friends_convoy_connected_with,
+                        livePeers.keys.map { convoy.members.handleFor(it) }.sorted().joinToString(", "),
+                    )
                 },
                 liveStatusIsError = Features.liveRelay &&
                     liveConvoyId == convoy.id && !liveConnected && liveError != null,
@@ -814,17 +830,31 @@ private fun ConvoyRow(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                             ),
-                        ) { Icon(Icons.Outlined.Check, contentDescription = "Accept ${convoy.name}", Modifier.size(16.dp)) }
+                        ) {
+                            Icon(
+                                Icons.Outlined.Check,
+                                contentDescription = stringResource(R.string.friends_accept_named, convoy.name),
+                                Modifier.size(16.dp),
+                            )
+                        }
                         IconButton(enabled = !busy, onClick = onDecline) {
-                            Icon(Icons.Outlined.Close, contentDescription = "Decline ${convoy.name}", Modifier.size(16.dp))
+                            Icon(
+                                Icons.Outlined.Close,
+                                contentDescription = stringResource(R.string.friends_decline_named, convoy.name),
+                                Modifier.size(16.dp),
+                            )
                         }
                     }
                 }
             }
             Text(
-                convoy.members.joinToString(", ") {
-                    it.username + if (it.status == "invited") " (invited)" else ""
-                },
+                // map, not joinToString's transform: map is inline, so the
+                // composable stringResource can be called inside it.
+                convoy.members.map {
+                    if (it.status == "invited") {
+                        stringResource(R.string.friends_convoy_member_invited, it.username)
+                    } else it.username
+                }.joinToString(", "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -836,10 +866,17 @@ private fun ConvoyRow(
                             contentDescription = null, Modifier.size(18.dp),
                         )
                         Spacer(Modifier.width(4.dp))
-                        Text(if (live) "Stop live" else "Go live")
+                        Text(
+                            if (live) stringResource(R.string.friends_convoy_stop_live)
+                            else stringResource(R.string.friends_convoy_go_live)
+                        )
                     }
-                    OutlinedButton(enabled = !busy, onClick = onInvite) { Text("Invite") }
-                    TextButton(enabled = !busy, onClick = onLeave) { Text("Leave") }
+                    OutlinedButton(enabled = !busy, onClick = onInvite) {
+                        Text(stringResource(R.string.friends_convoy_invite))
+                    }
+                    TextButton(enabled = !busy, onClick = onLeave) {
+                        Text(stringResource(R.string.friends_convoy_leave))
+                    }
                 }
                 liveStatus?.let {
                     Text(
@@ -859,19 +896,21 @@ private fun CreateConvoyDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit
     var name by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("New convoy") },
+        title = { Text(stringResource(R.string.friends_convoy_new)) },
         text = {
             OutlinedTextField(
                 value = name, onValueChange = { name = it },
-                label = { Text("Convoy name") },
+                label = { Text(stringResource(R.string.friends_convoy_name)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
         },
         confirmButton = {
-            TextButton(enabled = name.isNotBlank(), onClick = { onCreate(name.trim()) }) { Text("Create") }
+            TextButton(enabled = name.isNotBlank(), onClick = { onCreate(name.trim()) }) {
+                Text(stringResource(R.string.friends_convoy_create))
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.friends_cancel)) } },
     )
 }
 
@@ -882,18 +921,20 @@ private fun InviteToConvoyDialog(convoy: Group, onDismiss: () -> Unit, onInvite:
     var name by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Invite to ${convoy.name}") },
+        title = { Text(stringResource(R.string.friends_convoy_invite_title, convoy.name)) },
         text = {
             OutlinedTextField(
                 value = name, onValueChange = { name = it },
-                label = { Text("Friend's username") },
+                label = { Text(stringResource(R.string.friends_friend_username)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
         },
         confirmButton = {
-            TextButton(enabled = name.isNotBlank(), onClick = { onInvite(name.trim()) }) { Text("Invite") }
+            TextButton(enabled = name.isNotBlank(), onClick = { onInvite(name.trim()) }) {
+                Text(stringResource(R.string.friends_convoy_invite))
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.friends_cancel)) } },
     )
 }
