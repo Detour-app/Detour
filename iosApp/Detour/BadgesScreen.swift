@@ -61,6 +61,7 @@ private struct BadgeRow: View {
             Image(systemName: state.earned ? "seal.fill" : "seal")
                 .font(.title2)
                 .foregroundStyle(state.earned ? .yellow : .secondary)
+                .accessibilityLabel(state.earned ? "Earned" : "Not earned")
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(state.def.title)

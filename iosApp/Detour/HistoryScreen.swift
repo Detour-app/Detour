@@ -84,6 +84,7 @@ private struct TripRow: View {
             HStack {
                 Image(systemName: icon(for: trip.mode))
                     .foregroundStyle(.secondary)
+                    .accessibilityLabel(trip.mode == .moto ? "Motorcycle" : "Car")
                 Text(formatDate(trip.startTimeMs))
                     .font(.subheadline.weight(.medium))
                 Spacer()

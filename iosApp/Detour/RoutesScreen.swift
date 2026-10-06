@@ -83,14 +83,17 @@ struct RoutesScreen: View {
                         }
                     }
                     .disabled(refreshing)
+                    .accessibilityLabel("Pull shared routes")
                 }
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     Button { importing = true } label: {
                         Image(systemName: "square.and.arrow.down")
                     }
+                    .accessibilityLabel("Import route")
                     Button { creatingNew = true } label: {
                         Image(systemName: "plus")
                     }
+                    .accessibilityLabel("New route")
                 }
             }
             .fullScreenCover(isPresented: $creatingNew) {
