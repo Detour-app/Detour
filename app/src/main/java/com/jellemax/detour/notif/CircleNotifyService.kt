@@ -272,7 +272,7 @@ class CircleNotifyService : Service() {
 
     private fun createChannel() {
         val channel = NotificationChannel(
-            CHANNEL_ID, "Circle notifications running", NotificationManager.IMPORTANCE_LOW,
+            CHANNEL_ID, getString(R.string.notif_channel_circle_service), NotificationManager.IMPORTANCE_LOW,
         )
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
@@ -288,7 +288,7 @@ class CircleNotifyService : Service() {
             // this service never reads or shares this device's own position,
             // only listens for transitions other members' devices already
             // decided from theirs.
-            .setContentText("Watching your circles for arrivals and departures")
+            .setContentText(getString(R.string.notif_circle_service_text))
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setContentIntent(contentIntent)
             .setOngoing(true)

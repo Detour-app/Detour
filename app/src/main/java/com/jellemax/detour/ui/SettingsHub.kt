@@ -159,7 +159,9 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
         // UPDATE_REPO in the environment has no update mechanism at all, and a
         // row that silently does nothing when tapped is worse than no row.
         if (UpdateChecker.isConfigured) {
-            val row = updateRowStateFrom(manualCheck, updateStatus)
+            val row = updateRowStateFrom(manualCheck, updateStatus) { id, version ->
+                if (version == null) context.getString(id) else context.getString(id, version)
+            }
             ListCard {
                 HubRow(
                     icon = Icons.Outlined.SystemUpdate,

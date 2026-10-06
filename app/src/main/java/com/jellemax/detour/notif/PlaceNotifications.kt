@@ -49,7 +49,11 @@ object PlaceNotifications {
         val manager = context.getSystemService(NotificationManager::class.java)
         if (manager.getNotificationChannel(CHANNEL_ID) == null) {
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Circle arrivals", NotificationManager.IMPORTANCE_DEFAULT),
+                NotificationChannel(
+                    CHANNEL_ID,
+                    context.getString(R.string.notif_channel_circle_arrivals),
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ),
             )
         }
     }

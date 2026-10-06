@@ -196,7 +196,7 @@ class NavScreen(
                     Log.w(TAG, "navigationStarted failed", it)
                     runCatching {
                         carContext.getCarService(AppManager::class.java).showToast(
-                            "Another app is navigating — stop it to get turn guidance here",
+                            carContext.getString(R.string.car_nav_other_app_navigating),
                             CarToast.LENGTH_LONG,
                         )
                     }
@@ -377,7 +377,7 @@ class NavScreen(
      */
     private fun pushTrip(p: NavEngine.Progress) {
         if (!navigating) return
-        val step = stepFor(p.nextInstruction) ?: return
+        val step = stepFor(p.nextInstruction, continueCue) ?: return
         val remainingSec = ((p.remainingTimeMs ?: 0L) / 1000).coerceAtLeast(0)
         val stepSec = secondsFor(p, p.distanceToTurnMeters)
         val trip = runCatching {
@@ -387,7 +387,7 @@ class NavScreen(
                     travelEstimate(p.remainingMeters, remainingSec),
                 )
                 .addStep(step, travelEstimate(p.distanceToTurnMeters, stepSec))
-            val nextStep = stepFor(p.nextNextInstruction)
+            val nextStep = stepFor(p.nextNextInstruction, continueCue)
             val nextDistance = p.distanceToNextNextMeters
             if (nextStep != null && nextDistance != null) {
                 builder.addStep(nextStep, travelEstimate(nextDistance, secondsFor(p, nextDistance)))
@@ -498,7 +498,7 @@ class NavScreen(
             builder.setNavigationInfo(RoutingInfo.Builder().setLoading(true).build())
             return builder.build()
         }
-        val step = stepFor(p.nextInstruction)
+        val step = stepFor(p.nextInstruction, continueCue)
         if (step == null) {
             // No instruction left, or a cue the host wouldn't build a Step from.
             // Leaving navigationInfo unset drops the entire turn card, so the
@@ -507,7 +507,7 @@ class NavScreen(
             builder.setNavigationInfo(RoutingInfo.Builder().setLoading(true).build())
         } else {
             val info = RoutingInfo.Builder().setCurrentStep(step, carDistance(p.distanceToTurnMeters))
-            stepFor(p.nextNextInstruction)?.let { info.setNextStep(it) }
+            stepFor(p.nextNextInstruction, continueCue)?.let { info.setNextStep(it) }
             builder.setNavigationInfo(info.build())
         }
         val remainingSec = ((p.remainingTimeMs ?: 0L) / 1000).coerceAtLeast(0)
@@ -540,14 +540,16 @@ class NavScreen(
             // The strip allows a single action with a custom title, and that
             // one is Exit; anything else added here has to be an icon.
             .addAction(
-                Action.Builder().setTitle("Exit")
+                Action.Builder().setTitle(carContext.getString(R.string.car_nav_exit))
                     .setOnClickListener { screenManager.pop() }.build(),
             )
             .build()
     }
 
+    private val continueCue: String get() = carContext.getString(R.string.car_nav_continue)
+
     private fun destinationLabel(): String =
-        destinationName?.takeIf { it.isNotBlank() } ?: "Destination"
+        destinationName?.takeIf { it.isNotBlank() } ?: carContext.getString(R.string.car_nav_destination)
 
     /** Off the drawn line far enough that [NavPolicy] would ask for a fresh
      *  route. The same bound the phone's nav bar reads
@@ -586,7 +588,7 @@ class NavScreen(
             builder.setRemainingDistanceColor(CarColor.RED)
             builder.setRemainingTimeColor(CarColor.RED)
             if (carContext.carAppApiLevel >= CarAppApiLevels.LEVEL_5) {
-                builder.setTripText(CarText.create("Off route"))
+                builder.setTripText(CarText.create(carContext.getString(R.string.car_nav_off_route)))
             }
         }
         return builder.build()
@@ -629,11 +631,12 @@ private fun displayMeters(meters: Double): Long =
     if (meters < 1000.0) (meters / 10.0).roundToLong() * 10
     else (meters / 100.0).roundToLong() * 100
 
-/** A car [Step] for [instruction]: the spoken/written cue plus a maneuver icon.
- *  Null when there is no instruction to show. */
-private fun stepFor(instruction: NavInstruction?): Step? {
+/** A car [Step] for [instruction]: the spoken/written cue plus a maneuver icon,
+ *  [fallbackCue] when the router gave no text. Null when there is no
+ *  instruction to show. */
+private fun stepFor(instruction: NavInstruction?, fallbackCue: String): Step? {
     instruction ?: return null
-    val cue = instruction.text.ifBlank { "Continue" }
+    val cue = instruction.text.ifBlank { fallbackCue }
     return runCatching {
         Step.Builder(cue)
             .apply { maneuverFor(instruction)?.let { setManeuver(it) } }
