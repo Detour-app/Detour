@@ -12,6 +12,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.drive.CameraWarner
 import com.jellemax.detour.drive.SectionAverageTracker
+import com.jellemax.detour.drive.cameraWarnerOptions
 import com.jellemax.detour.tracking.SectionAverageLog
 import com.jellemax.detour.tracking.TripTrackingService
 
@@ -67,7 +68,7 @@ internal fun MapHazardAlerts(
             // segment with no maxspeed judges you against nothing instead of
             // against the sign from wherever you set off.
             val step = CameraWarner.onFix(
-                state = warnerState,
+                state = warnerState.copy(options = cameraWarnerOptions()),
                 cameras = speedCamerasRef.value,
                 at = LatLon(fix.lat, fix.lon),
                 headingDeg = fix.bearingDeg?.toDouble(),

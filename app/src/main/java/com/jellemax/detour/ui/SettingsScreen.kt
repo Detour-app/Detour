@@ -192,7 +192,7 @@ fun SettingsSpokeScreen(spoke: Destination.SettingsSpoke, onBack: () -> Unit) {
                 VehicleSection()
                 LeanCalibrationSection()
             }
-            Destination.SettingsNavigation -> NavigationSection()
+            Destination.SettingsNavigation -> NavigationSpoke()
             Destination.SettingsFog -> FogSection(context)
             Destination.SettingsDisplaysMedia -> {
                 ExternalDisplaySection()
@@ -420,7 +420,7 @@ private fun navAppLabel(app: Settings.NavApp): String = when (app) {
 }
 
 @Composable
-private fun NavigationSection() {
+internal fun NavigationSection() {
     val avoidHighways by Settings.avoidHighways.collectAsStateWithLifecycle()
     val avoidSmallRoads by Settings.avoidSmallRoads.collectAsStateWithLifecycle()
     val preferredNavApp = goNavApp()

@@ -28,6 +28,7 @@ struct SettingsScreen: View {
             Form {
                 mapSection
                 routingSection
+                cameraSection
                 tripsSection
                 serverSection
                 privacySection
@@ -110,6 +111,30 @@ struct SettingsScreen: View {
             Text("Routing")
         } footer: {
             Text("Small roads are the narrow rural lanes a router picks because they are short, not because anyone wants to drive them.")
+        }
+    }
+
+    /// Camera-warning settings (#496); `CameraWarner` in `:shared` reads them.
+    private var cameraSection: some View {
+        Section {
+            Toggle("Warn of cameras ahead", isOn: Binding(
+                get: { model.cameraWarnings },
+                set: { Settings.shared.setCameraWarnings(value: $0) }
+            ))
+            if model.cameraWarnings {
+                Toggle("Warn even when not speeding", isOn: Binding(
+                    get: { model.cameraWarnNotSpeeding },
+                    set: { Settings.shared.setCameraWarnNotSpeeding(value: $0) }
+                ))
+                Toggle("Warn when the limit is unknown", isOn: Binding(
+                    get: { model.cameraWarnLimitUnknown },
+                    set: { Settings.shared.setCameraWarnLimitUnknown(value: $0) }
+                ))
+            }
+        } header: {
+            Text("Camera warnings")
+        } footer: {
+            Text("Spoken while navigating. A speed camera is otherwise only announced when you are over its known limit; red-light cameras always are.")
         }
     }
 
@@ -227,6 +252,9 @@ final class SettingsModel: ObservableObject {
     @Published var avoidHighways = false
     @Published var avoidSmallRoads = false
     @Published var voiceGuidance = true
+    @Published var cameraWarnings = true
+    @Published var cameraWarnNotSpeeding = false
+    @Published var cameraWarnLimitUnknown = false
     @Published var autoDetect = true
     @Published var shareFog = false
     @Published var publicGeocoderFallback = true
@@ -238,6 +266,9 @@ final class SettingsModel: ObservableObject {
     private let highways = SettingsFlows.shared.avoidHighways()
     private let smallRoads = SettingsFlows.shared.avoidSmallRoads()
     private let voice = SettingsFlows.shared.voiceGuidance()
+    private let cameras = SettingsFlows.shared.cameraWarnings()
+    private let camerasNotSpeeding = SettingsFlows.shared.cameraWarnNotSpeeding()
+    private let camerasLimitUnknown = SettingsFlows.shared.cameraWarnLimitUnknown()
     private let auto = SettingsFlows.shared.autoDetectDrives()
     private let fogSharing = SettingsFlows.shared.shareFog()
     private let fallback = SettingsFlows.shared.geocoderPublicFallback()
@@ -252,6 +283,13 @@ final class SettingsModel: ObservableObject {
         highways.watch { [weak self] in self?.avoidHighways = self?.highways.value ?? false }
         smallRoads.watch { [weak self] in self?.avoidSmallRoads = self?.smallRoads.value ?? false }
         voice.watch { [weak self] in self?.voiceGuidance = self?.voice.value ?? true }
+        cameras.watch { [weak self] in self?.cameraWarnings = self?.cameras.value ?? true }
+        camerasNotSpeeding.watch { [weak self] in
+            self?.cameraWarnNotSpeeding = self?.camerasNotSpeeding.value ?? false
+        }
+        camerasLimitUnknown.watch { [weak self] in
+            self?.cameraWarnLimitUnknown = self?.camerasLimitUnknown.value ?? false
+        }
         auto.watch { [weak self] in self?.autoDetect = self?.auto.value ?? true }
         fogSharing.watch { [weak self] in self?.shareFog = self?.fogSharing.value ?? false }
         fallback.watch { [weak self] in
@@ -260,7 +298,8 @@ final class SettingsModel: ObservableObject {
     }
 
     deinit {
-        [fog, lineColor, radius, zoom, highways, smallRoads, voice, auto, fogSharing, fallback]
+        [fog, lineColor, radius, zoom, highways, smallRoads, voice, cameras, camerasNotSpeeding,
+         camerasLimitUnknown, auto, fogSharing, fallback]
             .forEach { $0.cancel() }
     }
 }
