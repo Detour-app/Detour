@@ -309,11 +309,13 @@ private struct CircleRow: View {
                     Button(action: onAccept) {
                         Image(systemName: "checkmark.circle.fill")
                     }
+                    .accessibilityLabel("Accept \(circle.name)")
                     .disabled(busy)
                     .buttonStyle(.borderless)
                     Button(action: onDecline) {
                         Image(systemName: "xmark.circle")
                     }
+                    .accessibilityLabel("Decline \(circle.name)")
                     .disabled(busy)
                     .buttonStyle(.borderless)
                 }
@@ -340,6 +342,7 @@ private struct CircleMemberRow: View {
             Spacer()
             Image(systemName: member.sharing ? "eye" : "eye.slash")
                 .foregroundStyle(.secondary)
+                .accessibilityLabel(member.sharing ? "Sharing location" : "Not sharing location")
         }
     }
 
@@ -496,6 +499,7 @@ private struct CircleDetailView: View {
                                 } label: {
                                     Image(systemName: "trash")
                                 }
+                                .accessibilityLabel("Remove \(place.place.name)")
                                 .disabled(state.detailBusy)
                             }
                         }
@@ -508,7 +512,9 @@ private struct CircleDetailView: View {
                     Button {
                         Task { try? await CirclesStore.shared.select(groupId: circle.id) }
                     } label: { Image(systemName: "arrow.clockwise") }
+                    .accessibilityLabel("Refresh")
                     Button { shareOpen = true } label: { Image(systemName: "plus") }
+                    .accessibilityLabel("Share a place")
                 }
             }
 
@@ -638,6 +644,7 @@ private struct SharePlaceSheet: View {
                                 Spacer()
                                 if picked?.id == place.id {
                                     Image(systemName: "checkmark")
+                                        .accessibilityLabel("Selected")
                                 }
                             }
                         }

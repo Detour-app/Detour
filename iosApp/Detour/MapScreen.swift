@@ -256,6 +256,7 @@ struct MapScreen: View {
                         .frame(height: 44)
                         .frame(maxWidth: 56)
                 }
+                .accessibilityLabel("Search")
                 .buttonStyle(.bordered)
 
                 Button {
@@ -284,6 +285,8 @@ struct MapScreen: View {
                         .frame(height: 44)
                         .frame(maxWidth: 56)
                 }
+                .accessibilityLabel(spin.routeResult?.instructions.isEmpty == false
+                                    ? "Start navigation" : "Start recording")
                 .buttonStyle(.bordered)
                 .disabled(recorder.lastFix == nil)
             }
