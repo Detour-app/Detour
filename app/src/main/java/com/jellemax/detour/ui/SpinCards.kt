@@ -45,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
@@ -52,6 +53,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.R
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.LoopDuration
 import com.jellemax.detour.data.PoiKind
@@ -102,7 +104,7 @@ internal fun ResultCallout(
         }
         onRespin?.let {
             Text(
-                "Re-spin",
+                stringResource(R.string.spin_respin),
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -181,6 +183,9 @@ internal fun SpinSheet(
             // onCollapse through rememberUpdatedState rather than keying the
             // gesture detector on it directly.
             val currentOnCollapse by rememberUpdatedState(onCollapse)
+            // Read here: the semantics block below is not a composable scope.
+            val expandedDescription = stringResource(R.string.spin_expanded)
+            val collapseLabel = stringResource(R.string.spin_collapse)
             var dragged by remember { mutableFloatStateOf(0f) }
             Box(
                 Modifier
@@ -205,9 +210,9 @@ internal fun SpinSheet(
                         }
                     }
                     .semantics {
-                        contentDescription = "Spin settings, expanded"
+                        contentDescription = expandedDescription
                         customActions = listOf(
-                            CustomAccessibilityAction("Collapse") { currentOnCollapse(); true },
+                            CustomAccessibilityAction(collapseLabel) { currentOnCollapse(); true },
                         )
                     },
                 contentAlignment = Alignment.Center,
@@ -234,13 +239,13 @@ internal fun SpinSheet(
                     Icon(Icons.Rounded.Casino, contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary)
                     Text(
-                        "Spin the map",
+                        stringResource(R.string.spin_title),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                     )
                 }
                 IconButton(onClick = onCollapse) {
-                    Icon(Icons.Rounded.ExpandMore, contentDescription = "Collapse")
+                    Icon(Icons.Rounded.ExpandMore, contentDescription = collapseLabel)
                 }
             }
 
@@ -257,13 +262,14 @@ internal fun SpinSheet(
             // description: the pills are two words with no shared subject, and
             // "Switch to Moto" was the accessibility action the retired swipe
             // gesture used to expose.
-            Text("Mode", style = MaterialTheme.typography.labelLarge)
+            val modeDescription = stringResource(R.string.spin_mode_selected, mode.label)
+            Text(stringResource(R.string.spin_mode), style = MaterialTheme.typography.labelLarge)
             ChoiceRow(
                 options = TravelMode.entries.map { it.label },
                 selectedIndex = TravelMode.entries.indexOf(mode),
                 onSelect = { onSelectMode(TravelMode.entries[it]) },
                 modifier = Modifier.semantics {
-                    contentDescription = "Travel mode, ${mode.label} selected"
+                    contentDescription = modeDescription
                 },
             )
 
@@ -289,7 +295,7 @@ internal fun SpinSheet(
                             Icon(Icons.Rounded.BlurOn, contentDescription = null,
                                 modifier = Modifier.size(15.dp),
                                 tint = MaterialTheme.colorScheme.primary)
-                            Text("Unexplored", style = MaterialTheme.typography.labelLarge)
+                            Text(stringResource(R.string.spin_unexplored), style = MaterialTheme.typography.labelLarge)
                         }
                     }
                 }
@@ -328,13 +334,14 @@ internal fun SpinSheet(
             val shownMinutes = draggedMinutes ?: loopMinutes
             val timed = mode.roundTrip && loopByTime
             if (mode.roundTrip) {
+                val sizeDescription =
+                    stringResource(if (loopByTime) R.string.spin_size_by_time else R.string.spin_size_by_distance)
                 ChoiceRow(
-                    options = listOf("Distance", "Time"),
+                    options = listOf(stringResource(R.string.spin_distance), stringResource(R.string.spin_time)),
                     selectedIndex = if (loopByTime) 1 else 0,
                     onSelect = { Settings.setLoopByTime(it == 1) },
                     modifier = Modifier.semantics {
-                        contentDescription =
-                            "Size the loop by ${if (loopByTime) "time" else "distance"}"
+                        contentDescription = sizeDescription
                     },
                 )
             }
@@ -344,9 +351,9 @@ internal fun SpinSheet(
             ) {
                 Text(
                     when {
-                        timed -> "Trip time"
-                        mode.roundTrip -> "Trip length"
-                        else -> "Radius"
+                        timed -> stringResource(R.string.spin_trip_time)
+                        mode.roundTrip -> stringResource(R.string.spin_trip_length)
+                        else -> stringResource(R.string.spin_radius)
                     },
                     style = MaterialTheme.typography.labelLarge,
                 )
@@ -381,14 +388,14 @@ internal fun SpinSheet(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text("Min distance", style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(R.string.spin_min_distance), style = MaterialTheme.typography.labelLarge)
                     Text(
-                        // "Off" is a state label, not a number - kept as a literal.
+                        // "Off" is a state label, not a number.
                         // The km case reuses radiusText's own mode.maxKm cutoff via
                         // spinStateFrom rather than re-deriving it here, so a
                         // min-distance reading is always formatted exactly the
                         // same way a radius reading is.
-                        if (minRadiusKm <= 0f) "Off"
+                        if (minRadiusKm <= 0f) stringResource(R.string.spin_off)
                         else spinStateFrom(
                             mode, minRadiusKm, emptyList(),
                             Settings.decimalSeparatorChar(),
@@ -404,9 +411,9 @@ internal fun SpinSheet(
                 )
             }
 
-            Text("Direction", style = MaterialTheme.typography.labelLarge)
+            Text(stringResource(R.string.spin_direction), style = MaterialTheme.typography.labelLarge)
             ChoiceRow(
-                options = listOf("Any") + DIRECTION_NAMES,
+                options = listOf(stringResource(R.string.spin_direction_any)) + DIRECTION_NAMES,
                 selectedIndex = directionDeg?.let { (it / 45f).toInt() + 1 } ?: 0,
                 onSelect = { i -> onDirectionChange(if (i == 0) null else (i - 1) * 45f) },
             )
@@ -430,7 +437,7 @@ internal fun SpinSheet(
             }
             if (!spinning && (destinationName != null || resultDistance != null)) {
                 ResultCallout(
-                    title = destinationName ?: "Loop found",
+                    title = destinationName ?: stringResource(R.string.spin_loop_found),
                     subtitle = resultDistance,
                     onRespin = onSpin,
                 )
@@ -449,7 +456,7 @@ internal fun SpinSheet(
                 }
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    if (spinning) "Cancel" else "Spin",
+                    if (spinning) stringResource(R.string.spin_cancel) else stringResource(R.string.spin_spin),
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                 )

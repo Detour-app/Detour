@@ -29,8 +29,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.jellemax.detour.R
 import com.jellemax.detour.data.GroupMember
 import com.jellemax.detour.data.RiderId
 import com.jellemax.detour.data.RouteCandidate
@@ -72,13 +75,15 @@ internal fun CandidatesCard(
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
-                if (convoyVotes == null) "Pick a destination" else "Vote on a destination",
+                stringResource(
+                    if (convoyVotes == null) R.string.candidates_pick_title else R.string.candidates_vote_title,
+                ),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                if (convoyVotes == null) "All three are on the map — tap a pin or a row."
-                else "Everyone sees the same three — tap a pin or a row to vote.",
+                if (convoyVotes == null) stringResource(R.string.candidates_pick_hint)
+                else stringResource(R.string.candidates_vote_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -126,9 +131,10 @@ internal fun CandidatesCard(
                             val voters = convoyVotes.filterValues { it == index }.keys
                                 .map { members.handleFor(it) }.sorted()
                             Text(
-                                if (voters.isEmpty()) "No votes yet"
-                                else "${voters.size} vote${if (voters.size == 1) "" else "s"} · " +
-                                    voters.joinToString(),
+                                if (voters.isEmpty()) stringResource(R.string.candidates_no_votes)
+                                else pluralStringResource(
+                                    R.plurals.candidates_votes, voters.size, voters.size, voters.joinToString(),
+                                ),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -152,7 +158,7 @@ internal fun CandidatesCard(
                 FilledTonalButton(onClick = onShare, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Rounded.Groups, contentDescription = null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Share with convoy")
+                    Text(stringResource(R.string.candidates_share))
                 }
             }
             if (onGoWithLead != null) {
@@ -160,12 +166,12 @@ internal fun CandidatesCard(
                 // current leader immediately, without waiting for a vote
                 // from every currently-connected peer.
                 Button(onClick = onGoWithLead, modifier = Modifier.fillMaxWidth()) {
-                    Text("Go with the lead")
+                    Text(stringResource(R.string.candidates_go_with_lead))
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.candidates_cancel))
                 }
                 // Rerolling would only change this device's own list, not the
                 // sheet everyone else is voting on - hide it once shared.
@@ -173,7 +179,7 @@ internal fun CandidatesCard(
                     Button(onClick = onReroll, modifier = Modifier.weight(1f)) {
                         Icon(Icons.Rounded.Casino, contentDescription = null, Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Reroll")
+                        Text(stringResource(R.string.candidates_reroll))
                     }
                 }
             }
