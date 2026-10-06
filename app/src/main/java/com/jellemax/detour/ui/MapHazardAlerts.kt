@@ -68,13 +68,12 @@ internal fun MapHazardAlerts(
             // segment with no maxspeed judges you against nothing instead of
             // against the sign from wherever you set off.
             val step = CameraWarner.onFix(
-                state = warnerState,
+                state = warnerState.copy(options = cameraWarnerOptions()),
                 cameras = speedCamerasRef.value,
                 at = LatLon(fix.lat, fix.lon),
                 headingDeg = fix.bearingDeg?.toDouble(),
                 speedKmh = fix.speedMps * 3.6,
                 limitKmh = navProgressRef.value?.speedLimitKmh ?: ambientLimitRef.value,
-                options = cameraWarnerOptions(),
             )
             warnerState = step.state
             retained.warnerState = warnerState

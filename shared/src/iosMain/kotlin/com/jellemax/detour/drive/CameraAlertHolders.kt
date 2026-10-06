@@ -31,7 +31,9 @@ class CameraWarnerHolder {
         speedKmh: Double,
         limitKmh: Double?,
     ): CameraWarning? {
-        val step = CameraWarner.onFix(state, cameras, at, headingDeg, speedKmh, limitKmh, cameraWarnerOptions())
+        val step = CameraWarner.onFix(
+            state.copy(options = cameraWarnerOptions()), cameras, at, headingDeg, speedKmh, limitKmh,
+        )
         state = step.state
         val outcome = step.outcome
         return if (outcome is CameraWarner.Outcome.Warn) CameraWarning(outcome.at, outcome.text) else null

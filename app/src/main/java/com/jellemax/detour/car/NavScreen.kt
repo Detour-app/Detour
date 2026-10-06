@@ -462,7 +462,7 @@ class NavScreen(
             }
         }
         val step = CameraWarner.onFix(
-            state = warnerState,
+            state = warnerState.copy(options = cameraWarnerOptions()),
             cameras = speedCameras,
             at = pos,
             headingDeg = headingDeg,
@@ -471,7 +471,6 @@ class NavScreen(
             // speed-limit tracker of its own, so an untagged route segment judges
             // you against nothing. The phone falls back to its ambient sign.
             limitKmh = progress?.speedLimitKmh,
-            options = cameraWarnerOptions(),
         )
         warnerState = step.state
         when (val outcome = step.outcome) {

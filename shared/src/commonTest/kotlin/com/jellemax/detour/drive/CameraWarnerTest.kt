@@ -63,8 +63,8 @@ class CameraWarnerTest {
         limitKmh: Double? = 120.0,
         options: CameraWarner.Options = CameraWarner.Options(),
     ) = CameraWarner.onFix(
-        state = state, cameras = cameras, at = here,
-        headingDeg = headingDeg, speedKmh = speedKmh, limitKmh = limitKmh, options = options,
+        state = state.copy(options = options), cameras = cameras, at = here,
+        headingDeg = headingDeg, speedKmh = speedKmh, limitKmh = limitKmh,
     )
 
     // ---- the rider's settings (#496) ---------------------------------------
