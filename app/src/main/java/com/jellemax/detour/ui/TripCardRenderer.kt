@@ -3,6 +3,7 @@ package com.jellemax.detour.ui
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.text.Html
+import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -62,11 +63,13 @@ import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.R
 import com.jellemax.detour.data.CardData
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RouteColors
@@ -93,10 +96,10 @@ private const val CARD_HEIGHT_PX = 1350
 /** The card's alternate visual layouts. [label] is what the picker in
  *  [TripCardShareDialog] shows — kept on the enum rather than derived from
  *  `.name` so it can read as a proper word without a `.lowercase()` dance. */
-enum class CardLayout(val label: String) {
-    STANDARD("Standard"),
-    MINIMAL("Minimal"),
-    POSTER("Poster"),
+enum class CardLayout(@StringRes val label: Int) {
+    STANDARD(R.string.card_layout_standard),
+    MINIMAL(R.string.card_layout_minimal),
+    POSTER(R.string.card_layout_poster),
 }
 
 data class TripCardMapSnapshot(val image: ImageBitmap, val raw: MapSnapshot)
@@ -300,33 +303,36 @@ fun TripCardShareDialog(trip: Trip, points: List<LatLon>?, onDismiss: () -> Unit
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Share trip card") },
+        title = { Text(stringResource(R.string.card_share_title)) },
         text = {
             // verticalScroll: preview + two pickers + the trim checkbox runs
             // taller than a small phone's dialog height allows unclipped.
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 when {
-                    points == null -> Text("Loading route…")
+                    points == null -> Text(stringResource(R.string.card_loading_route))
                     error != null -> Text(error!!, color = MaterialTheme.colorScheme.error)
                     else -> {
                         TripCardPreview(rendered)
                         Spacer(Modifier.height(16.dp))
                         ChoiceRow(
-                            options = CardLayout.entries.map { it.label },
+                            options = CardLayout.entries.map { stringResource(it.label) },
                             selectedIndex = CardLayout.entries.indexOf(layout),
                             onSelect = { layout = CardLayout.entries[it] },
                         )
                         Spacer(Modifier.height(8.dp))
                         ChoiceRow(
-                            options = listOf("Light", "Dark"),
+                            options = listOf(
+                                stringResource(R.string.card_theme_light),
+                                stringResource(R.string.card_theme_dark),
+                            ),
                             selectedIndex = if (dark) 1 else 0,
                             onSelect = { darkOverride = it == 1 },
                         )
                         Spacer(Modifier.height(8.dp))
-                        if (!fullRoute) Text("Route trimmed near start/end for privacy.")
+                        if (!fullRoute) Text(stringResource(R.string.card_trimmed))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(checked = fullRoute, onCheckedChange = { fullRoute = it })
-                            Text("Include full route")
+                            Text(stringResource(R.string.card_include_full_route))
                         }
                     }
                 }
@@ -343,23 +349,23 @@ fun TripCardShareDialog(trip: Trip, points: List<LatLon>?, onDismiss: () -> Unit
                                 TripCardFile.writeForShare(context, trip, bmp.asAndroidBitmap())
                             }
                             context.startActivity(Intent.createChooser(
-                                TripCardFile.shareIntent(uri), "Share trip card"))
+                                TripCardFile.shareIntent(uri), context.getString(R.string.card_share_title)))
                             onDismiss()
                         } catch (e: ActivityNotFoundException) {
-                            error = "No app to receive an image"
+                            error = context.getString(R.string.card_no_image_app)
                         } catch (e: IOException) {
                             // A write to our own cache, not a picked file: the
                             // likely cause is a full disk, and e.message carries the path.
-                            error = CARD_NOT_SAVED
+                            error = context.getString(R.string.card_not_saved)
                         } catch (e: IllegalArgumentException) {
                             // FileProvider.getUriForFile refusing the path.
-                            error = CARD_NOT_SAVED
+                            error = context.getString(R.string.card_not_saved)
                         }
                     }
                 },
-            ) { Text("Share") }
+            ) { Text(stringResource(R.string.card_share)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.card_cancel)) } },
     )
 }
 
@@ -374,7 +380,7 @@ private fun TripCardPreview(rendered: Result<ImageBitmap>?) {
     if (bitmap != null) {
         Image(
             bitmap = bitmap,
-            contentDescription = "Trip card preview",
+            contentDescription = stringResource(R.string.card_preview),
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(CARD_WIDTH_PX.toFloat() / CARD_HEIGHT_PX)
@@ -382,12 +388,11 @@ private fun TripCardPreview(rendered: Result<ImageBitmap>?) {
         )
     } else if (rendered?.isFailure == true) {
         Text(
-            "The map for this card could not be drawn — check your connection, " +
-                "then pick a different layout or theme.",
+            stringResource(R.string.card_map_failed),
             color = MaterialTheme.colorScheme.error,
         )
     } else {
-        Text("Rendering preview…")
+        Text(stringResource(R.string.card_rendering))
     }
 }
 
@@ -474,9 +479,21 @@ private fun StandardCardContent(
         // Hero row: distance / duration / top speed, big and bold — the
         // three numbers someone actually screenshots a ride for.
         Row(Modifier.fillMaxWidth()) {
-            heroStat("DISTANCE", formatDistanceKm(trip.distanceMeters), mutedColor, Modifier.weight(1f))
-            heroStat("DURATION", formatDuration(trip.durationMs), mutedColor, Modifier.weight(1f))
-            heroStat("TOP SPEED", formatSpeedKmh(trip.topSpeedMps), mutedColor, Modifier.weight(1f))
+            heroStat(
+                stringResource(R.string.card_distance),
+                formatDistanceKm(trip.distanceMeters),
+                mutedColor, Modifier.weight(1f),
+            )
+            heroStat(
+                stringResource(R.string.card_duration),
+                formatDuration(trip.durationMs),
+                mutedColor, Modifier.weight(1f),
+            )
+            heroStat(
+                stringResource(R.string.card_top_speed),
+                formatSpeedKmh(trip.topSpeedMps),
+                mutedColor, Modifier.weight(1f),
+            )
         }
         SecondaryStatsRow(cardData, textColor, mutedColor, Modifier.padding(top = 24.dp))
         CardFooter(routeColor, textColor, mapSnapshot?.let { plainAttribution(it.raw) }, Modifier.padding(top = 28.dp))
@@ -520,9 +537,21 @@ private fun MinimalCardContent(
                 .padding(horizontal = 32.dp, vertical = 28.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            heroStat("DISTANCE", formatDistanceKm(trip.distanceMeters), mutedColor, fontSize = 72.sp)
-            heroStat("DURATION", formatDuration(trip.durationMs), mutedColor, fontSize = 72.sp)
-            heroStat("TOP SPEED", formatSpeedKmh(trip.topSpeedMps), mutedColor, fontSize = 72.sp)
+            heroStat(
+                stringResource(R.string.card_distance),
+                formatDistanceKm(trip.distanceMeters),
+                mutedColor, fontSize = 72.sp,
+            )
+            heroStat(
+                stringResource(R.string.card_duration),
+                formatDuration(trip.durationMs),
+                mutedColor, fontSize = 72.sp,
+            )
+            heroStat(
+                stringResource(R.string.card_top_speed),
+                formatSpeedKmh(trip.topSpeedMps),
+                mutedColor, fontSize = 72.sp,
+            )
             SecondaryStatsRow(cardData, textColor, mutedColor, Modifier.padding(top = 8.dp))
         }
         Spacer(Modifier.weight(1f))
@@ -717,20 +746,20 @@ private fun TrimmedCaption(mutedColor: Color, modifier: Modifier = Modifier) {
     // Design spec: "a small caption under the route" — this is what
     // actually lands in the exported PNG, distinct from the dialog's own
     // (pre-share) caption shown above the picker/checkbox.
-    Text("Route trimmed near start/end for privacy.", fontSize = 20.sp, color = mutedColor, modifier = modifier)
+    Text(stringResource(R.string.card_trimmed), fontSize = 20.sp, color = mutedColor, modifier = modifier)
 }
 
 @Composable
 private fun SecondaryStatsRow(cardData: CardData, textColor: Color, mutedColor: Color, modifier: Modifier = Modifier) {
     val secondaryStats = buildList {
-        add("AVG SPEED" to formatSpeedKmh(cardData.trip.avgSpeedMps))
-        cardData.peakLeanDeg?.let { add("PEAK LEAN" to formatLeanAngle(it)) }
-        cardData.peakGForce?.let { add("PEAK G" to formatGForce(it)) }
+        add(R.string.card_avg_speed to formatSpeedKmh(cardData.trip.avgSpeedMps))
+        cardData.peakLeanDeg?.let { add(R.string.card_peak_lean to formatLeanAngle(it)) }
+        cardData.peakGForce?.let { add(R.string.card_peak_g to formatGForce(it)) }
     }
     Column(modifier) {
         Box(Modifier.fillMaxWidth().padding(bottom = 24.dp).height(1.dp).background(textColor.copy(alpha = 0.12f)))
         Row(horizontalArrangement = Arrangement.spacedBy(40.dp)) {
-            secondaryStats.forEach { (label, value) -> secondaryStat(label, value, mutedColor) }
+            secondaryStats.forEach { (label, value) -> secondaryStat(stringResource(label), value, mutedColor) }
         }
     }
 }
@@ -774,6 +803,3 @@ private fun secondaryStat(label: String, value: String, mutedColor: Color) {
         Text(value, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
     }
 }
-
-private const val CARD_NOT_SAVED =
-    "Card export failed: the image could not be saved. Free up some storage and try again."
