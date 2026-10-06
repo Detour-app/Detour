@@ -35,6 +35,19 @@ map $http_x_forwarded_proto $forwarded_proto {
     ""      $scheme;
 }
 
+# Per-rider rate limits on the two engines nginx exposes without auth. The API
+# throttles itself (UseRateLimiter); GraphHopper and Photon don't, so without
+# these anyone who learns the hostname has a free routing and geocoding
+# service, and /route is CPU-heavy. Keyed on the rider's address, which
+# set_real_ip_from below rewrites before these zones read it.
+#
+# Sized so a rider never sees them: a spin fires a handful of /route calls at
+# once (three rolls in parallel), search fires at most one Photon query per
+# 300 ms debounce. The burst absorbs the spin; the rate caps a scraper.
+# 10m of shared memory holds ~160k addresses.
+limit_req_zone $binary_remote_addr zone=route_per_ip:10m rate=2r/s;
+limit_req_zone $binary_remote_addr zone=search_per_ip:10m rate=5r/s;
+
 server {
     # default_server: the image ships its own default.conf, also on port 80,
     # and it sorts first. Without this every request whose Host isn't
@@ -53,8 +66,13 @@ server {
     set_real_ip_from ${PROXY_REAL_IP_FROM};
     real_ip_header X-Forwarded-For;
 
+    # 429, not nginx's default 503: a throttled rider is not an outage, and
+    # anything watching the logs for 5xx shouldn't page on one.
+    limit_req_status 429;
+
     # Photon: exact "/api/" only (its query-string search endpoint).
     location = /api/ {
+        limit_req zone=search_per_ip burst=20 nodelay;
         proxy_pass http://photon:2322/api/;
         # Off-box Photon: comment the line above, uncomment the next, and set
         # PHOTON_UPSTREAM in docker/prod/.env (e.g. http://192.168.x.x:2322).
@@ -83,6 +101,7 @@ server {
     # GraphHopper. RoutingClient only ever calls /route (GET and POST) — no
     # /isochrone, /nearest or /health from the app, so nothing else is routed.
     location /route {
+        limit_req zone=route_per_ip burst=20 nodelay;
         proxy_pass http://graphhopper:8989/route;
         # Off-box GraphHopper: comment the line above, uncomment the next, and
         # set GRAPHHOPPER_UPSTREAM in docker/prod/.env (e.g. http://192.168.x.x:8989).
