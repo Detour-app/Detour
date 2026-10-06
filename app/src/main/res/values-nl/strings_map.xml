@@ -53,7 +53,7 @@
     <string name="spin_min_distance">Min. afstand</string>
     <string name="spin_off">Uit</string>
     <string name="spin_direction">Richting</string>
-    <string name="spin_direction_any">Alle</string>
+    <string name="spin_direction_any">Om het even</string>
     <string name="spin_loop_found">Lus gevonden</string>
     <string name="spin_cancel">Annuleren</string>
     <string name="spin_spin">Spin</string>
@@ -69,7 +69,7 @@
         <item quantity="other">%1$d stemmen · %2$s</item>
     </plurals>
     <string name="candidates_share">Delen met konvooi</string>
-    <string name="candidates_go_with_lead">Kies de koploper</string>
+    <string name="candidates_go_with_lead">Volg de keuze van de koploper</string>
     <string name="candidates_cancel">Annuleren</string>
     <string name="candidates_reroll">Opnieuw</string>
 
