@@ -63,6 +63,8 @@ struct NavScreen: View {
             Image(systemName: maneuverIcon(model.progress?.nextInstruction))
                 .font(.system(size: 34, weight: .semibold))
                 .frame(width: 48)
+                // The instruction text beside it already says the turn.
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.progress.map { displayDistance($0.distanceToTurnMeters) } ?? "—")
@@ -103,6 +105,7 @@ struct NavScreen: View {
             Button(role: .destructive, action: onExit) {
                 Image(systemName: "xmark").frame(width: 44, height: 44)
             }
+            .accessibilityLabel("End navigation")
             .buttonStyle(.bordered)
         }
         .padding()

@@ -95,6 +95,8 @@ struct ConvoyBar: View {
                     .background(Circle().fill(transmitting
                                               ? Color.accentColor
                                               : Color.secondary.opacity(0.15)))
+                    .accessibilityLabel(micDenied ? "Push to talk, microphone denied" : "Push to talk")
+                    .accessibilityAddTraits(.isButton)
                     .gesture(
                         DragGesture(minimumDistance: 0)
                             .onChanged { _ in startTalking() }
