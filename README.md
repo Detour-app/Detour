@@ -126,7 +126,7 @@ Third-party, contacted by the **app** rather than by your server:
 | --- | --- | --- |
 | **OpenFreeMap** | Vector basemap tiles | Sees your current map viewport |
 | **Overpass API** | The OSM data behind spins, POIs, speed cameras and coverage boundaries | Sees the spin centre and radius you choose. Two public endpoints are used in rotation |
-| **photon.komoot.io** | Search, when you have no Photon of your own or yours is down | Sees your query and an approximate location. Turn the fallback off to keep search on your own hardware |
+| **photon.komoot.io** | Search and place naming, when you have no Photon of your own or yours is down | Sees your query and an approximate location, and the exact coordinates of spin destinations and tapped route stops it names. Turn the fallback off to keep search on your own hardware |
 | **FCM / APNs** | The content-free circle wake-ping | Your server talks to these, not the app. Both optional; without them circles still deliver over the socket and the catch-up sweep. See [docs/PUSH.md](docs/PUSH.md) |
 
 ### How the pieces connect

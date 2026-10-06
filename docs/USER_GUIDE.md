@@ -581,7 +581,9 @@ your configured Detour server sees the spin center and radius you choose,
 OpenFreeMap's tiles see your current map viewport, and address/place search sends your query (and an
 approximate location, to rank nearby results first) to Photon — your own
 instance if you've set one in Settings, otherwise the public
-`photon.komoot.io`. If you self-host Photon, search falls back to the public
+`photon.komoot.io`. To give a spin destination or a stop you tapped onto a
+route a name instead of coordinates, Detour also sends that point's exact
+coordinates to the same Photon. If you self-host Photon, search and naming fall back to the public
 instance only when yours is unreachable, and only if you leave "Fall back to
 public search" turned on; turn it off to keep search on your own hardware even
 when your instance is down.

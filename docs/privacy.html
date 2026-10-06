@@ -98,12 +98,14 @@ is listed below is sent:</p>
       endpoints to find roads, points of interest, speed cameras and
       municipality boundaries in that area. No routing server is configured
       by default, so these requests only happen once you set one up.</li>
-  <li><strong>Address and place search</strong> — your search text and an
-      approximate location (used to rank nearby results first) are sent to a
-      <a href="https://photon.komoot.io/">Photon</a> geocoder: your own
-      instance if you configure one in Settings, otherwise the public
-      <code>photon.komoot.io</code>. The public fallback can be switched off in
-      Settings &rarr; Server.</li>
+  <li><strong>Address and place search, and place names</strong> — your
+      search text and an approximate location (used to rank nearby results
+      first) are sent to a <a href="https://photon.komoot.io/">Photon</a>
+      geocoder: your own instance if you configure one in Settings, otherwise
+      the public <code>photon.komoot.io</code>. To name a place that has only
+      coordinates, the exact coordinates of each spin destination and of each
+      stop you tap onto a route are sent to the same geocoder. The public
+      fallback can be switched off in Settings &rarr; Server.</li>
   <li><strong>Routing</strong> — if you configure a GraphHopper routing server,
       your start and destination coordinates are sent to it. No routing server
       is configured by default.</li>

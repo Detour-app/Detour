@@ -79,7 +79,8 @@ object Geocoder {
     /**
      * The custom/baked instance, then the public one if it is down — but only
      * when the user has allowed it (Settings): that fallback sends the query
-     * and an approximate location to a third party, which someone who bothered
+     * and an approximate location (or, for [reverse], the exact point being
+     * named) to a third party, which someone who bothered
      * to self-host precisely wants to avoid. When the primary already is
      * public there is nothing to add either way.
      */

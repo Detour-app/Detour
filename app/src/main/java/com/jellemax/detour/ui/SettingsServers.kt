@@ -497,8 +497,9 @@ private fun ServerAdvanced(
                 Text("Fall back to public search", style = MaterialTheme.typography.bodyLarge)
                 Text(
                     "If your search server is unreachable, retry via the public " +
-                        "Photon instance (komoot.io) — sends the query and your " +
-                        "approximate location off your own hardware.",
+                        "Photon instance (komoot.io) — sends the query, your " +
+                        "approximate location and the coordinates of places " +
+                        "being named off your own hardware.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
