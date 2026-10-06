@@ -154,6 +154,22 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
         searching = false
     }
 
+    // Names for stops that have only coordinates — tapped onto the map, or
+    // inserted by RouteFill (#503). Display-only: a saved route keeps the
+    // blank name it had, so the last stop's name vs route name fallback in
+    // SpinResultHolder reads the same as before. A key holding null was
+    // looked up and found nothing (offline, say); it shows coordinates and is
+    // not retried while the editor stays open. A lookup cancelled by the next
+    // stops change was never recorded, so the restarted effect picks it up.
+    var lookedUpNames by remember { mutableStateOf(emptyMap<LatLon, String?>()) }
+    LaunchedEffect(stops) {
+        for (stop in stops) {
+            if (stop.name.isNotBlank() || stop.at in lookedUpNames) continue
+            val found = withContext(Dispatchers.IO) { Geocoder.reverse(stop.at) }
+            lookedUpNames = lookedUpNames + (stop.at to found)
+        }
+    }
+
     val serverConfig = remember { RoutingServer.load() }
     val avoidHighways by Settings.avoidHighways.collectAsStateWithLifecycle()
     val avoidSmallRoads by Settings.avoidSmallRoads.collectAsStateWithLifecycle()
@@ -435,7 +451,9 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
                             // comma-separated, so a comma decimal would read
                             // "50,85137, 5,69097". Shared with the Saved places
                             // subtitle so the two cannot drift.
-                            stop.name.ifBlank { formatCoordinatePair(stop.at.lat, stop.at.lon) },
+                            stop.name.ifBlank {
+                                lookedUpNames[stop.at] ?: formatCoordinatePair(stop.at.lat, stop.at.lon)
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.weight(1f),
                         )

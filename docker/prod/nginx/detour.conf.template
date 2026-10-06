@@ -4,10 +4,11 @@
 #
 # The API and Photon both answer under /api — that's the whole reason a
 # split deployment exists at all (docs/DEVELOPERS.md says so explicitly). What
-# makes one hostname possible here is that Photon answers *only* the exact
-# path `/api/` (query params carry the search), while every API route is
+# makes one hostname possible here is that Photon search answers *only* the
+# exact path `/api/` (query params carry the search), while every API route is
 # `/api/<something>`. nginx's `=` (exact) location always wins over a prefix
-# one regardless of file order, so the two can't collide.
+# one regardless of file order, so the two can't collide. Photon's reverse
+# lookup is `/reverse`, outside /api altogether.
 #
 # GraphHopper and Photon are in this compose project on the shared networks
 # (docker-compose.routing.yml / docker-compose.search.yml), so they're
@@ -77,6 +78,18 @@ server {
         # Off-box Photon: comment the line above, uncomment the next, and set
         # PHOTON_UPSTREAM in docker/prod/.env (e.g. http://192.168.x.x:2322).
         # proxy_pass ${PHOTON_UPSTREAM}/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
+    }
+
+    # Photon's reverse lookup, which names spin picks and tapped route stops.
+    # Outside /api, so it collides with nothing. Without it the app falls back
+    # to showing coordinates.
+    location = /reverse {
+        proxy_pass http://photon:2322/reverse;
+        # Off-box Photon: same swap as above.
+        # proxy_pass ${PHOTON_UPSTREAM}/reverse;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $forwarded_proto;
