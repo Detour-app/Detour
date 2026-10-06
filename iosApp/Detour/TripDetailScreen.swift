@@ -54,7 +54,9 @@ struct TripDetailScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ShareLink(item: gpxURL()) { Image(systemName: "square.and.arrow.up") }
+                .accessibilityLabel("Share GPX")
             Button { cardDialogOpen = true } label: { Image(systemName: "photo.badge.arrow.down") }
+                .accessibilityLabel("Share trip card")
         }
         .confirmationDialog("Share trip card", isPresented: $cardDialogOpen, titleVisibility: .visible) {
             Button("Share trimmed (recommended)") { shareTripCard(full: false) }
