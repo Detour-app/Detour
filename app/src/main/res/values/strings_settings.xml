@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings: the hub, every spoke, OBD2 pairing, diagnostics and licences
+     (#512, part of #418). A file of its own rather than strings.xml so the
+     #418 children can land in any order without colliding in one file. -->
+<resources>
+    <!-- Hub -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_section_riding">RIDING</string>
+    <string name="settings_section_map">MAP</string>
+    <string name="settings_section_devices">DEVICES</string>
+    <string name="settings_section_account">ACCOUNT</string>
+    <string name="settings_section_about">ABOUT</string>
+    <string name="settings_obd2_subtitle">Connect a vehicle\'s OBD2 adapter for accurate speed</string>
+    <string name="settings_licences_subtitle">Open-data attribution for cameras, roads and the basemap</string>
+    <string name="settings_version" translatable="false">Detour %1$s (%2$d)</string>
+    <string name="settings_whats_new">What\'s new</string>
+    <string name="settings_collapse">Collapse</string>
+    <string name="settings_expand">Expand</string>
+
+    <!-- Spoke titles -->
+    <string name="settings_spoke_appearance_map">Appearance &amp; map</string>
+    <string name="settings_spoke_tracking_vehicles">Tracking &amp; vehicles</string>
+    <string name="settings_spoke_navigation">Navigation</string>
+    <string name="settings_spoke_fog">Fog of war</string>
+    <string name="settings_spoke_displays_media">Displays &amp; media</string>
+    <string name="settings_spoke_servers_sync">Servers &amp; sync</string>
+    <string name="settings_spoke_obd2">OBD2 adapter</string>
+    <string name="settings_spoke_licences">Licences</string>
+
+    <!-- Shared buttons -->
+    <string name="settings_reset">Reset</string>
+    <string name="settings_remove">Remove</string>
+    <string name="settings_save">Save</string>
+    <string name="settings_add">Add</string>
+    <string name="settings_close">Close</string>
+    <string name="settings_cancel">Cancel</string>
+    <string name="settings_allow_bluetooth">Allow Bluetooth</string>
+
+    <!-- Appearance -->
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_theme_auto">Auto</string>
+    <string name="settings_theme_auto_hint">Light by day, dark by night — follows sunrise and sunset at your location.</string>
+    <string name="settings_decimal_separator">Decimal separator</string>
+    <string name="settings_decimal_system">System</string>
+    <string name="settings_decimal_hint">How readouts with a decimal — distances, g, fuel economy, mount offset, map zoom — are written. Speeds round to whole km/h, so they never show one either way. Map coordinates always use a point, so a latitude/longitude pair stays readable.</string>
+
+    <!-- Tracking -->
+    <string name="settings_tracking">Tracking</string>
+    <string name="settings_auto_detect">Auto-detect drives</string>
+    <string name="settings_auto_detect_hint">Start a trip automatically when driving is detected</string>
+    <string name="settings_dormancy_activity">Detour\'s tracker stays on, with its notification showing, even when you\'re parked. It needs physical activity access to tell that you\'ve stopped, so it can switch itself off until you ride again.</string>
+    <string name="settings_dormancy_background">Detour\'s tracker stays on, with its notification showing, even when you\'re parked. Set location access to \"Allow all the time\" and it can switch itself off while parked, then wake when you ride away.</string>
+    <string name="settings_allow_activity">Allow physical activity</string>
+    <string name="settings_change_location">Change location access</string>
+
+    <!-- Navigation -->
+    <string name="settings_nav_ask">Ask each time</string>
+    <string name="settings_nav_in_app">Navigate in app</string>
+    <string name="settings_nav_other">Other app</string>
+    <string name="settings_voice">Spoken guidance</string>
+    <string name="settings_voice_hint">Turn instructions read aloud while navigating, here and on the car screen. Mutable mid-drive from the speaker button there.</string>
+    <string name="settings_remembered_nav">Remembered nav app</string>
+    <string name="settings_remembered_nav_hint">Go currently launches: %1$s. Long-press Go to change it.</string>
+    <string name="settings_avoid_highways">Avoid highways</string>
+    <string name="settings_avoid_highways_hint">In-app navigation skips motorways (car mode; moto never uses them)</string>
+    <string name="settings_avoid_small_roads">Avoid small roads</string>
+    <string name="settings_avoid_small_roads_hint">Prefer real roads over narrow rural lanes, service roads and unpaved tracks</string>
+
+    <!-- Map -->
+    <string name="settings_marker">Your marker</string>
+    <string name="settings_marker_hint">Drawn where you are, on the phone map and on the car screen. Vehicles turn to face the way you\'re heading.</string>
+    <string name="settings_route_line">Route line</string>
+    <string name="settings_route_line_hint">The line drawn to your destination, on the phone map and on the car screen. While navigating, the part you have already driven fades to the darker shade.</string>
+    <string name="settings_map">Map</string>
+    <string name="settings_default_zoom">Default zoom</string>
+    <string name="settings_default_zoom_hint">Where the map sits while following you. It zooms out up to two levels at speed and back in near a turn.</string>
+
+    <!-- Fog of war -->
+    <string name="settings_reveal_radius">Reveal radius</string>
+    <string name="settings_share_fog">Share fog with friends</string>
+    <string name="settings_share_fog_hint">Uncover the map together: your accepted friends see the roads you have driven, and you see theirs. Only friends who share back can see yours. Off, nobody sees either.</string>
+    <string name="settings_reset_explored">Reset explored area</string>
+    <string name="settings_reset_explored_title">Reset explored area?</string>
+    <string name="settings_reset_explored_text">All fog-of-war progress will be permanently deleted. Saved trips are kept.</string>
+
+    <!-- Displays & media -->
+    <string name="settings_external_display">External display</string>
+    <string name="settings_external_display_hint">Broadcast turn-by-turn over Bluetooth Low Energy for a handlebar-mounted screen — turn, distance, speed, speed limit, road name, and remaining distance/ETA.</string>
+    <string name="settings_broadcast_external">Broadcast to external display</string>
+    <string name="settings_now_playing">Now playing on external display</string>
+    <string name="settings_now_playing_hint">Relay title, artist, and playback position from whatever\'s playing (Spotify, etc.) to the handlebar display. Reads media sessions only, never notification content — Android requires notification access to do either, so the permission name is broader than what\'s actually used.</string>
+    <string name="settings_allow_notification_access">Allow notification access</string>
+    <string name="settings_now_playing_enabled">Enabled. Also turn on \"Broadcast to external display\" above — music shares that Bluetooth connection.</string>
+
+    <!-- Vehicles -->
+    <string name="settings_vehicles">Vehicles</string>
+    <string name="settings_vehicles_hint">Add a Bluetooth device to a vehicle. When it\'s connected, trips log under that vehicle automatically. With nothing connected, a trip that never picks up real driving pace is dropped rather than saved.</string>
+    <string name="settings_vehicles_grant">Grant Bluetooth access to add your paired devices.</string>
+    <string name="settings_add_device">Add device</string>
+    <string name="settings_no_devices">No devices</string>
+    <string name="settings_rename_named">Rename %1$s</string>
+    <string name="settings_remove_named">Remove %1$s</string>
+    <string name="settings_share_vehicle_name">Share \"%1$s\" with your convoy</string>
+    <string name="settings_remove_vehicle_title">Remove %1$s?</string>
+    <string name="settings_remove_vehicle_text">Trips stop logging as %1$s when this device connects. You can add it back from the paired list.</string>
+    <string name="settings_rename_vehicle">Rename vehicle</string>
+    <string name="settings_name_vehicle">Name this %1$s</string>
+    <string name="settings_add_vehicle_device">Add a %1$s device</string>
+    <string name="settings_no_unassigned">No unassigned paired devices. Pair the device in Android\'s Bluetooth settings first, or remove it from another vehicle.</string>
+    <string name="settings_vehicle_name_hint">Shown in your history and to your convoy. Leave blank to use the device name.</string>
+
+    <!-- Vehicle mounting -->
+    <string name="settings_no_rotation_sensor">No rotation sensor on this phone</string>
+    <string name="settings_calibrated">Calibrated: offset %1$s°</string>
+    <string name="settings_no_readings">No readings — try again</string>
+    <string name="settings_vehicle_mounting">Vehicle mounting</string>
+    <string name="settings_mounting_hint">Corrects for a mount that isn\'t perfectly upright on the handlebar, so straight-line riding reads as 0° lean. Sit the bike upright on its wheels, engine off, phone in its normal mount, then calibrate.</string>
+    <string name="settings_current_offset">Current offset: %1$s°</string>
+    <string name="settings_calibrating">Calibrating…</string>
+    <string name="settings_calibrate">Calibrate</string>
+
+    <!-- Servers & sync -->
+    <string name="settings_status">STATUS</string>
+    <string name="settings_server">Server</string>
+    <string name="settings_backup_sync">Backup sync</string>
+    <string name="settings_server_config_file">Server config file</string>
+    <string name="settings_actions">Actions</string>
+    <string name="settings_syncing">Syncing…</string>
+    <string name="settings_synced">Synced: %1$d trips, %2$d trace segments, %3$d badges</string>
+    <string name="settings_sync_now">Sync now</string>
+    <string name="settings_config_exported">Config exported</string>
+    <string name="settings_config_imported">Config imported — restart the app to use the new servers</string>
+    <string name="settings_export_config">Export config</string>
+    <string name="settings_import_config">Import config</string>
+    <string name="settings_import_title">Import this config?</string>
+    <string name="settings_import_text">It replaces the server addresses on this device with the file\'s. What is there now is not recoverable.</string>
+    <string name="settings_import">Import</string>
+    <string name="settings_server_summary">Optional: your own address for routing, search, sync and live.</string>
+    <string name="settings_server_detail">Optional: one self-hosted address for routing, search, sync and the convoy live relay (see the one-hostname layout in one-hostname layout). Leave empty to use the built-in routing/search servers, with sync and live off.</string>
+    <string name="settings_announced_routing">Your server suggests a routing address: %1$s</string>
+    <string name="settings_announced_search">Your server suggests a search address: %1$s</string>
+    <string name="settings_use_it">Use it</string>
+    <string name="settings_no_thanks">No thanks</string>
+    <string name="settings_server_url">Server URL</string>
+    <string name="settings_hide_advanced">Hide advanced</string>
+    <string name="settings_advanced">Advanced</string>
+    <string name="settings_invalid_address">“%1$s” is not a server address — use http:// or https:// and a host name.</string>
+    <string name="settings_saved">Saved ✓</string>
+    <string name="settings_save_server">Save server</string>
+    <string name="settings_advanced_hint">For a deployment split across hostnames. Anything left empty uses the server address above. Routing and search cannot share one host with sync, because the API answers /api/trips and the search server answers /api/ — so one address cannot serve both.</string>
+    <string name="settings_api_url">Sync &amp; social API (optional)</string>
+    <string name="settings_routing_url">Routing server (optional)</string>
+    <string name="settings_search_url">Search server (optional)</string>
+    <string name="settings_realm_url">Sign-in realm URL (deprecated)</string>
+    <string name="settings_realm_hint">Deprecated — newer servers tell the app which realm to use, so leave this empty unless your server has not been updated. Anything typed here still wins over what the server says. Changing it signs this device out: tokens from one realm mean nothing to another.</string>
+    <string name="settings_public_search">Fall back to public search</string>
+    <string name="settings_public_search_hint">If your search server is unreachable, retry via the public Photon instance (komoot.io) — sends the query and your approximate location off your own hardware.</string>
+    <string name="settings_remove_custom">Remove custom server</string>
+    <string name="settings_remove_custom_title">Remove the custom server?</string>
+    <string name="settings_remove_custom_text_builtin">All five addresses are cleared and the app falls back to the built-in server.</string>
+    <string name="settings_remove_custom_text_public">All five addresses are cleared and the app falls back to the public servers.</string>
+    <string name="settings_sync_summary">Your trips, explored area and badges are kept on your own server.</string>
+    <string name="settings_sync_detail">Trips, explored area and badges are merged with your server after every trip and on app start, so a reinstall restores everything. Uses the Server URL under Server settings.</string>
+    <string name="settings_not_signed_in">Not signed in — open Friends to create an account.</string>
+    <string name="settings_signed_in_as">Signed in as %1$s</string>
+    <string name="settings_config_summary">Keep your server setup in a file, and import it after a reinstall.</string>
+    <string name="settings_config_detail">Save the server addresses to a file. After a reinstall, import it instead of typing them again.</string>
+    <string name="settings_config_warning">The file does not carry your sign-in. After importing it on another phone, sign in there again.</string>
+    <string name="settings_show_less">Show less</string>
+    <string name="settings_learn_more">Learn more</string>
+
+    <!-- Diagnostics -->
+    <string name="settings_diagnostics">Diagnostics</string>
+    <string name="settings_record_timings">Record function timings</string>
+    <string name="settings_record_timings_hint">Times the slow parts of the app against how much data they ran over, so it is possible to see whether they are getting slower as your history grows. Stays on this device — never synced, never backed up.</string>
+    <string name="settings_nothing_recorded">Nothing recorded yet</string>
+    <string name="settings_export_timings">Export timings</string>
+    <string name="settings_suppressed_events">Suppressed circle events</string>
+    <string name="settings_none">None</string>
+    <string name="settings_suppressed_row">%1$s · place %2$s · %3$s · %4$s</string>
+    <string name="settings_server_config_resolved">Server configuration (resolved)</string>
+    <string name="settings_service_announced">announced %1$s, awaiting consent</string>
+    <string name="settings_service_declined">declined %1$s</string>
+    <string name="settings_features">Features · %1$s</string>
+    <string name="settings_features_never">never probed, or no probe has answered</string>
+    <string name="settings_features_none">none advertised</string>
+    <string name="settings_refresh">Refresh</string>
+    <string name="settings_source_typed">typed for this service</string>
+    <string name="settings_source_announced">announced by server</string>
+    <string name="settings_source_general">typed (one address)</string>
+    <string name="settings_source_baked">built-in default</string>
+    <string name="settings_source_none">not configured</string>
+
+    <!-- OBD2 -->
+    <string name="settings_obd2_intro">Pair a vehicle\'s OBD2 adapter (a Bluetooth ELM327 dongle plugged into the port) for accurate speed instead of GPS. Not a score to chase, not new history — just a more accurate speed reading while it\'s connected.</string>
+    <string name="settings_obd2_link">Adapter link: %1$s</string>
+    <string name="settings_obd2_state_disconnected">Disconnected</string>
+    <string name="settings_obd2_state_connecting">Connecting</string>
+    <string name="settings_obd2_state_connected">Connected</string>
+    <string name="settings_obd2_state_failed">Failed</string>
+    <string name="settings_obd2_speed">Speed: %1$d km/h</string>
+    <string name="settings_obd2_throttle">Throttle: %1$d%%</string>
+    <string name="settings_obd2_rpm">RPM: %1$d</string>
+    <string name="settings_obd2_last_data_s">Last data: %1$ds ago</string>
+    <string name="settings_obd2_last_data_m">Last data: %1$dm ago</string>
+    <string name="settings_obd2_retry">Retry now</string>
+    <string name="settings_obd2_no_other">No other paired devices to use as an OBD2 adapter.</string>
+    <string name="settings_obd2_use">Use %1$s</string>
+    <string name="settings_obd2_adapter">Adapter: %1$s</string>
+    <string name="settings_obd2_forget">Forget</string>
+    <string name="settings_obd2_forget_title">Forget %1$s?</string>
+    <string name="settings_obd2_forget_text">%1$s goes back to GPS speed until the adapter is paired again from this screen.</string>
+    <string name="settings_obd2_fuel_petrol">Petrol</string>
+    <string name="settings_obd2_fuel_diesel">Diesel</string>
+    <string name="settings_obd2_calibration">Calibration: %1$d%%</string>
+    <string name="settings_obd2_calibration_hint">If the trip fuel figure reads high or low against your car\'s own display, nudge this.</string>
+    <string name="settings_obd2_add_vehicle_first">Add a vehicle under Tracking &amp; vehicles first.</string>
+    <string name="settings_obd2_fail_unavailable">Couldn\'t reach the adapter — check it\'s plugged in and Bluetooth is on.</string>
+    <string name="settings_obd2_fail_permission">Bluetooth permission was denied.</string>
+    <string name="settings_obd2_fail_handshake">The adapter didn\'t answer the handshake — a cheap clone may need a re-plug.</string>
+    <string name="settings_obd2_fail_no_data">Connected, but the vehicle sent no data — try again with the ignition on.</string>
+    <string name="settings_obd2_fail_socket">Bluetooth connection error — moving out of range or the adapter reset.</string>
+
+    <!-- Licences -->
+    <string name="settings_licence_osm">Speed cameras, enforcement sections and road data — © OpenStreetMap contributors, Open Database License (ODbL).</string>
+    <string name="settings_licence_lufop">Additional speed cameras — data from lufop.net, Open Database License (ODbL).</string>
+    <string name="settings_no_app_to_open">No app to open %1$s</string>
+    <string name="settings_view_licence">View licence</string>
+</resources>
