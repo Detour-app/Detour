@@ -174,6 +174,7 @@
     <string name="settings_record_timings">Functietijden registreren</string>
     <string name="settings_record_timings_hint">Meet de trage delen van de app tegenover hoeveel data ze verwerkten, zodat je kunt zien of ze trager worden naarmate je geschiedenis groeit. Blijft op dit toestel — nooit gesynchroniseerd, nooit geback-upt.</string>
     <string name="settings_nothing_recorded">Nog niets geregistreerd</string>
+    <string name="settings_timings_not_saved">Exporteren mislukt: het tijdenbestand kon niet worden opgeslagen. Maak opslagruimte vrij en probeer het opnieuw.</string>
     <string name="settings_export_timings">Tijden exporteren</string>
     <string name="settings_suppressed_events">Onderdrukte kringgebeurtenissen</string>
     <string name="settings_none">Geen</string>
