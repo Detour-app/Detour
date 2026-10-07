@@ -40,7 +40,11 @@ object TripEndedNotification {
         val manager = context.getSystemService(NotificationManager::class.java)
         if (manager.getNotificationChannel(CHANNEL_ID) == null) {
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Trip tracking", NotificationManager.IMPORTANCE_LOW),
+                NotificationChannel(
+                    CHANNEL_ID,
+                    context.getString(R.string.notif_channel_trip_tracking),
+                    NotificationManager.IMPORTANCE_LOW,
+                ),
             )
         }
     }
@@ -52,7 +56,7 @@ object TripEndedNotification {
             .setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(context.getString(R.string.app_name))
-            .setContentText("Trip ended — saved to your logbook.")
+            .setContentText(context.getString(R.string.notif_trip_ended))
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             // UPDATE_CURRENT is not cosmetic: the extra differs per trip, and a
             // PendingIntent reused under one request code keeps its *original*

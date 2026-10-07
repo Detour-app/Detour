@@ -106,7 +106,7 @@ class ArchitectureTest {
             // +3: #456 stale-destination guard; +1: #485 MapSurface import; -1: #432 route-fetch guard
             // -14: #531 fitTo + SpeedIsland extraction; +11: #532 location recovery; +1: #511 R import
             "app/src/main/java/com/jellemax/detour/ui/MapScreen.kt" to 1418,
-            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1240,
+            "app/src/main/java/com/jellemax/detour/ui/SettingsScreen.kt" to 1233,
             "shared/src/commonMain/kotlin/com/jellemax/detour/drive/ConvoyRelay.kt" to 1211,
             "app/src/main/java/com/jellemax/detour/car/CarMapRenderer.kt" to 1006,
         )

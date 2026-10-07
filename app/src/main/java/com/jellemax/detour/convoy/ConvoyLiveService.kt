@@ -19,6 +19,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.MainActivity
+import com.jellemax.detour.R
 import com.jellemax.detour.audio.PushToTalk
 import com.jellemax.detour.data.Features
 import com.jellemax.detour.net.ConvoyLiveClient
@@ -209,7 +210,7 @@ class ConvoyLiveService : Service() {
         val manager = getSystemService(NotificationManager::class.java)
         if (manager.getNotificationChannel(CHANNEL_ID) == null) {
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Convoy", NotificationManager.IMPORTANCE_LOW),
+                NotificationChannel(CHANNEL_ID, getString(R.string.convoy_channel), NotificationManager.IMPORTANCE_LOW),
             )
         }
     }
@@ -221,8 +222,8 @@ class ConvoyLiveService : Service() {
             PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Convoy live")
-            .setContentText("Sharing location, listening for push-to-talk")
+            .setContentTitle(getString(R.string.convoy_live_title))
+            .setContentText(getString(R.string.convoy_live_text))
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setContentIntent(
                 PendingIntent.getActivity(
@@ -230,7 +231,7 @@ class ConvoyLiveService : Service() {
                     PendingIntent.FLAG_IMMUTABLE,
                 ),
             )
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopIntent)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.convoy_stop), stopIntent)
             .setOngoing(true)
             .build()
     }
