@@ -21,6 +21,8 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
+import com.jellemax.detour.R
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -81,8 +83,8 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
         authUsername = authUsername,
     )
 
-    SettingsScaffold("Settings", onBack, spacing = 10.dp) {
-        SectionLabel("RIDING")
+    SettingsScaffold(stringResource(R.string.settings_title), onBack, spacing = 10.dp) {
+        SectionLabel(stringResource(R.string.settings_section_riding))
         ListCard {
             HubRow(
                 icon = Icons.Outlined.DirectionsCar,
@@ -101,7 +103,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
             )
         }
 
-        SectionLabel("MAP")
+        SectionLabel(stringResource(R.string.settings_section_map))
         ListCard {
             HubRow(
                 icon = Icons.Outlined.Brightness6,
@@ -120,7 +122,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
             )
         }
 
-        SectionLabel("DEVICES")
+        SectionLabel(stringResource(R.string.settings_section_devices))
         ListCard {
             HubRow(
                 icon = Icons.Outlined.Tv,
@@ -133,13 +135,13 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
             HubRow(
                 icon = Icons.Outlined.Speed,
                 title = spokeTitle(Destination.SettingsObd2),
-                subtitle = "Connect a vehicle's OBD2 adapter for accurate speed",
+                subtitle = stringResource(R.string.settings_obd2_subtitle),
                 onClick = { onOpenSpoke(Destination.SettingsObd2) },
                 paintCard = false,
             )
         }
 
-        SectionLabel("ACCOUNT")
+        SectionLabel(stringResource(R.string.settings_section_account))
         ListCard {
             HubRow(
                 icon = Icons.Outlined.Cloud,
@@ -155,7 +157,9 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
         // row that silently does nothing when tapped is worse than no row.
         if (UpdateChecker.isConfigured) {
             val installedNotes = remember { InstalledNotes.current() }
-            val row = updateRowStateFrom(manualCheck, updateStatus, installedNotes)
+            val row = updateRowStateFrom(manualCheck, updateStatus, installedNotes) { id, version ->
+                if (version == null) context.getString(id) else context.getString(id, version)
+            }
             ListCard {
                 HubRow(
                     icon = Icons.Outlined.SystemUpdate,
@@ -198,19 +202,19 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
                 }
             }
         }
-        SectionLabel("ABOUT")
+        SectionLabel(stringResource(R.string.settings_section_about))
         ListCard {
             HubRow(
                 icon = Icons.Outlined.Info,
                 title = spokeTitle(Destination.SettingsLicences),
-                subtitle = "Open-data attribution for cameras, roads and the basemap",
+                subtitle = stringResource(R.string.settings_licences_subtitle),
                 onClick = { onOpenSpoke(Destination.SettingsLicences) },
                 paintCard = false,
             )
         }
 
         Text(
-            "Detour ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            stringResource(R.string.settings_version, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
@@ -237,10 +241,10 @@ fun SettingsScreen(onBack: () -> Unit, onOpenSpoke: (Destination.SettingsSpoke) 
  */
 @Composable
 private fun ColumnScope.UpdateNotesSection(row: UpdateRowState, updateStatus: UpdateStatus) {
-    // An expandable summary, Available only (#295): notes are for
-    // deciding whether to download, not for a download already
-    // running or done, and row.notes is already null everywhere
-    // else. Collapsed by default.
+    // An expandable summary (#295): notes are for deciding whether to
+    // download, not for a download already running or done, so row.notes
+    // is null in those phases. With nothing on offer it carries the
+    // running version's own notes (#359). Collapsed by default.
     //
     // Rendered as Markdown rather than shown as source (#357): the
     // body is GitHub's generated list, so as plain text a rider read
@@ -287,10 +291,12 @@ private fun ColumnScope.UpdateNotesSection(row: UpdateRowState, updateStatus: Up
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("What's new", style = MaterialTheme.typography.bodyMedium)
+            Text(stringResource(R.string.settings_whats_new), style = MaterialTheme.typography.bodyMedium)
             Icon(
                 if (notesExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                contentDescription = if (notesExpanded) "Collapse" else "Expand",
+                contentDescription = stringResource(
+                    if (notesExpanded) R.string.settings_collapse else R.string.settings_expand,
+                ),
             )
         }
         if (notesExpanded) {

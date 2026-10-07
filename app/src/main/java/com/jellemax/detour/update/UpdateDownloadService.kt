@@ -17,6 +17,7 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.MainActivity
 import com.jellemax.detour.data.Settings
+import com.jellemax.detour.R
 import com.jellemax.detour.data.UpdateClient
 import com.jellemax.detour.notif.PendingUpdateOpen
 import kotlinx.coroutines.CoroutineScope
@@ -317,7 +318,7 @@ class UpdateDownloadService : Service() {
     private fun createChannel() {
         if (notifications.getNotificationChannel(CHANNEL_ID) == null) {
             notifications.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "Updates", NotificationManager.IMPORTANCE_LOW),
+                NotificationChannel(CHANNEL_ID, getString(R.string.update_channel), NotificationManager.IMPORTANCE_LOW),
             )
         }
     }
@@ -326,15 +327,18 @@ class UpdateDownloadService : Service() {
         val indeterminate = fraction < 0f
         val percent = if (indeterminate) 0 else (fraction * PERCENT).toInt().coerceIn(0, PERCENT)
         return builder()
-            .setContentTitle("Downloading Detour ${update.version}")
+            .setContentTitle(getString(R.string.update_downloading_title, update.version))
             // An indeterminate sweep, not a made-up number: a negative fraction
             // is UpdateDownloader saying the artefact's length is unknown.
-            .setContentText(if (indeterminate) "Downloading…" else "$percent%")
+            .setContentText(
+                if (indeterminate) getString(R.string.update_downloading)
+                else getString(R.string.update_percent, percent),
+            )
             .setProgress(PERCENT, percent, indeterminate)
             .setOngoing(true)
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
-                "Cancel",
+                getString(R.string.update_cancel),
                 serviceIntent(ACTION_CANCEL, RC_CANCEL),
             )
             .build()
@@ -342,16 +346,20 @@ class UpdateDownloadService : Service() {
 
     private fun readyNotification(update: UpdateClient.PendingUpdate): Notification =
         builder()
-            .setContentTitle("Detour ${update.version} is ready")
-            .setContentText("Tap Install to finish updating.")
+            .setContentTitle(getString(R.string.update_ready, update.version))
+            .setContentText(getString(R.string.update_ready_text))
             .setAutoCancel(true)
-            .addAction(android.R.drawable.stat_sys_download_done, "Install", serviceIntent(ACTION_INSTALL, RC_INSTALL))
+            .addAction(
+                android.R.drawable.stat_sys_download_done,
+                getString(R.string.update_install),
+                serviceIntent(ACTION_INSTALL, RC_INSTALL),
+            )
             .build()
 
     private fun failedNotification(update: UpdateClient.PendingUpdate): Notification =
         builder()
-            .setContentTitle("Detour ${update.version} didn't download")
-            .setContentText("Open Detour to try again.")
+            .setContentTitle(getString(R.string.update_download_failed_title, update.version))
+            .setContentText(getString(R.string.update_download_failed_text))
             .setAutoCancel(true)
             .build()
 

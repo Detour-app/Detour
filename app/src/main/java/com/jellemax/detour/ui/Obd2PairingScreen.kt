@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,9 +26,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.R
 import com.jellemax.detour.data.Settings
 import com.jellemax.detour.drive.FuelType
 import com.jellemax.detour.obd2.Obd2Connection
@@ -110,15 +113,13 @@ fun Obd2PairingScreen() {
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            "Pair a vehicle's OBD2 adapter (a Bluetooth ELM327 dongle plugged into the " +
-                "port) for accurate speed instead of GPS. Not a score to chase, not new " +
-                "history — just a more accurate speed reading while it's connected.",
+            stringResource(R.string.settings_obd2_intro),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (!hasPerm) {
             OutlinedButton(onClick = { permLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT) }) {
-                Text("Allow Bluetooth")
+                Text(stringResource(R.string.settings_allow_bluetooth))
             }
             return@Column
         }
@@ -137,18 +138,31 @@ fun Obd2PairingScreen() {
         // one vehicle below — render it once, here, rather than duplicating an
         // identical (and for all-but-one vehicle, wrong) readout per row.
         Text(
-            "Adapter link: " +
-                connectionState.name.lowercase().replaceFirstChar { it.uppercase() },
+            stringResource(
+                R.string.settings_obd2_link,
+                stringResource(
+                    when (connectionState) {
+                        Obd2ConnectionState.DISCONNECTED -> R.string.settings_obd2_state_disconnected
+                        Obd2ConnectionState.CONNECTING -> R.string.settings_obd2_state_connecting
+                        Obd2ConnectionState.CONNECTED -> R.string.settings_obd2_state_connected
+                        Obd2ConnectionState.FAILED -> R.string.settings_obd2_state_failed
+                    },
+                ),
+            ),
             style = MaterialTheme.typography.bodyMedium,
         )
         if (connectionState == Obd2ConnectionState.CONNECTED) {
             telemetry?.let { t ->
                 Text(
-                    buildString {
-                        if (t.hasSpeed) append("Speed: ${t.speedKmh.toInt()} km/h  ")
-                        if (t.hasThrottle) append("Throttle: ${t.throttlePct.toInt()}%  ")
-                        if (t.hasRpm) append("RPM: ${t.rpmValue.toInt()}")
-                    },
+                    listOfNotNull(
+                        if (t.hasSpeed) stringResource(R.string.settings_obd2_speed, t.speedKmh.toInt()) else null,
+                        if (t.hasThrottle) {
+                            stringResource(R.string.settings_obd2_throttle, t.throttlePct.toInt())
+                        } else {
+                            null
+                        },
+                        if (t.hasRpm) stringResource(R.string.settings_obd2_rpm, t.rpmValue.toInt()) else null,
+                    ).joinToString("  "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -156,14 +170,18 @@ fun Obd2PairingScreen() {
         }
         if (connectionState == Obd2ConnectionState.FAILED) {
             obd2FailureText(lastFailure)?.let { reason ->
-                Text(reason, style = MaterialTheme.typography.bodySmall,
+                Text(stringResource(reason), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error)
             }
         }
         lastDataAtMs?.let { at ->
             val secs = ((nowMs - at) / 1_000L).coerceAtLeast(0)
             Text(
-                if (secs < 60) "Last data: ${secs}s ago" else "Last data: ${secs / 60}m ago",
+                if (secs < 60) {
+                    stringResource(R.string.settings_obd2_last_data_s, secs)
+                } else {
+                    stringResource(R.string.settings_obd2_last_data_m, secs / 60)
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -181,7 +199,7 @@ fun Obd2PairingScreen() {
                     fuelType = v?.fuelType ?: FuelType.PETROL,
                     calibrationPct = v?.fuelCalibrationPct ?: 100,
                 )
-            }) { Text("Retry now") }
+            }) { Text(stringResource(R.string.settings_obd2_retry)) }
         }
         // Every address already spoken for — as some vehicle's own auto-detect
         // device, or as any vehicle's paired OBD2 adapter — is off-limits here.
@@ -200,7 +218,7 @@ fun Obd2PairingScreen() {
                     val unassigned = bonded.filter { it.address !in taken }
                     if (unassigned.isEmpty()) {
                         Text(
-                            "No other paired devices to use as an OBD2 adapter.",
+                            stringResource(R.string.settings_obd2_no_other),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -220,7 +238,7 @@ fun Obd2PairingScreen() {
                                     fuelType = vehicle.fuelType,
                                     calibrationPct = vehicle.fuelCalibrationPct,
                                 )
-                            }) { Text("Use $name") }
+                            }) { Text(stringResource(R.string.settings_obd2_use, name)) }
                         }
                     }
                 } else {
@@ -229,20 +247,22 @@ fun Obd2PairingScreen() {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Adapter: $pairedName", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            stringResource(R.string.settings_obd2_adapter, pairedName),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                         // Outlined, not filled: unpairing was the loudest button on
                         // this screen while every constructive action beside it was
                         // outlined.
                         OutlinedButton(onClick = { forgetting = vehicle.address }) {
-                            Text("Forget")
+                            Text(stringResource(R.string.settings_obd2_forget))
                         }
                     }
                     if (forgetting == vehicle.address) {
                         ConfirmDialog(
-                            title = "Forget $pairedName?",
-                            text = "${vehicle.displayName} goes back to GPS speed until the adapter " +
-                                "is paired again from this screen.",
-                            confirmLabel = "Forget",
+                            title = stringResource(R.string.settings_obd2_forget_title, pairedName),
+                            text = stringResource(R.string.settings_obd2_forget_text, vehicle.displayName),
+                            confirmLabel = stringResource(R.string.settings_obd2_forget),
                             onConfirm = {
                                 Settings.setObd2Address(vehicle.address, null)
                                 // Otherwise a connection to a now-unpaired device lingers
@@ -257,7 +277,12 @@ fun Obd2PairingScreen() {
                     val fuelTypes = FuelType.entries
                     ChoiceRow(
                         options = fuelTypes.map { ft ->
-                            ft.name.lowercase().replaceFirstChar { c -> c.uppercase() }
+                            stringResource(
+                                when (ft) {
+                                    FuelType.PETROL -> R.string.settings_obd2_fuel_petrol
+                                    FuelType.DIESEL -> R.string.settings_obd2_fuel_diesel
+                                },
+                            )
                         },
                         selectedIndex = fuelTypes.indexOf(vehicle.fuelType),
                         onSelect = { index ->
@@ -277,7 +302,7 @@ fun Obd2PairingScreen() {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Calibration: ${vehicle.fuelCalibrationPct}%",
+                        Text(stringResource(R.string.settings_obd2_calibration, vehicle.fuelCalibrationPct),
                             style = MaterialTheme.typography.bodyMedium)
                         Row {
                             IconButton(
@@ -291,7 +316,7 @@ fun Obd2PairingScreen() {
                         }
                     }
                     Text(
-                        "If the trip fuel figure reads high or low against your car's own display, nudge this.",
+                        stringResource(R.string.settings_obd2_calibration_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -300,7 +325,7 @@ fun Obd2PairingScreen() {
         }
         if (mapping.isEmpty()) {
             Text(
-                "Add a vehicle under Tracking & vehicles first.",
+                stringResource(R.string.settings_obd2_add_vehicle_first),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -319,13 +344,14 @@ private fun adjustCalibration(vehicle: Settings.VehicleDevice, delta: Int, conte
     }
 }
 
-/** Plain-words reason for a FAILED link. Null for [Obd2Failure.NONE] — nothing
- *  to show. */
-internal fun obd2FailureText(failure: Obd2Failure): String? = when (failure) {
+/** Plain-words reason for a FAILED link, as a string resource. Null for
+ *  [Obd2Failure.NONE] — nothing to show. */
+@StringRes
+internal fun obd2FailureText(failure: Obd2Failure): Int? = when (failure) {
     Obd2Failure.NONE -> null
-    Obd2Failure.ADAPTER_UNAVAILABLE -> "Couldn't reach the adapter — check it's plugged in and Bluetooth is on."
-    Obd2Failure.PERMISSION_DENIED -> "Bluetooth permission was denied."
-    Obd2Failure.HANDSHAKE_TIMEOUT -> "The adapter didn't answer the handshake — a cheap clone may need a re-plug."
-    Obd2Failure.NO_DATA -> "Connected, but the vehicle sent no data — try again with the ignition on."
-    Obd2Failure.SOCKET_ERROR -> "Bluetooth connection error — moving out of range or the adapter reset."
+    Obd2Failure.ADAPTER_UNAVAILABLE -> R.string.settings_obd2_fail_unavailable
+    Obd2Failure.PERMISSION_DENIED -> R.string.settings_obd2_fail_permission
+    Obd2Failure.HANDSHAKE_TIMEOUT -> R.string.settings_obd2_fail_handshake
+    Obd2Failure.NO_DATA -> R.string.settings_obd2_fail_no_data
+    Obd2Failure.SOCKET_ERROR -> R.string.settings_obd2_fail_socket
 }

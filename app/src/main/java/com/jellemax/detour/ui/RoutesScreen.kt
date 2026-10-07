@@ -61,10 +61,12 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jellemax.detour.R
 import com.jellemax.detour.data.Friends
 import com.jellemax.detour.data.LatLon
 import com.jellemax.detour.data.RiderRef
@@ -127,7 +129,7 @@ private fun navigateStopsExternally(context: Context, stops: List<RouteStop>, mo
         context.startActivity(Intent(Intent.ACTION_VIEW, uri))
         null
     } catch (e: ActivityNotFoundException) {
-        "No app to open a multi-stop route"
+        context.getString(R.string.routes_no_maps_app)
     }
 }
 
@@ -186,7 +188,7 @@ fun RoutesScreen(
         scope.launch {
             status = try {
                 withContext(Dispatchers.IO) { RouteFiles.export(context, uri, target) }
-                "Exported ${target.name}"
+                context.getString(R.string.routes_exported, target.name)
             } catch (e: Exception) {
                 fileFailureText("Export", e)
             }
@@ -202,8 +204,8 @@ fun RoutesScreen(
         scope.launch {
             status = try {
                 val imported = withContext(Dispatchers.IO) { RouteFiles.import(context, uri) }
-                if (imported != null) "Imported ${imported.name}"
-                else "That file isn't a route Detour can read"
+                if (imported != null) context.getString(R.string.routes_imported, imported.name)
+                else context.getString(R.string.routes_import_unreadable)
             } catch (e: Exception) {
                 fileFailureText("Import", e)
             }
@@ -227,14 +229,16 @@ fun RoutesScreen(
     fun shareFile(route: SavedRoute) {
         status = try {
             val uri = RouteFiles.writeForShare(context, route)
-            context.startActivity(Intent.createChooser(shareRouteGpxIntent(uri), "Share route"))
+            context.startActivity(
+                Intent.createChooser(shareRouteGpxIntent(uri), context.getString(R.string.routes_share_route)),
+            )
             null
         } catch (e: ActivityNotFoundException) {
-            "No app to receive a GPX file"
+            context.getString(R.string.routes_no_gpx_app)
         } catch (e: Exception) {
             // A write to our own cache (or FileProvider refusing the path), not
             // a picked file — e.message would only hand the rider a path.
-            "Share failed: the GPX file could not be saved. Free up some storage and try again."
+            context.getString(R.string.routes_share_failed)
         }
     }
 
@@ -247,7 +251,8 @@ fun RoutesScreen(
                 // server-side inbox all happen in RouteShare.pullInbox() now —
                 // shared with iOS instead of each platform growing its own copy.
                 val pulled = withContext(Dispatchers.IO) { RouteShare.pullInbox() }
-                if (pulled == 0) "No new shared routes" else "Pulled $pulled shared route(s)"
+                if (pulled == 0) context.getString(R.string.routes_pulled_none)
+                else context.resources.getQuantityString(R.plurals.routes_pulled, pulled, pulled)
             } catch (e: Exception) {
                 failureText("Refresh", e)
             }
@@ -259,14 +264,14 @@ fun RoutesScreen(
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            SubScreenTopBar("Routes", onBack, scrollBehavior) {
+            SubScreenTopBar(stringResource(R.string.routes_title), onBack, scrollBehavior) {
                 IconButton(
                     enabled = !refreshing,
                     onClick = { refresh() },
                     modifier = Modifier.padding(end = 8.dp),
                 ) {
                     if (refreshing) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.Rounded.Refresh, contentDescription = "Pull shared routes")
+                    else Icon(Icons.Rounded.Refresh, contentDescription = stringResource(R.string.routes_pull))
                 }
                 IconButton(
                     onClick = {
@@ -282,7 +287,7 @@ fun RoutesScreen(
                             .background(MaterialTheme.colorScheme.surfaceContainer),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Rounded.UploadFile, contentDescription = "Import route")
+                        Icon(Icons.Rounded.UploadFile, contentDescription = stringResource(R.string.routes_import))
                     }
                 }
             }
@@ -291,7 +296,7 @@ fun RoutesScreen(
             ExtendedFloatingActionButton(
                 onClick = onCreateNew,
                 icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                text = { Text("New route") },
+                text = { Text(stringResource(R.string.routes_new)) },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
             )
@@ -315,9 +320,9 @@ fun RoutesScreen(
                     Modifier.size(48.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text("No saved routes yet", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.routes_empty_title), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Plan a multi-stop ride on the map and save it, or import one.",
+                    stringResource(R.string.routes_empty_text),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -380,9 +385,9 @@ fun RoutesScreen(
     }
     deleting?.let { route ->
         ConfirmDialog(
-            title = "Delete route?",
-            text = "\"${route.name}\" will be removed from this device.",
-            confirmLabel = "Delete",
+            title = stringResource(R.string.routes_delete_title),
+            text = stringResource(R.string.routes_delete_text, route.name),
+            confirmLabel = stringResource(R.string.routes_delete),
             onConfirm = { RouteStore.remove(route.id) },
             onDismiss = { deleting = null },
         )
@@ -394,7 +399,7 @@ fun RoutesScreen(
                 scope.launch {
                     status = try {
                         withContext(Dispatchers.IO) { RouteShare.share(username, route) }
-                        "Sent \"${route.name}\" to $username"
+                        context.getString(R.string.routes_sent, route.name, username)
                     } catch (e: Exception) {
                         failureText("Send", e)
                     }
@@ -450,17 +455,20 @@ private fun RouteCardItem(
             Box {
                 IconButton(onClick = onOpenMenu) {
                     Icon(
-                        Icons.Rounded.MoreVert, contentDescription = "More for ${card.name}",
+                        Icons.Rounded.MoreVert,
+                        contentDescription = stringResource(R.string.routes_more_for, card.name),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = onDismissMenu) {
-                    DropdownMenuItem(text = { Text("Rename") }, onClick = onRename)
-                    DropdownMenuItem(text = { Text("Edit") }, onClick = onEdit)
-                    DropdownMenuItem(text = { Text("Share as file") }, onClick = onShareFile)
-                    DropdownMenuItem(text = { Text("Export…") }, onClick = onExport)
-                    DropdownMenuItem(text = { Text("Send to a friend") }, onClick = onShareToFriend)
-                    DropdownMenuItem(text = { Text("Delete") }, onClick = onDelete)
+                    DropdownMenuItem(text = { Text(stringResource(R.string.routes_rename)) }, onClick = onRename)
+                    DropdownMenuItem(text = { Text(stringResource(R.string.routes_edit)) }, onClick = onEdit)
+                    DropdownMenuItem(text = { Text(stringResource(R.string.routes_share_file)) }, onClick = onShareFile)
+                    DropdownMenuItem(text = { Text(stringResource(R.string.routes_export)) }, onClick = onExport)
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.routes_send_friend)) }, onClick = onShareToFriend,
+                    )
+                    DropdownMenuItem(text = { Text(stringResource(R.string.routes_delete)) }, onClick = onDelete)
                 }
             }
         }
@@ -537,7 +545,7 @@ private fun RenameRouteDialog(initial: String, onSave: (String) -> Unit, onDismi
     var name by remember { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Rename route") },
+        title = { Text(stringResource(R.string.routes_rename_title)) },
         text = {
             OutlinedTextField(
                 value = name,
@@ -547,9 +555,11 @@ private fun RenameRouteDialog(initial: String, onSave: (String) -> Unit, onDismi
             )
         },
         confirmButton = {
-            TextButton(onClick = { onSave(name) }, enabled = name.isNotBlank()) { Text("Save") }
+            TextButton(onClick = { onSave(name) }, enabled = name.isNotBlank()) {
+                Text(stringResource(R.string.routes_save))
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.routes_cancel)) } },
     )
 }
 
@@ -570,7 +580,7 @@ private fun ShareRouteToFriendDialog(onDismiss: () -> Unit, onShare: (String) ->
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Send to a friend") },
+        title = { Text(stringResource(R.string.routes_send_friend)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 val list = friends
@@ -578,7 +588,7 @@ private fun ShareRouteToFriendDialog(onDismiss: () -> Unit, onShare: (String) ->
                 when {
                     list == null -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     err != null -> Text(err, color = MaterialTheme.colorScheme.error)
-                    list.isEmpty() -> Text("Add a friend first, on the Friends screen.")
+                    list.isEmpty() -> Text(stringResource(R.string.routes_no_friends))
                     else -> list.forEach { friend ->
                         Text(
                             friend.username,
@@ -593,6 +603,6 @@ private fun ShareRouteToFriendDialog(onDismiss: () -> Unit, onShare: (String) ->
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.routes_cancel)) } },
     )
 }

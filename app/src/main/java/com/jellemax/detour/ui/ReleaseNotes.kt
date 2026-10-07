@@ -10,9 +10,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.unit.dp
 import com.jellemax.detour.BuildConfig
+import com.jellemax.detour.R
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
@@ -27,8 +29,8 @@ import com.mikepenz.markdown.model.markdownPadding
 fun InstalledNotesDialog(notes: String, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } },
-        title = { Text("What's new in ${BuildConfig.VERSION_NAME}") },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.update_installed_ok)) } },
+        title = { Text(stringResource(R.string.update_installed_title, BuildConfig.VERSION_NAME)) },
         text = {
             ReleaseNotesMarkdown(notes, Modifier.fillMaxWidth().verticalScroll(rememberScrollState()))
         },
