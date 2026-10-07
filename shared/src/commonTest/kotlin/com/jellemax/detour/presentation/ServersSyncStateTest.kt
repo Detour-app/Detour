@@ -1,5 +1,6 @@
 package com.jellemax.detour.presentation
 
+import com.jellemax.detour.data.Api
 import com.jellemax.detour.data.AuthException
 import com.jellemax.detour.data.HttpStatusException
 import com.jellemax.detour.data.NoRouteException
@@ -154,6 +155,19 @@ class ServersSyncStateTest {
         assertEquals(
             "Send failed: the server hit a problem. Try again later.",
             failureText("Send", HttpStatusException(500, "", "NullReferenceException", "NullReferenceException")),
+        )
+    }
+
+    @Test
+    fun `a bare problem title is not taken for the API's explanation`() {
+        // ASP.NET's NotFound() body has a title and no detail; "Not Found" must
+        // not replace the 404 sentence.
+        val body = """{"title":"Not Found","status":404}"""
+        assertEquals(null, Api.problemDetail(body))
+        assertEquals("No rider goes by X", Api.problemDetail("""{"title":"Bad Request","detail":"No rider goes by X"}"""))
+        assertEquals(
+            "Send failed: the server has nothing at that address.",
+            failureText("Send", HttpStatusException(404, body, "Not Found", Api.problemDetail(body))),
         )
     }
 
