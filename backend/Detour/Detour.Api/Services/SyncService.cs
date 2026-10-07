@@ -103,14 +103,18 @@ public class SyncService(
                     payload.DistanceMeters,
                     payload.TopSpeedKmh,
                     payload.MaxGForce,
-                    payload.Mode);
+                    payload.Mode,
+                    payload.EditedAtMs);
 
                 if (existing.TryGetValue(payload.StartTimeMs, out var stored))
                 {
                     // Replace, not ignore: a trip re-uploaded with an edit — a corrected vehicle
                     // mode, a trimmed end — must overwrite, or the stale row comes back in the
-                    // merge below and reverts the edit on the device that made it.
-                    stored.Replace(document, summary);
+                    // merge below and reverts the edit on the device that made it. Unless the
+                    // stored copy holds a newer edit: then this is another device's stale copy,
+                    // and replacing would revert that edit instead (#486).
+                    if (stored.Accepts(payload.EditedAtMs))
+                        stored.Replace(document, summary);
                     continue;
                 }
 
