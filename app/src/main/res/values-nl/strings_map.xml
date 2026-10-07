@@ -135,4 +135,8 @@
     <string name="map_permission_notifications">Meldingen</string>
     <string name="map_permission_notifications_why">De melding terwijl een rit wordt opgenomen, en meldingen van je kringen.</string>
     <string name="map_continue">Doorgaan</string>
+    <!-- Camera banner (#549): which camera the countdown beside it is for. -->
+    <string name="map_camera_banner_speed">Snelheidscamera</string>
+    <string name="map_camera_banner_red_light">Roodlichtcamera</string>
+    <string name="map_camera_banner_combined">Snelheids- en roodlichtcamera</string>
 </resources>

@@ -23,8 +23,8 @@ import kotlin.math.min
  * a car toast; iOS speaks through `NavVoice` while voice guidance is on. None of
  * that leaks into a shared decision.
  *
- * [Step.countdown] is there for a surface that wants to show the distance left
- * (#548); none draws it yet.
+ * [Step.countdown] is the distance left, for a surface that shows it: the
+ * phone's camera banner (#549).
  *
  * **No clock**, unlike [SectionAverageTracker]. The latch is positional, not
  * temporal: there is no cooldown, and nothing here measures an interval, so there
@@ -90,8 +90,15 @@ object CameraWarner {
 
     /** The camera last warned for, while it is still ahead and in reach, with
      *  [distanceMeters] left to it - recomputed every fix, so a banner can count
-     *  down (#548). Straight-line distance, like the reach test. */
-    data class Countdown(val at: LatLon, val text: String, val distanceMeters: Double)
+     *  down (#548). Straight-line distance, like the reach test. [kind] is
+     *  there so a surface can word it in the rider's language; [text] is the
+     *  English wording the voice speaks. */
+    data class Countdown(
+        val at: LatLon,
+        val text: String,
+        val distanceMeters: Double,
+        val kind: SpeedCameras.CameraKind,
+    )
 
     /** [outcome] fires once per camera; [countdown] holds on every fix after
      *  that until the camera is passed (leaves the wedge), drops out of reach,
@@ -159,7 +166,7 @@ object CameraWarner {
      *  nearest, so a closer camera not worth warning for doesn't hide it. */
     private fun countdownFor(warnedAt: LatLon?, inRange: List<SpeedCameras.Camera>, at: LatLon): Countdown? {
         val cam = inRange.firstOrNull { it.at == warnedAt } ?: return null
-        return Countdown(cam.at, warningTextFor(cam.kind), RoadRoulette.distanceMeters(at, cam.at))
+        return Countdown(cam.at, warningTextFor(cam.kind), RoadRoulette.distanceMeters(at, cam.at), cam.kind)
     }
 
     private fun worthWarning(
