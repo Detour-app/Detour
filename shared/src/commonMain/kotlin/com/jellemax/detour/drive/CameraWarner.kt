@@ -18,9 +18,13 @@ import kotlin.math.min
  *
  * **Decision and wording here, delivery per platform** - the `CircleEvents.kt`
  * shape. This machine knows nothing about tones, speech or toasts, which is why
- * it returns a [Step] rather than taking a callback: the phone chimes and speaks,
- * the head unit chimes, speaks and shows a car toast, and iOS will do whatever
- * iOS does, without any of that leaking into a shared decision.
+ * it returns a [Step] rather than taking a callback: the phone chimes, and
+ * speaks only while voice guidance is on; the head unit chimes, speaks and shows
+ * a car toast; iOS speaks through `NavVoice` while voice guidance is on. None of
+ * that leaks into a shared decision.
+ *
+ * [Step.countdown] is there for a surface that wants to show the distance left
+ * (#548); none draws it yet.
  *
  * **No clock**, unlike [SectionAverageTracker]. The latch is positional, not
  * temporal: there is no cooldown, and nothing here measures an interval, so there
@@ -84,7 +88,16 @@ object CameraWarner {
         data class Warn(val at: LatLon, val text: String) : Outcome
     }
 
-    data class Step(val state: State, val outcome: Outcome)
+    /** The camera last warned for, while it is still ahead and in reach, with
+     *  [distanceMeters] left to it - recomputed every fix, so a banner can count
+     *  down (#548). Straight-line distance, like the reach test. */
+    data class Countdown(val at: LatLon, val text: String, val distanceMeters: Double)
+
+    /** [outcome] fires once per camera; [countdown] holds on every fix after
+     *  that until the camera is passed (leaves the wedge), drops out of reach,
+     *  or warnings are switched off. Slowing down under the limit does not end
+     *  it: the warning was given, and slowing is what it asked for. */
+    data class Step(val state: State, val outcome: Outcome, val countdown: Countdown? = null)
 
     /** The rider's camera-warning settings (#496). Callers build them with
      *  [cameraWarnerOptions] and set them on [State] so this machine stays free of storage. The defaults are the
@@ -118,13 +131,14 @@ object CameraWarner {
         // for the camera ahead rather than treating it as already sounded.
         if (!state.options.enabled) return Step(State(options = state.options), Outcome.Silent)
         val reachMeters = warnMeters(speedKmh)
-        val ahead = cameras.filter { cam ->
+        val inRange = cameras.filter { cam ->
             val reach = if (cam.at == state.warnedAt) max(reachMeters, state.warnedReachMeters) else reachMeters
             RoadRoulette.distanceMeters(at, cam.at) <= reach &&
                 (headingDeg == null ||
                     RoadRoulette.withinWedge(at, cam.at, headingDeg, AHEAD_WEDGE_DEG)) &&
                 (cam.facingDeg == null || headingDeg == null || facesYou(cam.facingDeg, headingDeg))
-        }.minByOrNull { RoadRoulette.distanceMeters(at, it.at) }
+        }
+        val ahead = inRange.minByOrNull { RoadRoulette.distanceMeters(at, it.at) }
             // Nothing in range clears the latch, which is what re-arms it for the
             // next camera. Being in range and *not* too fast does not.
             ?: return Step(State(options = state.options), Outcome.Silent)
@@ -134,9 +148,18 @@ object CameraWarner {
         // limit at all on an otherwise-untagged road.
         val effectiveLimitKmh = ahead.maxspeedKmh ?: limitKmh
         if (!worthWarning(ahead.kind, speedKmh, effectiveLimitKmh, state.options) || ahead.at == state.warnedAt) {
-            return Step(state, Outcome.Silent)
+            return Step(state, Outcome.Silent, countdownFor(state.warnedAt, inRange, at))
         }
-        return Step(State(ahead.at, reachMeters, state.options), Outcome.Warn(ahead.at, warningTextFor(ahead.kind)))
+        val warned = State(ahead.at, reachMeters, state.options)
+        return Step(warned, Outcome.Warn(ahead.at, warningTextFor(ahead.kind)), countdownFor(ahead.at, inRange, at))
+    }
+
+    /** The countdown for the camera at [warnedAt], if it is still among the
+     *  cameras [inRange] - looked up by position rather than taken from the
+     *  nearest, so a closer camera not worth warning for doesn't hide it. */
+    private fun countdownFor(warnedAt: LatLon?, inRange: List<SpeedCameras.Camera>, at: LatLon): Countdown? {
+        val cam = inRange.firstOrNull { it.at == warnedAt } ?: return null
+        return Countdown(cam.at, warningTextFor(cam.kind), RoadRoulette.distanceMeters(at, cam.at))
     }
 
     private fun worthWarning(
