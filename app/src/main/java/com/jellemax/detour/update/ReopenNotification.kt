@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.jellemax.detour.BuildConfig
 import com.jellemax.detour.MainActivity
+import com.jellemax.detour.R
 
 /**
  * The way back into Detour after it has installed a replacement of itself.
@@ -93,7 +94,7 @@ object ReopenNotification {
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ID,
-                    "Reopening after an update",
+                    context.getString(R.string.update_channel_reopen),
                     NotificationManager.IMPORTANCE_HIGH,
                 )
             )
@@ -112,8 +113,8 @@ object ReopenNotification {
             NOTIFICATION_ID,
             NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_popup_sync)
-                .setContentTitle("Detour ${BuildConfig.VERSION_NAME} installed")
-                .setContentText("Tap to reopen Detour.")
+                .setContentTitle(context.getString(R.string.update_installed, BuildConfig.VERSION_NAME))
+                .setContentText(context.getString(R.string.update_installed_text))
                 .setContentIntent(open)
                 .setAutoCancel(true)
                 .build(),
