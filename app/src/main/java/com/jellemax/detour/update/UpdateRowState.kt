@@ -1,5 +1,7 @@
 package com.jellemax.detour.update
 
+import com.jellemax.detour.R
+
 /** What the Settings row's one button does when tapped, if anything. */
 enum class UpdateAction { CHECK, DOWNLOAD, CANCEL, INSTALL }
 
@@ -20,7 +22,8 @@ data class UpdateRowState(
      *  "What's new" under the row (#295). Null everywhere else — a download
      *  in progress or already finished isn't the moment to ask whether to
      *  read about it, and [UpdateClient.PendingUpdate.notes] itself is null
-     *  for a release published with no body. */
+     *  for a release published with no body. With nothing on offer it is the
+     *  running version's own notes, if it was installed in-app (#359). */
     val notes: String? = null,
 )
 
@@ -31,55 +34,64 @@ data class UpdateRowState(
  *
  * The check-only wordings are the ones the row already showed before #277 —
  * they are check outcomes, and only this row ever rendered them.
+ *
+ * [text] resolves a string resource with its one optional version argument —
+ * `Context.getString` on a device, a fake in the JVM test.
  */
-fun updateRowStateFrom(manual: ManualCheck, status: UpdateStatus): UpdateRowState = when (status) {
+fun updateRowStateFrom(
+    manual: ManualCheck,
+    status: UpdateStatus,
+    installedNotes: String? = null,
+    text: (resId: Int, version: String?) -> String,
+): UpdateRowState = when (status) {
     is UpdateStatus.Available -> UpdateRowState(
-        title = "Detour ${status.update.version} is available",
+        title = text(R.string.update_available, status.update.version),
         subtitle = null,
         action = UpdateAction.DOWNLOAD,
-        actionLabel = "Download ${status.update.version}",
+        actionLabel = text(R.string.update_row_download, status.update.version),
         fraction = null,
         notes = status.update.notes,
     )
 
     is UpdateStatus.Downloading -> UpdateRowState(
-        title = "Downloading ${status.update.version}",
+        title = text(R.string.update_row_downloading, status.update.version),
         subtitle = null,
         action = UpdateAction.CANCEL,
-        actionLabel = "Cancel",
+        actionLabel = text(R.string.update_cancel, null),
         fraction = status.fraction,
     )
 
     is UpdateStatus.Downloaded -> UpdateRowState(
-        title = "Detour ${status.update.version} is ready",
+        title = text(R.string.update_ready, status.update.version),
         subtitle = null,
         action = UpdateAction.INSTALL,
-        actionLabel = "Install",
+        actionLabel = text(R.string.update_install, null),
         fraction = null,
     )
 
     is UpdateStatus.Failed -> UpdateRowState(
-        title = "Download of ${status.update.version} failed",
+        title = text(R.string.update_row_failed, status.update.version),
         subtitle = null,
         action = UpdateAction.DOWNLOAD,
-        actionLabel = "Retry",
+        actionLabel = text(R.string.update_row_retry, null),
         fraction = null,
     )
 
     UpdateStatus.None -> UpdateRowState(
-        title = "Check for updates",
+        title = text(R.string.update_row_check_title, null),
         subtitle = when (manual) {
-            ManualCheck.Idle -> "Check for a new release"
-            ManualCheck.Running -> "Checking…"
-            ManualCheck.UpToDate -> "No update found"
-            is ManualCheck.Found -> "Detour ${manual.version} available"
-            ManualCheck.Failed -> "Couldn't reach GitHub"
-            is ManualCheck.RateLimited -> "Checked a few times just now — try again shortly"
+            ManualCheck.Idle -> text(R.string.update_row_check_idle, null)
+            ManualCheck.Running -> text(R.string.update_row_checking, null)
+            ManualCheck.UpToDate -> text(R.string.update_row_up_to_date, null)
+            is ManualCheck.Found -> text(R.string.update_row_found, manual.version)
+            ManualCheck.Failed -> text(R.string.update_row_check_failed, null)
+            is ManualCheck.RateLimited -> text(R.string.update_row_rate_limited, null)
         },
         // Guarded on Running only, as the row's tap always was: a tap with no
         // tokens left is allowed through so the budget can refuse it out loud.
         action = if (manual is ManualCheck.Running) null else UpdateAction.CHECK,
         actionLabel = null,
         fraction = null,
+        notes = installedNotes,
     )
 }

@@ -36,6 +36,7 @@ __pycache__/
 # machine-readable, they carry no secrets, and they are meant to be shared.
 .claude/*
 !.claude/skills/
+.worktrees/
 
 # Raw takes for the Play declaration videos. tools/render_play_videos.sh
 # turns these into the captioned finals next to them, which are what Play

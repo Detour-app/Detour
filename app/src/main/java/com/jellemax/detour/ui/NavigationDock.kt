@@ -24,10 +24,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.jellemax.detour.R
 import com.jellemax.detour.data.TravelMode
 
 /**
@@ -91,7 +93,7 @@ internal fun NavigationDock(
                         tint = MaterialTheme.colorScheme.primary,
                     )
                     Text(
-                        "Navigate to",
+                        stringResource(R.string.nav_navigate_to),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                     )
@@ -100,13 +102,13 @@ internal fun NavigationDock(
                     IconButton(onClick = onSavePin) {
                         Icon(
                             Icons.Outlined.Add,
-                            contentDescription = "Save pin",
+                            contentDescription = stringResource(R.string.nav_save_pin),
                         )
                     }
                     IconButton(onClick = onClear) {
                         Icon(
                             Icons.Rounded.Close,
-                            contentDescription = "Clear destination",
+                            contentDescription = stringResource(R.string.nav_clear_destination),
                         )
                     }
                 }
@@ -120,7 +122,7 @@ internal fun NavigationDock(
             // route ETA takes elsewhere — the routes list, the nav sheet's
             // "… min left" — not the M:SS clock the live trip card uses.
             ResultCallout(
-                title = go.destinationName ?: "Destination",
+                title = go.destinationName ?: stringResource(R.string.nav_destination),
                 subtitle = go.route?.let { route ->
                     listOfNotNull(
                         route.distanceMeters?.let { formatDistanceKm(it) },
@@ -130,13 +132,14 @@ internal fun NavigationDock(
                 onRespin = null,
             )
 
-            Text("Mode", style = MaterialTheme.typography.labelLarge)
+            val modeDescription = stringResource(R.string.nav_mode_selected, go.mode.label)
+            Text(stringResource(R.string.nav_mode), style = MaterialTheme.typography.labelLarge)
             ChoiceRow(
                 options = TravelMode.entries.map { it.label },
                 selectedIndex = TravelMode.entries.indexOf(go.mode),
                 onSelect = { onSelectMode(TravelMode.entries[it]) },
                 modifier = Modifier.semantics {
-                    contentDescription = "Travel mode, ${go.mode.label} selected"
+                    contentDescription = modeDescription
                 },
             )
 
@@ -163,7 +166,7 @@ internal fun NavigationDock(
                     if (go.routeFetching) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     else Icon(Icons.Outlined.Navigation, contentDescription = null, Modifier.size(20.dp))
                     Spacer(Modifier.width(10.dp))
-                    Text(if (go.routeFetching) "Routing…" else "Start",
+                    Text(stringResource(if (go.routeFetching) R.string.nav_routing else R.string.nav_start),
                         style = MaterialTheme.typography.titleMedium, maxLines = 1)
                 }
             } else {

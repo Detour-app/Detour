@@ -30,8 +30,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jellemax.detour.R
 
 /** Map top chrome: a right-aligned rail of the controls worth reaching for
  *  while driving (follow toggle, fog of war, and a compass while the map is free to
@@ -72,8 +74,8 @@ internal fun MapTopChrome(
             GlassRailButton(
                 icon = if (followMe) Icons.Outlined.MyLocation
                     else Icons.Outlined.LocationSearching,
-                contentDescription = if (followMe) "Stop following my location"
-                    else "Follow my location",
+                contentDescription = if (followMe) stringResource(R.string.map_follow_stop)
+                    else stringResource(R.string.map_follow),
                 tinted = followMe,
                 onClick = onToggleFollow,
             )
@@ -89,7 +91,7 @@ internal fun MapTopChrome(
             ) {
                 GlassRailButton(
                     icon = Icons.Outlined.Explore,
-                    contentDescription = "Face north",
+                    contentDescription = stringResource(R.string.map_face_north),
                     onClick = { onFaceNorth?.invoke() },
                 )
             }
@@ -99,8 +101,8 @@ internal fun MapTopChrome(
             GlassRailButton(
                 icon = if (layers.fogEnabled) Icons.Outlined.Visibility
                     else Icons.Outlined.VisibilityOff,
-                contentDescription = if (layers.fogEnabled) "Hide fog of war"
-                    else "Show fog of war",
+                contentDescription = if (layers.fogEnabled) stringResource(R.string.map_fog_hide)
+                    else stringResource(R.string.map_fog_show),
                 tinted = layers.fogEnabled,
                 onClick = layers.onToggleFog,
             )
