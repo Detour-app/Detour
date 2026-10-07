@@ -87,6 +87,7 @@ server {
     # Outside /api, so it collides with nothing. Without it the app falls back
     # to showing coordinates.
     location = /reverse {
+        limit_req zone=search_per_ip burst=20 nodelay;
         proxy_pass http://photon:2322/reverse;
         # Off-box Photon: same swap as above.
         # proxy_pass ${PHOTON_UPSTREAM}/reverse;

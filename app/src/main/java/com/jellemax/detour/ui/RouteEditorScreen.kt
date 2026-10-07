@@ -155,7 +155,7 @@ fun RouteEditorScreen(editing: SavedRoute?, onBack: () -> Unit, onSaved: () -> U
     }
 
     // Names for stops that have only coordinates — tapped onto the map, or
-    // inserted by RouteFill (#503). Display-only: a saved route keeps the
+    // imported from a GPX without names (#503). Display-only: a saved route keeps the
     // blank name it had, so the last stop's name vs route name fallback in
     // SpinResultHolder reads the same as before. A key holding null was
     // looked up and found nothing (offline, say); it shows coordinates and is
